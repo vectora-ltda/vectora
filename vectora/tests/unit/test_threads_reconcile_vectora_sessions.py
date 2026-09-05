@@ -81,6 +81,15 @@ async def _real_thread(
         )
 
 
+async def _real_subagent_thread(session_store: SessionStore, thread_id: str) -> None:
+    await session_store.create_session(
+        thread_id, user_id="alice", workspace_id="ws", mode="subagent"
+    )
+    await session_store.append_message(
+        thread_id, text_message(MessageRole.USER, "resultado interno")
+    )
+
+
 def _http_request_alice() -> MagicMock:
     request = MagicMock()
     user = MagicMock()
@@ -90,6 +99,18 @@ def _http_request_alice() -> MagicMock:
 
 
 class TestReconcileRepovoaThreadAusente:
+    async def test_subagent_interno_nunca_e_repovoado_na_sidebar(
+        self, session_store: SessionStore, checkpoints_db: aiosqlite.Connection
+    ) -> None:
+        await _real_subagent_thread(session_store, "thread-pai:search:interno")
+
+        assert await th.reconcile_vectora_sessions() == 0
+        async with checkpoints_db.execute(
+            "SELECT 1 FROM vectora_sessions WHERE thread_id = ?",
+            ("thread-pai:search:interno",),
+        ) as cur:
+            assert await cur.fetchone() is None
+
     async def test_thread_real_ausente_de_vectora_sessions_e_repovoada(
         self, session_store: SessionStore, checkpoints_db: aiosqlite.Connection
     ) -> None:

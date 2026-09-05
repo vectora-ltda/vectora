@@ -886,7 +886,13 @@ async function handleEvent(
           );
           const subgraphOutputs =
             idx >= 0
-              ? existing.map((s, i) => (i === idx ? { ...s, ...entry } : s))
+              ? existing.map((s, i) => {
+                  if (i !== idx) return s;
+                  const output = event.is_delta
+                    ? `${s.output ?? ""}${event.content ?? ""}`
+                    : event.content || s.output;
+                  return { ...s, ...entry, output };
+                })
               : [...existing, entry];
           return { ...m, subgraphOutputs };
         }),

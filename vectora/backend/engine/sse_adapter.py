@@ -77,6 +77,7 @@ def _to_payload(event: EngineEvent) -> schemas.StreamChatEventPayload:  # noqa: 
             status=event.status,
             tool_call_id=event.tool_call_id,
             content=event.content,
+            is_delta=event.is_delta,
         )
     if isinstance(event, NodeStatus):
         return schemas.NodeEvent(

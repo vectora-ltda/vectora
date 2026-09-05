@@ -106,7 +106,12 @@ async def session_store(tmp_path):
 
 @pytest.fixture
 def ctx() -> ToolContext:
-    return ToolContext(user_id="alice", thread_id="thread-pai", permission_mode="ask")
+    return ToolContext(
+        user_id="alice",
+        thread_id="thread-pai",
+        permission_mode="ask",
+        tool_call_id="call-1",
+    )
 
 
 def _spec(nome: str = "coder", tools=None) -> SubagentSpec:
@@ -205,8 +210,11 @@ class TestRunSubagentSincrono:
             should_require_approval=None,
         )
 
-        assert [e.status for e in eventos] == ["running", "complete"]
+        assert [e.status for e in eventos] == ["running", "running", "complete"]
+        assert eventos[1].is_delta is True
+        assert eventos[1].content == "feito"
         assert eventos[-1].content == "feito"
+        assert [e.tool_call_id for e in eventos] == ["call-1", "call-1", "call-1"]
 
     async def test_hitl_dentro_do_subagente_pausa_sem_emitir_complete(
         self, session_store, ctx

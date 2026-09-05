@@ -122,6 +122,25 @@ class TestListThreadsReflectsSessionStore:
 
         assert [t.id for t in result.threads] == ["thread-legada"]
 
+    async def test_subagent_interno_nao_aparece_na_listagem(
+        self, session_store: SessionStore
+    ) -> None:
+        """Sessões internas podem existir para histórico e auditoria, mas
+        nunca viram conversas selecionáveis pelo usuário."""
+        await session_store.create_session(
+            "thread-pai:search:interno", user_id="alice", mode="subagent"
+        )
+        await th._upsert_session(
+            "thread-pai:search:interno", title="search", mode="subagent"
+        )
+        await th._increment_message_count("thread-pai:search:interno")
+
+        result = await th.list_threads(
+            ListThreadsRequest(limit=50), _http_request("alice")
+        )
+
+        assert result.threads == []
+
 
 class TestOwnershipEnforcement:
     """GetThread/UpdateThread/DeleteThread/GenerateTitle não vazam threads

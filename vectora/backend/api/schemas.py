@@ -361,6 +361,7 @@ class SubagentOutputEvent(BaseModel):
     status: str = "running"  # "running" | "complete" | "error"
     tool_call_id: str = ""
     content: str = ""
+    is_delta: bool = False
 
 
 class UIMetricsEvent(BaseModel):

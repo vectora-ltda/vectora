@@ -384,7 +384,12 @@ async def _execute_single_call(
         texto = f"Error: tool '{tool_call.name}' não encontrada no registry"
         is_error = True
     else:
-        texto = await spec.ainvoke(tool_call.args, ctx)
+        # Cada chamada recebe seu próprio contexto correlacionado. Isso evita
+        # que eventos de duas tools executadas em lote compartilhem o mesmo
+        # ID e permite que delegações internas atualizem o card correto.
+        texto = await spec.ainvoke(
+            tool_call.args, replace(ctx, tool_call_id=tool_call.id)
+        )
         is_error = texto.startswith("Error:")
     return VMessage(
         role=MessageRole.TOOL,

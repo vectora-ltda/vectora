@@ -75,7 +75,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from backend.engine.conversation_loop import LoopConfig, run_conversation
-from backend.engine.stream_events import SubagentOutput
+from backend.engine.stream_events import MessageChunk, SubagentOutput
 from backend.rbac import tool_policy
 from backend.tools.registry import ToolRegistry
 from backend.vtypes.ids import CapabilityToken, CorrelationId
@@ -364,7 +364,10 @@ async def _run_subagent_once(
     if on_event is not None:
         await on_event(
             SubagentOutput(
-                subagent_type=spec.name, description=spec.description, status="running"
+                subagent_type=spec.name,
+                description=spec.description,
+                status="running",
+                tool_call_id=ctx.tool_call_id,
             )
         )
 
@@ -373,7 +376,21 @@ async def _run_subagent_once(
     async def _on_event_com_liveness(event: Any) -> None:
         last_activity[0] = time.monotonic()
         if on_event is not None:
-            await on_event(event)
+            # O output textual do subagente pertence ao card da delegação na
+            # thread pai. Eventos internos de tool não devem virar ações da
+            # conversa pública, e os tokens não devem ser misturados à
+            # resposta do orquestrador.
+            if isinstance(event, MessageChunk):
+                await on_event(
+                    SubagentOutput(
+                        subagent_type=spec.name,
+                        description=spec.description,
+                        status="running",
+                        tool_call_id=ctx.tool_call_id,
+                        content=event.content,
+                        is_delta=True,
+                    )
+                )
 
     conversation_task: asyncio.Task[Any] = asyncio.create_task(
         run_conversation(
@@ -383,7 +400,7 @@ async def _run_subagent_once(
             ctx=sub_ctx,
             thread_id=thread_id,
             config=config or LoopConfig(),
-            on_event=_on_event_com_liveness if liveness is not None else on_event,
+            on_event=_on_event_com_liveness,
             should_require_approval=should_require_approval,
         )
     )
@@ -413,6 +430,7 @@ async def _run_subagent_once(
                         SubagentOutput(
                             subagent_type=spec.name,
                             status="cancelled",
+                            tool_call_id=ctx.tool_call_id,
                             content=texto_cancelado,
                         )
                     )
@@ -438,6 +456,7 @@ async def _run_subagent_once(
                     SubagentOutput(
                         subagent_type=spec.name,
                         status="cancelled",
+                        tool_call_id=ctx.tool_call_id,
                         content=texto_cancelado,
                     )
                 )
@@ -461,7 +480,12 @@ async def _run_subagent_once(
 
     if status != "running" and on_event is not None:
         await on_event(
-            SubagentOutput(subagent_type=spec.name, status=status, content=texto)
+            SubagentOutput(
+                subagent_type=spec.name,
+                status=status,
+                tool_call_id=ctx.tool_call_id,
+                content=texto,
+            )
         )
 
     return texto

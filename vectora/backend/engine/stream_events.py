@@ -68,11 +68,19 @@ class TerminalLine:
 
 @dataclass(frozen=True, slots=True)
 class SubagentOutput:
+    """Atualização do card de uma delegação interna.
+
+    Quando ``is_delta`` é verdadeiro, ``content`` é um trecho incremental do
+    texto produzido pelo subagent; caso contrário, é o resultado acumulado ou
+    final da delegação.
+    """
+
     subagent_type: str
     description: str = ""
     status: str = "running"
     tool_call_id: str = ""
     content: str = ""
+    is_delta: bool = False
 
 
 @dataclass(frozen=True, slots=True)

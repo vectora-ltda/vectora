@@ -979,6 +979,45 @@ describe("useStreamHandler.processStream", () => {
     expect(sub.isStreaming).toBe(false);
   });
 
+  it("acumula deltas do subagent no card sem misturá-los à resposta principal", async () => {
+    streamChatMock.mockReturnValue(
+      gen([
+        {
+          type: "subagent_output",
+          subagent_type: "search",
+          status: "running",
+          tool_call_id: "r-delta",
+          content: "parte ",
+          is_delta: true,
+        },
+        {
+          type: "subagent_output",
+          subagent_type: "search",
+          status: "running",
+          tool_call_id: "r-delta",
+          content: "do resultado",
+          is_delta: true,
+        },
+        {
+          type: "subagent_output",
+          subagent_type: "search",
+          status: "complete",
+          tool_call_id: "r-delta",
+          content: "",
+        },
+        { type: "done", thread_id: "t1" },
+      ]),
+    );
+    const { result } = run();
+    await result.current.processStream("delega pro search", "a1");
+
+    const a = messages.find((m) => m.id === "a1");
+    expect(a?.content).toBe("");
+    expect(a?.subgraphOutputs?.[0].output).toBe("parte do resultado");
+    expect(a?.subgraphOutputs?.[0].isComplete).toBe(true);
+    expect(a?.subgraphOutputs?.[0].isStreaming).toBe(false);
+  });
+
   // Achados da auditoria: estes 5 tipos de evento nunca eram
   // exercitados pela suíte — justamente os mais ligados à orquestração que
   // uma futura reescrita do motor de streaming (backend) pode fazer

@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import re
 from collections.abc import Callable
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from backend.vtypes.message import ContentBlock, MessageRole, VMessage
@@ -62,6 +63,7 @@ async def _run_one(
     ctx: ToolContext,
     turn_budget: TurnBudget | None,
 ) -> VMessage:
+    """Executa uma chamada do lote com contexto correlacionado à própria tool."""
     spec = tool_registry.get(tool_call.name)
 
     if turn_budget is not None:
@@ -87,7 +89,11 @@ async def _run_one(
         texto = f"Error: tool '{tool_call.name}' não encontrada no registry"
         is_error = True
     else:
-        texto = await spec.ainvoke(tool_call.args, ctx)
+        # O contexto é por chamada para que uma delegação paralela mantenha
+        # sua correlação própria sem sobrescrever a de outra tool.
+        texto = await spec.ainvoke(
+            tool_call.args, replace(ctx, tool_call_id=tool_call.id)
+        )
         texto = _apply_post_execute(texto)
         is_error = texto.startswith("Error:")
     return VMessage(

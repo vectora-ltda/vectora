@@ -238,8 +238,8 @@ def _normalize_mode(mode: str | None) -> str:
     Linhas gravadas com a chave ``"dev"`` (e o default ausente) são lidas
     como ``"code"``. O modo conversacional ``"chat"`` é preservado.
     """
-    if mode == "chat":
-        return "chat"
+    if mode in {"chat", "subagent"}:
+        return mode
     return "code"
 
 
@@ -700,6 +700,7 @@ async def list_threads(
     request: ListThreadsRequest,
     http_request: Request = None,  # ty: ignore[invalid-parameter-default]
 ) -> ListThreadsResponse:
+    """Lista threads visíveis ao usuário, excluindo sessões internas."""
     limit = max(1, min(request.limit or 50, 200))
     db = await _get_db()
     cols = (
@@ -709,13 +710,13 @@ async def list_threads(
     mode_filter = _normalize_mode(request.mode) if request.mode else ""
     if mode_filter:
         query = (
-            cols + "WHERE mode = ? AND message_count > 0 "
+            cols + "WHERE mode = ? AND mode != 'subagent' AND message_count > 0 "
             "ORDER BY pinned DESC, last_activity DESC LIMIT ?"
         )
         params: tuple[Any, ...] = (mode_filter, limit)
     else:
         query = (
-            cols + "WHERE message_count > 0 "
+            cols + "WHERE mode != 'subagent' AND message_count > 0 "
             "ORDER BY pinned DESC, last_activity DESC LIMIT ?"
         )
         params = (limit,)
@@ -802,7 +803,9 @@ async def reconcile_vectora_sessions() -> int:
     """
     session_store = await _get_session_store()
     real_sessions = await session_store.list_all_sessions()
-    real_with_messages = [s for s in real_sessions if s["message_count"] > 0]
+    real_with_messages = [
+        s for s in real_sessions if s["message_count"] > 0 and s["mode"] != "subagent"
+    ]
     if not real_with_messages:
         return 0
 

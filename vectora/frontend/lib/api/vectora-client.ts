@@ -93,9 +93,10 @@ export type StreamEvent =
       type: "subagent_output";
       subagent_type: string;
       description?: string;
-      status: "running" | "complete" | "error";
+      status: "running" | "complete" | "error" | "cancelled";
       tool_call_id: string;
       content: string;
+      is_delta?: boolean;
     }
   | {
       type: "node";

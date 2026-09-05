@@ -52,9 +52,11 @@ class TestSubagentOutputEventSchema:
             status="complete",
             tool_call_id="call-1",
             content="achei X",
+            is_delta=True,
         )
         assert full.status == "complete"
         assert full.content == "achei X"
+        assert full.is_delta is True
 
     def test_encode_tem_type_subagent_output(self):
         from backend.api.schemas import SubagentOutputEvent, encode_event
@@ -88,6 +90,8 @@ class TestSubagentOutputEventSchema:
                     description="faz X",
                     status="running",
                     tool_call_id="r1",
+                    content="feito ",
+                    is_delta=True,
                 )
             )
             await on_event(
@@ -109,8 +113,11 @@ class TestSubagentOutputEventSchema:
         assert subs[0]["status"] == "running"
         assert subs[0]["subagent_type"] == "coder"
         assert subs[0]["tool_call_id"] == "r1"
+        assert subs[0]["is_delta"] is True
+        assert subs[0]["content"] == "feito "
         assert subs[1]["status"] == "complete"
         assert subs[1]["content"] == "feito X"
+        assert subs[1]["is_delta"] is False
 
     @pytest.mark.asyncio
     async def test_subagent_output_status_error(self):
