@@ -6,11 +6,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from unittest.mock import AsyncMock, MagicMock
+from collections.abc import Coroutine
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.services.subprocess_sidecar_utils import LazyLock, terminate_gracefully
+from backend.services.subprocess_sidecar_utils import (
+    LazyLock,
+    _terminate_windows_tree,
+    terminate_gracefully,
+)
 
 
 class TestLazyLock:
@@ -36,6 +42,46 @@ class TestLazyLock:
 
 
 class TestTerminateGracefully:
+    @pytest.mark.asyncio
+    async def test_taskkill_tem_timeout_e_ainda_encerra_o_killer(self) -> None:
+        killer = MagicMock()
+        killer.wait = AsyncMock(return_value=None)
+        logger = MagicMock()
+        wait_for_timeouts: list[float] = []
+
+        def _wait_for_with_timeout(
+            awaitable: Coroutine[Any, Any, None], *, timeout: float
+        ) -> Coroutine[Any, Any, None]:
+            wait_for_timeouts.append(timeout)
+
+            async def _consume() -> None:
+                if len(wait_for_timeouts) == 1:
+                    awaitable.close()
+                    raise TimeoutError
+                await awaitable
+
+            return _consume()
+
+        with (
+            patch("backend.services.subprocess_sidecar_utils.sys.platform", "win32"),
+            patch(
+                "backend.services.subprocess_sidecar_utils.shutil.which",
+                return_value="taskkill",
+            ),
+            patch(
+                "backend.services.subprocess_sidecar_utils.asyncio.create_subprocess_exec",
+                new=AsyncMock(return_value=killer),
+            ),
+            patch(
+                "backend.services.subprocess_sidecar_utils.asyncio.wait_for",
+                new=_wait_for_with_timeout,
+            ),
+        ):
+            await _terminate_windows_tree(123, logger, "x", 0.01)
+
+        assert wait_for_timeouts == [0.01, 0.01]
+        killer.kill.assert_called_once()
+
     @pytest.mark.asyncio
     async def test_termina_gracioso_dentro_do_timeout(self):
         proc = MagicMock()
