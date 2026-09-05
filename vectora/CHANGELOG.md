@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.16](https://github.com/vectora-ltda/vectora/compare/v0.1.15...v0.1.16) (2026-09-05)
+
+
+### Features
+
+* **frontend:** revisa Aparência com novo catálogo de temas e UI Scale ([#69](https://github.com/vectora-ltda/vectora/issues/69)) ([72a48cb](https://github.com/vectora-ltda/vectora/commit/72a48cb35d103b0dcf63ab28d834c38b6b097d84))
+
+
+### Bug Fixes
+
+* **backend:** remove thread da SessionStore ao excluir ([#68](https://github.com/vectora-ltda/vectora/issues/68)) ([d36ca2b](https://github.com/vectora-ltda/vectora/commit/d36ca2bfda9779790bf78dae098edd3ebb8719eb))
+
 ## [0.1.15](https://github.com/vectora-ltda/vectora/compare/v0.1.14...v0.1.15) (2026-09-04)
 
 

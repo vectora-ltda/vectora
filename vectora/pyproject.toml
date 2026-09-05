@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vectora"
-version = "0.1.15"
+version = "0.1.16"
 description = "Vectora - Advanced AI Assistant"
 readme = "README.md"
 authors = [{name = "Vectora Ltda", email = "contato@vectora.company"}]
