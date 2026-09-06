@@ -689,7 +689,11 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
           workspaceGenerationRef.current === generation;
         if (saveRes.ok && current) {
           setConfigs(next);
-          void fetchStatus(() => current);
+          void fetchStatus(
+            () =>
+              wsIdRef.current === expectedWsId &&
+              workspaceGenerationRef.current === generation,
+          );
         }
         return saveRes.ok && current;
       });
