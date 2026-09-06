@@ -14,6 +14,9 @@ export class OAuthResult implements DurableObject {
         value: payload.value,
         expiresAt: Date.now() + payload.expirationTtl * 1000,
       });
+      await this.state.storage.setAlarm(
+        Date.now() + payload.expirationTtl * 1000,
+      );
       return Response.json({ ok: true });
     }
     const entry = await this.state.storage.get<{
@@ -26,5 +29,23 @@ export class OAuthResult implements DurableObject {
     }
     await this.state.storage.delete(key);
     return Response.json(JSON.parse(entry.value));
+  }
+
+  async alarm(): Promise<void> {
+    const now = Date.now();
+    const entries = await this.state.storage.list<{
+      value: string;
+      expiresAt: number;
+    }>();
+    let nextExpiration: number | null = null;
+    for (const [key, entry] of entries) {
+      if (entry.expiresAt <= now) {
+        await this.state.storage.delete(key);
+      } else if (nextExpiration === null || entry.expiresAt < nextExpiration) {
+        nextExpiration = entry.expiresAt;
+      }
+    }
+    if (nextExpiration !== null)
+      await this.state.storage.setAlarm(nextExpiration);
   }
 }

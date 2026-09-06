@@ -50,9 +50,9 @@ vectora-services (Worker Cloudflare único — services/src/index.ts)
 
 **Dois tipos de OAuth — não confundir:**
 
-| Tipo                     | Propósito                                   | Provider                        | Callback                                                |
-| ------------------------ | ------------------------------------------- | ------------------------------- | ------------------------------------------------------- |
-| **Login na company**     | Entrar em vectora.company                   | `services` (D1, sessão própria) | tratado no próprio `services.vectora.company`           |
+| Tipo                     | Propósito                                   | Provider                                   | Callback                                                                  |
+| ------------------------ | ------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------- |
+| **Login na company**     | Entrar em vectora.company                   | `services` (D1, sessão própria)            | tratado no próprio `services.vectora.company`                             |
 | **Integração do agente** | Agente acessa GitHub/Drive/Slack do usuário | Provider → services OAuth broker → Backend | `https://services.vectora.company/oauth/integrations/{provider}/callback` |
 
 A Seção 3 deste plano é sobre o **segundo tipo** — OAuth para que o agente faça chamadas API em nome do usuário.
@@ -544,12 +544,13 @@ var por um caminho alternativo (ver fluxo abaixo).
 
 ### Arquitetura decidida
 
-Reaproveita a primitiva que a Seção 3 já entrega — `gateway.vectora.chat`
-já recebe callbacks OAuth e encaminha pro backend certo via WebSocket
-(`GatewaySession` Durable Object, `services/src/gateway/gateway-session.ts`).
-O Tool Gateway generaliza isso de "OAuth por provider configurado
-individualmente" pra "catálogo de providers com credenciais operadas pela
-Vectora, resultado sempre pousando na mesma env var que a tool já lê":
+Reaproveita a primitiva que a Seção 3 já entrega — o Worker recebe callbacks
+OAuth e guarda o resultado associado ao `state` em um Durable Object de uso
+único. O backend local faz polling autenticado e consome o resultado uma única
+vez; nenhum token é encaminhado pelo WebSocket. O Tool Gateway generaliza isso
+de "OAuth por provider configurado individualmente" pra "catálogo de providers
+com credenciais operadas pela Vectora, resultado sempre pousando na mesma env
+var que a tool já lê":
 
 ```
 Usuário clica "Conectar" no catálogo de integrações (aba Integrações,
@@ -564,11 +565,12 @@ gateway.vectora.chat/auth/{provider}/start
 OAuth callback → services.vectora.company/oauth/integrations/{provider}/callback
         │
         ▼
-GatewaySession (Durable Object) encaminha o token via WebSocket pro
-backend do usuário (mesmo canal que já existe pra webhooks — Seção 4)
+OAuthResult (Durable Object) grava o resultado com TTL físico de cinco minutos
+e uso único associado ao state
         │
         ▼
-Backend grava o token na MESMA env var que a tool já lê hoje
+Backend faz polling autenticado e consome o resultado uma vez; então grava o
+token na MESMA env var que a tool já lê hoje
 (SLACK_BOT_TOKEN, GITHUB_PERSONAL_ACCESS_TOKEN, ...) via
 POST /auth/envs (mesmo mecanismo da aba Integrações) — as tools em
 backend/tools/*.py não mudam NADA, continuam lendo a env var de sempre

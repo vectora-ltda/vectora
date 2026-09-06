@@ -112,6 +112,21 @@ async def _broker_start(request: Request, provider: str) -> RedirectResponse:
     return RedirectResponse(url=location, status_code=302)
 
 
+async def _try_broker_start(request: Request, provider: str) -> RedirectResponse | None:
+    """Use the central broker when advertised, falling back to local OAuth."""
+    if provider not in await _broker_providers():
+        return None
+    try:
+        return await _broker_start(request, provider)
+    except HTTPException as exc:
+        if exc.status_code not in (502, 503):
+            raise
+        logger.warning("OAuth broker unavailable for %s: %s", provider, exc.detail)
+    except Exception as exc:
+        logger.warning("OAuth broker transport failed for %s: %s", provider, exc)
+    return None
+
+
 async def _broker_callback(
     provider: str, state: str, request: Request
 ) -> RedirectResponse:
@@ -698,8 +713,9 @@ async def _verify_apikey(integration_id: str, token: str) -> tuple[bool, str]:  
 @router.get("/auth/github")
 async def github_oauth_start(request: Request) -> RedirectResponse:
     """Inicia o fluxo OAuth do GitHub — redireciona para github.com/login/oauth."""
-    if _broker_enabled():
-        return await _broker_start(request, "github")
+    broker_redirect = await _try_broker_start(request, "github")
+    if broker_redirect is not None:
+        return broker_redirect
     user = _get_user(request)
     client_id, _secret, redirect_uri = _github_cfg()
 
@@ -847,8 +863,9 @@ def _gitlab_cfg() -> tuple[str, str, str, str]:
 
 @router.get("/auth/gitlab")
 async def gitlab_oauth_start(request: Request) -> RedirectResponse:
-    if _broker_enabled():
-        return await _broker_start(request, "gitlab")
+    broker_redirect = await _try_broker_start(request, "gitlab")
+    if broker_redirect is not None:
+        return broker_redirect
     user = _get_user(request)
     client_id, _secret, base_url, redirect_uri = _gitlab_cfg()
     scopes = " ".join(
@@ -979,8 +996,9 @@ def _google_cfg() -> tuple[str, str, str]:
 
 @router.get("/auth/google")
 async def google_oauth_start(request: Request) -> RedirectResponse:
-    if _broker_enabled():
-        return await _broker_start(request, "google")
+    broker_redirect = await _try_broker_start(request, "google")
+    if broker_redirect is not None:
+        return broker_redirect
     user = _get_user(request)
     client_id, _secret, redirect_uri = _google_cfg()
     scopes = (

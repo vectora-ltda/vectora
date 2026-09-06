@@ -159,8 +159,18 @@ oauth.get("/integrations/:provider/callback", async (c) => {
         "json",
       )
     : null;
-  if (!config || !pending || pending.provider !== provider || !code) {
+  if (!config || !pending || pending.provider !== provider) {
     return c.text("OAuth state expired or invalid", 400);
+  }
+  if (!code) {
+    const reason = c.req.query("error") ?? "authorization_denied";
+    await storeOAuthResult(
+      c.env,
+      state,
+      JSON.stringify({ provider, error: reason }),
+    );
+    await c.env.GATEWAY_METRICS.delete(stateKey("pending", state));
+    return c.redirect(withState(pending.returnTo, state));
   }
 
   const body = new URLSearchParams({
