@@ -248,8 +248,26 @@ export function migrateInstalledThemes(value: unknown): ThemePresetDef[] {
     const colors = item.colors;
     if (!colors || typeof colors !== "object") return [];
     const rawColors = colors as Record<string, unknown>;
-    const background =
-      typeof rawColors.background === "string" ? rawColors.background : "";
+    const colorKeys = [
+      "background",
+      "foreground",
+      "card",
+      "border",
+      "primary",
+      "accent",
+      "muted",
+      "sidebar",
+      "userBubble",
+    ] as const;
+    if (
+      colorKeys.some(
+        (key) =>
+          typeof rawColors[key] !== "string" || rawColors[key].trim() === "",
+      )
+    ) {
+      return [];
+    }
+    const background = rawColors.background as string;
     const id = typeof item.id === "string" ? item.id : "";
     const label = typeof item.label === "string" ? item.label : "";
     if (!id || !label) return [];
@@ -266,7 +284,9 @@ export function migrateInstalledThemes(value: unknown): ThemePresetDef[] {
           typeof item.family === "string" && item.family.length > 0
             ? item.family
             : `vscode:${id}`,
-        colors: rawColors as unknown as BaseThemeColors,
+        colors: Object.fromEntries(
+          colorKeys.map((key) => [key, rawColors[key]]),
+        ) as unknown as BaseThemeColors,
       } as unknown as ThemePresetDef,
     ];
   });

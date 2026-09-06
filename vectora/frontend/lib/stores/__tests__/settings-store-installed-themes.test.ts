@@ -32,7 +32,7 @@ beforeEach(() => {
 });
 
 describe("settings-store — installedThemes", () => {
-  it("ignora entradas nulas e normaliza background não string", () => {
+  it("ignora entradas nulas e cores incompletas", () => {
     const themes = migrateInstalledThemes([
       null,
       {
@@ -42,9 +42,7 @@ describe("settings-store — installedThemes", () => {
       },
     ]);
 
-    expect(themes).toHaveLength(1);
-    expect(themes[0]?.mode).toBe("dark");
-    expect(themes[0]?.family).toBe("vscode:vscode-invalid-background");
+    expect(themes).toHaveLength(0);
   });
 
   it("addInstalledTheme adiciona um tema à lista", () => {

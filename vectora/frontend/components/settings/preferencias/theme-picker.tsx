@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Download, Loader2, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { selectableCardClass } from "@/lib/selectable-card";
 import {
@@ -247,8 +247,12 @@ export function ThemePicker({
 }) {
   const [query, setQuery] = useState("");
   const [visibleCount, setVisibleCount] = useState(6);
+  const previousModeRef = useRef(activeMode);
+  const effectiveVisibleCount =
+    previousModeRef.current === activeMode ? visibleCount : 6;
 
   useEffect(() => {
+    previousModeRef.current = activeMode;
     setVisibleCount(6);
   }, [activeMode]);
 
@@ -281,18 +285,20 @@ export function ThemePicker({
   }, [options, query, activeMode, value]);
 
   const visible = useMemo(() => {
-    if (!value) return filtered.slice(0, visibleCount);
+    if (!value) return filtered.slice(0, effectiveVisibleCount);
 
     const selectedIndex = filtered.findIndex((opt) => opt.id === value);
-    if (selectedIndex < 0 || selectedIndex < visibleCount) {
-      return filtered.slice(0, visibleCount);
+    if (selectedIndex < 0 || selectedIndex < effectiveVisibleCount) {
+      return filtered.slice(0, effectiveVisibleCount);
     }
 
     return [
       filtered[selectedIndex]!,
-      ...filtered.filter((opt) => opt.id !== value).slice(0, visibleCount - 1),
+      ...filtered
+        .filter((opt) => opt.id !== value)
+        .slice(0, effectiveVisibleCount - 1),
     ];
-  }, [filtered, value, visibleCount]);
+  }, [effectiveVisibleCount, filtered, value]);
 
   const installedIds = useMemo(
     () => new Set(installedThemes.map((t) => t.id)),
