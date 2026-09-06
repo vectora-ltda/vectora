@@ -118,6 +118,8 @@ function makeTab(id: string): TabState {
 export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const workspace = useWorkspacesStore((s) => s.getActive());
   const wsId = workspace?.id ?? "";
+  const wsIdRef = useRef(wsId);
+  wsIdRef.current = wsId;
   const sessionKey = `${wsId}:${threadId}`;
   const settingsOpen = useSettingsOverlayStore((s) => s.open);
 
@@ -142,6 +144,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const [consoleFor, setConsoleFor] = useState<string | null>(null);
   const [consoleLines, setConsoleLines] = useState<string[]>([]);
   const consoleSelectionRef = useRef(0);
+  const consoleRequestRef = useRef(0);
   const [consoleLoading, setConsoleLoading] = useState(false);
   // Painel de devtools da sessão do AGENTE (Playwright headless) — distinto
   // do console de stdout do dev server acima, que é sobre o processo, não
@@ -549,9 +552,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   );
 
   const fetchStatus = useCallback(
-    async (
-      isCurrent: () => boolean = () => true,
-    ): Promise<ServerStatus[] | null> => {
+    async (isCurrent: () => boolean): Promise<ServerStatus[] | null> => {
       if (!wsId) return null;
       try {
         const res = await fetch(
@@ -592,19 +593,22 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const fetchConsoleLogs = useCallback(
     async (name: string, isCurrent: () => boolean) => {
       if (!wsId) return;
-      if (isCurrent()) setConsoleLoading(true);
+      const requestId = ++consoleRequestRef.current;
+      const isLatest = () =>
+        isCurrent() && consoleRequestRef.current === requestId;
+      if (isLatest()) setConsoleLoading(true);
       try {
         const res = await fetch(
           `/workspaces/${encodeURIComponent(wsId)}/browser/logs?name=${encodeURIComponent(name)}`,
         );
         if (res.ok) {
           const data = (await res.json()) as { lines: string[] };
-          if (isCurrent()) setConsoleLines(data.lines ?? []);
+          if (isLatest()) setConsoleLines(data.lines ?? []);
         }
       } catch {
         // silently ignore — o painel continua com as últimas linhas conhecidas
       } finally {
-        if (isCurrent()) setConsoleLoading(false);
+        if (isLatest()) setConsoleLoading(false);
       }
     },
     [wsId],
@@ -648,7 +652,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   useEffect(() => {
     let alive = true;
     if (!wsId || configs.length === 0) return;
-    const load = () => fetchStatus(() => alive);
+    const load = () => fetchStatus(() => alive && wsIdRef.current === wsId);
     void Promise.resolve().then(load);
     pollRef.current = setInterval(load, 3000);
     return () => {
@@ -659,6 +663,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
 
   const saveConfigs = useCallback(
     async (next: LaunchConfig[]) => {
+      const expectedWsId = wsId;
       const saveRes = await fetch(
         `/workspaces/${encodeURIComponent(wsId)}/browser/launch`,
         {
@@ -667,11 +672,11 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
           body: JSON.stringify({ version: "0.0.1", configurations: next }),
         },
       );
-      if (saveRes.ok) {
+      if (saveRes.ok && wsIdRef.current === expectedWsId) {
         setConfigs(next);
-        fetchStatus();
+        void fetchStatus(() => wsIdRef.current === expectedWsId);
       }
-      return saveRes.ok;
+      return saveRes.ok && wsIdRef.current === expectedWsId;
     },
     [wsId, fetchStatus],
   );
@@ -709,6 +714,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
 
   const handleStart = async (cfg: LaunchConfig) => {
     if (!wsId) return;
+    const expectedWsId = wsId;
     setActionLoading(cfg.name);
     try {
       // POST bloqueia no backend até a porta abrir (ou ~15s de timeout) —
@@ -721,14 +727,15 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: cfg.name }),
       });
-      await fetchStatus();
+      await fetchStatus(() => wsIdRef.current === expectedWsId);
     } finally {
-      setActionLoading(null);
+      if (wsIdRef.current === expectedWsId) setActionLoading(null);
     }
   };
 
   const handleStop = async (name: string) => {
     if (!wsId) return;
+    const expectedWsId = wsId;
     setActionLoading(name);
     try {
       await fetch(`/workspaces/${encodeURIComponent(wsId)}/browser/stop`, {
@@ -736,9 +743,9 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       });
-      await fetchStatus();
+      await fetchStatus(() => wsIdRef.current === expectedWsId);
     } finally {
-      setActionLoading(null);
+      if (wsIdRef.current === expectedWsId) setActionLoading(null);
     }
   };
 
