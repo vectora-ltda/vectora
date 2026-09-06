@@ -79,7 +79,9 @@ async def _broker_providers() -> set[str]:
 async def _broker_start(request: Request, provider: str) -> RedirectResponse:
     user = _get_user(request)
     expires_at = int(time.time()) + int(_BROKER_STATE_TTL)
-    payload = f"{user.id}:{provider}:{expires_at}:{secrets.token_urlsafe(24)}"
+    # Keep the signed state below the gateway's compact-state limit while
+    # retaining enough entropy for a short-lived, one-time callback.
+    payload = f"{user.id}:{provider}:{expires_at}:{secrets.token_urlsafe(12)}"
     signature = hmac.new(
         _OAUTH_BROKER_SECRET.encode(), payload.encode(), hashlib.sha256
     ).digest()[:12]
@@ -147,13 +149,14 @@ async def _broker_callback(
             _OAUTH_BROKER_SECRET.encode(), signed_payload.encode(), hashlib.sha256
         ).digest()[:12]
         actual = base64.urlsafe_b64decode(encoded_signature + "=")
+        expires_epoch = int(expires_at)
         valid = hmac.compare_digest(actual, expected)
     except (ValueError, UnicodeDecodeError, binascii.Error):
         valid = False
         user_id = ""
         state_provider = ""
-        expires_at = "0"
-    if not valid or state_provider != provider or int(expires_at) < int(time.time()):
+        expires_epoch = 0
+    if not valid or state_provider != provider or expires_epoch < int(time.time()):
         raise HTTPException(status_code=400, detail="Estado OAuth expirado ou inválido")
     import httpx
 

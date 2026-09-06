@@ -81,17 +81,17 @@ O wildcard cobre `gateway.vectora.chat` (host fixo do gateway) e qualquer `{toke
 
 ### 1.3 Bindings do Worker (`services/wrangler.toml`)
 
-| Binding                    | Tipo           | Nome real                                   | Uso                                                               |
-| -------------------------- | -------------- | ------------------------------------------- | ----------------------------------------------------------------- |
-| `DB`                       | D1             | `vectora-db`                                | Substitui o Postgres do Supabase — sem RLS, autorização em código |
-| `R2`                       | R2 bucket      | `vectora-r2`                                | Releases (updates) + exports GDPR                                 |
-| `GATEWAY_SESSION`          | Durable Object | classe `GatewaySession`                     | Uma instância por token/instalação, relay WebSocket↔HTTP          |
-| `GATEWAY_METRICS`          | KV             | id `f38a1de6…`                              | Estado do OAuth device-flow do gateway (`oauth:{state}` → token)  |
-| `OAUTH_RESULT`             | Durable Object SQLite | classe `OAuthResult`, migration v3       | Estado e resultado OAuth de integração, TTL físico e consumo único |
-| `KV`                       | KV             | id `0bed7e9f…`                              | Config de canais/rollout/quarentena de updates                    |
-| `EMAIL_QUEUE`              | Queue          | `vectora-email` (+ DLQ)                     | Envio de email assíncrono (Resend)                                |
-| `JOBS_QUEUE`               | Queue          | `vectora-jobs` (+ DLQ, `max_concurrency=1`) | Jobs em background (ex.: hard-delete GDPR agendado)               |
-| `LICENSE_VALIDATE_LIMITER` | Rate limit     | 30 req/min                                  | `POST /license/validate` (endpoint público)                       |
+| Binding                    | Tipo                  | Nome real                                   | Uso                                                                |
+| -------------------------- | --------------------- | ------------------------------------------- | ------------------------------------------------------------------ |
+| `DB`                       | D1                    | `vectora-db`                                | Substitui o Postgres do Supabase — sem RLS, autorização em código  |
+| `R2`                       | R2 bucket             | `vectora-r2`                                | Releases (updates) + exports GDPR                                  |
+| `GATEWAY_SESSION`          | Durable Object        | classe `GatewaySession`                     | Uma instância por token/instalação, relay WebSocket↔HTTP           |
+| `GATEWAY_METRICS`          | KV                    | id `f38a1de6…`                              | Estado do OAuth device-flow do gateway (`oauth:{state}` → token)   |
+| `OAUTH_RESULT`             | Durable Object SQLite | classe `OAuthResult`, migration v3          | Estado e resultado OAuth de integração, TTL físico e consumo único |
+| `KV`                       | KV                    | id `0bed7e9f…`                              | Config de canais/rollout/quarentena de updates                     |
+| `EMAIL_QUEUE`              | Queue                 | `vectora-email` (+ DLQ)                     | Envio de email assíncrono (Resend)                                 |
+| `JOBS_QUEUE`               | Queue                 | `vectora-jobs` (+ DLQ, `max_concurrency=1`) | Jobs em background (ex.: hard-delete GDPR agendado)                |
+| `LICENSE_VALIDATE_LIMITER` | Rate limit            | 30 req/min                                  | `POST /license/validate` (endpoint público)                        |
 
 Cron: `0 3 * * *` (diário) dispara o hard-delete de contas GDPR expiradas há 30+ dias.
 
@@ -441,7 +441,7 @@ curl https://services.vectora.company/license/validate -X POST -d '{"token":"...
 [ ] 10. Cloudflare: configurar Custom Domain services.vectora.company → vectora-services (fora do wrangler.toml, validar mecanismo com quem administra o DNS)
 [ ] 11. Backend: adicionar VECTORA_APP_SECRET/VECTORA_OAUTH_SECRET ao defaults.env
 [ ] 12. Testar: GET /gateway/status no backend → ver subdomínio
-[ ] 13. GitHub App: criar em github.com/settings/apps/new (não OAuth App)
+[ ] 13. GitHub OAuth App: criar em github.com/settings/developers (OAuth App), usando o callback e os escopos documentados
 [ ] 14. Google OAuth: criar no console.cloud.google.com
 [ ] 15. Slack App: criar em api.slack.com/apps
 [ ] 16. GitLab App: criar em gitlab.com/-/profile/applications
