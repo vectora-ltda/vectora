@@ -145,7 +145,7 @@ async def _broker_callback(
         signed_payload = f"{user_id}:{state_provider}:{expires_at}:{nonce}"
         expected = hmac.new(
             _OAUTH_BROKER_SECRET.encode(), signed_payload.encode(), hashlib.sha256
-        ).digest()[:16]
+        ).digest()[:12]
         actual = base64.urlsafe_b64decode(encoded_signature + "=")
         valid = hmac.compare_digest(actual, expected)
     except (ValueError, UnicodeDecodeError, binascii.Error):
