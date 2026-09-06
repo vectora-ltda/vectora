@@ -76,9 +76,9 @@ interface Integration {
   oauth_connected: boolean;
   env_var_aliases?: string[];
   extra_vars?: string[];
-  /** true só quando o operador desta instância registrou um OAuth App
-   * próprio (CLIENT_ID + CLIENT_SECRET) pro provider — sem isso, o botão
-   * "Conectar via OAuth" sempre falharia (backend responde 503). */
+  /** true quando o broker da Vectora anuncia o provider ou quando esta
+   * instalação legada tem CLIENT_ID + CLIENT_SECRET locais configurados; a
+   * interface usa o valor para habilitar "Conectar via OAuth". */
   oauth_configured: boolean;
 }
 

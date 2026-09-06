@@ -36,10 +36,10 @@ vectora-services (Worker Cloudflare único — services/src/index.ts)
       qualquer outro host → o app da company (auth/billing/license/gdpr/...)
   └── gateway: recebe conexões WebSocket de backends Vectora
   └── atribui token estável: HMAC-SHA256(fingerprint) → 6 chars (base36)
-  └── {token}.vectora.chat é o subdomínio DESSA instalação — qualquer
-      request nele (callback OAuth, webhook) é serializado e encaminhado
-      pelo WebSocket ativo pro backend local (proxy HTTP genérico, não
-      rotas hardcoded por provider)
+  └── {token}.vectora.chat é o subdomínio DESSA instalação — requests de
+      túnel e webhooks são serializados e encaminhados pelo WebSocket ativo
+      pro backend local (proxy HTTP genérico, não rotas hardcoded por provider);
+      callbacks do broker OAuth são tratados diretamente em services.company
 ```
 
 **Um único Worker, dois domínios servidos por ele** (`services/src/index.ts`):
