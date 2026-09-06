@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 import hashlib
 import hmac
 import logging
@@ -82,9 +83,13 @@ async def _broker_start(request: Request, provider: str) -> RedirectResponse:
     signature = hmac.new(
         _OAUTH_BROKER_SECRET.encode(), payload.encode(), hashlib.sha256
     ).digest()[:12]
-    state = base64.urlsafe_b64encode(
-        f"{payload}:{base64.urlsafe_b64encode(signature).decode()}".encode()
-    ).decode().rstrip("=")
+    state = (
+        base64.urlsafe_b64encode(
+            f"{payload}:{base64.urlsafe_b64encode(signature).decode()}".encode()
+        )
+        .decode()
+        .rstrip("=")
+    )
     callback = _gateway_callback_url(provider)
     if not callback:
         raise HTTPException(
@@ -143,16 +148,12 @@ async def _broker_callback(
         ).digest()[:16]
         actual = base64.urlsafe_b64decode(encoded_signature + "=")
         valid = hmac.compare_digest(actual, expected)
-    except (ValueError, UnicodeDecodeError, base64.binascii.Error):
+    except (ValueError, UnicodeDecodeError, binascii.Error):
         valid = False
         user_id = ""
         state_provider = ""
         expires_at = "0"
-    if (
-        not valid
-        or state_provider != provider
-        or int(expires_at) < int(time.time())
-    ):
+    if not valid or state_provider != provider or int(expires_at) < int(time.time()):
         raise HTTPException(status_code=400, detail="Estado OAuth expirado ou inválido")
     import httpx
 
@@ -199,7 +200,7 @@ def _looks_like_broker_state(state: str, provider: str) -> bool:
         decoded = base64.urlsafe_b64decode(padded).decode()
         parts = decoded.split(":", 4)
         return len(parts) == 5 and parts[1] == provider
-    except (ValueError, UnicodeDecodeError, base64.binascii.Error):
+    except (ValueError, UnicodeDecodeError, binascii.Error):
         return False
 
 
