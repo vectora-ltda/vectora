@@ -19,6 +19,10 @@ export class OAuthResult implements DurableObject {
       );
       return Response.json({ ok: true });
     }
+    if (request.method === "DELETE") {
+      await this.state.storage.delete(key);
+      return Response.json({ ok: true });
+    }
     const entry = await this.state.storage.get<{
       value: string;
       expiresAt: number;
@@ -27,7 +31,16 @@ export class OAuthResult implements DurableObject {
       await this.state.storage.delete(key);
       return new Response(null, { status: 202 });
     }
-    await this.state.storage.delete(key);
+    const expectedProvider = new URL(request.url).searchParams.get("provider");
+    if (expectedProvider) {
+      const parsed = JSON.parse(entry.value) as { provider?: string };
+      if (parsed.provider !== expectedProvider) {
+        return Response.json({ error: "provider_mismatch" }, { status: 409 });
+      }
+    }
+    if (new URL(request.url).searchParams.get("consume") !== "false") {
+      await this.state.storage.delete(key);
+    }
     return Response.json(JSON.parse(entry.value));
   }
 

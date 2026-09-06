@@ -158,7 +158,6 @@ OAUTH_PUBLIC_URL = "https://services.vectora.company"
 #   GITHUB_OAUTH_CLIENT_ID / GITHUB_OAUTH_CLIENT_SECRET — OAuth App da Vectora LTDA
 #   GITLAB_OAUTH_CLIENT_ID / GITLAB_OAUTH_CLIENT_SECRET — OAuth App da Vectora LTDA
 #   GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET — OAuth App da Vectora LTDA
-#   SLACK_OAUTH_CLIENT_ID / SLACK_OAUTH_CLIENT_SECRET — OAuth App da Vectora LTDA
 #   RESEND_API_KEY         — auth/billing/gdpr/issues: envio de email transacional
 #   TURNSTILE_SECRET_KEY   — auth/issues: verificação anti-bot (opcional em dev)
 #   STRIPE_SECRET_KEY      — billing: API Stripe (clientes INTL)

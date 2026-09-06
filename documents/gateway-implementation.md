@@ -15,7 +15,7 @@ Os OAuth Apps das integrações são registrados pela Vectora LTDA no Worker
 `vectora-services`. O desktop não recebe client secret e a interface não pede
 que o usuário crie um app próprio. O backend gera um state aleatório e inicia
 o broker; o callback público do Worker troca o code, grava o resultado
-temporariamente no KV com TTL de cinco minutos e redireciona apenas o state
+temporariamente no Durable Object SQLite `OAUTH_RESULT` (migration v3), com TTL físico de cinco minutos, e redireciona apenas o state
 para o subdomínio do gateway. O backend consulta o resultado uma única vez com
 `VECTORA_OAUTH_SECRET` e grava o token no override do usuário. Redirects são
 aceitos somente em `https://*.vectora.chat` e o valor do token nunca aparece
@@ -25,11 +25,11 @@ na URL, no binário ou nos logs.
 
 ```
 Vectora LTDA (operador)
-  └── registra UMA vez os OAuth Apps no GitHub/Google/Slack/GitLab e configura os secrets no Worker
+  └── registra UMA vez os OAuth Apps no GitHub/Google/GitLab e configura os secrets no Worker
 
 Usuário final do Vectora (instala o .exe)
   └── não configura nada de gateway/OAuth — tudo acontece automaticamente
-  └── só autoriza sua conta GitHub/Slack/etc. dentro do app Vectora
+  └── só autoriza sua conta GitHub/Google/GitLab dentro do app Vectora
 
 vectora-services (Worker Cloudflare único — services/src/index.ts)
   └── dispatch por hostname: gateway.vectora.chat + {token}.vectora.chat → gateway;
@@ -87,6 +87,7 @@ O wildcard cobre `gateway.vectora.chat` (host fixo do gateway) e qualquer `{toke
 | `R2`                       | R2 bucket      | `vectora-r2`                                | Releases (updates) + exports GDPR                                 |
 | `GATEWAY_SESSION`          | Durable Object | classe `GatewaySession`                     | Uma instância por token/instalação, relay WebSocket↔HTTP          |
 | `GATEWAY_METRICS`          | KV             | id `f38a1de6…`                              | Estado do OAuth device-flow do gateway (`oauth:{state}` → token)  |
+| `OAUTH_RESULT`             | Durable Object SQLite | classe `OAuthResult`, migration v3       | Estado e resultado OAuth de integração, TTL físico e consumo único |
 | `KV`                       | KV             | id `0bed7e9f…`                              | Config de canais/rollout/quarentena de updates                    |
 | `EMAIL_QUEUE`              | Queue          | `vectora-email` (+ DLQ)                     | Envio de email assíncrono (Resend)                                |
 | `JOBS_QUEUE`               | Queue          | `vectora-jobs` (+ DLQ, `max_concurrency=1`) | Jobs em background (ex.: hard-delete GDPR agendado)               |
@@ -184,17 +185,17 @@ O Worker expõe:
 - GET /oauth/integrations/providers — lista apenas os providers cujos secrets
   estão configurados no deploy;
 - GET /oauth/integrations/{provider}/start — grava o state pendente com TTL de
-  cinco minutos e redireciona para o provider;
+  cinco minutos no Durable Object `OAUTH_RESULT` e redireciona para o provider;
 - GET /oauth/integrations/{provider}/callback — recebe o callback público,
   valida o state e o provider, troca o code usando o secret da empresa e grava
-  o resultado no KV sem registrar credenciais nos logs;
+  o resultado no Durable Object sem registrar credenciais nos logs;
 - GET /oauth/integrations/{provider}/result/{state} — exige
-  VECTORA_OAUTH_SECRET, retorna o resultado uma única vez e o apaga do KV.
+  VECTORA_OAUTH_SECRET, retorna o resultado uma única vez e o apaga do Durable Object.
 
 O redirect de retorno recebido do backend é aceito somente em
 https://*.vectora.chat. O retorno contém apenas state; o token nunca é colocado
 em URL, no binário desktop ou no comentário de log. O backend faz polling com
-pequenos retries para acomodar a consistência eventual do KV, associa o token
+pequenos retries, associa o token
 ao usuário que iniciou o fluxo e então o salva como override. Instalações sem
 VECTORA_OAUTH_BROKER_URL exibem erro explícito e continuam podendo usar PAT/API
 key manual quando o provider suportar esse modo.
@@ -205,7 +206,6 @@ Os secrets do Worker são configurados fora do repositório:
 - GITHUB_OAUTH_CLIENT_ID e GITHUB_OAUTH_CLIENT_SECRET;
 - GITLAB_OAUTH_CLIENT_ID e GITLAB_OAUTH_CLIENT_SECRET;
 - GOOGLE_OAUTH_CLIENT_ID e GOOGLE_OAUTH_CLIENT_SECRET;
-- SLACK_OAUTH_CLIENT_ID e SLACK_OAUTH_CLIENT_SECRET.
 
 ## SEÇÃO 4 — Webhooks
 
@@ -463,7 +463,6 @@ VECTORA_OAUTH_SECRET    → compartilhado com company e backend (polling one-sho
 GITHUB_OAUTH_CLIENT_ID / GITHUB_OAUTH_CLIENT_SECRET → secrets do OAuth App da Vectora LTDA
 GITLAB_OAUTH_CLIENT_ID / GITLAB_OAUTH_CLIENT_SECRET → secrets do OAuth App da Vectora LTDA
 GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET → secrets do OAuth App da Vectora LTDA
-SLACK_OAUTH_CLIENT_ID / SLACK_OAUTH_CLIENT_SECRET → secrets do OAuth App da Vectora LTDA
 VECTORA_APP_SECRET      → prova que cliente é Vectora legítimo (fixo por produto)
 STRIPE_SECRET_KEY       → billing internacional
 STRIPE_WEBHOOK_SECRET   → valida webhooks do Stripe

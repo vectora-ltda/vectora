@@ -29,6 +29,9 @@ abaixo só permanecem como fallback de compatibilidade para instalações antiga
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import hmac
 import logging
 import os
 import secrets
@@ -49,7 +52,6 @@ _GATEWAY_TOKEN_PATH = settings.vectora_home / "gateway_token"
 _OAUTH_BROKER_URL = os.getenv("VECTORA_OAUTH_BROKER_URL", "").strip()
 _OAUTH_BROKER_SECRET = os.getenv("VECTORA_OAUTH_SECRET", "").strip()
 _BROKER_STATE_TTL = 300.0
-_broker_states: dict[str, tuple[str, str, float]] = {}
 
 
 def _broker_enabled() -> bool:
@@ -75,15 +77,16 @@ async def _broker_providers() -> set[str]:
 
 async def _broker_start(request: Request, provider: str) -> RedirectResponse:
     user = _get_user(request)
-    now = time.monotonic()
-    for pending_state, (_, _, expires_at) in tuple(_broker_states.items()):
-        if expires_at <= now:
-            _broker_states.pop(pending_state, None)
-    state = secrets.token_urlsafe(32)
-    _broker_states[state] = (user.id, provider, now + _BROKER_STATE_TTL)
+    expires_at = int(time.time()) + int(_BROKER_STATE_TTL)
+    payload = f"{user.id}:{provider}:{expires_at}:{secrets.token_urlsafe(24)}"
+    signature = hmac.new(
+        _OAUTH_BROKER_SECRET.encode(), payload.encode(), hashlib.sha256
+    ).digest()[:12]
+    state = base64.urlsafe_b64encode(
+        f"{payload}:{base64.urlsafe_b64encode(signature).decode()}".encode()
+    ).decode().rstrip("=")
     callback = _gateway_callback_url(provider)
     if not callback:
-        _broker_states.pop(state, None)
         raise HTTPException(
             status_code=503,
             detail="OAuth centralizado exige um gateway Vectora conectado",
@@ -96,7 +99,6 @@ async def _broker_start(request: Request, provider: str) -> RedirectResponse:
             params={"state": state, "return_to": callback},
         )
     if response.status_code != 302:
-        _broker_states.pop(state, None)
         detail = (
             "OAuth broker não configurado"
             if response.status_code == 503
@@ -105,7 +107,6 @@ async def _broker_start(request: Request, provider: str) -> RedirectResponse:
         raise HTTPException(status_code=response.status_code, detail=detail)
     location = response.headers.get("location")
     if not location:
-        _broker_states.pop(state, None)
         raise HTTPException(
             status_code=502, detail="Broker OAuth não retornou redirect"
         )
@@ -130,11 +131,29 @@ async def _try_broker_start(request: Request, provider: str) -> RedirectResponse
 async def _broker_callback(
     provider: str, state: str, request: Request
 ) -> RedirectResponse:
-    record = _broker_states.get(state)
-    if record is None or record[1] != provider or record[2] < time.monotonic():
-        _broker_states.pop(state, None)
+    try:
+        padded = state + "=" * (-len(state) % 4)
+        decoded = base64.urlsafe_b64decode(padded).decode()
+        user_id, state_provider, expires_at, nonce, encoded_signature = decoded.split(
+            ":", 4
+        )
+        signed_payload = f"{user_id}:{state_provider}:{expires_at}:{nonce}"
+        expected = hmac.new(
+            _OAUTH_BROKER_SECRET.encode(), signed_payload.encode(), hashlib.sha256
+        ).digest()[:16]
+        actual = base64.urlsafe_b64decode(encoded_signature + "=")
+        valid = hmac.compare_digest(actual, expected)
+    except (ValueError, UnicodeDecodeError, base64.binascii.Error):
+        valid = False
+        user_id = ""
+        state_provider = ""
+        expires_at = "0"
+    if (
+        not valid
+        or state_provider != provider
+        or int(expires_at) < int(time.time())
+    ):
         raise HTTPException(status_code=400, detail="Estado OAuth expirado ou inválido")
-    user_id = record[0]
     import httpx
 
     response = None
@@ -152,14 +171,12 @@ async def _broker_callback(
             status_code=502, detail="Resultado OAuth ainda não disponível"
         )
     if not response.is_success:
-        _broker_states.pop(state, None)
         raise HTTPException(
             status_code=502, detail="Broker OAuth falhou ao recuperar o token"
         )
     payload = response.json()
     access_token = payload.get("accessToken")
     if not isinstance(access_token, str) or not access_token:
-        _broker_states.pop(state, None)
         raise HTTPException(status_code=502, detail="Broker OAuth não retornou token")
     env_var = _REGISTRY_BY_ID[provider]["env_var"]
     from backend.rbac import auth as auth_svc
@@ -170,11 +187,20 @@ async def _broker_callback(
         await auth_svc.set_env_override(
             user_id, "GOOGLE_REFRESH_TOKEN", refresh_token, source="oauth"
         )
-    _broker_states.pop(state, None)
     logger.info(
         "OAuth broker: token salvo para provider=%s user_id=%s", provider, user_id
     )
     return RedirectResponse(url=f"/?oauth_success={provider}", status_code=302)
+
+
+def _looks_like_broker_state(state: str, provider: str) -> bool:
+    try:
+        padded = state + "=" * (-len(state) % 4)
+        decoded = base64.urlsafe_b64decode(padded).decode()
+        parts = decoded.split(":", 4)
+        return len(parts) == 5 and parts[1] == provider
+    except (ValueError, UnicodeDecodeError, base64.binascii.Error):
+        return False
 
 
 def _gateway_callback_url(
@@ -740,7 +766,7 @@ async def github_oauth_callback(
     request: Request, code: str = "", state: str = ""
 ) -> RedirectResponse:
     """Callback do GitHub — troca code por token e salva como env_override."""
-    if _broker_enabled() and state in _broker_states:
+    if _broker_enabled() and _looks_like_broker_state(state, "github"):
         return await _broker_callback("github", state, request)
     if not code:
         raise HTTPException(status_code=400, detail="Parâmetro 'code' ausente")
@@ -886,7 +912,7 @@ async def gitlab_oauth_start(request: Request) -> RedirectResponse:
 async def gitlab_oauth_callback(
     request: Request, code: str = "", state: str = ""
 ) -> RedirectResponse:
-    if _broker_enabled() and state in _broker_states:
+    if _broker_enabled() and _looks_like_broker_state(state, "gitlab"):
         return await _broker_callback("gitlab", state, request)
     if not code:
         raise HTTPException(status_code=400, detail="Parâmetro 'code' ausente")
@@ -1025,7 +1051,7 @@ async def google_oauth_start(request: Request) -> RedirectResponse:
 async def google_oauth_callback(
     request: Request, code: str = "", state: str = ""
 ) -> RedirectResponse:
-    if _broker_enabled() and state in _broker_states:
+    if _broker_enabled() and _looks_like_broker_state(state, "google"):
         return await _broker_callback("google", state, request)
     if not code:
         raise HTTPException(status_code=400, detail="Parâmetro 'code' ausente")
@@ -1169,7 +1195,7 @@ async def slack_oauth_start(request: Request) -> RedirectResponse:
 async def slack_oauth_callback(
     request: Request, code: str = "", state: str = ""
 ) -> RedirectResponse:
-    if _broker_enabled() and state in _broker_states:
+    if _broker_enabled() and _looks_like_broker_state(state, "slack"):
         return await _broker_callback("slack", state, request)
     if not code:
         raise HTTPException(status_code=400, detail="Parâmetro 'code' ausente")

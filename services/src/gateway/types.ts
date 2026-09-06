@@ -20,8 +20,6 @@ export interface Env {
   GITLAB_BASE_URL?: string;
   GOOGLE_OAUTH_CLIENT_ID?: string;
   GOOGLE_OAUTH_CLIENT_SECRET?: string;
-  SLACK_OAUTH_CLIENT_ID?: string;
-  SLACK_OAUTH_CLIENT_SECRET?: string;
   GATEWAY_URL: string;
   MAX_PAYLOAD_BYTES: string;
   QUEUE_TTL_MS: string;

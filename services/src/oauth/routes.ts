@@ -12,7 +12,7 @@ import { requireUserId } from "../auth/routes";
 const OAUTH_TTL_SECONDS = 300;
 const OAUTH_STATE_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 
-type Provider = "github" | "gitlab" | "google" | "slack";
+type Provider = "github" | "gitlab" | "google";
 type OAuthConfig = {
   clientId: string;
   clientSecret: string;
@@ -89,6 +89,41 @@ async function storeOAuthResult(
   );
 }
 
+async function storeOAuthState(
+  env: Env,
+  state: string,
+  value: string,
+): Promise<void> {
+  const id = env.OAUTH_RESULT.idFromName(state);
+  await env.OAUTH_RESULT.get(id).fetch(
+    `https://oauth-result/?key=${encodeURIComponent(stateKey("pending", state))}`,
+    {
+      method: "POST",
+      body: JSON.stringify({ value, expirationTtl: OAUTH_TTL_SECONDS }),
+    },
+  );
+}
+
+async function deleteOAuthState(env: Env, state: string): Promise<void> {
+  const id = env.OAUTH_RESULT.idFromName(state);
+  await env.OAUTH_RESULT.get(id).fetch(
+    `https://oauth-result/?key=${encodeURIComponent(stateKey("pending", state))}`,
+    { method: "DELETE" },
+  );
+}
+
+async function finishOAuthWithError(
+  env: Env,
+  state: string,
+  provider: string,
+  returnTo: string,
+  error: string,
+): Promise<Response> {
+  await storeOAuthResult(env, state, JSON.stringify({ provider, error }));
+  await deleteOAuthState(env, state);
+  return Response.redirect(withState(returnTo, state), 302);
+}
+
 function allowedReturnTo(value: string): boolean {
   try {
     const url = new URL(value);
@@ -111,7 +146,7 @@ function withState(returnTo: string, state: string): string {
 export const oauth = new Hono<{ Bindings: Env }>();
 
 oauth.get("/integrations/providers", (c) => {
-  const providers = (["github", "gitlab", "google", "slack"] as const).filter(
+  const providers = (["github", "gitlab", "google"] as const).filter(
     (provider) => configFor(provider, c.env) !== null,
   );
   return c.json({ providers });
@@ -128,11 +163,7 @@ oauth.get("/integrations/:provider/start", async (c) => {
   if (!allowedReturnTo(returnTo))
     return c.json({ error: "invalid_return_to" }, 400);
 
-  await c.env.GATEWAY_METRICS.put(
-    stateKey("pending", state),
-    JSON.stringify({ provider, returnTo }),
-    { expirationTtl: OAUTH_TTL_SECONDS },
-  );
+  await storeOAuthState(c.env, state, JSON.stringify({ provider, returnTo }));
   const callback = new URL(
     config.callbackPath,
     c.env.OAUTH_PUBLIC_URL ?? c.env.APP_URL,
@@ -154,10 +185,18 @@ oauth.get("/integrations/:provider/callback", async (c) => {
   const code = c.req.query("code") ?? "";
   const config = configFor(provider, c.env);
   const pending = state
-    ? await c.env.GATEWAY_METRICS.get<{ provider: string; returnTo: string }>(
-        stateKey("pending", state),
-        "json",
-      )
+    ? await c.env.OAUTH_RESULT.get(c.env.OAUTH_RESULT.idFromName(state))
+        .fetch(
+          `https://oauth-result/?key=${encodeURIComponent(stateKey("pending", state))}&consume=false`,
+        )
+        .then(async (response) =>
+          response.status === 202
+            ? null
+            : ((await response.json()) as {
+                provider: string;
+                returnTo: string;
+              }),
+        )
     : null;
   if (!config || !pending || pending.provider !== provider) {
     return c.text("OAuth state expired or invalid", 400);
@@ -169,8 +208,14 @@ oauth.get("/integrations/:provider/callback", async (c) => {
       state,
       JSON.stringify({ provider, error: reason }),
     );
-    await c.env.GATEWAY_METRICS.delete(stateKey("pending", state));
-    return c.redirect(withState(pending.returnTo, state));
+    await deleteOAuthState(c.env, state);
+    return finishOAuthWithError(
+      c.env,
+      state,
+      provider,
+      pending.returnTo,
+      "token_exchange_failed",
+    );
   }
 
   const body = new URLSearchParams({
@@ -196,7 +241,13 @@ oauth.get("/integrations/:provider/callback", async (c) => {
       provider,
       status: response.status,
     });
-    return c.redirect(withState(pending.returnTo, state));
+    return finishOAuthWithError(
+      c.env,
+      state,
+      provider,
+      pending.returnTo,
+      "token_missing",
+    );
   }
   const payload = (await response.json()) as Record<string, unknown>;
   const accessToken =
@@ -219,7 +270,7 @@ oauth.get("/integrations/:provider/callback", async (c) => {
       refreshToken: payload.refresh_token ?? null,
     }),
   );
-  await c.env.GATEWAY_METRICS.delete(stateKey("pending", state));
+  await deleteOAuthState(c.env, state);
   return c.redirect(withState(pending.returnTo, state));
 });
 
@@ -233,7 +284,7 @@ oauth.get("/integrations/:provider/result/:state", async (c) => {
   const state = c.req.param("state");
   const id = c.env.OAUTH_RESULT.idFromName(state);
   const response = await c.env.OAUTH_RESULT.get(id).fetch(
-    `https://oauth-result/?key=${encodeURIComponent(stateKey("result", state))}`,
+    `https://oauth-result/?key=${encodeURIComponent(stateKey("result", state))}&provider=${encodeURIComponent(provider)}`,
   );
   if (response.status === 202) return c.body(null, 202);
   if (!response.ok) return c.json({ error: "oauth_result_error" }, 502);
