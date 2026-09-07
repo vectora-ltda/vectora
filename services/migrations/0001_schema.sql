@@ -374,8 +374,22 @@ CREATE TABLE IF NOT EXISTS gha_bot_config (
   model                       TEXT NOT NULL,
   provider_api_key_encrypted  TEXT NOT NULL,
   review_style                TEXT NOT NULL DEFAULT 'balanced' CHECK (review_style IN ('strict', 'balanced', 'lenient')),
+  self_hosted_enabled        INTEGER NOT NULL DEFAULT 0,
   updated_at                  TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS gha_bot_review_jobs (
+  id              TEXT NOT NULL PRIMARY KEY,
+  user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  callback_secret TEXT NOT NULL,
+  status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'done', 'failed')),
+  review_text     TEXT,
+  error           TEXT,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS gha_bot_review_jobs_user_id_idx
+  ON gha_bot_review_jobs(user_id);
 
 -- Seed idempotente do catálogo de planos.
 INSERT OR IGNORE INTO plans (id, months, price_usd_cents, price_brl_cents) VALUES

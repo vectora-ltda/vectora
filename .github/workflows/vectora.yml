@@ -17,7 +17,7 @@ name: Vectora (app)
 # versão do release-please em vectora/pyproject.toml, que já bate no path.
 on:
   push:
-    branches: [master]
+    branches: [master, publish-edge-production]
     tags: ["v*"]
     paths:
       - "vectora/**"
@@ -294,7 +294,13 @@ jobs:
   release-native:
     name: Release native (${{ matrix.target }}/${{ matrix.arch }})
     needs: [test-unit, test-external]
-    if: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') }}
+    if: >-
+      (github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/master') ||
+      (github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'push' &&
+      github.ref == 'refs/heads/publish-edge-production')
     env:
       # Nuitka escolhe clang/gcc + ccache no Linux/macOS, MSVC + clcache
       # (vendorizado dentro do próprio pacote nuitka) no Windows — cada um lê
@@ -504,18 +510,25 @@ jobs:
   publish-update-channel:
     name: Publish to update channel (R2 + KV)
     needs: release-native
+    if: >-
+      (github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/master') ||
+      (github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/publish-edge-production')
     runs-on: ubuntu-latest
+    concurrency:
+      group: vectora-production-update-channel
+      cancel-in-progress: false
     environment:
       name: production
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      # API token R2 (S3) — upload dos instaladores via multipart; o
-      # CLOUDFLARE_API_TOKEN acima autentica só o wrangler (KV).
-      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      # As credenciais R2 e do Wrangler ficam limitadas ao passo de publicação.
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -547,6 +560,11 @@ jobs:
         # (upload S3) o script falha na autenticação — o job fica vermelho
         # de propósito, nunca um no-op silencioso.
         working-directory: services
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           pnpm run release -- --version=${{ steps.version.outputs.value }} --dist="$GITHUB_WORKSPACE/dist-electron-all"
 
@@ -558,16 +576,19 @@ jobs:
   publish-gha-bot-cli:
     name: Publish gha-bot CLI binary (R2)
     needs: release-native
+    if: >-
+      (github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/master') ||
+      (github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/publish-edge-production')
     runs-on: ubuntu-latest
     environment:
       name: production
-    env:
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: auto
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Read version from pyproject.toml
         id: version
         working-directory: .
@@ -581,6 +602,11 @@ jobs:
           path: dist/vectora-cli
       - name: Tar + publish to R2 (multipart via S3-compatible API)
         working-directory: .
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
         run: |
           # `wrangler r2 object put` (comando simples, sem multipart) rejeita
           # qualquer arquivo acima de 300 MiB — o vectora-cli chegou a 473 MiB
@@ -596,3 +622,150 @@ jobs:
           aws s3 cp vectora-cli-linux-x64.tar.gz \
             "s3://vectora-r2/gha-bot/${{ steps.version.outputs.value }}/vectora-cli-linux-x64.tar.gz" \
             --endpoint-url "https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+
+  # ── 8. Publish edge production (docs + company + services) ──────────────
+  # O workflow edge.yml é acionado por paths. Um release-please mergeia um
+  # bump em vectora/, portanto não altera esses paths e não dispara a
+  # publicação da borda. Este job mantém o release atômico: a mesma aprovação
+  # que publica o Electron também compila e publica os três produtos usados
+  # pelo ecossistema Vectora.
+  publish-edge-production:
+    name: Publish edge production (docs + company + services)
+    needs: [test-unit, test-external, release-native]
+    if: >-
+      always() && !cancelled() &&
+      ((github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/master' &&
+      needs.release-native.result == 'success') ||
+      (github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/tags/v') &&
+      needs.release-native.result == 'success') ||
+      (github.event_name == 'push' &&
+      ((github.ref == 'refs/heads/master' &&
+      needs.test-unit.result == 'success' &&
+      needs.test-external.result == 'success') ||
+      (github.ref == 'refs/heads/publish-edge-production' &&
+      needs.release-native.result == 'success'))))
+    runs-on: ubuntu-latest
+    concurrency:
+      group: vectora-production-d1-schema
+      cancel-in-progress: false
+    environment: Production
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.5.0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - uses: peaceiris/actions-hugo@v3
+        with:
+          hugo-version: "0.163.3"
+          extended: true
+
+      - name: Detect deployment credentials
+        id: credentials
+        shell: bash
+        run: |
+          echo "has_vercel_token=${{ secrets.VERCEL_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+          echo "has_vercel_docs_project=${{ secrets.VERCEL_PROJECT_ID_DOCS != '' }}" >> "$GITHUB_OUTPUT"
+          echo "has_vercel_company_project=${{ secrets.VERCEL_PROJECT_ID_COMPANY != '' }}" >> "$GITHUB_OUTPUT"
+          echo "has_cloudflare_token=${{ secrets.CLOUDFLARE_API_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build company
+        id: build_company
+        if: always()
+        working-directory: company
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+      - name: Build docs
+        id: build_docs
+        if: ${{ !cancelled() }}
+        working-directory: docs
+        run: hugo --gc --minify
+      - name: Validate and install services
+        id: validate_services
+        if: ${{ !cancelled() }}
+        working-directory: services
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run typecheck
+          pnpm run test
+
+      - name: Deploy docs (Vercel)
+        if: >-
+          always() && steps.build_docs.outcome == 'success' &&
+          steps.credentials.outputs.has_vercel_token == 'true' &&
+          steps.credentials.outputs.has_vercel_docs_project == 'true'
+        working-directory: docs
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID_DOCS: ${{ secrets.VERCEL_PROJECT_ID_DOCS }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_DOCS }}
+        run: pnpm dlx vercel --prod --yes --token="$VERCEL_TOKEN"
+      - name: Deploy company (Vercel)
+        if: >-
+          always() && steps.build_company.outcome == 'success' &&
+          steps.credentials.outputs.has_vercel_token == 'true' &&
+          steps.credentials.outputs.has_vercel_company_project == 'true'
+        working-directory: company
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID_COMPANY: ${{ secrets.VERCEL_PROJECT_ID_COMPANY }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_COMPANY }}
+        run: pnpm exec vercel --prod --yes --token="$VERCEL_TOKEN"
+      - name: Apply base schema (D1)
+        id: apply_base_schema
+        if: >-
+          always() && steps.validate_services.outcome == 'success' &&
+          steps.credentials.outputs.has_cloudflare_token == 'true'
+        working-directory: services
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler d1 execute vectora-db --remote --file=migrations/0001_schema.sql
+      - name: Upgrade existing D1 schema (D1)
+        id: upgrade_d1_schema
+        if: >-
+          always() && steps.apply_base_schema.outcome == 'success' &&
+          steps.credentials.outputs.has_cloudflare_token == 'true'
+        working-directory: services
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          schema=$(pnpm exec wrangler d1 execute vectora-db --remote \
+            --command "PRAGMA table_info(gha_bot_config)" --json)
+          if ! grep -q 'self_hosted_enabled' <<< "$schema"; then
+            pnpm exec wrangler d1 execute vectora-db --remote \
+              --command "ALTER TABLE gha_bot_config ADD COLUMN self_hosted_enabled INTEGER NOT NULL DEFAULT 0"
+          fi
+      - name: Apply tracked migrations (D1)
+        id: apply_d1_migrations
+        if: >-
+          always() && steps.upgrade_d1_schema.outcome == 'success' &&
+          steps.credentials.outputs.has_cloudflare_token == 'true'
+        working-directory: services
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler d1 migrations apply vectora-db --remote
+      - name: Deploy services (Workers)
+        if: >-
+          always() && steps.apply_d1_migrations.outcome == 'success' &&
+          steps.credentials.outputs.has_cloudflare_token == 'true'
+        working-directory: services
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm run deploy

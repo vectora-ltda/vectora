@@ -51,6 +51,16 @@ const CONTENT_TYPES: Record<string, string> = {
 export const INSTALLER_RE =
   /^Vectora-(?<version>[^-]+)-(?<os>win|mac|linux)-(?<arch>x64|arm64|universal)\.(?<ext>exe|msi|dmg|AppImage|deb|rpm)$/;
 
+/** Todos os formatos de instalador aceitos pelo canal de distribuição. */
+export const INSTALLER_EXTENSIONS = [
+  "exe",
+  "msi",
+  "dmg",
+  "AppImage",
+  "deb",
+  "rpm",
+] as const;
+
 export const MANIFEST_OS: Record<string, string> = {
   "latest.yml": "win",
   "latest-mac.yml": "mac",
@@ -94,6 +104,12 @@ export function sha512Base64(filePath: string): string {
 export interface InstallerEntry {
   filename: string;
   path: string;
+  /**
+   * Todos os instaladores disponíveis para esta combinação de SO/arquitetura.
+   * `filename` é apenas o artefato usado no manifesto do electron-updater;
+   * cada item desta lista continua sendo enviado ao R2 pelo loop de upload.
+   */
+  availableFiles?: string[];
 }
 
 /**
@@ -378,19 +394,63 @@ export function indexInstallersByOsArch(
     const key = `${os}/${arch}`;
     const already = installersByOsArch.get(key);
     if (already) {
-      // Dois formatos pra mesma combinação os/arch (ex.: .AppImage e .deb
-      // pra linux/x64) não podem escolher um silenciosamente por ordem de
-      // `files` — o auto-updater espera exatamente um instalador por arch.
-      throw new Error(
-        `Dois instaladores pra ${key} na versão ${version}: ${already.filename} e ${file}. Remova um antes de publicar.`,
-      );
+      // Uma combinação pode ter vários formatos (por exemplo, Linux x64 tem
+      // AppImage, deb e rpm). O manifesto do electron-updater aceita um único
+      // arquivo, mas isso não autoriza descartar os demais: eles são enviados
+      // separadamente no loop abaixo e ficam disponíveis para /download.
+      const availableFiles = [
+        ...(already.availableFiles ?? [already.filename]),
+        file,
+      ]
+        .filter((name, index, names) => names.indexOf(name) === index)
+        .sort((left, right) => left.localeCompare(right));
+      installersByOsArch.set(key, {
+        filename: already.filename,
+        path: already.path,
+        availableFiles,
+      });
+      continue;
     }
     installersByOsArch.set(key, {
       filename: file,
       path: join(dist, file),
+      availableFiles: [file],
+    });
+  }
+  for (const [key, entry] of installersByOsArch) {
+    const os = key.split("/", 1)[0] ?? "";
+    const availableFiles = entry.availableFiles ?? [entry.filename];
+    const filename = selectManifestInstaller(os, availableFiles);
+    installersByOsArch.set(key, {
+      filename,
+      path: join(dist, filename),
+      availableFiles,
     });
   }
   return installersByOsArch;
+}
+
+/**
+ * Escolhe o único arquivo exigido pelo manifesto do electron-updater.
+ * Isso não é uma seleção de publicação: todos os candidatos continuam sendo
+ * publicados no R2. Os formatos nativos só servem ao download explícito do
+ * usuário, enquanto o updater usa o formato que ele próprio entende.
+ */
+export function selectManifestInstaller(
+  os: string,
+  filenames: string[],
+): string {
+  const updaterExtension =
+    os === "win" ? ".exe" : os === "mac" ? ".dmg" : ".AppImage";
+  const filename = filenames
+    .filter((name) => name.endsWith(updaterExtension))
+    .sort((left, right) => left.localeCompare(right))[0];
+  if (!filename) {
+    throw new Error(
+      `Nenhum instalador ${updaterExtension} disponível para ${os}`,
+    );
+  }
+  return filename;
 }
 
 async function main(): Promise<void> {
@@ -436,7 +496,9 @@ async function main(): Promise<void> {
     const { version: installerVersion, os, arch } = match.groups;
     // Mesmo filtro de indexInstallersByOsArch — um instalador de release
     // anterior sobrando em dist/ não pode ser publicado sob a key da
-    // versão atual só porque casa o regex.
+    // versão atual só porque casa o regex. Cada formato válido entra em
+    // uma key própria; nenhum .exe, .msi, .dmg, AppImage, .deb ou .rpm é
+    // descartado por haver outro formato para a mesma arch.
     if (installerVersion !== version) continue;
     const key = `${channel}/${os}/${arch}/${version}/${file}`;
     const contentType =

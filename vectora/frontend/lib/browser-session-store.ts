@@ -65,7 +65,7 @@ export function disposeBrowserSession(sessionKey: string): void {
 /** Destroys every browser session belonging to a workspace. */
 export function disposeBrowserWorkspace(workspaceId: string): void {
   const prefix = `${workspaceId}:`;
-  for (const sessionKey of [...browserSessions.keys()]) {
+  for (const sessionKey of Array.from(browserSessions.keys())) {
     if (sessionKey.startsWith(prefix)) disposeBrowserSession(sessionKey);
   }
 }
@@ -73,7 +73,7 @@ export function disposeBrowserWorkspace(workspaceId: string): void {
 /** Destroys every cached session for a thread, regardless of its workspace. */
 export function disposeBrowserThread(threadId: string): void {
   const suffix = `:${threadId}`;
-  for (const sessionKey of [...browserSessions.keys()]) {
+  for (const sessionKey of Array.from(browserSessions.keys())) {
     if (sessionKey.endsWith(suffix)) disposeBrowserSession(sessionKey);
   }
 }

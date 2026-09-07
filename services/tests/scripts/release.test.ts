@@ -16,6 +16,7 @@ import {
   resolveInstaller,
   sha512Base64,
   indexInstallersByOsArch,
+  selectManifestInstaller,
 } from "../../scripts/release";
 
 describe("parseArgs", () => {
@@ -78,6 +79,16 @@ describe("INSTALLER_RE", () => {
     expect(
       INSTALLER_RE.exec("Vectora-1.0.0-linux-arm64.AppImage")?.groups?.os,
     ).toBe("linux");
+  });
+
+  it("aceita todos os formatos publicados pela página de downloads", () => {
+    for (const extension of ["exe", "msi", "dmg", "AppImage", "deb", "rpm"]) {
+      expect(
+        INSTALLER_RE.exec(
+          `Vectora-1.0.0-${extension === "dmg" ? "mac" : extension === "AppImage" || extension === "deb" || extension === "rpm" ? "linux" : "win"}-x64.${extension}`,
+        )?.groups?.ext,
+      ).toBe(extension);
+    }
   });
 });
 
@@ -307,16 +318,60 @@ describe("buildArchManifest / resolveInstaller — regressão do manifesto cross
     expect(installers.size).toBe(0);
   });
 
-  it("indexInstallersByOsArch lança quando dois formatos disputam o mesmo os/arch (achado CodeRabbit)", () => {
+  it("indexInstallersByOsArch preserva todos os formatos por SO/arquitetura", () => {
     writeFileSync(join(dir, "Vectora-0.1.1-linux-x64.AppImage"), "appimage");
     writeFileSync(join(dir, "Vectora-0.1.1-linux-x64.deb"), "deb");
+    writeFileSync(join(dir, "Vectora-0.1.1-linux-x64.rpm"), "rpm");
 
+    const installers = indexInstallersByOsArch(
+      [
+        "Vectora-0.1.1-linux-x64.deb",
+        "Vectora-0.1.1-linux-x64.AppImage",
+        "Vectora-0.1.1-linux-x64.rpm",
+      ],
+      dir,
+      "0.1.1",
+    );
+    expect(installers.get("linux/x64")?.filename).toBe(
+      "Vectora-0.1.1-linux-x64.AppImage",
+    );
+    expect(installers.get("linux/x64")?.availableFiles).toEqual([
+      "Vectora-0.1.1-linux-x64.AppImage",
+      "Vectora-0.1.1-linux-x64.deb",
+      "Vectora-0.1.1-linux-x64.rpm",
+    ]);
+  });
+
+  it("seleciona apenas o artefato do auto-updater sem limitar os downloads", () => {
+    expect(
+      selectManifestInstaller("win", [
+        "Vectora-0.1.1-win-x64.msi",
+        "Vectora-0.1.1-win-x64.exe",
+      ]),
+    ).toBe("Vectora-0.1.1-win-x64.exe");
     expect(() =>
-      indexInstallersByOsArch(
-        ["Vectora-0.1.1-linux-x64.AppImage", "Vectora-0.1.1-linux-x64.deb"],
-        dir,
-        "0.1.1",
-      ),
-    ).toThrow(/linux\/x64/);
+      selectManifestInstaller("linux", [
+        "Vectora-0.1.1-linux-x64.deb",
+        "Vectora-0.1.1-linux-x64.rpm",
+      ]),
+    ).toThrow(/\.AppImage/);
+  });
+
+  it("escolhe o mesmo artefato do manifesto independentemente da ordem", () => {
+    const candidates = [
+      "Vectora-0.1.1-win-x64.exe",
+      "Vectora-0.1.1-win-x64.msi",
+    ];
+    expect(selectManifestInstaller("win", candidates)).toBe(candidates[0]);
+    expect(selectManifestInstaller("win", [...candidates].reverse())).toBe(
+      candidates[0],
+    );
+  });
+
+  it("recusa indexar um manifesto Linux sem AppImage", () => {
+    writeFileSync(join(dir, "Vectora-0.1.1-linux-x64.deb"), "deb");
+    expect(() =>
+      indexInstallersByOsArch(["Vectora-0.1.1-linux-x64.deb"], dir, "0.1.1"),
+    ).toThrow(/\.AppImage/);
   });
 });

@@ -118,6 +118,8 @@ function makeTab(id: string): TabState {
 export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const workspace = useWorkspacesStore((s) => s.getActive());
   const wsId = workspace?.id ?? "";
+  const wsIdRef = useRef(wsId);
+  wsIdRef.current = wsId;
   const sessionKey = `${wsId}:${threadId}`;
   const settingsOpen = useSettingsOverlayStore((s) => s.open);
 
@@ -141,11 +143,20 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   });
   const [consoleFor, setConsoleFor] = useState<string | null>(null);
   const [consoleLines, setConsoleLines] = useState<string[]>([]);
+  const consoleSelectionRef = useRef(0);
+  const consoleRequestRef = useRef(0);
+  const workspaceGenerationRef = useRef(0);
+  const actionGenerationRef = useRef(0);
+  const configsRef = useRef<LaunchConfig[]>([]);
+  const configsByWorkspaceRef = useRef<Record<string, LaunchConfig[]>>({});
+  const statusRequestRef = useRef(0);
+  const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const [consoleLoading, setConsoleLoading] = useState(false);
   // Painel de devtools da sessão do AGENTE (Playwright headless) — distinto
   // do console de stdout do dev server acima, que é sobre o processo, não
   // sobre a página que o agente navega via tools de browser.
   const [devtoolsOpen, setDevtoolsOpen] = useState(false);
+  const [sessionHydrationVersion, setSessionHydrationVersion] = useState(0);
 
   // Múltiplas abas — cada uma com seu próprio histórico (web) ou sua
   // própria WebContentsView (desktop, cada uma com viewId próprio; o
@@ -165,6 +176,8 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     const restored = getBrowserSession(sessionKey);
     return restored?.activeTabId ?? tabs[0].id;
   });
+  const hydratedSessionKeyRef = useRef<string | null>(sessionKey);
+  const previousSessionKeyRef = useRef(sessionKey);
   const tabsRef = useRef(tabs);
   useEffect(() => {
     tabsRef.current = tabs;
@@ -172,6 +185,34 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
 
   useEffect(() => {
+    if (previousSessionKeyRef.current === sessionKey) return;
+    previousSessionKeyRef.current = sessionKey;
+    hydratedSessionKeyRef.current = null;
+    pendingNavigateRef.current.clear();
+    pendingViewCreatesRef.current.clear();
+
+    const restored = getBrowserSession(sessionKey);
+    const nextTabs = restored
+      ? restored.tabs.map((tab) => ({
+          ...tab,
+          loading: false,
+          loadError: null,
+        }))
+      : [makeTab(genId())];
+    const nextActiveTabId = nextTabs.some(
+      (tab) => tab.id === restored?.activeTabId,
+    )
+      ? restored!.activeTabId
+      : nextTabs[0].id;
+
+    setTabs(nextTabs);
+    setActiveTabId(nextActiveTabId);
+    hydratedSessionKeyRef.current = sessionKey;
+    setSessionHydrationVersion((version) => version + 1);
+  }, [sessionKey]);
+
+  useEffect(() => {
+    if (hydratedSessionKeyRef.current !== sessionKey) return;
     setBrowserSession(sessionKey, {
       activeTabId,
       tabs: tabs.map(({ loading, loadError, ...tab }) => tab),
@@ -387,6 +428,13 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   // Cria uma WebContentsView para cada aba restaurada. A troca de workbench
   // apenas torna as views invisíveis; fechar uma aba continua sendo a ação
   // destrutiva explícita.
+  const hideAllBrowserViews = useCallback(() => {
+    if (!desktopBrowser) return;
+    for (const tab of tabsRef.current) {
+      if (tab.viewId !== null) desktopBrowser.setVisible(tab.viewId, false);
+    }
+  }, [desktopBrowser]);
+
   useEffect(() => {
     if (!desktopBrowser) return;
     let cancelled = false;
@@ -413,29 +461,47 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
           desktopBrowser.destroyView(viewId);
           return;
         }
+        const pending = pendingNavigateRef.current.get(tab.id);
+        pendingNavigateRef.current.delete(tab.id);
         setTabs((prev) =>
           prev.map((candidate) =>
-            candidate.id === tab.id ? { ...candidate, viewId } : candidate,
+            candidate.id === tab.id
+              ? {
+                  ...candidate,
+                  viewId,
+                  ...(pending ? { desktopUrl: pending } : {}),
+                }
+              : candidate,
           ),
         );
-        if (tab.desktopUrl)
-          void desktopBrowser.navigate(viewId, tab.desktopUrl);
+        const initialUrl = pending ?? tab.desktopUrl;
+        if (initialUrl) {
+          void desktopBrowser.navigate(viewId, initialUrl).then((result) => {
+            if (!result.ok)
+              updateTab(tab.id, { loadError: result.error ?? null });
+          });
+        }
       });
     }
     return () => {
       cancelled = true;
-      for (const t of tabsRef.current) {
-        if (t.viewId !== null) desktopBrowser.setVisible(t.viewId, false);
-      }
+      hideAllBrowserViews();
     };
-  }, [desktopBrowser, sessionKey]);
+  }, [
+    desktopBrowser,
+    hideAllBrowserViews,
+    sessionKey,
+    sessionHydrationVersion,
+  ]);
 
   useEffect(() => {
+    const pendingNavigate = pendingNavigateRef.current;
+    const pendingViewCreates = pendingViewCreatesRef.current;
     return () => {
       // The session is intentionally retained while the workbench is hidden;
       // deletion flows call disposeBrowserSession explicitly.
-      pendingNavigateRef.current.clear();
-      pendingViewCreatesRef.current.clear();
+      pendingNavigate.clear();
+      pendingViewCreates.clear();
     };
   }, []);
 
@@ -520,127 +586,195 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     };
   }, [desktopBrowser, activeViewId, hasUrl]);
 
-  const fetchLaunch = useCallback(async () => {
-    if (!wsId) return;
-    try {
-      const res = await fetch(
-        `/workspaces/${encodeURIComponent(wsId)}/browser/launch`,
-      );
-      if (res.ok) {
-        const data = (await res.json()) as { configurations: LaunchConfig[] };
-        setConfigs(data.configurations ?? []);
-      }
-    } catch {
-      // silently ignore
-    } finally {
-      setIsLoading(false);
-    }
-  }, [wsId]);
-
-  const fetchStatus = useCallback(async (): Promise<ServerStatus[] | null> => {
-    if (!wsId) return null;
-    try {
-      const res = await fetch(
-        `/workspaces/${encodeURIComponent(wsId)}/browser/status`,
-      );
-      if (res.ok) {
-        const data = (await res.json()) as { servers: ServerStatus[] };
-        const servers = data.servers ?? [];
-        setStatuses(servers);
-
-        // Auto-navegação: qualquer servidor que passe de parado pra rodando
-        // entre um poll e outro abre sozinho numa aba NOVA — funciona tanto
-        // pro clique manual (handleStart) quanto pra tool `browser_start` do
-        // agente, que sobe o servidor sem passar por nenhum handler do UI.
-        // Aba nova (não substitui a ativa) preserva a navegação livre que o
-        // usuário já tinha aberto.
-        const prevRunning = prevRunningRef.current;
-        const nextRunning: Record<string, boolean> = {};
-        for (const server of servers) {
-          nextRunning[server.name] = server.running;
-          if (prevRunning && server.running && !prevRunning[server.name]) {
-            addTab(`http://localhost:${server.port}`);
+  const fetchLaunch = useCallback(
+    async (isCurrent: () => boolean = () => true) => {
+      if (!wsId) return;
+      try {
+        const res = await fetch(
+          `/workspaces/${encodeURIComponent(wsId)}/browser/launch`,
+        );
+        if (res.ok) {
+          const data = (await res.json()) as { configurations: LaunchConfig[] };
+          if (isCurrent() && wsIdRef.current === wsId) {
+            const configurations = data.configurations ?? [];
+            configsByWorkspaceRef.current[wsId] = configurations;
+            configsRef.current = configurations;
+            setConfigs(configurations);
           }
         }
-        prevRunningRef.current = nextRunning;
-
-        return servers;
+      } catch {
+        // silently ignore
+      } finally {
+        if (isCurrent()) setIsLoading(false);
       }
-    } catch {
-      // silently ignore
-    }
-    return null;
-  }, [wsId, addTab]);
+    },
+    [wsId],
+  );
+
+  const fetchStatus = useCallback(
+    async (isCurrent: () => boolean): Promise<ServerStatus[] | null> => {
+      if (!wsId) return null;
+      const requestId = ++statusRequestRef.current;
+      const isLatest = () =>
+        isCurrent() && statusRequestRef.current === requestId;
+      try {
+        const res = await fetch(
+          `/workspaces/${encodeURIComponent(wsId)}/browser/status`,
+        );
+        if (res.ok) {
+          const data = (await res.json()) as { servers: ServerStatus[] };
+          const servers = data.servers ?? [];
+          if (!isLatest()) return null;
+          setStatuses(servers);
+
+          // Auto-navegação: qualquer servidor que passe de parado pra rodando
+          // entre um poll e outro abre sozinho numa aba NOVA — funciona tanto
+          // pro clique manual (handleStart) quanto pra tool `browser_start` do
+          // agente, que sobe o servidor sem passar por nenhum handler do UI.
+          // Aba nova (não substitui a ativa) preserva a navegação livre que o
+          // usuário já tinha aberto.
+          const prevRunning = prevRunningRef.current;
+          const nextRunning: Record<string, boolean> = {};
+          for (const server of servers) {
+            nextRunning[server.name] = server.running;
+            if (prevRunning && server.running && !prevRunning[server.name]) {
+              addTab(`http://localhost:${server.port}`);
+            }
+          }
+          prevRunningRef.current = nextRunning;
+
+          return servers;
+        }
+      } catch {
+        // silently ignore
+      }
+      return null;
+    },
+    [wsId, addTab],
+  );
 
   const fetchConsoleLogs = useCallback(
-    async (name: string) => {
+    async (name: string, isCurrent: () => boolean) => {
       if (!wsId) return;
-      setConsoleLoading(true);
+      const requestId = ++consoleRequestRef.current;
+      const isLatest = () =>
+        isCurrent() && consoleRequestRef.current === requestId;
+      if (isLatest()) setConsoleLoading(true);
       try {
         const res = await fetch(
           `/workspaces/${encodeURIComponent(wsId)}/browser/logs?name=${encodeURIComponent(name)}`,
         );
         if (res.ok) {
           const data = (await res.json()) as { lines: string[] };
-          setConsoleLines(data.lines ?? []);
+          if (isLatest()) setConsoleLines(data.lines ?? []);
         }
       } catch {
         // silently ignore — o painel continua com as últimas linhas conhecidas
       } finally {
-        setConsoleLoading(false);
+        if (isLatest()) setConsoleLoading(false);
       }
     },
     [wsId],
   );
 
   useEffect(() => {
+    let alive = true;
+    const selection = ++consoleSelectionRef.current;
+    setConsoleLines([]);
     if (!consoleFor) {
       if (consolePollRef.current) clearInterval(consolePollRef.current);
-      return;
+      return () => {
+        alive = false;
+      };
     }
-    fetchConsoleLogs(consoleFor);
-    consolePollRef.current = setInterval(
-      () => fetchConsoleLogs(consoleFor),
-      3000,
-    );
+    const load = () =>
+      fetchConsoleLogs(
+        consoleFor,
+        () =>
+          alive &&
+          wsIdRef.current === wsId &&
+          consoleSelectionRef.current === selection,
+      );
+    void Promise.resolve().then(load);
+    consolePollRef.current = setInterval(load, 3000);
     return () => {
+      alive = false;
       if (consolePollRef.current) clearInterval(consolePollRef.current);
     };
   }, [consoleFor, fetchConsoleLogs]);
 
   useEffect(() => {
     const el = consoleLogRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && consoleLines.length > 0) el.scrollTop = el.scrollHeight;
   }, [consoleLines]);
 
   useEffect(() => {
-    fetchLaunch();
+    let alive = true;
+    const generation = ++workspaceGenerationRef.current;
+    actionGenerationRef.current += 1;
+    setIsLoading(Boolean(wsId));
+    setConfigs([]);
+    configsRef.current = [];
+    setStatuses([]);
+    setActionLoading(null);
+    void Promise.resolve().then(() =>
+      fetchLaunch(() => alive && workspaceGenerationRef.current === generation),
+    );
+    return () => {
+      alive = false;
+      if (workspaceGenerationRef.current === generation) {
+        workspaceGenerationRef.current += 1;
+      }
+    };
   }, [fetchLaunch]);
 
   useEffect(() => {
+    let alive = true;
+    prevRunningRef.current = null;
     if (!wsId || configs.length === 0) return;
-    fetchStatus();
-    pollRef.current = setInterval(fetchStatus, 3000);
+    const load = () => fetchStatus(() => alive && wsIdRef.current === wsId);
+    void Promise.resolve().then(load);
+    pollRef.current = setInterval(load, 3000);
     return () => {
+      alive = false;
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, [wsId, configs.length, fetchStatus]);
 
   const saveConfigs = useCallback(
-    async (next: LaunchConfig[]) => {
-      const saveRes = await fetch(
-        `/workspaces/${encodeURIComponent(wsId)}/browser/launch`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ version: "0.0.1", configurations: next }),
-        },
-      );
-      if (saveRes.ok) {
-        setConfigs(next);
-        fetchStatus();
-      }
-      return saveRes.ok;
+    async (update: (current: LaunchConfig[]) => LaunchConfig[]) => {
+      const expectedWsId = wsId;
+      const generation = workspaceGenerationRef.current;
+      const save = saveQueueRef.current.then(async () => {
+        const next = update(configsByWorkspaceRef.current[expectedWsId] ?? []);
+        const saveRes = await fetch(
+          `/workspaces/${encodeURIComponent(expectedWsId)}/browser/launch`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ version: "0.0.1", configurations: next }),
+          },
+        );
+        const current =
+          wsIdRef.current === expectedWsId &&
+          workspaceGenerationRef.current === generation;
+        if (saveRes.ok) {
+          configsByWorkspaceRef.current[expectedWsId] = next;
+        }
+        if (saveRes.ok && current) {
+          configsRef.current = next;
+          setConfigs(next);
+          void fetchStatus(
+            () =>
+              wsIdRef.current === expectedWsId &&
+              workspaceGenerationRef.current === generation,
+          );
+        }
+        return saveRes.ok && current;
+      });
+      const result = save.catch(() => false);
+      saveQueueRef.current = result;
+      return result;
     },
     [wsId, fetchStatus],
   );
@@ -666,8 +800,8 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         : [],
       port: Number.isFinite(port) ? port : 3000,
     };
-    const ok = await saveConfigs([
-      ...configs.filter((c) => c.name !== cfg.name),
+    const ok = await saveConfigs((current) => [
+      ...current.filter((c) => c.name !== cfg.name),
       cfg,
     ]);
     if (ok) {
@@ -678,6 +812,9 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
 
   const handleStart = async (cfg: LaunchConfig) => {
     if (!wsId) return;
+    const expectedWsId = wsId;
+    const generation = workspaceGenerationRef.current;
+    const operation = ++actionGenerationRef.current;
     setActionLoading(cfg.name);
     try {
       // POST bloqueia no backend até a porta abrir (ou ~15s de timeout) —
@@ -690,14 +827,28 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: cfg.name }),
       });
-      await fetchStatus();
+      await fetchStatus(
+        () =>
+          wsIdRef.current === expectedWsId &&
+          workspaceGenerationRef.current === generation &&
+          actionGenerationRef.current === operation,
+      );
     } finally {
-      setActionLoading(null);
+      if (
+        wsIdRef.current === expectedWsId &&
+        workspaceGenerationRef.current === generation &&
+        actionGenerationRef.current === operation
+      ) {
+        setActionLoading(null);
+      }
     }
   };
 
   const handleStop = async (name: string) => {
     if (!wsId) return;
+    const expectedWsId = wsId;
+    const generation = workspaceGenerationRef.current;
+    const operation = ++actionGenerationRef.current;
     setActionLoading(name);
     try {
       await fetch(`/workspaces/${encodeURIComponent(wsId)}/browser/stop`, {
@@ -705,9 +856,20 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       });
-      await fetchStatus();
+      await fetchStatus(
+        () =>
+          wsIdRef.current === expectedWsId &&
+          workspaceGenerationRef.current === generation &&
+          actionGenerationRef.current === operation,
+      );
     } finally {
-      setActionLoading(null);
+      if (
+        wsIdRef.current === expectedWsId &&
+        workspaceGenerationRef.current === generation &&
+        actionGenerationRef.current === operation
+      ) {
+        setActionLoading(null);
+      }
     }
   };
 
@@ -1125,7 +1287,16 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
             </span>
             <div className="flex items-center gap-1">
               <button
-                onClick={() => consoleFor && fetchConsoleLogs(consoleFor)}
+                onClick={() => {
+                  if (!consoleFor) return;
+                  const selection = consoleSelectionRef.current;
+                  void fetchConsoleLogs(
+                    consoleFor,
+                    () =>
+                      wsIdRef.current === wsId &&
+                      consoleSelectionRef.current === selection,
+                  );
+                }}
                 className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
                 title={msg.workbench_browser_console_refresh()}
               >

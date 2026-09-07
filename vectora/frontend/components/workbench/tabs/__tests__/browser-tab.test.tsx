@@ -38,10 +38,24 @@ vi.mock("@/lib/paraglide/messages", () => ({
   ),
 }));
 
+const makeBrowserTestTab = (viewId: number | null) => ({
+  id: `tab-${viewId}`,
+  title: "",
+  history: [],
+  historyIndex: -1,
+  iframeKey: 0,
+  viewId,
+  desktopUrl: "",
+  canGoBack: false,
+  canGoForward: false,
+});
+
+const workspaceState = vi.hoisted(() => ({ id: "ws1" }));
+
 vi.mock("@/lib/stores/workspaces-store", () => ({
   useWorkspacesStore: (
     sel: (s: { getActive: () => { id: string } | undefined }) => unknown,
-  ) => sel({ getActive: () => ({ id: "ws1" }) }),
+  ) => sel({ getActive: () => workspaceState }),
 }));
 
 vi.mock("@/lib/stores/chat-input-store", () => ({
@@ -50,6 +64,7 @@ vi.mock("@/lib/stores/chat-input-store", () => ({
 
 afterEach(() => {
   cleanup();
+  workspaceState.id = "ws1";
   clearBrowserSessionCache();
 });
 
@@ -472,7 +487,10 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
     let handler: EventHandler | null = null;
     const bridge = {
       ...calls,
-      createView: vi.fn(async () => 1),
+      createView: vi
+        .fn<() => Promise<number>>()
+        .mockResolvedValueOnce(1)
+        .mockResolvedValue(2),
       onEvent: vi.fn((h: EventHandler) => {
         handler = h;
         return () => {
@@ -511,6 +529,66 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
     expect(
       screen.getByTestId("browser-webcontentsview-container"),
     ).toBeTruthy();
+  });
+
+  it("trocar de workspace sem sessão cria a WebContentsView nativa e navega nela", async () => {
+    const bridge = mockBrowserView();
+    mockFetch({ configurations: [] });
+    const view = render(<BrowserTab threadId="electron-workspace-switch" />);
+    await waitFor(() => expect(bridge.createView).toHaveBeenCalledTimes(1));
+
+    workspaceState.id = "ws2";
+    view.rerender(<BrowserTab threadId="electron-workspace-switch" />);
+    await waitFor(() => expect(bridge.createView).toHaveBeenCalledTimes(2));
+
+    const urlBar = await screen.findByTestId("browser-url-bar");
+    fireEvent.focus(urlBar);
+    fireEvent.change(urlBar, { target: { value: "ws2.example" } });
+    fireEvent.keyDown(urlBar, { key: "Enter" });
+    await waitFor(() =>
+      expect(bridge.navigate).toHaveBeenCalledWith(2, "https://ws2.example"),
+    );
+  });
+
+  it("preserva navegação digitada enquanto a view reidratada ainda está pendente", async () => {
+    let resolveSecond: ((viewId: number) => void) | undefined;
+    const bridge = mockBrowserView();
+    bridge.createView
+      .mockReset()
+      .mockResolvedValueOnce(1)
+      .mockImplementationOnce(
+        () =>
+          new Promise<number>((resolve) => {
+            resolveSecond = resolve;
+          }),
+      );
+    mockFetch({ configurations: [] });
+    const view = render(<BrowserTab threadId="electron-pending-navigation" />);
+    await waitFor(() => expect(bridge.createView).toHaveBeenCalledTimes(1));
+
+    workspaceState.id = "ws2";
+    view.rerender(<BrowserTab threadId="electron-pending-navigation" />);
+    await waitFor(() => expect(bridge.createView).toHaveBeenCalledTimes(2));
+
+    const urlBar = await screen.findByTestId("browser-url-bar");
+    fireEvent.focus(urlBar);
+    fireEvent.change(urlBar, { target: { value: "pending.example" } });
+    fireEvent.keyDown(urlBar, { key: "Enter" });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(bridge.navigate).not.toHaveBeenCalled();
+    expect(resolveSecond).toBeDefined();
+    if (!resolveSecond) throw new Error("second view was not created");
+    resolveSecond(2);
+    await waitFor(() =>
+      expect(bridge.navigate).toHaveBeenCalledWith(
+        2,
+        "https://pending.example",
+      ),
+    );
+    expect(bridge.navigate).toHaveBeenCalledTimes(1);
   });
 
   it("evento navigated do main atualiza a barra de URL e can-go-back/forward — nunca escritos manualmente", async () => {
@@ -652,24 +730,13 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
 
   it("descarta as sessões de todas as threads quando um workspace é removido", () => {
     const bridge = mockBrowserView();
-    const tab = (viewId: number) => ({
-      id: `tab-${viewId}`,
-      title: "",
-      history: [],
-      historyIndex: -1,
-      iframeKey: 0,
-      viewId,
-      desktopUrl: "",
-      canGoBack: false,
-      canGoForward: false,
-    });
     setBrowserSession("ws-deleted:t1", {
       activeTabId: "tab-21",
-      tabs: [tab(21)],
+      tabs: [makeBrowserTestTab(21)],
     });
     setBrowserSession("ws-deleted:t2", {
       activeTabId: "tab-22",
-      tabs: [tab(22)],
+      tabs: [makeBrowserTestTab(22)],
     });
 
     disposeBrowserWorkspace("ws-deleted");
@@ -714,6 +781,47 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
 });
 
 describe("BrowserTab — restauração por sessão", () => {
+  it("trocar de workspace restaura a sessão do destino sem reutilizar abas da origem", async () => {
+    setBrowserSession("ws1:workspace-switch", {
+      activeTabId: "tab-ws1",
+      tabs: [
+        {
+          ...makeBrowserTestTab(null),
+          id: "tab-ws1",
+          history: ["https://ws1.example"],
+          historyIndex: 0,
+        },
+      ],
+    });
+    setBrowserSession("ws2:workspace-switch", {
+      activeTabId: "tab-ws2",
+      tabs: [
+        {
+          ...makeBrowserTestTab(null),
+          id: "tab-ws2",
+          history: ["https://ws2.example"],
+          historyIndex: 0,
+        },
+      ],
+    });
+    mockFetch({ configurations: [] });
+
+    const view = render(<BrowserTab threadId="workspace-switch" />);
+    await waitFor(() =>
+      expect(screen.getByTestId("browser-url-bar")).toHaveValue(
+        "https://ws1.example",
+      ),
+    );
+
+    workspaceState.id = "ws2";
+    view.rerender(<BrowserTab threadId="workspace-switch" />);
+    await waitFor(() =>
+      expect(screen.getByTestId("browser-url-bar")).toHaveValue(
+        "https://ws2.example",
+      ),
+    );
+  });
+
   it("restaura a URL da mesma thread depois de ocultar/remontar o painel", async () => {
     mockFetch({ configurations: [] });
     const first = render(<BrowserTab threadId="restore-thread" />);
