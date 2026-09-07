@@ -14,6 +14,12 @@ describe("lint-i18n", () => {
     ]);
   });
 
+  it("catches literal strings inside JSX expressions", () => {
+    expect(
+      lintSource('<button title={"Salvar"}>Continuar</button>', "fixture.tsx"),
+    ).toHaveLength(2);
+  });
+
   it("accepts message calls and ignores technical attributes", () => {
     const violations = lintSource(
       'const label = m.common_save(); const dynamic = mDyn("common.save");\n' +

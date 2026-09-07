@@ -16,10 +16,12 @@ const TEXT_ATTRIBUTES = new Set(["alt", "aria-label", "placeholder", "title"]);
 const IGNORED_PARTS = new Set(["e2e", "tests", "paraglide"]);
 const execFileAsync = promisify(execFile);
 
+/** Returns whether text contains user-visible letters. */
 function hasLetters(value: string): boolean {
   return /[\p{L}]/u.test(value);
 }
 
+/** Adds a formatted violation for a source node. */
 function addViolation(
   file: string,
   node: { loc?: { start: { line: number; column: number } } },
@@ -34,6 +36,7 @@ function addViolation(
   });
 }
 
+/** Finds hardcoded visible strings in one TypeScript or TSX source file. */
 export function lintSource(sourceText: string, file: string): I18nViolation[] {
   const source = parse(sourceText, {
     sourceType: "module",
@@ -59,11 +62,22 @@ export function lintSource(sourceText: string, file: string): I18nViolation[] {
       TEXT_ATTRIBUTES.has(candidate.name.name)
     ) {
       const initializer = candidate.value as
-        { type?: string; value?: unknown } | undefined;
+        | {
+            type?: string;
+            value?: unknown;
+            expression?: { type?: string; value?: unknown };
+          }
+        | undefined;
+      const literal =
+        initializer?.type === "StringLiteral"
+          ? initializer
+          : initializer?.type === "JSXExpressionContainer"
+            ? initializer.expression
+            : undefined;
       if (
-        initializer?.type === "StringLiteral" &&
-        typeof initializer.value === "string" &&
-        hasLetters(initializer.value)
+        literal?.type === "StringLiteral" &&
+        typeof literal.value === "string" &&
+        hasLetters(literal.value)
       ) {
         addViolation(
           file,
@@ -83,6 +97,7 @@ export function lintSource(sourceText: string, file: string): I18nViolation[] {
   return violations;
 }
 
+/** Recursively lists eligible frontend source files while skipping generated/test trees. */
 async function filesUnder(root: string): Promise<string[]> {
   const entries = await readdir(root, { withFileTypes: true });
   const files: string[] = [];
@@ -95,6 +110,7 @@ async function filesUnder(root: string): Promise<string[]> {
   return files;
 }
 
+/** Runs the command-line checker and reports violations to stderr. */
 async function main(): Promise<void> {
   const root = resolve(process.cwd());
   const args = process.argv.slice(2);
