@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import { isIgnoredPath, lintSource, runCli } from "./lint-i18n";
+import { filesUnder, isIgnoredPath, lintSource, runCli } from "./lint-i18n";
 
 const execFileAsync = promisify(execFile);
 
@@ -97,6 +97,21 @@ describe("lint-i18n", () => {
     expect(isIgnoredPath("src\\Button.spec.tsx")).toBe(true);
     expect(isIgnoredPath("generated/messages.ts")).toBe(true);
     expect(isIgnoredPath("components/settings/panel.tsx")).toBe(false);
+  });
+
+  it("filters test files during a full directory scan", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "lint-i18n-scan-"));
+    try {
+      await mkdir(join(directory, "src"));
+      await writeFile(join(directory, "src", "Button.test.tsx"), "");
+      await writeFile(join(directory, "src", "Button.spec.tsx"), "");
+      await writeFile(join(directory, "src", "Button.tsx"), "");
+      await expect(filesUnder(directory)).resolves.toEqual([
+        join(directory, "src", "Button.tsx"),
+      ]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("accepts message calls and ignores technical attributes", () => {

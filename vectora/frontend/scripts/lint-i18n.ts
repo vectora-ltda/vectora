@@ -160,14 +160,19 @@ export function lintSource(sourceText: string, file: string): I18nViolation[] {
 }
 
 /** Recursively lists eligible frontend source files while skipping generated/test trees. */
-async function filesUnder(root: string): Promise<string[]> {
+export async function filesUnder(root: string): Promise<string[]> {
   const entries = await readdir(root, { withFileTypes: true });
   const files: string[] = [];
   for (const entry of entries) {
     if (entry.name.startsWith(".") || IGNORED_PARTS.has(entry.name)) continue;
     const path = join(root, entry.name);
     if (entry.isDirectory()) files.push(...(await filesUnder(path)));
-    else if ([".ts", ".tsx"].includes(extname(entry.name))) files.push(path);
+    else if (
+      [".ts", ".tsx"].includes(extname(entry.name)) &&
+      !isIgnoredPath(path)
+    ) {
+      files.push(path);
+    }
   }
   return files;
 }
