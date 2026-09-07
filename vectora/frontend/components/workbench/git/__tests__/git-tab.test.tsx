@@ -7,6 +7,7 @@
 
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import {
+  act,
   render,
   screen,
   fireEvent,
@@ -93,6 +94,7 @@ vi.mock("../worktrees-modal", () => ({ WorktreesModal: () => null }));
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.useRealTimers();
   mockActiveWorkspace = { id: "ws1" };
   mockLastCi = null;
   mockSummary = null;
@@ -120,6 +122,68 @@ function repoSummary(files: DiffSummary["files"] = []): DiffSummary {
 }
 
 describe("GitTab", () => {
+  it("não inicia polling concorrente e mantém a resposta pendente até concluir", async () => {
+    vi.useFakeTimers();
+    let resolveFirst!: (
+      value: Awaited<ReturnType<typeof api.fetchGitOperation>>,
+    ) => void;
+    const first = new Promise<
+      Awaited<ReturnType<typeof api.fetchGitOperation>>
+    >((resolve) => {
+      resolveFirst = resolve;
+    });
+    const fetchOperation = vi
+      .spyOn(api, "fetchGitOperation")
+      .mockReturnValueOnce(first)
+      .mockResolvedValue({
+        operation_id: "op-2",
+        workspace_id: "ws1",
+        operation: "pull",
+        state: "succeeded",
+        phase: "terminal",
+        progress: 100,
+        error_code: null,
+        error: null,
+        output: "",
+        created_at: 2,
+        finished_at: 3,
+      });
+    mockSummary = repoSummary();
+
+    render(<GitTab threadId="t1" />);
+    await Promise.resolve();
+    expect(fetchOperation).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1500);
+      await Promise.resolve();
+    });
+    expect(fetchOperation).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveFirst({
+        operation_id: "op-1",
+        workspace_id: "ws1",
+        operation: "fetch",
+        state: "running",
+        phase: "fetch",
+        progress: 10,
+        error_code: null,
+        error: null,
+        output: "",
+        created_at: 1,
+        finished_at: null,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(1500);
+      await Promise.resolve();
+    });
+    expect(fetchOperation).toHaveBeenCalledTimes(2);
+  });
+
   it("mostra mensagem de nenhum workspace quando não há workspace ativo", () => {
     mockActiveWorkspace = null;
     render(<GitTab threadId="t1" />);

@@ -80,6 +80,35 @@ function summary(files: DiffFile[]): DiffSummary {
 }
 
 describe("ChangesView", () => {
+  it("ignora a pasta pai de um arquivo aninhado e não oferece pasta para a raiz", () => {
+    vi.spyOn(api, "apiGitignoreAppend").mockResolvedValue({
+      status: "ok",
+      message: "",
+    });
+    const nested = file({
+      path: "src/components/Button.tsx",
+      unstaged_change: "M",
+    });
+    const root = file({ path: "README.md", unstaged_change: "M" });
+    render(<ChangesView workspaceId="ws1" summary={summary([nested, root])} />);
+
+    fireEvent.contextMenu(screen.getByText("src/components/Button.tsx"));
+    expect(
+      screen.getByRole("menuitem", { name: "Ignore folder" }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Ignore folder" }));
+    expect(api.apiGitignoreAppend).toHaveBeenCalledWith(
+      "ws1",
+      "src/components",
+      true,
+    );
+
+    fireEvent.contextMenu(screen.getByText("README.md"));
+    expect(
+      screen.queryByRole("menuitem", { name: "Ignore folder" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("mostra estado vazio (working tree limpo) quando summary.files está vazio", () => {
     render(<ChangesView workspaceId="ws1" summary={summary([])} />);
     expect(screen.getByText("workbench_diff_clean")).toBeInTheDocument();

@@ -64,3 +64,28 @@ async def test_append_gitignore_does_not_rewrite_invalid_utf8(
 
     assert result.status == "error"
     assert gitignore.read_bytes() == original
+
+
+@pytest.mark.asyncio
+async def test_append_gitignore_rejects_external_symlink_destination(
+    tmp_path: Path,
+) -> None:
+    """A .gitignore symlink must not allow writes outside the workspace."""
+    outside = tmp_path.parent / "external-gitignore"
+    outside.write_text("# external\n", encoding="utf-8")
+    gitignore = tmp_path / ".gitignore"
+    try:
+        gitignore.symlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlinks are unavailable: {exc}")
+
+    workspace = SimpleNamespace(cwd=str(tmp_path))
+    registry = SimpleNamespace(get=lambda workspace_id: workspace)
+
+    with patch("backend.workspace.workspace.workspace_registry", registry):
+        result = await append_gitignore(
+            "ws1", GitignoreAppendRequest(path="build/cache")
+        )
+
+    assert result.status == "error"
+    assert outside.read_text(encoding="utf-8") == "# external\n"
