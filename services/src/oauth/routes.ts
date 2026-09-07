@@ -258,7 +258,7 @@ oauth.get("/integrations/:provider/callback", async (c) => {
         state,
         provider,
         pending.returnTo,
-        "token_missing",
+        "token_exchange_failed",
       );
     }
     payload = (await response.json()) as Record<string, unknown>;

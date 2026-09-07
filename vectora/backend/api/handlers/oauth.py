@@ -692,7 +692,10 @@ async def list_integrations(request: Request) -> dict:
                 # Nunca expõe o valor — apenas informa se existe
                 "oauth_configured": (
                     oauth_provider_id in broker_providers
-                    or _oauth_configured(oauth_provider_id)
+                    or (
+                        _oauth_configured(oauth_provider_id)
+                        and _local_oauth_fallback_enabled()
+                    )
                     if integ["kind"] in ("oauth", "hybrid")
                     else False
                 ),
