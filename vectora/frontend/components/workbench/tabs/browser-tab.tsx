@@ -147,6 +147,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const consoleRequestRef = useRef(0);
   const workspaceGenerationRef = useRef(0);
   const actionGenerationRef = useRef(0);
+  const configsRef = useRef<LaunchConfig[]>([]);
   const statusRequestRef = useRef(0);
   const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const [consoleLoading, setConsoleLoading] = useState(false);
@@ -544,7 +545,11 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         );
         if (res.ok) {
           const data = (await res.json()) as { configurations: LaunchConfig[] };
-          if (isCurrent()) setConfigs(data.configurations ?? []);
+          if (isCurrent() && wsIdRef.current === wsId) {
+            const configurations = data.configurations ?? [];
+            configsRef.current = configurations;
+            setConfigs(configurations);
+          }
         }
       } catch {
         // silently ignore
@@ -634,7 +639,10 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     const load = () =>
       fetchConsoleLogs(
         consoleFor,
-        () => alive && consoleSelectionRef.current === selection,
+        () =>
+          alive &&
+          wsIdRef.current === wsId &&
+          consoleSelectionRef.current === selection,
       );
     void Promise.resolve().then(load);
     consolePollRef.current = setInterval(load, 3000);
@@ -676,10 +684,11 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   }, [wsId, configs.length, fetchStatus]);
 
   const saveConfigs = useCallback(
-    async (next: LaunchConfig[]) => {
+    async (update: (current: LaunchConfig[]) => LaunchConfig[]) => {
       const expectedWsId = wsId;
       const generation = workspaceGenerationRef.current;
       const save = saveQueueRef.current.then(async () => {
+        const next = update(configsRef.current);
         const saveRes = await fetch(
           `/workspaces/${encodeURIComponent(expectedWsId)}/browser/launch`,
           {
@@ -692,6 +701,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
           wsIdRef.current === expectedWsId &&
           workspaceGenerationRef.current === generation;
         if (saveRes.ok && current) {
+          configsRef.current = next;
           setConfigs(next);
           void fetchStatus(
             () =>
@@ -728,8 +738,8 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         : [],
       port: Number.isFinite(port) ? port : 3000,
     };
-    const ok = await saveConfigs([
-      ...configs.filter((c) => c.name !== cfg.name),
+    const ok = await saveConfigs((current) => [
+      ...current.filter((c) => c.name !== cfg.name),
       cfg,
     ]);
     if (ok) {
@@ -1220,7 +1230,9 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
                   const selection = consoleSelectionRef.current;
                   void fetchConsoleLogs(
                     consoleFor,
-                    () => consoleSelectionRef.current === selection,
+                    () =>
+                      wsIdRef.current === wsId &&
+                      consoleSelectionRef.current === selection,
                   );
                 }}
                 className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"

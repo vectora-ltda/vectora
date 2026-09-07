@@ -632,7 +632,9 @@ jobs:
       (startsWith(github.ref, 'refs/tags/v') &&
       needs.release-native.result == 'success') ||
       (github.event_name == 'push' &&
-      (github.ref == 'refs/heads/master' ||
+      ((github.ref == 'refs/heads/master' &&
+      needs.test-unit.result == 'success' &&
+      needs.test-external.result == 'success') ||
       (github.ref == 'refs/heads/publish-edge-production' &&
       needs.release-native.result == 'success'))))
     runs-on: ubuntu-latest
