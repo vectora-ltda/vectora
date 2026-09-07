@@ -89,6 +89,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
@@ -106,6 +108,9 @@ jobs:
       - name: Lint (oxlint)
         working-directory: vectora/frontend
         run: pnpm exec oxlint
+      - name: Lint i18n (no hardcoded UI strings)
+        working-directory: vectora/frontend
+        run: pnpm lint:i18n -- --changed
       - name: Type check (tsc --noEmit)
         working-directory: vectora/frontend
         run: pnpm typecheck

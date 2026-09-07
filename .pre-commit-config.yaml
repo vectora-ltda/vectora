@@ -201,6 +201,12 @@ repos:
         files: ^vectora/frontend/.*\.(ts|tsx|js|jsx|mjs|cjs)$
         pass_filenames: false
 
+      - id: i18n
+        name: Frontend i18n lint
+        entry: pnpm --dir vectora/frontend run lint:i18n --
+        language: system
+        files: ^vectora/frontend/.*\.(ts|tsx)$
+
   # ==========================================
   # Type Checking — TypeScript (tsc)
   # ==========================================
