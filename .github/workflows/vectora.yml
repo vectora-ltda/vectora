@@ -682,12 +682,12 @@ jobs:
           pnpm run build
       - name: Build docs
         id: build_docs
-        if: always()
+        if: ${{ !cancelled() }}
         working-directory: docs
         run: hugo --gc --minify
       - name: Validate and install services
         id: validate_services
-        if: always()
+        if: ${{ !cancelled() }}
         working-directory: services
         run: |
           pnpm install --frozen-lockfile
