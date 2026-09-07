@@ -550,6 +550,40 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
     );
   });
 
+  it("preserva navegação digitada enquanto a view reidratada ainda está pendente", async () => {
+    let resolveSecond: ((viewId: number) => void) | undefined;
+    const bridge = mockBrowserView();
+    bridge.createView
+      .mockReset()
+      .mockResolvedValueOnce(1)
+      .mockImplementationOnce(
+        () =>
+          new Promise<number>((resolve) => {
+            resolveSecond = resolve;
+          }),
+      );
+    mockFetch({ configurations: [] });
+    const view = render(<BrowserTab threadId="electron-pending-navigation" />);
+    await waitFor(() => expect(bridge.createView).toHaveBeenCalledTimes(1));
+
+    workspaceState.id = "ws2";
+    view.rerender(<BrowserTab threadId="electron-pending-navigation" />);
+    await waitFor(() => expect(bridge.createView).toHaveBeenCalledTimes(2));
+
+    const urlBar = await screen.findByTestId("browser-url-bar");
+    fireEvent.focus(urlBar);
+    fireEvent.change(urlBar, { target: { value: "pending.example" } });
+    fireEvent.keyDown(urlBar, { key: "Enter" });
+
+    resolveSecond?.(2);
+    await waitFor(() =>
+      expect(bridge.navigate).toHaveBeenCalledWith(
+        2,
+        "https://pending.example",
+      ),
+    );
+  });
+
   it("evento navigated do main atualiza a barra de URL e can-go-back/forward — nunca escritos manualmente", async () => {
     const bridge = mockBrowserView();
     mockFetch({ configurations: [] });

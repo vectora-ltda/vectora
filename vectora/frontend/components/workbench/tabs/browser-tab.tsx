@@ -461,13 +461,26 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
           desktopBrowser.destroyView(viewId);
           return;
         }
+        const pending = pendingNavigateRef.current.get(tab.id);
+        pendingNavigateRef.current.delete(tab.id);
         setTabs((prev) =>
           prev.map((candidate) =>
-            candidate.id === tab.id ? { ...candidate, viewId } : candidate,
+            candidate.id === tab.id
+              ? {
+                  ...candidate,
+                  viewId,
+                  ...(pending ? { desktopUrl: pending } : {}),
+                }
+              : candidate,
           ),
         );
-        if (tab.desktopUrl)
-          void desktopBrowser.navigate(viewId, tab.desktopUrl);
+        const initialUrl = pending ?? tab.desktopUrl;
+        if (initialUrl) {
+          void desktopBrowser.navigate(viewId, initialUrl).then((result) => {
+            if (!result.ok)
+              updateTab(tab.id, { loadError: result.error ?? null });
+          });
+        }
       });
     }
     return () => {
