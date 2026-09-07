@@ -19,7 +19,11 @@ async def test_append_gitignore_is_idempotent_and_preserves_existing_content(
     gitignore = tmp_path / ".gitignore"
     gitignore.write_text("# local rules\n", encoding="utf-8")
     workspace = SimpleNamespace(cwd=str(tmp_path))
-    registry = SimpleNamespace(get=lambda workspace_id: workspace)
+
+    def get_workspace(_workspace_id: str) -> SimpleNamespace:
+        return workspace
+
+    registry = SimpleNamespace(get=get_workspace)
 
     with patch("backend.workspace.workspace.workspace_registry", registry):
         request = GitignoreAppendRequest(path="build\\cache")
@@ -35,7 +39,11 @@ async def test_append_gitignore_is_idempotent_and_preserves_existing_content(
 async def test_append_gitignore_rejects_path_traversal(tmp_path: Path) -> None:
     """A user-controlled path must never escape the workspace root."""
     workspace = SimpleNamespace(cwd=str(tmp_path))
-    registry = SimpleNamespace(get=lambda workspace_id: workspace)
+
+    def get_workspace(_workspace_id: str) -> SimpleNamespace:
+        return workspace
+
+    registry = SimpleNamespace(get=get_workspace)
 
     with patch("backend.workspace.workspace.workspace_registry", registry):
         result = await append_gitignore(
@@ -55,7 +63,11 @@ async def test_append_gitignore_does_not_rewrite_invalid_utf8(
     original = b"valid\xff\n"
     gitignore.write_bytes(original)
     workspace = SimpleNamespace(cwd=str(tmp_path))
-    registry = SimpleNamespace(get=lambda workspace_id: workspace)
+
+    def get_workspace(_workspace_id: str) -> SimpleNamespace:
+        return workspace
+
+    registry = SimpleNamespace(get=get_workspace)
 
     with patch("backend.workspace.workspace.workspace_registry", registry):
         result = await append_gitignore(
@@ -80,7 +92,11 @@ async def test_append_gitignore_rejects_external_symlink_destination(
         pytest.skip(f"symlinks are unavailable: {exc}")
 
     workspace = SimpleNamespace(cwd=str(tmp_path))
-    registry = SimpleNamespace(get=lambda workspace_id: workspace)
+
+    def get_workspace(_workspace_id: str) -> SimpleNamespace:
+        return workspace
+
+    registry = SimpleNamespace(get=get_workspace)
 
     with patch("backend.workspace.workspace.workspace_registry", registry):
         result = await append_gitignore(
