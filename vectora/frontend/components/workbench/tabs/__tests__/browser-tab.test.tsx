@@ -487,7 +487,10 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
     let handler: EventHandler | null = null;
     const bridge = {
       ...calls,
-      createView: vi.fn(async () => 1),
+      createView: vi
+        .fn<() => Promise<number>>()
+        .mockResolvedValueOnce(1)
+        .mockResolvedValue(2),
       onEvent: vi.fn((h: EventHandler) => {
         handler = h;
         return () => {
@@ -526,6 +529,25 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
     expect(
       screen.getByTestId("browser-webcontentsview-container"),
     ).toBeTruthy();
+  });
+
+  it("trocar de workspace sem sessão cria a WebContentsView nativa e navega nela", async () => {
+    const bridge = mockBrowserView();
+    mockFetch({ configurations: [] });
+    const view = render(<BrowserTab threadId="electron-workspace-switch" />);
+    await waitFor(() => expect(bridge.createView).toHaveBeenCalledTimes(1));
+
+    workspaceState.id = "ws2";
+    view.rerender(<BrowserTab threadId="electron-workspace-switch" />);
+    await waitFor(() => expect(bridge.createView).toHaveBeenCalledTimes(2));
+
+    const urlBar = await screen.findByTestId("browser-url-bar");
+    fireEvent.focus(urlBar);
+    fireEvent.change(urlBar, { target: { value: "ws2.example" } });
+    fireEvent.keyDown(urlBar, { key: "Enter" });
+    await waitFor(() =>
+      expect(bridge.navigate).toHaveBeenCalledWith(2, "https://ws2.example"),
+    );
   });
 
   it("evento navigated do main atualiza a barra de URL e can-go-back/forward — nunca escritos manualmente", async () => {

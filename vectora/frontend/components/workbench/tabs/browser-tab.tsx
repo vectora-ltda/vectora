@@ -156,6 +156,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   // do console de stdout do dev server acima, que é sobre o processo, não
   // sobre a página que o agente navega via tools de browser.
   const [devtoolsOpen, setDevtoolsOpen] = useState(false);
+  const [sessionHydrationVersion, setSessionHydrationVersion] = useState(0);
 
   // Múltiplas abas — cada uma com seu próprio histórico (web) ou sua
   // própria WebContentsView (desktop, cada uma com viewId próprio; o
@@ -207,6 +208,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     setTabs(nextTabs);
     setActiveTabId(nextActiveTabId);
     hydratedSessionKeyRef.current = sessionKey;
+    setSessionHydrationVersion((version) => version + 1);
   }, [sessionKey]);
 
   useEffect(() => {
@@ -472,7 +474,12 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       cancelled = true;
       hideAllBrowserViews();
     };
-  }, [desktopBrowser, hideAllBrowserViews, sessionKey]);
+  }, [
+    desktopBrowser,
+    hideAllBrowserViews,
+    sessionKey,
+    sessionHydrationVersion,
+  ]);
 
   useEffect(() => {
     const pendingNavigate = pendingNavigateRef.current;
