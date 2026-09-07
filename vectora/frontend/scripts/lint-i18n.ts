@@ -43,6 +43,23 @@ function addViolation(
   });
 }
 
+function staticLiteralText(node: unknown): string | undefined {
+  if (!node || typeof node !== "object") return undefined;
+  const value = node as {
+    type?: string;
+    value?: unknown;
+    expressions?: unknown[];
+    quasis?: Array<{ value?: { cooked?: unknown } }>;
+  };
+  if (value.type === "StringLiteral" && typeof value.value === "string")
+    return value.value;
+  if (value.type === "TemplateLiteral" && value.expressions?.length === 0) {
+    const cooked = value.quasis?.[0]?.value?.cooked;
+    return typeof cooked === "string" ? cooked : undefined;
+  }
+  return undefined;
+}
+
 /** Finds hardcoded visible strings in one TypeScript or TSX source file. */
 export function lintSource(sourceText: string, file: string): I18nViolation[] {
   const source = parse(sourceText, {
@@ -63,14 +80,9 @@ export function lintSource(sourceText: string, file: string): I18nViolation[] {
       candidate.type === "JSXExpressionContainer" &&
       parentType !== "JSXAttribute"
     ) {
-      const expression = (
-        candidate as { expression?: { type?: string; value?: unknown } }
-      ).expression;
-      if (
-        expression?.type === "StringLiteral" &&
-        typeof expression.value === "string" &&
-        hasLetters(expression.value)
-      ) {
+      const expression = (candidate as { expression?: unknown }).expression;
+      const text = staticLiteralText(expression);
+      if (text !== undefined && hasLetters(text)) {
         addViolation(file, candidate, "Visible JSX text", violations);
       }
     } else if (
@@ -93,16 +105,11 @@ export function lintSource(sourceText: string, file: string): I18nViolation[] {
           }
         | undefined;
       const literal =
-        initializer?.type === "StringLiteral"
-          ? initializer
-          : initializer?.type === "JSXExpressionContainer"
-            ? initializer.expression
-            : undefined;
-      if (
-        literal?.type === "StringLiteral" &&
-        typeof literal.value === "string" &&
-        hasLetters(literal.value)
-      ) {
+        initializer?.type === "JSXExpressionContainer"
+          ? (initializer as { expression?: unknown }).expression
+          : initializer;
+      const text = staticLiteralText(literal);
+      if (text !== undefined && hasLetters(text)) {
         addViolation(
           file,
           candidate,

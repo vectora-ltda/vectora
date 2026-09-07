@@ -26,6 +26,15 @@ describe("lint-i18n", () => {
     ).toHaveLength(1);
   });
 
+  it("detects static template literals", () => {
+    expect(
+      lintSource("<button>{`Salvar`}</button>", "fixture.tsx"),
+    ).toHaveLength(1);
+    expect(lintSource("<img alt={`Logotipo`} />", "fixture.tsx")).toHaveLength(
+      1,
+    );
+  });
+
   it("applies exclusions to every path mode", () => {
     expect(isIgnoredPath("components/__tests__/fixture.tsx")).toBe(true);
     expect(isIgnoredPath("components\\__tests__\\fixture.tsx")).toBe(true);
