@@ -9,6 +9,10 @@
 
 ---
 
+Esta seção define o fluxo de autorização das integrações gerenciado pela
+Vectora LTDA: o Worker mantém os OAuth Apps e o backend local apenas inicia o
+fluxo e consome o resultado autenticado.
+
 ## OAuth de integrações
 
 Os OAuth Apps das integrações são registrados pela Vectora LTDA no Worker
@@ -50,10 +54,13 @@ vectora-services (Worker Cloudflare único — services/src/index.ts)
 
 **Dois tipos de OAuth — não confundir:**
 
-| Tipo                     | Propósito                                   | Provider                                   | Callback                                                                  |
-| ------------------------ | ------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------- |
-| **Login na company**     | Entrar em vectora.company                   | `services` (D1, sessão própria)            | tratado no próprio `services.vectora.company`                             |
-| **Integração do agente** | Agente acessa GitHub/Drive/Slack do usuário | Provider → services OAuth broker → Backend | `https://services.vectora.company/oauth/integrations/{provider}/callback` |
+| Tipo                     | Propósito                                     | Provider                                   | Callback                                                                  |
+| ------------------------ | --------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------- |
+| **Login na company**     | Entrar em vectora.company                     | `services` (D1, sessão própria)            | tratado no próprio `services.vectora.company`                             |
+| **Integração do agente** | Agente acessa GitHub/GitLab/Google do usuário | Provider → services OAuth broker → Backend | `https://services.vectora.company/oauth/integrations/{provider}/callback` |
+
+Slack permanece fora do broker centralizado e usa o fluxo local Socket Mode,
+com `SLACK_BOT_TOKEN` e `SLACK_APP_TOKEN` configurados pela integração local.
 
 A Seção 3 deste plano é sobre o **segundo tipo** — OAuth para que o agente faça chamadas API em nome do usuário.
 
@@ -441,14 +448,14 @@ curl https://services.vectora.company/license/validate -X POST -d '{"token":"...
 [ ] 10. Cloudflare: configurar Custom Domain services.vectora.company → vectora-services (fora do wrangler.toml, validar mecanismo com quem administra o DNS)
 [ ] 11. Backend: adicionar VECTORA_APP_SECRET/VECTORA_OAUTH_SECRET ao defaults.env
 [ ] 12. Testar: GET /gateway/status no backend → ver subdomínio
-[ ] 13. GitHub OAuth App: criar em github.com/settings/developers (OAuth App), usando o callback e os escopos documentados
-[ ] 14. Google OAuth: criar no console.cloud.google.com
-[ ] 15. Slack App: criar em api.slack.com/apps
-[ ] 16. GitLab App: criar em gitlab.com/-/profile/applications
-[ ] 17. Vercel: adicionar env vars no projeto do site (company)
-[ ] 18. Testar fluxo OAuth GitHub end-to-end (via app Vectora)
-[ ] 19. Testar license device flow
-[ ] 20. Testar signup/login/billing (Stripe sandbox + Asaas sandbox)
+   [ ] 13. Worker: configurar `GITHUB_OAUTH_CLIENT_ID` e `GITHUB_OAUTH_CLIENT_SECRET`
+   [ ] 14. Worker: configurar `GOOGLE_OAUTH_CLIENT_ID` e `GOOGLE_OAUTH_CLIENT_SECRET`
+   [ ] 15. Worker: configurar `GITLAB_OAUTH_CLIENT_ID` e `GITLAB_OAUTH_CLIENT_SECRET`
+   [ ] 16. Slack: configurar `SLACK_BOT_TOKEN` e `SLACK_APP_TOKEN` no fluxo local Socket Mode
+   [ ] 17. Vercel: adicionar env vars no projeto do site (company)
+   [ ] 18. Testar fluxo OAuth GitHub end-to-end (via app Vectora)
+   [ ] 19. Testar license device flow
+   [ ] 20. Testar signup/login/billing (Stripe sandbox + Asaas sandbox)
 ```
 
 ---
@@ -513,9 +520,9 @@ VITE_TURNSTILE_SITE_KEY=<site key>
 Cada tool de integração externa (`backend/tools/slack.py`, `gdrive.py`,
 `gmail.py`, `jira.py`, `linear.py`, `notion.py`, `gh.py`) lê sua **própria**
 env var (`SLACK_BOT_TOKEN`, `GITHUB_PERSONAL_ACCESS_TOKEN`, etc. — ver
-`slack.py::_token()`), e cada uma exige que **Bruno** (não o usuário final)
-registre um OAuth App separado no provider correspondente (Seção 3). Isso é
-fricção dupla:
+`slack.py::_token()`). Os OAuth Apps centralizados são registrados uma única
+vez pela Vectora LTDA no Worker; o usuário final apenas autoriza a conta. Isso
+remove a fricção de configuração duplicada:
 
 1. **Pro operador do Vectora** (Bruno): N providers = N OAuth Apps pra
    manter, N conjuntos de client_id/client_secret, N callbacks.
@@ -527,11 +534,11 @@ fricção dupla:
 
 ### O que o Tool Gateway resolve — e o que não resolve
 
-**Resolve**: um usuário que ainda não tem OAuth Apps próprios pode conectar
-Slack/GitHub/Google/etc. através de credenciais operadas pela Vectora
-(client_id/secret do gateway), reduzindo o fluxo de "criar OAuth App
-primeiro" pra "clicar em Conectar". Centraliza _quais_ integrações estão
-disponíveis (mesmo catálogo, uma vez, não duplicado por tool).
+**Resolve**: um usuário pode conectar GitHub/Google/GitLab através dos OAuth
+Apps operados pela Vectora (client_id/secret do Worker), reduzindo o fluxo a
+"clicar em Conectar". Slack continua no Socket Mode local porque seu contrato
+exige os tokens de bot e de app. O catálogo centraliza apenas os providers
+efetivamente suportados pelo broker.
 
 **Não resolve, e não deve**: substituir BYOK. O princípio fundacional do
 produto (`market-and-positioning.md`) é que o usuário sempre pode trazer
@@ -556,7 +563,7 @@ Usuário clica "Conectar" no catálogo de integrações (aba Integrações,
 já teria uma seção "via Vectora" ao lado de "BYOK")
         │
         ▼
-gateway.vectora.chat/auth/{provider}/start
+services.vectora.company/oauth/integrations/{provider}/start
    (usa client_id/secret OPERADOS PELA VECTORA — Seção 3, já registrados
     uma vez por Bruno, reaproveitados por todos os usuários finais)
         │
@@ -584,9 +591,8 @@ popular a env var), sem exigir refactor de nenhuma tool existente.
 ### Escopo de providers (fase 1, ao implementar)
 
 Providers que já têm tool própria e leem env var/override isolado —
-candidatos naturais por já terem o "outro lado" pronto: Slack
-(`SLACK_BOT_TOKEN`, hoje via Socket Mode/Connect, fora do escopo OAuth
-público desta seção), GitHub (`GITHUB_PERSONAL_ACCESS_TOKEN`, já cobre
+candidatos naturais por já terem o "outro lado" pronto: GitHub
+(`GITHUB_PERSONAL_ACCESS_TOKEN`, já cobre
 `gh.py`), Google (`gmail.py`/`gdrive.py`, já lêem
 `GOOGLE_ACCESS_TOKEN`/`GOOGLE_REFRESH_TOKEN` gravados pelo fluxo OAuth
 descrito na Seção 3.2 — candidato mais próximo de já "funcionar" com o Tool
@@ -609,7 +615,9 @@ Tool Gateway).
 
 ### Verificação (quando implementado)
 
-Conectar Slack via Tool Gateway (sem nunca ter configurado `SLACK_BOT_TOKEN`
-manualmente), confirmar que `slack_send` funciona sem nenhuma mudança de
-código na tool; depois configurar `SLACK_BOT_TOKEN` manualmente por cima e
+Conectar GitHub via Tool Gateway, confirmar que `github_*` funciona sem
+nenhuma mudança de código na tool; depois configurar o Slack localmente com
+`SLACK_BOT_TOKEN` e `SLACK_APP_TOKEN` e confirmar que `slack_send` funciona
+sem nenhuma mudança de código na tool; depois configurar `SLACK_BOT_TOKEN`
+manualmente por cima e
 confirmar que o valor manual vence (BYOK sempre tem prioridade).

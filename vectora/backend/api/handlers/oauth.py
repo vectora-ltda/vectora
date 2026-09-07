@@ -50,18 +50,33 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["oauth"])
 
 _GATEWAY_TOKEN_PATH = settings.vectora_home / "gateway_token"
-_OAUTH_BROKER_URL = os.getenv("VECTORA_OAUTH_BROKER_URL", "").strip()
-_OAUTH_BROKER_SECRET = os.getenv("VECTORA_OAUTH_SECRET", "").strip()
-_BROKER_STATE_TTL = 300.0
+_OAUTH_BROKER_URL: str = os.getenv("VECTORA_OAUTH_BROKER_URL", "").strip()
+_OAUTH_BROKER_SECRET: str = os.getenv("VECTORA_OAUTH_SECRET", "").strip()
+_BROKER_STATE_TTL: float = 300.0
+_BROKER_PROVIDER_CACHE_TTL: float = 5.0
+_broker_provider_cache: tuple[float, set[str]] | None = None
 
 
 def _broker_enabled() -> bool:
     return bool(_OAUTH_BROKER_URL and _OAUTH_BROKER_SECRET)
 
 
+def _local_oauth_fallback_enabled() -> bool:
+    """Allow legacy local OAuth only when explicitly enabled for compatibility."""
+    return os.getenv("VECTORA_ALLOW_LOCAL_OAUTH_FALLBACK", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
 async def _broker_providers() -> set[str]:
+    global _broker_provider_cache
     if not _broker_enabled():
         return set()
+    now = time.monotonic()
+    if _broker_provider_cache and now < _broker_provider_cache[0]:
+        return set(_broker_provider_cache[1])
     try:
         import httpx
 
@@ -70,7 +85,9 @@ async def _broker_providers() -> set[str]:
                 f"{_OAUTH_BROKER_URL}/oauth/integrations/providers"
             )
         if response.is_success:
-            return {str(item) for item in response.json().get("providers", [])}
+            providers = {str(item) for item in response.json().get("providers", [])}
+            _broker_provider_cache = (now + _BROKER_PROVIDER_CACHE_TTL, providers)
+            return set(providers)
     except Exception as exc:
         logger.warning("OAuth broker provider discovery failed: %s", exc)
     return set()
@@ -121,9 +138,21 @@ async def _broker_start(request: Request, provider: str) -> RedirectResponse:
 
 
 async def _try_broker_start(request: Request, provider: str) -> RedirectResponse | None:
-    """Use the central broker when advertised, falling back to local OAuth."""
+    """Start company-managed OAuth, with an explicit legacy escape hatch."""
+    if not _broker_enabled():
+        if _local_oauth_fallback_enabled():
+            return None
+        raise HTTPException(
+            status_code=503,
+            detail="OAuth centralizado não está configurado neste Vectora",
+        )
     if provider not in await _broker_providers():
-        return None
+        if _local_oauth_fallback_enabled():
+            return None
+        raise HTTPException(
+            status_code=503,
+            detail=f"OAuth centralizado não oferece o provider {provider}",
+        )
     try:
         return await _broker_start(request, provider)
     except HTTPException as exc:
@@ -132,7 +161,12 @@ async def _try_broker_start(request: Request, provider: str) -> RedirectResponse
         logger.warning("OAuth broker unavailable for %s: %s", provider, exc.detail)
     except Exception as exc:
         logger.warning("OAuth broker transport failed for %s: %s", provider, exc)
-    return None
+    if _local_oauth_fallback_enabled():
+        return None
+    raise HTTPException(
+        status_code=503,
+        detail="OAuth centralizado indisponível; tente novamente mais tarde",
+    )
 
 
 async def _broker_callback(
@@ -161,15 +195,21 @@ async def _broker_callback(
     import httpx
 
     response = None
-    async with httpx.AsyncClient(timeout=10) as client:
-        for attempt in range(5):
-            response = await client.get(
-                f"{_OAUTH_BROKER_URL}/oauth/integrations/{provider}/result/{state}",
-                headers={"Authorization": f"Bearer {_OAUTH_BROKER_SECRET}"},
-            )
-            if response.status_code != 202:
-                break
-            await asyncio.sleep(0.2 * (attempt + 1))
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            for attempt in range(5):
+                response = await client.get(
+                    f"{_OAUTH_BROKER_URL}/oauth/integrations/{provider}/result/{state}",
+                    headers={"Authorization": f"Bearer {_OAUTH_BROKER_SECRET}"},
+                )
+                if response.status_code != 202:
+                    break
+                await asyncio.sleep(0.2 * (attempt + 1))
+    except httpx.RequestError as exc:
+        logger.warning("OAuth broker result transport failed for %s: %s", provider, exc)
+        return RedirectResponse(
+            url=f"/?oauth_error={provider}_broker_unavailable", status_code=302
+        )
     if response is None or response.status_code == 202:
         raise HTTPException(
             status_code=502, detail="Resultado OAuth ainda não disponível"
@@ -179,6 +219,13 @@ async def _broker_callback(
             status_code=502, detail="Broker OAuth falhou ao recuperar o token"
         )
     payload = response.json()
+    error = payload.get("error")
+    if isinstance(error, str) and error:
+        safe_error = "".join(char for char in error if char.isalnum() or char in "-_")
+        return RedirectResponse(
+            url=f"/?oauth_error={provider}_{safe_error or 'broker_error'}",
+            status_code=302,
+        )
     access_token = payload.get("accessToken")
     if not isinstance(access_token, str) or not access_token:
         raise HTTPException(status_code=502, detail="Broker OAuth não retornou token")
@@ -1199,8 +1246,6 @@ async def slack_oauth_start(request: Request) -> RedirectResponse:
 async def slack_oauth_callback(
     request: Request, code: str = "", state: str = ""
 ) -> RedirectResponse:
-    if _broker_enabled() and _looks_like_broker_state(state, "slack"):
-        return await _broker_callback("slack", state, request)
     if not code:
         raise HTTPException(status_code=400, detail="Parâmetro 'code' ausente")
     client_id, client_secret, redirect_uri = _slack_cfg()

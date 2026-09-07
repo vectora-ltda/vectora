@@ -203,18 +203,12 @@ oauth.get("/integrations/:provider/callback", async (c) => {
   }
   if (!code) {
     const reason = c.req.query("error") ?? "authorization_denied";
-    await storeOAuthResult(
-      c.env,
-      state,
-      JSON.stringify({ provider, error: reason }),
-    );
-    await deleteOAuthState(c.env, state);
     return finishOAuthWithError(
       c.env,
       state,
       provider,
       pending.returnTo,
-      "token_exchange_failed",
+      reason,
     );
   }
 
@@ -228,28 +222,44 @@ oauth.get("/integrations/:provider/callback", async (c) => {
     ).toString(),
     grant_type: "authorization_code",
   });
-  const response = await fetch(config.tokenUrl, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body,
-  });
-  if (!response.ok) {
-    console.error("oauth_exchange_failed", {
+  let response: Response;
+  let payload: Record<string, unknown>;
+  try {
+    response = await fetch(config.tokenUrl, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body,
+    });
+    if (!response.ok) {
+      console.error("oauth_exchange_failed", {
+        provider,
+        status: response.status,
+      });
+      return finishOAuthWithError(
+        c.env,
+        state,
+        provider,
+        pending.returnTo,
+        "token_missing",
+      );
+    }
+    payload = (await response.json()) as Record<string, unknown>;
+  } catch (error) {
+    console.error("oauth_exchange_transport_failed", {
       provider,
-      status: response.status,
+      error: error instanceof Error ? error.message : String(error),
     });
     return finishOAuthWithError(
       c.env,
       state,
       provider,
       pending.returnTo,
-      "token_missing",
+      "token_exchange_failed",
     );
   }
-  const payload = (await response.json()) as Record<string, unknown>;
   const accessToken =
     typeof payload.access_token === "string"
       ? payload.access_token
@@ -259,7 +269,13 @@ oauth.get("/integrations/:provider/callback", async (c) => {
         : "";
   if (!accessToken) {
     console.error("oauth_exchange_missing_token", { provider });
-    return c.redirect(withState(pending.returnTo, state));
+    return finishOAuthWithError(
+      c.env,
+      state,
+      provider,
+      pending.returnTo,
+      "token_missing",
+    );
   }
   await storeOAuthResult(
     c.env,

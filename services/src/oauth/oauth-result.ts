@@ -10,13 +10,14 @@ export class OAuthResult implements DurableObject {
         value: string;
         expirationTtl: number;
       };
+      const expiresAt = Date.now() + payload.expirationTtl * 1000;
       await this.state.storage.put(key, {
         value: payload.value,
-        expiresAt: Date.now() + payload.expirationTtl * 1000,
+        expiresAt,
       });
-      await this.state.storage.setAlarm(
-        Date.now() + payload.expirationTtl * 1000,
-      );
+      const alarm = await this.state.storage.getAlarm();
+      if (alarm === null || expiresAt < alarm)
+        await this.state.storage.setAlarm(expiresAt);
       return Response.json({ ok: true });
     }
     if (request.method === "DELETE") {

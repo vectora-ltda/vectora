@@ -13,16 +13,14 @@
  * decide tudo aqui — nada de lista de ids hardcoded no frontend.
  * Custom: chave+valor livre via /auth/envs, para credenciais sem entrada
  * dedicada no catálogo (MCP servers, providers não listados, etc).
- * Webhook URL: exibida para providers que têm webhook configurado.
- * O callback público fica no Worker e nunca é exibido como configuração para
- * o usuário final.
+ * Callbacks OAuth e URLs de túnel são internos do ecossistema e nunca são
+ * exibidos como configuração para o usuário final.
  */
 
 import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
-  Copy,
   Eye,
   EyeOff,
   ExternalLink,
@@ -38,7 +36,6 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ProBadge } from "@/components/ui/pro-badge";
 import {
   Dialog,
   DialogContent,
@@ -84,9 +81,6 @@ interface Integration {
 
 type VerifyState = "idle" | "loading" | "ok" | "error";
 
-// Providers que têm suporte a webhook no backend
-const WEBHOOK_PROVIDERS = new Set(["github", "gitlab", "slack", "linear"]);
-
 // ---------------------------------------------------------------------------
 // API helpers
 // ---------------------------------------------------------------------------
@@ -106,18 +100,12 @@ type GatewayState = "never_connected" | "error" | "connected";
 interface GatewayStatus {
   connected: boolean;
   state: GatewayState;
-  token: string | null;
-  subdomain: string | null;
-  webhook_base: string | null;
   detail: string | null;
 }
 
 const GATEWAY_STATUS_FALLBACK: GatewayStatus = {
   connected: false,
   state: "never_connected",
-  token: null,
-  subdomain: null,
-  webhook_base: null,
   detail: null,
 };
 
@@ -195,11 +183,9 @@ function startOAuth(provider: string): void {
 function IntegrationCard({
   integ,
   onUpdated,
-  gatewayWebhookBase,
 }: {
   integ: Integration;
   onUpdated: () => void;
-  gatewayWebhookBase: string | null;
 }) {
   // O token manual continua sendo uma alternativa explícita e permanece
   // disponível quando o provider declara suporte a credenciais manuais.
@@ -216,7 +202,6 @@ function IntegrationCard({
   const [verifyState, setVerifyState] = useState<VerifyState>("idle");
   const [verifyMsg, setVerifyMsg] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [webhookCopied, setWebhookCopied] = useState(false);
 
   // Deriva 100% do registry do backend (`kind`) — nada hardcoded aqui: uma
   // integração nova ganha o comportamento certo só por declarar seu `kind`
@@ -229,16 +214,6 @@ function IntegrationCard({
     integ.kind === "apikey" ||
     integ.kind === "hybrid" ||
     integ.kind === "oauth";
-  const hasWebhook = WEBHOOK_PROVIDERS.has(integ.id);
-
-  // URL de webhook — usa o gateway (*.vectora.chat) quando conectado,
-  // ou a origem do site em produção (self-hosted com domínio próprio).
-  const webhookUrl = gatewayWebhookBase
-    ? `${gatewayWebhookBase}/webhook/${integ.id}`
-    : typeof window !== "undefined"
-      ? `${window.location.origin}/webhook/${integ.id}`
-      : `/webhook/${integ.id}`;
-
   const handleSave = async () => {
     if (!keyValue.trim()) return;
     setSaving(true);
@@ -290,12 +265,6 @@ function IntegrationCard({
     } finally {
       setRemoving(false);
     }
-  };
-
-  const handleCopyWebhook = async () => {
-    await navigator.clipboard.writeText(webhookUrl);
-    setWebhookCopied(true);
-    setTimeout(() => setWebhookCopied(false), 2000);
   };
 
   // Providers filho (google-drive, gmail) herdam conexão do pai — não mostram
@@ -527,34 +496,6 @@ function IntegrationCard({
               </Button>
             </div>
           )}
-        </div>
-      )}
-
-      {/* Webhook URL — para providers com webhook configurado */}
-      {hasWebhook && integ.connected && (
-        <div className="px-3 pb-3 border-t pt-3 space-y-1.5">
-          <div className="text-xs text-muted-foreground font-medium flex items-center gap-1.5">
-            {m.integrations_webhook_url()}
-            <ProBadge />
-          </div>
-          <div className="flex gap-1.5">
-            <code className="flex-1 text-xs bg-muted px-2 py-1 rounded font-mono truncate">
-              {webhookUrl}
-            </code>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0 shrink-0"
-              onClick={handleCopyWebhook}
-              title={m.integrations_webhook_copy()}
-            >
-              {webhookCopied ? (
-                <CheckCircle2 className="w-3 h-3 text-green-500" />
-              ) : (
-                <Copy className="w-3 h-3" />
-              )}
-            </Button>
-          </div>
         </div>
       )}
     </div>
@@ -835,20 +776,7 @@ export function IntegracoesTab() {
                 ? m.gateway_error()
                 : m.gateway_never_connected()}
           </p>
-          {gateway.subdomain && (
-            <span className="font-mono text-[10px] text-muted-foreground">
-              {gateway.subdomain}
-            </span>
-          )}
         </div>
-        {gateway.state === "connected" && gateway.webhook_base && (
-          <p className="text-muted-foreground">
-            {m.gateway_webhook_hint()}{" "}
-            <span className="font-mono">
-              {gateway.webhook_base}/webhook/&#123;provider&#125;
-            </span>
-          </p>
-        )}
         {gateway.state === "error" && (
           <p className="text-destructive/80">
             {gateway.detail ?? m.gateway_error_retry()}
@@ -875,12 +803,7 @@ export function IntegracoesTab() {
               {cat.label()}
             </p>
             {items.map((integ) => (
-              <IntegrationCard
-                key={integ.id}
-                integ={integ}
-                onUpdated={load}
-                gatewayWebhookBase={gateway.webhook_base}
-              />
+              <IntegrationCard key={integ.id} integ={integ} onUpdated={load} />
             ))}
           </div>
         );

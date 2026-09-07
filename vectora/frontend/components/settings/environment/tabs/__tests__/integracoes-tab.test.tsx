@@ -424,41 +424,14 @@ describe("IntegracoesTab", () => {
     });
   });
 
-  it("GitHub conectado exibe URL de webhook local quando gateway desconectado", async () => {
+  it("não exibe URLs de webhook ou túnel na interface", async () => {
     const { IntegracoesTab } = await import("../integracoes-tab");
     render(<IntegracoesTab />);
     await waitFor(() => {
-      const webhookUrls = screen.getAllByText(/\/webhook\/github/i);
-      expect(webhookUrls.length).toBeGreaterThan(0);
+      expect(screen.getByText("GitHub")).toBeInTheDocument();
     });
-  });
-
-  it("GitHub usa gateway webhook_base quando gateway conectado", async () => {
-    mockFetch(BASE_INTEGRATIONS, {
-      connected: true,
-      state: "connected",
-      token: "abc123",
-      subdomain: "abc123.vectora.chat",
-      webhook_base: "https://abc123.vectora.chat",
-      detail: null,
-    });
-    const { IntegracoesTab } = await import("../integracoes-tab");
-    render(<IntegracoesTab />);
-    await waitFor(() => {
-      const webhookUrls = screen.getAllByText(
-        /abc123\.vectora\.chat\/webhook\/github/i,
-      );
-      expect(webhookUrls.length).toBeGreaterThan(0);
-    });
-  });
-
-  it("Slack conectado exibe URL de webhook", async () => {
-    const { IntegracoesTab } = await import("../integracoes-tab");
-    render(<IntegracoesTab />);
-    await waitFor(() => {
-      const webhookUrls = screen.getAllByText(/\/webhook\/slack/i);
-      expect(webhookUrls.length).toBeGreaterThan(0);
-    });
+    expect(screen.queryByText(/\/webhook\//i)).toBeNull();
+    expect(screen.queryByText(/vectora\.chat/i)).toBeNull();
   });
 
   it("provider OAuth não exibe callback para cadastro do usuário", async () => {
@@ -532,7 +505,7 @@ describe("IntegracoesTab", () => {
     });
   });
 
-  it("gateway conectado exibe subdomain e mensagem de gateway conectado", async () => {
+  it("gateway conectado exibe apenas o estado, sem expor o subdomínio", async () => {
     mockFetch(BASE_INTEGRATIONS, {
       connected: true,
       state: "connected",
@@ -545,10 +518,7 @@ describe("IntegracoesTab", () => {
     render(<IntegracoesTab />);
     await waitFor(() => {
       expect(screen.getByText(/gateway conectado/i)).toBeTruthy();
-      // subdomain e webhook_base podem aparecer em múltiplos spans — getAllByText é correto
-      expect(
-        screen.getAllByText(/abc123\.vectora\.chat/).length,
-      ).toBeGreaterThan(0);
+      expect(screen.queryByText(/abc123\.vectora\.chat/)).toBeNull();
     });
   });
 

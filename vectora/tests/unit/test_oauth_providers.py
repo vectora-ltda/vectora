@@ -35,6 +35,12 @@ def client() -> TestClient:
     return TestClient(app, raise_server_exceptions=False, follow_redirects=False)
 
 
+@pytest.fixture(autouse=True)
+def allow_legacy_local_oauth(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep provider unit tests focused on local compatibility handlers."""
+    monkeypatch.setenv("VECTORA_ALLOW_LOCAL_OAUTH_FALLBACK", "1")
+
+
 # ---------------------------------------------------------------------------
 # GitLab OAuth
 # ---------------------------------------------------------------------------
