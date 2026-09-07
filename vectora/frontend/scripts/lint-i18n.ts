@@ -16,6 +16,13 @@ const TEXT_ATTRIBUTES = new Set(["alt", "aria-label", "placeholder", "title"]);
 const IGNORED_PARTS = new Set(["e2e", "tests", "paraglide"]);
 const execFileAsync = promisify(execFile);
 
+export function isIgnoredPath(filePath: string): boolean {
+  const normalized = filePath.replaceAll("\\\\", "/");
+  return normalized
+    .split("/")
+    .some((part) => ["e2e", "tests", "__tests__", "paraglide"].includes(part));
+}
+
 /** Returns whether text contains user-visible letters. */
 function hasLetters(value: string): boolean {
   return /[\p{L}]/u.test(value);
@@ -44,7 +51,7 @@ export function lintSource(sourceText: string, file: string): I18nViolation[] {
   });
   const violations: I18nViolation[] = [];
 
-  function visit(node: unknown): void {
+  function visit(node: unknown, parentType?: string): void {
     if (!node || typeof node !== "object") return;
     const candidate = node as {
       type?: string;
@@ -52,7 +59,24 @@ export function lintSource(sourceText: string, file: string): I18nViolation[] {
       name?: { name?: string };
       loc?: { start: { line: number; column: number } };
     };
-    if (candidate.type === "JSXText" && typeof candidate.value === "string") {
+    if (
+      candidate.type === "JSXExpressionContainer" &&
+      parentType !== "JSXAttribute"
+    ) {
+      const expression = (
+        candidate as { expression?: { type?: string; value?: unknown } }
+      ).expression;
+      if (
+        expression?.type === "StringLiteral" &&
+        typeof expression.value === "string" &&
+        hasLetters(expression.value)
+      ) {
+        addViolation(file, candidate, "Visible JSX text", violations);
+      }
+    } else if (
+      candidate.type === "JSXText" &&
+      typeof candidate.value === "string"
+    ) {
       const text = candidate.value.replace(/\s+/g, " ").trim();
       if (hasLetters(text))
         addViolation(file, candidate, "Visible JSX text", violations);
@@ -88,8 +112,9 @@ export function lintSource(sourceText: string, file: string): I18nViolation[] {
       }
     }
     for (const value of Object.values(candidate)) {
-      if (Array.isArray(value)) value.forEach(visit);
-      else if (value && typeof value === "object") visit(value);
+      if (Array.isArray(value))
+        value.forEach((child) => visit(child, candidate.type));
+      else if (value && typeof value === "object") visit(value, candidate.type);
     }
   }
 

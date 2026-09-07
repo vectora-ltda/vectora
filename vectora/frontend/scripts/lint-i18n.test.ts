@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lintSource } from "./lint-i18n";
+import { isIgnoredPath, lintSource } from "./lint-i18n";
 
 describe("lint-i18n", () => {
   it("reports visible JSX text and text attributes", () => {
@@ -18,6 +18,13 @@ describe("lint-i18n", () => {
     expect(
       lintSource('<button title={"Salvar"}>Continuar</button>', "fixture.tsx"),
     ).toHaveLength(2);
+  });
+
+  it("applies exclusions to every path mode", () => {
+    expect(isIgnoredPath("components/__tests__/fixture.tsx")).toBe(true);
+    expect(isIgnoredPath("components/e2e/fixture.tsx")).toBe(true);
+    expect(isIgnoredPath("lib/paraglide/messages.ts")).toBe(true);
+    expect(isIgnoredPath("components/settings/panel.tsx")).toBe(false);
   });
 
   it("accepts message calls and ignores technical attributes", () => {
