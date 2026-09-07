@@ -13,11 +13,11 @@ export interface I18nViolation {
 }
 
 const TEXT_ATTRIBUTES = new Set(["alt", "aria-label", "placeholder", "title"]);
-const IGNORED_PARTS = new Set(["e2e", "tests", "paraglide"]);
+const IGNORED_PARTS = new Set(["e2e", "tests", "__tests__", "paraglide"]);
 const execFileAsync = promisify(execFile);
 
 export function isIgnoredPath(filePath: string): boolean {
-  const normalized = filePath.replaceAll("\\\\", "/");
+  const normalized = filePath.replaceAll("\\", "/");
   return normalized
     .split("/")
     .some((part) => ["e2e", "tests", "__tests__", "paraglide"].includes(part));
@@ -164,6 +164,7 @@ async function main(): Promise<void> {
           "--no-commit-id",
           "--name-only",
           "-r",
+          "-m",
           "HEAD",
           "--",
           "vectora/frontend",

@@ -28,8 +28,10 @@ describe("lint-i18n", () => {
 
   it("applies exclusions to every path mode", () => {
     expect(isIgnoredPath("components/__tests__/fixture.tsx")).toBe(true);
+    expect(isIgnoredPath("components\\__tests__\\fixture.tsx")).toBe(true);
     expect(isIgnoredPath("components/e2e/fixture.tsx")).toBe(true);
     expect(isIgnoredPath("lib/paraglide/messages.ts")).toBe(true);
+    expect(isIgnoredPath("lib\\paraglide\\messages.ts")).toBe(true);
     expect(isIgnoredPath("components/settings/panel.tsx")).toBe(false);
   });
 
