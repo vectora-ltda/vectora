@@ -123,7 +123,10 @@ function MarketplaceResults({
           if (alive) setResults(items);
         })
         .catch(() => {
-          if (alive) setError(errorLabel);
+          if (alive) {
+            setResults([]);
+            setError(errorLabel);
+          }
         })
         .finally(() => {
           if (alive) setLoading(false);

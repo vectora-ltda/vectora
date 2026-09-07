@@ -564,7 +564,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         if (res.ok) {
           const data = (await res.json()) as { servers: ServerStatus[] };
           const servers = data.servers ?? [];
-          if (!isCurrent()) return servers;
+          if (!isCurrent()) return null;
           setStatuses(servers);
 
           // Auto-navegação: qualquer servidor que passe de parado pra rodando

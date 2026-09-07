@@ -401,7 +401,9 @@ export function indexInstallersByOsArch(
       const availableFiles = [
         ...(already.availableFiles ?? [already.filename]),
         file,
-      ].filter((name, index, names) => names.indexOf(name) === index);
+      ]
+        .filter((name, index, names) => names.indexOf(name) === index)
+        .sort((left, right) => left.localeCompare(right));
       installersByOsArch.set(key, {
         filename: already.filename,
         path: already.path,
@@ -440,7 +442,9 @@ export function selectManifestInstaller(
 ): string {
   const updaterExtension =
     os === "win" ? ".exe" : os === "mac" ? ".dmg" : ".AppImage";
-  const filename = filenames.find((name) => name.endsWith(updaterExtension));
+  const filename = filenames
+    .filter((name) => name.endsWith(updaterExtension))
+    .sort((left, right) => left.localeCompare(right))[0];
   if (!filename) {
     throw new Error(
       `Nenhum instalador ${updaterExtension} disponível para ${os}`,

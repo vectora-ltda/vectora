@@ -336,8 +336,8 @@ describe("buildArchManifest / resolveInstaller — regressão do manifesto cross
       "Vectora-0.1.1-linux-x64.AppImage",
     );
     expect(installers.get("linux/x64")?.availableFiles).toEqual([
-      "Vectora-0.1.1-linux-x64.deb",
       "Vectora-0.1.1-linux-x64.AppImage",
+      "Vectora-0.1.1-linux-x64.deb",
       "Vectora-0.1.1-linux-x64.rpm",
     ]);
   });
@@ -355,6 +355,17 @@ describe("buildArchManifest / resolveInstaller — regressão do manifesto cross
         "Vectora-0.1.1-linux-x64.rpm",
       ]),
     ).toThrow(/\.AppImage/);
+  });
+
+  it("escolhe o mesmo artefato do manifesto independentemente da ordem", () => {
+    const candidates = [
+      "Vectora-0.1.1-win-x64.exe",
+      "Vectora-0.1.1-win-x64.msi",
+    ];
+    expect(selectManifestInstaller("win", candidates)).toBe(candidates[0]);
+    expect(selectManifestInstaller("win", [...candidates].reverse())).toBe(
+      candidates[0],
+    );
   });
 
   it("recusa indexar um manifesto Linux sem AppImage", () => {

@@ -17,7 +17,7 @@ name: Vectora (app)
 # versão do release-please em vectora/pyproject.toml, que já bate no path.
 on:
   push:
-    branches: [master]
+    branches: [master, publish-edge-production]
     tags: ["v*"]
     paths:
       - "vectora/**"
@@ -291,8 +291,7 @@ jobs:
     needs: [test-unit, test-external]
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      startsWith(github.ref, 'refs/tags/v') ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/publish-edge-production')
+      startsWith(github.ref, 'refs/tags/v')
     env:
       # Nuitka escolhe clang/gcc + ccache no Linux/macOS, MSVC + clcache
       # (vendorizado dentro do próprio pacote nuitka) no Windows — cada um lê
@@ -502,6 +501,10 @@ jobs:
   publish-update-channel:
     name: Publish to update channel (R2 + KV)
     needs: release-native
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/publish-edge-production')
     runs-on: ubuntu-latest
     concurrency:
       group: vectora-production-update-channel
@@ -513,6 +516,8 @@ jobs:
       # As credenciais R2 e do Wrangler ficam limitadas ao passo de publicação.
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -560,16 +565,17 @@ jobs:
   publish-gha-bot-cli:
     name: Publish gha-bot CLI binary (R2)
     needs: release-native
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/publish-edge-production')
     runs-on: ubuntu-latest
     environment:
       name: production
-    env:
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: auto
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Read version from pyproject.toml
         id: version
         working-directory: .
@@ -583,6 +589,11 @@ jobs:
           path: dist/vectora-cli
       - name: Tar + publish to R2 (multipart via S3-compatible API)
         working-directory: .
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
         run: |
           # `wrangler r2 object put` (comando simples, sem multipart) rejeita
           # qualquer arquivo acima de 300 MiB — o vectora-cli chegou a 473 MiB
@@ -607,11 +618,14 @@ jobs:
   # pelo ecossistema Vectora.
   publish-edge-production:
     name: Publish edge production (docs + company + services)
-    needs: release-native
+    needs: [test-unit, test-external]
     if: >-
-      github.ref == 'refs/heads/master' ||
+      !cancelled() &&
+      (github.event_name == 'workflow_dispatch' ||
       startsWith(github.ref, 'refs/tags/v') ||
-      github.ref == 'refs/heads/publish-edge-production'
+      (github.event_name == 'push' &&
+      (github.ref == 'refs/heads/master' ||
+      github.ref == 'refs/heads/publish-edge-production')))
     runs-on: ubuntu-latest
     concurrency:
       group: vectora-production-d1-schema
