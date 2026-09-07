@@ -101,18 +101,35 @@ async function main(): Promise<void> {
   let paths: string[];
   if (args.includes("--changed")) {
     const repoRoot = resolve(root, "..", "..");
-    const { stdout } = await execFileAsync(
-      "git",
-      [
-        "diff",
-        "--name-only",
-        "--diff-filter=AM",
-        "HEAD^",
-        "--",
-        "vectora/frontend",
-      ],
-      { cwd: repoRoot },
-    );
+    let stdout: string;
+    try {
+      ({ stdout } = await execFileAsync(
+        "git",
+        [
+          "diff",
+          "--name-only",
+          "--diff-filter=AM",
+          "HEAD^",
+          "--",
+          "vectora/frontend",
+        ],
+        { cwd: repoRoot },
+      ));
+    } catch {
+      ({ stdout } = await execFileAsync(
+        "git",
+        [
+          "diff-tree",
+          "--no-commit-id",
+          "--name-only",
+          "-r",
+          "HEAD",
+          "--",
+          "vectora/frontend",
+        ],
+        { cwd: repoRoot },
+      ));
+    }
     paths = stdout
       .split(/\r?\n/)
       .filter((path) => /\.(ts|tsx)$/.test(path))
