@@ -575,7 +575,10 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
     fireEvent.change(urlBar, { target: { value: "pending.example" } });
     fireEvent.keyDown(urlBar, { key: "Enter" });
 
-    resolveSecond?.(2);
+    expect(bridge.navigate).not.toHaveBeenCalled();
+    expect(resolveSecond).toBeDefined();
+    if (!resolveSecond) throw new Error("second view was not created");
+    resolveSecond(2);
     await waitFor(() =>
       expect(bridge.navigate).toHaveBeenCalledWith(
         2,
