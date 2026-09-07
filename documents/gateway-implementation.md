@@ -26,6 +26,11 @@ aceitos somente em `https://*.vectora.chat`; o `return_to` tokenizado existe
 apenas como transporte interno entre o Worker e a instalação, e nunca é
 exposto como configuração ao usuário, ao binário ou aos logs.
 
+Para GitHub, o operador registra um OAuth App da Vectora com os escopos
+`repo,user:email,read:org` e usa `GITHUB_OAUTH_CLIENT_ID` e
+`GITHUB_OAUTH_CLIENT_SECRET` no Worker; o redirect registrado é o callback
+público de `/oauth/integrations/github/callback`.
+
 ## Arquitetura — O que é o gateway e quem faz o quê
 
 ```text

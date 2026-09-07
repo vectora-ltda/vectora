@@ -73,9 +73,9 @@ interface Integration {
   oauth_connected: boolean;
   env_var_aliases?: string[];
   extra_vars?: string[];
-  /** true quando o broker da Vectora anuncia o provider ou quando esta
-   * instalação legada tem CLIENT_ID + CLIENT_SECRET locais configurados; a
-   * interface usa o valor para habilitar "Conectar via OAuth". */
+  /** true quando o broker da Vectora anuncia o provider ou quando o fallback
+   * OAuth local explicitamente habilitado tem CLIENT_ID + CLIENT_SECRET;
+   * a interface usa o valor para habilitar "Conectar via OAuth". */
   oauth_configured: boolean;
 }
 

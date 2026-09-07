@@ -53,7 +53,6 @@ router = APIRouter(tags=["oauth"])
 _GATEWAY_TOKEN_PATH = settings.vectora_home / "gateway_token"
 _BROKER_STATE_TTL: float = 300.0
 _BROKER_PROVIDER_SUCCESS_CACHE_TTL: float = 60.0
-_BROKER_PROVIDER_FAILURE_CACHE_TTL: float = 5.0
 _broker_provider_cache: tuple[float, set[str]] | None = None
 
 
@@ -137,7 +136,6 @@ async def _broker_providers() -> set[str]:
             return set(providers)
     except Exception as exc:
         logger.warning("OAuth broker provider discovery failed: %s", exc)
-    _broker_provider_cache = (now + _BROKER_PROVIDER_FAILURE_CACHE_TTL, set())
     return set()
 
 
