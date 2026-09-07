@@ -191,7 +191,7 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_PROJECT_ID: ${{ env.VERCEL_PROJECT_ID_DOCS }}
-        run: ../company/node_modules/.bin/vercel --prod --yes --token="$VERCEL_TOKEN"
+        run: pnpm dlx vercel --prod --yes --token="$VERCEL_TOKEN"
 
       - name: Deploy company (Vercel)
         if: >-
