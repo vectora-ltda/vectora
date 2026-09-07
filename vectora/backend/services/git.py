@@ -15,13 +15,23 @@ import git
 
 _T = TypeVar("_T")
 _REDACT_USERINFO = re.compile(r"(://[^/@\s:]+):[^/@\s]+@")
-_REDACT_SECRET = re.compile(r"(?i)(token|secret|password|authorization)=([^\s&]+)")
+_REDACT_SECRET = re.compile(
+    r"(?i)(?P<key>token|secret|password)=(?P<value>[^\s&]+)"
+    r"|(?P<authorization>authorization)(?P<separator>\s*[=:]\s*)"
+    r"(?:(?P<scheme>Bearer)\s+)?(?P<auth_value>[^\s&]+)"
+)
 
 
 def redact_git_output(value: str) -> str:
     """Remove credenciais de URLs e parâmetros antes de expor saída Git."""
     value = _REDACT_USERINFO.sub(r"\1:***@", value)
-    return _REDACT_SECRET.sub(r"\1=***", value)
+
+    def replace(match: re.Match[str]) -> str:
+        if match.group("authorization"):
+            return f"{match.group('authorization')}{match.group('separator')}***"
+        return f"{match.group('key')}=***"
+
+    return _REDACT_SECRET.sub(replace, value)
 
 
 @dataclass(slots=True)
@@ -111,6 +121,11 @@ class GitService:
             operation=operation_name,
         )
         async with self._guard:
+            self._operations = {
+                operation_id: previous
+                for operation_id, previous in self._operations.items()
+                if previous.workspace_id != workspace_id
+            }
             self._operations[operation.operation_id] = operation
         lock = await self._lock_for(repo)
         try:
@@ -125,11 +140,12 @@ class GitService:
             raise GitOperationError(operation.error_code, operation.error) from exc
 
         try:
+            callback_task = asyncio.create_task(asyncio.to_thread(callback))
             operation.state = "running"
             operation.phase = operation_name
             operation.progress = 10
             result = await asyncio.wait_for(
-                asyncio.to_thread(callback), timeout=timeout_seconds
+                asyncio.shield(callback_task), timeout=timeout_seconds
             )
             operation.state = "succeeded"
             operation.phase = "terminal"
@@ -137,6 +153,10 @@ class GitService:
             operation.finished_at = time.time()
             return operation, result
         except TimeoutError as exc:
+            try:
+                await callback_task
+            except Exception as callback_error:
+                operation.output = redact_git_output(str(callback_error))
             operation.state = "failed"
             operation.phase = "terminal"
             operation.error_code = "git_command_timeout"
@@ -151,6 +171,14 @@ class GitService:
             operation.output = operation.error
             operation.finished_at = time.time()
             raise GitOperationError(operation.error_code, operation.error) from exc
+        except Exception as exc:
+            operation.state = "failed"
+            operation.phase = "terminal"
+            operation.error_code = "git_operation_failed"
+            operation.error = redact_git_output(str(exc)) or "Falha na operação Git"
+            operation.output = operation.error
+            operation.finished_at = time.time()
+            raise
         finally:
             lock.release()
 

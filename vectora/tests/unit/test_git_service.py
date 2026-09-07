@@ -64,8 +64,72 @@ async def test_lock_timeout_is_typed(tmp_path: Path) -> None:
 
 
 def test_redact_git_output_masks_url_credentials_and_parameters() -> None:
-    value = "https://user:token@example.com/repo?token=secret authorization=Bearer"
+    value = (
+        "https://user:token@example.com/repo?token=secret "
+        "authorization=Bearer bearer-secret Authorization: Bearer colon-secret"
+    )
     result = redact_git_output(value)
     assert "user:***@example.com" in result
     assert "token=***" in result
     assert "authorization=***" in result
+    assert "Authorization: ***" in result
+    assert "bearer-secret" not in result
+    assert "colon-secret" not in result
+
+
+@pytest.mark.asyncio
+async def test_latest_retains_only_the_most_recent_operation(tmp_path: Path) -> None:
+    service = GitService()
+    repo = make_repo(tmp_path / "repo")
+
+    await service.execute("workspace", repo, "fetch", lambda: "first")
+    await service.execute("workspace", repo, "pull", lambda: "second")
+
+    latest = await service.latest("workspace")
+
+    assert latest is not None
+    assert latest["operation"] == "pull"
+    assert len(service._operations) == 1
+
+
+@pytest.mark.asyncio
+async def test_generic_callback_failure_is_terminal(tmp_path: Path) -> None:
+    service = GitService()
+    repo = make_repo(tmp_path / "repo")
+
+    def fail() -> str:
+        raise ValueError("token=leaked")
+
+    with pytest.raises(ValueError):
+        await service.execute("workspace", repo, "fetch", fail)
+
+    latest = await service.latest("workspace")
+
+    assert latest is not None
+    assert latest["state"] == "failed"
+    assert latest["error_code"] == "git_operation_failed"
+    assert latest["error"] == "token=***"
+
+
+@pytest.mark.asyncio
+async def test_timeout_waits_for_callback_before_releasing_lock(tmp_path: Path) -> None:
+    service = GitService()
+    repo = make_repo(tmp_path / "repo")
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking() -> str:
+        started.set()
+        release.wait()
+        return "done"
+
+    operation = asyncio.create_task(
+        service.execute("workspace", repo, "fetch", blocking, timeout_seconds=0.01)
+    )
+    await asyncio.to_thread(started.wait, 1)
+    await asyncio.sleep(0.05)
+    assert not operation.done()
+    release.set()
+
+    with pytest.raises(GitOperationError, match="Tempo limite"):
+        await operation
