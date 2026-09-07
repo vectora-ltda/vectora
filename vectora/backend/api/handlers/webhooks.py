@@ -271,6 +271,7 @@ _HANDLERS: dict[str, WebhookHandler] = {
     "sendgrid": _handle_email,
     "mailgun": _handle_email,
 }
+_SUPPORTED_PROVIDERS = frozenset(_VERIFIERS) | frozenset(_HANDLERS) | {"sendgrid"}
 
 # ---------------------------------------------------------------------------
 # SSE bridge — emite WebhookEvent para clientes conectados
@@ -439,6 +440,8 @@ async def receive_observability_webhook(request: Request) -> Response:
 @router.post("/webhook/{provider}")
 async def receive_webhook(provider: str, request: Request) -> Response:
     """Recebe webhook de um provider externo, verifica assinatura e despacha."""
+    if provider not in _SUPPORTED_PROVIDERS:
+        raise HTTPException(status_code=404, detail="Provider de webhook não suportado")
     body = await request.body()
     headers = {k.lower(): v for k, v in request.headers.items()}
 

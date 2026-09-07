@@ -203,11 +203,19 @@ class TestWebhookEndpoint:
         assert resp.status_code == 400
 
     @patch("backend.api.handlers.webhooks._persist_event", new_callable=AsyncMock)
-    def test_provider_sem_verificador_aceita(
+    def test_provider_suportado_sem_verificador_aceita(
         self, mock_persist: AsyncMock, client: TestClient
     ) -> None:
         resp = client.post("/webhook/sendgrid", json={"event": "delivered"})
         assert resp.status_code == 200
+
+    @patch("backend.api.handlers.webhooks._persist_event", new_callable=AsyncMock)
+    def test_provider_nao_suportado_e_rejeitado_antes_de_persistir(
+        self, mock_persist: AsyncMock, client: TestClient
+    ) -> None:
+        resp = client.post("/webhook/slack", json={"type": "url_verification"})
+        assert resp.status_code == 404
+        mock_persist.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
