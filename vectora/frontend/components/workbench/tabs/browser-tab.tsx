@@ -148,6 +148,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const workspaceGenerationRef = useRef(0);
   const actionGenerationRef = useRef(0);
   const configsRef = useRef<LaunchConfig[]>([]);
+  const configsByWorkspaceRef = useRef<Record<string, LaunchConfig[]>>({});
   const statusRequestRef = useRef(0);
   const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const [consoleLoading, setConsoleLoading] = useState(false);
@@ -547,6 +548,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
           const data = (await res.json()) as { configurations: LaunchConfig[] };
           if (isCurrent() && wsIdRef.current === wsId) {
             const configurations = data.configurations ?? [];
+            configsByWorkspaceRef.current[wsId] = configurations;
             configsRef.current = configurations;
             setConfigs(configurations);
           }
@@ -673,6 +675,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
 
   useEffect(() => {
     let alive = true;
+    prevRunningRef.current = null;
     if (!wsId || configs.length === 0) return;
     const load = () => fetchStatus(() => alive && wsIdRef.current === wsId);
     void Promise.resolve().then(load);
@@ -688,7 +691,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       const expectedWsId = wsId;
       const generation = workspaceGenerationRef.current;
       const save = saveQueueRef.current.then(async () => {
-        const next = update(configsRef.current);
+        const next = update(configsByWorkspaceRef.current[expectedWsId] ?? []);
         const saveRes = await fetch(
           `/workspaces/${encodeURIComponent(expectedWsId)}/browser/launch`,
           {
@@ -700,6 +703,9 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         const current =
           wsIdRef.current === expectedWsId &&
           workspaceGenerationRef.current === generation;
+        if (saveRes.ok) {
+          configsByWorkspaceRef.current[expectedWsId] = next;
+        }
         if (saveRes.ok && current) {
           configsRef.current = next;
           setConfigs(next);
@@ -711,8 +717,9 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         }
         return saveRes.ok && current;
       });
-      saveQueueRef.current = save.catch(() => undefined);
-      return save;
+      const result = save.catch(() => false);
+      saveQueueRef.current = result;
+      return result;
     },
     [wsId, fetchStatus],
   );
