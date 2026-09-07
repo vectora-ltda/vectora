@@ -70,6 +70,14 @@ class _BrokerTransaction:
 _broker_transactions: dict[str, _BrokerTransaction] = {}
 
 
+def _purge_expired_broker_transactions(now: int | None = None) -> None:
+    """Remove broker transactions whose short-lived callback window elapsed."""
+    current = int(time.time()) if now is None else now
+    for state, transaction in tuple(_broker_transactions.items()):
+        if transaction.expires_at < current:
+            _broker_transactions.pop(state, None)
+
+
 def _broker_url() -> str:
     return os.getenv("VECTORA_OAUTH_BROKER_URL", "").strip()
 
@@ -85,6 +93,7 @@ def _broker_enabled() -> bool:
 def _consume_broker_transaction(
     request: Request, state: str, provider: str, user_id: str
 ) -> bool:
+    _purge_expired_broker_transactions()
     proof = request.query_params.get("oauth_proof", "")
     transaction = _broker_transactions.get(state)
     if transaction is None:
@@ -140,6 +149,7 @@ async def _broker_providers() -> set[str]:
 
 
 async def _broker_start(request: Request, provider: str) -> RedirectResponse:
+    _purge_expired_broker_transactions()
     user = _get_user(request)
     broker_url = _broker_url()
     broker_secret = _broker_secret()
@@ -165,44 +175,46 @@ async def _broker_start(request: Request, provider: str) -> RedirectResponse:
         proof=proof,
         expires_at=expires_at,
     )
-    callback = _gateway_callback_url(provider)
-    if not callback:
-        raise HTTPException(
-            status_code=503,
-            detail="OAuth centralizado exige um gateway Vectora conectado",
-        )
-    callback_url = callback
-    separator = "&" if "?" in callback_url else "?"
-    callback_url = f"{callback_url}{separator}oauth_proof={proof}"
-    import httpx
-
-    async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
-        response = await client.get(
-            f"{broker_url}/oauth/integrations/{provider}/start",
-            params={"state": state, "return_to": callback_url},
-        )
-    if response.status_code != 302:
-        _broker_transactions.pop(state, None)
-        if 200 <= response.status_code < 300:
-            logger.warning(
-                "OAuth broker start inesperado para %s: HTTP %s",
-                provider,
-                response.status_code,
+    try:
+        callback = _gateway_callback_url(provider)
+        if not callback:
+            raise HTTPException(
+                status_code=503,
+                detail="OAuth centralizado exige um gateway Vectora conectado",
             )
-            raise HTTPException(status_code=502, detail="Falha ao iniciar OAuth")
-        detail = (
-            "OAuth broker não configurado"
-            if response.status_code == 503
-            else "Falha ao iniciar OAuth"
-        )
-        raise HTTPException(status_code=response.status_code, detail=detail)
-    location = response.headers.get("location")
-    if not location:
+        callback_url = callback
+        separator = "&" if "?" in callback_url else "?"
+        callback_url = f"{callback_url}{separator}oauth_proof={proof}"
+        import httpx
+
+        async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
+            response = await client.get(
+                f"{broker_url}/oauth/integrations/{provider}/start",
+                params={"state": state, "return_to": callback_url},
+            )
+        if response.status_code != 302:
+            if 200 <= response.status_code < 300:
+                logger.warning(
+                    "OAuth broker start inesperado para %s: HTTP %s",
+                    provider,
+                    response.status_code,
+                )
+                raise HTTPException(status_code=502, detail="Falha ao iniciar OAuth")
+            detail = (
+                "OAuth broker não configurado"
+                if response.status_code == 503
+                else "Falha ao iniciar OAuth"
+            )
+            raise HTTPException(status_code=response.status_code, detail=detail)
+        location = response.headers.get("location")
+        if not location:
+            raise HTTPException(
+                status_code=502, detail="Broker OAuth não retornou redirect"
+            )
+        return RedirectResponse(url=location, status_code=302)
+    except Exception:
         _broker_transactions.pop(state, None)
-        raise HTTPException(
-            status_code=502, detail="Broker OAuth não retornou redirect"
-        )
-    return RedirectResponse(url=location, status_code=302)
+        raise
 
 
 async def _try_broker_start(request: Request, provider: str) -> RedirectResponse | None:

@@ -211,9 +211,10 @@ O Worker expõe:
   VECTORA_OAUTH_SECRET, retorna o resultado uma única vez e o apaga do Durable Object.
 
 O redirect de retorno recebido do backend é aceito somente em
-https://*.vectora.chat. O retorno contém apenas state; o token nunca é colocado
-em URL, no binário desktop ou no comentário de log. O backend faz polling com
-pequenos retries, associa o token
+https://*.vectora.chat. O retorno interno contém o state e uma prova one-shot
+de curta duração; nunca contém token do provider. O token nunca é colocado em
+URL do provider, no binário desktop ou no comentário de log. O backend faz
+polling com pequenos retries, associa o token
 ao usuário que iniciou o fluxo e então o salva como override. Instalações sem
 VECTORA_OAUTH_BROKER_URL exibem erro explícito e continuam podendo usar PAT/API
 key manual quando o provider suportar esse modo.
@@ -278,21 +279,6 @@ GITLAB_WEBHOOK_SECRET=<token>
 ```
 
 ---
-
-### 4.3 Slack Event Subscriptions (fluxo HTTP alternativo)
-
-Esta seção só se aplica quando a instalação optar pelo modo HTTP do Slack e
-não configurar `SLACK_APP_TOKEN`. Com `SLACK_APP_TOKEN` e `SLACK_BOT_TOKEN`,
-use exclusivamente o Socket Mode local descrito acima; não cadastre uma
-`Request URL` ao mesmo tempo.
-
-```
-Request URL: https://gateway.vectora.chat/webhook/slack
-```
-
-> Slack faz challenge de verificação na hora do cadastro — o backend
-> precisa responder com `{"challenge": "..."}` (já implementado em
-> `webhooks.py`; o Worker só encaminha o request, não intercepta).
 
 ---
 
@@ -437,8 +423,8 @@ curl https://abc123.vectora.chat/
 ```powershell
 # No app Vectora: Configurações → Integrações → GitHub → Conectar
 # O app inicia o broker company-managed em services.vectora.company.
-# O GitHub chama o callback público do Worker; o retorno ao app usa apenas
-# state de uso único pelo túnel interno, sem expor token ou URL de túnel.
+# O GitHub chama o callback público do Worker; o retorno interno usa state e
+# uma prova one-shot pelo túnel, sem expor token ou URL de túnel.
 # Depois da autorização, o agente consegue clonar repos, criar PRs, etc.
 ```
 
