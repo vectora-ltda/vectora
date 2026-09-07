@@ -27,7 +27,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -2392,6 +2392,13 @@ class GitignoreUpdateRequest(BaseModel):
     lines: list[str]  # conteúdo completo do .gitignore
 
 
+class GitignoreAppendRequest(BaseModel):
+    """Regra literal que será adicionada ao .gitignore do workspace."""
+
+    path: str = Field(min_length=1, max_length=512)
+    is_folder: bool = False
+
+
 @workspace_scoped_router.get(
     "/fs/gitignore-preview",
     response_model=GitignorePreviewResponse,
@@ -2478,6 +2485,61 @@ async def update_gitignore(
         gitignore.write_text(content, encoding="utf-8")
         return StatusResponse(status="ok", message=".gitignore atualizado.")
     except OSError as exc:
+        return StatusResponse(status="error", message=str(exc))
+
+
+@workspace_scoped_router.post("/fs/gitignore/append", response_model=StatusResponse)
+async def append_gitignore(  # noqa: PLR0911
+    workspace_id: str, body: GitignoreAppendRequest
+) -> StatusResponse:
+    """Acrescenta uma regra ancorada e idempotente ao .gitignore."""
+    import pathspec
+
+    from backend.services.security import resolve_within_workspace
+    from backend.workspace.workspace import workspace_registry
+
+    ws = workspace_registry.get(workspace_id)
+    if ws is None:
+        return StatusResponse(status="error", message="Workspace não encontrado.")
+
+    normalized = body.path.replace("\\", "/").strip().strip("/")
+    if (
+        not normalized
+        or "\x00" in normalized
+        or any(ord(char) < 32 for char in normalized)
+    ):
+        return StatusResponse(status="error", message="Caminho inválido.")
+    parts = normalized.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        return StatusResponse(status="error", message="Caminho inválido.")
+    try:
+        resolve_within_workspace(normalized, Path(ws.cwd))
+    except (OSError, ValueError) as exc:
+        return StatusResponse(status="error", message=str(exc))
+
+    escaped = "/".join(
+        segment.replace("\\", "\\\\")
+        .replace("*", "\\*")
+        .replace("?", "\\?")
+        .replace("[", "\\[")
+        for segment in parts
+    )
+    rule = f"/{escaped}/" if body.is_folder else f"/{escaped}"
+    try:
+        pathspec.PathSpec.from_lines("gitignore", [rule])
+        gitignore = Path(ws.cwd) / ".gitignore"
+        existing = gitignore.read_bytes() if gitignore.exists() else b""
+        text = existing.decode("utf-8", errors="replace")
+        lines = text.splitlines()
+        if rule in {line.strip() for line in lines}:
+            return StatusResponse(status="ok", message="Regra já presente.")
+        newline = "\r\n" if "\r\n" in text else "\n"
+        prefix = text
+        if prefix and not prefix.endswith(("\n", "\r")):
+            prefix += newline
+        gitignore.write_bytes((prefix + rule + newline).encode("utf-8"))
+        return StatusResponse(status="ok", message="Regra adicionada ao .gitignore.")
+    except (OSError, UnicodeError, ValueError) as exc:
         return StatusResponse(status="error", message=str(exc))
 
 

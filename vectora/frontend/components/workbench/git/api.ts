@@ -192,6 +192,17 @@ export function apiGitFileAction(
   return postJson(`${base(workspaceId)}/git/${action}`, { path });
 }
 
+export function apiGitignoreAppend(
+  workspaceId: string,
+  path: string,
+  isFolder = false,
+): Promise<{ status: string; message: string }> {
+  return postJson(`${base(workspaceId)}/fs/gitignore/append`, {
+    path,
+    is_folder: isFolder,
+  });
+}
+
 export async function apiGitCommit(
   workspaceId: string,
   message: string,

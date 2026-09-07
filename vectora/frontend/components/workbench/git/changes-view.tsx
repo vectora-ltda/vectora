@@ -27,7 +27,12 @@ import {
   type DiffFile,
   type DiffSummary,
 } from "@/lib/stores/workbench-store";
-import { apiGitCommit, apiGitFileAction, fetchDiffFile } from "./api";
+import {
+  apiGitCommit,
+  apiGitFileAction,
+  apiGitignoreAppend,
+  fetchDiffFile,
+} from "./api";
 import { HunkView, statusTone } from "./shared";
 import { useContextMenu, type ContextMenuItem } from "./git-context-menu";
 import { m } from "@/lib/paraglide/messages";
@@ -269,6 +274,20 @@ export function ChangesView({
           danger: true,
           onSelect: () =>
             void apiGitFileAction(workspaceId, "discard", file.path).then(
+              handleRefresh,
+            ),
+        });
+      }
+      items.push({
+        label: "Ignore file",
+        onSelect: () =>
+          void apiGitignoreAppend(workspaceId, file.path).then(handleRefresh),
+      });
+      if (file.status !== "D") {
+        items.push({
+          label: "Ignore folder",
+          onSelect: () =>
+            void apiGitignoreAppend(workspaceId, file.path, true).then(
               handleRefresh,
             ),
         });

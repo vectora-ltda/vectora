@@ -57,6 +57,7 @@ const mockWorkbench = {
   setDiffSummary: vi.fn(),
   invalidateDiff: vi.fn(),
   clearPending: vi.fn(),
+  setGitOperation: vi.fn(),
 };
 vi.mock("@/lib/stores/workbench-store", () => ({
   WORKBENCH_STALE_MS: 30000,
@@ -111,6 +112,7 @@ beforeEach(() => {
     remotes: [],
   });
   vi.spyOn(api, "fetchDiff").mockResolvedValue(null);
+  vi.spyOn(api, "fetchGitOperation").mockResolvedValue(null);
 });
 
 function repoSummary(files: DiffSummary["files"] = []): DiffSummary {

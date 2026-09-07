@@ -31,6 +31,7 @@ import {
   fetchBranches,
   fetchDiff,
   fetchGitStatus,
+  fetchGitOperation,
   fetchPullRequests,
   type GitBranches,
   type GitStatus,
@@ -176,6 +177,7 @@ export function GitTab(_props: { threadId: string }) {
   const setDiffSummary = useWorkbenchStore((s) => s.setDiffSummary);
   const invalidateDiff = useWorkbenchStore((s) => s.invalidateDiff);
   const clearPending = useWorkbenchStore((s) => s.clearPending);
+  const setGitOperation = useWorkbenchStore((s) => s.setGitOperation);
 
   const [view, setView] = useState<GitView>("changes");
   const [compareOpen, setCompareOpen] = useState(false);
@@ -214,6 +216,34 @@ export function GitTab(_props: { threadId: string }) {
       void fetchBranches(wsId).then(setBranches);
     }
   }, [wsId, refreshKey]);
+
+  // Reconcile the backend operation snapshot while a Git command is running.
+  // The polling is deliberately scoped to the active workspace so switching
+  // workspaces cannot leak progress or errors into another repository.
+  useEffect(() => {
+    if (!wsId) return;
+    let cancelled = false;
+    const refreshOperation = async () => {
+      const operation = await fetchGitOperation(wsId);
+      if (cancelled || !operation) return;
+      setGitOperation(wsId, {
+        operationId: operation.operation_id,
+        operation: operation.operation,
+        state: operation.state,
+        phase: operation.phase,
+        progress: operation.progress,
+        errorCode: operation.error_code,
+        error: operation.error,
+        updatedAt: (operation.finished_at ?? operation.created_at) * 1000,
+      });
+    };
+    void refreshOperation();
+    const timer = window.setInterval(() => void refreshOperation(), 1500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [wsId, setGitOperation]);
 
   const handleChanged = useCallback(() => {
     if (wsId) invalidateDiff(wsId);
