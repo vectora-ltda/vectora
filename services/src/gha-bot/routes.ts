@@ -301,10 +301,11 @@ ghaBot.post("/review", async (c) => {
 
   const jobId = crypto.randomUUID();
   const callbackSecret = crypto.randomUUID();
+  const callbackSecretHash = await sha256Hex(callbackSecret);
   await c.env.DB.prepare(
-    "INSERT INTO gha_bot_review_jobs (id, user_id, callback_secret, status) VALUES (?, ?, ?, 'pending')",
+    "INSERT INTO gha_bot_review_jobs (id, user_id, callback_secret, callback_secret_hash, status) VALUES (?, ?, '', ?, 'pending')",
   )
-    .bind(jobId, userId, callbackSecret)
+    .bind(jobId, userId, callbackSecretHash)
     .run();
 
   const { delivered } = await dispatchReviewJob(c.env, tokenRow.token, {
@@ -367,11 +368,12 @@ ghaBot.post("/review/:id/result", async (c) => {
   }
 
   const row = await c.env.DB.prepare(
-    "SELECT callback_secret FROM gha_bot_review_jobs WHERE id = ? AND status = 'pending'",
+    "SELECT callback_secret_hash FROM gha_bot_review_jobs WHERE id = ? AND status = 'pending'",
   )
     .bind(id)
-    .first<{ callback_secret: string }>();
-  if (!row || !timingSafeEqual(secret, row.callback_secret)) {
+    .first<{ callback_secret_hash: string }>();
+  const secretHash = await sha256Hex(secret);
+  if (!row || !timingSafeEqual(secretHash, row.callback_secret_hash)) {
     return c.json({ error: "not_found" }, 404);
   }
 
@@ -379,9 +381,9 @@ ghaBot.post("/review/:id/result", async (c) => {
   const result = await c.env.DB.prepare(
     `UPDATE gha_bot_review_jobs
      SET status = ?, review_text = ?, error = ?, updated_at = datetime('now')
-     WHERE id = ? AND callback_secret = ? AND status = 'pending'`,
+     WHERE id = ? AND callback_secret_hash = ? AND status = 'pending'`,
   )
-    .bind(status, body.review_text ?? null, body.error ?? null, id, secret)
+    .bind(status, body.review_text ?? null, body.error ?? null, id, secretHash)
     .run();
 
   if (result.meta.changes === 0) return c.json({ error: "not_found" }, 404);

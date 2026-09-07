@@ -1,7 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import { ghaBot } from "../../src/gha-bot/routes";
-import { createSession } from "../../src/auth/session";
+import { createSession, sha256Hex } from "../../src/auth/session";
 import { hashConnectorSecret } from "../../src/gateway/auth";
 
 // Testes que criam Durable Object (SQLite no disco) — mesma limitação de
@@ -584,12 +584,15 @@ describe("gha-bot self-hosted (GET /config, POST/GET /review, POST /review/:id/r
       expect(msg.callback_secret).toBeTruthy();
 
       const jobRow = await env.DB.prepare(
-        "SELECT status, callback_secret FROM gha_bot_review_jobs WHERE id = ?",
+        "SELECT status, callback_secret_hash FROM gha_bot_review_jobs WHERE id = ?",
       )
         .bind(job_id)
-        .first<{ status: string; callback_secret: string }>();
+        .first<{ status: string; callback_secret_hash: string }>();
       expect(jobRow?.status).toBe("pending");
-      expect(jobRow?.callback_secret).toBe(msg.callback_secret);
+      expect(jobRow?.callback_secret_hash).toBe(
+        await sha256Hex(msg.callback_secret),
+      );
+      expect(jobRow?.callback_secret_hash).not.toContain(msg.callback_secret);
 
       ws.webSocket!.close();
     },
@@ -666,9 +669,9 @@ describe("gha-bot self-hosted (GET /config, POST/GET /review, POST /review/:id/r
   it("GET /review/:id devolve o status do job — pending logo após criar", async () => {
     const { userId, botToken } = await makeProUserWithBotTokenAndSettings(true);
     await env.DB.prepare(
-      "INSERT INTO gha_bot_review_jobs (id, user_id, callback_secret, status) VALUES (?, ?, 'secret-pending-1', 'pending')",
+      "INSERT INTO gha_bot_review_jobs (id, user_id, callback_secret, callback_secret_hash, status) VALUES (?, ?, '', ?, 'pending')",
     )
-      .bind("job-pending-1", userId)
+      .bind("job-pending-1", userId, await sha256Hex("secret-pending-1"))
       .run();
 
     const res = await ghaBot.request(
@@ -686,9 +689,9 @@ describe("gha-bot self-hosted (GET /config, POST/GET /review, POST /review/:id/r
     const { botToken: strangerToken } =
       await makeProUserWithBotTokenAndSettings(true);
     await env.DB.prepare(
-      "INSERT INTO gha_bot_review_jobs (id, user_id, callback_secret, status) VALUES (?, ?, 'secret-isolated-1', 'pending')",
+      "INSERT INTO gha_bot_review_jobs (id, user_id, callback_secret, callback_secret_hash, status) VALUES (?, ?, '', ?, 'pending')",
     )
-      .bind("job-isolated-1", ownerId)
+      .bind("job-isolated-1", ownerId, await sha256Hex("secret-isolated-1"))
       .run();
 
     const res = await ghaBot.request(
@@ -702,9 +705,9 @@ describe("gha-bot self-hosted (GET /config, POST/GET /review, POST /review/:id/r
   it("POST /review/:id/result marca o job como done com o texto da revisão", async () => {
     const { userId, botToken } = await makeProUserWithBotTokenAndSettings(true);
     await env.DB.prepare(
-      "INSERT INTO gha_bot_review_jobs (id, user_id, callback_secret, status) VALUES (?, ?, 'secret-result-1', 'pending')",
+      "INSERT INTO gha_bot_review_jobs (id, user_id, callback_secret, callback_secret_hash, status) VALUES (?, ?, '', ?, 'pending')",
     )
-      .bind("job-result-1", userId)
+      .bind("job-result-1", userId, await sha256Hex("secret-result-1"))
       .run();
 
     const res = await ghaBot.request(
@@ -734,9 +737,9 @@ describe("gha-bot self-hosted (GET /config, POST/GET /review, POST /review/:id/r
   it("erro de borda — POST /review/:id/result com error marca o job como failed", async () => {
     const { userId, botToken } = await makeProUserWithBotTokenAndSettings(true);
     await env.DB.prepare(
-      "INSERT INTO gha_bot_review_jobs (id, user_id, callback_secret, status) VALUES (?, ?, 'secret-result-err-1', 'pending')",
+      "INSERT INTO gha_bot_review_jobs (id, user_id, callback_secret, callback_secret_hash, status) VALUES (?, ?, '', ?, 'pending')",
     )
-      .bind("job-result-err-1", userId)
+      .bind("job-result-err-1", userId, await sha256Hex("secret-result-err-1"))
       .run();
 
     const res = await ghaBot.request(
@@ -765,9 +768,13 @@ describe("gha-bot self-hosted (GET /config, POST/GET /review, POST /review/:id/r
   it("erro de borda — POST /review/:id/result não sobrescreve um job que já não está pending", async () => {
     const { userId, botToken } = await makeProUserWithBotTokenAndSettings(true);
     await env.DB.prepare(
-      "INSERT INTO gha_bot_review_jobs (id, user_id, callback_secret, status, review_text) VALUES (?, ?, 'secret-already-done-1', 'done', 'primeira resposta')",
+      "INSERT INTO gha_bot_review_jobs (id, user_id, callback_secret, callback_secret_hash, status, review_text) VALUES (?, ?, '', ?, 'done', 'primeira resposta')",
     )
-      .bind("job-already-done-1", userId)
+      .bind(
+        "job-already-done-1",
+        userId,
+        await sha256Hex("secret-already-done-1"),
+      )
       .run();
 
     const res = await ghaBot.request(
@@ -823,9 +830,9 @@ describe("gha-bot self-hosted (GET /config, POST/GET /review, POST /review/:id/r
     // acertar o callback_secret gerado no INSERT.
     const { userId } = await makeProUserWithBotTokenAndSettings(true);
     await env.DB.prepare(
-      "INSERT INTO gha_bot_review_jobs (id, user_id, callback_secret, status) VALUES (?, ?, 'secret-certo', 'pending')",
+      "INSERT INTO gha_bot_review_jobs (id, user_id, callback_secret, callback_secret_hash, status) VALUES (?, ?, '', ?, 'pending')",
     )
-      .bind("job-secret-errado-1", userId)
+      .bind("job-secret-errado-1", userId, await sha256Hex("secret-certo"))
       .run();
 
     const res = await ghaBot.request(
