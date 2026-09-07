@@ -5,6 +5,7 @@ from __future__ import annotations
 from check_removed_path_references import (
     RemovedPath,
     _find_references,
+    _staged_files,
     _staged_removed_paths,
 )
 
@@ -37,3 +38,19 @@ def test_reports_backslash_reference_to_renamed_path() -> None:
     assert _find_references(files, [RemovedPath("docs/old.md", "docs/new.md")]) == [
         ("config.json", 1, "docs/old.md", '{"source": "docs\\old.md"}')
     ]
+
+
+def test_ignores_staged_submodule_gitlink(monkeypatch) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def fake_git_output(*args: str) -> bytes:
+        calls.append(args)
+        if args == ("ls-files", "-s", "-z"):
+            return b"160000 abc123 0\tvendor/submodule\0100644 def456 0\tREADME.md\0"
+        assert args == ("show", ":README.md")
+        return b"README content\n"
+
+    monkeypatch.setattr("check_removed_path_references._git_output", fake_git_output)
+
+    assert _staged_files() == {"README.md": "README content\n"}
+    assert ("show", ":vendor/submodule") not in calls

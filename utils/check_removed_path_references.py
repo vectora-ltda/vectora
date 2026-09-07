@@ -82,8 +82,11 @@ def _find_references(
 
 def _staged_files() -> dict[str, str]:
     files: dict[str, str] = {}
-    for raw_path in _git_output("ls-files", "-z").split(b"\0"):
-        if not raw_path:
+    for entry in _git_output("ls-files", "-s", "-z").split(b"\0"):
+        if not entry:
+            continue
+        metadata, raw_path = entry.split(b"\t", 1)
+        if metadata.split(b" ", 1)[0] == b"160000":
             continue
         path = raw_path.decode("utf-8", errors="surrogateescape")
         blob = _git_output("show", f":{path}")
