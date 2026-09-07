@@ -164,8 +164,13 @@ class GitService:
             operation.finished_at = time.time()
             raise GitOperationError(operation.error_code, operation.error) from exc
         except asyncio.CancelledError:
+            while not callback_task.done():
+                try:
+                    await asyncio.shield(callback_task)
+                except asyncio.CancelledError:
+                    continue
             try:
-                await asyncio.shield(callback_task)
+                callback_task.result()
             except Exception as callback_error:
                 operation.output = redact_git_output(str(callback_error))
             operation.state = "failed"
