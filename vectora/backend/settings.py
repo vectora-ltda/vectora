@@ -559,9 +559,6 @@ class Settings(BaseSettings):
     gitlab_webhook_secret: str = ""
     """Token de verificação configurado nos webhooks do GitLab."""
 
-    slack_signing_secret: str = ""
-    """Signing secret do Slack App (aba Basic Information)."""
-
     linear_webhook_secret: str = ""
     """Secret configurado nos webhooks do Linear."""
 
@@ -599,19 +596,6 @@ class Settings(BaseSettings):
 
     gitlab_base_url: str = "https://gitlab.com"
     """URL base do GitLab (troque para instância self-hosted quando necessário)."""
-
-    # ============================================================================
-    # OAUTH — Slack
-    # ============================================================================
-
-    slack_oauth_client_id: str = ""
-    """Client ID do Slack App."""
-
-    slack_oauth_client_secret: str = ""
-    """Client secret do Slack App."""
-
-    slack_redirect_uri: str = "http://localhost:8080/auth/slack/callback"
-    """Redirect URI do Slack OAuth."""
 
     # ============================================================================
     # INTEGRAÇÕES — Linear / Jira / Notion (API Key)

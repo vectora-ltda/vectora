@@ -51,18 +51,12 @@ afterEach(() => overwriteGetLocale(() => baseLocale));
 type GatewayStatus = {
   connected: boolean;
   state: "never_connected" | "error" | "connected";
-  token: string | null;
-  subdomain: string | null;
-  webhook_base: string | null;
   detail: string | null;
 };
 
 const GATEWAY_FALLBACK: GatewayStatus = {
   connected: false,
   state: "never_connected",
-  token: null,
-  subdomain: null,
-  webhook_base: null,
   detail: null,
 };
 
@@ -438,9 +432,6 @@ describe("IntegracoesTab", () => {
     mockFetch(BASE_INTEGRATIONS, {
       connected: true,
       state: "connected",
-      token: "abc123",
-      subdomain: "abc123.vectora.chat",
-      webhook_base: "https://abc123.vectora.chat",
       detail: null,
     });
     const { IntegracoesTab } = await import("../integracoes-tab");
@@ -464,9 +455,6 @@ describe("IntegracoesTab", () => {
     mockFetch(BASE_INTEGRATIONS, {
       connected: true,
       state: "connected",
-      token: "abc123",
-      subdomain: "abc123.vectora.chat",
-      webhook_base: "https://abc123.vectora.chat",
       detail: null,
     });
     const { IntegracoesTab } = await import("../integracoes-tab");
@@ -509,9 +497,6 @@ describe("IntegracoesTab", () => {
     mockFetch(BASE_INTEGRATIONS, {
       connected: true,
       state: "connected",
-      token: "abc123",
-      subdomain: "abc123.vectora.chat",
-      webhook_base: "https://abc123.vectora.chat",
       detail: null,
     });
     const { IntegracoesTab } = await import("../integracoes-tab");
@@ -529,9 +514,6 @@ describe("IntegracoesTab", () => {
     mockFetch(BASE_INTEGRATIONS, {
       connected: false,
       state: "error",
-      token: "abc123",
-      subdomain: "abc123.vectora.chat",
-      webhook_base: "https://abc123.vectora.chat",
       detail: "Gateway respondeu 503",
     });
     const { IntegracoesTab } = await import("../integracoes-tab");
@@ -562,17 +544,11 @@ describe("IntegracoesTab", () => {
               ? {
                   connected: false,
                   state: "error",
-                  token: "abc123",
-                  subdomain: "abc123.vectora.chat",
-                  webhook_base: "https://abc123.vectora.chat",
                   detail: "Gateway respondeu 503",
                 }
               : {
                   connected: true,
                   state: "connected",
-                  token: "abc123",
-                  subdomain: "abc123.vectora.chat",
-                  webhook_base: "https://abc123.vectora.chat",
                   detail: null,
                 };
           return Promise.resolve({

@@ -29,13 +29,12 @@ class TestGatewayRedirectUri:
         url = _gateway_callback_url("github", token_path=gateway_token_file)
         assert url is None
 
-    def test_funciona_com_qualquer_provider(self, gateway_token_file: Path) -> None:
+    def test_funciona_com_providers_oauth_centralizados(
+        self, gateway_token_file: Path
+    ) -> None:
         gateway_token_file.write_text("xyz789")
         from backend.api.handlers.oauth import _gateway_callback_url
 
-        assert _gateway_callback_url("slack", token_path=gateway_token_file) == (
-            "https://xyz789.vectora.chat/auth/slack/callback"
-        )
         assert _gateway_callback_url("google", token_path=gateway_token_file) == (
             "https://xyz789.vectora.chat/auth/google/callback"
         )
