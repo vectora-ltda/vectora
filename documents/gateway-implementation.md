@@ -22,8 +22,9 @@ o broker; o callback público do Worker troca o code, grava o resultado
 temporariamente no Durable Object SQLite `OAUTH_RESULT` (migration v3), com TTL físico de cinco minutos, e redireciona apenas o state
 para o subdomínio do gateway. O backend consulta o resultado uma única vez com
 `VECTORA_OAUTH_SECRET` e grava o token no override do usuário. Redirects são
-aceitos somente em `https://*.vectora.chat` e o valor do token nunca aparece
-na URL, no binário ou nos logs.
+aceitos somente em `https://*.vectora.chat`; o `return_to` tokenizado existe
+apenas como transporte interno entre o Worker e a instalação, e nunca é
+exposto como configuração ao usuário, ao binário ou aos logs.
 
 ## Arquitetura — O que é o gateway e quem faz o quê
 
