@@ -8,6 +8,7 @@
 import { Hono } from "hono";
 import type { Env } from "../gateway/types";
 import { requireUserId } from "../auth/routes";
+import { timingSafeEqual } from "../gateway/auth";
 
 const OAUTH_TTL_SECONDS = 300;
 const OAUTH_STATE_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
@@ -292,8 +293,11 @@ oauth.get("/integrations/:provider/callback", async (c) => {
 });
 
 oauth.get("/integrations/:provider/result/:state", async (c) => {
+  const authorization = c.req.header("Authorization") ?? "";
+  const [scheme, token] = authorization.split(/\s+/, 2);
   if (
-    c.req.header("Authorization") !== `Bearer ${c.env.VECTORA_OAUTH_SECRET}`
+    scheme !== "Bearer" ||
+    !timingSafeEqual(token ?? "", c.env.VECTORA_OAUTH_SECRET)
   ) {
     return c.json({ error: "unauthorized" }, 401);
   }
