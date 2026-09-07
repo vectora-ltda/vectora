@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.1.17](https://github.com/vectora-ltda/vectora/compare/v0.1.16...v0.1.17) (2026-09-07)
+
+
+### Features
+
+* centralizar OAuth das integrações no gateway ([#83](https://github.com/vectora-ltda/vectora/issues/83)) ([b2c5420](https://github.com/vectora-ltda/vectora/commit/b2c5420eb16bde3ccdae3b722f282dedd851b4ac))
+* evoluir fluxo operacional do Git Workbench ([#86](https://github.com/vectora-ltda/vectora/issues/86)) ([37f86e3](https://github.com/vectora-ltda/vectora/commit/37f86e3d93646c4946798140713e8d36859834c8))
+* expand Git Workbench workflow ([#148](https://github.com/vectora-ltda/vectora/issues/148)) ([c47a264](https://github.com/vectora-ltda/vectora/commit/c47a2645b68a0271ea55c7088dd0877f37560180))
+* filtrar variantes e limitar cards na Aparência ([#81](https://github.com/vectora-ltda/vectora/issues/81)) ([5c6e68e](https://github.com/vectora-ltda/vectora/commit/5c6e68e64429088ebd7a97f34cb271fa517c1369))
+
+
+### Bug Fixes
+
+* preserve pending browser navigation after workspace switch ([#149](https://github.com/vectora-ltda/vectora/issues/149)) ([b1a06f4](https://github.com/vectora-ltda/vectora/commit/b1a06f4c197f9e888742420dcc2b6bcfccb10445))
+* sincronizar versão do uv lock no release please ([#84](https://github.com/vectora-ltda/vectora/issues/84)) ([1286ab8](https://github.com/vectora-ltda/vectora/commit/1286ab83496878928ba90bdb1da0a96f6abade92))
+
 ## [0.1.16](https://github.com/vectora-ltda/vectora/compare/v0.1.15...v0.1.16) (2026-09-06)
 
 
