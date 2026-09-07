@@ -44,3 +44,23 @@ async def test_append_gitignore_rejects_path_traversal(tmp_path: Path) -> None:
 
     assert result.status == "error"
     assert not (tmp_path.parent / ".gitignore").exists()
+
+
+@pytest.mark.asyncio
+async def test_append_gitignore_does_not_rewrite_invalid_utf8(
+    tmp_path: Path,
+) -> None:
+    """Invalid existing bytes must fail without replacing or rewriting them."""
+    gitignore = tmp_path / ".gitignore"
+    original = b"valid\xff\n"
+    gitignore.write_bytes(original)
+    workspace = SimpleNamespace(cwd=str(tmp_path))
+    registry = SimpleNamespace(get=lambda workspace_id: workspace)
+
+    with patch("backend.workspace.workspace.workspace_registry", registry):
+        result = await append_gitignore(
+            "ws1", GitignoreAppendRequest(path="build/cache")
+        )
+
+    assert result.status == "error"
+    assert gitignore.read_bytes() == original

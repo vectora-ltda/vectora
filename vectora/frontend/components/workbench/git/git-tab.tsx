@@ -223,19 +223,30 @@ export function GitTab(_props: { threadId: string }) {
   useEffect(() => {
     if (!wsId) return;
     let cancelled = false;
+    let requestInFlight = false;
+    let requestGeneration = 0;
     const refreshOperation = async () => {
-      const operation = await fetchGitOperation(wsId);
-      if (cancelled || !operation) return;
-      setGitOperation(wsId, {
-        operationId: operation.operation_id,
-        operation: operation.operation,
-        state: operation.state,
-        phase: operation.phase,
-        progress: operation.progress,
-        errorCode: operation.error_code,
-        error: operation.error,
-        updatedAt: (operation.finished_at ?? operation.created_at) * 1000,
-      });
+      if (requestInFlight) return;
+      requestInFlight = true;
+      const generation = ++requestGeneration;
+      try {
+        const operation = await fetchGitOperation(wsId);
+        if (cancelled || generation !== requestGeneration || !operation) return;
+        setGitOperation(wsId, {
+          operationId: operation.operation_id,
+          operation: operation.operation,
+          state: operation.state,
+          phase: operation.phase,
+          progress: operation.progress,
+          errorCode: operation.error_code,
+          error: operation.error,
+          updatedAt: (operation.finished_at ?? operation.created_at) * 1000,
+        });
+      } catch {
+        // Preserve the last valid snapshot while the backend is unavailable.
+      } finally {
+        requestInFlight = false;
+      }
     };
     void refreshOperation();
     const timer = window.setInterval(() => void refreshOperation(), 1500);

@@ -2512,10 +2512,8 @@ async def append_gitignore(  # noqa: PLR0911
     parts = normalized.split("/")
     if any(part in {"", ".", ".."} for part in parts):
         return StatusResponse(status="error", message="Caminho inválido.")
-    try:
-        resolve_within_workspace(normalized, Path(ws.cwd))
-    except (OSError, ValueError) as exc:
-        return StatusResponse(status="error", message=str(exc))
+    if resolve_within_workspace(normalized, Path(ws.cwd)) is None:
+        return StatusResponse(status="error", message="Caminho fora do workspace.")
 
     escaped = "/".join(
         segment.replace("\\", "\\\\")
@@ -2527,9 +2525,13 @@ async def append_gitignore(  # noqa: PLR0911
     rule = f"/{escaped}/" if body.is_folder else f"/{escaped}"
     try:
         pathspec.PathSpec.from_lines("gitignore", [rule])
-        gitignore = Path(ws.cwd) / ".gitignore"
+        gitignore = resolve_within_workspace(".gitignore", Path(ws.cwd))
+        if gitignore is None:
+            return StatusResponse(
+                status="error", message="Destino do .gitignore fora do workspace."
+            )
         existing = gitignore.read_bytes() if gitignore.exists() else b""
-        text = existing.decode("utf-8", errors="replace")
+        text = existing.decode("utf-8")
         lines = text.splitlines()
         if rule in {line.strip() for line in lines}:
             return StatusResponse(status="ok", message="Regra já presente.")
