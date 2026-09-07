@@ -132,6 +132,15 @@ async def test_timeout_waits_for_callback_before_releasing_lock(tmp_path: Path) 
     try:
         await asyncio.sleep(0.05)
         assert not operation.done()
+        with pytest.raises(GitOperationError) as lock_error:
+            await service.execute(
+                "other-workspace",
+                repo,
+                "pull",
+                lambda: None,
+                timeout_seconds=0.01,
+            )
+        assert lock_error.value.code == "git_lock_timeout"
     finally:
         release.set()
 
