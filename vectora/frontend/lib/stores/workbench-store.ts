@@ -60,7 +60,7 @@ export interface TerminalInstance {
   workspaceId: string;
 }
 
-/** Abas do workbench (espelha a referência Claude Code). */
+/** Abas disponíveis no painel lateral do workbench. */
 export type WorkbenchTab =
   | "terminal"
   | "files"
@@ -145,6 +145,24 @@ export interface DiffSummary {
   total_additions: number;
   total_deletions: number;
   files: DiffFile[];
+}
+
+export interface GitOpsSnapshot {
+  operationId: string;
+  operation: string;
+  state: "queued" | "running" | "succeeded" | "failed";
+  phase: string;
+  progress: number;
+  errorCode: string | null;
+  error: string | null;
+  updatedAt: number;
+}
+
+export interface GitOpsState {
+  selectedFiles: string[];
+  selectedHunks: Record<string, number[]>;
+  activeDocument: string | null;
+  operation: GitOpsSnapshot | null;
 }
 
 interface DiffCache {
@@ -271,6 +289,7 @@ interface WorkbenchState {
   diff: Record<string, DiffCache>;
   plan: Record<string, PlanCache>;
   todos: Record<string, TodoItem[]>;
+  gitOps: Record<string, GitOpsState>;
 
   // Files
   getFiles: (wsId: string) => FilesCache;
@@ -299,6 +318,13 @@ interface WorkbenchState {
   // Todos
   getTodos: (threadId: string) => TodoItem[];
   setTodos: (threadId: string, todos: TodoItem[]) => void;
+
+  getGitOps: (wsId: string) => GitOpsState;
+  toggleGitFileSelection: (wsId: string, path: string) => void;
+  setGitHunkSelection: (wsId: string, path: string, indexes: number[]) => void;
+  setGitActiveDocument: (wsId: string, path: string | null) => void;
+  setGitOperation: (wsId: string, operation: GitOpsSnapshot | null) => void;
+  clearGitSelection: (wsId: string) => void;
 
   // Tasks (background tasks/runs)
   tasks: Record<string, TasksCache>;
@@ -343,6 +369,12 @@ const EMPTY_PLAN: PlanCache = {
   fetchedAt: 0,
 };
 const EMPTY_TODOS: TodoItem[] = [];
+const EMPTY_GIT_OPS: GitOpsState = {
+  selectedFiles: [],
+  selectedHunks: {},
+  activeDocument: null,
+  operation: null,
+};
 const EMPTY_TASKS: TasksCache = { tasks: [], runs: [], fetchedAt: 0 };
 
 // LRU simples: mantém só os últimos 8 conteúdos por workspace.
@@ -504,6 +536,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         diff: {},
         plan: {},
         todos: {},
+        gitOps: {},
         tasks: {},
 
         getFiles: (wsId) => get().files[wsId] ?? EMPTY_FILES,
@@ -665,6 +698,58 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         getTodos: (threadId) => get().todos[threadId] ?? EMPTY_TODOS,
         setTodos: (threadId, todos) =>
           set((s) => ({ todos: { ...s.todos, [threadId]: todos } })),
+
+        getGitOps: (wsId) => get().gitOps[wsId] ?? EMPTY_GIT_OPS,
+        toggleGitFileSelection: (wsId, path) =>
+          set((s) => {
+            const current = s.gitOps[wsId] ?? EMPTY_GIT_OPS;
+            const selectedFiles = current.selectedFiles.includes(path)
+              ? current.selectedFiles.filter((item) => item !== path)
+              : [...current.selectedFiles, path];
+            return {
+              gitOps: { ...s.gitOps, [wsId]: { ...current, selectedFiles } },
+            };
+          }),
+        setGitHunkSelection: (wsId, path, indexes) =>
+          set((s) => {
+            const current = s.gitOps[wsId] ?? EMPTY_GIT_OPS;
+            return {
+              gitOps: {
+                ...s.gitOps,
+                [wsId]: {
+                  ...current,
+                  selectedHunks: { ...current.selectedHunks, [path]: indexes },
+                },
+              },
+            };
+          }),
+        setGitActiveDocument: (wsId, path) =>
+          set((s) => {
+            const current = s.gitOps[wsId] ?? EMPTY_GIT_OPS;
+            return {
+              gitOps: {
+                ...s.gitOps,
+                [wsId]: { ...current, activeDocument: path },
+              },
+            };
+          }),
+        setGitOperation: (wsId, operation) =>
+          set((s) => {
+            const current = s.gitOps[wsId] ?? EMPTY_GIT_OPS;
+            return {
+              gitOps: { ...s.gitOps, [wsId]: { ...current, operation } },
+            };
+          }),
+        clearGitSelection: (wsId) =>
+          set((s) => {
+            const current = s.gitOps[wsId] ?? EMPTY_GIT_OPS;
+            return {
+              gitOps: {
+                ...s.gitOps,
+                [wsId]: { ...current, selectedFiles: [], selectedHunks: {} },
+              },
+            };
+          }),
 
         getTasks: (threadId) => get().tasks[threadId] ?? EMPTY_TASKS,
         setTasksData: (threadId, tasks, runs) =>

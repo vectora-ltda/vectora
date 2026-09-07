@@ -27,10 +27,16 @@ import {
   type DiffFile,
   type DiffSummary,
 } from "@/lib/stores/workbench-store";
-import { apiGitCommit, apiGitFileAction, fetchDiffFile } from "./api";
+import {
+  apiGitCommit,
+  apiGitFileAction,
+  apiGitignoreAppend,
+  fetchDiffFile,
+} from "./api";
 import { HunkView, statusTone } from "./shared";
 import { useContextMenu, type ContextMenuItem } from "./git-context-menu";
 import { m } from "@/lib/paraglide/messages";
+import { useToastStore } from "@/lib/stores/toast-store";
 
 function FileRow({
   workspaceId,
@@ -232,6 +238,9 @@ export function ChangesView({
   summary: DiffSummary;
 }) {
   const invalidateDiff = useWorkbenchStore((s) => s.invalidateDiff);
+  const showError = useCallback((message: string) => {
+    useToastStore.getState().error("Git", { description: message });
+  }, []);
   const menu = useContextMenu();
   const [commitMsg, setCommitMsg] = useState("");
   const [commitBody, setCommitBody] = useState("");
@@ -273,9 +282,37 @@ export function ChangesView({
             ),
         });
       }
+      items.push({
+        label: "Ignore file",
+        onSelect: () =>
+          void apiGitignoreAppend(workspaceId, file.path).then((result) => {
+            if (result.status === "error") {
+              showError(result.message);
+              return;
+            }
+            handleRefresh();
+          }),
+      });
+      const normalizedPath = file.path.replaceAll("\\", "/");
+      const parentPath = normalizedPath.split("/").slice(0, -1).join("/");
+      if (file.status !== "D" && parentPath) {
+        items.push({
+          label: "Ignore folder",
+          onSelect: () =>
+            void apiGitignoreAppend(workspaceId, parentPath, true).then(
+              (result) => {
+                if (result.status === "error") {
+                  showError(result.message);
+                  return;
+                }
+                handleRefresh();
+              },
+            ),
+        });
+      }
       menu.open(e, items);
     },
-    [workspaceId, handleRefresh, menu],
+    [workspaceId, handleRefresh, menu, showError],
   );
 
   const handleCommit = async () => {

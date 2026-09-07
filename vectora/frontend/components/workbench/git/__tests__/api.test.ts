@@ -17,6 +17,7 @@ import {
   fetchDiff,
   fetchDiffFile,
   apiGitFileAction,
+  apiGitignoreAppend,
   apiGitCommit,
   fetchGitLog,
   fetchCommitDiff,
@@ -210,6 +211,19 @@ describe("api — diff / commit", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/workspaces/ws1/git/stage",
       expect.objectContaining({ body: JSON.stringify({ path: "a.ts" }) }),
+    );
+  });
+
+  it("apiGitignoreAppend envia caminho e modo de pasta", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ status: "ok", message: "" }),
+    );
+    await apiGitignoreAppend("ws1", "build/cache", true);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/workspaces/ws1/fs/gitignore/append",
+      expect.objectContaining({
+        body: JSON.stringify({ path: "build/cache", is_folder: true }),
+      }),
     );
   });
 
