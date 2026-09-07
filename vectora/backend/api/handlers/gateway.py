@@ -1,6 +1,6 @@
 """Endpoints de gerenciamento do gateway local (ex-relay).
 
-G1 — GET  /gateway/status  → estado atual da conexão (token, subdomain, connected)
+G1 — GET  /gateway/status  → estado seguro da conexão (connected, state, detail)
 G2 — POST /gateway/revoke  → revoga o token no Worker e limpa ~/.vectora/gateway_token
 """
 
@@ -33,10 +33,6 @@ def _gateway_token() -> str | None:
     return load_token(_TOKEN_PATH)
 
 
-def _subdomain(token: str) -> str:
-    return f"{token}.vectora.chat"
-
-
 @router.get("/status")
 async def gateway_status(request: Request) -> dict:
     """Estado do gateway, distinguindo "nunca conectou" (normal, nada errado)
@@ -51,9 +47,6 @@ async def gateway_status(request: Request) -> dict:
         return {
             "connected": False,
             "state": "never_connected",
-            "token": None,  # nosec B105
-            "subdomain": None,
-            "webhook_base": None,
             "detail": None,
         }
 
@@ -74,13 +67,9 @@ async def gateway_status(request: Request) -> dict:
         connected = False
         detail = str(exc)
 
-    sub = _subdomain(token)
     return {
         "connected": connected,
         "state": "connected" if connected else "error",
-        "token": token,
-        "subdomain": sub,
-        "webhook_base": f"https://{sub}",
         "detail": detail,
     }
 

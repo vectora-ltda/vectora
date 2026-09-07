@@ -38,9 +38,8 @@ class TestGatewayStatusSemToken:
         data = res.json()
         assert data["connected"] is False
         assert data["state"] == "never_connected"
-        assert data["token"] is None
-        assert data["subdomain"] is None
         assert data["detail"] is None
+        assert set(data) == {"connected", "state", "detail"}
 
     def test_retorna_401_sem_autenticacao(self, tmp_path: Path) -> None:
         from fastapi import FastAPI
@@ -102,10 +101,8 @@ class TestGatewayStatusComToken:
         data = res.json()
         assert data["connected"] is True
         assert data["state"] == "connected"
-        assert data["token"] == "abc123"
-        assert data["subdomain"] == "abc123.vectora.chat"
-        assert data["webhook_base"] == "https://abc123.vectora.chat"
         assert data["detail"] is None
+        assert set(data) == {"connected", "state", "detail"}
 
     def test_retorna_erro_real_se_worker_offline(self, tmp_path: Path) -> None:
         """Erro/borda: já teve token (tentativa real de conexão) mas o

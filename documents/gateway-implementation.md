@@ -174,7 +174,10 @@ Backend                              Gateway (Worker)
 
 O token é salvo em `~/.vectora/gateway_token` (`backend/services/gateway/token.py`, permissões de arquivo restritas). O `GatewayClient` mantém o WebSocket vivo com backoff exponencial; se cair, o Worker enfileira requests recebidos por até 10 minutos (`QUEUE_TTL_MS`) e reenvia tudo de uma vez na reconexão.
 
-O subdomínio `{token}.vectora.chat` aparece em `GET /gateway/status` no backend para exibir ao usuário no dashboard do app.
+O subdomínio `{token}.vectora.chat` é um identificador interno do transporte entre o
+Worker e a instalação local. `GET /gateway/status` expõe somente `connected`,
+`state` e um detalhe seguro; token, subdomínio e URLs de túnel nunca fazem parte
+do contrato público nem são exibidos no dashboard.
 
 **Importante — mecanismo de proxy e broker OAuth**: o Worker encaminha requests de túnel em `{token}.vectora.chat/*` para o backend, mas os callbacks OAuth centralizados são tratados diretamente pelo broker em `/oauth/integrations/{provider}/callback`. O `GatewayClient` continua serializando requests de túnel (`{type:"request", id, method, path, headers, body}`) e refazendo-os em `http://localhost:8000{path}` para as rotas locais que não pertencem ao broker.
 
@@ -216,17 +219,17 @@ Os secrets do Worker são configurados fora do repositório:
 
 ## SEÇÃO 4 — Webhooks
 
-> Webhooks de terceiros são configurados para apontar pra
-> `https://{token}.vectora.chat/webhook/{provider}` (subdomínio da
-> instalação — mesmo mecanismo de proxy da Seção 2.2). O Worker não
-> interpreta o payload; só encaminha bytes pro backend local via
-> WebSocket, onde `backend/api/handlers/webhooks.py::POST /webhook/{provider}`
-> verifica a assinatura própria de cada provider (`X-Hub-Signature-256`
-> pro GitHub, `X-Gitlab-Token`, `X-Slack-Signature`, `X-Linear-Signature`,
-> `svix-signature` pro Resend) antes de processar.
+> O túnel pode transportar webhooks de terceiros até o backend local, mas a
+> URL com `{token}.vectora.chat` é interna e não é apresentada nem copiada por
+> usuários ou operadores. O Worker não interpreta o payload; apenas encaminha
+> bytes pelo WebSocket para `backend/api/handlers/webhooks.py::POST
+/webhook/{provider}`, onde a assinatura de cada provider é verificada
+> (`X-Hub-Signature-256`, `X-Gitlab-Token`, `X-Slack-Signature`,
+> `X-Linear-Signature` ou `svix-signature`).
 >
-> **Quem configura:** Você (Bruno) como desenvolvedor, uma única vez nos painéis dos providers.
-> Usuários finais não mexem nisso.
+> Se uma integração exigir webhook, o registro é feito por um fluxo controlado
+> do serviço da Vectora, com segredo e allowlist configurados no ambiente. O
+> usuário final não configura endpoint, token de túnel ou callback manualmente.
 
 ---
 
@@ -420,8 +423,10 @@ curl https://abc123.vectora.chat/
 
 ```powershell
 # No app Vectora: Configurações → Integrações → GitHub → Conectar
-# Redireciona para o GitHub via {token}.vectora.chat, autentica, volta ao app
-# Agente consegue clonar repos, criar PRs, etc.
+# O app inicia o broker company-managed em services.vectora.company.
+# O GitHub chama o callback público do Worker; o retorno ao app usa apenas
+# state de uso único pelo túnel interno, sem expor token ou URL de túnel.
+# Depois da autorização, o agente consegue clonar repos, criar PRs, etc.
 ```
 
 ### 7.5 Services (auth/billing/license/gdpr)
@@ -450,7 +455,7 @@ curl https://services.vectora.company/license/validate -X POST -d '{"token":"...
 [ ] 9a. Worker: configurar GHA_BOT_ENCRYPTION_KEY
 [ ] 10. Cloudflare: configurar Custom Domain services.vectora.company → vectora-services (fora do wrangler.toml, validar mecanismo com quem administra o DNS)
 [ ] 11. Backend: carregar VECTORA_OAUTH_BROKER_URL=https://services.vectora.company e adicionar VECTORA_APP_SECRET/VECTORA_OAUTH_SECRET ao defaults.env
-[ ] 12. Testar: GET /gateway/status no backend → ver subdomínio
+[ ] 12. Testar: GET /gateway/status no backend → confirmar apenas `connected`, `state` e detalhe seguro
    [ ] 13. Worker: configurar `GITHUB_OAUTH_CLIENT_ID` e `GITHUB_OAUTH_CLIENT_SECRET`
    [ ] 14. Worker: configurar `GOOGLE_OAUTH_CLIENT_ID` e `GOOGLE_OAUTH_CLIENT_SECRET`
    [ ] 15. Worker: configurar `GITLAB_OAUTH_CLIENT_ID` e `GITLAB_OAUTH_CLIENT_SECRET`
