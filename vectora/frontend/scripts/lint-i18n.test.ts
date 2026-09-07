@@ -1,8 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
+import { describe, expect, it } from "vitest";
 import { isIgnoredPath, lintSource, runCli } from "./lint-i18n";
+
+const execFileAsync = promisify(execFile);
 
 describe("lint-i18n", () => {
   it("reports visible JSX text and text attributes", () => {
@@ -47,6 +51,35 @@ describe("lint-i18n", () => {
       await writeFile(invalid, "<button>Salvar</button>");
       expect(await runCli([valid])).toBe(0);
       expect(await runCli([invalid])).toBe(1);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("reports exit status and diagnostics through the package command", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "lint-i18n-command-"));
+    try {
+      const valid = join(directory, "valid.tsx");
+      const invalid = join(directory, "invalid.tsx");
+      await writeFile(valid, "<button>{m.save()}</button>");
+      await writeFile(invalid, "<button>Salvar</button>");
+
+      const command = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+      const result = await execFileAsync(command, ["lint:i18n", "--", valid], {
+        cwd: process.cwd(),
+        shell: true,
+      });
+      expect(result.stdout).toBe("");
+
+      await expect(
+        execFileAsync(command, ["lint:i18n", "--", invalid], {
+          cwd: process.cwd(),
+          shell: true,
+        }),
+      ).rejects.toMatchObject({
+        code: 1,
+        stderr: expect.stringContaining("invalid.tsx:1:9"),
+      });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
