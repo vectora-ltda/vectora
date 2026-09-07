@@ -662,6 +662,12 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   useEffect(() => {
     let alive = true;
     const generation = ++workspaceGenerationRef.current;
+    actionGenerationRef.current += 1;
+    setIsLoading(Boolean(wsId));
+    setConfigs([]);
+    configsRef.current = [];
+    setStatuses([]);
+    setActionLoading(null);
     void Promise.resolve().then(() =>
       fetchLaunch(() => alive && workspaceGenerationRef.current === generation),
     );
