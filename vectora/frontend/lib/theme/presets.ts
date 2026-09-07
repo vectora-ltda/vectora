@@ -24,6 +24,8 @@ export interface BaseThemeColors {
 export interface ThemePresetDef {
   id: string;
   label: string;
+  mode: "light" | "dark";
+  family: string;
   colors: BaseThemeColors;
 }
 
@@ -60,8 +62,10 @@ const TOKEN_VAR_NAMES = [
  * (dark-only). */
 export const THEME_PRESETS: ThemePresetDef[] = [
   {
-    id: "dark",
-    label: "Dark",
+    id: "default-dark",
+    label: "Default Dark",
+    mode: "dark",
+    family: "default",
     colors: {
       background: "#1f1f1f",
       foreground: "#d4d4d4",
@@ -75,8 +79,10 @@ export const THEME_PRESETS: ThemePresetDef[] = [
     },
   },
   {
-    id: "light",
-    label: "Light",
+    id: "default-light",
+    label: "Default Light",
+    mode: "light",
+    family: "default",
     colors: {
       background: "#ffffff",
       foreground: "#2b2b2b",
@@ -92,6 +98,8 @@ export const THEME_PRESETS: ThemePresetDef[] = [
   {
     id: "github-dark",
     label: "GitHub Dark",
+    mode: "dark",
+    family: "github",
     colors: {
       background: "#0d1117",
       foreground: "#e6edf3",
@@ -107,6 +115,8 @@ export const THEME_PRESETS: ThemePresetDef[] = [
   {
     id: "github-light",
     label: "GitHub Light",
+    mode: "light",
+    family: "github",
     colors: {
       background: "#ffffff",
       foreground: "#1f2328",
@@ -122,6 +132,8 @@ export const THEME_PRESETS: ThemePresetDef[] = [
   {
     id: "nous-light",
     label: "Nous Light",
+    mode: "light",
+    family: "nous",
     colors: {
       background: "#ffffff",
       foreground: "#1f2328",
@@ -137,6 +149,8 @@ export const THEME_PRESETS: ThemePresetDef[] = [
   {
     id: "nous-dark",
     label: "Nous Dark",
+    mode: "dark",
+    family: "nous",
     colors: {
       background: "#0d1117",
       foreground: "#e6edf3",
@@ -152,6 +166,8 @@ export const THEME_PRESETS: ThemePresetDef[] = [
   {
     id: "catppuccin-light",
     label: "Catppuccin Latte",
+    mode: "light",
+    family: "catppuccin",
     colors: {
       background: "#eff1f5",
       foreground: "#4c4f69",
@@ -167,6 +183,8 @@ export const THEME_PRESETS: ThemePresetDef[] = [
   {
     id: "catppuccin-dark",
     label: "Catppuccin Mocha",
+    mode: "dark",
+    family: "catppuccin",
     colors: {
       background: "#1e1e2e",
       foreground: "#cdd6f4",
@@ -182,6 +200,8 @@ export const THEME_PRESETS: ThemePresetDef[] = [
   {
     id: "everforest-light",
     label: "Everforest Light",
+    mode: "light",
+    family: "everforest",
     colors: {
       background: "#fdf6e3",
       foreground: "#5c6a72",
@@ -197,6 +217,8 @@ export const THEME_PRESETS: ThemePresetDef[] = [
   {
     id: "everforest-dark",
     label: "Everforest Dark",
+    mode: "dark",
+    family: "everforest",
     colors: {
       background: "#2d353b",
       foreground: "#d3c6aa",
@@ -212,6 +234,8 @@ export const THEME_PRESETS: ThemePresetDef[] = [
   {
     id: "solarized-light",
     label: "Solarized Light",
+    mode: "light",
+    family: "solarized",
     colors: {
       background: "#fdf6e3",
       foreground: "#1f1f1f",
@@ -227,6 +251,8 @@ export const THEME_PRESETS: ThemePresetDef[] = [
   {
     id: "solarized-dark",
     label: "Solarized Dark",
+    mode: "dark",
+    family: "solarized",
     colors: {
       background: "#002b36",
       foreground: "#839496",
@@ -242,6 +268,8 @@ export const THEME_PRESETS: ThemePresetDef[] = [
   {
     id: "midnight",
     label: "Midnight",
+    mode: "dark",
+    family: "midnight",
     colors: {
       background: "#08081c",
       foreground: "#ddd6ff",
@@ -257,6 +285,8 @@ export const THEME_PRESETS: ThemePresetDef[] = [
   {
     id: "ember",
     label: "Ember",
+    mode: "dark",
+    family: "ember",
     colors: {
       background: "#160800",
       foreground: "#ffd8b0",
@@ -272,6 +302,8 @@ export const THEME_PRESETS: ThemePresetDef[] = [
   {
     id: "mono",
     label: "Mono",
+    mode: "dark",
+    family: "mono",
     colors: {
       background: "#0e0e0e",
       foreground: "#eaeaea",
@@ -287,6 +319,8 @@ export const THEME_PRESETS: ThemePresetDef[] = [
   {
     id: "cyberpunk",
     label: "Cyberpunk",
+    mode: "dark",
+    family: "cyberpunk",
     colors: {
       background: "#000a00",
       foreground: "#00ff41",
@@ -302,6 +336,8 @@ export const THEME_PRESETS: ThemePresetDef[] = [
   {
     id: "slate",
     label: "Slate",
+    mode: "dark",
+    family: "slate",
     colors: {
       background: "#0d1117",
       foreground: "#c9d1d9",
@@ -314,9 +350,105 @@ export const THEME_PRESETS: ThemePresetDef[] = [
       userBubble: "#1e2a38",
     },
   },
+  {
+    id: "midnight-light",
+    label: "Midnight Light",
+    mode: "light",
+    family: "midnight",
+    colors: {
+      background: "#f4f5ff",
+      foreground: "#272744",
+      card: "#ffffff",
+      border: "#c8c9e5",
+      primary: "#4b3fbf",
+      accent: "#e5e5fa",
+      muted: "#ececff",
+      sidebar: "#eef0ff",
+      userBubble: "#d9d9f5",
+    },
+  },
+  {
+    id: "ember-light",
+    label: "Ember Light",
+    mode: "light",
+    family: "ember",
+    colors: {
+      background: "#fff8f2",
+      foreground: "#4a2412",
+      card: "#ffffff",
+      border: "#e4c6b2",
+      primary: "#a33b12",
+      accent: "#f8dfcf",
+      muted: "#f8eee8",
+      sidebar: "#fff1e6",
+      userBubble: "#f2cfb9",
+    },
+  },
+  {
+    id: "mono-light",
+    label: "Mono Light",
+    mode: "light",
+    family: "mono",
+    colors: {
+      background: "#ffffff",
+      foreground: "#171717",
+      card: "#f7f7f7",
+      border: "#d4d4d4",
+      primary: "#171717",
+      accent: "#e8e8e8",
+      muted: "#f0f0f0",
+      sidebar: "#fafafa",
+      userBubble: "#dedede",
+    },
+  },
+  {
+    id: "cyberpunk-light",
+    label: "Cyberpunk Light",
+    mode: "light",
+    family: "cyberpunk",
+    colors: {
+      background: "#f4fff7",
+      foreground: "#073b1b",
+      card: "#ffffff",
+      border: "#9bd6ad",
+      primary: "#087f35",
+      accent: "#d5f5df",
+      muted: "#e8f9ed",
+      sidebar: "#edfff2",
+      userBubble: "#c7efd3",
+    },
+  },
+  {
+    id: "slate-light",
+    label: "Slate Light",
+    mode: "light",
+    family: "slate",
+    colors: {
+      background: "#f6f8fa",
+      foreground: "#1f2933",
+      card: "#ffffff",
+      border: "#c7d0d9",
+      primary: "#245a8d",
+      accent: "#e1e9f2",
+      muted: "#edf1f5",
+      sidebar: "#eef2f6",
+      userBubble: "#d7e2ee",
+    },
+  },
 ];
 
-/** Cor de fallback para customização — espelha o tema escuro padrão (Dark). */
+/** Finds the preset in the same family for the requested light/dark mode. */
+export function getPairedPresetId(
+  id: string,
+  targetMode: "light" | "dark",
+): string | undefined {
+  const preset = THEME_PRESETS.find((item) => item.id === id);
+  if (!preset) return undefined;
+  return THEME_PRESETS.find(
+    (item) => item.family === preset.family && item.mode === targetMode,
+  )?.id;
+}
+
 export const DEFAULT_CUSTOM_COLORS: BaseThemeColors = {
   background: "#1f1f1f",
   foreground: "#d4d4d4",
@@ -330,9 +462,9 @@ export const DEFAULT_CUSTOM_COLORS: BaseThemeColors = {
 };
 
 /** Luminância relativa aproximada (sRGB) — usada para escolher fg de contraste. */
-function relativeLuminance(hex: string): number {
+export function relativeLuminance(hex: string): number {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex.trim());
-  if (!m) return 1;
+  if (!m) return 0;
   const [r, g, b] = [m[1]!, m[2]!, m[3]!].map((h) => parseInt(h, 16) / 255);
   return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
 }

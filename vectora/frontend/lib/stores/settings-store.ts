@@ -9,6 +9,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { BaseThemeColors, ThemePresetDef } from "@/lib/theme/presets";
+import { classifyMode } from "@/lib/theme/mode";
 import { getDefaultModel } from "@/lib/config/deployment-config";
 import { fetchPrefs, pushPrefs } from "@/lib/api/settings-prefs";
 
@@ -238,6 +239,59 @@ export function migrateSidebarWidths(
   };
 }
 
+/** Normalizes installed themes from persisted data without trusting its shape. */
+export function migrateInstalledThemes(value: unknown): ThemePresetDef[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((theme): ThemePresetDef[] => {
+    if (!theme || typeof theme !== "object") return [];
+    const item = theme as Record<string, unknown>;
+    const colors = item.colors;
+    if (!colors || typeof colors !== "object") return [];
+    const rawColors = colors as Record<string, unknown>;
+    const colorKeys = [
+      "background",
+      "foreground",
+      "card",
+      "border",
+      "primary",
+      "accent",
+      "muted",
+      "sidebar",
+      "userBubble",
+    ] as const;
+    if (
+      colorKeys.some(
+        (key) =>
+          typeof rawColors[key] !== "string" || rawColors[key].trim() === "",
+      )
+    ) {
+      return [];
+    }
+    const background = rawColors.background as string;
+    const id = typeof item.id === "string" ? item.id : "";
+    const label = typeof item.label === "string" ? item.label : "";
+    if (!id || !label) return [];
+    return [
+      {
+        ...item,
+        id,
+        label,
+        mode:
+          item.mode === "light" || item.mode === "dark"
+            ? item.mode
+            : classifyMode({ background }),
+        family:
+          typeof item.family === "string" && item.family.length > 0
+            ? item.family
+            : `vscode:${id}`,
+        colors: Object.fromEntries(
+          colorKeys.map((key) => [key, rawColors[key]]),
+        ) as unknown as BaseThemeColors,
+      } as unknown as ThemePresetDef,
+    ];
+  });
+}
+
 function clampMonacoFontSize(v: number): number {
   return Math.max(
     MONACO_FONT_SIZE_MIN,
@@ -414,7 +468,8 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: getStorageKey(), // Chave default; re-hidratada ao chamar loadUserSettings()
-      version: 4, // v4: clampa sidebarWidth/chatSidebarWidth pros limites atuais mesmo fora do default legado exato (teto do chat caiu de 800→480)
+      version: 5, // v5: adiciona metadados de variantes e migra ids legados
+      // v4: clampa sidebarWidth/chatSidebarWidth pros limites atuais mesmo fora do default legado exato (teto do chat caiu de 800→480)
       migrate: (persistedState) => {
         const s = persistedState as Record<string, unknown>;
         if (s && typeof s === "object") {
@@ -436,6 +491,9 @@ export const useSettingsStore = create<SettingsState>()(
           );
           s.sidebarWidth = widths.sidebarWidth;
           s.chatSidebarWidth = widths.chatSidebarWidth;
+          if (s.themePreset === "dark") s.themePreset = "default-dark";
+          else if (s.themePreset === "light") s.themePreset = "default-light";
+          s.installedThemes = migrateInstalledThemes(s.installedThemes);
         }
         return s;
       },

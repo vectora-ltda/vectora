@@ -92,4 +92,5 @@ def test_release_please_config_sincroniza_todos_os_arquivos_de_versao() -> None:
         "vectora/frontend/package.json",
         "services/package.json",
         "company/package.json",
+        "vectora/uv.lock",
     }

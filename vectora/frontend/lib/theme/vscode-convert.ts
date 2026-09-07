@@ -1,4 +1,5 @@
 import type { BaseThemeColors } from "@/lib/theme/presets";
+import { classifyMode } from "@/lib/theme/mode";
 
 interface VscodeColorTheme {
   colors?: Record<string, unknown>;
@@ -26,13 +27,6 @@ const FIELD_SOURCES: Record<keyof BaseThemeColors, string[]> = {
   sidebar: ["sideBar.background", "activityBar.background"],
   userBubble: ["button.background", "focusBorder"],
 };
-
-function relativeLuminance(hex: string): number {
-  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})/i.exec(hex.trim());
-  if (!m) return 1;
-  const [r, g, b] = [m[1]!, m[2]!, m[3]!].map((h) => parseInt(h, 16) / 255);
-  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
-}
 
 function firstDefined(
   colors: Record<string, unknown>,
@@ -105,5 +99,5 @@ export function convertVscodeColorTheme(json: unknown): BaseThemeColors {
  * usado só para escolher o sufixo do id/label instalado, não afeta as
  * cores em si. */
 export function isLightTheme(base: BaseThemeColors): boolean {
-  return relativeLuminance(base.background) > 0.5;
+  return classifyMode(base) === "light";
 }

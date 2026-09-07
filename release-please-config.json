@@ -29,6 +29,11 @@
           "type": "json",
           "path": "company/package.json",
           "jsonpath": "$.version"
+        },
+        {
+          "type": "toml",
+          "path": "vectora/uv.lock",
+          "jsonpath": "$.package[?(@.name==\"vectora\")].version"
         }
       ]
     }

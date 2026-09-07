@@ -5,7 +5,10 @@ import {
 } from "jsonc-parser";
 import { useSettingsStore } from "@/lib/stores/settings-store";
 import type { ThemePresetDef } from "@/lib/theme/presets";
-import { convertVscodeColorTheme } from "@/lib/theme/vscode-convert";
+import {
+  convertVscodeColorTheme,
+  isLightTheme,
+} from "@/lib/theme/vscode-convert";
 
 /** Temas do VS Code são arquivos JSONC (comentários `//`/`/* *\/` e vírgula
  * final permitidos pelo próprio schema oficial do editor) — `JSON.parse`
@@ -70,9 +73,20 @@ export async function installVscodeThemeFromMarketplace(
     throw new Error(`A extensão ${extensionId} não declara nenhum tema.`);
   }
   const colors = convertVscodeColorTheme(parseVscodeThemeJson(first.contents));
+  const themeId =
+    String(
+      (first as { id?: unknown; path?: unknown }).id ??
+        (first as { path?: unknown }).path ??
+        file.displayName,
+    )
+      .replace(/[^a-zA-Z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "theme";
+  const mode = isLightTheme(colors) ? "light" : "dark";
   const theme: ThemePresetDef = {
-    id: `vscode-${extensionId}`,
+    id: `vscode-${extensionId}-${themeId}`,
     label: file.displayName,
+    mode,
+    family: `vscode:${extensionId}:${themeId}`,
     colors,
   };
   useSettingsStore.getState().addInstalledTheme(theme);
