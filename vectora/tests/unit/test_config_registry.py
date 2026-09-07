@@ -328,8 +328,7 @@ class TestCliCategoryCommand:
 
 class TestCliCollectionCommand:
     """`vectora config provider-routing|memory|account --list` — cobre a
-    exposição das categorias de coleção, cujos adapters funcionam no backend desde os
-    commits 2970f264..52c46f5b, mas nenhum comando CLI as expunha."""
+    listagem das categorias de coleção pelo dispatcher de configuração da CLI."""
 
     def _ns(self, **overrides):
         import argparse
