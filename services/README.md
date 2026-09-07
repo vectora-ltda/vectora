@@ -75,8 +75,8 @@ handler):
   segue fora de escopo — nenhum pacote real ainda). `POST /:id/reindex`
   enfileira de verdade (`rag_reindex`), mas o consumer sempre marca
   `status='failed'`: não existe provedor de storage externo configurado.
-- `/registry/*` — `mcp`, `skills`, `extensions` — "um registry, três
-  catálogos" (`documents/extensibility-roadmap.md` §5). `mcp` já lê D1 de
+- `/registry/*` — `mcp`, `skills`, `extensions` — um registry com catálogos
+  relacionados. `mcp` já lê D1 de
   verdade (6 conectores curados no seed + discovery automático). `skills`
   também lê D1 e agora aceita publish da comunidade (`POST /skills`,
   autenticado, `verified=0` até curadoria via `PATCH

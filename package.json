@@ -1,7 +1,7 @@
 {
   "name": "vectora-monorepo",
   "private": true,
-  "description": "Raiz do monorepo — só pra fixar o prettier que o pre-commit usa (language: node, prettier@3.9.5), pra editores (VS Code) resolverem a mesma versão em arquivos fora de qualquer subprojeto (documents/, etc.).",
+  "description": "Raiz do monorepo — fixa o Prettier usado pelo pre-commit para que os editores resolvam a mesma versão em arquivos fora dos subprojetos.",
   "devDependencies": {
     "prettier": "3.9.5"
   }

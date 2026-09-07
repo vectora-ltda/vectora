@@ -14,7 +14,6 @@ por projeto, gated por path) e o **pre-commit** compartilhado na raiz.
 | [`company/`](company/README.md)   | Site institucional                                                                                                                | TanStack Start + Vite (pnpm)     | Vercel → **vectora.company**                                 |
 | [`docs/`](docs/README.md)         | Documentação                                                                                                                      | Hugo                             | Vercel → **docs.vectora.company**                            |
 | [`services/`](services/README.md) | Gateway (OAuth/webhooks pro desktop, ex-relay) + updates (distribuição de releases) — era `relay/` + `update-server/`, unificados | Hono + Cloudflare Workers (pnpm) | Cloudflare (wrangler)                                        |
-| `documents/`                      | Notas de design/planejamento (markdown interno)                                                                                   | —                                | não publicado                                                |
 
 > O app em si (backend Python, frontend Vite, casca Electron) fica todo dentro
 > de `vectora/` — veja [vectora/README.md](vectora/README.md) para detalhes de
