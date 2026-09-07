@@ -9,7 +9,7 @@
  */
 
 import { Plus, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -36,6 +36,8 @@ import {
   type ThemePresetDef,
 } from "@/lib/theme/presets";
 import { ThemePicker } from "@/components/settings/preferencias/theme-picker";
+import { useIsDark } from "@/lib/hooks/use-is-dark";
+import { getPairedPresetId } from "@/lib/theme/presets";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { m } from "@/lib/paraglide/messages";
 import { mDyn } from "@/lib/i18n-dyn";
@@ -212,6 +214,9 @@ export function PreferenciasTab() {
     setUiScalePercent,
   } = useSettingsStore();
 
+  const isDark = useIsDark();
+  const activeMode = isDark ? "dark" : "light";
+
   const marketplaceSupported =
     typeof window !== "undefined" && Boolean(window.vectora?.themes);
 
@@ -239,9 +244,42 @@ export function PreferenciasTab() {
     setThemePreset(value);
   };
 
+  /** Selects the paired preset whenever the interface mode changes. */
+  const syncPresetToMode = useCallback(
+    (targetMode: "light" | "dark") => {
+      if (themePreset === "default" || themePreset === "custom") return;
+      const paired = getPairedPresetId(themePreset, targetMode);
+      if (paired && paired !== themePreset) setThemePreset(paired);
+    },
+    [setThemePreset, themePreset],
+  );
+
   const handleModeChange = (mode: Theme) => {
+    const targetMode =
+      mode === "system"
+        ? typeof window.matchMedia !== "function"
+          ? "dark"
+          : window.matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : "light"
+        : mode;
+    syncPresetToMode(targetMode);
     setTheme(mode);
   };
+
+  useEffect(() => {
+    if (theme !== "system") return;
+    if (typeof window.matchMedia !== "function") {
+      syncPresetToMode("dark");
+      return;
+    }
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    syncPresetToMode(media.matches ? "dark" : "light");
+    const handleChange = (event: MediaQueryListEvent) =>
+      syncPresetToMode(event.matches ? "dark" : "light");
+    media.addEventListener("change", handleChange);
+    return () => media.removeEventListener("change", handleChange);
+  }, [syncPresetToMode, theme]);
 
   const handleAddTrainingBlock = () => {
     setTrainingInstructions([...trainingInstructions, ""]);
@@ -283,9 +321,12 @@ export function PreferenciasTab() {
           <ThemePicker
             value={selectedTheme}
             onChange={handleThemeChange}
+            activeMode={activeMode}
             presets={THEME_PRESETS}
             installedThemes={installedThemes}
             customLabel={m.prefs_theme_palette_custom()}
+            showMoreLabel={m.prefs_theme_palette_show_more()}
+            showLessLabel={m.prefs_theme_palette_show_less()}
             customColors={activeCustomColors}
             searchPlaceholder={m.prefs_theme_search_placeholder()}
             marketplaceSupported={marketplaceSupported}

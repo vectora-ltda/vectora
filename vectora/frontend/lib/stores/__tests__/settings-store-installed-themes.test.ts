@@ -6,12 +6,14 @@
 
 // @vitest-environment jsdom
 import { describe, expect, it, beforeEach } from "vitest";
-import { useSettingsStore } from "../settings-store";
+import { migrateInstalledThemes, useSettingsStore } from "../settings-store";
 import type { ThemePresetDef } from "@/lib/theme/presets";
 
 const sampleTheme: ThemePresetDef = {
   id: "vscode-publisher.tema",
   label: "Tema de Exemplo",
+  mode: "dark",
+  family: "vscode:publisher:tema",
   colors: {
     background: "#111111",
     foreground: "#eeeeee",
@@ -30,6 +32,19 @@ beforeEach(() => {
 });
 
 describe("settings-store — installedThemes", () => {
+  it("ignora entradas nulas e cores incompletas", () => {
+    const themes = migrateInstalledThemes([
+      null,
+      {
+        id: "vscode-invalid-background",
+        label: "Invalid background",
+        colors: { background: 123 },
+      },
+    ]);
+
+    expect(themes).toHaveLength(0);
+  });
+
   it("addInstalledTheme adiciona um tema à lista", () => {
     useSettingsStore.getState().addInstalledTheme(sampleTheme);
 

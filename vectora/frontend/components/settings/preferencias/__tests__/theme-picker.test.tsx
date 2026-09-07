@@ -44,10 +44,13 @@ function renderPicker(
   return render(
     <ThemePicker
       value={THEME_PRESETS[0]!.id}
+      activeMode="dark"
       onChange={vi.fn()}
       presets={THEME_PRESETS}
       installedThemes={[]}
       customLabel="Personalizado"
+      showMoreLabel="Exibir mais"
+      showLessLabel="Mostrar menos"
       customColors={customColors}
       searchPlaceholder="Buscar..."
       marketplaceSupported={false}
@@ -62,13 +65,15 @@ function renderPicker(
 }
 
 describe("ThemePicker", () => {
-  it("renderiza todos os presets + custom, um card por opção (sem 'system' no grid)", () => {
+  it("renderiza seis paletas escuras inicialmente e o custom fixo", () => {
     renderPicker();
-
     const buttons = screen.getAllByRole("button");
-    expect(buttons).toHaveLength(THEME_PRESETS.length + 1);
+    expect(buttons).toHaveLength(8);
     expect(screen.getByText("Personalizado")).toBeInTheDocument();
-    for (const preset of THEME_PRESETS) {
+    for (const preset of THEME_PRESETS.filter((p) => p.mode === "dark").slice(
+      0,
+      6,
+    )) {
       expect(screen.getByText(preset.label)).toBeInTheDocument();
     }
   });
@@ -77,42 +82,67 @@ describe("ThemePicker", () => {
     const installed: ThemePresetDef = {
       id: "vscode-publisher.tema",
       label: "Tema Instalado",
+      mode: "dark",
+      family: "vscode:publisher:tema",
       colors: customColors,
     };
     renderPicker({ installedThemes: [installed] });
+    fireEvent.change(screen.getByPlaceholderText("Buscar..."), {
+      target: { value: "Tema Instalado" },
+    });
 
     expect(screen.getByText("Tema Instalado")).toBeInTheDocument();
-    expect(screen.getAllByRole("button")).toHaveLength(
-      THEME_PRESETS.length + 2,
-    );
+    expect(screen.getAllByRole("button")).toHaveLength(2);
   });
 
   it("clicar num preset chama onChange com o id do preset", () => {
     const onChange = vi.fn();
     renderPicker({ onChange });
 
-    fireEvent.click(cardButtonFor(THEME_PRESETS[1]!.label));
+    fireEvent.click(cardButtonFor("GitHub Dark"));
 
-    expect(onChange).toHaveBeenCalledWith(THEME_PRESETS[1]!.id);
+    expect(onChange).toHaveBeenCalledWith("github-dark");
   });
 
   it("opção ativa fica marcada com aria-pressed e as demais não", () => {
     renderPicker();
 
-    expect(cardButtonFor(THEME_PRESETS[0]!.label)).toHaveAttribute(
+    expect(cardButtonFor("Default Dark")).toHaveAttribute(
       "aria-pressed",
       "true",
     );
-    expect(cardButtonFor(THEME_PRESETS[1]!.label)).toHaveAttribute(
+    expect(cardButtonFor("GitHub Dark")).toHaveAttribute(
       "aria-pressed",
       "false",
     );
   });
 
+  it("mantém visível o preset selecionado sem variante no modo ativo", () => {
+    renderPicker({ value: "github-dark", activeMode: "light" });
+
+    expect(screen.getByText("GitHub Dark")).toBeInTheDocument();
+    expect(screen.getByText("GitHub Light")).toBeInTheDocument();
+  });
+
+  it("prioriza o preset selecionado quando ele está além da primeira página", () => {
+    const presets: ThemePresetDef[] = Array.from({ length: 7 }, (_, index) => ({
+      id: `dark-${index}`,
+      label: `Dark ${index}`,
+      mode: "dark",
+      family: `test:dark-${index}`,
+      colors: customColors,
+    }));
+
+    renderPicker({ presets, value: "dark-6" });
+
+    expect(screen.getByText("Dark 6")).toBeInTheDocument();
+    expect(screen.getAllByRole("button")).toHaveLength(8);
+  });
+
   it("card de preview usa a cor real de background do preset (não um valor fixo) — erro/borda", () => {
     renderPicker();
 
-    const firstPreset = THEME_PRESETS[0]!;
+    const firstPreset = THEME_PRESETS.find((p) => p.id === "default-dark")!;
     const button = cardButtonFor(firstPreset.label);
     expect(button.style.background).toBe(
       hexToRgb(firstPreset.colors.background),
@@ -138,7 +168,7 @@ describe("ThemePicker", () => {
     for (const preset of THEME_PRESETS.filter((p) => p.id !== target.id)) {
       expect(screen.queryByText(preset.label)).toBeNull();
     }
-    expect(screen.queryByText("Personalizado")).toBeNull();
+    expect(screen.getByText("Personalizado")).toBeInTheDocument();
   });
 
   it("erro de borda — busca sem nenhum resultado não quebra, só não renderiza cards", () => {
@@ -148,7 +178,8 @@ describe("ThemePicker", () => {
       target: { value: "paleta-que-nao-existe-em-lugar-nenhum" },
     });
 
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    expect(screen.queryAllByRole("button")).toHaveLength(1);
+    expect(screen.getByText("Personalizado")).toBeInTheDocument();
   });
 
   it("seção de marketplace fica oculta quando marketplaceSupported é false", () => {
@@ -160,6 +191,7 @@ describe("ThemePicker", () => {
 
     // Sem resultados locais (nenhum preset se chama "monokai") e sem seção
     // de marketplace — nenhum botão sobra na tela.
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    expect(screen.queryAllByRole("button")).toHaveLength(1);
+    expect(screen.getByText("Personalizado")).toBeInTheDocument();
   });
 });

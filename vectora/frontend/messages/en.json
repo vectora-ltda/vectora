@@ -151,6 +151,8 @@
   "prefs_theme_palette_default": "Dark (default)",
   "prefs_theme_palette_custom": "Custom",
   "prefs_theme_palette_help": "Choose a ready-made palette or build your own custom colors below.",
+  "prefs_theme_palette_show_more": "Show more",
+  "prefs_theme_palette_show_less": "Show less",
   "prefs_custom_color_background": "Background",
   "prefs_custom_color_foreground": "Text",
   "prefs_custom_color_card": "Card",
