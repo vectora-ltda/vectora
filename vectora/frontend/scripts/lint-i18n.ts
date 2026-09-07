@@ -173,7 +173,7 @@ async function main(): Promise<void> {
     }
     paths = stdout
       .split(/\r?\n/)
-      .filter((path) => /\.(ts|tsx)$/.test(path))
+      .filter((path) => /\.(ts|tsx)$/.test(path) && !isIgnoredPath(path))
       .map((path) => resolve(repoRoot, path));
   } else {
     const fileArgs = args.filter((arg) => arg !== "--changed" && arg !== "--");
@@ -186,7 +186,7 @@ async function main(): Promise<void> {
                 ? resolve(repoRoot, path)
                 : resolve(path),
             )
-            .filter((path) => /\.(ts|tsx)$/.test(path))
+            .filter((path) => /\.(ts|tsx)$/.test(path) && !isIgnoredPath(path))
         : await filesUnder(root);
   }
   const violations: I18nViolation[] = [];

@@ -20,6 +20,12 @@ describe("lint-i18n", () => {
     ).toHaveLength(2);
   });
 
+  it("detects a static JSX expression child", () => {
+    expect(
+      lintSource('<button>{"Salvar"}</button>', "fixture.tsx"),
+    ).toHaveLength(1);
+  });
+
   it("applies exclusions to every path mode", () => {
     expect(isIgnoredPath("components/__tests__/fixture.tsx")).toBe(true);
     expect(isIgnoredPath("components/e2e/fixture.tsx")).toBe(true);
