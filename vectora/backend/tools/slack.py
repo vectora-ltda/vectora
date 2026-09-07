@@ -1,6 +1,6 @@
 """Tools de Slack para o agente.
 
-Requer SLACK_BOT_TOKEN no ambiente (configurado via OAuth /auth/slack).
+Requer SLACK_BOT_TOKEN no ambiente, com credenciais do Socket Mode configuradas pelo administrador.
 """
 
 from __future__ import annotations

@@ -3,7 +3,6 @@
 Cobre:
 - Verificação de assinatura por provider (válida → 200, inválida → 401)
 - Payload malformado → 400
-- Slack url_verification challenge → responde imediatamente
 - Dispatcher chama handler correto por provider
 - SSE bridge emite evento para clientes conectados
 - Persistência no banco (mock do get_db)
@@ -29,7 +28,6 @@ from backend.api.handlers.webhooks import (
     _verify_gitlab,
     _verify_linear,
     _verify_mailgun,
-    _verify_slack,
     on_remote_sse_event,
     router,
 )
@@ -89,43 +87,6 @@ class TestVerifyGitLab:
 
     def test_sem_header(self) -> None:
         assert _verify_gitlab(b"body", {}, "correto") is False
-
-
-class TestVerifySlack:
-    def _make_headers(
-        self, body: bytes, secret: str, ts: str | None = None
-    ) -> dict[str, str]:
-        ts = ts or str(int(time.time()))
-        base = f"v0:{ts}:{body.decode()}"
-        sig = (
-            "v0=" + hmac.new(secret.encode(), base.encode(), hashlib.sha256).hexdigest()
-        )
-        return {"x-slack-request-timestamp": ts, "x-slack-signature": sig}
-
-    def test_assinatura_valida(self) -> None:
-        body = b'{"type":"event_callback"}'
-        secret = "slack-secret"
-        headers = self._make_headers(body, secret)
-        assert _verify_slack(body, headers, secret) is True
-
-    def test_assinatura_invalida(self) -> None:
-        body = b'{"type":"event_callback"}'
-        headers = self._make_headers(body, "certo")
-        assert _verify_slack(body, headers, "errado") is False
-
-    def test_timestamp_expirado(self) -> None:
-        body = b"body"
-        ts = str(int(time.time()) - 400)  # mais de 5 min atrás
-        headers = self._make_headers(body, "secret", ts=ts)
-        assert _verify_slack(body, headers, "secret") is False
-
-    def test_timestamp_invalido(self) -> None:
-        body = b"body"
-        headers = {
-            "x-slack-request-timestamp": "nao-e-numero",
-            "x-slack-signature": "v0=abc",
-        }
-        assert _verify_slack(body, headers, "secret") is False
 
 
 class TestVerifyLinear:
@@ -242,24 +203,19 @@ class TestWebhookEndpoint:
         assert resp.status_code == 400
 
     @patch("backend.api.handlers.webhooks._persist_event", new_callable=AsyncMock)
-    def test_slack_url_verification_sem_secret(
-        self, mock_persist: AsyncMock, client: TestClient
-    ) -> None:
-        resp = client.post(
-            "/webhook/slack",
-            json={"type": "url_verification", "challenge": "abc123"},
-        )
-        assert resp.status_code == 200
-        assert resp.json()["challenge"] == "abc123"
-        # url_verification não persiste
-        mock_persist.assert_not_awaited()
-
-    @patch("backend.api.handlers.webhooks._persist_event", new_callable=AsyncMock)
-    def test_provider_sem_verificador_aceita(
+    def test_provider_suportado_sem_verificador_aceita(
         self, mock_persist: AsyncMock, client: TestClient
     ) -> None:
         resp = client.post("/webhook/sendgrid", json={"event": "delivered"})
         assert resp.status_code == 200
+
+    @patch("backend.api.handlers.webhooks._persist_event", new_callable=AsyncMock)
+    def test_provider_nao_suportado_e_rejeitado_antes_de_persistir(
+        self, mock_persist: AsyncMock, client: TestClient
+    ) -> None:
+        resp = client.post("/webhook/slack", json={"type": "url_verification"})
+        assert resp.status_code == 404
+        mock_persist.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

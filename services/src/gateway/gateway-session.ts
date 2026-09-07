@@ -58,7 +58,9 @@ export class GatewaySession implements DurableObject {
    * Worker, não de fora. */
   private isInternalCall(request: Request): boolean {
     const auth = request.headers.get("X-Vectora-Internal") ?? "";
-    return timingSafeEqual(auth, `Bearer ${this.env.GATEWAY_INTERNAL_SECRET}`);
+    const secret = this.env.GATEWAY_INTERNAL_SECRET?.trim();
+    if (!secret) return false;
+    return timingSafeEqual(auth, `Bearer ${secret}`);
   }
 
   async fetch(request: Request): Promise<Response> {

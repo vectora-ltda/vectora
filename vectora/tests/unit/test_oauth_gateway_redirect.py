@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from starlette.requests import Request
 
 
 @pytest.fixture
@@ -28,13 +29,12 @@ class TestGatewayRedirectUri:
         url = _gateway_callback_url("github", token_path=gateway_token_file)
         assert url is None
 
-    def test_funciona_com_qualquer_provider(self, gateway_token_file: Path) -> None:
+    def test_funciona_com_providers_oauth_centralizados(
+        self, gateway_token_file: Path
+    ) -> None:
         gateway_token_file.write_text("xyz789")
         from backend.api.handlers.oauth import _gateway_callback_url
 
-        assert _gateway_callback_url("slack", token_path=gateway_token_file) == (
-            "https://xyz789.vectora.chat/auth/slack/callback"
-        )
         assert _gateway_callback_url("google", token_path=gateway_token_file) == (
             "https://xyz789.vectora.chat/auth/google/callback"
         )
@@ -92,3 +92,112 @@ class TestGithubCfgRedirect:
             ):
                 _, _, redirect_uri = _github_cfg()
         assert redirect_uri == "http://localhost:8080/auth/github/callback"
+
+
+class TestBrokerTransaction:
+    @pytest.fixture(autouse=True)
+    def clear_transactions(self) -> None:
+        from backend.api.handlers import oauth
+
+        oauth._broker_transactions.clear()
+
+    def test_remove_transacoes_expiradas_antes_de_consultar(self) -> None:
+        from backend.api.handlers import oauth
+
+        oauth._broker_transactions["expired"] = oauth._BrokerTransaction(
+            state="expired",
+            user_id="user-1",
+            provider="github",
+            proof="old-proof",
+            expires_at=1,
+        )
+        request = Request({"type": "http", "query_string": b"oauth_proof=old-proof"})
+
+        assert not oauth._consume_broker_transaction(
+            request, "expired", "github", "user-1"
+        )
+        assert "expired" not in oauth._broker_transactions
+
+    @pytest.mark.asyncio
+    async def test_gateway_ausente_remove_transacao_criada(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from backend.api.handlers import oauth
+
+        monkeypatch.setattr(
+            oauth, "_get_user", lambda _request: type("User", (), {"id": "user-1"})()
+        )
+        monkeypatch.setattr(oauth, "_gateway_callback_url", lambda _provider: None)
+        monkeypatch.setenv("VECTORA_OAUTH_BROKER_URL", "https://services.example")
+        monkeypatch.setenv("VECTORA_OAUTH_SECRET", "secret")
+        request = Request({"type": "http", "query_string": b""})
+
+        with pytest.raises(Exception, match="gateway Vectora conectado"):
+            await oauth._broker_start(request, "github")
+        assert oauth._broker_transactions == {}
+
+    @pytest.mark.asyncio
+    async def test_falha_de_transporte_remove_transacao_criada(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import httpx
+
+        from backend.api.handlers import oauth
+
+        monkeypatch.setattr(
+            oauth, "_get_user", lambda _request: type("User", (), {"id": "user-1"})()
+        )
+        monkeypatch.setattr(
+            oauth,
+            "_gateway_callback_url",
+            lambda _provider: "https://token.vectora.chat/auth/github/callback",
+        )
+        monkeypatch.setenv("VECTORA_OAUTH_BROKER_URL", "https://services.example")
+        monkeypatch.setenv("VECTORA_OAUTH_SECRET", "secret")
+        request = Request({"type": "http", "query_string": b""})
+
+        class FailingClient:
+            async def __aenter__(self) -> FailingClient:
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def get(self, *_args: object, **_kwargs: object) -> None:
+                raise httpx.ConnectError("broker offline")
+
+        monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: FailingClient())
+
+        with pytest.raises(httpx.ConnectError):
+            await oauth._broker_start(request, "github")
+        assert oauth._broker_transactions == {}
+
+    def test_transacao_eh_one_shot_e_vinculada_a_prova_do_callback(self) -> None:
+        from backend.api.handlers import oauth
+
+        request = Request(
+            {
+                "type": "http",
+                "query_string": b"oauth_proof=signed-proof",
+                "headers": [
+                    (
+                        b"x-test",
+                        b"1",
+                    )
+                ],
+            }
+        )
+        oauth._broker_transactions["signed-state"] = oauth._BrokerTransaction(
+            state="signed-state",
+            user_id="user-1",
+            provider="github",
+            proof="signed-proof",
+            expires_at=9999999999,
+        )
+
+        assert oauth._consume_broker_transaction(
+            request, "signed-state", "github", "user-1"
+        )
+        assert not oauth._consume_broker_transaction(
+            request, "signed-state", "github", "user-1"
+        )

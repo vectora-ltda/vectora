@@ -40,8 +40,9 @@ import { runDiscovery } from "./registry/discovery";
 import { telemetry } from "./telemetry/routes";
 import { handleQueue } from "./queue-consumer";
 import type { Env } from "./gateway/types";
+import { OAuthResult } from "./oauth/oauth-result";
 
-export { GatewaySession };
+export { GatewaySession, OAuthResult };
 
 function isGatewayHost(hostname: string): boolean {
   return (

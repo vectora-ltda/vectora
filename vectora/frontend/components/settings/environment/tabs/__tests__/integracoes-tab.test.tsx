@@ -51,18 +51,12 @@ afterEach(() => overwriteGetLocale(() => baseLocale));
 type GatewayStatus = {
   connected: boolean;
   state: "never_connected" | "error" | "connected";
-  token: string | null;
-  subdomain: string | null;
-  webhook_base: string | null;
   detail: string | null;
 };
 
 const GATEWAY_FALLBACK: GatewayStatus = {
   connected: false,
   state: "never_connected",
-  token: null,
-  subdomain: null,
-  webhook_base: null,
   detail: null,
 };
 
@@ -424,60 +418,28 @@ describe("IntegracoesTab", () => {
     });
   });
 
-  it("GitHub conectado exibe URL de webhook local quando gateway desconectado", async () => {
+  it("não exibe URLs de webhook ou túnel na interface", async () => {
     const { IntegracoesTab } = await import("../integracoes-tab");
     render(<IntegracoesTab />);
     await waitFor(() => {
-      const webhookUrls = screen.getAllByText(/\/webhook\/github/i);
-      expect(webhookUrls.length).toBeGreaterThan(0);
+      expect(screen.getByText("GitHub")).toBeInTheDocument();
     });
+    expect(screen.queryByText(/\/webhook\//i)).toBeNull();
+    expect(screen.queryByText(/vectora\.chat/i)).toBeNull();
   });
 
-  it("GitHub usa gateway webhook_base quando gateway conectado", async () => {
+  it("provider OAuth não exibe callback para cadastro do usuário", async () => {
     mockFetch(BASE_INTEGRATIONS, {
       connected: true,
       state: "connected",
-      token: "abc123",
-      subdomain: "abc123.vectora.chat",
-      webhook_base: "https://abc123.vectora.chat",
       detail: null,
     });
     const { IntegracoesTab } = await import("../integracoes-tab");
     render(<IntegracoesTab />);
-    await waitFor(() => {
-      const webhookUrls = screen.getAllByText(
-        /abc123\.vectora\.chat\/webhook\/github/i,
-      );
-      expect(webhookUrls.length).toBeGreaterThan(0);
-    });
-  });
-
-  it("Slack conectado exibe URL de webhook", async () => {
-    const { IntegracoesTab } = await import("../integracoes-tab");
-    render(<IntegracoesTab />);
-    await waitFor(() => {
-      const webhookUrls = screen.getAllByText(/\/webhook\/slack/i);
-      expect(webhookUrls.length).toBeGreaterThan(0);
-    });
-  });
-
-  it("provider OAuth sem app configurado exibe a callback URL pra cadastro, quando o gateway já tem subdomínio", async () => {
-    mockFetch(BASE_INTEGRATIONS, {
-      connected: true,
-      state: "connected",
-      token: "abc123",
-      subdomain: "abc123.vectora.chat",
-      webhook_base: "https://abc123.vectora.chat",
-      detail: null,
-    });
-    const { IntegracoesTab } = await import("../integracoes-tab");
-    render(<IntegracoesTab />);
-    await waitFor(() => {
-      const callbackUrls = screen.getAllByText(
-        /abc123\.vectora\.chat\/auth\/gitlab\/callback/i,
-      );
-      expect(callbackUrls.length).toBeGreaterThan(0);
-    });
+    await waitFor(() =>
+      expect(screen.getAllByText("GitLab").length).toBeGreaterThan(0),
+    );
+    expect(screen.queryByText(/\/auth\/[^/\s]+\/callback/i)).toBeNull();
   });
 
   it("erro de borda — sem subdomínio do gateway ainda, a callback URL não aparece (nada pra copiar)", async () => {
@@ -486,16 +448,13 @@ describe("IntegracoesTab", () => {
     await waitFor(() => {
       expect(screen.getAllByText("GitLab").length).toBeGreaterThan(0);
     });
-    expect(screen.queryByText(/\/auth\/gitlab\/callback/i)).toBeNull();
+    expect(screen.queryByText(/\/auth\/[^/\s]+\/callback/i)).toBeNull();
   });
 
   it("erro de borda — provider apikey (Slack) nunca exibe a callback URL de OAuth", async () => {
     mockFetch(BASE_INTEGRATIONS, {
       connected: true,
       state: "connected",
-      token: "abc123",
-      subdomain: "abc123.vectora.chat",
-      webhook_base: "https://abc123.vectora.chat",
       detail: null,
     });
     const { IntegracoesTab } = await import("../integracoes-tab");
@@ -534,23 +493,17 @@ describe("IntegracoesTab", () => {
     });
   });
 
-  it("gateway conectado exibe subdomain e mensagem de gateway conectado", async () => {
+  it("gateway conectado exibe apenas o estado, sem expor o subdomínio", async () => {
     mockFetch(BASE_INTEGRATIONS, {
       connected: true,
       state: "connected",
-      token: "abc123",
-      subdomain: "abc123.vectora.chat",
-      webhook_base: "https://abc123.vectora.chat",
       detail: null,
     });
     const { IntegracoesTab } = await import("../integracoes-tab");
     render(<IntegracoesTab />);
     await waitFor(() => {
       expect(screen.getByText(/gateway conectado/i)).toBeTruthy();
-      // subdomain e webhook_base podem aparecer em múltiplos spans — getAllByText é correto
-      expect(
-        screen.getAllByText(/abc123\.vectora\.chat/).length,
-      ).toBeGreaterThan(0);
+      expect(screen.queryByText(/abc123\.vectora\.chat/)).toBeNull();
     });
   });
 
@@ -561,9 +514,6 @@ describe("IntegracoesTab", () => {
     mockFetch(BASE_INTEGRATIONS, {
       connected: false,
       state: "error",
-      token: "abc123",
-      subdomain: "abc123.vectora.chat",
-      webhook_base: "https://abc123.vectora.chat",
       detail: "Gateway respondeu 503",
     });
     const { IntegracoesTab } = await import("../integracoes-tab");
@@ -594,17 +544,11 @@ describe("IntegracoesTab", () => {
               ? {
                   connected: false,
                   state: "error",
-                  token: "abc123",
-                  subdomain: "abc123.vectora.chat",
-                  webhook_base: "https://abc123.vectora.chat",
                   detail: "Gateway respondeu 503",
                 }
               : {
                   connected: true,
                   state: "connected",
-                  token: "abc123",
-                  subdomain: "abc123.vectora.chat",
-                  webhook_base: "https://abc123.vectora.chat",
                   detail: null,
                 };
           return Promise.resolve({

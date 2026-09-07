@@ -12,7 +12,6 @@ Endpoints:
 Provedores suportados:
     github   — X-Hub-Signature-256 (HMAC-SHA256)
     gitlab   — X-Gitlab-Token (comparação direta)
-    slack    — X-Slack-Signature (v0=HMAC-SHA256)
     linear   — X-Linear-Signature (HMAC-SHA256)
     resend   — svix-signature (HMAC-SHA256)
     sendgrid — verificação ECDSA via chave pública
@@ -21,7 +20,6 @@ Provedores suportados:
 Configuração (env vars / Settings):
     GITHUB_WEBHOOK_SECRET
     GITLAB_WEBHOOK_SECRET
-    SLACK_SIGNING_SECRET
     LINEAR_WEBHOOK_SECRET
     RESEND_WEBHOOK_SECRET
     SENDGRID_WEBHOOK_KEY
@@ -74,22 +72,6 @@ def _verify_gitlab(body: bytes, headers: dict[str, str], secret: str) -> bool:
     return hmac.compare_digest(token, secret)
 
 
-def _verify_slack(body: bytes, headers: dict[str, str], secret: str) -> bool:
-    ts = headers.get("x-slack-request-timestamp", "")
-    sig = headers.get("x-slack-signature", "")
-    # Rejeita requisições com mais de 5 minutos (replay attack)
-    try:
-        if abs(time.time() - float(ts)) > 300:
-            return False
-    except (ValueError, TypeError):
-        return False
-    base = f"v0:{ts}:{body.decode()}"
-    expected = (
-        "v0=" + hmac.new(secret.encode(), base.encode(), hashlib.sha256).hexdigest()
-    )
-    return hmac.compare_digest(sig, expected)
-
-
 def _verify_linear(body: bytes, headers: dict[str, str], secret: str) -> bool:
     sig = headers.get("x-linear-signature", "")
     expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
@@ -135,7 +117,6 @@ def _verify_mailgun(body: bytes, headers: dict[str, str], secret: str) -> bool:
 _VERIFIERS: dict[str, tuple[str, Callable[[bytes, dict[str, str], str], bool]]] = {
     "github": ("GITHUB_WEBHOOK_SECRET", _verify_github),
     "gitlab": ("GITLAB_WEBHOOK_SECRET", _verify_gitlab),
-    "slack": ("SLACK_SIGNING_SECRET", _verify_slack),
     "linear": ("LINEAR_WEBHOOK_SECRET", _verify_linear),
     "resend": ("RESEND_WEBHOOK_SECRET", _verify_resend),
     "mailgun": ("MAILGUN_WEBHOOK_SIGNING_KEY", _verify_mailgun),
@@ -239,28 +220,6 @@ async def _handle_github(
             logger.exception("webhook: falha ao sincronizar issue com o kanban")
 
 
-async def _handle_slack(
-    event_type: str, payload: WebhookPayload, request: Request
-) -> None:
-    """Processa eventos do Slack — inclui url_verification challenge."""
-    if payload.get("type") == "url_verification":
-        # Slack envia challenge na primeira configuração — resposta especial
-        # (tratada antes de persistir no banco)
-        pass
-
-    event = payload.get("event", {})
-    _emit_sse_event(
-        provider="slack",
-        event_type=event.get("type", event_type),
-        data={
-            "channel": event.get("channel"),
-            "user": event.get("user"),
-            "text": event.get("text", "")[:500],
-            "ts": event.get("ts"),
-        },
-    )
-
-
 async def _handle_linear(
     event_type: str, payload: WebhookPayload, request: Request
 ) -> None:
@@ -307,12 +266,12 @@ async def _handle_email(
 _HANDLERS: dict[str, WebhookHandler] = {
     "github": _handle_github,
     "gitlab": _handle_gitlab,
-    "slack": _handle_slack,
     "linear": _handle_linear,
     "resend": _handle_email,
     "sendgrid": _handle_email,
     "mailgun": _handle_email,
 }
+_SUPPORTED_PROVIDERS = frozenset(_VERIFIERS) | frozenset(_HANDLERS) | {"sendgrid"}
 
 # ---------------------------------------------------------------------------
 # SSE bridge — emite WebhookEvent para clientes conectados
@@ -481,18 +440,10 @@ async def receive_observability_webhook(request: Request) -> Response:
 @router.post("/webhook/{provider}")
 async def receive_webhook(provider: str, request: Request) -> Response:
     """Recebe webhook de um provider externo, verifica assinatura e despacha."""
+    if provider not in _SUPPORTED_PROVIDERS:
+        raise HTTPException(status_code=404, detail="Provider de webhook não suportado")
     body = await request.body()
     headers = {k.lower(): v for k, v in request.headers.items()}
-
-    # Slack url_verification — responde imediatamente sem verificar assinatura
-    # (o challenge chega antes do secret estar configurado na primeira vez)
-    if provider == "slack":
-        try:
-            payload_check = json.loads(body)
-            if payload_check.get("type") == "url_verification":
-                return JSONResponse({"challenge": payload_check.get("challenge", "")})
-        except Exception:
-            pass
 
     # Verificação de assinatura
     verifier_cfg = _VERIFIERS.get(provider)

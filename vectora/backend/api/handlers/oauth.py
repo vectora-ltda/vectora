@@ -20,17 +20,24 @@ token do usuário em "Optional features" (senão o token expira e precisa
 de refresh, não implementado aqui) — GITHUB_OAUTH_CLIENT_ID/SECRET vêm
 das credenciais desse GitHub App.
 
-Configuração necessária (env vars):
-    GITHUB_OAUTH_CLIENT_ID / GITHUB_OAUTH_CLIENT_SECRET   (GitHub App)
-    GITLAB_OAUTH_CLIENT_ID / GITLAB_OAUTH_CLIENT_SECRET / GITLAB_BASE_URL
-    GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET
-    SLACK_OAUTH_CLIENT_ID / SLACK_OAUTH_CLIENT_SECRET
+Os client IDs e secrets dos providers são mantidos pelo Worker services. O
+backend local usa apenas VECTORA_OAUTH_BROKER_URL e VECTORA_OAUTH_SECRET para
+iniciar o fluxo e consumir o resultado one-shot; as variáveis dos providers
+abaixo só permanecem como fallback de compatibilidade para instalações antigas.
 """
 
 from __future__ import annotations
 
+import asyncio
+import base64
+import binascii
+import hashlib
+import hmac
 import logging
 import os
+import secrets
+import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +51,305 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["oauth"])
 
 _GATEWAY_TOKEN_PATH = settings.vectora_home / "gateway_token"
+_BROKER_STATE_TTL: float = 300.0
+_BROKER_PROVIDER_SUCCESS_CACHE_TTL: float = 60.0
+_broker_provider_cache: tuple[float, set[str]] | None = None
+
+
+@dataclass(frozen=True)
+class _BrokerTransaction:
+    """One short-lived browser-bound transaction for a broker callback."""
+
+    state: str
+    user_id: str
+    provider: str
+    proof: str
+    expires_at: int
+
+
+_broker_transactions: dict[str, _BrokerTransaction] = {}
+
+
+def _purge_expired_broker_transactions(now: int | None = None) -> None:
+    """Remove broker transactions whose short-lived callback window elapsed."""
+    current = int(time.time()) if now is None else now
+    for state, transaction in tuple(_broker_transactions.items()):
+        if transaction.expires_at < current:
+            _broker_transactions.pop(state, None)
+
+
+def _broker_url() -> str:
+    return os.getenv("VECTORA_OAUTH_BROKER_URL", "").strip()
+
+
+def _broker_secret() -> str:
+    return os.getenv("VECTORA_OAUTH_SECRET", "").strip()
+
+
+def _broker_enabled() -> bool:
+    return bool(_broker_url() and _broker_secret())
+
+
+def _consume_broker_transaction(
+    request: Request, state: str, provider: str, user_id: str
+) -> bool:
+    _purge_expired_broker_transactions()
+    proof = request.query_params.get("oauth_proof", "")
+    transaction = _broker_transactions.get(state)
+    if transaction is None:
+        return False
+    valid = (
+        hmac.compare_digest(transaction.proof, proof)
+        and transaction.state == state
+        and transaction.provider == provider
+        and transaction.user_id == user_id
+        and transaction.expires_at >= int(time.time())
+    )
+    if valid:
+        _broker_transactions.pop(state, None)
+    return valid
+
+
+def _local_oauth_fallback_enabled() -> bool:
+    """Allow legacy local OAuth only when explicitly enabled for compatibility."""
+    return os.getenv("VECTORA_ALLOW_LOCAL_OAUTH_FALLBACK", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
+async def _broker_providers() -> set[str]:
+    global _broker_provider_cache
+    if not _broker_enabled():
+        return set()
+    broker_url = _broker_url()
+    broker_secret = _broker_secret()
+    now = time.monotonic()
+    if _broker_provider_cache and now < _broker_provider_cache[0]:
+        return set(_broker_provider_cache[1])
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=5) as client:
+            response = await client.get(
+                f"{broker_url}/oauth/integrations/providers",
+                headers={"Authorization": f"Bearer {broker_secret}"},
+            )
+        if response.is_success:
+            providers = {str(item) for item in response.json().get("providers", [])}
+            _broker_provider_cache = (
+                now + _BROKER_PROVIDER_SUCCESS_CACHE_TTL,
+                providers,
+            )
+            return set(providers)
+    except Exception as exc:
+        logger.warning("OAuth broker provider discovery failed: %s", exc)
+    return set()
+
+
+async def _broker_start(request: Request, provider: str) -> RedirectResponse:
+    _purge_expired_broker_transactions()
+    user = _get_user(request)
+    broker_url = _broker_url()
+    broker_secret = _broker_secret()
+    expires_at = int(time.time()) + int(_BROKER_STATE_TTL)
+    proof = secrets.token_urlsafe(32)
+    # Keep the signed state below the gateway's compact-state limit while
+    # retaining enough entropy for a short-lived, one-time callback.
+    payload = f"{user.id}:{provider}:{expires_at}:{secrets.token_urlsafe(12)}"
+    signature = hmac.new(
+        broker_secret.encode(), payload.encode(), hashlib.sha256
+    ).digest()[:12]
+    state = (
+        base64.urlsafe_b64encode(
+            f"{payload}:{base64.urlsafe_b64encode(signature).decode()}".encode()
+        )
+        .decode()
+        .rstrip("=")
+    )
+    _broker_transactions[state] = _BrokerTransaction(
+        state=state,
+        user_id=user.id,
+        provider=provider,
+        proof=proof,
+        expires_at=expires_at,
+    )
+    try:
+        callback = _gateway_callback_url(provider)
+        if not callback:
+            raise HTTPException(
+                status_code=503,
+                detail="OAuth centralizado exige um gateway Vectora conectado",
+            )
+        callback_url = callback
+        separator = "&" if "?" in callback_url else "?"
+        callback_url = f"{callback_url}{separator}oauth_proof={proof}"
+        import httpx
+
+        async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
+            response = await client.get(
+                f"{broker_url}/oauth/integrations/{provider}/start",
+                params={"state": state, "return_to": callback_url},
+            )
+        if response.status_code != 302:
+            if 200 <= response.status_code < 300:
+                logger.warning(
+                    "OAuth broker start inesperado para %s: HTTP %s",
+                    provider,
+                    response.status_code,
+                )
+                raise HTTPException(status_code=502, detail="Falha ao iniciar OAuth")
+            detail = (
+                "OAuth broker não configurado"
+                if response.status_code == 503
+                else "Falha ao iniciar OAuth"
+            )
+            raise HTTPException(status_code=response.status_code, detail=detail)
+        location = response.headers.get("location")
+        if not location:
+            raise HTTPException(
+                status_code=502, detail="Broker OAuth não retornou redirect"
+            )
+        return RedirectResponse(url=location, status_code=302)
+    except Exception:
+        _broker_transactions.pop(state, None)
+        raise
+
+
+async def _try_broker_start(request: Request, provider: str) -> RedirectResponse | None:
+    """Start company-managed OAuth, with an explicit legacy escape hatch."""
+    if not _broker_enabled():
+        if _local_oauth_fallback_enabled():
+            return None
+        raise HTTPException(
+            status_code=503,
+            detail="OAuth centralizado não está configurado neste Vectora",
+        )
+    if provider not in await _broker_providers():
+        if _local_oauth_fallback_enabled():
+            return None
+        raise HTTPException(
+            status_code=503,
+            detail=f"OAuth centralizado não oferece o provider {provider}",
+        )
+    try:
+        return await _broker_start(request, provider)
+    except HTTPException as exc:
+        if exc.status_code not in (502, 503):
+            raise
+        logger.warning("OAuth broker unavailable for %s: %s", provider, exc.detail)
+    except Exception as exc:
+        logger.warning("OAuth broker transport failed for %s: %s", provider, exc)
+    if _local_oauth_fallback_enabled():
+        return None
+    raise HTTPException(
+        status_code=503,
+        detail="OAuth centralizado indisponível; tente novamente mais tarde",
+    )
+
+
+async def _broker_callback(
+    provider: str, state: str, request: Request
+) -> RedirectResponse:
+    try:
+        padded = state + "=" * (-len(state) % 4)
+        decoded = base64.urlsafe_b64decode(padded).decode()
+        user_id, state_provider, expires_at, nonce, encoded_signature = decoded.split(
+            ":", 4
+        )
+        signed_payload = f"{user_id}:{state_provider}:{expires_at}:{nonce}"
+        expected = hmac.new(
+            _broker_secret().encode(), signed_payload.encode(), hashlib.sha256
+        ).digest()[:12]
+        actual = base64.urlsafe_b64decode(encoded_signature + "=")
+        expires_epoch = int(expires_at)
+        valid = hmac.compare_digest(actual, expected)
+    except (ValueError, UnicodeDecodeError, binascii.Error):
+        valid = False
+        user_id = ""
+        state_provider = ""
+        expires_epoch = 0
+    if not valid or state_provider != provider or expires_epoch < int(time.time()):
+        raise HTTPException(status_code=400, detail="Estado OAuth expirado ou inválido")
+    if not _consume_broker_transaction(request, state, provider, user_id):
+        raise HTTPException(
+            status_code=400, detail="Transação OAuth ausente ou inválida"
+        )
+    import httpx
+
+    response = None
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            for attempt in range(5):
+                response = await client.get(
+                    f"{_broker_url()}/oauth/integrations/{provider}/result/{state}",
+                    headers={"Authorization": f"Bearer {_broker_secret()}"},
+                )
+                if response.status_code != 202:
+                    break
+                await asyncio.sleep(0.2 * (attempt + 1))
+    except httpx.RequestError as exc:
+        logger.warning("OAuth broker result transport failed for %s: %s", provider, exc)
+        return RedirectResponse(
+            url=f"/?oauth_error={provider}_broker_unavailable", status_code=302
+        )
+    if response is None or response.status_code == 202:
+        raise HTTPException(
+            status_code=502, detail="Resultado OAuth ainda não disponível"
+        )
+    if not response.is_success:
+        raise HTTPException(
+            status_code=502, detail="Broker OAuth falhou ao recuperar o token"
+        )
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+    if not isinstance(payload, dict):
+        logger.warning("OAuth broker retornou payload inesperado para %s", provider)
+        return RedirectResponse(
+            url=f"/?oauth_error={provider}_broker_error", status_code=302
+        )
+    error = payload.get("error")
+    if isinstance(error, str) and error:
+        safe_error = "".join(char for char in error if char.isalnum() or char in "-_")
+        return RedirectResponse(
+            url=f"/?oauth_error={provider}_{safe_error or 'broker_error'}",
+            status_code=302,
+        )
+    access_token = payload.get("accessToken")
+    if not isinstance(access_token, str) or not access_token:
+        raise HTTPException(status_code=502, detail="Broker OAuth não retornou token")
+    env_var = _REGISTRY_BY_ID[provider]["env_var"]
+    from backend.rbac import auth as auth_svc
+
+    try:
+        await auth_svc.set_env_override(user_id, env_var, access_token, source="oauth")
+        refresh_token = payload.get("refreshToken")
+        if provider == "google" and isinstance(refresh_token, str) and refresh_token:
+            await auth_svc.set_env_override(
+                user_id, "GOOGLE_REFRESH_TOKEN", refresh_token, source="oauth"
+            )
+    except Exception as exc:
+        logger.exception("OAuth broker: falha ao salvar token: %s", exc)
+        return RedirectResponse(
+            url=f"/?oauth_error={provider}_save_failed", status_code=302
+        )
+    logger.info(
+        "OAuth broker: token salvo para provider=%s user_id=%s", provider, user_id
+    )
+    return RedirectResponse(url=f"/?oauth_success={provider}", status_code=302)
+
+
+def _looks_like_broker_state(state: str, provider: str) -> bool:
+    try:
+        padded = state + "=" * (-len(state) % 4)
+        decoded = base64.urlsafe_b64decode(padded).decode()
+        parts = decoded.split(":", 4)
+        return len(parts) == 5 and parts[1] == provider
+    except (ValueError, UnicodeDecodeError, binascii.Error):
+        return False
 
 
 def _gateway_callback_url(
@@ -368,6 +674,7 @@ async def list_integrations(request: Request) -> dict:
 
     from backend.rbac.auth import is_oauth_sourced
 
+    broker_providers = await _broker_providers()
     items = []
     for integ in INTEGRATIONS_REGISTRY:
         env_vars = [integ["env_var"], *integ.get("env_var_aliases", [])]
@@ -390,7 +697,11 @@ async def list_integrations(request: Request) -> dict:
                 "oauth_connected": oauth_connected,
                 # Nunca expõe o valor — apenas informa se existe
                 "oauth_configured": (
-                    _oauth_configured(oauth_provider_id)
+                    oauth_provider_id in broker_providers
+                    or (
+                        _oauth_configured(oauth_provider_id)
+                        and _local_oauth_fallback_enabled()
+                    )
                     if integ["kind"] in ("oauth", "hybrid")
                     else False
                 ),
@@ -580,6 +891,9 @@ async def _verify_apikey(integration_id: str, token: str) -> tuple[bool, str]:  
 @router.get("/auth/github")
 async def github_oauth_start(request: Request) -> RedirectResponse:
     """Inicia o fluxo OAuth do GitHub — redireciona para github.com/login/oauth."""
+    broker_redirect = await _try_broker_start(request, "github")
+    if broker_redirect is not None:
+        return broker_redirect
     user = _get_user(request)
     client_id, _secret, redirect_uri = _github_cfg()
 
@@ -604,6 +918,8 @@ async def github_oauth_callback(
     request: Request, code: str = "", state: str = ""
 ) -> RedirectResponse:
     """Callback do GitHub — troca code por token e salva como env_override."""
+    if _broker_enabled() and _looks_like_broker_state(state, "github"):
+        return await _broker_callback("github", state, request)
     if not code:
         raise HTTPException(status_code=400, detail="Parâmetro 'code' ausente")
 
@@ -725,6 +1041,9 @@ def _gitlab_cfg() -> tuple[str, str, str, str]:
 
 @router.get("/auth/gitlab")
 async def gitlab_oauth_start(request: Request) -> RedirectResponse:
+    broker_redirect = await _try_broker_start(request, "gitlab")
+    if broker_redirect is not None:
+        return broker_redirect
     user = _get_user(request)
     client_id, _secret, base_url, redirect_uri = _gitlab_cfg()
     scopes = " ".join(
@@ -745,6 +1064,8 @@ async def gitlab_oauth_start(request: Request) -> RedirectResponse:
 async def gitlab_oauth_callback(
     request: Request, code: str = "", state: str = ""
 ) -> RedirectResponse:
+    if _broker_enabled() and _looks_like_broker_state(state, "gitlab"):
+        return await _broker_callback("gitlab", state, request)
     if not code:
         raise HTTPException(status_code=400, detail="Parâmetro 'code' ausente")
     client_id, client_secret, base_url, redirect_uri = _gitlab_cfg()
@@ -853,6 +1174,9 @@ def _google_cfg() -> tuple[str, str, str]:
 
 @router.get("/auth/google")
 async def google_oauth_start(request: Request) -> RedirectResponse:
+    broker_redirect = await _try_broker_start(request, "google")
+    if broker_redirect is not None:
+        return broker_redirect
     user = _get_user(request)
     client_id, _secret, redirect_uri = _google_cfg()
     scopes = (
@@ -879,6 +1203,8 @@ async def google_oauth_start(request: Request) -> RedirectResponse:
 async def google_oauth_callback(
     request: Request, code: str = "", state: str = ""
 ) -> RedirectResponse:
+    if _broker_enabled() and _looks_like_broker_state(state, "google"):
+        return await _broker_callback("google", state, request)
     if not code:
         raise HTTPException(status_code=400, detail="Parâmetro 'code' ausente")
     client_id, client_secret, redirect_uri = _google_cfg()
@@ -974,139 +1300,4 @@ async def google_oauth_disconnect(request: Request) -> dict:
         await auth_svc.delete_env_override(user.id, "GOOGLE_REFRESH_TOKEN")
     except Exception as exc:
         logger.warning("Google disconnect error: %s", exc)
-    return {"status": "disconnected"}
-
-
-# ---------------------------------------------------------------------------
-# Slack OAuth
-# ---------------------------------------------------------------------------
-
-
-def _slack_cfg() -> tuple[str, str, str]:
-    client_id = os.environ.get("SLACK_OAUTH_CLIENT_ID", "")
-    client_secret = os.environ.get("SLACK_OAUTH_CLIENT_SECRET", "")
-    redirect_uri = (
-        os.environ.get("SLACK_REDIRECT_URI")
-        or _gateway_callback_url("slack")
-        or "http://localhost:8080/auth/slack/callback"
-    )
-    if not client_id or not client_secret:
-        raise HTTPException(
-            status_code=503,
-            detail="Slack OAuth não configurado. Defina SLACK_OAUTH_CLIENT_ID e SLACK_OAUTH_CLIENT_SECRET.",
-        )
-    return client_id, client_secret, redirect_uri
-
-
-@router.get("/auth/slack")
-async def slack_oauth_start(request: Request) -> RedirectResponse:
-    user = _get_user(request)
-    client_id, _secret, redirect_uri = _slack_cfg()
-    scopes = ",".join(
-        _REGISTRY_BY_ID["slack"].get("oauth_scopes", ["chat:write", "channels:read"])
-    )
-    import urllib.parse
-
-    url = (
-        "https://slack.com/oauth/v2/authorize"
-        f"?client_id={client_id}"
-        f"&redirect_uri={urllib.parse.quote(redirect_uri)}"
-        f"&scope={scopes}"
-        f"&state={user.id}"
-    )
-    return RedirectResponse(url=url, status_code=302)
-
-
-@router.get("/auth/slack/callback")
-async def slack_oauth_callback(
-    request: Request, code: str = "", state: str = ""
-) -> RedirectResponse:
-    if not code:
-        raise HTTPException(status_code=400, detail="Parâmetro 'code' ausente")
-    client_id, client_secret, redirect_uri = _slack_cfg()
-
-    import httpx
-
-    async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.post(
-            "https://slack.com/api/oauth.v2.access",
-            data={
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "code": code,
-                "redirect_uri": redirect_uri,
-            },
-        )
-
-    data = r.json()
-    if not data.get("ok"):
-        logger.error("Slack OAuth failed: %s", data)
-        return RedirectResponse(
-            url="/?oauth_error=slack_exchange_failed", status_code=302
-        )
-
-    bot_token = data.get("access_token", "")
-    if not bot_token:
-        return RedirectResponse(url="/?oauth_error=slack_no_token", status_code=302)
-
-    try:
-        from backend.rbac import auth as auth_svc
-
-        await auth_svc.set_env_override(
-            state, "SLACK_BOT_TOKEN", bot_token, source="oauth"
-        )
-        logger.info("Slack OAuth: token salvo para user_id=%s", state)
-    except Exception as exc:
-        logger.exception("Slack OAuth: falha ao salvar token: %s", exc)
-        return RedirectResponse(url="/?oauth_error=slack_save_failed", status_code=302)
-
-    return RedirectResponse(url="/?oauth_success=slack", status_code=302)
-
-
-@router.get("/auth/slack/status")
-async def slack_oauth_status(request: Request) -> dict:
-    user = _get_user(request)
-    try:
-        from backend.rbac import auth as auth_svc
-
-        overrides = await auth_svc.get_env_overrides(user.id)
-        token = overrides.get("SLACK_BOT_TOKEN") or os.environ.get(
-            "SLACK_BOT_TOKEN", ""
-        )
-    except Exception:
-        token = os.environ.get("SLACK_BOT_TOKEN", "")
-
-    if not token:
-        return {"connected": False, "team": None}
-
-    try:
-        import httpx
-
-        async with httpx.AsyncClient(timeout=5) as client:
-            r = await client.get(
-                "https://slack.com/api/auth.test",
-                headers={"Authorization": f"Bearer {token}"},
-            )
-        data = r.json()
-        if data.get("ok"):
-            return {
-                "connected": True,
-                "team": data.get("team"),
-                "user": data.get("user"),
-            }
-    except Exception:
-        pass
-
-    return {"connected": True, "team": None}
-
-
-@router.delete("/auth/slack")
-async def slack_oauth_disconnect(request: Request) -> dict:
-    user = _get_user(request)
-    try:
-        from backend.rbac import auth as auth_svc
-
-        await auth_svc.delete_env_override(user.id, "SLACK_BOT_TOKEN")
-    except Exception as exc:
-        logger.warning("Slack disconnect error: %s", exc)
     return {"status": "disconnected"}

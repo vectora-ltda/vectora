@@ -2,6 +2,7 @@ import type { EmailMessage, JobMessage } from "../lib/queue-types";
 
 export interface Env {
   GATEWAY_SESSION: DurableObjectNamespace;
+  OAUTH_RESULT: DurableObjectNamespace;
   GATEWAY_METRICS: KVNamespace;
   VECTORA_APP_SECRET: string;
   // Nunca embutido em nenhum binário distribuído — só o Worker conhece este
@@ -12,6 +13,13 @@ export interface Env {
   GATEWAY_INTERNAL_SECRET: string;
   GATEWAY_HMAC_SECRET: string;
   VECTORA_OAUTH_SECRET: string;
+  GITHUB_OAUTH_CLIENT_ID?: string;
+  GITHUB_OAUTH_CLIENT_SECRET?: string;
+  GITLAB_OAUTH_CLIENT_ID?: string;
+  GITLAB_OAUTH_CLIENT_SECRET?: string;
+  GITLAB_BASE_URL?: string;
+  GOOGLE_OAUTH_CLIENT_ID?: string;
+  GOOGLE_OAUTH_CLIENT_SECRET?: string;
   GATEWAY_URL: string;
   MAX_PAYLOAD_BYTES: string;
   QUEUE_TTL_MS: string;
@@ -22,6 +30,7 @@ export interface Env {
   // auth/billing/license/gdpr/api-keys/issues
   DB: D1Database;
   APP_URL: string;
+  OAUTH_PUBLIC_URL?: string;
   RESEND_API_KEY: string;
   TURNSTILE_SECRET_KEY?: string;
   STRIPE_SECRET_KEY: string;
