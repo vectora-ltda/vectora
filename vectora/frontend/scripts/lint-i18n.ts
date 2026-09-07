@@ -143,9 +143,8 @@ async function filesUnder(root: string): Promise<string[]> {
 }
 
 /** Runs the command-line checker and reports violations to stderr. */
-async function main(): Promise<void> {
+export async function runCli(args = process.argv.slice(2)): Promise<number> {
   const root = resolve(process.cwd());
-  const args = process.argv.slice(2);
   let paths: string[];
   if (args.includes("--changed")) {
     const repoRoot = resolve(root, "..", "..");
@@ -208,15 +207,19 @@ async function main(): Promise<void> {
       `${violation.file}:${violation.line}:${violation.column} ${violation.message}`,
     );
   }
-  if (violations.length > 0) process.exitCode = 1;
+  return violations.length > 0 ? 1 : 0;
 }
 
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(resolve(process.argv[1])).href
 ) {
-  void main().catch((error: unknown) => {
-    console.error(error);
-    process.exitCode = 2;
-  });
+  void runCli()
+    .then((code) => {
+      process.exitCode = code;
+    })
+    .catch((error: unknown) => {
+      console.error(error);
+      process.exitCode = 2;
+    });
 }
