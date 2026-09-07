@@ -19,12 +19,14 @@ Os OAuth Apps das integrações são registrados pela Vectora LTDA no Worker
 `vectora-services`. O desktop não recebe client secret e a interface não pede
 que o usuário crie um app próprio. O backend gera um state aleatório e inicia
 o broker; o callback público do Worker troca o code, grava o resultado
-temporariamente no Durable Object SQLite `OAUTH_RESULT` (migration v3), com TTL físico de cinco minutos, e redireciona apenas o state
-para o subdomínio do gateway. O backend consulta o resultado uma única vez com
-`VECTORA_OAUTH_SECRET` e grava o token no override do usuário. Redirects são
-aceitos somente em `https://*.vectora.chat`; o `return_to` tokenizado existe
-apenas como transporte interno entre o Worker e a instalação, e nunca é
-exposto como configuração ao usuário, ao binário ou aos logs.
+temporariamente no Durable Object SQLite `OAUTH_RESULT` (migration v3), com TTL
+físico de cinco minutos, e redireciona o state e uma prova one-shot de curta
+duração para o subdomínio do gateway. O backend valida essa prova antes de
+consultar o resultado uma única vez com `VECTORA_OAUTH_SECRET` e gravar o token
+no override do usuário. Redirects são aceitos somente em
+`https://*.vectora.chat`; o `return_to` tokenizado é transporte interno do
+callback, nunca uma configuração exposta ao usuário ou ao binário e não contém
+tokens de provider.
 
 Para GitHub, o operador registra um OAuth App da Vectora com os escopos
 `repo,user:email,read:org` e usa `GITHUB_OAUTH_CLIENT_ID` e
