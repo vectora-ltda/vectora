@@ -30,23 +30,27 @@ const execFileAsync = promisify(execFile);
 
 export function isIgnoredPath(filePath: string): boolean {
   const normalized = filePath.replaceAll("\\", "/");
-  return normalized
-    .split("/")
-    .some((part) =>
-      [
-        "e2e",
-        "tests",
-        "__tests__",
-        "paraglide",
-        "node_modules",
-        "dist",
-        "build",
-        "coverage",
-        "vendor",
-        "generated",
-        "public",
-      ].includes(part),
-    );
+  const fileName = normalized.split("/").at(-1) ?? normalized;
+  return (
+    /\.(?:test|spec)\.[^.]+$/i.test(fileName) ||
+    normalized
+      .split("/")
+      .some((part) =>
+        [
+          "e2e",
+          "tests",
+          "__tests__",
+          "paraglide",
+          "node_modules",
+          "dist",
+          "build",
+          "coverage",
+          "vendor",
+          "generated",
+          "public",
+        ].includes(part),
+      )
+  );
 }
 
 /** Returns whether text contains user-visible letters. */
