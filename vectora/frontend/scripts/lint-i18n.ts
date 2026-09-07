@@ -13,14 +13,40 @@ export interface I18nViolation {
 }
 
 const TEXT_ATTRIBUTES = new Set(["alt", "aria-label", "placeholder", "title"]);
-const IGNORED_PARTS = new Set(["e2e", "tests", "__tests__", "paraglide"]);
+const IGNORED_PARTS = new Set([
+  "e2e",
+  "tests",
+  "__tests__",
+  "paraglide",
+  "node_modules",
+  "dist",
+  "build",
+  "coverage",
+  "vendor",
+  "generated",
+  "public",
+]);
 const execFileAsync = promisify(execFile);
 
 export function isIgnoredPath(filePath: string): boolean {
   const normalized = filePath.replaceAll("\\", "/");
   return normalized
     .split("/")
-    .some((part) => ["e2e", "tests", "__tests__", "paraglide"].includes(part));
+    .some((part) =>
+      [
+        "e2e",
+        "tests",
+        "__tests__",
+        "paraglide",
+        "node_modules",
+        "dist",
+        "build",
+        "coverage",
+        "vendor",
+        "generated",
+        "public",
+      ].includes(part),
+    );
 }
 
 /** Returns whether text contains user-visible letters. */

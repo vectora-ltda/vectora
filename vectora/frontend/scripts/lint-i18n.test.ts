@@ -58,6 +58,8 @@ describe("lint-i18n", () => {
     expect(isIgnoredPath("components/e2e/fixture.tsx")).toBe(true);
     expect(isIgnoredPath("lib/paraglide/messages.ts")).toBe(true);
     expect(isIgnoredPath("lib\\paraglide\\messages.ts")).toBe(true);
+    expect(isIgnoredPath("node_modules/pkg/index.tsx")).toBe(true);
+    expect(isIgnoredPath("generated/messages.ts")).toBe(true);
     expect(isIgnoredPath("components/settings/panel.tsx")).toBe(false);
   });
 
