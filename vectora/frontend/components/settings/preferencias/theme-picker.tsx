@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Download, Loader2, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { selectableCardClass } from "@/lib/selectable-card";
 import {
@@ -10,6 +10,7 @@ import {
   type BaseThemeColors,
   type ThemePresetDef,
 } from "@/lib/theme/presets";
+import { classifyMode } from "@/lib/theme/mode";
 import {
   installVscodeThemeFromMarketplace,
   searchVscodeMarketplaceThemes,
@@ -20,6 +21,7 @@ import {
  * título/subtítulo + pílula de bolha de usuário) pintada com as cores reais
  * da paleta — dá pra reconhecer o tema de relance, sem precisar aplicá-lo
  * primeiro. Nome/descrição ficam como legenda fora do card. */
+/** Renders a compact preview card for one theme palette. */
 function ThemePreview({
   colors,
   active,
@@ -77,6 +79,7 @@ function ThemePreview({
 interface ThemePickerOption {
   id: string;
   label: string;
+  mode: "light" | "dark";
   colors: BaseThemeColors;
 }
 
@@ -84,6 +87,7 @@ interface ThemePickerOption {
  * app desktop (`window.vectora?.themes`); em modo navegador
  * `searchVscodeMarketplaceThemes` nunca é chamada porque o caller (abaixo)
  * já esconde a seção inteira quando a ponte não existe. */
+/** Searches and installs VS Code themes from the desktop marketplace bridge. */
 function MarketplaceResults({
   query,
   installedIds,
@@ -108,14 +112,18 @@ function MarketplaceResults({
 
   useEffect(() => {
     const q = query.trim();
-    if (!q) {
-      setResults([]);
-      return;
-    }
     let alive = true;
-    setLoading(true);
+    setResults([]);
     setError(null);
+    if (!q) {
+      setLoading(false);
+      return () => {
+        alive = false;
+      };
+    }
     const timer = setTimeout(() => {
+      if (!alive) return;
+      setLoading(true);
       void searchVscodeMarketplaceThemes(q)
         .then((items) => {
           if (alive) setResults(items);
@@ -159,7 +167,11 @@ function MarketplaceResults({
       {error && <p className="text-xs text-destructive">{error}</p>}
       <div className="grid gap-2 sm:grid-cols-2">
         {results.map((item) => {
-          const installed = installedIds.has(item.extensionId);
+          const installed =
+            installedIds.has(`vscode-${item.extensionId}`) ||
+            Array.from(installedIds).some((id) =>
+              id.startsWith(`vscode-${item.extensionId}-`),
+            );
           const busy = installingId === item.extensionId;
           return (
             <button
@@ -197,12 +209,16 @@ function MarketplaceResults({
   );
 }
 
+/** Filters theme presets by active mode and paginates the visible cards. */
 export function ThemePicker({
   value,
   onChange,
+  activeMode,
   presets,
   installedThemes,
   customLabel,
+  showMoreLabel,
+  showLessLabel,
   customColors,
   searchPlaceholder,
   marketplaceSupported,
@@ -214,9 +230,12 @@ export function ThemePicker({
 }: {
   value: string;
   onChange: (id: string) => void;
+  activeMode?: "light" | "dark";
   presets: ThemePresetDef[];
   installedThemes: ThemePresetDef[];
   customLabel: string;
+  showMoreLabel?: string;
+  showLessLabel?: string;
   customColors: BaseThemeColors;
   searchPlaceholder: string;
   marketplaceSupported: boolean;
@@ -227,32 +246,62 @@ export function ThemePicker({
   onThemeInstalled: (theme: ThemePresetDef) => void;
 }) {
   const [query, setQuery] = useState("");
+  const [visibleCount, setVisibleCount] = useState(6);
+  const previousModeRef = useRef(activeMode);
+  const effectiveVisibleCount =
+    previousModeRef.current === activeMode ? visibleCount : 6;
+
+  useEffect(() => {
+    previousModeRef.current = activeMode;
+    setVisibleCount(6);
+  }, [activeMode]);
 
   const options: ThemePickerOption[] = useMemo(
     () => [
       ...presets.map((preset) => ({
         id: preset.id,
         label: preset.label,
+        mode: preset.mode,
         colors: preset.colors,
       })),
       ...installedThemes.map((theme) => ({
         id: theme.id,
         label: theme.label,
+        mode: theme.mode ?? classifyMode(theme.colors),
         colors: theme.colors,
       })),
-      { id: "custom", label: customLabel, colors: customColors },
     ],
-    [presets, installedThemes, customLabel, customColors],
+    [presets, installedThemes],
   );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return options;
-    return options.filter((opt) => opt.label.toLowerCase().includes(q));
-  }, [options, query]);
+    return options.filter(
+      (opt) =>
+        (!q || opt.label.toLowerCase().includes(q)) &&
+        (opt.mode === (activeMode ?? "dark") ||
+          (opt.id === value && opt.mode !== (activeMode ?? "dark"))),
+    );
+  }, [options, query, activeMode, value]);
+
+  const visible = useMemo(() => {
+    if (!value) return filtered.slice(0, effectiveVisibleCount);
+
+    const selectedIndex = filtered.findIndex((opt) => opt.id === value);
+    if (selectedIndex < 0 || selectedIndex < effectiveVisibleCount) {
+      return filtered.slice(0, effectiveVisibleCount);
+    }
+
+    return [
+      filtered[selectedIndex]!,
+      ...filtered
+        .filter((opt) => opt.id !== value)
+        .slice(0, effectiveVisibleCount - 1),
+    ];
+  }, [effectiveVisibleCount, filtered, value]);
 
   const installedIds = useMemo(
-    () => new Set(installedThemes.map((t) => t.id.replace(/^vscode-/, ""))),
+    () => new Set(installedThemes.map((t) => t.id)),
     [installedThemes],
   );
 
@@ -265,13 +314,16 @@ export function ThemePicker({
         />
         <Input
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setVisibleCount(6);
+          }}
           placeholder={searchPlaceholder}
           className="h-8 pl-7 text-xs"
         />
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        {filtered.map((opt) => (
+        {visible.map((opt) => (
           <div key={opt.id} className="space-y-1.5">
             <ThemePreview
               colors={opt.colors}
@@ -283,6 +335,36 @@ export function ThemePicker({
             </p>
           </div>
         ))}
+        <div className="space-y-1.5">
+          <ThemePreview
+            colors={customColors}
+            active={value === "custom"}
+            onClick={() => onChange("custom")}
+          />
+          <p className="truncate px-0.5 text-xs font-medium text-foreground">
+            {customLabel}
+          </p>
+        </div>
+      </div>
+      <div className="flex gap-2">
+        {filtered.length > visibleCount && (
+          <button
+            type="button"
+            className="text-xs text-primary underline"
+            onClick={() => setVisibleCount((count) => count + 6)}
+          >
+            {showMoreLabel ?? "Show more"}
+          </button>
+        )}
+        {visibleCount > 6 && (
+          <button
+            type="button"
+            className="text-xs text-primary underline"
+            onClick={() => setVisibleCount(6)}
+          >
+            {showLessLabel ?? "Show less"}
+          </button>
+        )}
       </div>
       {marketplaceSupported && (
         <MarketplaceResults

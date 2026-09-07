@@ -11,6 +11,7 @@ import {
   deriveBorderTint,
   deriveMutedForeground,
   THEME_PRESETS,
+  getPairedPresetId,
   type BaseThemeColors,
 } from "../presets";
 
@@ -173,6 +174,28 @@ describe("THEME_PRESETS — catálogo expandido", () => {
     ]) {
       expect(ids.has(id), `faltando preset ${id}`).toBe(true);
     }
+  });
+
+  it("cada fam�lia tem exatamente uma variante clara e uma escura", () => {
+    for (const family of new Set(
+      THEME_PRESETS.map((preset) => preset.family),
+    )) {
+      const variants = THEME_PRESETS.filter(
+        (preset) => preset.family === family,
+      );
+      expect(variants.filter((preset) => preset.mode === "light")).toHaveLength(
+        1,
+      );
+      expect(variants.filter((preset) => preset.mode === "dark")).toHaveLength(
+        1,
+      );
+    }
+  });
+
+  it("resolve pares de forma determin�stica", () => {
+    expect(getPairedPresetId("default-dark", "light")).toBe("default-light");
+    expect(getPairedPresetId("default-light", "dark")).toBe("default-dark");
+    expect(getPairedPresetId("custom", "light")).toBeUndefined();
   });
 
   it("todo preset tem os 9 campos de BaseThemeColors preenchidos com hex válido", () => {
