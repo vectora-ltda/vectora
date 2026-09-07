@@ -290,8 +290,11 @@ jobs:
     name: Release native (${{ matrix.target }}/${{ matrix.arch }})
     needs: [test-unit, test-external]
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      startsWith(github.ref, 'refs/tags/v')
+      (github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/master') ||
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'push' &&
+      github.ref == 'refs/heads/publish-edge-production')
     env:
       # Nuitka escolhe clang/gcc + ccache no Linux/macOS, MSVC + clcache
       # (vendorizado dentro do próprio pacote nuitka) no Windows — cada um lê
@@ -502,7 +505,8 @@ jobs:
     name: Publish to update channel (R2 + KV)
     needs: release-native
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/master') ||
       startsWith(github.ref, 'refs/tags/v') ||
       (github.event_name == 'push' && github.ref == 'refs/heads/publish-edge-production')
     runs-on: ubuntu-latest
@@ -566,7 +570,8 @@ jobs:
     name: Publish gha-bot CLI binary (R2)
     needs: release-native
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/master') ||
       startsWith(github.ref, 'refs/tags/v') ||
       (github.event_name == 'push' && github.ref == 'refs/heads/publish-edge-production')
     runs-on: ubuntu-latest
@@ -618,14 +623,18 @@ jobs:
   # pelo ecossistema Vectora.
   publish-edge-production:
     name: Publish edge production (docs + company + services)
-    needs: [test-unit, test-external]
+    needs: [test-unit, test-external, release-native]
     if: >-
-      !cancelled() &&
-      (github.event_name == 'workflow_dispatch' ||
-      startsWith(github.ref, 'refs/tags/v') ||
+      always() && !cancelled() &&
+      ((github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/master' &&
+      needs.release-native.result == 'success') ||
+      (startsWith(github.ref, 'refs/tags/v') &&
+      needs.release-native.result == 'success') ||
       (github.event_name == 'push' &&
       (github.ref == 'refs/heads/master' ||
-      github.ref == 'refs/heads/publish-edge-production')))
+      (github.ref == 'refs/heads/publish-edge-production' &&
+      needs.release-native.result == 'success'))))
     runs-on: ubuntu-latest
     concurrency:
       group: vectora-production-d1-schema

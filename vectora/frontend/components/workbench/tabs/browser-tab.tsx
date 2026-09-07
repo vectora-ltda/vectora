@@ -147,6 +147,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const consoleRequestRef = useRef(0);
   const workspaceGenerationRef = useRef(0);
   const actionGenerationRef = useRef(0);
+  const statusRequestRef = useRef(0);
   const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const [consoleLoading, setConsoleLoading] = useState(false);
   // Painel de devtools da sessão do AGENTE (Playwright headless) — distinto
@@ -557,6 +558,9 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const fetchStatus = useCallback(
     async (isCurrent: () => boolean): Promise<ServerStatus[] | null> => {
       if (!wsId) return null;
+      const requestId = ++statusRequestRef.current;
+      const isLatest = () =>
+        isCurrent() && statusRequestRef.current === requestId;
       try {
         const res = await fetch(
           `/workspaces/${encodeURIComponent(wsId)}/browser/status`,
@@ -564,7 +568,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         if (res.ok) {
           const data = (await res.json()) as { servers: ServerStatus[] };
           const servers = data.servers ?? [];
-          if (!isCurrent()) return null;
+          if (!isLatest()) return null;
           setStatuses(servers);
 
           // Auto-navegação: qualquer servidor que passe de parado pra rodando

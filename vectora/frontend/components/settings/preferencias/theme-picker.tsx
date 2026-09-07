@@ -110,8 +110,8 @@ function MarketplaceResults({
     const q = query.trim();
     setLoading(false);
     setError(null);
+    setResults([]);
     if (!q) {
-      setResults([]);
       return;
     }
     let alive = true;
