@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from starlette.requests import Request
 
 
 @pytest.fixture
@@ -92,3 +93,34 @@ class TestGithubCfgRedirect:
             ):
                 _, _, redirect_uri = _github_cfg()
         assert redirect_uri == "http://localhost:8080/auth/github/callback"
+
+
+class TestBrokerTransaction:
+    def test_transacao_eh_one_shot_e_vinculada_ao_cookie(self) -> None:
+        from backend.api.handlers import oauth
+
+        request = Request(
+            {
+                "type": "http",
+                "headers": [
+                    (
+                        b"cookie",
+                        b"vectora_access=session-token; vectora_oauth_transaction=tx",
+                    )
+                ],
+            }
+        )
+        oauth._broker_transactions["tx"] = oauth._BrokerTransaction(
+            state="signed-state",
+            user_id="user-1",
+            provider="github",
+            session_binding=oauth._session_binding(request),
+            expires_at=9999999999,
+        )
+
+        assert oauth._consume_broker_transaction(
+            request, "signed-state", "github", "user-1"
+        )
+        assert not oauth._consume_broker_transaction(
+            request, "signed-state", "github", "user-1"
+        )

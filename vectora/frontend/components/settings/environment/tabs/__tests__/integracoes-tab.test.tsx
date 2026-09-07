@@ -448,7 +448,7 @@ describe("IntegracoesTab", () => {
     await waitFor(() =>
       expect(screen.getAllByText("GitLab").length).toBeGreaterThan(0),
     );
-    expect(screen.queryByText(/\/auth\/gitlab\/callback/i)).toBeNull();
+    expect(screen.queryByText(/\/auth\/[^/\s]+\/callback/i)).toBeNull();
   });
 
   it("erro de borda — sem subdomínio do gateway ainda, a callback URL não aparece (nada pra copiar)", async () => {
@@ -457,7 +457,7 @@ describe("IntegracoesTab", () => {
     await waitFor(() => {
       expect(screen.getAllByText("GitLab").length).toBeGreaterThan(0);
     });
-    expect(screen.queryByText(/\/auth\/gitlab\/callback/i)).toBeNull();
+    expect(screen.queryByText(/\/auth\/[^/\s]+\/callback/i)).toBeNull();
   });
 
   it("erro de borda — provider apikey (Slack) nunca exibe a callback URL de OAuth", async () => {

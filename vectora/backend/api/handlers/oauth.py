@@ -37,6 +37,7 @@ import logging
 import os
 import secrets
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -54,6 +55,21 @@ _BROKER_STATE_TTL: float = 300.0
 _BROKER_PROVIDER_SUCCESS_CACHE_TTL: float = 60.0
 _BROKER_PROVIDER_FAILURE_CACHE_TTL: float = 5.0
 _broker_provider_cache: tuple[float, set[str]] | None = None
+_OAUTH_TRANSACTION_COOKIE = "vectora_oauth_transaction"
+
+
+@dataclass(frozen=True)
+class _BrokerTransaction:
+    """One short-lived browser-bound transaction for a broker callback."""
+
+    state: str
+    user_id: str
+    provider: str
+    session_binding: str
+    expires_at: int
+
+
+_broker_transactions: dict[str, _BrokerTransaction] = {}
 
 
 def _broker_url() -> str:
@@ -66,6 +82,28 @@ def _broker_secret() -> str:
 
 def _broker_enabled() -> bool:
     return bool(_broker_url() and _broker_secret())
+
+
+def _session_binding(request: Request) -> str:
+    """Return a non-reversible binding for the browser's access cookie."""
+    access_cookie = request.cookies.get("vectora_access", "")
+    return hashlib.sha256(access_cookie.encode()).hexdigest() if access_cookie else ""
+
+
+def _consume_broker_transaction(
+    request: Request, state: str, provider: str, user_id: str
+) -> bool:
+    transaction_id = request.cookies.get(_OAUTH_TRANSACTION_COOKIE, "")
+    transaction = _broker_transactions.pop(transaction_id, None)
+    if transaction is None:
+        return False
+    return (
+        transaction.state == state
+        and transaction.provider == provider
+        and transaction.user_id == user_id
+        and transaction.expires_at >= int(time.time())
+        and hmac.compare_digest(transaction.session_binding, _session_binding(request))
+    )
 
 
 def _local_oauth_fallback_enabled() -> bool:
@@ -125,6 +163,14 @@ async def _broker_start(request: Request, provider: str) -> RedirectResponse:
         .decode()
         .rstrip("=")
     )
+    transaction_id = secrets.token_urlsafe(32)
+    _broker_transactions[transaction_id] = _BrokerTransaction(
+        state=state,
+        user_id=user.id,
+        provider=provider,
+        session_binding=_session_binding(request),
+        expires_at=expires_at,
+    )
     callback = _gateway_callback_url(provider)
     if not callback:
         raise HTTPException(
@@ -139,6 +185,7 @@ async def _broker_start(request: Request, provider: str) -> RedirectResponse:
             params={"state": state, "return_to": callback},
         )
     if response.status_code != 302:
+        _broker_transactions.pop(transaction_id, None)
         if 200 <= response.status_code < 300:
             logger.warning(
                 "OAuth broker start inesperado para %s: HTTP %s",
@@ -154,10 +201,20 @@ async def _broker_start(request: Request, provider: str) -> RedirectResponse:
         raise HTTPException(status_code=response.status_code, detail=detail)
     location = response.headers.get("location")
     if not location:
+        _broker_transactions.pop(transaction_id, None)
         raise HTTPException(
             status_code=502, detail="Broker OAuth não retornou redirect"
         )
-    return RedirectResponse(url=location, status_code=302)
+    redirect = RedirectResponse(url=location, status_code=302)
+    redirect.set_cookie(
+        _OAUTH_TRANSACTION_COOKIE,
+        transaction_id,
+        max_age=int(_BROKER_STATE_TTL),
+        httponly=True,
+        samesite="lax",
+        secure=request.url.scheme == "https",
+    )
+    return redirect
 
 
 async def _try_broker_start(request: Request, provider: str) -> RedirectResponse | None:
@@ -215,6 +272,10 @@ async def _broker_callback(
         expires_epoch = 0
     if not valid or state_provider != provider or expires_epoch < int(time.time()):
         raise HTTPException(status_code=400, detail="Estado OAuth expirado ou inválido")
+    if not _consume_broker_transaction(request, state, provider, user_id):
+        raise HTTPException(
+            status_code=400, detail="Transação OAuth ausente ou inválida"
+        )
     import httpx
 
     response = None

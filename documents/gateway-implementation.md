@@ -272,7 +272,12 @@ GITLAB_WEBHOOK_SECRET=<token>
 
 ---
 
-### 4.3 Slack Event Subscriptions
+### 4.3 Slack Event Subscriptions (fluxo HTTP alternativo)
+
+Esta seção só se aplica quando a instalação optar pelo modo HTTP do Slack e
+não configurar `SLACK_APP_TOKEN`. Com `SLACK_APP_TOKEN` e `SLACK_BOT_TOKEN`,
+use exclusivamente o Socket Mode local descrito acima; não cadastre uma
+`Request URL` ao mesmo tempo.
 
 ```
 Request URL: https://gateway.vectora.chat/webhook/slack
