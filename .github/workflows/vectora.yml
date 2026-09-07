@@ -673,24 +673,21 @@ jobs:
           echo "has_vercel_company_project=${{ secrets.VERCEL_PROJECT_ID_COMPANY != '' }}" >> "$GITHUB_OUTPUT"
           echo "has_cloudflare_token=${{ secrets.CLOUDFLARE_API_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
 
-      - name: Install company deploy tooling
-        id: company_tooling
-        if: steps.credentials.outputs.has_vercel_token == 'true'
-        working-directory: company
-        run: pnpm install --frozen-lockfile --ignore-scripts
-
       - name: Build company
         id: build_company
+        if: always()
         working-directory: company
         run: |
           pnpm install --frozen-lockfile
           pnpm run build
       - name: Build docs
         id: build_docs
+        if: always()
         working-directory: docs
         run: hugo --gc --minify
       - name: Validate and install services
         id: validate_services
+        if: always()
         working-directory: services
         run: |
           pnpm install --frozen-lockfile
@@ -700,7 +697,6 @@ jobs:
       - name: Deploy docs (Vercel)
         if: >-
           always() && steps.build_docs.outcome == 'success' &&
-          steps.company_tooling.outcome == 'success' &&
           steps.credentials.outputs.has_vercel_token == 'true' &&
           steps.credentials.outputs.has_vercel_docs_project == 'true'
         working-directory: docs
@@ -709,7 +705,7 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID_DOCS: ${{ secrets.VERCEL_PROJECT_ID_DOCS }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_DOCS }}
-        run: ../company/node_modules/.bin/vercel --prod --yes --token="$VERCEL_TOKEN"
+        run: pnpm dlx vercel --prod --yes --token="$VERCEL_TOKEN"
       - name: Deploy company (Vercel)
         if: >-
           always() && steps.build_company.outcome == 'success' &&

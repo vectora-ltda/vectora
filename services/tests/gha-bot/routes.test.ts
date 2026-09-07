@@ -584,11 +584,16 @@ describe("gha-bot self-hosted (GET /config, POST/GET /review, POST /review/:id/r
       expect(msg.callback_secret).toBeTruthy();
 
       const jobRow = await env.DB.prepare(
-        "SELECT status, callback_secret_hash FROM gha_bot_review_jobs WHERE id = ?",
+        "SELECT status, callback_secret, callback_secret_hash FROM gha_bot_review_jobs WHERE id = ?",
       )
         .bind(job_id)
-        .first<{ status: string; callback_secret_hash: string }>();
+        .first<{
+          status: string;
+          callback_secret: string;
+          callback_secret_hash: string;
+        }>();
       expect(jobRow?.status).toBe("pending");
+      expect(jobRow?.callback_secret).toBe("");
       expect(jobRow?.callback_secret_hash).toBe(
         await sha256Hex(msg.callback_secret),
       );
@@ -763,6 +768,44 @@ describe("gha-bot self-hosted (GET /config, POST/GET /review, POST /review/:id/r
       .first<{ status: string; error: string }>();
     expect(jobRow?.status).toBe("failed");
     expect(jobRow?.error).toBe("modelo indisponível");
+  });
+
+  it("migra um job legado com callback_secret ao consumir o callback", async () => {
+    const { userId } = await makeProUserWithBotTokenAndSettings(true);
+    await env.DB.prepare(
+      "INSERT INTO gha_bot_review_jobs (id, user_id, callback_secret, callback_secret_hash, status) VALUES (?, ?, ?, NULL, 'pending')",
+    )
+      .bind("job-legacy-secret-1", userId, "secret-legado-1")
+      .run();
+
+    const res = await ghaBot.request(
+      "/review/job-legacy-secret-1/result",
+      {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer secret-legado-1",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ review_text: "revisão migrada" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(200);
+
+    const jobRow = await env.DB.prepare(
+      "SELECT status, callback_secret, callback_secret_hash FROM gha_bot_review_jobs WHERE id = ?",
+    )
+      .bind("job-legacy-secret-1")
+      .first<{
+        status: string;
+        callback_secret: string;
+        callback_secret_hash: string;
+      }>();
+    expect(jobRow?.status).toBe("done");
+    expect(jobRow?.callback_secret).toBe("");
+    expect(jobRow?.callback_secret_hash).toBe(
+      await sha256Hex("secret-legado-1"),
+    );
   });
 
   it("erro de borda — POST /review/:id/result não sobrescreve um job que já não está pending", async () => {

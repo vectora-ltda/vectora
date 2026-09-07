@@ -368,22 +368,44 @@ ghaBot.post("/review/:id/result", async (c) => {
   }
 
   const row = await c.env.DB.prepare(
-    "SELECT callback_secret_hash FROM gha_bot_review_jobs WHERE id = ? AND status = 'pending'",
+    "SELECT callback_secret_hash, callback_secret FROM gha_bot_review_jobs WHERE id = ? AND status = 'pending'",
   )
     .bind(id)
-    .first<{ callback_secret_hash: string }>();
+    .first<{
+      callback_secret_hash: string | null;
+      callback_secret: string | null;
+    }>();
   const secretHash = await sha256Hex(secret);
-  if (!row || !timingSafeEqual(secretHash, row.callback_secret_hash)) {
+  const hashMatches =
+    row?.callback_secret_hash !== null &&
+    row?.callback_secret_hash !== undefined &&
+    timingSafeEqual(secretHash, row.callback_secret_hash);
+  const legacyMatches =
+    !hashMatches &&
+    row?.callback_secret !== null &&
+    row?.callback_secret !== undefined &&
+    timingSafeEqual(secret, row.callback_secret);
+  if (!row || (!hashMatches && !legacyMatches)) {
     return c.json({ error: "not_found" }, 404);
   }
 
   const status = body.error ? "failed" : "done";
   const result = await c.env.DB.prepare(
     `UPDATE gha_bot_review_jobs
-     SET status = ?, review_text = ?, error = ?, updated_at = datetime('now')
-     WHERE id = ? AND callback_secret_hash = ? AND status = 'pending'`,
+     SET status = ?, review_text = ?, error = ?, callback_secret = '',
+         callback_secret_hash = ?, updated_at = datetime('now')
+     WHERE id = ? AND status = 'pending'
+       AND (callback_secret_hash = ? OR (callback_secret_hash IS NULL AND callback_secret = ?))`,
   )
-    .bind(status, body.review_text ?? null, body.error ?? null, id, secretHash)
+    .bind(
+      status,
+      body.review_text ?? null,
+      body.error ?? null,
+      secretHash,
+      id,
+      secretHash,
+      secret,
+    )
     .run();
 
   if (result.meta.changes === 0) return c.json({ error: "not_found" }, 404);
