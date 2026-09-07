@@ -1,6 +1,6 @@
 {
   "name": "vectora-services",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "private": true,
   "description": "Cloudflare Worker único: gateway (OAuth/webhooks pro desktop, ex-relay) + updates (distribuição de releases) + auth/billing/license/gdpr/rag-library/registry (próximas fases).",
   "main": "src/index.ts",
