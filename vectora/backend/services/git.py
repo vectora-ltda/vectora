@@ -18,7 +18,7 @@ _REDACT_USERINFO = re.compile(r"(://[^/@\s:]+):[^/@\s]+@")
 _REDACT_SECRET = re.compile(
     r"(?i)(?P<key>token|secret|password)=(?P<value>[^\s&]+)"
     r"|(?P<authorization>authorization)(?P<separator>\s*[=:]\s*)"
-    r"(?:(?P<scheme>Bearer)\s+)?(?P<auth_value>[^\s&]+)"
+    r"(?P<auth_value>[^\s&]+(?:\s+[^\s&]+)?)"
 )
 
 
@@ -163,6 +163,17 @@ class GitService:
             operation.error = "Tempo limite executando a operação Git"
             operation.finished_at = time.time()
             raise GitOperationError(operation.error_code, operation.error) from exc
+        except asyncio.CancelledError:
+            try:
+                await asyncio.shield(callback_task)
+            except Exception as callback_error:
+                operation.output = redact_git_output(str(callback_error))
+            operation.state = "failed"
+            operation.phase = "terminal"
+            operation.error_code = "git_operation_cancelled"
+            operation.error = "Operação Git cancelada"
+            operation.finished_at = time.time()
+            raise
         except git.GitCommandError as exc:
             operation.state = "failed"
             operation.phase = "terminal"

@@ -66,7 +66,8 @@ async def test_lock_timeout_is_typed(tmp_path: Path) -> None:
 def test_redact_git_output_masks_url_credentials_and_parameters() -> None:
     value = (
         "https://user:token@example.com/repo?token=secret "
-        "authorization=Bearer bearer-secret Authorization: Bearer colon-secret"
+        "authorization=Bearer bearer-secret Authorization: Bearer colon-secret "
+        "Authorization: Basic basic-secret"
     )
     result = redact_git_output(value)
     assert "user:***@example.com" in result
@@ -75,6 +76,7 @@ def test_redact_git_output_masks_url_credentials_and_parameters() -> None:
     assert "Authorization: ***" in result
     assert "bearer-secret" not in result
     assert "colon-secret" not in result
+    assert "basic-secret" not in result
 
 
 @pytest.mark.asyncio
@@ -127,9 +129,42 @@ async def test_timeout_waits_for_callback_before_releasing_lock(tmp_path: Path) 
         service.execute("workspace", repo, "fetch", blocking, timeout_seconds=0.01)
     )
     await asyncio.to_thread(started.wait, 1)
-    await asyncio.sleep(0.05)
-    assert not operation.done()
-    release.set()
+    try:
+        await asyncio.sleep(0.05)
+        assert not operation.done()
+    finally:
+        release.set()
 
     with pytest.raises(GitOperationError, match="Tempo limite"):
         await operation
+
+
+@pytest.mark.asyncio
+async def test_cancellation_waits_for_callback_before_releasing_lock(
+    tmp_path: Path,
+) -> None:
+    service = GitService()
+    repo = make_repo(tmp_path / "repo")
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+
+    def blocking() -> str:
+        started.set()
+        release.wait()
+        finished.set()
+        return "done"
+
+    operation = asyncio.create_task(
+        service.execute("workspace", repo, "fetch", blocking, timeout_seconds=5)
+    )
+    await asyncio.to_thread(started.wait, 1)
+    operation.cancel()
+    await asyncio.sleep(0)
+    assert not finished.is_set()
+    release.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await operation
+    assert finished.is_set()
+    await service.execute("workspace", repo, "status", lambda: "ready")
