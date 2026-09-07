@@ -241,7 +241,15 @@ async def _broker_callback(
         raise HTTPException(
             status_code=502, detail="Broker OAuth falhou ao recuperar o token"
         )
-    payload = response.json()
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+    if not isinstance(payload, dict):
+        logger.warning("OAuth broker retornou payload inesperado para %s", provider)
+        return RedirectResponse(
+            url=f"/?oauth_error={provider}_broker_error", status_code=302
+        )
     error = payload.get("error")
     if isinstance(error, str) and error:
         safe_error = "".join(char for char in error if char.isalnum() or char in "-_")

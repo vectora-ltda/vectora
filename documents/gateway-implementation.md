@@ -449,7 +449,7 @@ curl https://services.vectora.company/license/validate -X POST -d '{"token":"...
 [ ] 9. Worker: wrangler deploy
 [ ] 9a. Worker: configurar GHA_BOT_ENCRYPTION_KEY
 [ ] 10. Cloudflare: configurar Custom Domain services.vectora.company → vectora-services (fora do wrangler.toml, validar mecanismo com quem administra o DNS)
-[ ] 11. Backend: adicionar VECTORA_APP_SECRET/VECTORA_OAUTH_SECRET ao defaults.env
+[ ] 11. Backend: carregar VECTORA_OAUTH_BROKER_URL=https://services.vectora.company e adicionar VECTORA_APP_SECRET/VECTORA_OAUTH_SECRET ao defaults.env
 [ ] 12. Testar: GET /gateway/status no backend → ver subdomínio
    [ ] 13. Worker: configurar `GITHUB_OAUTH_CLIENT_ID` e `GITHUB_OAUTH_CLIENT_SECRET`
    [ ] 14. Worker: configurar `GOOGLE_OAUTH_CLIENT_ID` e `GOOGLE_OAUTH_CLIENT_SECRET`
