@@ -105,16 +105,15 @@ class TestBrokerTransaction:
                 "headers": [
                     (
                         b"cookie",
-                        b"vectora_access=session-token; vectora_oauth_transaction=tx",
+                        b"vectora_oauth_transaction=signed-state",
                     )
                 ],
             }
         )
-        oauth._broker_transactions["tx"] = oauth._BrokerTransaction(
+        oauth._broker_transactions["signed-state"] = oauth._BrokerTransaction(
             state="signed-state",
             user_id="user-1",
             provider="github",
-            session_binding=oauth._session_binding(request),
             expires_at=9999999999,
         )
 

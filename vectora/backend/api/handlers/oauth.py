@@ -65,7 +65,6 @@ class _BrokerTransaction:
     state: str
     user_id: str
     provider: str
-    session_binding: str
     expires_at: int
 
 
@@ -84,26 +83,23 @@ def _broker_enabled() -> bool:
     return bool(_broker_url() and _broker_secret())
 
 
-def _session_binding(request: Request) -> str:
-    """Return a non-reversible binding for the browser's access cookie."""
-    access_cookie = request.cookies.get("vectora_access", "")
-    return hashlib.sha256(access_cookie.encode()).hexdigest() if access_cookie else ""
-
-
 def _consume_broker_transaction(
     request: Request, state: str, provider: str, user_id: str
 ) -> bool:
     transaction_id = request.cookies.get(_OAUTH_TRANSACTION_COOKIE, "")
-    transaction = _broker_transactions.pop(transaction_id, None)
+    transaction = _broker_transactions.get(state)
     if transaction is None:
         return False
-    return (
-        transaction.state == state
+    valid = (
+        transaction_id == state
+        and transaction.state == state
         and transaction.provider == provider
         and transaction.user_id == user_id
         and transaction.expires_at >= int(time.time())
-        and hmac.compare_digest(transaction.session_binding, _session_binding(request))
     )
+    if valid:
+        _broker_transactions.pop(state, None)
+    return valid
 
 
 def _local_oauth_fallback_enabled() -> bool:
@@ -163,12 +159,10 @@ async def _broker_start(request: Request, provider: str) -> RedirectResponse:
         .decode()
         .rstrip("=")
     )
-    transaction_id = secrets.token_urlsafe(32)
-    _broker_transactions[transaction_id] = _BrokerTransaction(
+    _broker_transactions[state] = _BrokerTransaction(
         state=state,
         user_id=user.id,
         provider=provider,
-        session_binding=_session_binding(request),
         expires_at=expires_at,
     )
     callback = _gateway_callback_url(provider)
@@ -185,7 +179,7 @@ async def _broker_start(request: Request, provider: str) -> RedirectResponse:
             params={"state": state, "return_to": callback},
         )
     if response.status_code != 302:
-        _broker_transactions.pop(transaction_id, None)
+        _broker_transactions.pop(state, None)
         if 200 <= response.status_code < 300:
             logger.warning(
                 "OAuth broker start inesperado para %s: HTTP %s",
@@ -201,14 +195,14 @@ async def _broker_start(request: Request, provider: str) -> RedirectResponse:
         raise HTTPException(status_code=response.status_code, detail=detail)
     location = response.headers.get("location")
     if not location:
-        _broker_transactions.pop(transaction_id, None)
+        _broker_transactions.pop(state, None)
         raise HTTPException(
             status_code=502, detail="Broker OAuth não retornou redirect"
         )
     redirect = RedirectResponse(url=location, status_code=302)
     redirect.set_cookie(
         _OAUTH_TRANSACTION_COOKIE,
-        transaction_id,
+        state,
         max_age=int(_BROKER_STATE_TTL),
         httponly=True,
         samesite="lax",

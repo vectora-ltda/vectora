@@ -11,6 +11,7 @@ import { requireUserId } from "../auth/routes";
 
 const OAUTH_TTL_SECONDS = 300;
 const OAUTH_STATE_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
+const OAUTH_TRANSACTION_COOKIE = "vectora_oauth_transaction";
 
 type Provider = "github" | "gitlab" | "google";
 type OAuthConfig = {
@@ -121,7 +122,7 @@ async function finishOAuthWithError(
 ): Promise<Response> {
   await storeOAuthResult(env, state, JSON.stringify({ provider, error }));
   await deleteOAuthState(env, state);
-  return Response.redirect(withState(returnTo, state), 302);
+  return redirectWithTransactionCookie(returnTo, state);
 }
 
 function allowedReturnTo(value: string): boolean {
@@ -141,6 +142,19 @@ function withState(returnTo: string, state: string): string {
   const url = new URL(returnTo);
   url.searchParams.set("state", state);
   return url.toString();
+}
+
+function redirectWithTransactionCookie(
+  returnTo: string,
+  state: string,
+): Response {
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: withState(returnTo, state),
+      "Set-Cookie": `${OAUTH_TRANSACTION_COOKIE}=${encodeURIComponent(state)}; Max-Age=${OAUTH_TTL_SECONDS}; Path=/; Domain=.vectora.chat; HttpOnly; Secure; SameSite=Lax`,
+    },
+  });
 }
 
 export const oauth = new Hono<{ Bindings: Env }>();
@@ -288,7 +302,7 @@ oauth.get("/integrations/:provider/callback", async (c) => {
     }),
   );
   await deleteOAuthState(c.env, state);
-  return c.redirect(withState(pending.returnTo, state));
+  return redirectWithTransactionCookie(pending.returnTo, state);
 });
 
 oauth.get("/integrations/:provider/result/:state", async (c) => {
