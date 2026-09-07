@@ -187,7 +187,8 @@ oauth.get("/integrations/:provider/callback", async (c) => {
   const pending = state
     ? await c.env.OAUTH_RESULT.get(c.env.OAUTH_RESULT.idFromName(state))
         .fetch(
-          `https://oauth-result/?key=${encodeURIComponent(stateKey("pending", state))}&consume=false`,
+          `https://oauth-result/?key=${encodeURIComponent(stateKey("pending", state))}&provider=${encodeURIComponent(provider)}&action=claim`,
+          { method: "POST", body: "{}" },
         )
         .then(async (response) =>
           response.status === 202

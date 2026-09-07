@@ -50,15 +50,22 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["oauth"])
 
 _GATEWAY_TOKEN_PATH = settings.vectora_home / "gateway_token"
-_OAUTH_BROKER_URL: str = os.getenv("VECTORA_OAUTH_BROKER_URL", "").strip()
-_OAUTH_BROKER_SECRET: str = os.getenv("VECTORA_OAUTH_SECRET", "").strip()
 _BROKER_STATE_TTL: float = 300.0
-_BROKER_PROVIDER_CACHE_TTL: float = 5.0
+_BROKER_PROVIDER_SUCCESS_CACHE_TTL: float = 60.0
+_BROKER_PROVIDER_FAILURE_CACHE_TTL: float = 5.0
 _broker_provider_cache: tuple[float, set[str]] | None = None
 
 
+def _broker_url() -> str:
+    return os.getenv("VECTORA_OAUTH_BROKER_URL", "").strip()
+
+
+def _broker_secret() -> str:
+    return os.getenv("VECTORA_OAUTH_SECRET", "").strip()
+
+
 def _broker_enabled() -> bool:
-    return bool(_OAUTH_BROKER_URL and _OAUTH_BROKER_SECRET)
+    return bool(_broker_url() and _broker_secret())
 
 
 def _local_oauth_fallback_enabled() -> bool:
@@ -74,6 +81,8 @@ async def _broker_providers() -> set[str]:
     global _broker_provider_cache
     if not _broker_enabled():
         return set()
+    broker_url = _broker_url()
+    broker_secret = _broker_secret()
     now = time.monotonic()
     if _broker_provider_cache and now < _broker_provider_cache[0]:
         return set(_broker_provider_cache[1])
@@ -82,25 +91,32 @@ async def _broker_providers() -> set[str]:
 
         async with httpx.AsyncClient(timeout=5) as client:
             response = await client.get(
-                f"{_OAUTH_BROKER_URL}/oauth/integrations/providers"
+                f"{broker_url}/oauth/integrations/providers",
+                headers={"Authorization": f"Bearer {broker_secret}"},
             )
         if response.is_success:
             providers = {str(item) for item in response.json().get("providers", [])}
-            _broker_provider_cache = (now + _BROKER_PROVIDER_CACHE_TTL, providers)
+            _broker_provider_cache = (
+                now + _BROKER_PROVIDER_SUCCESS_CACHE_TTL,
+                providers,
+            )
             return set(providers)
     except Exception as exc:
         logger.warning("OAuth broker provider discovery failed: %s", exc)
+    _broker_provider_cache = (now + _BROKER_PROVIDER_FAILURE_CACHE_TTL, set())
     return set()
 
 
 async def _broker_start(request: Request, provider: str) -> RedirectResponse:
     user = _get_user(request)
+    broker_url = _broker_url()
+    broker_secret = _broker_secret()
     expires_at = int(time.time()) + int(_BROKER_STATE_TTL)
     # Keep the signed state below the gateway's compact-state limit while
     # retaining enough entropy for a short-lived, one-time callback.
     payload = f"{user.id}:{provider}:{expires_at}:{secrets.token_urlsafe(12)}"
     signature = hmac.new(
-        _OAUTH_BROKER_SECRET.encode(), payload.encode(), hashlib.sha256
+        broker_secret.encode(), payload.encode(), hashlib.sha256
     ).digest()[:12]
     state = (
         base64.urlsafe_b64encode(
@@ -119,10 +135,17 @@ async def _broker_start(request: Request, provider: str) -> RedirectResponse:
 
     async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
         response = await client.get(
-            f"{_OAUTH_BROKER_URL}/oauth/integrations/{provider}/start",
+            f"{broker_url}/oauth/integrations/{provider}/start",
             params={"state": state, "return_to": callback},
         )
     if response.status_code != 302:
+        if 200 <= response.status_code < 300:
+            logger.warning(
+                "OAuth broker start inesperado para %s: HTTP %s",
+                provider,
+                response.status_code,
+            )
+            raise HTTPException(status_code=502, detail="Falha ao iniciar OAuth")
         detail = (
             "OAuth broker não configurado"
             if response.status_code == 503
@@ -180,7 +203,7 @@ async def _broker_callback(
         )
         signed_payload = f"{user_id}:{state_provider}:{expires_at}:{nonce}"
         expected = hmac.new(
-            _OAUTH_BROKER_SECRET.encode(), signed_payload.encode(), hashlib.sha256
+            _broker_secret().encode(), signed_payload.encode(), hashlib.sha256
         ).digest()[:12]
         actual = base64.urlsafe_b64decode(encoded_signature + "=")
         expires_epoch = int(expires_at)
@@ -199,8 +222,8 @@ async def _broker_callback(
         async with httpx.AsyncClient(timeout=10) as client:
             for attempt in range(5):
                 response = await client.get(
-                    f"{_OAUTH_BROKER_URL}/oauth/integrations/{provider}/result/{state}",
-                    headers={"Authorization": f"Bearer {_OAUTH_BROKER_SECRET}"},
+                    f"{_broker_url()}/oauth/integrations/{provider}/result/{state}",
+                    headers={"Authorization": f"Bearer {_broker_secret()}"},
                 )
                 if response.status_code != 202:
                     break
@@ -232,11 +255,17 @@ async def _broker_callback(
     env_var = _REGISTRY_BY_ID[provider]["env_var"]
     from backend.rbac import auth as auth_svc
 
-    await auth_svc.set_env_override(user_id, env_var, access_token, source="oauth")
-    refresh_token = payload.get("refreshToken")
-    if provider == "google" and isinstance(refresh_token, str) and refresh_token:
-        await auth_svc.set_env_override(
-            user_id, "GOOGLE_REFRESH_TOKEN", refresh_token, source="oauth"
+    try:
+        await auth_svc.set_env_override(user_id, env_var, access_token, source="oauth")
+        refresh_token = payload.get("refreshToken")
+        if provider == "google" and isinstance(refresh_token, str) and refresh_token:
+            await auth_svc.set_env_override(
+                user_id, "GOOGLE_REFRESH_TOKEN", refresh_token, source="oauth"
+            )
+    except Exception as exc:
+        logger.exception("OAuth broker: falha ao salvar token: %s", exc)
+        return RedirectResponse(
+            url=f"/?oauth_error={provider}_save_failed", status_code=302
         )
     logger.info(
         "OAuth broker: token salvo para provider=%s user_id=%s", provider, user_id

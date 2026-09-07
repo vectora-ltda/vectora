@@ -27,7 +27,7 @@ na URL, no binário ou nos logs.
 
 ## Arquitetura — O que é o gateway e quem faz o quê
 
-```
+```text
 Vectora LTDA (operador)
   └── registra UMA vez os OAuth Apps no GitHub/Google/GitLab e configura os secrets no Worker
 
@@ -43,7 +43,7 @@ vectora-services (Worker Cloudflare único — services/src/index.ts)
   └── {token}.vectora.chat é o subdomínio DESSA instalação — requests de
       túnel e webhooks são serializados e encaminhados pelo WebSocket ativo
       pro backend local (proxy HTTP genérico, não rotas hardcoded por provider);
-      callbacks do broker OAuth são tratados diretamente em services.company
+      callbacks do broker OAuth são tratados diretamente em services.vectora.company
 ```
 
 **Um único Worker, dois domínios servidos por ele** (`services/src/index.ts`):
@@ -438,13 +438,16 @@ curl https://services.vectora.company/license/validate -X POST -d '{"token":"...
 ```
 [ ] 1. Cloudflare: zona vectora.chat com a rota wildcard *.vectora.chat/* → vectora-services
 [ ] 2. Worker: wrangler secret put GATEWAY_HMAC_SECRET
+[ ] 2a. Worker: wrangler secret put GATEWAY_INTERNAL_SECRET
 [ ] 3. Worker: wrangler secret put VECTORA_OAUTH_SECRET
 [ ] 4. Worker: wrangler secret put VECTORA_APP_SECRET
 [ ] 5. Worker: wrangler secret put STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET / STRIPE_PRICE_PRO_USD
 [ ] 6. Worker: wrangler secret put ASAAS_API_KEY / ASAAS_API_URL
+[ ] 6a. Worker: wrangler secret put ASAAS_WEBHOOK_SECRET
 [ ] 7. Worker: wrangler secret put RESEND_API_KEY / TURNSTILE_SECRET_KEY
 [ ] 8. Worker: aplicar migrations D1 (services/migrations/)
 [ ] 9. Worker: wrangler deploy
+[ ] 9a. Worker: configurar GHA_BOT_ENCRYPTION_KEY
 [ ] 10. Cloudflare: configurar Custom Domain services.vectora.company → vectora-services (fora do wrangler.toml, validar mecanismo com quem administra o DNS)
 [ ] 11. Backend: adicionar VECTORA_APP_SECRET/VECTORA_OAUTH_SECRET ao defaults.env
 [ ] 12. Testar: GET /gateway/status no backend → ver subdomínio
@@ -466,6 +469,7 @@ curl https://services.vectora.company/license/validate -X POST -d '{"token":"...
 
 ```
 GATEWAY_HMAC_SECRET     → interno ao gateway, gera tokens estáveis por instalação
+GATEWAY_INTERNAL_SECRET → autentica chamadas internas do Worker ao gateway
 VECTORA_OAUTH_SECRET    → compartilhado com company e backend (polling one-shot)
 GITHUB_OAUTH_CLIENT_ID / GITHUB_OAUTH_CLIENT_SECRET → secrets do OAuth App da Vectora LTDA
 GITLAB_OAUTH_CLIENT_ID / GITLAB_OAUTH_CLIENT_SECRET → secrets do OAuth App da Vectora LTDA
@@ -476,6 +480,8 @@ STRIPE_WEBHOOK_SECRET   → valida webhooks do Stripe
 STRIPE_PRICE_PRO_USD    → price id do plano Pro
 ASAAS_API_KEY           → billing Brasil
 ASAAS_API_URL           → endpoint da API Asaas (sandbox vs produção)
+ASAAS_WEBHOOK_SECRET    → valida webhooks do Asaas
+GHA_BOT_ENCRYPTION_KEY  → cifra credenciais do bot GHA
 RESEND_API_KEY          → envio de email (verificação, notificações)
 TURNSTILE_SECRET_KEY    → anti-bot no signup
 ```
@@ -558,7 +564,7 @@ de "OAuth por provider configurado individualmente" pra "catálogo de providers
 com credenciais operadas pela Vectora, resultado sempre pousando na mesma env
 var que a tool já lê":
 
-```
+```text
 Usuário clica "Conectar" no catálogo de integrações (aba Integrações,
 já teria uma seção "via Vectora" ao lado de "BYOK")
         │
@@ -577,7 +583,7 @@ e uso único associado ao state
         ▼
 Backend faz polling autenticado e consome o resultado uma vez; então grava o
 token na MESMA env var que a tool já lê hoje
-(SLACK_BOT_TOKEN, GITHUB_PERSONAL_ACCESS_TOKEN, ...) via
+(GITHUB_PERSONAL_ACCESS_TOKEN, GITLAB_PERSONAL_ACCESS_TOKEN, ...) via
 POST /auth/envs (mesmo mecanismo da aba Integrações) — as tools em
 backend/tools/*.py não mudam NADA, continuam lendo a env var de sempre
 ```

@@ -133,6 +133,21 @@ describe("OAuth broker de integrações", () => {
         fetch: async (input: string, init?: RequestInit) => {
           const url = new URL(input);
           const key = `${id}:${url.searchParams.get("key") ?? ""}`;
+          if (
+            init?.method === "POST" &&
+            url.searchParams.get("action") === "claim"
+          ) {
+            const value = values.get(key);
+            if (value === undefined) return new Response(null, { status: 202 });
+            const provider = url.searchParams.get("provider");
+            if (provider && JSON.parse(value).provider !== provider)
+              return Response.json(
+                { error: "provider_mismatch" },
+                { status: 409 },
+              );
+            values.delete(key);
+            return new Response(value, { status: 200 });
+          }
           if (init?.method === "POST") {
             const payload = JSON.parse(String(init.body)) as { value: string };
             values.set(key, payload.value);
@@ -270,6 +285,55 @@ describe("OAuth broker de integrações", () => {
       );
       expect(await networkResult.json()).toMatchObject({
         error: "token_exchange_failed",
+      });
+    } finally {
+      runtimeEnv.GITHUB_OAUTH_CLIENT_ID = originalId;
+      runtimeEnv.GITHUB_OAUTH_CLIENT_SECRET = originalSecret;
+    }
+  });
+
+  it("reivindica o estado antes da troca e rejeita callbacks concorrentes", async () => {
+    const runtime = makeOAuthResultTestEnv();
+    const runtimeEnv = runtime as unknown as Record<string, string | undefined>;
+    const originalId = runtimeEnv.GITHUB_OAUTH_CLIENT_ID;
+    const originalSecret = runtimeEnv.GITHUB_OAUTH_CLIENT_SECRET;
+    runtimeEnv.GITHUB_OAUTH_CLIENT_ID = "company-client";
+    runtimeEnv.GITHUB_OAUTH_CLIENT_SECRET = "company-secret";
+    try {
+      const state = "c".repeat(32);
+      await startGithub(state, runtime);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(JSON.stringify({ access_token: "winner" }), {
+              headers: { "Content-Type": "application/json" },
+            }),
+        ),
+      );
+      const responses = await Promise.all([
+        oauth.request(
+          `/integrations/github/callback?state=${state}&code=one`,
+          {},
+          runtime,
+        ),
+        oauth.request(
+          `/integrations/github/callback?state=${state}&code=two`,
+          {},
+          runtime,
+        ),
+      ]);
+      expect(responses.map((response) => response.status).sort()).toEqual([
+        302, 400,
+      ]);
+      const result = await oauth.request(
+        `/integrations/github/result/${state}`,
+        { headers: { Authorization: "Bearer test-oauth-secret" } },
+        runtime,
+      );
+      expect(await result.json()).toMatchObject({
+        provider: "github",
+        accessToken: "winner",
       });
     } finally {
       runtimeEnv.GITHUB_OAUTH_CLIENT_ID = originalId;
