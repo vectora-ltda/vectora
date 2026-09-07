@@ -175,6 +175,8 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     const restored = getBrowserSession(sessionKey);
     return restored?.activeTabId ?? tabs[0].id;
   });
+  const hydratedSessionKeyRef = useRef<string | null>(sessionKey);
+  const previousSessionKeyRef = useRef(sessionKey);
   const tabsRef = useRef(tabs);
   useEffect(() => {
     tabsRef.current = tabs;
@@ -182,6 +184,33 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
 
   useEffect(() => {
+    if (previousSessionKeyRef.current === sessionKey) return;
+    previousSessionKeyRef.current = sessionKey;
+    hydratedSessionKeyRef.current = null;
+    pendingNavigateRef.current.clear();
+    pendingViewCreatesRef.current.clear();
+
+    const restored = getBrowserSession(sessionKey);
+    const nextTabs = restored
+      ? restored.tabs.map((tab) => ({
+          ...tab,
+          loading: false,
+          loadError: null,
+        }))
+      : [makeTab(genId())];
+    const nextActiveTabId = nextTabs.some(
+      (tab) => tab.id === restored?.activeTabId,
+    )
+      ? restored!.activeTabId
+      : nextTabs[0].id;
+
+    setTabs(nextTabs);
+    setActiveTabId(nextActiveTabId);
+    hydratedSessionKeyRef.current = sessionKey;
+  }, [sessionKey]);
+
+  useEffect(() => {
+    if (hydratedSessionKeyRef.current !== sessionKey) return;
     setBrowserSession(sessionKey, {
       activeTabId,
       tabs: tabs.map(({ loading, loadError, ...tab }) => tab),

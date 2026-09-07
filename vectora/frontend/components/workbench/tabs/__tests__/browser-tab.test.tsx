@@ -38,7 +38,7 @@ vi.mock("@/lib/paraglide/messages", () => ({
   ),
 }));
 
-const makeBrowserTestTab = (viewId: number) => ({
+const makeBrowserTestTab = (viewId: number | null) => ({
   id: `tab-${viewId}`,
   title: "",
   history: [],
@@ -50,10 +50,12 @@ const makeBrowserTestTab = (viewId: number) => ({
   canGoForward: false,
 });
 
+const workspaceState = vi.hoisted(() => ({ id: "ws1" }));
+
 vi.mock("@/lib/stores/workspaces-store", () => ({
   useWorkspacesStore: (
     sel: (s: { getActive: () => { id: string } | undefined }) => unknown,
-  ) => sel({ getActive: () => ({ id: "ws1" }) }),
+  ) => sel({ getActive: () => workspaceState }),
 }));
 
 vi.mock("@/lib/stores/chat-input-store", () => ({
@@ -62,6 +64,7 @@ vi.mock("@/lib/stores/chat-input-store", () => ({
 
 afterEach(() => {
   cleanup();
+  workspaceState.id = "ws1";
   clearBrowserSessionCache();
 });
 
@@ -715,6 +718,47 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
 });
 
 describe("BrowserTab — restauração por sessão", () => {
+  it("trocar de workspace restaura a sessão do destino sem reutilizar abas da origem", async () => {
+    setBrowserSession("ws1:workspace-switch", {
+      activeTabId: "tab-ws1",
+      tabs: [
+        {
+          ...makeBrowserTestTab(null),
+          id: "tab-ws1",
+          history: ["https://ws1.example"],
+          historyIndex: 0,
+        },
+      ],
+    });
+    setBrowserSession("ws2:workspace-switch", {
+      activeTabId: "tab-ws2",
+      tabs: [
+        {
+          ...makeBrowserTestTab(null),
+          id: "tab-ws2",
+          history: ["https://ws2.example"],
+          historyIndex: 0,
+        },
+      ],
+    });
+    mockFetch({ configurations: [] });
+
+    const view = render(<BrowserTab threadId="workspace-switch" />);
+    await waitFor(() =>
+      expect(screen.getByTestId("browser-url-bar")).toHaveValue(
+        "https://ws1.example",
+      ),
+    );
+
+    workspaceState.id = "ws2";
+    view.rerender(<BrowserTab threadId="workspace-switch" />);
+    await waitFor(() =>
+      expect(screen.getByTestId("browser-url-bar")).toHaveValue(
+        "https://ws2.example",
+      ),
+    );
+  });
+
   it("restaura a URL da mesma thread depois de ocultar/remontar o painel", async () => {
     mockFetch({ configurations: [] });
     const first = render(<BrowserTab threadId="restore-thread" />);
