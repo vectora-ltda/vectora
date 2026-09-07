@@ -38,25 +38,6 @@ import {
 import { apiCheckout, apiSync, type GitBranches, type GitStatus } from "./api";
 import { m } from "@/lib/paraglide/messages";
 
-function syncLabel(status: GitStatus | null): {
-  label: string;
-  action: "fetch" | "pull" | "push";
-} {
-  if (status && status.behind > 0) {
-    return {
-      label: m.workbench_git_sync_pull({ n: status.behind }),
-      action: "pull",
-    };
-  }
-  if (status && status.ahead > 0) {
-    return {
-      label: m.workbench_git_sync_push({ n: status.ahead }),
-      action: "push",
-    };
-  }
-  return { label: m.workbench_git_sync_fetch(), action: "fetch" };
-}
-
 export function GitToolbar({
   workspaceId,
   status,
@@ -82,13 +63,23 @@ export function GitToolbar({
 
   const current = status?.branch || branches?.current || "—";
   const others = (branches?.branches ?? []).filter((b) => b !== current);
-  const sync = syncLabel(status);
-  const SyncIcon =
-    sync.action === "push"
-      ? ArrowUp
-      : sync.action === "pull"
-        ? ArrowDown
-        : RefreshCw;
+  const syncActions = [
+    {
+      action: "fetch" as const,
+      label: m.workbench_git_sync_fetch(),
+      icon: RefreshCw,
+    },
+    {
+      action: "pull" as const,
+      label: m.workbench_git_sync_pull({ n: status?.behind ?? 0 }),
+      icon: ArrowDown,
+    },
+    {
+      action: "push" as const,
+      label: m.workbench_git_sync_push({ n: status?.ahead ?? 0 }),
+      icon: ArrowUp,
+    },
+  ];
 
   const handleCheckout = useCallback(
     async (ref: string, create = false) => {
@@ -105,10 +96,10 @@ export function GitToolbar({
     setCreating(false);
   }, [newBranch, handleCheckout]);
 
-  const handleSync = async () => {
+  const handleSync = async (action: "fetch" | "pull" | "push") => {
     setSyncing(true);
     try {
-      await apiSync(workspaceId, sync.action);
+      await apiSync(workspaceId, action);
       onChanged();
     } finally {
       setSyncing(false);
@@ -168,25 +159,27 @@ export function GitToolbar({
 
         <div className="flex-1" />
 
-        {/* Sync */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => void handleSync()}
-              disabled={syncing}
-              aria-label={sync.label}
-              className="flex items-center gap-1 px-2 py-1 rounded-md text-xs hover:bg-muted/50 disabled:opacity-50 transition-colors shrink-0"
-            >
-              {syncing ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <SyncIcon className="w-3.5 h-3.5 text-muted-foreground" />
-              )}
-              <span className="hidden sm:inline">{sync.label}</span>
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">{sync.label}</TooltipContent>
-        </Tooltip>
+        {/* Fetch, Pull e Push permanecem visíveis como ações independentes. */}
+        {syncActions.map(({ action, label, icon: Icon }) => (
+          <Tooltip key={action}>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => void handleSync(action)}
+                disabled={syncing}
+                aria-label={label}
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-xs hover:bg-muted/50 disabled:opacity-50 transition-colors shrink-0"
+              >
+                {syncing ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Icon className="w-3.5 h-3.5 text-muted-foreground" />
+                )}
+                <span className="hidden sm:inline">{label}</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{label}</TooltipContent>
+          </Tooltip>
+        ))}
 
         {/* PR */}
         <Tooltip>

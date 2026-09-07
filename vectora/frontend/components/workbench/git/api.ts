@@ -35,6 +35,29 @@ export interface GitStatus {
   behind: number;
 }
 
+export interface GitOperation {
+  operation_id: string;
+  workspace_id: string;
+  operation: string;
+  state: "queued" | "running" | "succeeded" | "failed";
+  phase: string;
+  progress: number;
+  output: string;
+  error_code: string | null;
+  error: string | null;
+  created_at: number;
+  finished_at: number | null;
+}
+
+export async function fetchGitOperation(
+  workspaceId: string,
+): Promise<GitOperation | null> {
+  const res = await fetch(`${base(workspaceId)}/git/operation`);
+  if (!res.ok) return null;
+  const data = (await res.json()) as { operation?: GitOperation | null };
+  return data.operation ?? null;
+}
+
 export async function fetchGitStatus(
   workspaceId: string,
 ): Promise<GitStatus | null> {
