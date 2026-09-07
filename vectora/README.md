@@ -253,7 +253,7 @@ Mais de 70 tools registradas, organizadas por categoria:
 
 ## Testes
 
-O projeto segue TDD (par caminho-feliz + caminho-de-erro no mesmo teste) — ver `documents/testing-guide.md` no monorepo. Contagem atual (verificada via execução real das suítes):
+O projeto segue TDD (par caminho-feliz + caminho-de-erro no mesmo teste). Contagem atual (verificada via execução real das suítes):
 
 | Suíte                              | Arquivos | Testes     | Como rodar                                                        |
 | ---------------------------------- | -------- | ---------- | ----------------------------------------------------------------- |

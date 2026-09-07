@@ -327,10 +327,8 @@ class TestCliCategoryCommand:
 
 
 class TestCliCollectionCommand:
-    """`vectora config provider-routing|memory|account --list` — fecha a
-    lacuna registrada em `documents/plano-unificado-2026-08-11.md`: as
-    categorias de coleção têm adapter funcionando no backend desde os
-    commits 2970f264..52c46f5b, mas nenhum comando CLI as expunha."""
+    """`vectora config provider-routing|memory|account --list` — cobre a
+    listagem das categorias de coleção pelo dispatcher de configuração da CLI."""
 
     def _ns(self, **overrides):
         import argparse
