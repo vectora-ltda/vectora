@@ -2,7 +2,7 @@
 
 Site institucional + dashboard de billing/licença da Vectora — a SPA/SSR que roda em `vectora.company`. Landing pública (marketing, pricing, FAQ, legal) e um dashboard autenticado (token, assinatura, API keys, conta) para clientes Pro.
 
-**Este app nunca fala com bancos de dados diretamente.** Toda autenticação, billing e licenciamento é feito via chamadas HTTP server-to-server para o Worker Cloudflare `services` (`services.vectora.company`) — este projeto não tem Supabase, não tem Postgres próprio, e não tem service role key nenhuma. Ver `services/README.md` (ou `documents/business-model.md` no monorepo) para a arquitetura do backend.
+**Este app nunca fala com bancos de dados diretamente.** Toda autenticação, billing e licenciamento é feito via chamadas HTTP server-to-server para o Worker Cloudflare `services` (`services.vectora.company`) — este projeto não tem Supabase, não tem Postgres próprio, e não tem service role key nenhuma. Ver `services/README.md` para a arquitetura do backend.
 
 ---
 
@@ -111,7 +111,7 @@ pnpm typecheck          # paraglide compile + tsr generate + tsc --noEmit
 pnpm lint               # eslint
 ```
 
-Suíte atual: **28 arquivos de teste, 178 testes**, cobrindo toda a lógica de negócio testável do projeto — server functions (happy path + validação Zod + branches de erro), hooks (TanStack Query com mocks dos server functions), lib (`services/client`, `theme`, `analytics/ga4`, `analytics/plausible`) e componentes com lógica real (dashboard inteiro + shared não-estático). Segue o padrão de par caminho-feliz/caminho-de-erro no mesmo arquivo (ver `documents/testing-guide.md` no monorepo):
+Suíte atual: **28 arquivos de teste, 178 testes**, cobrindo toda a lógica de negócio testável do projeto — server functions (happy path + validação Zod + branches de erro), hooks (TanStack Query com mocks dos server functions), lib (`services/client`, `theme`, `analytics/ga4`, `analytics/plausible`) e componentes com lógica real (dashboard inteiro + shared não-estático). Segue o padrão de par caminho-feliz/caminho-de-erro no mesmo arquivo:
 
 | Área                                  | Arquivos | O que cobre                                                                                                                                                                                                             |
 | ------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

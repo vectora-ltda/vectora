@@ -2006,10 +2006,22 @@ class GitStatusResponse(BaseModel):
     behind: int = 0
 
 
+class GitOperationResponse(BaseModel):
+    operation: dict[str, object] | None = None
+
+
+@workspace_scoped_router.get("/git/operation", response_model=GitOperationResponse)
+async def git_operation(workspace_id: str) -> GitOperationResponse:
+    """Retorna o snapshot terminal ou corrente mais recente do Workbench."""
+    from backend.services.git import git_service
+
+    return GitOperationResponse(operation=await git_service.latest(workspace_id))
+
+
 @workspace_scoped_router.get("/git/status", response_model=GitStatusResponse)
 async def git_status(workspace_id: str) -> GitStatusResponse:
     """Estado real do repo: branch, ahead/behind do tracking remoto, clean."""
-    from backend.tools.git import _git_status_impl
+    from backend.services.git import git_service
 
     repo = _open_workspace_repo(workspace_id)
     if repo is None:
@@ -2018,16 +2030,19 @@ async def git_status(workspace_id: str) -> GitStatusResponse:
     # frequência; qualquer erro inesperado do gitpython (ex.: repo em estado
     # transitório) degrada pra uma resposta válida em vez de 500 no log.
     try:
-        info = _git_status_impl(repo)
+        info = await git_service.status(workspace_id, repo)
     except Exception:
         logger.exception("api/workspaces: git_status falhou ws=%s", workspace_id)
         return GitStatusResponse(is_git_repo=True)
+    branch = info.get("branch", "")
+    ahead = info.get("ahead", 0)
+    behind = info.get("behind", 0)
     return GitStatusResponse(
         is_git_repo=True,
-        branch=info.get("branch", ""),
+        branch=branch if isinstance(branch, str) else "",
         clean=bool(info.get("clean", True)),
-        ahead=int(info.get("ahead", 0)),
-        behind=int(info.get("behind", 0)),
+        ahead=int(ahead) if isinstance(ahead, int | float | str) else 0,
+        behind=int(behind) if isinstance(behind, int | float | str) else 0,
     )
 
 
@@ -2095,9 +2110,18 @@ async def git_fetch(workspace_id: str, body: GitSyncRequest) -> StatusResponse:
     repo = _open_workspace_repo(workspace_id)
     if repo is None:
         return StatusResponse(status="error", message="Repositório git não encontrado.")
+    from backend.services.git import GitOperationError, git_service
+
     try:
-        repo.git.fetch(body.remote)
+        await git_service.execute(
+            workspace_id,
+            repo,
+            "fetch",
+            lambda: repo.git.fetch(body.remote),
+        )
         return StatusResponse(status="ok", message=f"fetch {body.remote}")
+    except GitOperationError as exc:
+        return StatusResponse(status=exc.code, message=str(exc))
     except Exception as exc:
         return StatusResponse(status="error", message=str(exc))
 
@@ -2105,29 +2129,51 @@ async def git_fetch(workspace_id: str, body: GitSyncRequest) -> StatusResponse:
 @workspace_scoped_router.post("/git/pull", response_model=StatusResponse)
 async def git_pull(workspace_id: str, body: GitSyncRequest) -> StatusResponse:
     """``git pull`` do remote/branch (pode gerar conflitos — ver /git/conflicts)."""
+    from backend.services.git import GitOperationError, git_service
     from backend.tools.git import _git_pull_impl
 
     repo = _open_workspace_repo(workspace_id)
     if repo is None:
         return StatusResponse(status="error", message="Repositório git não encontrado.")
-    result = _git_pull_impl(repo, body.remote, body.branch)
-    return StatusResponse(
-        status=result.get("status", "error"), message=result.get("message", "")
-    )
+    try:
+        _, result = await git_service.execute(
+            workspace_id,
+            repo,
+            "pull",
+            lambda: _git_pull_impl(repo, body.remote, body.branch),
+        )
+        result = result or {}
+        return StatusResponse(
+            status=str(result.get("status", "error")),
+            message=str(result.get("message", "")),
+        )
+    except GitOperationError as exc:
+        return StatusResponse(status=exc.code, message=str(exc))
 
 
 @workspace_scoped_router.post("/git/push", response_model=StatusResponse)
 async def git_push(workspace_id: str, body: GitSyncRequest) -> StatusResponse:
     """``git push`` da branch atual (ou ``branch``) para o remote."""
+    from backend.services.git import GitOperationError, git_service
     from backend.tools.git import _git_push_impl
 
     repo = _open_workspace_repo(workspace_id)
     if repo is None:
         return StatusResponse(status="error", message="Repositório git não encontrado.")
-    result = _git_push_impl(repo, body.remote, body.branch)
-    return StatusResponse(
-        status=result.get("status", "error"), message=result.get("message", "")
-    )
+    try:
+        _, result = await git_service.execute(
+            workspace_id,
+            repo,
+            "push",
+            lambda: _git_push_impl(repo, body.remote, body.branch),
+        )
+        result = result or {}
+        return StatusResponse(
+            status=str(result.get("status", "error")),
+            message=str(result.get("message", "")),
+        )
+    except GitOperationError as exc:
+        return StatusResponse(status=exc.code, message=str(exc))
 
 
 class GitMergeRequest(BaseModel):
@@ -3186,7 +3232,7 @@ def _launch_json_path(workspace_id: str) -> Path | None:
 
 class LaunchConfigModel(BaseModel):
     # Campos em camelCase espelham o formato do .vectora/launch.json
-    # (estilo Claude Code/VS Code) — não renomear.
+    # esperado pelo arquivo de configuração — não renomear.
     name: str
     runtimeExecutable: str  # noqa: N815
     runtimeArgs: list[str] = []  # noqa: N815
