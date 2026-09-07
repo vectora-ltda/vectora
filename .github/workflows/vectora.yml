@@ -106,6 +106,9 @@ jobs:
       - name: Lint (oxlint)
         working-directory: vectora/frontend
         run: pnpm exec oxlint
+      - name: Lint i18n (no hardcoded UI strings)
+        working-directory: vectora/frontend
+        run: pnpm lint:i18n -- --changed
       - name: Type check (tsc --noEmit)
         working-directory: vectora/frontend
         run: pnpm typecheck
