@@ -233,12 +233,6 @@ describe("OAuth broker de integrações", () => {
         runtime,
       );
       expect(denied.status).toBe(302);
-      expect(denied.headers.get("set-cookie")).toContain(
-        "vectora_oauth_transaction=",
-      );
-      expect(denied.headers.get("set-cookie")).toContain(
-        "Domain=.vectora.chat",
-      );
       const deniedResult = await oauth.request(
         `/integrations/github/result/${deniedState}`,
         { headers: { Authorization: "Bearer test-oauth-secret" } },

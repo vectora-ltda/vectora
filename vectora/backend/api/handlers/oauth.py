@@ -55,7 +55,6 @@ _BROKER_STATE_TTL: float = 300.0
 _BROKER_PROVIDER_SUCCESS_CACHE_TTL: float = 60.0
 _BROKER_PROVIDER_FAILURE_CACHE_TTL: float = 5.0
 _broker_provider_cache: tuple[float, set[str]] | None = None
-_OAUTH_TRANSACTION_COOKIE = "vectora_oauth_transaction"
 
 
 @dataclass(frozen=True)
@@ -65,6 +64,7 @@ class _BrokerTransaction:
     state: str
     user_id: str
     provider: str
+    proof: str
     expires_at: int
 
 
@@ -86,12 +86,12 @@ def _broker_enabled() -> bool:
 def _consume_broker_transaction(
     request: Request, state: str, provider: str, user_id: str
 ) -> bool:
-    transaction_id = request.cookies.get(_OAUTH_TRANSACTION_COOKIE, "")
+    proof = request.query_params.get("oauth_proof", "")
     transaction = _broker_transactions.get(state)
     if transaction is None:
         return False
     valid = (
-        transaction_id == state
+        hmac.compare_digest(transaction.proof, proof)
         and transaction.state == state
         and transaction.provider == provider
         and transaction.user_id == user_id
@@ -146,6 +146,7 @@ async def _broker_start(request: Request, provider: str) -> RedirectResponse:
     broker_url = _broker_url()
     broker_secret = _broker_secret()
     expires_at = int(time.time()) + int(_BROKER_STATE_TTL)
+    proof = secrets.token_urlsafe(32)
     # Keep the signed state below the gateway's compact-state limit while
     # retaining enough entropy for a short-lived, one-time callback.
     payload = f"{user.id}:{provider}:{expires_at}:{secrets.token_urlsafe(12)}"
@@ -163,6 +164,7 @@ async def _broker_start(request: Request, provider: str) -> RedirectResponse:
         state=state,
         user_id=user.id,
         provider=provider,
+        proof=proof,
         expires_at=expires_at,
     )
     callback = _gateway_callback_url(provider)
@@ -171,12 +173,15 @@ async def _broker_start(request: Request, provider: str) -> RedirectResponse:
             status_code=503,
             detail="OAuth centralizado exige um gateway Vectora conectado",
         )
+    callback_url = callback
+    separator = "&" if "?" in callback_url else "?"
+    callback_url = f"{callback_url}{separator}oauth_proof={proof}"
     import httpx
 
     async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
         response = await client.get(
             f"{broker_url}/oauth/integrations/{provider}/start",
-            params={"state": state, "return_to": callback},
+            params={"state": state, "return_to": callback_url},
         )
     if response.status_code != 302:
         _broker_transactions.pop(state, None)
@@ -199,16 +204,7 @@ async def _broker_start(request: Request, provider: str) -> RedirectResponse:
         raise HTTPException(
             status_code=502, detail="Broker OAuth não retornou redirect"
         )
-    redirect = RedirectResponse(url=location, status_code=302)
-    redirect.set_cookie(
-        _OAUTH_TRANSACTION_COOKIE,
-        state,
-        max_age=int(_BROKER_STATE_TTL),
-        httponly=True,
-        samesite="lax",
-        secure=request.url.scheme == "https",
-    )
-    return redirect
+    return RedirectResponse(url=location, status_code=302)
 
 
 async def _try_broker_start(request: Request, provider: str) -> RedirectResponse | None:

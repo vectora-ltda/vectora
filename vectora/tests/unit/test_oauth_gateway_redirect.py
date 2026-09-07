@@ -96,16 +96,17 @@ class TestGithubCfgRedirect:
 
 
 class TestBrokerTransaction:
-    def test_transacao_eh_one_shot_e_vinculada_ao_cookie(self) -> None:
+    def test_transacao_eh_one_shot_e_vinculada_a_prova_do_callback(self) -> None:
         from backend.api.handlers import oauth
 
         request = Request(
             {
                 "type": "http",
+                "query_string": b"oauth_proof=signed-proof",
                 "headers": [
                     (
-                        b"cookie",
-                        b"vectora_oauth_transaction=signed-state",
+                        b"x-test",
+                        b"1",
                     )
                 ],
             }
@@ -114,6 +115,7 @@ class TestBrokerTransaction:
             state="signed-state",
             user_id="user-1",
             provider="github",
+            proof="signed-proof",
             expires_at=9999999999,
         )
 
