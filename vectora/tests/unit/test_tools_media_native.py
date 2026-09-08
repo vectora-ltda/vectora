@@ -195,12 +195,10 @@ class TestTranscribeLocal:
         assert "text" in result
         assert "language" in result
 
-    async def test_sem_faster_whisper_instalado_devolve_erro_tipado(
-        self, tmp_path, monkeypatch
-    ):
-        """Erro/borda: `faster-whisper` é dependência OPCIONAL
-        (`pyproject.toml [project.optional-dependencies] media`) — sem ela
-        instalada, a tool devolve erro legível, nunca ImportError cru."""
+    async def test_falha_do_motor_de_transcricao_devolve_erro_tipado(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Falhas do motor são convertidas em erro legível pela tool."""
         import builtins
 
         audio = tmp_path / "sample.wav"
@@ -221,4 +219,4 @@ class TestTranscribeLocal:
             )
 
         assert "error" in result
-        assert "faster-whisper" in result["error"]
+        assert "falha ao transcrever" in result["error"]

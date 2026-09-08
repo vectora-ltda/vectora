@@ -16,7 +16,9 @@ como comentário reintroduziria falso positivo em código de produção real.
 from __future__ import annotations
 
 import io
+import os
 import re
+import subprocess  # nosec B404
 import sys
 import tokenize
 
@@ -177,7 +179,50 @@ def _find_violations(path: str) -> list[tuple[int, str]]:
     ]
 
 
+def _changed_diff_ref() -> str:
+    """Return the diff reference appropriate for local hooks or CI."""
+    base_ref = os.environ.get("GITHUB_BASE_REF", "")
+    if base_ref and re.fullmatch(r"[A-Za-z0-9._/-]+", base_ref):
+        return f"origin/{base_ref}...HEAD"
+    return "HEAD"
+
+
 def main(argv: list[str]) -> int:
+    if "--changed" in argv:
+        try:
+            result = subprocess.run(  # nosec B603, B607
+                [
+                    "git",
+                    "diff",
+                    "--name-only",
+                    "--diff-filter=AM",
+                    _changed_diff_ref(),
+                    "--",
+                    "*.py",
+                    "*.ts",
+                    "*.tsx",
+                    "*.js",
+                    "*.jsx",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+        except (OSError, subprocess.CalledProcessError):
+            return 1
+        argv = [
+            path
+            for path in result.stdout.splitlines()
+            if path
+            and path
+            not in {
+                "utils/check_no_plan_comments.py",
+                "utils/test_check_no_plan_comments.py",
+                "utils/check_no_plan_pr_metadata.py",
+                "utils/test_check_no_plan_pr_metadata.py",
+            }
+        ]
     had_violation = False
     for path in argv:
         for lineno, comment in _find_violations(path):

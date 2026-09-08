@@ -112,7 +112,7 @@ repos:
         pass_filenames: false
       - id: no-plan-comments
         name: Sem Sprint/Bloco/Fase ou menção a ferramenta de IA em código
-        entry: uv run python utils/check_no_plan_comments.py
+        entry: uv run python utils/check_no_plan_comments.py --changed
         language: system
         files: \.(py|ts|tsx|js|jsx)$
         exclude: ^utils/(check_no_plan_comments|test_check_no_plan_comments|check_no_plan_pr_metadata|test_check_no_plan_pr_metadata)\.py$
@@ -203,7 +203,7 @@ repos:
 
       - id: i18n
         name: Frontend i18n lint
-        entry: pnpm --dir vectora/frontend run lint:i18n --
+        entry: pnpm --dir vectora/frontend run lint:i18n -- --changed
         language: system
         files: ^vectora/frontend/.*\.(ts|tsx)$
 
