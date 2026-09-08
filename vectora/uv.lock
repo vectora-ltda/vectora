@@ -4398,7 +4398,7 @@ requires-dist = [
     { name = "tree-sitter-python", specifier = ">=0.23,<0.26" },
     { name = "tree-sitter-rust", specifier = ">=0.23,<0.25" },
     { name = "tree-sitter-typescript", specifier = ">=0.23,<0.25" },
-    { name = "ty", specifier = ">=0.0.51,<0.0.79" },
+    { name = "ty", specifier = ">=0.0.51" },
     { name = "typer", specifier = ">=0.15.0" },
     { name = "types-python-dateutil", specifier = ">=2.9.0.20260518" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.49.0" },

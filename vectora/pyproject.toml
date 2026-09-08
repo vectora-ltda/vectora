@@ -36,7 +36,7 @@ dependencies = [
     "tiktoken>=0.13.0",
     "ruff>=0.15.18",
     "pytest>=9.1.1",
-    "ty>=0.0.51,<0.0.79",
+    "ty>=0.0.51",
     "pandas>=3.0.3",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
@@ -265,6 +265,13 @@ unresolved-attribute = "ignore"
 invalid-argument-type = "ignore"
 invalid-return-type = "ignore"
 invalid-assignment = "ignore"
+
+[[tool.ty.overrides]]
+# faster-whisper is an optional runtime extra loaded only when transcription is enabled.
+include = ["backend/tools/media_native.py"]
+
+[tool.ty.overrides.rules]
+unresolved-import = "ignore"
 
 [[tool.ty.overrides]]
 # cluster.py: graspologic é opcional (fallback para networkx louvain).

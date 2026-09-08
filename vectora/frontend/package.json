@@ -7,6 +7,9 @@
   "private": true,
   "type": "commonjs",
   "packageManager": "pnpm@11.5.0",
+  "engines": {
+    "node": ">=26.0.0 <27"
+  },
   "main": "electron/dist/main.js",
   "scripts": {
     "dev": "vite",
