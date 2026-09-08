@@ -227,14 +227,14 @@ class TestExtractPythonFile:
 
 
 class TestExtractTypeScriptFile:
-    def test_tree_sitter_language_aliases_use_pack_names(self):
+    def test_tree_sitter_language_aliases_use_pack_names(self) -> None:
         from backend.context_graph.extract import _load_tree_sitter_language
 
         language = _load_tree_sitter_language("tree_sitter_c_sharp")
 
         assert language is not None
 
-    def test_unsupported_tree_sitter_language_is_explicit(self):
+    def test_unsupported_tree_sitter_language_is_explicit(self) -> None:
         import pytest
 
         from backend.context_graph.extract import _load_tree_sitter_language
@@ -267,7 +267,7 @@ class TestExtractTypeScriptFile:
         result = _safe_extract(extractor, f)
         assert isinstance(result, dict)
 
-    def test_tsx_uses_jsx_aware_tree_sitter_grammar(self, tmp_path: Path):
+    def test_tsx_uses_jsx_aware_tree_sitter_grammar(self, tmp_path: Path) -> None:
         from tree_sitter import Node
 
         from backend.context_graph.extract import _parse_js_tree
