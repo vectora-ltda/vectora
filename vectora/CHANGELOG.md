@@ -2,14 +2,12 @@
 
 ## [0.1.17](https://github.com/vectora-ltda/vectora/compare/v0.1.16...v0.1.17) (2026-09-07)
 
-
 ### Features
 
 * centralizar OAuth das integrações no gateway ([#83](https://github.com/vectora-ltda/vectora/issues/83)) ([b2c5420](https://github.com/vectora-ltda/vectora/commit/b2c5420eb16bde3ccdae3b722f282dedd851b4ac))
 * evoluir fluxo operacional do Git Workbench ([#86](https://github.com/vectora-ltda/vectora/issues/86)) ([37f86e3](https://github.com/vectora-ltda/vectora/commit/37f86e3d93646c4946798140713e8d36859834c8))
 * expand Git Workbench workflow ([#148](https://github.com/vectora-ltda/vectora/issues/148)) ([c47a264](https://github.com/vectora-ltda/vectora/commit/c47a2645b68a0271ea55c7088dd0877f37560180))
 * filtrar variantes e limitar cards na Aparência ([#81](https://github.com/vectora-ltda/vectora/issues/81)) ([5c6e68e](https://github.com/vectora-ltda/vectora/commit/5c6e68e64429088ebd7a97f34cb271fa517c1369))
-
 
 ### Bug Fixes
 
@@ -18,66 +16,74 @@
 
 ## [0.1.16](https://github.com/vectora-ltda/vectora/compare/v0.1.15...v0.1.16) (2026-09-06)
 
-
 ### Features
 
-* enviar anexos ao modelo ativo antes do fallback multimodal ([#80](https://github.com/vectora-ltda/vectora/issues/80)) ([0d8f04d](https://github.com/vectora-ltda/vectora/commit/0d8f04d1a518b716dafb8fbe6272f7d32995ddc6))
-* **frontend:** revisa Aparência com novo catálogo de temas e UI Scale ([#69](https://github.com/vectora-ltda/vectora/issues/69)) ([72a48cb](https://github.com/vectora-ltda/vectora/commit/72a48cb35d103b0dcf63ab28d834c38b6b097d84))
-
+- centralizar OAuth das integrações no gateway ([#83](https://github.com/vectora-ltda/vectora/issues/83)) ([b2c5420](https://github.com/vectora-ltda/vectora/commit/b2c5420eb16bde3ccdae3b722f282dedd851b4ac))
+- evoluir fluxo operacional do Git Workbench ([#86](https://github.com/vectora-ltda/vectora/issues/86)) ([37f86e3](https://github.com/vectora-ltda/vectora/commit/37f86e3d93646c4946798140713e8d36859834c8))
+- expand Git Workbench workflow ([#148](https://github.com/vectora-ltda/vectora/issues/148)) ([c47a264](https://github.com/vectora-ltda/vectora/commit/c47a2645b68a0271ea55c7088dd0877f37560180))
+- filtrar variantes e limitar cards na Aparência ([#81](https://github.com/vectora-ltda/vectora/issues/81)) ([5c6e68e](https://github.com/vectora-ltda/vectora/commit/5c6e68e64429088ebd7a97f34cb271fa517c1369))
 
 ### Bug Fixes
 
-* **backend:** mantém subagents ao vivo e sessões privadas ([#71](https://github.com/vectora-ltda/vectora/issues/71)) ([9e795f3](https://github.com/vectora-ltda/vectora/commit/9e795f328ef4af43edb5752b7fa951a7dc1dd471))
-* **backend:** remove thread da SessionStore ao excluir ([#68](https://github.com/vectora-ltda/vectora/issues/68)) ([d36ca2b](https://github.com/vectora-ltda/vectora/commit/d36ca2bfda9779790bf78dae098edd3ebb8719eb))
-* encerra arvore de processos dos sidecars no shutdown ([#76](https://github.com/vectora-ltda/vectora/issues/76)) ([51c31ff](https://github.com/vectora-ltda/vectora/commit/51c31ff9652a11805a34da00785608874d5ff39e))
-* preservar estado do navegador ao ocultar workbench ([#78](https://github.com/vectora-ltda/vectora/issues/78)) ([59b9a6a](https://github.com/vectora-ltda/vectora/commit/59b9a6af264f44e8f6da7f6cc2f45fa1a6519abc))
+- preserve pending browser navigation after workspace switch ([#149](https://github.com/vectora-ltda/vectora/issues/149)) ([b1a06f4](https://github.com/vectora-ltda/vectora/commit/b1a06f4c197f9e888742420dcc2b6bcfccb10445))
+- sincronizar versão do uv lock no release please ([#84](https://github.com/vectora-ltda/vectora/issues/84)) ([1286ab8](https://github.com/vectora-ltda/vectora/commit/1286ab83496878928ba90bdb1da0a96f6abade92))
+
+## [0.1.16](https://github.com/vectora-ltda/vectora/compare/v0.1.15...v0.1.16) (2026-09-06)
+
+### Features
+
+- enviar anexos ao modelo ativo antes do fallback multimodal ([#80](https://github.com/vectora-ltda/vectora/issues/80)) ([0d8f04d](https://github.com/vectora-ltda/vectora/commit/0d8f04d1a518b716dafb8fbe6272f7d32995ddc6))
+- **frontend:** revisa Aparência com novo catálogo de temas e UI Scale ([#69](https://github.com/vectora-ltda/vectora/issues/69)) ([72a48cb](https://github.com/vectora-ltda/vectora/commit/72a48cb35d103b0dcf63ab28d834c38b6b097d84))
+
+### Bug Fixes
+
+- **backend:** mantém subagents ao vivo e sessões privadas ([#71](https://github.com/vectora-ltda/vectora/issues/71)) ([9e795f3](https://github.com/vectora-ltda/vectora/commit/9e795f328ef4af43edb5752b7fa951a7dc1dd471))
+- **backend:** remove thread da SessionStore ao excluir ([#68](https://github.com/vectora-ltda/vectora/issues/68)) ([d36ca2b](https://github.com/vectora-ltda/vectora/commit/d36ca2bfda9779790bf78dae098edd3ebb8719eb))
+- encerra arvore de processos dos sidecars no shutdown ([#76](https://github.com/vectora-ltda/vectora/issues/76)) ([51c31ff](https://github.com/vectora-ltda/vectora/commit/51c31ff9652a11805a34da00785608874d5ff39e))
+- preservar estado do navegador ao ocultar workbench ([#78](https://github.com/vectora-ltda/vectora/issues/78)) ([59b9a6a](https://github.com/vectora-ltda/vectora/commit/59b9a6af264f44e8f6da7f6cc2f45fa1a6519abc))
 
 ## [0.1.15](https://github.com/vectora-ltda/vectora/compare/v0.1.14...v0.1.15) (2026-09-04)
 
-
 ### Bug Fixes
 
-* **backend:** reconcile_vectora_sessions preserva/repara workspace_id ([#67](https://github.com/vectora-ltda/vectora/issues/67)) ([23eab8c](https://github.com/vectora-ltda/vectora/commit/23eab8c081d7dca8ca88d14044b4777811258398))
-* **backend:** reconcilia vectora_sessions com sessions.db ([#63](https://github.com/vectora-ltda/vectora/issues/63)) ([29ca467](https://github.com/vectora-ltda/vectora/commit/29ca46743e71f18e53b290637a8f483b7f758837))
-* release-please rastreia o monorepo inteiro, não só vectora/ ([#65](https://github.com/vectora-ltda/vectora/issues/65)) ([c416cc3](https://github.com/vectora-ltda/vectora/commit/c416cc32ac2cfb710c9a3bb9448f69e9fbfca7ef))
-* **services:** filtra versão no loop de upload e rejeita instalador duplicado ([#64](https://github.com/vectora-ltda/vectora/issues/64)) ([521007d](https://github.com/vectora-ltda/vectora/commit/521007ddd5b165ba3233e2a4214860307f68a26d))
-* **services:** reconstrói o manifesto de update por arch ([#62](https://github.com/vectora-ltda/vectora/issues/62)) ([48b4e68](https://github.com/vectora-ltda/vectora/commit/48b4e688edbcbe7e11b56e7aed7dcabdf8bdb50e))
+- **backend:** reconcile_vectora_sessions preserva/repara workspace_id ([#67](https://github.com/vectora-ltda/vectora/issues/67)) ([23eab8c](https://github.com/vectora-ltda/vectora/commit/23eab8c081d7dca8ca88d14044b4777811258398))
+- **backend:** reconcilia vectora_sessions com sessions.db ([#63](https://github.com/vectora-ltda/vectora/issues/63)) ([29ca467](https://github.com/vectora-ltda/vectora/commit/29ca46743e71f18e53b290637a8f483b7f758837))
+- release-please rastreia o monorepo inteiro, não só vectora/ ([#65](https://github.com/vectora-ltda/vectora/issues/65)) ([c416cc3](https://github.com/vectora-ltda/vectora/commit/c416cc32ac2cfb710c9a3bb9448f69e9fbfca7ef))
+- **services:** filtra versão no loop de upload e rejeita instalador duplicado ([#64](https://github.com/vectora-ltda/vectora/issues/64)) ([521007d](https://github.com/vectora-ltda/vectora/commit/521007ddd5b165ba3233e2a4214860307f68a26d))
+- **services:** reconstrói o manifesto de update por arch ([#62](https://github.com/vectora-ltda/vectora/issues/62)) ([48b4e68](https://github.com/vectora-ltda/vectora/commit/48b4e688edbcbe7e11b56e7aed7dcabdf8bdb50e))
 
 ## [0.1.14](https://github.com/vectora-ltda/vectora/compare/v0.1.13...v0.1.14) (2026-09-03)
 
-
 ### Features
 
-* **frontend:** theme picker com cards pintados + toggle claro/escuro/sistema ([#51](https://github.com/vectora-ltda/vectora/issues/51)) ([52514ad](https://github.com/vectora-ltda/vectora/commit/52514ad2191d1dabe94df030b4edaf73b7f712f2))
-* **gha-bot:** modo self-hosted — revisão roda na própria instância Vectora ([#52](https://github.com/vectora-ltda/vectora/issues/52)) ([71fdf4e](https://github.com/vectora-ltda/vectora/commit/71fdf4ee254f6bdb68de8b2a6aba371580e9014a))
-
+- **frontend:** theme picker com cards pintados + toggle claro/escuro/sistema ([#51](https://github.com/vectora-ltda/vectora/issues/51)) ([52514ad](https://github.com/vectora-ltda/vectora/commit/52514ad2191d1dabe94df030b4edaf73b7f712f2))
+- **gha-bot:** modo self-hosted — revisão roda na própria instância Vectora ([#52](https://github.com/vectora-ltda/vectora/issues/52)) ([71fdf4e](https://github.com/vectora-ltda/vectora/commit/71fdf4ee254f6bdb68de8b2a6aba371580e9014a))
 
 ### Bug Fixes
 
-* **backend,services:** hardening real do túnel do gateway (secret separado do token público) ([#49](https://github.com/vectora-ltda/vectora/issues/49)) ([cdac330](https://github.com/vectora-ltda/vectora/commit/cdac330de7d55db8f0be7478251e518f86cd2120))
-* **frontend:** altura do Header, rename do mode switcher e composer mais limpo ([#61](https://github.com/vectora-ltda/vectora/issues/61)) ([b248113](https://github.com/vectora-ltda/vectora/commit/b248113f381eb91406855c61c74dd9a05b1581c2))
-* **frontend:** tela de Integrações dirigida 100% pelo registry do backend ([#50](https://github.com/vectora-ltda/vectora/issues/50)) ([0ec8c51](https://github.com/vectora-ltda/vectora/commit/0ec8c51d6ae5ca91ff44fd5f041781e5f7dfc3b6))
+- **backend,services:** hardening real do túnel do gateway (secret separado do token público) ([#49](https://github.com/vectora-ltda/vectora/issues/49)) ([cdac330](https://github.com/vectora-ltda/vectora/commit/cdac330de7d55db8f0be7478251e518f86cd2120))
+- **frontend:** altura do Header, rename do mode switcher e composer mais limpo ([#61](https://github.com/vectora-ltda/vectora/issues/61)) ([b248113](https://github.com/vectora-ltda/vectora/commit/b248113f381eb91406855c61c74dd9a05b1581c2))
+- **frontend:** tela de Integrações dirigida 100% pelo registry do backend ([#50](https://github.com/vectora-ltda/vectora/issues/50)) ([0ec8c51](https://github.com/vectora-ltda/vectora/commit/0ec8c51d6ae5ca91ff44fd5f041781e5f7dfc3b6))
 
 ## [0.1.13](https://github.com/vectora-ltda/vectora/compare/vectora-v0.1.12...vectora-v0.1.13) (2026-09-02)
 
-
 ### Bug Fixes
 
-* **backend:** remove 8 referências textuais obsoletas ao LangChain/LangGraph ([#40](https://github.com/vectora-ltda/vectora/issues/40)) ([a9d547b](https://github.com/vectora-ltda/vectora/commit/a9d547bb599609e6841564dc7a879abdd6ef8227))
-* **backend:** remove limpeza que apagava threads reais da sidebar após 1h ([c1e5f41](https://github.com/vectora-ltda/vectora/commit/c1e5f41733fcd640a31198c9d704d01ae0d5857c))
-* **backend:** remove limpeza que apagava threads reais da sidebar após 1h ([30d7cbb](https://github.com/vectora-ltda/vectora/commit/30d7cbb2cd480db925a8f4f9729b2f57f93ccea0))
-* **backend:** remove referências obsoletas ao AsyncSqliteSaver + anotações de tipo pendentes ([#38](https://github.com/vectora-ltda/vectora/issues/38)) ([faf9f3b](https://github.com/vectora-ltda/vectora/commit/faf9f3ba7cfde919f7d241766d2d4fe0bf4d37c8))
-* **backend:** sanitiza chave inválida do NatsKV (':' quebrava preview parcial) ([#46](https://github.com/vectora-ltda/vectora/issues/46)) ([8206702](https://github.com/vectora-ltda/vectora/commit/8206702d0ad1b33c258bb8d19c3824f43483043e))
-* **backend:** túnel do gateway — concorrência real, jitter no backoff, reuso de sessão ([#44](https://github.com/vectora-ltda/vectora/issues/44)) ([20033ef](https://github.com/vectora-ltda/vectora/commit/20033ef5cba54b7b270096dcda98555f532a8267))
-* **ci,scons:** corrige hang do scons prod e path do tar do vectora-cli ([f40bb02](https://github.com/vectora-ltda/vectora/commit/f40bb026df4d93fa98c14a640312f7414b6549e7))
-* **docs,ci:** atualiza referências de ghcr.io/brunosrz para vectora-ltda ([#39](https://github.com/vectora-ltda/vectora/issues/39)) ([cdec46e](https://github.com/vectora-ltda/vectora/commit/cdec46e111948cf63b38377caca31639a4164e0d))
-* **frontend:** corrige link do portal de billing e unifica Cobrança/Sobre ([#42](https://github.com/vectora-ltda/vectora/issues/42)) ([fafdde5](https://github.com/vectora-ltda/vectora/commit/fafdde527a86e00a6d1bb96cf60dbc4952e2dad2))
-* **frontend:** corrige overlap real do chat sobre a faixa do workbench em mobile ([d050a9a](https://github.com/vectora-ltda/vectora/commit/d050a9a2b0329177ee8f1c593d5f03142a7f23c5))
-* **frontend:** corrige overlap real do chat sobre a faixa do workbench em mobile ([38c92c6](https://github.com/vectora-ltda/vectora/commit/38c92c604c206624b63e5aed13f8737b8a59ee86))
-* **frontend:** filtra bug conhecido do jsdom que vaza como Uncaught Exception ([d2f5cdb](https://github.com/vectora-ltda/vectora/commit/d2f5cdbc31106a6d0b404835fc79d486ba5270e4))
-* **frontend:** header pertence à coluna central, nunca esparrama sobre a lateral direita ([#45](https://github.com/vectora-ltda/vectora/issues/45)) ([c742335](https://github.com/vectora-ltda/vectora/commit/c742335ff519f72c73fe440c3daeb3f249d60382))
-* **release,gateway:** sincroniza versão do instalador e corrige card de gateway falso-negativo ([#30](https://github.com/vectora-ltda/vectora/issues/30)) ([f08a43f](https://github.com/vectora-ltda/vectora/commit/f08a43f7bb60cd1530dd1c450f2bcb603679f421))
-* **tests:** corrige marker de testes que chamam DuckDuckGo real ([#32](https://github.com/vectora-ltda/vectora/issues/32)) ([a718553](https://github.com/vectora-ltda/vectora/commit/a718553a18c6514f1bccd3518d3a90e5a35db32e))
+- **backend:** remove 8 referências textuais obsoletas ao LangChain/LangGraph ([#40](https://github.com/vectora-ltda/vectora/issues/40)) ([a9d547b](https://github.com/vectora-ltda/vectora/commit/a9d547bb599609e6841564dc7a879abdd6ef8227))
+- **backend:** remove limpeza que apagava threads reais da sidebar após 1h ([c1e5f41](https://github.com/vectora-ltda/vectora/commit/c1e5f41733fcd640a31198c9d704d01ae0d5857c))
+- **backend:** remove limpeza que apagava threads reais da sidebar após 1h ([30d7cbb](https://github.com/vectora-ltda/vectora/commit/30d7cbb2cd480db925a8f4f9729b2f57f93ccea0))
+- **backend:** remove referências obsoletas ao AsyncSqliteSaver + anotações de tipo pendentes ([#38](https://github.com/vectora-ltda/vectora/issues/38)) ([faf9f3b](https://github.com/vectora-ltda/vectora/commit/faf9f3ba7cfde919f7d241766d2d4fe0bf4d37c8))
+- **backend:** sanitiza chave inválida do NatsKV (':' quebrava preview parcial) ([#46](https://github.com/vectora-ltda/vectora/issues/46)) ([8206702](https://github.com/vectora-ltda/vectora/commit/8206702d0ad1b33c258bb8d19c3824f43483043e))
+- **backend:** túnel do gateway — concorrência real, jitter no backoff, reuso de sessão ([#44](https://github.com/vectora-ltda/vectora/issues/44)) ([20033ef](https://github.com/vectora-ltda/vectora/commit/20033ef5cba54b7b270096dcda98555f532a8267))
+- **ci,scons:** corrige hang do scons prod e path do tar do vectora-cli ([f40bb02](https://github.com/vectora-ltda/vectora/commit/f40bb026df4d93fa98c14a640312f7414b6549e7))
+- **docs,ci:** atualiza referências de ghcr.io/brunosrz para vectora-ltda ([#39](https://github.com/vectora-ltda/vectora/issues/39)) ([cdec46e](https://github.com/vectora-ltda/vectora/commit/cdec46e111948cf63b38377caca31639a4164e0d))
+- **frontend:** corrige link do portal de billing e unifica Cobrança/Sobre ([#42](https://github.com/vectora-ltda/vectora/issues/42)) ([fafdde5](https://github.com/vectora-ltda/vectora/commit/fafdde527a86e00a6d1bb96cf60dbc4952e2dad2))
+- **frontend:** corrige overlap real do chat sobre a faixa do workbench em mobile ([d050a9a](https://github.com/vectora-ltda/vectora/commit/d050a9a2b0329177ee8f1c593d5f03142a7f23c5))
+- **frontend:** corrige overlap real do chat sobre a faixa do workbench em mobile ([38c92c6](https://github.com/vectora-ltda/vectora/commit/38c92c604c206624b63e5aed13f8737b8a59ee86))
+- **frontend:** filtra bug conhecido do jsdom que vaza como Uncaught Exception ([d2f5cdb](https://github.com/vectora-ltda/vectora/commit/d2f5cdbc31106a6d0b404835fc79d486ba5270e4))
+- **frontend:** header pertence à coluna central, nunca esparrama sobre a lateral direita ([#45](https://github.com/vectora-ltda/vectora/issues/45)) ([c742335](https://github.com/vectora-ltda/vectora/commit/c742335ff519f72c73fe440c3daeb3f249d60382))
+- **release,gateway:** sincroniza versão do instalador e corrige card de gateway falso-negativo ([#30](https://github.com/vectora-ltda/vectora/issues/30)) ([f08a43f](https://github.com/vectora-ltda/vectora/commit/f08a43f7bb60cd1530dd1c450f2bcb603679f421))
+- **tests:** corrige marker de testes que chamam DuckDuckGo real ([#32](https://github.com/vectora-ltda/vectora/issues/32)) ([a718553](https://github.com/vectora-ltda/vectora/commit/a718553a18c6514f1bccd3518d3a90e5a35db32e))
 
 ## [0.1.12](https://github.com/vectora-ltda/vectora/compare/vectora-v0.1.11...vectora-v0.1.12) (2026-08-30)
 
