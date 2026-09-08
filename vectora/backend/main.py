@@ -16,6 +16,8 @@ Configuração (operacional, para VPS via SSH):
   vectora storage <ação>         migrations, diagnóstico, backup/restore
   vectora auth <ação>            signup | login | logout | whoami | refresh
   vectora sessions               lista as sessões salvas
+  vectora mcp list               lista MCPs instalados
+  vectora skills list            lista skills instaladas
 """
 
 from __future__ import annotations
@@ -169,6 +171,52 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     sub = parser.add_subparsers(dest="command", metavar="subcommand")
+
+    def add_marketplace_parser(resource: str, help_text: str) -> None:
+        resource_parser = sub.add_parser(resource, help=help_text)
+        resource_parser.set_defaults(command=resource, resource=resource)
+        resource_sub = resource_parser.add_subparsers(dest="action", required=True)
+        list_parser = resource_sub.add_parser("list", help="lista itens instalados")
+        list_parser.set_defaults(output="human")
+        search_parser = resource_sub.add_parser("search", help="pesquisa no catálogo")
+        search_parser.add_argument("query", nargs="?", default=None)
+        search_parser.set_defaults(output="human")
+        info_parser = resource_sub.add_parser("info", help="mostra um item do catálogo")
+        info_parser.add_argument("identifier")
+        info_parser.set_defaults(output="human")
+        install_parser = resource_sub.add_parser("install", help="instala um item")
+        if resource == "mcp":
+            install_parser.add_argument("identifier")
+        else:
+            install_parser.add_argument("source")
+        install_parser.set_defaults(output="human")
+        remove_parser = resource_sub.add_parser(
+            "remove", help="remove um item instalado"
+        )
+        remove_parser.add_argument("identifier")
+        remove_parser.set_defaults(output="human")
+        if resource == "skills":
+            validate_parser = resource_sub.add_parser(
+                "validate", help="valida uma skill instalada"
+            )
+            validate_parser.add_argument("identifier")
+            validate_parser.set_defaults(output="human")
+            publish_parser = resource_sub.add_parser(
+                "publish", help="publica uma skill no catálogo"
+            )
+            publish_parser.add_argument("source")
+            publish_parser.add_argument("name")
+            publish_parser.add_argument("description")
+            publish_parser.add_argument("--category", default=None)
+            publish_parser.add_argument(
+                "--tag", dest="tags", action="append", default=[]
+            )
+            publish_parser.set_defaults(output="human")
+        for child in resource_sub.choices.values():
+            child.add_argument("--output", choices=("human", "json"), default="human")
+
+    add_marketplace_parser("mcp", "Gerencia servidores MCP")
+    add_marketplace_parser("skills", "Gerencia skills")
 
     # ── start — backend + SPA (fullstack/headless) ─────────────────────────────
     start_p = sub.add_parser(
@@ -660,6 +708,12 @@ def _run_run_task_command(args: argparse.Namespace) -> None:
     run_run_task(args)
 
 
+def _run_marketplace_command(args: argparse.Namespace) -> None:
+    from backend.cli.marketplace import run_marketplace
+
+    run_marketplace(args)
+
+
 def _run_auth_command(args: argparse.Namespace) -> None:
     from backend.auth import (
         cmd_login,
@@ -699,6 +753,8 @@ _COMMAND_HANDLERS: dict[str, Any] = {
     "doctor": _run_doctor_command,
     "auth": _run_auth_command,
     "run": _run_run_task_command,
+    "mcp": _run_marketplace_command,
+    "skills": _run_marketplace_command,
 }
 
 
