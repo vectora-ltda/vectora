@@ -10,7 +10,11 @@ from backend.workspace import skills
 
 @pytest.fixture(autouse=True)
 def _isolated_skills_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr(skills, "_skills_dir", lambda user_id: tmp_path / user_id)
+    monkeypatch.setattr(
+        skills,
+        "_skills_dir",
+        lambda user_id, scope="user", target=None: tmp_path / user_id,
+    )
     skills._versions.clear()
 
 
