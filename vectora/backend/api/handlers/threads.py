@@ -682,6 +682,11 @@ async def _assert_owns_thread(thread_id: str, http_request: Request | None) -> N
     threads de outro usuário."""
     if http_request is None:
         return
+    # O modo local não possui uma identidade multiusuário para autorizar.
+    # Preservar a compatibilidade desse modo evita tratar sessões legadas ou
+    # fixtures locais como pertencentes a outro usuário virtual.
+    if getattr(http_request.state, "user", None) is None:
+        return
     session_store = await _get_session_store()
     session = await session_store.get_session(thread_id)
     if session is None:
