@@ -17,6 +17,8 @@ from typing import Any
 
 MANIFEST = "manifest.json"
 FORMAT_VERSION = 1
+MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
+MAX_ENTRY_BYTES = 256 * 1024 * 1024
 _ALLOWED = {"database": "vectora.db", "workspaces": "workspaces.json"}
 
 
@@ -27,6 +29,7 @@ class BackupPreview:
     size_bytes: int
     categories: dict[str, int]
     compatible: bool
+    storage_mode: str = "lite"
 
 
 def _digest(data: bytes) -> str:
@@ -34,7 +37,11 @@ def _digest(data: bytes) -> str:
 
 
 def create_backup(
-    db_path: str | Path, output: str | Path, *, app_version: str = ""
+    db_path: str | Path,
+    output: str | Path,
+    *,
+    app_version: str = "",
+    storage_mode: str = "lite",
 ) -> BackupPreview:
     """Create a manifest archive without including credentials or caches."""
     database = Path(db_path)
@@ -47,6 +54,7 @@ def create_backup(
     manifest: dict[str, Any] = {
         "format_version": FORMAT_VERSION,
         "app_version": app_version,
+        "storage_mode": storage_mode,
         "files": {
             category: {
                 "path": _ALLOWED[category],
@@ -67,13 +75,21 @@ def create_backup(
 
 def inspect_backup(archive_path: str | Path) -> BackupPreview:
     """Validate manifest, entry names, hashes and duplicate paths."""
-    with zipfile.ZipFile(archive_path) as archive:
+    archive_file = Path(archive_path)
+    if archive_file.stat().st_size > MAX_ARCHIVE_BYTES:
+        raise ValueError("backup excede o limite de tamanho")
+    with zipfile.ZipFile(archive_file) as archive:
         names = archive.namelist()
         if len(names) != len(set(names)) or MANIFEST not in names:
             raise ValueError("backup manifest ausente ou entradas duplicadas")
         manifest = json.loads(archive.read(MANIFEST))
         if manifest.get("format_version") != FORMAT_VERSION:
             raise ValueError("versão de backup incompatível")
+        mode = str(manifest.get("storage_mode", "lite"))
+        if mode != "lite":
+            raise ValueError(
+                "backups do modo Complete devem ser restaurados pelo provedor"
+            )
         categories: dict[str, int] = {}
         for category, item in manifest.get("files", {}).items():
             path = str(item.get("path", ""))
@@ -84,16 +100,23 @@ def inspect_backup(archive_path: str | Path) -> BackupPreview:
                 or ".." in Path(path).parts
             ):
                 raise ValueError("caminho de backup inválido")
-            data = archive.read(path)
+            info = archive.getinfo(path)
+            if info.file_size > MAX_ENTRY_BYTES or info.is_dir():
+                raise ValueError("entrada de backup inválida")
+            # Unix symlinks are represented in the external attributes.
+            if (info.external_attr >> 16) & 0o170000 == 0o120000:
+                raise ValueError("symlink não permitido no backup")
+            data = archive.read(info)
             if _digest(data) != item.get("sha256") or len(data) != item.get("size"):
                 raise ValueError(f"integridade inválida para {category}")
             categories[category] = 1
     return BackupPreview(
         FORMAT_VERSION,
         str(manifest.get("app_version", "")),
-        Path(archive_path).stat().st_size,
+        archive_file.stat().st_size,
         categories,
         True,
+        mode,
     )
 
 
