@@ -801,6 +801,7 @@ function registerIpc(): void {
     restoreUpdateBackup(
       backup as Parameters<typeof restoreUpdateBackup>[0],
       app.getPath("userData"),
+      path.join(app.getPath("userData"), "update-backups"),
     ),
   );
 

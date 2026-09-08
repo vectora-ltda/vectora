@@ -102,13 +102,21 @@ export async function listUpdateBackups(
 export async function restoreUpdateBackup(
   entry: UpdateBackupEntry,
   userData: string,
+  backupRoot?: string,
 ): Promise<void> {
+  const resolvedPath = path.resolve(entry.path);
+  if (
+    backupRoot &&
+    !resolvedPath.startsWith(`${path.resolve(backupRoot)}${path.sep}`)
+  ) {
+    throw new Error("Backup fora da área permitida");
+  }
   const manifest = JSON.parse(
-    await fs.readFile(path.join(entry.path, MANIFEST), "utf8"),
+    await fs.readFile(path.join(resolvedPath, MANIFEST), "utf8"),
   ) as UpdateBackupEntry;
   if (
     manifest.id !== entry.id ||
-    path.dirname(manifest.path) !== path.dirname(entry.path)
+    path.dirname(path.resolve(manifest.path)) !== path.dirname(resolvedPath)
   )
     throw new Error("Backup inválido");
   const rollback = `${userData}.rollback-${Date.now()}`;
@@ -116,9 +124,12 @@ export async function restoreUpdateBackup(
     .cp(userData, rollback, { recursive: true, errorOnExist: false })
     .catch(() => undefined);
   try {
-    for (const name of await fs.readdir(entry.path)) {
+    for (const name of await fs.readdir(resolvedPath)) {
       if (name === MANIFEST || EXCLUDED.has(name)) continue;
-      await fs.copyFile(path.join(entry.path, name), path.join(userData, name));
+      const source = path.join(resolvedPath, name);
+      const stat = await fs.lstat(source);
+      if (!stat.isFile()) throw new Error("Backup contém entrada não regular");
+      await fs.copyFile(source, path.join(userData, name));
     }
   } catch (error) {
     await fs.rm(userData, { recursive: true, force: true });
