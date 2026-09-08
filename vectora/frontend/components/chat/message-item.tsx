@@ -255,17 +255,17 @@ const CodeBlock = memo(
             border: `1px solid ${colors.blockBorder}`,
             willChange: "opacity",
           }}
-          aria-label="Copy code to clipboard"
+          aria-label={m.chat_copy()}
         >
           {isCopied ? (
             <>
               <Check className="w-3.5 h-3.5" />
-              Copied
+              {m.chat_copied()}
             </>
           ) : (
             <>
               <Copy className="w-3.5 h-3.5" />
-              Copy
+              {m.chat_copy()}
             </>
           )}
         </button>
@@ -289,9 +289,9 @@ function RagCitationList({ citations }: { citations: RagCitation[] }) {
         aria-expanded={open}
       >
         <span className="text-[10px] font-mono bg-primary/10 text-primary px-1 rounded">
-          {citations.length} fonte{citations.length !== 1 ? "s" : ""}
+          {m.chat_rag_sources({ count: citations.length })}
         </span>
-        <span className="text-[10px]">RAG</span>
+        <span className="text-[10px]">{m.chat_rag_label()}</span>
         <span className="text-[9px] opacity-60">{open ? "▲" : "▼"}</span>
       </button>
       {open && (
@@ -831,7 +831,9 @@ export const MessageItem = memo(
                                     </span>
                                     {fileSizeKB > 0 && (
                                       <span className="text-xs text-muted-foreground">
-                                        {fileSizeKB}KB
+                                        {m.chat_file_size_kb({
+                                          size: fileSizeKB,
+                                        })}
                                       </span>
                                     )}
                                   </div>
@@ -848,7 +850,7 @@ export const MessageItem = memo(
                         data-testid={`message-content-${message.role}`}
                         className="text-sm leading-relaxed whitespace-pre-wrap break-words cursor-pointer rounded px-2 py-1 -mx-2 -my-1 transition-colors overflow-wrap break-word"
                         onClick={() => onEditAndRerun && handleStartEdit()}
-                        title="Click to edit and rerun from here"
+                        title={m.chat_edit_rerun()}
                       >
                         {String(message.content || "")}
                       </p>
@@ -1194,7 +1196,11 @@ export const MessageItem = memo(
                             locale: DATE_FNS_LOCALES[uiLang] ?? enUS,
                           })}
                           {" · "}
-                          {(message.thinkingDuration / 1000).toFixed(1)}s
+                          {m.chat_thinking_seconds({
+                            seconds: (message.thinkingDuration / 1000).toFixed(
+                              1,
+                            ),
+                          })}
                           {modelId &&
                             message.usageMetadata?.input_tokens != null &&
                             message.usageMetadata?.output_tokens != null &&
@@ -1214,7 +1220,7 @@ export const MessageItem = memo(
                           [message.id]: e.target.value,
                         }));
                       }}
-                      placeholder="Add feedback about this response..."
+                      placeholder={m.chat_feedback_placeholder()}
                       className="min-h-[60px] text-xs"
                       autoFocus
                       onKeyDown={(e) => {
@@ -1233,7 +1239,7 @@ export const MessageItem = memo(
                     />
                     {!message.feedback && (
                       <p className="text-[10px] text-muted-foreground mt-1">
-                        Select thumbs up or down before submitting
+                        {m.chat_feedback_select_rating()}
                       </p>
                     )}
                   </div>
@@ -1271,11 +1277,7 @@ export const MessageItem = memo(
                 {message.checkpointId === "partial" && !message.isThinking && (
                   <div className="mt-3 flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive border border-destructive/20">
                     <AlertTriangle className="w-4 h-4 shrink-0" />
-                    <span>
-                      Esta resposta foi recuperada parcialmente. A conexão caiu
-                      ou a geração falhou antes do assistente concluir o
-                      pensamento.
-                    </span>
+                    <span>{m.chat_partial_response()}</span>
                   </div>
                 )}
 
