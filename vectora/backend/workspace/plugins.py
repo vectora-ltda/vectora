@@ -29,7 +29,7 @@ _HEALTH_TIMEOUT_S = 10
 _versions: dict[str, int] = {}
 
 #: Cache das tools MCP resolvidas: user_id -> (version, tools).
-_mcp_tools_cache: dict[tuple, tuple[int, list]] = {}
+_mcp_tools_cache: dict[tuple, tuple[int, list[ToolSpec]]] = {}
 McpScope = Literal["user", "workspace", "project", "runtime"]
 _runtime_servers: dict[str, list[McpServer]] = {}
 

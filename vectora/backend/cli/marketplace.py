@@ -68,12 +68,13 @@ def _public_server(server: Any) -> dict[str, Any]:
 
 
 def _emit(result: dict[str, Any], output: str) -> int:
+    failure_code = int(result.get("error_code", OPERATION_ERROR))
     if output == "json":
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     else:
         if result["status"] == "error":
             print(f"Erro: {result.get('error', 'falha operacional')}", file=sys.stderr)
-            return OPERATION_ERROR
+            return failure_code
         data = result.get("data")
         if isinstance(data, list):
             for item in data:
@@ -86,7 +87,7 @@ def _emit(result: dict[str, Any], output: str) -> int:
                 print(f"{key}: {value}")
         elif data is not None:
             print(data)
-    return SUCCESS if result["status"] != "error" else OPERATION_ERROR
+    return SUCCESS if result["status"] != "error" else failure_code
 
 
 def _match(items: list[dict[str, Any]], query: str | None) -> list[dict[str, Any]]:
@@ -202,6 +203,9 @@ def run_marketplace(args: Any) -> None:
     """Execute a marketplace command and terminate with its documented code."""
     try:
         result = asyncio.run(_mcp(args) if args.resource == "mcp" else _skills(args))
-    except (OSError, ValueError, registry_client.RegistryClientError) as exc:
+    except ValueError as exc:
+        result = _envelope("error", error=str(exc))
+        result["error_code"] = USAGE_ERROR
+    except (OSError, registry_client.RegistryClientError) as exc:
         result = _envelope("error", error=str(exc))
     raise SystemExit(_emit(result, args.output))

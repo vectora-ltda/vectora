@@ -57,6 +57,10 @@ async def invoke_media(
         if video_path is None:
             return "Error: vídeo deve estar na mídia da sessão atual e não pode ser symlink."
         arguments = {**arguments, "path": video_path}
+    # Importa o módulo que registra as quatro tools antes de consultar o
+    # registry; o mesmo bootstrap é usado por media_specs().
+    import backend.tools.media
+
     spec = TOOL_REGISTRY.get(name)
     if spec is None:
         return f"Error: tool de mídia indisponível: {name}"

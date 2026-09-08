@@ -47,7 +47,12 @@ def run_media(args: Any) -> None:
     }
     name, arguments = names[args.action]
     context = ToolContext(
-        user_id=args.user_id, model=args.model, thread_id=args.thread_id
+        # A CLI local não recebe identidade autenticada do cliente. O launcher
+        # deve fornecer uma sessão confiável para usos multiusuário; até lá,
+        # operações CLI usam explicitamente o principal local.
+        user_id="local",
+        model=args.model,
+        thread_id=args.thread_id,
     )
     value = asyncio.run(invoke_media(name, arguments, context))
     status = "error" if value.startswith("Error:") else "ok"

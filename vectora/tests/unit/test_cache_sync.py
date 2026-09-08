@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+from typing import cast
 
 import pytest
 
 from backend.embedding import cache_sync
 from backend.persistence.kv import MemoryKV, get_kv, kv_initialized, reset_kv
 from backend.rbac import tool_policy
+from backend.tools.registry import ToolSpec
 from backend.workspace import plugins
 
 
@@ -52,7 +54,10 @@ async def test_start_cache_sync_registra_bridge_sse() -> None:
 @pytest.mark.asyncio
 async def test_tools_changed_avanca_versao_e_dropa_cache() -> None:
     await cache_sync.start_cache_sync()
-    plugins._mcp_tools_cache[("u1", None)] = (0, ["tool_antiga"])
+    plugins._mcp_tools_cache[("u1", None)] = (
+        0,
+        cast("list[ToolSpec]", ["tool_antiga"]),
+    )
 
     await (await get_kv()).publish(
         cache_sync.CHANNEL_TOOLS, json.dumps({"user_id": "u1", "version": 5})
@@ -65,7 +70,7 @@ async def test_tools_changed_avanca_versao_e_dropa_cache() -> None:
 async def test_tools_changed_versao_antiga_e_noop() -> None:
     await cache_sync.start_cache_sync()
     plugins._versions["u1"] = 10
-    plugins._mcp_tools_cache[("u1", None)] = (10, ["tool"])
+    plugins._mcp_tools_cache[("u1", None)] = (10, cast("list[ToolSpec]", ["tool"]))
 
     await (await get_kv()).publish(
         cache_sync.CHANNEL_TOOLS, json.dumps({"user_id": "u1", "version": 3})

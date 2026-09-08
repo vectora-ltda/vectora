@@ -79,7 +79,7 @@ def test_persists_across_calls():
     assert list_servers("u1")[0].url == "http://h/mcp"
 
 
-def test_workspace_and_runtime_scopes_are_isolated():
+def test_workspace_and_runtime_scopes_are_isolated() -> None:
     server = McpServer(name="scoped", transport="stdio", command="cmd")
     add_server("u1", server, "workspace", "ws-a")
     add_server("u1", server.model_copy(update={"name": "runtime"}), "runtime", "run-a")
@@ -90,7 +90,7 @@ def test_workspace_and_runtime_scopes_are_isolated():
 
 
 @pytest.mark.asyncio
-async def test_mcp_tools_podem_ser_filtradas_por_nome():
+async def test_mcp_tools_podem_ser_filtradas_por_nome() -> None:
     add_server("u1", McpServer(name="allowed", transport="stdio", command="cmd"))
     assert await get_user_mcp_tools("u1", {"other"}) == []
 

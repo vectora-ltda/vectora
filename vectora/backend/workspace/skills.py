@@ -26,6 +26,7 @@ import os
 import re
 import shutil
 import subprocess  # nosec B404 — git clone controlado, sem shell=True
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -47,6 +48,7 @@ _PINNED_SOURCE_RE = re.compile(
 _versions: dict[str, int] = {}
 SkillScope = Literal["user", "workspace", "project", "runtime"]
 _runtime_skills: dict[str, list[Skill]] = {}
+_runtime_skill_dirs: dict[str, Path] = {}
 
 
 def skills_version(user_id: str) -> int:
@@ -91,7 +93,14 @@ def _skills_dir(
         if vectora_dir.is_symlink():
             raise ValueError(".vectora não pode ser um symlink")
         return vectora_dir / "skills"
-    raise ValueError("runtime não possui persistência")
+    if not target:
+        raise ValueError("target obrigatório para escopo runtime")
+    key = f"{user_id}:{target}"
+    path = _runtime_skill_dirs.get(key)
+    if path is None:
+        path = Path(tempfile.mkdtemp(prefix="vectora-runtime-skills-"))
+        _runtime_skill_dirs[key] = path
+    return path
 
 
 def _index_file(
@@ -331,11 +340,6 @@ def install_skill(
     if not source:
         raise ValueError("source vazio.")
 
-    if scope == "runtime":
-        raise ValueError(
-            "instalação de skill runtime exige staging vinculado a uma sessão; "
-            "use escopo user, workspace ou project"
-        )
     base = _skills_dir(user_id, scope, target)
     base.mkdir(parents=True, exist_ok=True)
 
