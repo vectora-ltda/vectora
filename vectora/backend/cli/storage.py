@@ -341,6 +341,15 @@ async def _storage_migrate(
                 table.add_row(item["checksum"][:16], item["applied_at"])
             console.print(table)
 
+        elif subaction == "plan":
+            plan = await runner.plan()
+            state = "pendente" if plan["will_apply"] else "atualizado"
+            console.print(
+                f"[cyan]Plano de migration:[/cyan] {state}; "
+                f"{plan['statement_count']} statements; "
+                f"checksum {str(plan['checksum'])[:16]}"
+            )
+
         elif subaction == "upgrade":
             applied = await runner.upgrade()
             if applied:
@@ -351,7 +360,7 @@ async def _storage_migrate(
         else:
             console.print(
                 f"[red]Sub-ação desconhecida: {subaction!r}[/red]\n"
-                "Opções: status | history | upgrade | "
+                "Opções: status | history | plan | upgrade | "
                 "to-postgres | to-qdrant | to-pgvector | memory-to-native"
             )
             sys.exit(1)

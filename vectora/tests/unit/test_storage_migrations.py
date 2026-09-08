@@ -236,6 +236,21 @@ class TestMigrationRunner:
         assert status.drift is False
 
     @pytest.mark.asyncio
+    async def test_plan_diagnostica_sem_mutar_o_banco(self, runner_conn):
+        """O plano expõe drift e contagem sem aplicar ou criar tabelas do
+        schema de negócio."""
+        from backend.storage.migrations.runner import MigrationRunner
+
+        runner = MigrationRunner(runner_conn)
+        plan = await runner.plan()
+        assert plan["will_apply"] is True
+        assert plan["statement_count"] > 0
+        cur = await runner_conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='vectora_sessions'"
+        )
+        assert await cur.fetchone() is None
+
+    @pytest.mark.asyncio
     async def test_alter_add_column_skips_existing_column(self, runner_conn):
         """ALTER TABLE ... ADD COLUMN não falha quando a coluna já existe."""
         from backend.storage.migrations.runner import MigrationRunner

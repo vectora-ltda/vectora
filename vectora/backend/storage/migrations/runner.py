@@ -186,6 +186,24 @@ class MigrationRunner:
         rows = await cursor.fetchall()
         return [{"checksum": row[0], "applied_at": row[1]} for row in rows]
 
+    async def plan(self) -> dict[str, Any]:
+        """Describe the pending schema change without mutating the database.
+
+        The plan is intentionally data-free: it exposes the checksum and
+        statement count so operators can review drift before running an
+        upgrade, while keeping migration SQL out of logs and CLI output.
+        """
+        content, checksum = await self._read_schema()
+        status = await self.status()
+        statements = _split_statements(content)
+        return {
+            "checksum": checksum,
+            "applied": status.applied,
+            "drift": status.drift,
+            "statement_count": len(statements),
+            "will_apply": not status.applied or status.drift,
+        }
+
     async def _existing_columns(self, table: str) -> set[str]:
         cursor = await self._conn.execute(f"PRAGMA table_info({table})")  # nosec B608 — table vem de regex sobre schema.sql versionado, não input externo
         rows = await cursor.fetchall()

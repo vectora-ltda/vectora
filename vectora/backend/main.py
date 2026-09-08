@@ -157,6 +157,7 @@ def _build_parser() -> argparse.ArgumentParser:
   vectora auth login                   autentica no servidor Vectora
   vectora sessions                     lista as sessões salvas
   vectora storage info                 status dos backends de dados
+  vectora storage migrate plan         mostra o plano sem alterar o banco
   vectora storage migrate upgrade      aplica migrations SQLite pendentes
 """,
     )
