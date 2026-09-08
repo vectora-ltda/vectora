@@ -282,10 +282,6 @@ async def transcribe_local(ctx: ToolContext, path: str, language: str = "") -> s
         result = await asyncio.to_thread(
             _transcribe_local_sync, str(resolved), language or None
         )
-    except ImportError:
-        return json.dumps(
-            {"error": "faster-whisper não instalado — `uv sync` na raiz do monorepo"}
-        )
     except Exception as exc:
         logger.exception("transcribe_local: falha", extra={"path": path})
         return json.dumps({"error": f"falha ao transcrever: {exc}"}, ensure_ascii=False)

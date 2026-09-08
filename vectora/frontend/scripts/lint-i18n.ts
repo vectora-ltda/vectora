@@ -189,9 +189,9 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
         "git",
         [
           "diff",
+          "HEAD",
           "--name-only",
           "--diff-filter=AM",
-          "HEAD^",
           "--",
           "vectora/frontend",
         ],

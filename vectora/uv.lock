@@ -4200,6 +4200,7 @@ dependencies = [
     { name = "discord-py" },
     { name = "fakeredis" },
     { name = "fastapi" },
+    { name = "faster-whisper" },
     { name = "gitpython" },
     { name = "google-genai" },
     { name = "httpx" },
@@ -4272,11 +4273,6 @@ dependencies = [
     { name = "yt-dlp" },
 ]
 
-[package.optional-dependencies]
-media = [
-    { name = "faster-whisper" },
-]
-
 [package.dev-dependencies]
 dev = [
     { name = "pyinstaller" },
@@ -4295,7 +4291,7 @@ requires-dist = [
     { name = "discord-py", specifier = ">=2.7.1" },
     { name = "fakeredis", specifier = ">=2.36.2" },
     { name = "fastapi", specifier = ">=0.138.0" },
-    { name = "faster-whisper", marker = "extra == 'media'", specifier = ">=1.2.1" },
+    { name = "faster-whisper", specifier = ">=1.2.1" },
     { name = "gitpython", specifier = ">=3.1.50" },
     { name = "google-genai", specifier = ">=2.16.0" },
     { name = "httpx", specifier = ">=0.28.1" },
@@ -4367,7 +4363,6 @@ requires-dist = [
     { name = "youtube-transcript-api", specifier = ">=1.2.4" },
     { name = "yt-dlp", specifier = ">=2026.3.17" },
 ]
-provides-extras = ["media"]
 
 [package.metadata.requires-dev]
 dev = [
