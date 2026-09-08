@@ -10,7 +10,7 @@ import asyncio
 
 import pytest
 
-from backend.engine.hitl import ApprovalGate, should_require_approval
+from backend.engine.hitl import REQUIRE_APPROVAL, ApprovalGate, should_require_approval
 from backend.persistence.native.session_store import SessionStore
 from backend.storage.sqlite.pool import AsyncConnectionPool
 from backend.tools.context import ToolContext
@@ -32,6 +32,15 @@ async def session_store(tmp_path):
 
 def _ctx(**kwargs) -> ToolContext:
     return ToolContext(user_id="alice", thread_id="thread-1", **kwargs)
+
+
+def test_write_terminal_requires_approval() -> None:
+    assert "write_terminal" in REQUIRE_APPROVAL
+    assert should_require_approval("write_terminal", _ctx(), {}, []) is True
+    assert (
+        should_require_approval("write_terminal", _ctx(permission_mode="auto"), {}, [])
+        is False
+    )
 
 
 class TestShouldRequireApproval:

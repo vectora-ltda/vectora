@@ -30,6 +30,7 @@ REQUIRE_APPROVAL: frozenset[str] = frozenset(
     {
         "terminal",
         "terminal_tool",
+        "write_terminal",
         "file_write",
         "file_write_tool",
         "file_edit",

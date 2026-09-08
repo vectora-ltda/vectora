@@ -29,6 +29,30 @@ class PtyRegistry:
     def list_for_thread(self, thread_id: str) -> list[PtySession]:
         return [s for s in self._sessions.values() if s.thread_id == thread_id]
 
+    def resolve_for_context(
+        self, terminal_id: str, *, thread_id: str, workspace_id: str
+    ) -> PtySession | None:
+        """Resolve only a terminal owned by the exact execution context."""
+        if not terminal_id or not thread_id or not workspace_id:
+            return None
+        session = self._sessions.get(terminal_id)
+        if session is None:
+            return None
+        if session.thread_id != thread_id or session.workspace_id != workspace_id:
+            return None
+        return session
+
+    def list_for_context(
+        self, *, thread_id: str, workspace_id: str
+    ) -> list[PtySession]:
+        if not thread_id or not workspace_id:
+            return []
+        return [
+            s
+            for s in self._sessions.values()
+            if s.thread_id == thread_id and s.workspace_id == workspace_id
+        ]
+
     def close(self, terminal_id: str) -> bool:
         session = self._sessions.pop(terminal_id, None)
         if session is None:

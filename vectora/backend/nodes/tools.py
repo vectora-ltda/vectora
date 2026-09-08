@@ -227,6 +227,8 @@ browser_screencast_start = _bridge("browser_screencast_start")
 browser_screencast_stop = _bridge("browser_screencast_stop")
 list_terminals = _bridge("list_terminals")
 close_terminal = _bridge("close_terminal")
+read_terminal = _bridge("read_terminal")
+write_terminal = _bridge("write_terminal")
 gmail_list = _bridge("gmail_list")
 gmail_read = _bridge("gmail_read")
 slack_send = _bridge("slack_send")
@@ -318,6 +320,8 @@ FS_TOOLS: list[ToolSpec] = [
     create_artifact,
     list_terminals,
     close_terminal,
+    read_terminal,
+    write_terminal,
 ]
 
 #: Ferramentas de browser: navegação livre + automação + dev server
@@ -503,6 +507,8 @@ for _t in [
     create_artifact,
     list_terminals,
     close_terminal,
+    read_terminal,
+    write_terminal,
     browser_navigate,
     browser_screenshot,
     browser_click,
