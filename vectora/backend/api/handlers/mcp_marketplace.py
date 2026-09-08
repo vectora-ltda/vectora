@@ -17,10 +17,10 @@ import json
 import logging
 from typing import TYPE_CHECKING, Literal
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from backend.services import registry_client
+from backend.services import extension_trust, mcp_policy, registry_client
 from backend.services.importers import preview_mcp_config
 
 if TYPE_CHECKING:
@@ -29,6 +29,24 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/mcp", tags=["mcp-marketplace"])
+
+
+async def _audit_policy(request: Request, action: str, success: bool) -> None:
+    try:
+        from backend.rbac.auth import get_db_for_audit, write_audit
+
+        user_id = _req_user_id(request)
+        db = await get_db_for_audit()
+        await write_audit(
+            db,
+            user_id,
+            f"mcp_policy.{action}",
+            success=success,
+            metadata={"workspace_id": request.query_params.get("workspace_id", "")},
+            target_type="mcp_policy",
+        )
+    except Exception as exc:
+        logger.debug("mcp_policy: auditoria indisponível", extra={"action": action})
 
 
 # ---------------------------------------------------------------------------
@@ -46,6 +64,8 @@ class MCPConnector(BaseModel):
     category: str = "general"
     vectora_verified: bool = False
     icon_url: str | None = None
+    trust_state: extension_trust.TrustState = "unsigned"
+    trust_reason: str = "verification_unavailable"
 
 
 class InstallRequest(BaseModel):
@@ -53,6 +73,7 @@ class InstallRequest(BaseModel):
     workspace_id: str | None = None
     scope: Literal["user", "workspace", "project", "runtime"] = "user"
     target: str | None = None
+    confirm_unverified: bool = False
 
 
 class UninstallRequest(BaseModel):
@@ -64,6 +85,12 @@ class UninstallRequest(BaseModel):
 
 class ImportPreviewRequest(BaseModel):
     payload: dict
+
+
+class PolicyRequest(BaseModel):
+    scope: Literal["instance", "workspace"]
+    workspace_id: str | None = None
+    allowlist: list[str] = []
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +178,10 @@ def _connector_to_server(connector: MCPConnector) -> McpServer:
         transport="stdio",
         command=parts[0],
         args=parts[1:],
+        trust=extension_trust.curated_record(
+            f"marketplace:{connector.id}",
+            connector.model_dump_json(),
+        ),
     )
 
 
@@ -174,8 +205,16 @@ def _remote_entry_to_connector(entry: dict) -> MCPConnector | None:
             category=entry.get("category", "general"),
             vectora_verified=bool(entry.get("vectora_verified")),
             icon_url=entry.get("icon_url") or None,
+            trust_state=(
+                "vectora_verified"
+                if entry.get("vectora_verified")
+                else "community_listed"
+            ),
+            trust_reason="catalog_curated"
+            if entry.get("vectora_verified")
+            else "catalog_listed",
         )
-    except Exception:
+    except Exception as exc:
         logger.warning("mcp_marketplace: entrada remota malformada ignorada: %r", entry)
         return None
 
@@ -219,6 +258,14 @@ async def list_registry() -> list[MCPConnector]:
             connectors.setdefault(connector.id, connector)
     for connector in _REGISTRY:
         connectors.setdefault(connector.id, connector)
+    for connector_id, connector in list(connectors.items()):
+        if connector.vectora_verified and connector.trust_state == "unsigned":
+            connectors[connector_id] = connector.model_copy(
+                update={
+                    "trust_state": "vectora_verified",
+                    "trust_reason": "catalog_curated",
+                }
+            )
     return sorted(
         connectors.values(), key=lambda c: (not c.vectora_verified, c.name.lower())
     )
@@ -234,18 +281,28 @@ async def install_mcp(req: InstallRequest, user_id: str = "local") -> dict:
     try:
         from backend.workspace import plugins
 
+        mcp_policy.require_allowed(connector.id, req.workspace_id)
+        server = _connector_to_server(connector)
+        extension_trust.validate_record(server.trust, confirmed=req.confirm_unverified)
+
         scope = (
             req.scope
             if req.scope != "user"
             else ("workspace" if req.workspace_id else "user")
         )
         target = req.target or req.workspace_id
-        plugins.add_server(user_id, _connector_to_server(connector), scope, target)
+        plugins.add_server(user_id, server, scope, target)
         logger.info("mcp_marketplace: instalado %s (user=%s)", connector.id, user_id)
         return {"status": "installed", "mcp_id": connector.id}
+    except PermissionError:
+        return {"status": "error", "code": "policy_blocked"}
     except Exception as exc:
         logger.exception("mcp_marketplace: falha ao instalar %s", req.mcp_id)
-        return {"status": "error", "error": str(exc)}
+        return {
+            "status": "error",
+            "code": "install_failed",
+            "error": str(exc),
+        }
 
 
 async def uninstall_mcp(req: UninstallRequest, user_id: str = "local") -> dict:
@@ -267,7 +324,66 @@ async def uninstall_mcp(req: UninstallRequest, user_id: str = "local") -> dict:
         return {"status": "not_found", "mcp_id": req.mcp_id}
     except Exception as exc:
         logger.exception("mcp_marketplace: falha ao desinstalar %s", req.mcp_id)
-        return {"status": "error", "error": str(exc)}
+        return {
+            "status": "error",
+            "code": "uninstall_failed",
+            "error": str(exc),
+        }
+
+
+def _require_policy_admin(request: Request) -> str:
+    from backend.rbac.permissions import require_min_role
+
+    user = getattr(request.state, "user", None)
+    require_min_role(user, "admin")
+    return str(getattr(user, "id", "local"))
+
+
+@router.get("/policy")
+async def get_policy(request: Request) -> dict:
+    _require_policy_admin(request)
+    return {
+        "version": mcp_policy.policy_version(),
+        "rules": [rule.model_dump() for rule in mcp_policy.list_rules()],
+    }
+
+
+@router.put("/policy")
+async def put_policy(body: PolicyRequest, request: Request) -> dict:
+    user_id = _require_policy_admin(request)
+    if body.scope == "workspace":
+        from backend.api.handlers.workspaces import require_workspace_access
+
+        if not body.workspace_id:
+            raise ValueError("workspace_id obrigatório")
+        require_workspace_access(body.workspace_id, request)
+    try:
+        rule = mcp_policy.set_rule(
+            body.scope,
+            body.allowlist,
+            workspace_id=body.workspace_id,
+            updated_by=user_id,
+        )
+    except ValueError as exc:
+        await _audit_policy(request, "update", False)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await _audit_policy(request, "update", True)
+    return {
+        "status": "updated",
+        "version": mcp_policy.policy_version(),
+        "rule": rule.model_dump(),
+    }
+
+
+@router.delete("/policy")
+async def delete_policy(body: PolicyRequest, request: Request) -> dict:
+    _require_policy_admin(request)
+    removed = mcp_policy.remove_rule(body.scope, workspace_id=body.workspace_id)
+    await _audit_policy(request, "remove", removed)
+    return {
+        "status": "removed" if removed else "not_found",
+        "version": mcp_policy.policy_version(),
+    }
 
 
 # ---------------------------------------------------------------------------

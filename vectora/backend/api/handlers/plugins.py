@@ -16,6 +16,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request
 
+from backend.services import extension_trust, mcp_policy
 from backend.workspace.plugins import (
     McpServer,
     add_server,
@@ -39,7 +40,12 @@ def _user_id(request: Request) -> str:
 @router.get("")
 async def list_plugins(request: Request) -> dict:
     """Lista os servidores MCP do usuário autenticado."""
-    servers = list_servers(_user_id(request))
+    workspace_id = request.query_params.get("workspace_id")
+    servers = [
+        server
+        for server in list_servers(_user_id(request))
+        if mcp_policy.evaluate(server.name, workspace_id).allowed
+    ]
     return {"servers": [s.model_dump() for s in servers], "total": len(servers)}
 
 
@@ -57,6 +63,13 @@ async def add_plugin(request: Request, body: McpServer) -> dict:
     if body.transport in {"sse", "http"} and not body.url.strip():
         raise HTTPException(status_code=400, detail="sse/http exige 'url'.")
 
+    workspace_id = request.query_params.get("workspace_id")
+    if not mcp_policy.evaluate(body.name, workspace_id).allowed:
+        raise HTTPException(status_code=403, detail="Servidor bloqueado pela política.")
+    try:
+        extension_trust.validate_record(body.trust, confirmed=body.trust_confirmed)
+    except PermissionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     saved = add_server(_user_id(request), body)
     return {"status": "ok", "server": saved.model_dump()}
 
@@ -73,7 +86,14 @@ async def delete_plugin(request: Request, name: str) -> dict:
 @router.post("/{name}/verify")
 async def verify_plugin(request: Request, name: str) -> dict:
     """Health-check: conecta ao servidor e lista suas tools."""
+    workspace_id = request.query_params.get("workspace_id")
     server = next((s for s in list_servers(_user_id(request)) if s.name == name), None)
     if server is None:
         raise HTTPException(status_code=404, detail="Servidor não encontrado.")
+    if not mcp_policy.evaluate(server.name, workspace_id).allowed:
+        raise HTTPException(status_code=403, detail="Servidor bloqueado pela política.")
+    try:
+        extension_trust.validate_record(server.trust, confirmed=False)
+    except PermissionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return await health_check(server)

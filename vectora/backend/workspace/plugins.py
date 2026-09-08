@@ -17,6 +17,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, create_model
 
 from backend.rbac import tool_policy
+from backend.services import extension_trust, mcp_policy
 from backend.tools.mcp import VectoraMCPClient
 from backend.tools.registry import ToolExtras, ToolSpec
 
@@ -29,7 +30,7 @@ _HEALTH_TIMEOUT_S = 10
 _versions: dict[str, int] = {}
 
 #: Cache das tools MCP resolvidas: user_id -> (version, tools).
-_mcp_tools_cache: dict[tuple, tuple[int, list[ToolSpec]]] = {}
+_mcp_tools_cache: dict[tuple, tuple[int, int, list[ToolSpec]]] = {}
 McpScope = Literal["user", "workspace", "project", "runtime"]
 _runtime_servers: dict[str, list[McpServer]] = {}
 
@@ -83,6 +84,8 @@ class McpServer(BaseModel):
     args: list[str] = []
     url: str = ""  # usado por sse/http
     env_vars: list[str] = []
+    trust: extension_trust.TrustRecord = extension_trust.TrustRecord()
+    trust_confirmed: bool = False
     """Nomes de variáveis de ambiente do processo Vectora repassadas ao
     subprocess stdio deste servidor, além do allowlist mínimo (PATH/HOME/
     etc.). Ignorado por sse/http."""
@@ -245,8 +248,11 @@ async def health_check(server: McpServer) -> dict:
     """
     client = VectoraMCPClient()
     try:
+        connection = build_connection(server)
+        if server.trust.state in {"unsigned", "verification_unavailable"}:
+            connection["require_sandbox"] = True
         async with asyncio.timeout(_HEALTH_TIMEOUT_S):
-            await client.connect({server.name: build_connection(server)}, strict=True)
+            await client.connect({server.name: connection}, strict=True)
         return {"ok": True, "tools": sorted(client.tools()), "error": ""}
     except Exception as exc:
         return {"ok": False, "tools": [], "error": str(exc)}
@@ -284,7 +290,11 @@ def _args_model_from_input_schema(
 
 
 def _remote_tool_spec(
-    server_name: str, connection: dict, mcp_tool: Any, user_id: str
+    server_name: str,
+    connection: dict,
+    mcp_tool: Any,
+    user_id: str,
+    workspace_id: str = "",
 ) -> ToolSpec:
     """Empacota uma ``mcp.types.Tool`` remota como ``ToolSpec`` nativa —
     cada invocação abre uma conexão nova, isolada, só com o servidor dono da
@@ -292,6 +302,9 @@ def _remote_tool_spec(
     tool_name = mcp_tool.name
 
     async def _handler(**kwargs: Any) -> str:
+        decision = mcp_policy.evaluate(server_name, workspace_id or None)
+        if not decision.allowed:
+            return "Erro: servidor MCP bloqueado pela política."
         if not tool_policy.is_allowed(user_id, tool_name):
             return f"Erro: tool MCP '{tool_name}' desabilitada."
         client = VectoraMCPClient()
@@ -337,11 +350,12 @@ async def get_user_mcp_tools(
     vazia + log, nunca propaga.
     """
     version = tools_version(user_id)
+    policy_version = mcp_policy.policy_version()
     requested = frozenset(names) if names is not None else None
     cache_key = (user_id, requested, workspace_id, project_root, runtime_id)
     cached = _mcp_tools_cache.get(cache_key)
-    if cached is not None and cached[0] == version:
-        return cached[1]
+    if cached is not None and cached[0] == version and cached[1] == policy_version:
+        return cached[2]
 
     # Runtime > project > workspace > user. A requested selection still narrows
     # the aggregate before any connection is opened.
@@ -357,16 +371,21 @@ async def get_user_mcp_tools(
     by_name: dict[str, McpServer] = {}
     for scope, target in scopes:
         for server in list_servers(user_id, scope, target):
+            if not mcp_policy.evaluate(server.name, workspace_id or None).allowed:
+                continue
             by_name[server.name] = server
     scoped_servers.extend(by_name.values())
     servers = scoped_servers
     if requested is not None:
         servers = [server for server in servers if server.name in requested]
     if not servers:
-        _mcp_tools_cache[cache_key] = (version, [])
+        _mcp_tools_cache[cache_key] = (version, policy_version, [])
         return []
 
     connections = {s.name: build_connection(s) for s in servers}
+    for server in servers:
+        if server.trust.state in {"unsigned", "verification_unavailable"}:
+            connections[server.name]["require_sandbox"] = True
     client = VectoraMCPClient()
     try:
         async with asyncio.timeout(_HEALTH_TIMEOUT_S):
@@ -381,11 +400,15 @@ async def get_user_mcp_tools(
 
     tools = [
         _remote_tool_spec(
-            tools_by_server[name], connections[tools_by_server[name]], t, user_id
+            tools_by_server[name],
+            connections[tools_by_server[name]],
+            t,
+            user_id,
+            workspace_id,
         )
         for name, t in remote_tools.items()
         if tool_policy.is_allowed(user_id, name)
     ]
 
-    _mcp_tools_cache[cache_key] = (version, tools)
+    _mcp_tools_cache[cache_key] = (version, policy_version, tools)
     return tools

@@ -56,6 +56,7 @@ async def test_tools_changed_avanca_versao_e_dropa_cache() -> None:
     await cache_sync.start_cache_sync()
     plugins._mcp_tools_cache[("u1", None)] = (
         0,
+        0,
         cast("list[ToolSpec]", ["tool_antiga"]),
     )
 
@@ -70,7 +71,11 @@ async def test_tools_changed_avanca_versao_e_dropa_cache() -> None:
 async def test_tools_changed_versao_antiga_e_noop() -> None:
     await cache_sync.start_cache_sync()
     plugins._versions["u1"] = 10
-    plugins._mcp_tools_cache[("u1", None)] = (10, cast("list[ToolSpec]", ["tool"]))
+    plugins._mcp_tools_cache[("u1", None)] = (
+        10,
+        0,
+        cast("list[ToolSpec]", ["tool"]),
+    )
 
     await (await get_kv()).publish(
         cache_sync.CHANNEL_TOOLS, json.dumps({"user_id": "u1", "version": 3})
