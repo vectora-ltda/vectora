@@ -14,6 +14,7 @@ import {
   type Toast,
   type ToastLevel,
 } from "@/lib/stores/toast-store";
+import { m } from "@/lib/paraglide/messages";
 
 const ICONS: Record<ToastLevel, typeof CheckCircle2> = {
   success: CheckCircle2,
@@ -99,7 +100,7 @@ function ToastCard({ toast }: { toast: Toast }) {
         <button
           type="button"
           onClick={() => dismiss(toast.id)}
-          aria-label="Fechar notificação"
+          aria-label={m.workbench_close()}
           className="absolute right-2 top-2 rounded p-1 opacity-60 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-current"
         >
           <X className="h-3 w-3" aria-hidden />
@@ -114,7 +115,7 @@ export function Toaster() {
 
   return (
     <div
-      aria-label="Notificações"
+      aria-label={m.toast_notifications()}
       className="safe-area-top pointer-events-none fixed inset-x-0 top-4 z-[60] flex flex-col items-center gap-2 px-4 sm:right-4 sm:left-auto sm:items-end"
     >
       <AnimatePresence initial={false} mode="sync">

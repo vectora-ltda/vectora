@@ -1093,6 +1093,8 @@
   "chat_rewind_no_checkpoint": "No checkpoint available for this message.",
   "chat_rewind_error": "Couldn't rewind the workspace.",
   "chat_agent_steps": "Agent steps",
+  "app_name": "Vectora",
+  "toast_notifications": "Notifications",
   "chat_copy": "Copy",
   "chat_copied": "Copied",
   "chat_regenerate": "Regenerate",
