@@ -19,6 +19,7 @@ memory_library.py::post_publish`.
 from __future__ import annotations
 
 import logging
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -54,9 +55,13 @@ def _user_id(request: Request) -> str:
 
 
 @router.get("")
-async def list_user_skills(request: Request) -> dict:
+async def list_user_skills(
+    request: Request,
+    scope: Literal["user", "workspace", "project", "runtime"] = "user",
+    target: str | None = None,
+) -> dict:
     """Lista as skills instaladas para o usuário autenticado."""
-    skills = list_skills(_user_id(request))
+    skills = list_skills(_user_id(request), scope, target)
     return {"skills": [s.model_dump() for s in skills], "total": len(skills)}
 
 
@@ -102,25 +107,35 @@ async def get_skills_catalog(
 async def install_user_skill(request: Request, body: InstallSkillRequest) -> dict:
     """Instala uma skill (git URL ou path local)."""
     try:
-        skill = install_skill(_user_id(request), body.source)
+        skill = install_skill(_user_id(request), body.source, body.scope, body.target)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "ok", "skill": skill.model_dump()}
 
 
 @router.delete("/{skill_id}")
-async def delete_user_skill(request: Request, skill_id: str) -> dict:
+async def delete_user_skill(
+    request: Request,
+    skill_id: str,
+    scope: Literal["user", "workspace", "project", "runtime"] = "user",
+    target: str | None = None,
+) -> dict:
     """Remove uma skill instalada."""
-    removed = remove_skill(_user_id(request), skill_id)
+    removed = remove_skill(_user_id(request), skill_id, scope, target)
     if not removed:
         raise HTTPException(status_code=404, detail="Skill não encontrada.")
     return {"status": "removed", "id": skill_id}
 
 
 @router.post("/{skill_id}/verify")
-async def verify_user_skill(request: Request, skill_id: str) -> dict:
+async def verify_user_skill(
+    request: Request,
+    skill_id: str,
+    scope: Literal["user", "workspace", "project", "runtime"] = "user",
+    target: str | None = None,
+) -> dict:
     """Revalida o SKILL.md da skill (útil após edição manual no disco)."""
-    return verify_skill(_user_id(request), skill_id)
+    return verify_skill(_user_id(request), skill_id, scope, target)
 
 
 @router.post("/publish")

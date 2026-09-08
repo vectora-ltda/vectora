@@ -12,7 +12,7 @@ import asyncio
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, create_model
 
@@ -29,6 +29,8 @@ _versions: dict[str, int] = {}
 
 #: Cache das tools MCP resolvidas: user_id -> (version, tools).
 _mcp_tools_cache: dict[str, tuple[int, list]] = {}
+McpScope = Literal["user", "workspace", "project", "runtime"]
+_runtime_servers: dict[str, list[McpServer]] = {}
 
 
 def _plugins_dir() -> Path:
@@ -89,14 +91,38 @@ class McpServer(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def _safe_target(value: str) -> str:
+    return value.replace("/", "_").replace("\\", "_") or "local"
+
+
 def _user_file(user_id: str) -> Path:
-    safe = user_id.replace("/", "_").replace("\\", "_") or "local"
-    return _plugins_dir() / f"{safe}.json"
+    return _plugins_dir() / f"{_safe_target(user_id)}.json"
 
 
-def list_servers(user_id: str) -> list[McpServer]:
-    """Lista os servidores MCP do usuário."""
-    path = _user_file(user_id)
+def _scope_file(user_id: str, scope: McpScope, target: str | None) -> Path:
+    if scope == "user":
+        return _user_file(user_id)
+    if not target:
+        raise ValueError(f"target obrigatório para escopo {scope}")
+    if scope == "workspace":
+        return _plugins_dir() / "workspaces" / f"{_safe_target(target)}.json"
+    if scope == "project":
+        root = Path(target).expanduser().resolve()
+        if not root.is_dir() or root.is_symlink():
+            raise ValueError("project deve ser um diretório real autorizado")
+        return root / ".vectora" / "mcp.json"
+    raise ValueError("runtime não possui persistência")
+
+
+def list_servers(
+    user_id: str,
+    scope: McpScope = "user",
+    target: str | None = None,
+) -> list[McpServer]:
+    """Lista servidores de um escopo sem iniciar nenhum servidor MCP."""
+    if scope == "runtime":
+        return list(_runtime_servers.get(target or user_id, []))
+    path = _scope_file(user_id, scope, target)
     if not path.exists():
         return []
     try:
@@ -113,29 +139,57 @@ def list_servers(user_id: str) -> list[McpServer]:
     return out
 
 
-def _save(user_id: str, servers: list[McpServer]) -> None:
-    path = _user_file(user_id)
+def _save(
+    user_id: str,
+    servers: list[McpServer],
+    scope: McpScope = "user",
+    target: str | None = None,
+) -> None:
+    path = _scope_file(user_id, scope, target)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"servers": [s.model_dump() for s in servers]}
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
-def add_server(user_id: str, server: McpServer) -> McpServer:
+def add_server(
+    user_id: str,
+    server: McpServer,
+    scope: McpScope = "user",
+    target: str | None = None,
+) -> McpServer:
     """Adiciona ou atualiza (por nome) um servidor MCP do usuário."""
-    servers = [s for s in list_servers(user_id) if s.name != server.name]
+    key = target or user_id
+    if scope == "runtime":
+        servers = [
+            s for s in list_servers(user_id, scope, target) if s.name != server.name
+        ]
+        servers.append(server)
+        _runtime_servers[key] = servers
+        _bump_version(user_id)
+        return server
+    servers = [s for s in list_servers(user_id, scope, target) if s.name != server.name]
     servers.append(server)
-    _save(user_id, servers)
+    _save(user_id, servers, scope, target)
     _bump_version(user_id)
     return server
 
 
-def remove_server(user_id: str, name: str) -> bool:
+def remove_server(
+    user_id: str,
+    name: str,
+    scope: McpScope = "user",
+    target: str | None = None,
+) -> bool:
     """Remove um servidor pelo nome. Retorna True se existia."""
-    servers = list_servers(user_id)
+    key = target or user_id
+    servers = list_servers(user_id, scope, target)
     remaining = [s for s in servers if s.name != name]
     if len(remaining) == len(servers):
         return False
-    _save(user_id, remaining)
+    if scope == "runtime":
+        _runtime_servers[key] = remaining
+    else:
+        _save(user_id, remaining, scope, target)
     _bump_version(user_id)
     return True
 

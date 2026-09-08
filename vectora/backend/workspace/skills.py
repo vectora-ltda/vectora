@@ -28,6 +28,7 @@ import shutil
 import subprocess  # nosec B404 — git clone controlado, sem shell=True
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -41,6 +42,8 @@ _KV_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.+?)\s*$")
 #: Versão por usuário — bumpada em add/remove para invalidar caches downstream
 #: (resolver de skills do agent_factory).
 _versions: dict[str, int] = {}
+SkillScope = Literal["user", "workspace", "project", "runtime"]
+_runtime_skills: dict[str, list[Skill]] = {}
 
 
 def skills_version(user_id: str) -> int:
@@ -57,13 +60,30 @@ def _bump_version(user_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _skills_dir(user_id: str) -> Path:
+def _skills_dir(
+    user_id: str, scope: SkillScope = "user", target: str | None = None
+) -> Path:
     safe = user_id.replace("/", "_").replace("\\", "_") or "local"
-    return Path.home() / ".vectora" / "skills" / safe
+    if scope == "user":
+        return Path.home() / ".vectora" / "skills" / safe
+    if scope == "workspace":
+        if not target:
+            raise ValueError("target obrigatório para escopo workspace")
+        return Path.home() / ".vectora" / "skills" / "workspaces" / _slugify(target)
+    if scope == "project":
+        if not target:
+            raise ValueError("target obrigatório para escopo project")
+        root = Path(target).expanduser()
+        if root.is_symlink() or not root.is_dir():
+            raise ValueError("project deve ser um diretório real autorizado")
+        return root.resolve() / ".vectora" / "skills"
+    raise ValueError("runtime não possui persistência")
 
 
-def _index_file(user_id: str) -> Path:
-    return _skills_dir(user_id) / "index.json"
+def _index_file(
+    user_id: str, scope: SkillScope = "user", target: str | None = None
+) -> Path:
+    return _skills_dir(user_id, scope, target) / "index.json"
 
 
 def _slugify(name: str) -> str:
@@ -76,8 +96,12 @@ def _slugify(name: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _load_index(user_id: str) -> list[Skill]:
-    path = _index_file(user_id)
+def _load_index(
+    user_id: str, scope: SkillScope = "user", target: str | None = None
+) -> list[Skill]:
+    if scope == "runtime":
+        return list(_runtime_skills.get(target or user_id, []))
+    path = _index_file(user_id, scope, target)
     if not path.exists():
         return []
     try:
@@ -94,8 +118,13 @@ def _load_index(user_id: str) -> list[Skill]:
     return out
 
 
-def _save_index(user_id: str, skills: list[Skill]) -> None:
-    path = _index_file(user_id)
+def _save_index(
+    user_id: str,
+    skills: list[Skill],
+    scope: SkillScope = "user",
+    target: str | None = None,
+) -> None:
+    path = _index_file(user_id, scope, target)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"skills": [s.model_dump() for s in skills]}
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -157,14 +186,22 @@ def _read_skill_metadata(skill_root: Path) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def list_skills(user_id: str) -> list[Skill]:
+def list_skills(
+    user_id: str, scope: SkillScope = "user", target: str | None = None
+) -> list[Skill]:
     """Lista as skills instaladas para o usuário."""
-    return _load_index(user_id)
+    return _load_index(user_id, scope, target)
 
 
-def list_skill_paths(user_id: str) -> list[Path]:
+def list_skill_paths(
+    user_id: str, scope: SkillScope = "user", target: str | None = None
+) -> list[Path]:
     """Paths absolutos das skills instaladas — consumido pelo agent_factory."""
-    return [Path(s.path) for s in _load_index(user_id) if Path(s.path).is_dir()]
+    return [
+        Path(s.path)
+        for s in _load_index(user_id, scope, target)
+        if Path(s.path).is_dir()
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -225,9 +262,16 @@ def _is_git_url(source: str) -> bool:
 class InstallSkillRequest(BaseModel):
     source: str
     """URL git ou path absoluto."""
+    scope: SkillScope = "user"
+    target: str | None = None
 
 
-def install_skill(user_id: str, source: str) -> Skill:
+def install_skill(
+    user_id: str,
+    source: str,
+    scope: SkillScope = "user",
+    target: str | None = None,
+) -> Skill:
     """Instala uma skill a partir de URL git ou path local.
 
     - URL git: ``git clone --depth 1`` em diretório temporário, depois move.
@@ -240,7 +284,7 @@ def install_skill(user_id: str, source: str) -> Skill:
     if not source:
         raise ValueError("source vazio.")
 
-    base = _skills_dir(user_id)
+    base = _skills_dir(user_id, scope, target)
     base.mkdir(parents=True, exist_ok=True)
 
     # Pasta de staging: clonamos / copiamos em <base>/.staging antes de
@@ -292,12 +336,12 @@ def install_skill(user_id: str, source: str) -> Skill:
 
         name, description = _read_skill_metadata(staging)
         skill_id = _slugify(name)
-        target = base / skill_id
-        if target.exists():
+        target_dir = base / skill_id
+        if target_dir.exists():
             raise ValueError(
                 f"Skill '{skill_id}' já instalada — remova antes de reinstalar."
             )
-        shutil.move(str(staging), str(target))
+        shutil.move(str(staging), str(target_dir))
     finally:
         if staging.exists():
             shutil.rmtree(staging, ignore_errors=True)
@@ -307,13 +351,16 @@ def install_skill(user_id: str, source: str) -> Skill:
         name=name,
         description=description,
         source=source,
-        path=str(target),
+        path=str(target_dir),
         installed_at=datetime.now(UTC).isoformat(),
         installed_by=user_id,
     )
-    skills = [s for s in _load_index(user_id) if s.id != skill_id]
+    skills = [s for s in _load_index(user_id, scope, target) if s.id != skill_id]
     skills.append(skill)
-    _save_index(user_id, skills)
+    if scope == "runtime":
+        _runtime_skills[target or user_id] = skills
+    else:
+        _save_index(user_id, skills, scope, target)
     _bump_version(user_id)
     return skill
 
@@ -362,26 +409,42 @@ def install_skill_from_content(
     return skill
 
 
-def remove_skill(user_id: str, skill_id: str) -> bool:
+def remove_skill(
+    user_id: str,
+    skill_id: str,
+    scope: SkillScope = "user",
+    target: str | None = None,
+) -> bool:
     """Remove uma skill instalada. Retorna True se existia."""
-    skills = _load_index(user_id)
-    target = next((s for s in skills if s.id == skill_id), None)
-    if target is None:
+    skills = _load_index(user_id, scope, target)
+    entry = next((s for s in skills if s.id == skill_id), None)
+    if entry is None:
         return False
-    p = Path(target.path)
+    p = Path(entry.path)
     if p.is_dir():
         shutil.rmtree(p, ignore_errors=True)
-    _save_index(user_id, [s for s in skills if s.id != skill_id])
+    remaining = [s for s in skills if s.id != skill_id]
+    if scope == "runtime":
+        _runtime_skills[target or user_id] = remaining
+    else:
+        _save_index(user_id, remaining, scope, target)
     _bump_version(user_id)
     return True
 
 
-def verify_skill(user_id: str, skill_id: str) -> dict:
+def verify_skill(
+    user_id: str,
+    skill_id: str,
+    scope: SkillScope = "user",
+    target: str | None = None,
+) -> dict:
     """Revalida o ``SKILL.md`` — útil quando o usuário editou a skill no disco."""
-    target = next((s for s in _load_index(user_id) if s.id == skill_id), None)
-    if target is None:
+    entry = next(
+        (s for s in _load_index(user_id, scope, target) if s.id == skill_id), None
+    )
+    if entry is None:
         return {"ok": False, "error": "skill não encontrada"}
-    root = Path(target.path)
+    root = Path(entry.path)
     if not root.is_dir():
         return {"ok": False, "error": "pasta da skill ausente"}
     try:
@@ -389,14 +452,17 @@ def verify_skill(user_id: str, skill_id: str) -> dict:
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
     # Atualiza name/description se mudaram.
-    if name != target.name or description != target.description:
-        skills = _load_index(user_id)
+    if name != entry.name or description != entry.description:
+        skills = _load_index(user_id, scope, target)
         for i, s in enumerate(skills):
             if s.id == skill_id:
-                skills[i] = target.model_copy(
+                skills[i] = entry.model_copy(
                     update={"name": name, "description": description}
                 )
                 break
-        _save_index(user_id, skills)
+        if scope == "runtime":
+            _runtime_skills[target or user_id] = skills
+        else:
+            _save_index(user_id, skills, scope, target)
         _bump_version(user_id)
     return {"ok": True, "name": name, "description": description}

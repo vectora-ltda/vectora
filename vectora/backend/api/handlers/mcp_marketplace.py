@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
@@ -50,11 +50,15 @@ class MCPConnector(BaseModel):
 class InstallRequest(BaseModel):
     mcp_id: str
     workspace_id: str | None = None
+    scope: Literal["user", "workspace", "project", "runtime"] = "user"
+    target: str | None = None
 
 
 class UninstallRequest(BaseModel):
     mcp_id: str
     workspace_id: str | None = None
+    scope: Literal["user", "workspace", "project", "runtime"] = "user"
+    target: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +224,13 @@ async def install_mcp(req: InstallRequest, user_id: str = "local") -> dict:
     try:
         from backend.workspace import plugins
 
-        plugins.add_server(user_id, _connector_to_server(connector))
+        scope = (
+            req.scope
+            if req.scope != "user"
+            else ("workspace" if req.workspace_id else "user")
+        )
+        target = req.target or req.workspace_id
+        plugins.add_server(user_id, _connector_to_server(connector), scope, target)
         logger.info("mcp_marketplace: instalado %s (user=%s)", connector.id, user_id)
         return {"status": "installed", "mcp_id": connector.id}
     except Exception as exc:
@@ -232,7 +242,13 @@ async def uninstall_mcp(req: UninstallRequest, user_id: str = "local") -> dict:
     try:
         from backend.workspace import plugins
 
-        removed = plugins.remove_server(user_id, req.mcp_id)
+        scope = (
+            req.scope
+            if req.scope != "user"
+            else ("workspace" if req.workspace_id else "user")
+        )
+        target = req.target or req.workspace_id
+        removed = plugins.remove_server(user_id, req.mcp_id, scope, target)
         if removed:
             logger.info(
                 "mcp_marketplace: desinstalado %s (user=%s)", req.mcp_id, user_id

@@ -78,6 +78,16 @@ def test_persists_across_calls():
     assert list_servers("u1")[0].url == "http://h/mcp"
 
 
+def test_workspace_and_runtime_scopes_are_isolated():
+    server = McpServer(name="scoped", transport="stdio", command="cmd")
+    add_server("u1", server, "workspace", "ws-a")
+    add_server("u1", server.model_copy(update={"name": "runtime"}), "runtime", "run-a")
+    assert [item.name for item in list_servers("u1", "workspace", "ws-a")] == ["scoped"]
+    assert list_servers("u1", "workspace", "ws-b") == []
+    assert [item.name for item in list_servers("u1", "runtime", "run-a")] == ["runtime"]
+    assert list_servers("u1", "runtime", "run-b") == []
+
+
 # ---------------------------------------------------------------------------
 # build_connection — formato do MultiServerMCPClient
 # ---------------------------------------------------------------------------
