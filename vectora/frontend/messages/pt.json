@@ -1096,6 +1096,8 @@
   "chat_rewind_error": "Não foi possível retroceder o workspace.",
   "chat_agent_steps": "Etapas do agente",
   "app_name": "Vectora",
+  "resize_workbench": "Redimensionar workbench",
+  "resize_chat": "Redimensionar chat",
   "toast_notifications": "Notificações",
   "chat_copy": "Copiar",
   "chat_copied": "Copiado",

@@ -13,6 +13,7 @@ import {
 import { HorizontalSplit } from "@/components/layout/horizontal-split";
 import { IdeModeLayout } from "@/components/layout/ide-mode-layout";
 import { LicenseBanner } from "@/components/layout/license-banner";
+import { m } from "@/lib/paraglide/messages";
 import { KeyboardShortcutsDialog } from "@/components/layout/keyboard-shortcuts-dialog";
 import {
   CommandPalette,
@@ -67,7 +68,6 @@ import {
 } from "@/lib/hooks/use-broadcast-sync";
 import { useGlobalShortcuts } from "@/lib/hooks/use-global-shortcuts";
 import { buildOptimisticThread } from "./-thread-cache-helpers";
-import { m } from "@/lib/paraglide/messages";
 import { disposeBrowserThread } from "@/lib/browser-session-store";
 export const Route = createFileRoute("/session/$threadId")({
   // Só a lista de threads (sidebar) bloqueia a navegação — o histórico da
@@ -800,7 +800,7 @@ function SessionPage() {
                       <div
                         role="separator"
                         aria-orientation="vertical"
-                        aria-label="Redimensionar workbench"
+                        aria-label={m.resize_workbench()}
                         onPointerDown={onWorkbenchResizeDown}
                         onPointerMove={onWorkbenchResizeMove}
                         onPointerUp={onWorkbenchResizeUp}
@@ -835,7 +835,7 @@ function SessionPage() {
                       <div
                         role="separator"
                         aria-orientation="vertical"
-                        aria-label="Redimensionar chat"
+                        aria-label={m.resize_chat()}
                         onPointerDown={onChatSidebarResizeDown}
                         onPointerMove={onChatSidebarResizeMove}
                         onPointerUp={onChatSidebarResizeUp}
