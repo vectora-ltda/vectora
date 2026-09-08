@@ -16,6 +16,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, create_model
 
+from backend.rbac import tool_policy
 from backend.tools.mcp import VectoraMCPClient
 from backend.tools.registry import ToolExtras, ToolSpec
 
@@ -28,7 +29,7 @@ _HEALTH_TIMEOUT_S = 10
 _versions: dict[str, int] = {}
 
 #: Cache das tools MCP resolvidas: user_id -> (version, tools).
-_mcp_tools_cache: dict[tuple[str, frozenset[str] | None], tuple[int, list]] = {}
+_mcp_tools_cache: dict[tuple, tuple[int, list]] = {}
 McpScope = Literal["user", "workspace", "project", "runtime"]
 _runtime_servers: dict[str, list[McpServer]] = {}
 
@@ -106,12 +107,21 @@ def _scope_file(user_id: str, scope: McpScope, target: str | None) -> Path:
     if not target:
         raise ValueError(f"target obrigatório para escopo {scope}")
     if scope == "workspace":
-        return _plugins_dir() / "workspaces" / f"{_safe_target(target)}.json"
+        return (
+            _plugins_dir()
+            / "workspaces"
+            / _safe_target(user_id)
+            / f"{_safe_target(target)}.json"
+        )
     if scope == "project":
-        root = Path(target).expanduser().resolve()
-        if not root.is_dir() or root.is_symlink():
+        raw_root = Path(target).expanduser()
+        root = raw_root.resolve()
+        if not raw_root.is_dir() or raw_root.is_symlink():
             raise ValueError("project deve ser um diretório real autorizado")
-        return root / ".vectora" / "mcp.json"
+        vectora_dir = root / ".vectora"
+        if vectora_dir.is_symlink():
+            raise ValueError(".vectora não pode ser um symlink")
+        return vectora_dir / "mcp.json"
     raise ValueError("runtime não possui persistência")
 
 
@@ -122,8 +132,12 @@ def list_servers(
 ) -> list[McpServer]:
     """Lista servidores de um escopo sem iniciar nenhum servidor MCP."""
     if scope == "runtime":
-        return list(_runtime_servers.get(target or user_id, []))
+        if not target:
+            raise ValueError("target obrigatório para escopo runtime")
+        return list(_runtime_servers.get(f"{user_id}:{target}", []))
     path = _scope_file(user_id, scope, target)
+    if path.is_symlink():
+        raise ValueError("arquivo MCP não pode ser um symlink")
     if not path.exists():
         return []
     try:
@@ -147,6 +161,8 @@ def _save(
     target: str | None = None,
 ) -> None:
     path = _scope_file(user_id, scope, target)
+    if path.exists() and path.is_symlink():
+        raise ValueError("arquivo MCP não pode ser um symlink")
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"servers": [s.model_dump() for s in servers]}
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -159,7 +175,9 @@ def add_server(
     target: str | None = None,
 ) -> McpServer:
     """Adiciona ou atualiza (por nome) um servidor MCP do usuário."""
-    key = target or user_id
+    if scope == "runtime" and not target:
+        raise ValueError("target obrigatório para escopo runtime")
+    key = f"{user_id}:{target}" if scope == "runtime" else target or user_id
     if scope == "runtime":
         servers = [
             s for s in list_servers(user_id, scope, target) if s.name != server.name
@@ -182,7 +200,9 @@ def remove_server(
     target: str | None = None,
 ) -> bool:
     """Remove um servidor pelo nome. Retorna True se existia."""
-    key = target or user_id
+    if scope == "runtime" and not target:
+        raise ValueError("target obrigatório para escopo runtime")
+    key = f"{user_id}:{target}" if scope == "runtime" else target or user_id
     servers = list_servers(user_id, scope, target)
     remaining = [s for s in servers if s.name != name]
     if len(remaining) == len(servers):
@@ -263,13 +283,17 @@ def _args_model_from_input_schema(
     return create_model(f"{tool_name}Args", **fields)
 
 
-def _remote_tool_spec(server_name: str, connection: dict, mcp_tool: Any) -> ToolSpec:
+def _remote_tool_spec(
+    server_name: str, connection: dict, mcp_tool: Any, user_id: str
+) -> ToolSpec:
     """Empacota uma ``mcp.types.Tool`` remota como ``ToolSpec`` nativa —
     cada invocação abre uma conexão nova, isolada, só com o servidor dono da
     tool (nenhum estado de sessão é mantido entre chamadas)."""
     tool_name = mcp_tool.name
 
     async def _handler(**kwargs: Any) -> str:
+        if not tool_policy.is_allowed(user_id, tool_name):
+            return f"Erro: tool MCP '{tool_name}' desabilitada."
         client = VectoraMCPClient()
         try:
             async with asyncio.timeout(_HEALTH_TIMEOUT_S):
@@ -298,7 +322,11 @@ def _remote_tool_spec(server_name: str, connection: dict, mcp_tool: Any) -> Tool
 
 
 async def get_user_mcp_tools(
-    user_id: str, names: set[str] | frozenset[str] | None = None
+    user_id: str,
+    names: set[str] | frozenset[str] | None = None,
+    workspace_id: str = "",
+    project_root: str | None = None,
+    runtime_id: str | None = None,
 ) -> list[ToolSpec]:
     """Carrega as tools (``ToolSpec`` nativa) dos servidores MCP do usuário.
 
@@ -310,12 +338,28 @@ async def get_user_mcp_tools(
     """
     version = tools_version(user_id)
     requested = frozenset(names) if names is not None else None
-    cache_key = (user_id, requested)
+    cache_key = (user_id, requested, workspace_id, project_root, runtime_id)
     cached = _mcp_tools_cache.get(cache_key)
     if cached is not None and cached[0] == version:
         return cached[1]
 
-    servers = list_servers(user_id)
+    # Runtime > project > workspace > user. A requested selection still narrows
+    # the aggregate before any connection is opened.
+    scoped_servers: list[McpServer] = []
+    scopes: list[tuple[McpScope, str | None]] = [("user", None)]
+    if workspace_id:
+        scopes.append(("workspace", workspace_id))
+    if project_root:
+        scopes.append(("project", project_root))
+    if runtime_id:
+        scopes.append(("runtime", runtime_id))
+    # Higher scopes win by name, while retaining deterministic order.
+    by_name: dict[str, McpServer] = {}
+    for scope, target in scopes:
+        for server in list_servers(user_id, scope, target):
+            by_name[server.name] = server
+    scoped_servers.extend(by_name.values())
+    servers = scoped_servers
     if requested is not None:
         servers = [server for server in servers if server.name in requested]
     if not servers:
@@ -336,8 +380,11 @@ async def get_user_mcp_tools(
         await client.aclose()
 
     tools = [
-        _remote_tool_spec(tools_by_server[name], connections[tools_by_server[name]], t)
+        _remote_tool_spec(
+            tools_by_server[name], connections[tools_by_server[name]], t, user_id
+        )
         for name, t in remote_tools.items()
+        if tool_policy.is_allowed(user_id, name)
     ]
 
     _mcp_tools_cache[cache_key] = (version, tools)

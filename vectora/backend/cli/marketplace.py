@@ -114,7 +114,9 @@ async def _mcp(args: Any) -> dict[str, Any]:
     if args.action == "info":
         found = _match(registry, args.identifier)
         return _envelope(
-            "ok", found[0] if found else None, None if found else "MCP não encontrado"
+            "ok" if found else "error",
+            found[0] if found else None,
+            None if found else "MCP não encontrado",
         )
     if args.action == "install":
         result = await mcp_marketplace.install_mcp(
@@ -166,14 +168,14 @@ async def _skills(args: Any) -> dict[str, Any]:  # noqa: PLR0911
     if args.action == "remove":
         removed = remove_skill("local", args.identifier)
         return _envelope(
-            "ok",
+            "ok" if removed else "error",
             {"id": args.identifier, "removed": removed},
             None if removed else "Skill não encontrada",
         )
     if args.action == "validate":
         result = verify_skill("local", args.identifier)
         return _envelope(
-            "ok" if result.get("status") != "error" else "error",
+            "ok" if result.get("ok") is True else "error",
             result,
             result.get("error"),
         )

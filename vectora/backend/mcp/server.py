@@ -1,7 +1,9 @@
-"""Authenticated MCP surface for the four native media tools.
+"""Local-trust MCP surface for the four native media tools.
 
-The process identity is supplied by the trusted launcher through
-``VECTORA_MCP_USER_ID``; tool arguments cannot override it.
+The process identity is supplied by the trusted Vectora launcher through
+``VECTORA_MCP_USER_ID``; tool arguments cannot override it. This stdio
+transport is intentionally local-only: the parent launcher is the trust
+boundary, and this module does not claim to authenticate arbitrary processes.
 """
 
 from __future__ import annotations
@@ -57,7 +59,7 @@ def create_media_server() -> FastMCP:
 
 
 def run() -> None:
-    """Run the stdio MCP transport for a trusted local client."""
+    """Run stdio for a local launcher that already authenticated the user."""
     create_media_server().run(transport="stdio")
 
 

@@ -38,6 +38,9 @@ logger = logging.getLogger(__name__)
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 _KV_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.+?)\s*$")
+_PINNED_SOURCE_RE = re.compile(
+    r"^(?P<url>[^#]+)#(?P<revision>[0-9a-f]{40}):(?P<path>.+)$"
+)
 
 #: Versão por usuário — bumpada em add/remove para invalidar caches downstream
 #: (resolver de skills do agent_factory).
@@ -69,14 +72,25 @@ def _skills_dir(
     if scope == "workspace":
         if not target:
             raise ValueError("target obrigatório para escopo workspace")
-        return Path.home() / ".vectora" / "skills" / "workspaces" / _slugify(target)
+        return (
+            Path.home()
+            / ".vectora"
+            / "skills"
+            / "workspaces"
+            / _slugify(user_id)
+            / _slugify(target)
+        )
     if scope == "project":
         if not target:
             raise ValueError("target obrigatório para escopo project")
-        root = Path(target).expanduser()
-        if root.is_symlink() or not root.is_dir():
+        raw_root = Path(target).expanduser()
+        root = raw_root.resolve()
+        if raw_root.is_symlink() or not raw_root.is_dir():
             raise ValueError("project deve ser um diretório real autorizado")
-        return root.resolve() / ".vectora" / "skills"
+        vectora_dir = root / ".vectora"
+        if vectora_dir.is_symlink():
+            raise ValueError(".vectora não pode ser um symlink")
+        return vectora_dir / "skills"
     raise ValueError("runtime não possui persistência")
 
 
@@ -100,8 +114,12 @@ def _load_index(
     user_id: str, scope: SkillScope = "user", target: str | None = None
 ) -> list[Skill]:
     if scope == "runtime":
-        return list(_runtime_skills.get(target or user_id, []))
+        if not target:
+            raise ValueError("target obrigatório para escopo runtime")
+        return list(_runtime_skills.get(f"{user_id}:{target}", []))
     path = _index_file(user_id, scope, target)
+    if path.is_symlink():
+        raise ValueError("índice de skills não pode ser um symlink")
     if not path.exists():
         return []
     try:
@@ -125,6 +143,8 @@ def _save_index(
     target: str | None = None,
 ) -> None:
     path = _index_file(user_id, scope, target)
+    if path.exists() and path.is_symlink():
+        raise ValueError("índice de skills não pode ser um symlink")
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"skills": [s.model_dump() for s in skills]}
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -194,14 +214,29 @@ def list_skills(
 
 
 def list_skill_paths(
-    user_id: str, scope: SkillScope = "user", target: str | None = None
+    user_id: str,
+    scope: SkillScope = "user",
+    target: str | None = None,
+    *,
+    workspace_id: str = "",
+    project_root: str | None = None,
+    runtime_id: str | None = None,
 ) -> list[Path]:
-    """Paths absolutos das skills instaladas — consumido pelo agent_factory."""
-    return [
-        Path(s.path)
-        for s in _load_index(user_id, scope, target)
-        if Path(s.path).is_dir()
-    ]
+    """Paths agregados por precedência runtime > project > workspace > user."""
+    scopes: list[tuple[SkillScope, str | None]] = [("user", None)]
+    if workspace_id:
+        scopes.append(("workspace", workspace_id))
+    if project_root:
+        scopes.append(("project", project_root))
+    if runtime_id:
+        scopes.append(("runtime", runtime_id))
+    by_id: dict[str, Path] = {}
+    for current_scope, current_target in scopes:
+        for skill in _load_index(user_id, current_scope, current_target):
+            path = Path(skill.path)
+            if path.is_dir():
+                by_id[skill.id] = path
+    return list(by_id.values())
 
 
 # ---------------------------------------------------------------------------
@@ -259,11 +294,23 @@ def _is_git_url(source: str) -> bool:
     return source.startswith(("http://", "https://", "git@", "git://", "ssh://"))
 
 
+def _git_source_parts(source: str) -> tuple[str, str | None, str | None]:
+    """Retorna URL, revisão e subdiretório de uma fonte Git opcionalmente fixada."""
+    match = _PINNED_SOURCE_RE.fullmatch(source)
+    if match is None:
+        return source, None, None
+    subpath = Path(match.group("path"))
+    if subpath.is_absolute() or ".." in subpath.parts:
+        raise ValueError("subdiretório da fonte Git inválido")
+    return match.group("url"), match.group("revision"), subpath.as_posix()
+
+
 class InstallSkillRequest(BaseModel):
     source: str
     """URL git ou path absoluto."""
     scope: SkillScope = "user"
     target: str | None = None
+    workspace_id: str | None = None
 
 
 def install_skill(
@@ -284,6 +331,11 @@ def install_skill(
     if not source:
         raise ValueError("source vazio.")
 
+    if scope == "runtime":
+        raise ValueError(
+            "instalação de skill runtime exige staging vinculado a uma sessão; "
+            "use escopo user, workspace ou project"
+        )
     base = _skills_dir(user_id, scope, target)
     base.mkdir(parents=True, exist_ok=True)
 
@@ -295,6 +347,7 @@ def install_skill(
 
     try:
         if _is_git_url(source):
+            git_source, revision, subpath = _git_source_parts(source)
             # `shutil.which("git")` devolve path absoluto — boot do binário
             # Nuitka inicializa com PATH minimizado, sem isso o spawn falha.
             git_exe = shutil.which("git")
@@ -312,8 +365,9 @@ def install_skill(
                         "clone",
                         "--depth",
                         "1",
+                        *(["--no-single-branch"] if revision else []),
                         "--",
-                        source,
+                        git_source,
                         str(staging),
                     ],
                     check=True,
@@ -327,6 +381,25 @@ def install_skill(
                 raise ValueError(
                     "git CLI não encontrado — instale git para usar URLs."
                 ) from exc
+            if revision:
+                try:
+                    subprocess.run(  # noqa: S603  # nosec B603 — git/revision validados
+                        [git_exe, "-C", str(staging), "checkout", "--quiet", revision],
+                        check=True,
+                        capture_output=True,
+                        timeout=60,
+                    )
+                except subprocess.CalledProcessError as exc:
+                    stderr = exc.stderr.decode("utf-8", errors="replace")
+                    raise ValueError(f"git checkout falhou: {stderr}") from exc
+            source_root = staging / subpath if subpath else staging
+            if not source_root.is_dir() or source_root.is_symlink():
+                raise ValueError("subdiretório da fonte Git não é válido")
+            if source_root != staging:
+                extracted = staging.with_name(f"{staging.name}-extracted")
+                shutil.copytree(source_root, extracted)
+                shutil.rmtree(staging, ignore_errors=True)
+                extracted.rename(staging)
             shutil.rmtree(staging / ".git", ignore_errors=True)
         else:
             src = Path(source).expanduser().resolve()
@@ -358,7 +431,7 @@ def install_skill(
     skills = [s for s in _load_index(user_id, scope, target) if s.id != skill_id]
     skills.append(skill)
     if scope == "runtime":
-        _runtime_skills[target or user_id] = skills
+        _runtime_skills[f"{user_id}:{target}"] = skills
     else:
         _save_index(user_id, skills, scope, target)
     _bump_version(user_id)
@@ -421,11 +494,13 @@ def remove_skill(
     if entry is None:
         return False
     p = Path(entry.path)
+    if p.is_symlink():
+        return False
     if p.is_dir():
         shutil.rmtree(p, ignore_errors=True)
     remaining = [s for s in skills if s.id != skill_id]
     if scope == "runtime":
-        _runtime_skills[target or user_id] = remaining
+        _runtime_skills[f"{user_id}:{target}"] = remaining
     else:
         _save_index(user_id, remaining, scope, target)
     _bump_version(user_id)
@@ -461,7 +536,7 @@ def verify_skill(
                 )
                 break
         if scope == "runtime":
-            _runtime_skills[target or user_id] = skills
+            _runtime_skills[f"{user_id}:{target}"] = skills
         else:
             _save_index(user_id, skills, scope, target)
         _bump_version(user_id)

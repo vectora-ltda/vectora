@@ -21,6 +21,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from backend.services import registry_client
+from backend.services.importers import preview_mcp_config
 
 if TYPE_CHECKING:
     from backend.workspace.plugins import McpServer
@@ -59,6 +60,10 @@ class UninstallRequest(BaseModel):
     workspace_id: str | None = None
     scope: Literal["user", "workspace", "project", "runtime"] = "user"
     target: str | None = None
+
+
+class ImportPreviewRequest(BaseModel):
+    payload: dict
 
 
 # ---------------------------------------------------------------------------
@@ -194,8 +199,9 @@ async def list_registry() -> list[MCPConnector]:
     resto em ordem alfabética por nome — nunca inventa métrica de
     popularidade que a fonte não tem.
     """
-    remote, official = await asyncio.gather(
+    remote, enterprise, official = await asyncio.gather(
         registry_client.fetch_catalog("mcp"),
+        registry_client.fetch_enterprise_catalog("mcp"),
         registry_client.fetch_official_mcp_registry(),
     )
     connectors: dict[str, MCPConnector] = {}
@@ -203,6 +209,10 @@ async def list_registry() -> list[MCPConnector]:
         connector = _remote_entry_to_connector(entry)
         if connector is not None:
             connectors[connector.id] = connector
+    for entry in enterprise:
+        connector = _remote_entry_to_connector(entry)
+        if connector is not None:
+            connectors.setdefault(connector.id, connector)
     for entry in official:
         connector = _remote_entry_to_connector(entry)
         if connector is not None:
@@ -270,6 +280,27 @@ def _req_user_id(request: Request) -> str:
     return str(user.id) if user is not None else "local"
 
 
+def _authorized_target(
+    request: Request, scope: str, target: str | None, workspace_id: str | None
+) -> str | None:
+    """Resolve scoped targets through the authorized workspace registry."""
+    if scope == "user":
+        return None
+    from backend.api.handlers.workspaces import require_workspace_access
+
+    ws_id = workspace_id or target
+    if not ws_id:
+        raise ValueError("workspace_id obrigatório para escopo não-usuário")
+    ws = require_workspace_access(ws_id, request)
+    if ws is None:
+        raise ValueError("workspace não encontrado")
+    if scope == "project":
+        return str(ws.cwd)
+    if scope == "workspace":
+        return ws_id
+    return target or getattr(request.state, "thread_id", None) or ws_id
+
+
 def _filter_registry(
     connectors: list[MCPConnector], *, q: str | None, category: str | None
 ) -> list[MCPConnector]:
@@ -300,9 +331,17 @@ async def get_registry(
 
 @router.post("/install")
 async def post_install(req: InstallRequest, request: Request) -> dict:
+    req.target = _authorized_target(request, req.scope, req.target, req.workspace_id)
     return await install_mcp(req, _req_user_id(request))
 
 
 @router.post("/uninstall")
 async def post_uninstall(req: UninstallRequest, request: Request) -> dict:
+    req.target = _authorized_target(request, req.scope, req.target, req.workspace_id)
     return await uninstall_mcp(req, _req_user_id(request))
+
+
+@router.post("/import/preview")
+async def preview_import(req: ImportPreviewRequest) -> dict:
+    """Return a non-executing import preview; secrets and commands are data only."""
+    return preview_mcp_config(req.payload)
