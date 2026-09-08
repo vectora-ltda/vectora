@@ -77,5 +77,6 @@ export interface Message {
     affectedPaths?: string[];
     /** Modo de permissão ativo (default/yolo/…). */
     permissionMode?: string;
+    options?: Array<{ label: string; value: string }>;
   };
 }

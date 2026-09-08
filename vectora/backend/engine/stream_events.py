@@ -112,6 +112,7 @@ class HitlRequested:
     affected_paths: list[str] = field(default_factory=list)
     diff_preview: str = ""
     pre_approved: bool = False
+    options: list[dict[str, str]] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)

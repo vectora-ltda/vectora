@@ -966,6 +966,7 @@ async function handleEvent(
             permissionMode: event.permission_mode,
             preApproved: event.pre_approved,
             workspaceId: useWorkspacesStore.getState().active_id ?? undefined,
+            options: event.options,
           },
         })),
       );

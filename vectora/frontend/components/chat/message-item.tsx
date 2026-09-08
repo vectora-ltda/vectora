@@ -343,7 +343,7 @@ interface MessageItemProps {
   onHitlDecision?: (
     messageId: string,
     interruptId: string,
-    decision: "approve" | "reject" | `edit:${string}`,
+    decision: "approve" | "reject" | `edit:${string}` | `option:${string}`,
   ) => void;
   /** E2 — threadId necessário para contextualizar o painel HITL */
   threadId?: string;

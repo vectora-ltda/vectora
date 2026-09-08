@@ -264,6 +264,23 @@ async def run_conversation(
             if pendente is not None:
                 interrupt_id = str(uuid4())
                 args_json = json.dumps(pendente.args, ensure_ascii=False)
+                raw_options = pendente.args.get("options", [])
+                options = (
+                    [
+                        {
+                            "label": str(item.get("label", item.get("value", ""))),
+                            "value": str(item["value"]),
+                        }
+                        for item in raw_options
+                        if isinstance(item, dict) and item.get("value")
+                    ]
+                    if isinstance(raw_options, list)
+                    else []
+                )
+                priority = max(
+                    0, min(100, int(pendente.args.get("approval_priority", 0)))
+                )
+                expires_at = pendente.args.get("approval_expires_at")
                 if approval_gate is not None:
                     await approval_gate.request_approval(
                         thread_id,
@@ -271,12 +288,16 @@ async def run_conversation(
                         tool_name=pendente.name,
                         tool_call_id=pendente.id,
                         args=pendente.args,
+                        options=options,
+                        priority=priority,
+                        expires_at=str(expires_at) if expires_at else None,
                     )
                 await emit(
                     HitlRequested(
                         tool_name=pendente.name,
                         args_json=args_json,
                         interrupt_id=interrupt_id,
+                        options=options,
                     )
                 )
                 return LoopResult(

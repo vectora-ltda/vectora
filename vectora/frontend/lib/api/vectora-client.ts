@@ -66,7 +66,7 @@ export interface StreamChatRequest {
 export interface ResumeChatRequest {
   thread_id: string;
   interrupt_id: string;
-  decision: "approve" | "reject" | `edit:${string}`;
+  decision: "approve" | "reject" | `edit:${string}` | `option:${string}`;
 }
 
 /** Evento discriminado pelo campo `type` */
@@ -128,6 +128,8 @@ export type StreamEvent =
       permission_mode?: string;
       /** Anotação da aprovação inteligente — nunca decide sozinha. */
       pre_approved?: boolean;
+      /** Escolhas estruturadas oferecidas pelo agente para esta aprovação. */
+      options?: Array<{ label: string; value: string }>;
     }
   | {
       type: "rag_citations";

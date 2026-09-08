@@ -53,6 +53,9 @@ CREATE TABLE IF NOT EXISTS pending_approvals (
     tool_call_id TEXT NOT NULL,
     args_json TEXT NOT NULL,
     reasoning TEXT,
+    options_json TEXT NOT NULL DEFAULT '[]',
+    priority INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT,
     created_at TEXT NOT NULL
 );
 """
@@ -133,6 +136,17 @@ class SessionStore:
             return
         async with self._pool.acquire() as conn:
             await conn.executescript(_SETUP_SQL)
+            # Upgrade databases created before structured HITL decisions.
+            for statement in (
+                "ALTER TABLE pending_approvals ADD COLUMN options_json TEXT NOT NULL DEFAULT '[]'",
+                "ALTER TABLE pending_approvals ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE pending_approvals ADD COLUMN expires_at TEXT",
+            ):
+                try:
+                    await conn.execute(statement)
+                except Exception as exc:
+                    if "duplicate column name" not in str(exc).lower():
+                        raise
             await conn.commit()
         self._is_setup = True
 
@@ -440,19 +454,36 @@ class SessionStore:
         async with self._pool.acquire() as conn:
             cur = await conn.execute(
                 "SELECT interrupt_id, tool_name, tool_call_id, args_json, "
-                "reasoning, created_at FROM pending_approvals WHERE thread_id = ?",
+                "reasoning, options_json, priority, expires_at, created_at "
+                "FROM pending_approvals WHERE thread_id = ?",
                 (thread_id,),
             )
             row = await cur.fetchone()
         if row is None:
             return None
-        interrupt_id, tool_name, tool_call_id, args_json, reasoning, created_at = row
+        (
+            interrupt_id,
+            tool_name,
+            tool_call_id,
+            args_json,
+            reasoning,
+            options_json,
+            priority,
+            expires_at,
+            created_at,
+        ) = row
+        if expires_at and expires_at <= _now():
+            await self.clear_pending_approval(thread_id)
+            return None
         return {
             "interrupt_id": interrupt_id,
             "tool_name": tool_name,
             "tool_call_id": tool_call_id,
             "args": json.loads(args_json),
             "reasoning": reasoning,
+            "options": json.loads(options_json or "[]"),
+            "priority": int(priority),
+            "expires_at": expires_at,
             "created_at": created_at,
         }
 
@@ -465,6 +496,9 @@ class SessionStore:
         tool_call_id: str,
         args: dict[str, Any],
         reasoning: str | None = None,
+        options: list[dict[str, str]] | None = None,
+        priority: int = 0,
+        expires_at: str | None = None,
     ) -> None:
         """Persiste IMEDIATA e SINCRONAMENTE a aprovação pendente, antes de
         qualquer espera — HITL sobrevive a restart do backend porque o
@@ -473,8 +507,8 @@ class SessionStore:
         async with self._pool.acquire() as conn:
             await conn.execute(
                 "INSERT OR REPLACE INTO pending_approvals (thread_id, "
-                "interrupt_id, tool_name, tool_call_id, args_json, reasoning, "
-                "created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "interrupt_id, tool_name, tool_call_id, args_json, reasoning, options_json, "
+                "priority, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     thread_id,
                     interrupt_id,
@@ -482,6 +516,9 @@ class SessionStore:
                     tool_call_id,
                     json.dumps(args, ensure_ascii=False),
                     reasoning,
+                    json.dumps(options or [], ensure_ascii=False),
+                    priority,
+                    expires_at,
                     _now(),
                 ),
             )

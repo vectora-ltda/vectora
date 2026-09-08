@@ -939,6 +939,17 @@ async def resume_chat(
     elif request.decision == "reject":
         decision = "reject"
         edited_args = None
+    elif request.decision.startswith("option:"):
+        decision = "option"
+        pending = await (await agent_factory.get_session_store()).get_pending_approval(
+            request.thread_id
+        )
+        value = request.decision[7:]
+        if pending is None or value not in {
+            str(item.get("value")) for item in pending.get("options", [])
+        }:
+            raise HTTPException(status_code=400, detail="Invalid HITL option")
+        edited_args = {**pending["args"], "selection": value}
     elif request.decision.startswith("edit:"):
         decision = "edit"
         try:

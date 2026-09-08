@@ -52,6 +52,9 @@ CREATE TABLE IF NOT EXISTS vectora_native_pending_approvals (
     tool_call_id TEXT NOT NULL,
     args_json TEXT NOT NULL,
     reasoning TEXT,
+    options_json TEXT NOT NULL DEFAULT '[]',
+    priority INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT,
     created_at TEXT NOT NULL
 );
 """
@@ -293,7 +296,7 @@ class PostgresSessionStore:
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT interrupt_id, tool_name, tool_call_id, args_json, "
-                "reasoning, created_at FROM vectora_native_pending_approvals "
+                "reasoning, options_json, priority, expires_at, created_at FROM vectora_native_pending_approvals "
                 "WHERE thread_id = $1",
                 thread_id,
             )
@@ -305,6 +308,9 @@ class PostgresSessionStore:
             "tool_call_id": row["tool_call_id"],
             "args": json.loads(row["args_json"]),
             "reasoning": row["reasoning"],
+            "options": json.loads(row["options_json"] or "[]"),
+            "priority": int(row["priority"]),
+            "expires_at": row["expires_at"],
             "created_at": row["created_at"],
         }
 
@@ -317,19 +323,25 @@ class PostgresSessionStore:
         tool_call_id: str,
         args: dict[str, Any],
         reasoning: str | None = None,
+        options: list[dict[str, str]] | None = None,
+        priority: int = 0,
+        expires_at: str | None = None,
     ) -> None:
         await self.setup()
         async with self._pool.acquire() as conn:
             await conn.execute(
                 "INSERT INTO vectora_native_pending_approvals (thread_id, interrupt_id, "
-                "tool_name, tool_call_id, args_json, reasoning, created_at) "
-                "VALUES ($1, $2, $3, $4, $5, $6, $7) "
+                "tool_name, tool_call_id, args_json, reasoning, options_json, priority, expires_at, created_at) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) "
                 "ON CONFLICT (thread_id) DO UPDATE SET "
                 "interrupt_id = EXCLUDED.interrupt_id, "
                 "tool_name = EXCLUDED.tool_name, "
                 "tool_call_id = EXCLUDED.tool_call_id, "
                 "args_json = EXCLUDED.args_json, "
                 "reasoning = EXCLUDED.reasoning, "
+                "options_json = EXCLUDED.options_json, "
+                "priority = EXCLUDED.priority, "
+                "expires_at = EXCLUDED.expires_at, "
                 "created_at = EXCLUDED.created_at",
                 thread_id,
                 interrupt_id,
@@ -337,6 +349,9 @@ class PostgresSessionStore:
                 tool_call_id,
                 json.dumps(args, ensure_ascii=False),
                 reasoning,
+                json.dumps(options or [], ensure_ascii=False),
+                priority,
+                expires_at,
                 _now(),
             )
 
