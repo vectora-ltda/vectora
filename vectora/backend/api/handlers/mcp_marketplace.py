@@ -173,15 +173,22 @@ def _connector_to_server(connector: MCPConnector) -> McpServer:
     from backend.workspace.plugins import McpServer
 
     parts = connector.install_cmd.split() if connector.install_cmd else ["npx"]
+    if connector.trust_state == "vectora_verified":
+        trust = extension_trust.curated_record(
+            f"marketplace:{connector.id}", connector.model_dump_json()
+        )
+    else:
+        trust = extension_trust.TrustRecord(
+            source=f"marketplace:{connector.id}",
+            state=connector.trust_state,
+            reason=connector.trust_reason,
+        )
     return McpServer(
         name=connector.id,
         transport="stdio",
         command=parts[0],
         args=parts[1:],
-        trust=extension_trust.curated_record(
-            f"marketplace:{connector.id}",
-            connector.model_dump_json(),
-        ),
+        trust=trust,
     )
 
 
@@ -281,9 +288,30 @@ async def install_mcp(req: InstallRequest, user_id: str = "local") -> dict:
     try:
         from backend.workspace import plugins
 
-        mcp_policy.require_allowed(connector.id, req.workspace_id)
+        decision = mcp_policy.evaluate(connector.id, req.workspace_id)
+        if not decision.allowed:
+            return {
+                "status": "error",
+                "code": (
+                    "policy_unavailable"
+                    if decision.code == "policy_unavailable"
+                    else "policy_blocked"
+                ),
+                "error": "servidor bloqueado pela política",
+            }
         server = _connector_to_server(connector)
-        extension_trust.validate_record(server.trust, confirmed=req.confirm_unverified)
+        try:
+            extension_trust.validate_record(
+                server.trust, confirmed=req.confirm_unverified
+            )
+        except PermissionError as exc:
+            return {
+                "status": "error",
+                "code": "confirmation_required",
+                "trust_state": server.trust.state,
+                "trust_reason": server.trust.reason,
+                "error": str(exc),
+            }
 
         scope = (
             req.scope
@@ -294,8 +322,6 @@ async def install_mcp(req: InstallRequest, user_id: str = "local") -> dict:
         plugins.add_server(user_id, server, scope, target)
         logger.info("mcp_marketplace: instalado %s (user=%s)", connector.id, user_id)
         return {"status": "installed", "mcp_id": connector.id}
-    except PermissionError:
-        return {"status": "error", "code": "policy_blocked"}
     except Exception as exc:
         logger.exception("mcp_marketplace: falha ao instalar %s", req.mcp_id)
         return {
