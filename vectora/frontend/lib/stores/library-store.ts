@@ -19,6 +19,14 @@ export interface MCPConnector {
   category: string;
   vectora_verified: boolean;
   icon_url?: string | null;
+  trust_state?:
+    | "vectora_verified"
+    | "publisher_signed"
+    | "community_listed"
+    | "unsigned"
+    | "invalid"
+    | "verification_unavailable";
+  trust_reason?: string;
 }
 
 export interface CatalogSkill {

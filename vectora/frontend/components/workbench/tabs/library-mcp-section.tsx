@@ -37,6 +37,7 @@ import { Input } from "@/components/ui/input";
 import { PluginsTab } from "@/components/settings/environment/tabs/plugins-tab";
 import { m } from "@/lib/paraglide/messages";
 import { useLibraryStore, type MCPConnector } from "@/lib/stores/library-store";
+import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import type { LibraryItem } from "./library-tab";
 
 async function saveEnvVar(key: string, value: string): Promise<void> {
@@ -48,20 +49,32 @@ async function saveEnvVar(key: string, value: string): Promise<void> {
   if (!res.ok) throw new Error(`Erro ${res.status}`);
 }
 
-async function installMcp(mcpId: string): Promise<{ status: string }> {
+async function installMcp(
+  mcpId: string,
+  confirmUnverified = false,
+): Promise<{ status: string }> {
+  const workspaceId = useWorkspacesStore.getState().active_id;
   const res = await fetch("/mcp/install", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mcp_id: mcpId }),
+    body: JSON.stringify({
+      mcp_id: mcpId,
+      workspace_id: workspaceId ?? undefined,
+      confirm_unverified: confirmUnverified,
+    }),
   });
   return res.json();
 }
 
 async function uninstallMcp(mcpId: string): Promise<void> {
+  const workspaceId = useWorkspacesStore.getState().active_id;
   await fetch("/mcp/uninstall", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mcp_id: mcpId }),
+    body: JSON.stringify({
+      mcp_id: mcpId,
+      workspace_id: workspaceId ?? undefined,
+    }),
   });
 }
 
