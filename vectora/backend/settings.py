@@ -1160,8 +1160,8 @@ VIDEO_INPUT_PROVIDERS: set[str] = {"google-genai"}
 # configurou (`ollama_image_model` etc.), não do provider em si — ver
 # `provider_supports`.
 PROVIDER_CAPABILITIES: dict[str, set[str]] = {
-    "google-genai": {"llm", "vision", "image", "tts", "embedding", "video"},
-    "openai": {"llm", "vision", "image", "tts", "embedding"},
+    "google-genai": {"llm", "vision", "image", "tts", "stt", "embedding", "video"},
+    "openai": {"llm", "vision", "image", "tts", "stt", "embedding"},
     "anthropic": {"llm", "vision"},
     "cohere": {"llm", "embedding", "reranker"},
 }

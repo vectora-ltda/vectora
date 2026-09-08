@@ -581,3 +581,60 @@ async def analyze_video(ctx: ToolContext, path: str, question: str) -> str:
         return json.dumps(
             {"error": f"falha ao analisar vídeo: {exc}"}, ensure_ascii=False
         )
+
+
+@vtool(
+    extras=ToolExtras(
+        render_hint="text",
+        category="media",
+        destructive=False,
+        icon="mic",
+    )
+)
+async def audio_transcribe(ctx: ToolContext, path: str, language: str = "") -> str:
+    """Transcreve um arquivo do workspace com o provider ativo."""
+    provider = _active_provider(ctx)
+    try:
+        from backend.settings import provider_supports
+        from backend.tools.fs import _confine
+
+        if not provider_supports(provider, "stt"):
+            return _unsupported(
+                provider,
+                "transcrição remota de áudio",
+                "Troque para OpenAI/Gemini ou use transcribe_local sem enviar o áudio.",
+            )
+        resolved, error = _confine(path, ctx)
+        if resolved is None:
+            return json.dumps({"error": error}, ensure_ascii=False)
+        if resolved.suffix.lower() not in {".wav", ".mp3", ".m4a", ".webm", ".ogg"}:
+            return json.dumps({"error": "formato de áudio não suportado"})
+        data = await asyncio.to_thread(resolved.read_bytes)
+        if len(data) > 25 * 1024 * 1024:
+            return json.dumps({"error": "áudio excede o limite de 25 MB"})
+        mime = {
+            ".wav": "audio/wav",
+            ".mp3": "audio/mpeg",
+            ".m4a": "audio/mp4",
+            ".webm": "audio/webm",
+            ".ogg": "audio/ogg",
+        }[resolved.suffix.lower()]
+        from backend.llm.transcription import transcribe_audio
+
+        text = await transcribe_audio(data, resolved.name, mime)
+        if not text.strip():
+            return json.dumps({"error": "provider devolveu transcrição vazia"})
+        return json.dumps(
+            {
+                "text": text,
+                "provider": provider,
+                "model": _active_model(ctx),
+                "language": language,
+            },
+            ensure_ascii=False,
+        )
+    except Exception as exc:
+        logger.exception("audio_transcribe: falha", extra={"provider": provider})
+        return json.dumps(
+            {"error": f"falha ao transcrever áudio: {exc}"}, ensure_ascii=False
+        )
