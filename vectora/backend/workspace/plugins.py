@@ -28,7 +28,7 @@ _HEALTH_TIMEOUT_S = 10
 _versions: dict[str, int] = {}
 
 #: Cache das tools MCP resolvidas: user_id -> (version, tools).
-_mcp_tools_cache: dict[str, tuple[int, list]] = {}
+_mcp_tools_cache: dict[tuple[str, frozenset[str] | None], tuple[int, list]] = {}
 McpScope = Literal["user", "workspace", "project", "runtime"]
 _runtime_servers: dict[str, list[McpServer]] = {}
 
@@ -66,7 +66,8 @@ def apply_remote_version(user_id: str, version: int) -> None:
     if version <= _versions.get(user_id, 0):
         return
     _versions[user_id] = version
-    _mcp_tools_cache.pop(user_id, None)
+    for cache_key in [key for key in _mcp_tools_cache if key[0] == user_id]:
+        _mcp_tools_cache.pop(cache_key, None)
 
 
 # ---------------------------------------------------------------------------
@@ -296,7 +297,9 @@ def _remote_tool_spec(server_name: str, connection: dict, mcp_tool: Any) -> Tool
     )
 
 
-async def get_user_mcp_tools(user_id: str) -> list[ToolSpec]:
+async def get_user_mcp_tools(
+    user_id: str, names: set[str] | frozenset[str] | None = None
+) -> list[ToolSpec]:
     """Carrega as tools (``ToolSpec`` nativa) dos servidores MCP do usuário.
 
     Cacheado por ``(user_id, version)`` — só reconecta quando o usuário muda
@@ -306,13 +309,17 @@ async def get_user_mcp_tools(user_id: str) -> list[ToolSpec]:
     vazia + log, nunca propaga.
     """
     version = tools_version(user_id)
-    cached = _mcp_tools_cache.get(user_id)
+    requested = frozenset(names) if names is not None else None
+    cache_key = (user_id, requested)
+    cached = _mcp_tools_cache.get(cache_key)
     if cached is not None and cached[0] == version:
         return cached[1]
 
     servers = list_servers(user_id)
+    if requested is not None:
+        servers = [server for server in servers if server.name in requested]
     if not servers:
-        _mcp_tools_cache[user_id] = (version, [])
+        _mcp_tools_cache[cache_key] = (version, [])
         return []
 
     connections = {s.name: build_connection(s) for s in servers}
@@ -333,5 +340,5 @@ async def get_user_mcp_tools(user_id: str) -> list[ToolSpec]:
         for name, t in remote_tools.items()
     ]
 
-    _mcp_tools_cache[user_id] = (version, tools)
+    _mcp_tools_cache[cache_key] = (version, tools)
     return tools

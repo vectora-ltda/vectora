@@ -12,6 +12,7 @@ from backend.workspace.plugins import (
     McpServer,
     add_server,
     build_connection,
+    get_user_mcp_tools,
     list_servers,
     remove_server,
 )
@@ -86,6 +87,12 @@ def test_workspace_and_runtime_scopes_are_isolated():
     assert list_servers("u1", "workspace", "ws-b") == []
     assert [item.name for item in list_servers("u1", "runtime", "run-a")] == ["runtime"]
     assert list_servers("u1", "runtime", "run-b") == []
+
+
+@pytest.mark.asyncio
+async def test_mcp_tools_podem_ser_filtradas_por_nome():
+    add_server("u1", McpServer(name="allowed", transport="stdio", command="cmd"))
+    assert await get_user_mcp_tools("u1", {"other"}) == []
 
 
 # ---------------------------------------------------------------------------
