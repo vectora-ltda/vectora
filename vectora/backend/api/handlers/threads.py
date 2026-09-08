@@ -1599,7 +1599,10 @@ async def get_smart_approval_allowlist(
     from backend.api.handlers.workspaces import require_workspace_access
     from backend.services.smart_approval import get_allowlist
 
-    if require_workspace_access(workspace_id, request) is None:
+    if (
+        getattr(request.state, "user", None) is not None
+        and require_workspace_access(workspace_id, request) is None
+    ):
         raise HTTPException(status_code=404, detail="Workspace não encontrado")
     rules = get_allowlist(workspace_id)
     safe = [rule if len(rule) <= 96 else f"{rule[:93]}..." for rule in rules]

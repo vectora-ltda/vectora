@@ -11,6 +11,7 @@ from backend.api.handlers.threads import (
     SmartApprovalAllowlistRemoveRequest,
     SmartApprovalAllowlistRequest,
     add_smart_approval_allowlist,
+    get_smart_approval_allowlist,
     remove_smart_approval_allowlist,
 )
 
@@ -47,6 +48,9 @@ async def test_add_e_remove_via_endpoint():
     )
     assert len(resposta.allowlist) == 1
 
+    listado = await get_smart_approval_allowlist("ws1", _fake_request())
+    assert listado.allowlist == resposta.allowlist
+
     removida = await remove_smart_approval_allowlist(
         SmartApprovalAllowlistRemoveRequest(
             workspace_id="ws1", signature=resposta.allowlist[0]
@@ -54,6 +58,17 @@ async def test_add_e_remove_via_endpoint():
         _fake_request(),
     )
     assert removida.allowlist == []
+
+
+@pytest.mark.asyncio
+async def test_get_workspace_desconhecido_no_modo_local_usa_store():
+    """O launcher local não tem registry de workspaces, mas ainda deve
+    conseguir listar regras persistidas como os endpoints POST/DELETE."""
+    from backend.services.smart_approval import add_to_allowlist
+
+    add_to_allowlist("ws-local", "terminal", {"command": "git status"})
+    resposta = await get_smart_approval_allowlist("ws-local", _fake_request())
+    assert resposta.allowlist == ["terminal:git status"]
 
 
 @pytest.mark.asyncio
