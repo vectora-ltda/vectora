@@ -81,6 +81,9 @@ _ALLOWED_FRONTEND_PREF_KEYS = frozenset(
         "reasoningEffort",
         "sidebarPosition",
         "autoUpdateEnabled",
+        "weeklyInsightEnabled",
+        "weeklyInsightWeeks",
+        "weeklyInsightDismissedWindow",
     }
 )
 
@@ -468,6 +471,20 @@ class RuntimeSettings:
         mesclado do usuário.
         """
         allowed = {k: v for k, v in changes.items() if k in _ALLOWED_FRONTEND_PREF_KEYS}
+        if "weeklyInsightEnabled" in allowed and not isinstance(
+            allowed["weeklyInsightEnabled"], bool
+        ):
+            allowed.pop("weeklyInsightEnabled")
+        if "weeklyInsightWeeks" in allowed and allowed["weeklyInsightWeeks"] not in {
+            1,
+            2,
+            4,
+        }:
+            allowed.pop("weeklyInsightWeeks")
+        if "weeklyInsightDismissedWindow" in allowed and not isinstance(
+            allowed["weeklyInsightDismissedWindow"], str
+        ):
+            allowed.pop("weeklyInsightDismissedWindow")
         with self._lock:
             all_prefs_raw = self._data.get("frontend_prefs", {})
             all_prefs: dict[str, object] = (
