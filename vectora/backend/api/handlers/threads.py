@@ -130,6 +130,9 @@ async def _ensure_schema(db: Any) -> None:
             deleted_at TEXT NOT NULL
         )
     """)
+    from backend.services.usage_insights import usage_insight_store
+
+    await usage_insight_store.ensure_schema(db)
     await db.commit()
 
 

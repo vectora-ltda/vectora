@@ -17,9 +17,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query, Request
 
 logger = logging.getLogger(__name__)
 
@@ -190,3 +190,17 @@ async def collect_provider_usage() -> list[dict[str, Any]]:
 async def get_provider_usage() -> dict[str, Any]:
     """Consumo por provider — alimenta o medidor da appbar."""
     return {"providers": await collect_provider_usage()}
+
+
+@router.get("/insights/weekly")
+async def get_weekly_insight(
+    request: Request, weeks: Annotated[int, Query()] = 1
+) -> dict[str, Any]:
+    """Retorna somente agregados técnicos da conta autenticada."""
+    from backend.api.handlers.threads import _get_db, _user_id
+    from backend.services.usage_insights import usage_insight_store
+
+    db = await _get_db()
+    return await usage_insight_store.aggregate(
+        db, user_id=_user_id(request), weeks=weeks
+    )
