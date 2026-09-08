@@ -591,6 +591,18 @@ class PagedHistoryResponse(BaseModel):
     total_count: int
 
 
+class StructuredQuestionAnswerRequest(BaseModel):
+    question_id: str
+    answer: str | None = None
+    cancel: bool = False
+
+
+class StructuredQuestionResponse(BaseModel):
+    question_id: str
+    status: str
+    answer: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Share schemas (leitura pública de threads compartilhadas)
 # ---------------------------------------------------------------------------
