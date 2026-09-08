@@ -26,7 +26,7 @@ export default function AuthLayout({
     <div className="relative flex min-h-screen items-center justify-center px-4">
       <Link
         to="/"
-        className="absolute left-4 top-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground sm:left-6 sm:top-6"
+        className="absolute start-4 top-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground sm:start-6 sm:top-6"
       >
         <ArrowLeft className="h-4 w-4" />
         {m.nav_back()}
