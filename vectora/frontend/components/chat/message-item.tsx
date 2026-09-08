@@ -10,6 +10,10 @@ import {
   Download,
   X,
   AlertTriangle,
+  Volume2,
+  Pause,
+  Play,
+  Square,
 } from "lucide-react";
 import { ToolCallRenderer } from "./tool-call-renderer";
 import { AgentStatusLine } from "./agent-status-line";
@@ -48,6 +52,7 @@ import { formatDistanceToNow } from "date-fns";
 import { ptBR, es as esLocale, enUS } from "date-fns/locale";
 import { useQueryClient } from "@tanstack/react-query";
 import { m } from "@/lib/paraglide/messages";
+import { useSpeechSynthesis } from "@/lib/hooks/use-speech-synthesis";
 
 /** Locale do date-fns a partir do idioma da UI (item 9 — "há quanto tempo"). */
 const DATE_FNS_LOCALES = { pt: ptBR, es: esLocale, en: enUS } as const;
@@ -395,6 +400,7 @@ export const MessageItem = memo(
     const [editContent, setEditContent] = useState(message.content);
     const [editError] = useState<string | null>(null);
     const prevContentRef = useRef(message.content);
+    const speech = useSpeechSynthesis(message.content, threadId);
 
     // Sync editContent when message.content changes (e.g., during streaming)
     useEffect(() => {
@@ -1073,6 +1079,61 @@ export const MessageItem = memo(
                                 : m.chat_copy()}
                             </TooltipContent>
                           </Tooltip>
+
+                          {speech.supported && (
+                            <>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                                    onClick={
+                                      speech.state === "idle"
+                                        ? speech.speak
+                                        : speech.state === "paused"
+                                          ? speech.resume
+                                          : speech.pause
+                                    }
+                                    aria-label={
+                                      speech.state === "speaking"
+                                        ? m.message_tts_pause()
+                                        : speech.state === "paused"
+                                          ? m.message_tts_resume()
+                                          : m.message_tts_listen()
+                                    }
+                                    aria-pressed={speech.state === "speaking"}
+                                  >
+                                    {speech.state === "speaking" ? (
+                                      <Pause className="w-3 h-3" />
+                                    ) : speech.state === "paused" ? (
+                                      <Play className="w-3 h-3" />
+                                    ) : (
+                                      <Volume2 className="w-3 h-3" />
+                                    )}
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  {speech.state === "speaking"
+                                    ? m.message_tts_pause()
+                                    : speech.state === "paused"
+                                      ? m.message_tts_resume()
+                                      : m.message_tts_listen()}
+                                </TooltipContent>
+                              </Tooltip>
+                              {speech.state !== "idle" && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                                  onClick={speech.stop}
+                                  aria-label={m.message_tts_stop()}
+                                >
+                                  <Square className="w-3 h-3" />
+                                </Button>
+                              )}
+                            </>
+                          )}
 
                           {isLastAssistant && (
                             <Tooltip>
