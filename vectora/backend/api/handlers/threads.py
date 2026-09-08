@@ -1616,7 +1616,10 @@ async def add_smart_approval_allowlist(
     _user_id(request)
     from backend.api.handlers.workspaces import require_workspace_access
 
-    if require_workspace_access(body.workspace_id, request) is None:
+    if (
+        getattr(request.state, "user", None) is not None
+        and require_workspace_access(body.workspace_id, request) is None
+    ):
         raise HTTPException(status_code=404, detail="Workspace não encontrado")
     from backend.services.smart_approval import add_to_allowlist
 
@@ -1636,7 +1639,10 @@ async def remove_smart_approval_allowlist(
     _user_id(request)
     from backend.api.handlers.workspaces import require_workspace_access
 
-    if require_workspace_access(body.workspace_id, request) is None:
+    if (
+        getattr(request.state, "user", None) is not None
+        and require_workspace_access(body.workspace_id, request) is None
+    ):
         raise HTTPException(status_code=404, detail="Workspace não encontrado")
     from backend.services.smart_approval import remove_from_allowlist
 
