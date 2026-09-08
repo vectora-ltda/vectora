@@ -540,6 +540,27 @@ export async function getTools(): Promise<GetToolsResponse> {
   return res.json();
 }
 
+export interface FeedbackInput {
+  kind: "bug" | "suggestion";
+  description: string;
+  include_context?: boolean;
+  context?: Record<string, string>;
+}
+
+export async function submitFeedback(
+  input: FeedbackInput,
+): Promise<{ id: string }> {
+  const response = await fetch(`${VECTORA_API_URL}/feedback`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (response.status === 429) throw new Error("rate_limited");
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.json() as Promise<{ id: string }>;
+}
+
 // ============================================================================
 // SSE parser interno
 // ============================================================================
