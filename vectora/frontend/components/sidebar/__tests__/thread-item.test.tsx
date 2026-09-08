@@ -5,8 +5,14 @@
  * (não confirma com título vazio); Fixar/Desafixar alterna a label conforme
  * thread.pinned; Apagar dispara o mesmo onDelete do ícone de hover.
  */
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import {
+  render,
+  screen,
+  cleanup,
+  fireEvent,
+  act,
+} from "@testing-library/react";
 import type { Thread } from "@/lib/hooks/threads";
 import { ThreadItem } from "../thread-item";
 
@@ -38,6 +44,8 @@ vi.mock("@/lib/paraglide/messages", () => ({
 }));
 
 afterEach(cleanup);
+beforeEach(() => vi.useFakeTimers());
+afterEach(() => vi.useRealTimers());
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
   return {
@@ -195,5 +203,48 @@ describe("ThreadItem — menu de contexto", () => {
 
     expect(onRename).not.toHaveBeenCalled();
     expect(screen.getByText("Conversa T1")).toBeInTheDocument();
+  });
+
+  it("long-press touch abre ações e não seleciona a conversa", () => {
+    const onSelect = vi.fn();
+    render(
+      <ThreadItem
+        thread={makeThread()}
+        isActive={false}
+        onSelect={onSelect}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const row = screen.getByText("Conversa T1").parentElement?.parentElement;
+    expect(row).toBeTruthy();
+    fireEvent.touchStart(row!, { touches: [{ clientY: 100 }] });
+    act(() => vi.advanceTimersByTime(500));
+    expect(screen.getAllByText("Renomear").length).toBeGreaterThan(1);
+    fireEvent.touchEnd(row!, { changedTouches: [{ clientY: 100 }] });
+    fireEvent.click(row!);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("movimento cancela long-press e mantém seleção no click", () => {
+    const onSelect = vi.fn();
+    render(
+      <ThreadItem
+        thread={makeThread()}
+        isActive={false}
+        onSelect={onSelect}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const row = screen.getByText("Conversa T1").parentElement?.parentElement;
+    fireEvent.touchStart(row!, { touches: [{ clientY: 100 }] });
+    fireEvent.touchMove(row!, { touches: [{ clientY: 130 }] });
+    vi.advanceTimersByTime(500);
+    expect(screen.queryByText("Renomear")).not.toBeInTheDocument();
+    fireEvent.click(row!);
+    expect(onSelect).toHaveBeenCalledWith("t1");
   });
 });
