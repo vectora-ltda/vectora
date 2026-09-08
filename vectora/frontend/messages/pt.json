@@ -1095,6 +1095,8 @@
   "chat_rewind_no_checkpoint": "Nenhum checkpoint disponível para esta mensagem.",
   "chat_rewind_error": "Não foi possível retroceder o workspace.",
   "chat_agent_steps": "Etapas do agente",
+  "app_name": "Vectora",
+  "toast_notifications": "Notificações",
   "chat_copy": "Copiar",
   "chat_copied": "Copiado",
   "chat_regenerate": "Regenerar",

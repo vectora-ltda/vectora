@@ -1095,6 +1095,8 @@
   "chat_rewind_no_checkpoint": "No hay punto de control disponible para este mensaje.",
   "chat_rewind_error": "No se pudo rebobinar el workspace.",
   "chat_agent_steps": "Pasos del agente",
+  "app_name": "Vectora",
+  "toast_notifications": "Notificaciones",
   "chat_copy": "Copiar",
   "chat_copied": "Copiado",
   "chat_regenerate": "Regenerar",
