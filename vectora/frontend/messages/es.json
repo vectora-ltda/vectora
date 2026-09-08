@@ -34,6 +34,8 @@
   "sidebar_ctx_unpin": "Desfijar",
   "sidebar_ctx_delete": "Eliminar",
   "sidebar_rename_placeholder": "Nombre de la sesión",
+  "sidebar_pull_to_refresh": "Desliza para actualizar",
+  "sidebar_refreshing": "Actualizando…",
   "error_banner_title": "Algo salió mal",
   "route_error_title": "No se pudo cargar esta página",
   "error_banner_retry": "Reintentar",

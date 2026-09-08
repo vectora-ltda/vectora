@@ -593,6 +593,9 @@ function SessionPage() {
         onNewChat={handleNewChat}
         isLoading={isLoading}
         isNewSession={isNewSession}
+        onRefreshThreads={async () => {
+          await refetchThreads();
+        }}
       />
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps

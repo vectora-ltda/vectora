@@ -34,6 +34,8 @@
   "sidebar_ctx_unpin": "Unpin",
   "sidebar_ctx_delete": "Delete",
   "sidebar_rename_placeholder": "Session name",
+  "sidebar_pull_to_refresh": "Pull to refresh",
+  "sidebar_refreshing": "Refreshing…",
   "error_banner_title": "Something went wrong",
   "route_error_title": "This page couldn't load",
   "error_banner_retry": "Retry",
