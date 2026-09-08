@@ -61,6 +61,7 @@ from backend.api.handlers.skills import router as skills_router
 from backend.api.handlers.terminal import router as terminal_router
 from backend.api.handlers.threads import router as thread_router
 from backend.api.handlers.tools import router as tools_router
+from backend.api.handlers.url_preview import router as url_preview_router
 from backend.api.handlers.usage import router as usage_router
 from backend.api.handlers.webhooks import router as webhooks_router
 from backend.api.handlers.workspaces import router as workspace_router
@@ -616,6 +617,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
     app.include_router(skills_router)
     app.include_router(license_router)
     app.include_router(tools_router)
+    app.include_router(url_preview_router)
     app.include_router(models_router)
     app.include_router(provider_routing_router)
     app.include_router(rag_router)

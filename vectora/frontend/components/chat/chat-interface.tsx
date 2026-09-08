@@ -59,6 +59,7 @@ const VOICE_LANG: Record<Lang, string> = {
 import { LARGE_PASTE_THRESHOLD } from "@/lib/constants/features";
 import { m as msg } from "@/lib/paraglide/messages";
 import { mDyn } from "@/lib/i18n-dyn";
+import { classifySmartPaste } from "@/lib/utils/chat/smart-paste";
 
 interface ChatInterfaceProps {
   showToolCalls?: boolean;
@@ -1252,7 +1253,7 @@ export function ChatInterface({
     }
   }, []);
 
-  // Paste grande vira anexo. Mantém UX do ChatGPT/Claude:
+  // Paste grande vira anexo para manter o composer responsivo:
   // texto curto cola normal; texto longo (> LARGE_PASTE_THRESHOLD)
   // entra como `pasted-<N>.txt` na grid de anexos. Imagens continuam
   // sendo capturadas pelo handlePaste do useFileUpload.
@@ -1261,9 +1262,14 @@ export function ChatInterface({
       const pastedText = e.clipboardData?.getData("text") ?? "";
       if (pastedText.length > LARGE_PASTE_THRESHOLD) {
         e.preventDefault();
-        const blob = new Blob([pastedText], { type: "text/plain" });
-        const fileName = `pasted-${Date.now()}.txt`;
-        const file = new File([blob], fileName, { type: "text/plain" });
+        const detected = classifySmartPaste(pastedText);
+        const suffix =
+          detected.kind === "text" || detected.kind === "url"
+            ? "txt"
+            : detected.extension;
+        const blob = new Blob([pastedText], { type: detected.mimeType });
+        const fileName = `pasted-${Date.now()}.${suffix}`;
+        const file = new File([blob], fileName, { type: detected.mimeType });
         await processFiles([file]);
         return;
       }
