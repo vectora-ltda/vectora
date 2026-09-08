@@ -227,6 +227,21 @@ class TestExtractPythonFile:
 
 
 class TestExtractTypeScriptFile:
+    def test_tree_sitter_language_aliases_use_pack_names(self) -> None:
+        from backend.context_graph.extract import _load_tree_sitter_language
+
+        language = _load_tree_sitter_language("tree_sitter_c_sharp")
+
+        assert language is not None
+
+    def test_unsupported_tree_sitter_language_is_explicit(self) -> None:
+        import pytest
+
+        from backend.context_graph.extract import _load_tree_sitter_language
+
+        with pytest.raises(ValueError, match="does not provide"):
+            _load_tree_sitter_language("dm")
+
     def test_extracts_function_ts(self, tmp_path: Path):
         from backend.context_graph.extract import _get_extractor, _safe_extract
 
@@ -251,6 +266,30 @@ class TestExtractTypeScriptFile:
         assert extractor is not None
         result = _safe_extract(extractor, f)
         assert isinstance(result, dict)
+
+    def test_tsx_uses_jsx_aware_tree_sitter_grammar(self, tmp_path: Path) -> None:
+        from tree_sitter import Node
+
+        from backend.context_graph.extract import _parse_js_tree
+
+        f = tmp_path / "component.tsx"
+        f.write_text(
+            "export function Component() { return <Button>{formatDate()}</Button>; }\n",
+            encoding="utf-8",
+        )
+
+        parsed = _parse_js_tree(f)
+
+        assert parsed is not None
+        _source, root = parsed
+        assert not root.has_error
+
+        def contains_jsx(node: Node) -> bool:
+            return node.type == "jsx_element" or any(
+                contains_jsx(child) for child in node.children
+            )
+
+        assert contains_jsx(root)
 
 
 class TestExtractGdscriptFile:

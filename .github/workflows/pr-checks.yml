@@ -39,7 +39,7 @@ jobs:
     steps:
       - uses: actions/setup-node@v6
         with:
-          node-version: "24"
+          node-version: "26"
       - run: npm install @commitlint/cli @commitlint/config-conventional
       # body-max-line-length/footer-max-line-length/body-leading-blank
       # desligadas: o GitHub sempre garante linha em branco entre título e

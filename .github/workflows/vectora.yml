@@ -46,7 +46,7 @@ env:
   # 3.13: versão que o uv resolve (cpython-3.13) e a única suportada pelo
   # Nuitka 4.1.x. 3.14 só vira oficial no Nuitka 4.2.
   PYTHON_VERSION: "3.13"
-  NODE_VERSION: "24"
+  NODE_VERSION: "26"
 
 jobs:
   # ── 1. Lint & Format ────────────────────────────────────────────────────

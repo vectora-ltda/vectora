@@ -13,12 +13,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from tree_sitter import Language
+
 from .cache import load_cached, save_cached
 from .ids import make_id
 from .manifest_ingest import extract_package_manifest, is_package_manifest_path
 from .mcp_ingest import extract_mcp_config, is_mcp_config_path
 
 _RECURSION_LIMIT = 10_000
+
+_TREE_SITTER_LANGUAGE_ALIASES: dict[str, str] = {
+    "c_sharp": "csharp",
+}
+_UNSUPPORTED_TREE_SITTER_LANGUAGES = frozenset({"dm"})
 
 # Language built-in globals that AST may classify as call targets when used as
 # constructors or coercion functions (e.g. String(x), Number(x), Boolean(x)).
@@ -2446,6 +2453,23 @@ def _swift_extra_walk(
     return False
 
 
+def _load_tree_sitter_language(module: str, function: str = "language") -> Language:
+    """Load a grammar through the current tree-sitter language-pack API."""
+    from tree_sitter_language_pack import get_language
+
+    name = module.removeprefix("tree_sitter_")
+    if function == "language_typescript":
+        name = "typescript"
+    elif function == "language_tsx":
+        name = "tsx"
+    name = _TREE_SITTER_LANGUAGE_ALIASES.get(name, name)
+    if name in _UNSUPPORTED_TREE_SITTER_LANGUAGES:
+        raise ValueError(
+            f"tree_sitter_language_pack does not provide a grammar for {name!r}"
+        )
+    return get_language(name)
+
+
 # ── Language configs ──────────────────────────────────────────────────────────
 
 _PYTHON_CONFIG = LanguageConfig(
@@ -2847,7 +2871,7 @@ def _extract_generic(path: Path, config: LanguageConfig) -> dict:
     """Generic AST extractor driven by LanguageConfig."""
     try:
         mod = importlib.import_module(config.ts_module)
-        from tree_sitter import Language, Parser
+        from tree_sitter import Parser
 
         lang_fn = getattr(mod, config.ts_language_fn, None)
         if lang_fn is None:
@@ -2859,7 +2883,7 @@ def _extract_generic(path: Path, config: LanguageConfig) -> dict:
                 "edges": [],
                 "error": f"No language function in {config.ts_module}",
             }
-        language = Language(lang_fn())
+        language = _load_tree_sitter_language(config.ts_module, config.ts_language_fn)
     except ImportError:
         return {"nodes": [], "edges": [], "error": f"{config.ts_module} not installed"}
     except TypeError as e:
@@ -4699,9 +4723,9 @@ def _extract_python_rationale(path: Path, result: dict) -> None:
     """
     try:
         import tree_sitter_python as tspython
-        from tree_sitter import Language, Parser
+        from tree_sitter import Parser
 
-        language = Language(tspython.language())
+        language = _load_tree_sitter_language("python")
         parser = Parser(language)
         source = path.read_bytes()
         tree = parser.parse(source)
@@ -6740,12 +6764,12 @@ def extract_verilog(path: Path) -> dict:
     return-type references) from .v/.sv files."""
     try:
         import tree_sitter_verilog as tsverilog
-        from tree_sitter import Language, Parser
+        from tree_sitter import Parser
     except ImportError:
         return {"nodes": [], "edges": [], "error": "tree_sitter_verilog not installed"}
 
     try:
-        language = Language(tsverilog.language())
+        language = _load_tree_sitter_language("verilog")
         parser = Parser(language)
         source = path.read_bytes()
         tree = parser.parse(source)
@@ -6894,7 +6918,7 @@ def extract_sql(path: Path, content: str | bytes | None = None) -> dict:
     """Extract tables, views, functions, and relationships from .sql files via tree-sitter."""
     try:
         import tree_sitter_sql as tssql
-        from tree_sitter import Language, Parser
+        from tree_sitter import Parser
     except ImportError:
         return {
             "nodes": [],
@@ -6903,7 +6927,7 @@ def extract_sql(path: Path, content: str | bytes | None = None) -> dict:
         }
 
     try:
-        language = Language(tssql.language())
+        language = _load_tree_sitter_language("sql")
         parser = Parser(language)
         source = (
             content.encode("utf-8")
@@ -7239,12 +7263,12 @@ def extract_julia(path: Path) -> dict:
     """Extract modules, structs, functions, imports, and calls from a .jl file."""
     try:
         import tree_sitter_julia as tsjulia
-        from tree_sitter import Language, Parser
+        from tree_sitter import Parser
     except ImportError:
         return {"nodes": [], "edges": [], "error": "tree-sitter-julia not installed"}
 
     try:
-        language = Language(tsjulia.language())
+        language = _load_tree_sitter_language("julia")
         parser = Parser(language)
         source = path.read_bytes()
         tree = parser.parse(source)
@@ -7565,12 +7589,12 @@ def extract_fortran(path: Path) -> dict:
     """
     try:
         import tree_sitter_fortran as tsfortran
-        from tree_sitter import Language, Parser
+        from tree_sitter import Parser
     except ImportError:
         return {"nodes": [], "edges": [], "error": "tree-sitter-fortran not installed"}
 
     try:
-        language = Language(tsfortran.language())
+        language = _load_tree_sitter_language("fortran")
         parser = Parser(language)
         source = (
             _cpp_preprocess(path)
@@ -7875,12 +7899,12 @@ def extract_go(path: Path) -> dict:
     """Extract functions, methods, type declarations, and imports from a .go file."""
     try:
         import tree_sitter_go as tsgo
-        from tree_sitter import Language, Parser
+        from tree_sitter import Parser
     except ImportError:
         return {"nodes": [], "edges": [], "error": "tree-sitter-go not installed"}
 
     try:
-        language = Language(tsgo.language())
+        language = _load_tree_sitter_language("go")
         parser = Parser(language)
         source = path.read_bytes()
         tree = parser.parse(source)
@@ -8312,12 +8336,12 @@ def extract_rust(path: Path) -> dict:
     """Extract functions, structs, enums, traits, impl methods, and use declarations from a .rs file."""
     try:
         import tree_sitter_rust as tsrust
-        from tree_sitter import Language, Parser
+        from tree_sitter import Parser
     except ImportError:
         return {"nodes": [], "edges": [], "error": "tree-sitter-rust not installed"}
 
     try:
-        language = Language(tsrust.language())
+        language = _load_tree_sitter_language("rust")
         parser = Parser(language)
         source = path.read_bytes()
         tree = parser.parse(source)
@@ -8654,12 +8678,12 @@ def extract_zig(path: Path) -> dict:
     """Extract functions, structs, enums, unions, and imports from a .zig file."""
     try:
         import tree_sitter_zig as tszig
-        from tree_sitter import Language, Parser
+        from tree_sitter import Parser
     except ImportError:
         return {"nodes": [], "edges": [], "error": "tree_sitter_zig not installed"}
 
     try:
-        language = Language(tszig.language())
+        language = _load_tree_sitter_language("zig")
         parser = Parser(language)
         source = path.read_bytes()
         tree = parser.parse(source)
@@ -8875,7 +8899,7 @@ def extract_powershell(path: Path) -> dict:
     """Extract functions, classes, methods, and using statements from a .ps1 file."""
     try:
         import tree_sitter_powershell as tsps
-        from tree_sitter import Language, Parser
+        from tree_sitter import Parser
     except ImportError:
         return {
             "nodes": [],
@@ -8884,7 +8908,7 @@ def extract_powershell(path: Path) -> dict:
         }
 
     try:
-        language = Language(tsps.language())
+        language = _load_tree_sitter_language("powershell")
         parser = Parser(language)
         source = path.read_bytes()
         tree = parser.parse(source)
@@ -9330,7 +9354,7 @@ def extract_powershell_manifest(path: Path) -> dict:
     """
     try:
         import tree_sitter_powershell as tsps
-        from tree_sitter import Language, Parser
+        from tree_sitter import Parser
     except ImportError:
         return {
             "nodes": [],
@@ -9339,7 +9363,7 @@ def extract_powershell_manifest(path: Path) -> dict:
         }
 
     try:
-        language = Language(tsps.language())
+        language = _load_tree_sitter_language("powershell")
         parser = Parser(language)
         source = path.read_bytes()
         tree = parser.parse(source)
@@ -9956,16 +9980,19 @@ def _apply_symbol_resolution_facts(
 
 def _parse_js_tree(path: Path):
     try:
-        from tree_sitter import Language, Parser
+        from tree_sitter import Parser
 
         if path.suffix in (".ts", ".tsx"):
             import tree_sitter_typescript as tstypescript
 
-            language = Language(tstypescript.language_typescript())
+            language = _load_tree_sitter_language(
+                "typescript",
+                "language_tsx" if path.suffix == ".tsx" else "language_typescript",
+            )
         else:
             import tree_sitter_javascript as tsjavascript
 
-            language = Language(tsjavascript.language())
+            language = _load_tree_sitter_language("javascript")
         source = path.read_bytes()
         parser = Parser(language)
         return source, parser.parse(source).root_node
@@ -10561,10 +10588,10 @@ def _collect_js_symbol_resolution_facts(
 def _parse_python_tree(path: Path):
     try:
         import tree_sitter_python as tspython
-        from tree_sitter import Language, Parser
+        from tree_sitter import Parser
 
         source = path.read_bytes()
-        parser = Parser(Language(tspython.language()))
+        parser = Parser(_load_tree_sitter_language("python"))
         return source, parser.parse(source).root_node
     except Exception:
         return None
@@ -10801,11 +10828,11 @@ def _resolve_cross_file_imports(
     """
     try:
         import tree_sitter_python as tspython
-        from tree_sitter import Language, Parser
+        from tree_sitter import Parser
     except ImportError:
         return []
 
-    language = Language(tspython.language())
+    language = _load_tree_sitter_language("python")
     parser = Parser(language)
 
     # Pass 1: _file_stem(path) → {ClassName: node_id}
@@ -11039,11 +11066,11 @@ def _resolve_cross_file_java_imports(
     """
     try:
         import tree_sitter_java as tsjava
-        from tree_sitter import Language, Parser
+        from tree_sitter import Parser
     except ImportError:
         return []
 
-    language = Language(tsjava.language())
+    language = _load_tree_sitter_language("java")
     parser = Parser(language)
 
     # Pass 1: class-name → node_id index (only internal, uppercase-starting names)
@@ -11137,11 +11164,11 @@ def _resolve_java_type_references(
     """
     try:
         import tree_sitter_java as tsjava
-        from tree_sitter import Language, Parser
+        from tree_sitter import Parser
     except ImportError:
         return
 
-    language = Language(tsjava.language())
+    language = _load_tree_sitter_language("java")
     parser = Parser(language)
 
     # package + simple-name->FQN imports, keyed by the source_file string the
@@ -11375,12 +11402,12 @@ def extract_objc(path: Path) -> dict:
     """Extract interfaces, implementations, protocols, methods, and imports from .m/.mm/.h files."""
     try:
         import tree_sitter_objc as tsobjc
-        from tree_sitter import Language, Parser
+        from tree_sitter import Parser
     except ImportError:
         return {"nodes": [], "edges": [], "error": "tree_sitter_objc not installed"}
 
     try:
-        language = Language(tsobjc.language())
+        language = _load_tree_sitter_language("objc")
         parser = Parser(language)
         source = path.read_bytes()
         tree = parser.parse(source)
@@ -11651,12 +11678,12 @@ def extract_elixir(path: Path) -> dict:
     """Extract modules, functions, imports, and calls from a .ex/.exs file."""
     try:
         import tree_sitter_elixir as tselixir
-        from tree_sitter import Language, Parser
+        from tree_sitter import Parser
     except ImportError:
         return {"nodes": [], "edges": [], "error": "tree_sitter_elixir not installed"}
 
     try:
-        language = Language(tselixir.language())
+        language = _load_tree_sitter_language("elixir")
         parser = Parser(language)
         source = path.read_bytes()
         tree = parser.parse(source)
@@ -12581,12 +12608,12 @@ def extract_pascal(path: Path) -> dict:
     """
     try:
         import tree_sitter_pascal as tspascal
-        from tree_sitter import Language, Parser
+        from tree_sitter import Parser
     except ImportError:
         return _extract_pascal_regex(path)
 
     try:
-        language = Language(tspascal.language())
+        language = _load_tree_sitter_language("pascal")
         parser = Parser(language)
         source = path.read_bytes()
         tree = parser.parse(source)
@@ -13183,12 +13210,12 @@ def extract_bash(path: Path) -> dict:
     """Extract functions, source imports, and cross-function calls from a .sh file."""
     try:
         import tree_sitter_bash as tsbash
-        from tree_sitter import Language, Parser
+        from tree_sitter import Parser
     except ImportError:
         return {"nodes": [], "edges": [], "error": "tree-sitter-bash not installed"}
 
     try:
-        language = Language(tsbash.language())
+        language = _load_tree_sitter_language("bash")
         parser = Parser(language)
         source = path.read_bytes()
         tree = parser.parse(source)
@@ -14130,7 +14157,7 @@ def extract_json(path: Path) -> dict:
 
     try:
         import tree_sitter_json as tsjson
-        from tree_sitter import Language, Parser
+        from tree_sitter import Parser
     except ImportError:
         return {"nodes": [], "edges": [], "error": "tree-sitter-json not installed"}
 
@@ -14142,7 +14169,7 @@ def extract_json(path: Path) -> dict:
             source = _f.read(_JSON_MAX_BYTES + 1)
         if len(source) > _JSON_MAX_BYTES:
             return {"nodes": [], "edges": [], "error": "json file too large to index"}
-        language = Language(tsjson.language())
+        language = _load_tree_sitter_language("json")
         parser = Parser(language)
         tree = parser.parse(source)
         root = tree.root_node
@@ -14323,11 +14350,11 @@ def extract_dm(path: Path) -> dict:
     """Extract types, procs, includes, and calls from a .dm/.dme file."""
     try:
         import tree_sitter_dm as tsdm
-        from tree_sitter import Language, Parser
+        from tree_sitter import Parser
     except ImportError:
         return {"nodes": [], "edges": [], "error": "tree-sitter-dm not installed"}
     try:
-        language = Language(tsdm.language())
+        language = _load_tree_sitter_language("dm")
         parser = Parser(language)
         source = path.read_bytes()
         tree = parser.parse(source)
@@ -15267,7 +15294,7 @@ def extract_terraform(path: Path) -> dict:
     """
     try:
         import tree_sitter_hcl as tshcl
-        from tree_sitter import Language, Parser
+        from tree_sitter import Parser
     except ImportError:
         return {
             "nodes": [],
@@ -15276,7 +15303,7 @@ def extract_terraform(path: Path) -> dict:
         }
 
     try:
-        language = Language(tshcl.language())
+        language = _load_tree_sitter_language("hcl")
         parser = Parser(language)
         source = path.read_bytes()
         tree = parser.parse(source)

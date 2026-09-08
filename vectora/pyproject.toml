@@ -259,6 +259,13 @@ invalid-return-type = "ignore"
 invalid-assignment = "ignore"
 
 [[tool.ty.overrides]]
+# faster-whisper is loaded only by the local transcription tool.
+include = ["backend/tools/media_native.py"]
+
+[tool.ty.overrides.analysis]
+allowed-unresolved-imports = ["faster_whisper"]
+
+[[tool.ty.overrides]]
 # cluster.py: graspologic é opcional (fallback para networkx louvain).
 # dedup.py: usa load_llm via asyncio.get_event_loop() em contexto sync.
 include = [

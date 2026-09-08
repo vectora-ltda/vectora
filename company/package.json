@@ -3,6 +3,9 @@
   "version": "0.1.17",
   "description": "Site institucional e infra de billing da Vectora — vectora.company",
   "private": true,
+  "engines": {
+    "node": ">=26.0.0 <27"
+  },
   "type": "module",
   "imports": {
     "#/*": "./src/*"
@@ -20,8 +23,8 @@
     "start": "node --import ./.output/server/instrument.server.mjs .output/server/index.mjs"
   },
   "dependencies": {
-    "@inlang/plugin-m-function-matcher": "^2.2.12",
-    "@inlang/plugin-message-format": "^4.4.3",
+    "@inlang/plugin-m-function-matcher": "^2.2.13",
+    "@inlang/plugin-message-format": "^4.4.4",
     "@radix-ui/react-accordion": "^1.2.20",
     "@radix-ui/react-checkbox": "^1.3.11",
     "@radix-ui/react-dialog": "^1.1.23",
@@ -29,9 +32,9 @@
     "@radix-ui/react-label": "^2.1.15",
     "@radix-ui/react-select": "^2.3.7",
     "@radix-ui/react-separator": "^1.1.15",
-    "@sentry/node": "^10.71.0",
-    "@sentry/profiling-node": "^10.71.0",
-    "@sentry/tanstackstart-react": "^10.71.0",
+    "@sentry/node": "^10.73.0",
+    "@sentry/profiling-node": "^10.73.0",
+    "@sentry/tanstackstart-react": "^10.73.0",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/query-db-collection": "latest",
     "@tanstack/react-db": "latest",
@@ -44,41 +47,41 @@
     "@tanstack/react-router-ssr-query": "latest",
     "@tanstack/react-start": "latest",
     "@tanstack/react-store": "latest",
-    "@tanstack/router-plugin": "^1.168.35",
+    "@tanstack/router-plugin": "^1.168.36",
     "@tanstack/store": "latest",
     "dotenv-cli": "^11.0.0",
-    "lucide-react": "^1.34.0",
-    "nitro": "3.0.260610-beta",
+    "lucide-react": "^1.41.0",
+    "nitro": "3.0.260903-beta",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "satori": "^0.33.4",
     "sonner": "^2.0.8",
     "tailwindcss": "^4.3.3",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@inlang/paraglide-js": "^2.25.0",
     "@tailwindcss/typography": "^0.5.20",
     "@tanstack/devtools-event-client": "latest",
     "@tanstack/devtools-vite": "latest",
-    "@tanstack/router-cli": "^1.167.33",
+    "@tanstack/router-cli": "^1.167.34",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
-    "@testing-library/user-event": "^14.6.6",
-    "@types/node": "^26.4.0",
+    "@testing-library/user-event": "^14.6.7",
+    "@types/node": "^26.4.1",
     "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.5",
+    "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^5.0.0",
     "cross-env": "^10.1.0",
     "jsdom": "^30.0.1",
-    "oxlint": "^1.80.0",
+    "oxlint": "^1.81.0",
     "prettier": "3.9.6",
-    "tsx": "^4.23.12",
+    "tsx": "^4.23.13",
     "typescript": "^7.0.2",
     "vercel": "59.11.7",
     "vite": "^8.2.2",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.0"
   }
 }
