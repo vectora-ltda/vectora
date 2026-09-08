@@ -32,6 +32,9 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from backend.api.schemas import (
+    ConversationBranch,
+    ConversationBranchComparison,
+    ConversationBranchesResponse,
     CreateThreadRequest,
     DeleteThreadRequest,
     GenerateTitleRequest,
@@ -1073,6 +1076,79 @@ async def get_history(request: GetHistoryRequest) -> GetHistoryResponse:
     except Exception as exc:
         logger.exception("api/threads: erro ao carregar histórico")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+class SelectConversationBranchRequest(BaseModel):
+    head_message_id: int
+
+
+@router.get(
+    "/threads/{thread_id}/branches",
+    response_model=ConversationBranchesResponse,
+)
+async def list_conversation_branches(
+    thread_id: str,
+    request: Request,
+    limit: Annotated[int, Query(ge=1, le=500)] = 100,
+) -> ConversationBranchesResponse:
+    """Lista as folhas da conversa sem restaurar o workspace."""
+    await _assert_owns_thread(thread_id, request)
+    try:
+        store = await _get_session_store()
+        branches = await store.list_branch_heads(thread_id, limit=limit)
+        return ConversationBranchesResponse(
+            branches=[ConversationBranch.model_validate(item) for item in branches],
+            active_head_message_id=await store.get_branch_head_id(thread_id),
+        )
+    except Exception as exc:
+        logger.exception("api/threads: erro ao listar branches")
+        raise HTTPException(status_code=404, detail="Thread não encontrada") from exc
+
+
+@router.get(
+    "/threads/{thread_id}/branches/{head_message_id}/compare",
+    response_model=ConversationBranchComparison,
+)
+async def compare_conversation_branch(
+    thread_id: str, head_message_id: int, request: Request
+) -> ConversationBranchComparison:
+    """Compara uma ponta com a branch ativa da thread."""
+    await _assert_owns_thread(thread_id, request)
+    try:
+        store = await _get_session_store()
+        result = await store.compare_branches(thread_id, head_message_id)
+        return ConversationBranchComparison.model_validate(result)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Branch não encontrada") from exc
+    except Exception as exc:
+        logger.exception("api/threads: erro ao comparar branches")
+        raise HTTPException(status_code=404, detail="Thread não encontrada") from exc
+
+
+@router.post(
+    "/threads/{thread_id}/branches/select",
+    response_model=ConversationBranchesResponse,
+)
+async def select_conversation_branch(
+    thread_id: str, body: SelectConversationBranchRequest, request: Request
+) -> ConversationBranchesResponse:
+    """Seleciona explicitamente uma branch sem restaurar arquivos do workspace."""
+    await _assert_owns_thread(thread_id, request)
+    try:
+        store = await _get_session_store()
+        await store.set_branch_head(thread_id, body.head_message_id)
+        branches = await store.list_branch_heads(thread_id)
+        return ConversationBranchesResponse(
+            branches=[ConversationBranch.model_validate(item) for item in branches],
+            active_head_message_id=body.head_message_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Branch não encontrada") from exc
+    except Exception as exc:
+        logger.exception("api/threads: erro ao selecionar branch")
+        raise HTTPException(
+            status_code=409, detail="Não foi possível selecionar a branch"
+        ) from exc
 
 
 # ---------------------------------------------------------------------------

@@ -341,6 +341,75 @@ class SessionStore:
                 await conn.rollback()
                 raise
 
+    async def list_branch_heads(
+        self, thread_id: str, *, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        """Lista as pontas (folhas) persistidas de uma conversa.
+
+        A ponta ativa continua sendo marcada por ``is_branch_head``. Para
+        preservar branches antigas, a enumeração também considera mensagens
+        que não são pai de nenhuma outra mensagem.
+        """
+        await self.setup()
+        bounded_limit = max(1, min(limit, 500))
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT m.id, m.created_at, m.is_branch_head, "
+                "(SELECT COUNT(*) FROM messages d WHERE d.thread_id = m.thread_id "
+                "AND d.parent_message_id = m.id) AS child_count "
+                "FROM messages m WHERE m.thread_id = ? "
+                "AND NOT EXISTS (SELECT 1 FROM messages d WHERE d.thread_id = m.thread_id "
+                "AND d.parent_message_id = m.id) "
+                "ORDER BY m.created_at DESC, m.id DESC LIMIT ?",
+                (thread_id, bounded_limit),
+            )
+            rows = await cur.fetchall()
+        return [
+            {
+                "head_message_id": int(row[0]),
+                "created_at": str(row[1]),
+                "active": bool(row[2]),
+                "message_count": len(
+                    await self.get_history_with_ids(
+                        thread_id, up_to_message_id=int(row[0])
+                    )
+                ),
+            }
+            for row in rows
+        ]
+
+    async def compare_branches(
+        self, thread_id: str, selected_head_id: int
+    ) -> dict[str, Any]:
+        """Compara a ponta ativa com outra ponta da mesma thread."""
+        selected = await self.get_history_with_ids(
+            thread_id, up_to_message_id=selected_head_id
+        )
+        if not selected or selected[-1][0] != selected_head_id:
+            raise ValueError(
+                f"mensagem {selected_head_id} não pertence à thread '{thread_id}'"
+            )
+        active_head = await self.get_branch_head_id(thread_id)
+        active = (
+            await self.get_history_with_ids(thread_id, up_to_message_id=active_head)
+            if active_head is not None
+            else []
+        )
+        active_ids = [item[0] for item in active]
+        selected_ids = [item[0] for item in selected]
+        common = 0
+        for left, right in zip(active_ids, selected_ids, strict=False):
+            if left != right:
+                break
+            common += 1
+        return {
+            "active_head_message_id": active_head,
+            "selected_head_message_id": selected_head_id,
+            "common_message_ids": active_ids[:common],
+            "active_divergent_message_ids": active_ids[common:],
+            "selected_divergent_message_ids": selected_ids[common:],
+        }
+
     async def get_session(
         self, thread_id: str, *, user_id: str | None = None
     ) -> dict[str, Any] | None:

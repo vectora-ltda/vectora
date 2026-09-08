@@ -58,6 +58,30 @@ class TestCreateSession:
 
 
 class TestAppendMessageEGetHistory:
+    async def test_lista_compara_e_seleciona_branches(self, store: SessionStore):
+        await store.create_session("thread-branches", user_id="alice")
+        root = await store.append_message(
+            "thread-branches", text_message(MessageRole.USER, "pergunta")
+        )
+        old_head = await store.append_message(
+            "thread-branches",
+            text_message(MessageRole.ASSISTANT, "resposta antiga"),
+            parent_message_id=root,
+        )
+        new_head = await store.append_message(
+            "thread-branches",
+            text_message(MessageRole.ASSISTANT, "resposta nova"),
+            parent_message_id=root,
+        )
+
+        branches = await store.list_branch_heads("thread-branches")
+        assert {item["head_message_id"] for item in branches} == {old_head, new_head}
+        comparison = await store.compare_branches("thread-branches", old_head)
+        assert comparison["common_message_ids"] == [root]
+        assert comparison["selected_divergent_message_ids"] == [old_head]
+        await store.set_branch_head("thread-branches", old_head)
+        assert await store.get_branch_head_id("thread-branches") == old_head
+
     async def test_round_trip_preserva_ordem_e_conteudo(self, store: SessionStore):
         await store.create_session("thread-1", user_id="alice")
         id1 = await store.append_message(
