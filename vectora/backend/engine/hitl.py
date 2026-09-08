@@ -49,6 +49,11 @@ REQUIRE_APPROVAL: frozenset[str] = frozenset(
         "kanban_create",
         "kanban_update_status",
         "apply_memory_consolidation",
+        # Operações com custo variável: a quota e o preço estimado são
+        # apresentados ao usuário antes da execução do provider.
+        "generate_image",
+        "text_to_speech",
+        "generate_video",
     }
 )
 
