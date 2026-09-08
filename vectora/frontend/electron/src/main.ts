@@ -63,6 +63,11 @@ import {
   fetchMarketplaceThemes,
   searchMarketplaceThemes,
 } from "./vscode-marketplace.js";
+import {
+  createRotatingUpdateBackup,
+  listUpdateBackups,
+  restoreUpdateBackup,
+} from "./update-backup.js";
 
 interface UpdateStatus {
   state:
@@ -697,7 +702,7 @@ async function isAutoUpdateEnabled(): Promise<boolean> {
  * listeners pra a UI mostrar o resultado.
  */
 function setupAutoUpdater(): void {
-  autoUpdater.autoDownload = true;
+  autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
   const broadcast = (status: UpdateStatus) => {
@@ -705,9 +710,21 @@ function setupAutoUpdater(): void {
   };
 
   autoUpdater.on("checking-for-update", () => broadcast({ state: "checking" }));
-  autoUpdater.on("update-available", (info) =>
-    broadcast({ state: "available", message: info.version }),
-  );
+  autoUpdater.on("update-available", (info) => {
+    broadcast({ state: "available", message: info.version });
+    void createRotatingUpdateBackup(
+      app.getPath("userData"),
+      path.join(app.getPath("userData"), "update-backups"),
+      app.getVersion(),
+    )
+      .then(() => autoUpdater.downloadUpdate())
+      .catch((error: unknown) => {
+        broadcast({
+          state: "error",
+          message: `Backup local falhou: ${String(error)}`,
+        });
+      });
+  });
   autoUpdater.on("update-not-available", () =>
     broadcast({ state: "not-available" }),
   );
@@ -777,6 +794,15 @@ function registerIpc(): void {
   ipcMain.on("vectora:check-for-update", () => {
     void safeCheckForUpdates();
   });
+  ipcMain.handle("vectora:list-update-backups", () =>
+    listUpdateBackups(path.join(app.getPath("userData"), "update-backups")),
+  );
+  ipcMain.handle("vectora:restore-update-backup", (_event, backup: unknown) =>
+    restoreUpdateBackup(
+      backup as Parameters<typeof restoreUpdateBackup>[0],
+      app.getPath("userData"),
+    ),
+  );
 
   // Controles da titlebar customizada (frame: false — ver createWindow()).
   ipcMain.on("vectora:window-minimize", () => mainWindow?.minimize());
