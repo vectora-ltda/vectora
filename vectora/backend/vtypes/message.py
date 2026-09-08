@@ -58,6 +58,7 @@ class ContentBlock:
     kind: Literal["text", "image_url", "reasoning"]
     text: str | None = None
     image_url: str | None = None
+    asset_id: str | None = None
     reasoning_text: str | None = None
 
 
@@ -95,6 +96,7 @@ class VMessage:
                     "kind": b.kind,
                     "text": b.text,
                     "image_url": b.image_url,
+                    "asset_id": b.asset_id,
                     "reasoning_text": b.reasoning_text,
                 }
                 for b in self.content
@@ -123,6 +125,7 @@ class VMessage:
                         kind=b["kind"],
                         text=b.get("text"),
                         image_url=b.get("image_url"),
+                        asset_id=b.get("asset_id"),
                         reasoning_text=b.get("reasoning_text"),
                     )
                     for b in data.get("content", [])
