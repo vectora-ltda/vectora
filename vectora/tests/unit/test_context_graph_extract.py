@@ -227,6 +227,21 @@ class TestExtractPythonFile:
 
 
 class TestExtractTypeScriptFile:
+    def test_tree_sitter_language_aliases_use_pack_names(self):
+        from backend.context_graph.extract import _load_tree_sitter_language
+
+        language = _load_tree_sitter_language("tree_sitter_c_sharp")
+
+        assert language is not None
+
+    def test_unsupported_tree_sitter_language_is_explicit(self):
+        import pytest
+
+        from backend.context_graph.extract import _load_tree_sitter_language
+
+        with pytest.raises(ValueError, match="does not provide"):
+            _load_tree_sitter_language("dm")
+
     def test_extracts_function_ts(self, tmp_path: Path):
         from backend.context_graph.extract import _get_extractor, _safe_extract
 

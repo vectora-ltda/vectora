@@ -22,6 +22,11 @@ from .mcp_ingest import extract_mcp_config, is_mcp_config_path
 
 _RECURSION_LIMIT = 10_000
 
+_TREE_SITTER_LANGUAGE_ALIASES: dict[str, str] = {
+    "c_sharp": "csharp",
+}
+_UNSUPPORTED_TREE_SITTER_LANGUAGES = frozenset({"dm"})
+
 # Language built-in globals that AST may classify as call targets when used as
 # constructors or coercion functions (e.g. String(x), Number(x), Boolean(x)).
 # Without this filter they become god-nodes accumulating spurious edges from
@@ -2457,6 +2462,11 @@ def _load_tree_sitter_language(module: str, function: str = "language") -> Langu
         name = "typescript"
     elif function == "language_tsx":
         name = "tsx"
+    name = _TREE_SITTER_LANGUAGE_ALIASES.get(name, name)
+    if name in _UNSUPPORTED_TREE_SITTER_LANGUAGES:
+        raise ValueError(
+            f"tree_sitter_language_pack does not provide a grammar for {name!r}"
+        )
     return get_language(name)
 
 
