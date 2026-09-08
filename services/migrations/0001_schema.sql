@@ -269,15 +269,15 @@ INSERT OR IGNORE INTO mcp_catalog (id, name, description, install_cmd, env_vars,
   ('slack', 'Slack', 'Leitura e envio de mensagens no Slack via Bot Token.', 'npx -y @modelcontextprotocol/server-slack', '["SLACK_BOT_TOKEN", "SLACK_TEAM_ID"]', 'https://github.com/modelcontextprotocol/servers', 'communication', 1),
   ('sequential-thinking', 'Sequential Thinking', 'Raciocínio passo-a-passo estruturado antes de agir.', 'npx -y @modelcontextprotocol/server-sequential-thinking', '[]', 'https://github.com/modelcontextprotocol/servers', 'reasoning', 1);
 
--- Skills oficiais são versionadas no pacote vectora-skills, separado do
--- aplicativo para que a instalação continue sendo um clone Git comum.
+-- Skills oficiais são versionadas neste repositório e fixadas por SHA e
+-- subdiretório para que a instalação seja reprodutível.
 INSERT OR IGNORE INTO skills_catalog
   (id, name, description, source, package_name, version, tags, category, catalog_source, vectora_verified)
 VALUES
-  ('vectora-code-review', 'Vectora Code Review', 'Fluxo estruturado para revisar código com evidências, riscos e testes.', 'https://github.com/vectora-ltda/vectora-skills.git', '@vectora/code-review', '1.0.0', '["code-review", "quality"]', 'engineering', 'curated', 1),
-  ('vectora-adr', 'Vectora ADR', 'Cria registros de decisão arquitetural com contexto, alternativas e consequências.', 'https://github.com/vectora-ltda/vectora-skills.git', '@vectora/adr', '1.0.0', '["adr", "architecture"]', 'engineering', 'curated', 1),
-  ('vectora-rfc', 'Vectora RFC', 'Estrutura propostas técnicas para revisão, implementação e acompanhamento.', 'https://github.com/vectora-ltda/vectora-skills.git', '@vectora/rfc', '1.0.0', '["rfc", "design"]', 'engineering', 'curated', 1),
-  ('vectora-prd', 'Vectora PRD', 'Define problemas de produto, requisitos, métricas e critérios de aceite.', 'https://github.com/vectora-ltda/vectora-skills.git', '@vectora/prd', '1.0.0', '["prd", "product"]', 'product', 'curated', 1);
+  ('vectora-code-review', 'Vectora Code Review', 'Fluxo estruturado para revisar código com evidências, riscos e testes.', 'https://github.com/vectora-ltda/vectora.git#d12e0858d24f9a360f0c5e4056ed7b9d3c65b6c8:skills/official/code-review', '@vectora/code-review', '1.0.0', '["code-review", "quality"]', 'engineering', 'curated', 1),
+  ('vectora-adr', 'Vectora ADR', 'Cria registros de decisão arquitetural com contexto, alternativas e consequências.', 'https://github.com/vectora-ltda/vectora.git#d12e0858d24f9a360f0c5e4056ed7b9d3c65b6c8:skills/official/adr', '@vectora/adr', '1.0.0', '["adr", "architecture"]', 'engineering', 'curated', 1),
+  ('vectora-rfc', 'Vectora RFC', 'Estrutura propostas técnicas para revisão, implementação e acompanhamento.', 'https://github.com/vectora-ltda/vectora.git#d12e0858d24f9a360f0c5e4056ed7b9d3c65b6c8:skills/official/rfc', '@vectora/rfc', '1.0.0', '["rfc", "design"]', 'engineering', 'curated', 1),
+  ('vectora-prd', 'Vectora PRD', 'Define problemas de produto, requisitos, métricas e critérios de aceite.', 'https://github.com/vectora-ltda/vectora.git#d12e0858d24f9a360f0c5e4056ed7b9d3c65b6c8:skills/official/prd', '@vectora/prd', '1.0.0', '["prd", "product"]', 'product', 'curated', 1);
 
 -- Tabela de telemetria genérica (crash/uso) enviada pelo backend Python do
 -- Vectora local — POST /telemetry/ingest, sempre via fila (vectora-jobs,

@@ -1,4 +1,5 @@
 ---
+id: vectora-adr
 name: Vectora ADR
 description: Cria registros de decisão arquitetural com contexto, alternativas e consequências.
 version: 1.0.0

@@ -741,6 +741,13 @@ async def stream_chat(
         native_agent = await agent_factory.get_native_agent(
             user_id, chat_mode=chat_mode, workspace_id=workspace_id or None
         )
+        from backend.services.tool_resolver import resolve_registry
+
+        effective_tool_registry = await resolve_registry(
+            user_id,
+            native_agent.tool_registry,
+            workspace_id=workspace_id or "",
+        )
         session_store = await agent_factory.get_session_store()
     except Exception as exc:
         logger.exception("api/chat: erro ao inicializar o motor nativo")
@@ -884,7 +891,7 @@ async def stream_chat(
         result = await run_conversation(
             session_store=session_store,
             chat_client=chat_client,
-            tool_registry=native_agent.tool_registry,
+            tool_registry=effective_tool_registry,
             ctx=run_ctx,
             thread_id=thread_id,
             config=loop_config,
@@ -958,6 +965,13 @@ async def resume_chat(
             chat_mode=selector_chat_mode,
             workspace_id=selector_workspace_id,
         )
+        from backend.services.tool_resolver import resolve_registry
+
+        effective_tool_registry = await resolve_registry(
+            resume_user_id,
+            native_agent.tool_registry,
+            workspace_id=selector_workspace_id or "",
+        )
         session_store = await agent_factory.get_session_store()
         approval_gate = await agent_factory.get_approval_gate()
     except Exception as exc:
@@ -984,7 +998,7 @@ async def resume_chat(
         run_ctx.store = await agent_factory.get_store()
         resumed = await resume_conversation(
             session_store=session_store,
-            tool_registry=native_agent.tool_registry,
+            tool_registry=effective_tool_registry,
             ctx=run_ctx,
             thread_id=request.thread_id,
             decision=decision,
@@ -1008,7 +1022,7 @@ async def resume_chat(
         result = await run_conversation(
             session_store=session_store,
             chat_client=chat_client,
-            tool_registry=native_agent.tool_registry,
+            tool_registry=effective_tool_registry,
             ctx=run_ctx,
             thread_id=request.thread_id,
             config=loop_config,
@@ -1046,7 +1060,10 @@ async def get_tools(http_request: Request) -> GetToolsResponse:
     try:
         from backend.services.tool_resolver import resolve_tools
 
-        resolved = await resolve_tools(_user_id_from_request(http_request))
+        workspace_id = str(getattr(http_request.state, "workspace_id", "") or "")
+        resolved = await resolve_tools(
+            _user_id_from_request(http_request), workspace_id=workspace_id
+        )
     except Exception as exc:
         logger.warning("api/chat: não foi possível resolver tools: %s", exc)
         return GetToolsResponse(tools=[])

@@ -1,4 +1,5 @@
 ---
+id: vectora-prd
 name: Vectora PRD
 description: Define problemas de produto, requisitos, métricas e critérios de aceite.
 version: 1.0.0

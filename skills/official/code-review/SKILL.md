@@ -1,4 +1,5 @@
 ---
+id: vectora-code-review
 name: Vectora Code Review
 description: Fluxo estruturado para revisar código com evidências, riscos e testes.
 version: 1.0.0
