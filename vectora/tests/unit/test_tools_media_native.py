@@ -196,8 +196,8 @@ class TestTranscribeLocal:
         assert "language" in result
 
     async def test_falha_do_motor_de_transcricao_devolve_erro_tipado(
-        self, tmp_path, monkeypatch
-    ):
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Falhas do motor são convertidas em erro legível pela tool."""
         import builtins
 

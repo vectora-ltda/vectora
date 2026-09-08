@@ -184,35 +184,23 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
   if (args.includes("--changed")) {
     const repoRoot = resolve(root, "..", "..");
     let stdout: string;
-    try {
-      ({ stdout } = await execFileAsync(
-        "git",
-        [
-          "diff",
-          "HEAD",
-          "--name-only",
-          "--diff-filter=AM",
-          "--",
-          "vectora/frontend",
-        ],
-        { cwd: repoRoot },
-      ));
-    } catch {
-      ({ stdout } = await execFileAsync(
-        "git",
-        [
-          "diff-tree",
-          "--no-commit-id",
-          "--name-only",
-          "-r",
-          "-m",
-          "HEAD",
-          "--",
-          "vectora/frontend",
-        ],
-        { cwd: repoRoot },
-      ));
-    }
+    const baseRef = process.env.GITHUB_BASE_REF;
+    const diffRef =
+      baseRef && /^[A-Za-z0-9._/-]+$/.test(baseRef)
+        ? `origin/${baseRef}...HEAD`
+        : "HEAD";
+    ({ stdout } = await execFileAsync(
+      "git",
+      [
+        "diff",
+        "--name-only",
+        "--diff-filter=AM",
+        diffRef,
+        "--",
+        "vectora/frontend",
+      ],
+      { cwd: repoRoot },
+    ));
     paths = stdout
       .split(/\r?\n/)
       .filter((path) => /\.(ts|tsx)$/.test(path) && !isIgnoredPath(path))

@@ -16,6 +16,7 @@ como comentário reintroduziria falso positivo em código de produção real.
 from __future__ import annotations
 
 import io
+import os
 import re
 import subprocess  # nosec B404
 import sys
@@ -178,6 +179,14 @@ def _find_violations(path: str) -> list[tuple[int, str]]:
     ]
 
 
+def _changed_diff_ref() -> str:
+    """Return the diff reference appropriate for local hooks or CI."""
+    base_ref = os.environ.get("GITHUB_BASE_REF", "")
+    if base_ref and re.fullmatch(r"[A-Za-z0-9._/-]+", base_ref):
+        return f"origin/{base_ref}...HEAD"
+    return "HEAD"
+
+
 def main(argv: list[str]) -> int:
     if "--changed" in argv:
         try:
@@ -185,9 +194,9 @@ def main(argv: list[str]) -> int:
                 [
                     "git",
                     "diff",
-                    "HEAD",
                     "--name-only",
                     "--diff-filter=AM",
+                    _changed_diff_ref(),
                     "--",
                     "*.py",
                     "*.ts",
@@ -210,6 +219,8 @@ def main(argv: list[str]) -> int:
             not in {
                 "utils/check_no_plan_comments.py",
                 "utils/test_check_no_plan_comments.py",
+                "utils/check_no_plan_pr_metadata.py",
+                "utils/test_check_no_plan_pr_metadata.py",
             }
         ]
     had_violation = False
