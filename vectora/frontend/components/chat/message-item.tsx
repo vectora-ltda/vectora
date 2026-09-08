@@ -52,7 +52,10 @@ import { formatDistanceToNow } from "date-fns";
 import { ptBR, es as esLocale, enUS } from "date-fns/locale";
 import { useQueryClient } from "@tanstack/react-query";
 import { m } from "@/lib/paraglide/messages";
-import { useSpeechSynthesis } from "@/lib/hooks/use-speech-synthesis";
+import {
+  spokenMessageText,
+  useSpeechSynthesis,
+} from "@/lib/hooks/use-speech-synthesis";
 
 /** Locale do date-fns a partir do idioma da UI (item 9 — "há quanto tempo"). */
 const DATE_FNS_LOCALES = { pt: ptBR, es: esLocale, en: enUS } as const;
@@ -1035,7 +1038,7 @@ export const MessageItem = memo(
             {message.role === "assistant" && (
               <>
                 <TooltipProvider delayDuration={300}>
-                  <div className="flex items-center justify-between mt-0.5 opacity-0 group-hover/message:opacity-100 transition-opacity duration-150">
+                  <div className="flex items-center justify-between mt-0.5 opacity-100 md:opacity-0 md:group-hover/message:opacity-100 md:group-focus-within/message:opacity-100 transition-opacity duration-150">
                     <div className="flex gap-0.5 items-center flex-wrap">
                       {/* M5 — Botão de retry para mensagens de erro */}
                       {message.isError && onRetry && (
@@ -1082,60 +1085,61 @@ export const MessageItem = memo(
                             </TooltipContent>
                           </Tooltip>
 
-                          {speech.supported && (
-                            <>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
+                          {speech.supported &&
+                            spokenMessageText(message.content).length > 0 && (
+                              <>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                                      onClick={
+                                        speech.state === "idle"
+                                          ? speech.speak
+                                          : speech.state === "paused"
+                                            ? speech.resume
+                                            : speech.pause
+                                      }
+                                      aria-label={
+                                        speech.state === "speaking"
+                                          ? m.message_tts_pause()
+                                          : speech.state === "paused"
+                                            ? m.message_tts_resume()
+                                            : m.message_tts_listen()
+                                      }
+                                      aria-pressed={speech.state === "speaking"}
+                                    >
+                                      {speech.state === "speaking" ? (
+                                        <Pause className="w-3 h-3" />
+                                      ) : speech.state === "paused" ? (
+                                        <Play className="w-3 h-3" />
+                                      ) : (
+                                        <Volume2 className="w-3 h-3" />
+                                      )}
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    {speech.state === "speaking"
+                                      ? m.message_tts_pause()
+                                      : speech.state === "paused"
+                                        ? m.message_tts_resume()
+                                        : m.message_tts_listen()}
+                                  </TooltipContent>
+                                </Tooltip>
+                                {speech.state !== "idle" && (
                                   <Button
                                     variant="ghost"
                                     size="icon"
                                     className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                                    onClick={
-                                      speech.state === "idle"
-                                        ? speech.speak
-                                        : speech.state === "paused"
-                                          ? speech.resume
-                                          : speech.pause
-                                    }
-                                    aria-label={
-                                      speech.state === "speaking"
-                                        ? m.message_tts_pause()
-                                        : speech.state === "paused"
-                                          ? m.message_tts_resume()
-                                          : m.message_tts_listen()
-                                    }
-                                    aria-pressed={speech.state === "speaking"}
+                                    onClick={speech.stop}
+                                    aria-label={m.message_tts_stop()}
                                   >
-                                    {speech.state === "speaking" ? (
-                                      <Pause className="w-3 h-3" />
-                                    ) : speech.state === "paused" ? (
-                                      <Play className="w-3 h-3" />
-                                    ) : (
-                                      <Volume2 className="w-3 h-3" />
-                                    )}
+                                    <Square className="w-3 h-3" />
                                   </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  {speech.state === "speaking"
-                                    ? m.message_tts_pause()
-                                    : speech.state === "paused"
-                                      ? m.message_tts_resume()
-                                      : m.message_tts_listen()}
-                                </TooltipContent>
-                              </Tooltip>
-                              {speech.state !== "idle" && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                                  onClick={speech.stop}
-                                  aria-label={m.message_tts_stop()}
-                                >
-                                  <Square className="w-3 h-3" />
-                                </Button>
-                              )}
-                            </>
-                          )}
+                                )}
+                              </>
+                            )}
 
                           {isLastAssistant && (
                             <Tooltip>

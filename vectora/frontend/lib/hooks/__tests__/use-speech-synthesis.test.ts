@@ -1,0 +1,59 @@
+// @vitest-environment jsdom
+
+import { act, renderHook } from "@testing-library/react";
+import { describe, expect, it, beforeEach, vi } from "vitest";
+
+import { spokenMessageText, useSpeechSynthesis } from "../use-speech-synthesis";
+
+describe("useSpeechSynthesis", () => {
+  const speech = {
+    speak: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    cancel: vi.fn(),
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    Object.defineProperty(window, "speechSynthesis", {
+      configurable: true,
+      value: speech,
+    });
+    class FakeUtterance {
+      public text: string;
+      public lang = "";
+      public onend: (() => void) | null = null;
+      public onerror: (() => void) | null = null;
+
+      public constructor(text: string) {
+        this.text = text;
+      }
+    }
+    Object.defineProperty(window, "SpeechSynthesisUtterance", {
+      configurable: true,
+      value: FakeUtterance,
+    });
+  });
+
+  it("removes fenced code before speaking", () => {
+    expect(spokenMessageText("Olá\n```ts\nconst x = 1\n```\nTudo bem")).toBe(
+      "Olá Tudo bem",
+    );
+  });
+
+  it("supports start, pause, resume and stop", () => {
+    const { result } = renderHook(() => useSpeechSynthesis("Olá", "thread-1"));
+
+    act(() => result.current.speak());
+    expect(result.current.state).toBe("speaking");
+    expect(speech.speak).toHaveBeenCalledTimes(1);
+
+    act(() => result.current.pause());
+    expect(result.current.state).toBe("paused");
+    act(() => result.current.resume());
+    expect(result.current.state).toBe("speaking");
+    act(() => result.current.stop());
+    expect(result.current.state).toBe("idle");
+    expect(speech.cancel).toHaveBeenCalled();
+  });
+});
