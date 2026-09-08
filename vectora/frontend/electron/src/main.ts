@@ -697,7 +697,7 @@ async function isAutoUpdateEnabled(): Promise<boolean> {
  * listeners pra a UI mostrar o resultado.
  */
 function setupAutoUpdater(): void {
-  autoUpdater.autoDownload = true;
+  autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
   const broadcast = (status: UpdateStatus) => {
@@ -776,6 +776,14 @@ function registerIpc(): void {
   // periódicos em scheduleAutoUpdateChecks().
   ipcMain.on("vectora:check-for-update", () => {
     void safeCheckForUpdates();
+  });
+  ipcMain.on("vectora:download-update", () => {
+    void autoUpdater.downloadUpdate().catch((error: unknown) => {
+      mainWindow?.webContents.send("vectora:update-status", {
+        state: "error",
+        message: String(error),
+      } satisfies UpdateStatus);
+    });
   });
 
   // Controles da titlebar customizada (frame: false — ver createWindow()).
