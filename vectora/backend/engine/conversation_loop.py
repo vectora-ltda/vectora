@@ -46,6 +46,7 @@ from backend.engine.stream_events import (
     WorkbenchInvalidate,
 )
 from backend.engine.tool_batch import execute_tool_batch
+from backend.services.context_compaction import compact_messages
 from backend.vtypes.message import ContentBlock, MessageRole, ToolCall, VMessage
 
 _REPEATED_CALL_THRESHOLD = 3
@@ -73,6 +74,8 @@ class LoopConfig:
     temperature: float | None = None
     max_tokens: int | None = None
     loop_caps: LoopCapConfig = field(default_factory=LoopCapConfig)
+    context_max_tokens: int | None = None
+    context_compaction_enabled: bool = True
     """Tetos de volume por turno (`backend/engine/guardrails.py`) —
     distintos de `max_iterations` (teto de voltas do loop): aqui é volume
     de tool calls/subagentes/AITL, não repetição nem número de idas e
@@ -112,6 +115,13 @@ def _args_preview(args: dict[str, Any]) -> str:
 
 
 _WRITE_TODOS_TOOL_NAME = "write_todos"
+
+
+def _default_context_tokens() -> int:
+    """Read the configured default lazily so loop tests remain isolated."""
+    from backend.settings import settings
+
+    return settings.max_context_tokens
 
 
 def _parse_todos_result(texto: str) -> list[TodoItem] | None:
@@ -185,7 +195,15 @@ async def run_conversation(
     turn_budget = TurnBudget(config=config.loop_caps)
 
     for _iteracao in range(config.max_iterations):
-        historico = await session_store.get_history(thread_id)
+        historico = compact_messages(
+            await session_store.get_history(thread_id),
+            max_tokens=(
+                config.context_max_tokens
+                if config.context_max_tokens is not None
+                else _default_context_tokens()
+            ),
+            enabled=config.context_compaction_enabled,
+        )
 
         partes_texto: list[str] = []
         tool_call_chunks_por_indice: dict[int, dict[str, Any]] = {}
