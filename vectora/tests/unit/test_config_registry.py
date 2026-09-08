@@ -23,6 +23,8 @@ from backend.config.registry import (
     DuplicateSettingFieldError,
     fields_for_category,
     get_field,
+    get_value,
+    set_value,
     setting_field,
 )
 
@@ -83,6 +85,20 @@ class TestSettingField:
 
     def test_chave_inexistente_retorna_none(self, clean_registry):
         assert get_field("nao-existe") is None
+
+    def test_get_set_value_delegam_para_adapter(self, clean_registry):
+        adapter = _NoopAdapter()
+        setting_field(
+            "delegated",
+            category="preferences",
+            cli_flag="--delegated",
+            description="d",
+            adapter=adapter,
+        )
+        set_value("delegated", "value")
+        assert get_value("delegated") is None
+        with pytest.raises(KeyError):
+            get_value("missing")
 
     def test_fields_for_category_filtra_corretamente(self, clean_registry):
         setting_field(
