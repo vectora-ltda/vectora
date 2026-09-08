@@ -551,6 +551,12 @@ def encode_event(payload: StreamChatEventPayload) -> str:
 # ---------------------------------------------------------------------------
 
 
+class RemoteActivity(BaseModel):
+    """Recent activity from another device owned by the same user."""
+
+    last_active_at: str
+
+
 class Thread(BaseModel):
     id: str
     created_at: str
@@ -559,6 +565,7 @@ class Thread(BaseModel):
     workspace_id: str = ""
     mode: str = "dev"  # "chat" | "dev" — sessões legadas sem modo são "dev"
     pinned: bool = False
+    remote_activity: RemoteActivity | None = None
 
 
 class HistoryMessage(BaseModel):

@@ -345,6 +345,19 @@ CREATE TABLE IF NOT EXISTS vectora_boards (
 
 CREATE INDEX IF NOT EXISTS idx_boards_user ON vectora_boards(user_id);
 
+-- Atividade pseudônima por usuário, dispositivo e thread. Não contém
+-- conteúdo de conversa nem identificadores pessoais.
+CREATE TABLE IF NOT EXISTS vectora_thread_activity (
+    user_id        TEXT NOT NULL,
+    device_id      TEXT NOT NULL,
+    thread_id      TEXT NOT NULL,
+    last_active_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, device_id, thread_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_thread_activity_user_thread
+    ON vectora_thread_activity(user_id, thread_id);
+
 -- NULL = task pré-Fase-6, nunca associada a um board — absorve o legado
 -- sem exigir backfill; o board "Default" é criado sob demanda
 -- (`get_or_create_default_board`) na primeira vez que o usuário abre a

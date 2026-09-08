@@ -51,6 +51,11 @@ from backend.api.schemas import (
     TodoItem,
     UpdateThreadRequest,
 )
+from backend.persistence.thread_activity import (
+    get_remote_activity,
+    record_activity,
+)
+from backend.rbac.device_id import validate_device_id
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +135,19 @@ async def _ensure_schema(db: Any) -> None:
             deleted_at TEXT NOT NULL
         )
     """)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS vectora_thread_activity (
+            user_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            thread_id TEXT NOT NULL,
+            last_active_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, device_id, thread_id)
+        )
+    """)
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_thread_activity_user_thread "
+        "ON vectora_thread_activity(user_id, thread_id)"
+    )
     await db.commit()
 
 
@@ -243,7 +261,7 @@ def _normalize_mode(mode: str | None) -> str:
     return "code"
 
 
-def _row_to_thread(row: tuple) -> Thread:
+def _row_to_thread(row: tuple, remote_activity: str | None = None) -> Thread:
     """Converte uma linha da tabela vectora_sessions em Thread.
 
     A linha traz até 8 colunas (``mode`` e ``pinned`` de 1ª classe nas duas
@@ -270,6 +288,9 @@ def _row_to_thread(row: tuple) -> Thread:
         workspace_id=workspace_id,
         mode=mode,
         pinned=bool(pinned_col),
+        remote_activity=(
+            {"last_active_at": remote_activity} if remote_activity is not None else None
+        ),
     )
 
 
@@ -687,6 +708,10 @@ async def get_thread(
             status_code=404, detail=f"Thread {request.thread_id!r} not found"
         )
     await _assert_owns_thread(request.thread_id, http_request)
+    if http_request is not None:
+        device_id = validate_device_id(getattr(http_request.state, "device_id", None))
+        if device_id:
+            await record_activity(_user_id(http_request), device_id, request.thread_id)
     return _row_to_thread(row)
 
 
@@ -745,8 +770,20 @@ async def list_threads(
             [r[0] for r in rows], user_id
         )
         rows = [r for r in rows if r[0] not in foreign_ids]
+        remote: dict[str, str] = {}
+        device_id = validate_device_id(getattr(http_request.state, "device_id", None))
+        if device_id and rows:
+            remote = await get_remote_activity(
+                user_id,
+                [str(row[0]) for row in rows],
+                device_id,
+            )
+    else:
+        remote = {}
 
-    return ListThreadsResponse(threads=[_row_to_thread(r) for r in rows])
+    return ListThreadsResponse(
+        threads=[_row_to_thread(r, remote.get(str(r[0]))) for r in rows]
+    )
 
 
 async def cleanup_empty_threads(max_age_hours: float = 1.0) -> int:

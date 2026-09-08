@@ -218,10 +218,20 @@ class AuthMiddleware(BaseHTTPMiddleware):
             # Rotas públicas não bloqueiam, mas tentamos extrair o usuário
             # para que handlers como /auth/me possam verificar autenticação.
             request.state.user = await _extract_user(request)
+            from backend.rbac.device_id import validate_device_id
+
+            request.state.device_id = validate_device_id(
+                request.headers.get("X-Vectora-Device-Id")
+            )
             return await call_next(request)
 
         user = await _extract_user(request)
         request.state.user = user
+        from backend.rbac.device_id import validate_device_id
+
+        request.state.device_id = validate_device_id(
+            request.headers.get("X-Vectora-Device-Id")
+        )
 
         # Rotas privadas exigem usuário autenticado
         if user is None:
