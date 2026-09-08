@@ -86,6 +86,8 @@ class LoopResult:
     stopped_reason: str
     """`"stop"` | `"max_iterations"` | `"interrupted"` | `"loop_cap_exceeded"`."""
     final_message: VMessage | None = None
+    usage: dict[str, int] | None = None
+    tool_names: tuple[str, ...] = ()
 
 
 async def _noop_event(_event: object) -> None:
@@ -183,6 +185,8 @@ async def run_conversation(
     assinaturas_anteriores: frozenset[tuple[str, str]] | None = None
     repeticoes_seguidas = 0
     turn_budget = TurnBudget(config=config.loop_caps)
+    last_usage: dict[str, int] | None = None
+    observed_tools: set[str] = set()
 
     for _iteracao in range(config.max_iterations):
         historico = await session_store.get_history(thread_id)
@@ -196,6 +200,8 @@ async def run_conversation(
             temperature=config.temperature,
             max_tokens=config.max_tokens,
         ):
+            if chunk.usage:
+                last_usage = dict(chunk.usage)
             if chunk.delta_text:
                 partes_texto.append(chunk.delta_text)
                 await emit(MessageChunk(content=chunk.delta_text))
@@ -216,6 +222,7 @@ async def run_conversation(
 
         texto_final = "".join(partes_texto)
         tool_calls = _resolve_tool_calls(tool_call_chunks_por_indice)
+        observed_tools.update(tc.name for tc in tool_calls if tc.name)
 
         assistant_msg = VMessage(
             role=MessageRole.ASSISTANT,
@@ -231,7 +238,12 @@ async def run_conversation(
         await emit(MessageBreak())
 
         if not tool_calls:
-            return LoopResult(stopped_reason="stop", final_message=assistant_msg)
+            return LoopResult(
+                stopped_reason="stop",
+                final_message=assistant_msg,
+                usage=last_usage,
+                tool_names=tuple(sorted(observed_tools)),
+            )
 
         assinaturas_atual = frozenset(_call_signature(tc) for tc in tool_calls)
         if assinaturas_atual == assinaturas_anteriores:
@@ -280,7 +292,10 @@ async def run_conversation(
                     )
                 )
                 return LoopResult(
-                    stopped_reason="interrupted", final_message=assistant_msg
+                    stopped_reason="interrupted",
+                    final_message=assistant_msg,
+                    usage=last_usage,
+                    tool_names=tuple(sorted(observed_tools)),
                 )
 
         tool_started_at: dict[str, float] = {}
@@ -360,7 +375,10 @@ async def run_conversation(
                 )
             )
             return LoopResult(
-                stopped_reason="loop_cap_exceeded", final_message=assistant_msg
+                stopped_reason="loop_cap_exceeded",
+                final_message=assistant_msg,
+                usage=last_usage,
+                tool_names=tuple(sorted(observed_tools)),
             )
 
     await emit(
@@ -369,7 +387,11 @@ async def run_conversation(
             message=f"Limite de {config.max_iterations} iterações atingido.",
         )
     )
-    return LoopResult(stopped_reason="max_iterations")
+    return LoopResult(
+        stopped_reason="max_iterations",
+        usage=last_usage,
+        tool_names=tuple(sorted(observed_tools)),
+    )
 
 
 async def _execute_single_call(

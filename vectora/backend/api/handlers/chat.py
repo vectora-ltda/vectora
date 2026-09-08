@@ -892,6 +892,26 @@ async def stream_chat(
             should_require_approval=should_require_approval,
             approval_gate=approval_gate,
         )
+        if result.usage:
+            try:
+                from backend.api.handlers.threads import _get_db
+                from backend.services.usage_insights import usage_insight_store
+
+                db = await _get_db()
+                await usage_insight_store.record(
+                    db,
+                    user_id=user_id,
+                    model=getattr(chat_client, "primary_model_id", None),
+                    input_tokens=result.usage.get("input_tokens"),
+                    output_tokens=result.usage.get("output_tokens"),
+                    total_tokens=result.usage.get("total_tokens"),
+                    estimated_cost_cents=None,
+                    tool_names=list(result.tool_names),
+                )
+            except Exception:
+                logger.warning(
+                    "api/chat: falha ao registrar insight de uso", exc_info=True
+                )
         return result.stopped_reason
 
     return StreamingResponse(
