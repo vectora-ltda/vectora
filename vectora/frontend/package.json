@@ -39,7 +39,8 @@
     "electron-updater": "^6.8.9",
     "jsonc-parser": "3.3.1",
     "reagraph": "^4.32.0",
-    "tree-kill": "^1.2.2"
+    "tree-kill": "^1.2.2",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@babel/parser": "^8.0.4",

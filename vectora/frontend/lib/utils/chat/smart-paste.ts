@@ -1,3 +1,5 @@
+import { isMap, isSeq, parseDocument } from "yaml";
+
 export type SmartPasteKind = "url" | "json" | "yaml" | "code" | "text";
 
 export interface SmartPasteResult {
@@ -17,12 +19,20 @@ export function classifySmartPaste(value: string): SmartPasteResult {
     JSON.parse(trimmed);
     return { kind: "json", extension: "json", mimeType: "application/json" };
   } catch {
-    // YAML is deliberately conservative: only mappings/lists with scalar values.
-    if (
-      /^(?:---\s*)?[\w.-]+\s*:\s*[^\n]*$/m.test(trimmed) ||
-      /^-\s+\S+/m.test(trimmed)
-    ) {
-      return { kind: "yaml", extension: "yaml", mimeType: "text/yaml" };
+    // Parse only the YAML core schema.  This rejects custom tags and
+    // constructors instead of interpreting pasted content as executable data.
+    try {
+      const document = parseDocument(trimmed, {
+        schema: "core",
+      });
+      if (
+        document.errors.length === 0 &&
+        (isMap(document.contents) || isSeq(document.contents))
+      ) {
+        return { kind: "yaml", extension: "yaml", mimeType: "text/yaml" };
+      }
+    } catch {
+      // Fall through to code/text classification for invalid YAML.
     }
   }
   if (
