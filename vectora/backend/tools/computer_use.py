@@ -74,12 +74,6 @@ def _computer_use_enabled(workspace_id: str) -> bool:
         return False
 
 
-def _media_dir(session_id: str) -> Path:
-    return (
-        Path.home() / ".vectora" / "artifacts" / (session_id or "sem-sessao") / "media"
-    )
-
-
 def _take_screenshot_sync(region: tuple[int, int, int, int] | None = None) -> bytes:
     import io
 

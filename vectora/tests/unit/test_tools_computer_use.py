@@ -19,6 +19,7 @@ Tool nativa (`@vtool`) — chamada como função async direta com
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -94,18 +95,15 @@ class TestAcoes:
             cu.desktop_window_registry, "require_focus", lambda _selection: info
         )
 
-    async def test_screenshot_devolve_path_do_arquivo_gerado(
-        self, monkeypatch, tmp_path
-    ):
+    async def test_screenshot_devolve_path_do_arquivo_gerado(self, monkeypatch):
         monkeypatch.setattr(
             cu, "_take_screenshot_sync", lambda *_args: b"\x89PNG\r\nfake"
         )
-        monkeypatch.setattr(cu, "_media_dir", lambda _s: tmp_path / "media")
 
         saida = json.loads(await cu.computer_use(action="screenshot", ctx=_ctx()))
 
         assert saida["path"].endswith(".png")
-        assert str(tmp_path) not in saida["path"]
+        assert not Path(saida["path"]).is_absolute()
 
     async def test_click_exige_coordenadas_e_falha_de_biblioteca_vira_erro_tipado(
         self, monkeypatch
