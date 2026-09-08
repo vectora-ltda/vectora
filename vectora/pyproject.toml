@@ -267,11 +267,11 @@ invalid-return-type = "ignore"
 invalid-assignment = "ignore"
 
 [[tool.ty.overrides]]
-# faster-whisper is an optional runtime extra loaded only when transcription is enabled.
+# faster-whisper is loaded only by the local transcription tool.
 include = ["backend/tools/media_native.py"]
 
-[tool.ty.overrides.rules]
-unresolved-import = "ignore"
+[tool.ty.overrides.analysis]
+allowed-unresolved-imports = ["faster_whisper"]
 
 [[tool.ty.overrides]]
 # cluster.py: graspologic é opcional (fallback para networkx louvain).

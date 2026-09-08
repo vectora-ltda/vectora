@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from tree_sitter import Language
+
 from .cache import load_cached, save_cached
 from .ids import make_id
 from .manifest_ingest import extract_package_manifest, is_package_manifest_path
@@ -2446,7 +2448,7 @@ def _swift_extra_walk(
     return False
 
 
-def _load_tree_sitter_language(module: str, function: str = "language"):
+def _load_tree_sitter_language(module: str, function: str = "language") -> Language:
     """Load a grammar through the current tree-sitter language-pack API."""
     from tree_sitter_language_pack import get_language
 
@@ -9973,7 +9975,10 @@ def _parse_js_tree(path: Path):
         if path.suffix in (".ts", ".tsx"):
             import tree_sitter_typescript as tstypescript
 
-            language = _load_tree_sitter_language("typescript")
+            language = _load_tree_sitter_language(
+                "typescript",
+                "language_tsx" if path.suffix == ".tsx" else "language_typescript",
+            )
         else:
             import tree_sitter_javascript as tsjavascript
 

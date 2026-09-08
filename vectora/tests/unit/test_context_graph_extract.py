@@ -252,6 +252,30 @@ class TestExtractTypeScriptFile:
         result = _safe_extract(extractor, f)
         assert isinstance(result, dict)
 
+    def test_tsx_uses_jsx_aware_tree_sitter_grammar(self, tmp_path: Path):
+        from tree_sitter import Node
+
+        from backend.context_graph.extract import _parse_js_tree
+
+        f = tmp_path / "component.tsx"
+        f.write_text(
+            "export function Component() { return <Button>{formatDate()}</Button>; }\n",
+            encoding="utf-8",
+        )
+
+        parsed = _parse_js_tree(f)
+
+        assert parsed is not None
+        _source, root = parsed
+        assert not root.has_error
+
+        def contains_jsx(node: Node) -> bool:
+            return node.type == "jsx_element" or any(
+                contains_jsx(child) for child in node.children
+            )
+
+        assert contains_jsx(root)
+
 
 class TestExtractGdscriptFile:
     """GDScript (Godot) — achado real: um projeto Godot real do usuário
