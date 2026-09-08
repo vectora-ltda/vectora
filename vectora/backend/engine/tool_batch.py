@@ -96,6 +96,11 @@ async def _run_one(
         )
         texto = _apply_post_execute(texto)
         is_error = texto.startswith("Error:")
+        from backend.services.tool_usage import record_tool_usage
+
+        await record_tool_usage(
+            ctx.user_id or "local", tool_call.name, "error" if is_error else "ok"
+        )
     return VMessage(
         role=MessageRole.TOOL,
         content=[ContentBlock(kind="text", text=texto)],

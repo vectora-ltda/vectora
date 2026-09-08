@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { Check, Loader2 } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -17,6 +17,7 @@ import { m } from "@/lib/paraglide/messages";
 interface Policy {
   disabled: string[];
   available: string[];
+  schemas?: Record<string, unknown>;
 }
 
 export function ToolPolicyPanel() {
@@ -26,6 +27,9 @@ export function ToolPolicyPanel() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [usage, setUsage] = useState<Record<string, number> | null>(null);
+  const [usageError, setUsageError] = useState(false);
+  const [openSchema, setOpenSchema] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,6 +46,14 @@ export function ToolPolicyPanel() {
       })
       .catch(() => setError(m.toolpolicy_error_load()))
       .finally(() => setLoading(false));
+    fetch("/tools/usage")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled) return;
+        if (d?.usage) setUsage(d.usage);
+        else setUsageError(true);
+      })
+      .catch(() => setUsageError(true));
     return () => {
       cancelled = true;
     };
@@ -109,16 +121,46 @@ export function ToolPolicyPanel() {
       <div className="rounded-lg border bg-card/50 divide-y divide-border/60">
         {policy.available.map((name) => {
           const isEnabled = !disabled.has(name);
+          const schema = policy.schemas?.[name];
           return (
-            <div
-              key={name}
-              className="flex items-center justify-between px-3 py-2"
-            >
-              <span className="text-xs font-mono">{name}</span>
-              <Switch
-                checked={isEnabled}
-                onCheckedChange={() => toggle(name)}
-              />
+            <div key={name} className="px-3 py-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-mono">{name}</span>
+                <Switch
+                  checked={isEnabled}
+                  onCheckedChange={() => toggle(name)}
+                />
+              </div>
+              <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                <span>
+                  {usageError
+                    ? m.toolpolicy_usage_error()
+                    : m.toolpolicy_usage({ count: usage?.[name] ?? 0 })}
+                </span>
+                {schema !== undefined && (
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1"
+                    onClick={() =>
+                      setOpenSchema(openSchema === name ? null : name)
+                    }
+                  >
+                    {openSchema === name ? (
+                      <ChevronDown className="h-3 w-3" />
+                    ) : (
+                      <ChevronRight className="h-3 w-3" />
+                    )}
+                    {openSchema === name
+                      ? m.toolpolicy_hide_schema()
+                      : m.toolpolicy_show_schema()}
+                  </button>
+                )}
+              </div>
+              {openSchema === name && schema !== undefined && (
+                <pre className="mt-2 max-h-48 overflow-auto rounded bg-muted p-2 text-[10px]">
+                  {JSON.stringify(schema, null, 2)}
+                </pre>
+              )}
             </div>
           );
         })}

@@ -391,6 +391,11 @@ async def _execute_single_call(
             tool_call.args, replace(ctx, tool_call_id=tool_call.id)
         )
         is_error = texto.startswith("Error:")
+        from backend.services.tool_usage import record_tool_usage
+
+        await record_tool_usage(
+            ctx.user_id or "local", tool_call.name, "error" if is_error else "ok"
+        )
     return VMessage(
         role=MessageRole.TOOL,
         content=[ContentBlock(kind="text", text=texto)],
