@@ -178,6 +178,9 @@ export function GitTab(_props: { threadId: string }) {
   const invalidateDiff = useWorkbenchStore((s) => s.invalidateDiff);
   const clearPending = useWorkbenchStore((s) => s.clearPending);
   const setGitOperation = useWorkbenchStore((s) => s.setGitOperation);
+  const gitOps = useWorkbenchStore(
+    (s) => s.getGitOps?.(wsId) ?? { operation: null },
+  );
 
   const [view, setView] = useState<GitView>("changes");
   const [compareOpen, setCompareOpen] = useState(false);
@@ -300,6 +303,7 @@ export function GitTab(_props: { threadId: string }) {
         onOpenWorktrees={() => setWorktreesOpen(true)}
         onOpenPR={handleOpenPR}
         onChanged={handleChanged}
+        operation={gitOps.operation}
       />
 
       {lastCi && (
@@ -344,10 +348,16 @@ export function GitTab(_props: { threadId: string }) {
       ) : (
         <>
           {/* Barra de abas: só Mudanças | Histórico */}
-          <div className="flex shrink-0 border-b border-border/60">
+          <div
+            className="flex shrink-0 border-b border-border/60"
+            role="tablist"
+            aria-label={m.workbench_git_documents()}
+          >
             <button
               onClick={() => setView("changes")}
               aria-pressed={view === "changes"}
+              role="tab"
+              aria-selected={view === "changes"}
               className={`px-3 py-1.5 text-xs font-medium transition-colors ${
                 view === "changes"
                   ? "border-b-2 border-primary text-foreground -mb-px"
@@ -359,6 +369,8 @@ export function GitTab(_props: { threadId: string }) {
             <button
               onClick={() => setView("history")}
               aria-pressed={view === "history"}
+              role="tab"
+              aria-selected={view === "history"}
               className={`px-3 py-1.5 text-xs font-medium transition-colors ${
                 view === "history"
                   ? "border-b-2 border-primary text-foreground -mb-px"
@@ -367,6 +379,16 @@ export function GitTab(_props: { threadId: string }) {
             >
               {m.workbench_git_tab_history()}
             </button>
+            {compareOpen && (
+              <button
+                role="tab"
+                aria-selected
+                onClick={() => setCompareOpen(true)}
+                className="px-3 py-1.5 text-xs font-medium border-b-2 border-primary text-foreground -mb-px"
+              >
+                {m.workbench_git_document_compare()}
+              </button>
+            )}
           </div>
           <div className="flex-1 min-h-0">
             {view === "changes" ? (
