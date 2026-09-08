@@ -10,7 +10,9 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from typing import Any
+from typing import Protocol, cast
+
+from pydantic import BaseModel
 
 from backend.api.handlers import mcp_marketplace
 from backend.api.handlers import skills as skills_handler
@@ -30,11 +32,24 @@ OPERATION_ERROR = 1
 USAGE_ERROR = 2
 
 
+class MarketplaceArgs(Protocol):
+    resource: str
+    action: str
+    output: str
+    identifier: str
+    query: str | None
+    source: str
+    name: str
+    description: str
+    category: str | None
+    tags: list[str]
+
+
 def _envelope(
-    status: str, data: Any = None, error: str | None = None
-) -> dict[str, Any]:
+    status: str, data: object = None, error: str | None = None
+) -> dict[str, object]:
     """Create the versioned output contract shared by all subcommands."""
-    result: dict[str, Any] = {
+    result: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
         "status": status,
         "data": data,
@@ -44,9 +59,9 @@ def _envelope(
     return result
 
 
-def _public_skill(skill: Any) -> dict[str, Any]:
+def _public_skill(skill: object) -> dict[str, object]:
     """Remove filesystem and user details from CLI output."""
-    if hasattr(skill, "model_dump"):
+    if isinstance(skill, BaseModel):
         value = skill.model_dump()
     elif isinstance(skill, dict):
         value = dict(skill)
@@ -57,8 +72,13 @@ def _public_skill(skill: Any) -> dict[str, Any]:
     return value
 
 
-def _public_server(server: Any) -> dict[str, Any]:
-    value = server.model_dump() if hasattr(server, "model_dump") else dict(server)
+def _public_server(server: object) -> dict[str, object]:
+    if isinstance(server, BaseModel):
+        value = server.model_dump()
+    elif isinstance(server, dict):
+        value = dict(server)
+    else:
+        value = {"value": str(server)}
     # Environment variable names are safe metadata; values are never stored here.
     return {
         key: value[key]
@@ -67,8 +87,8 @@ def _public_server(server: Any) -> dict[str, Any]:
     }
 
 
-def _emit(result: dict[str, Any], output: str) -> int:
-    failure_code = int(result.get("error_code", OPERATION_ERROR))
+def _emit(result: dict[str, object], output: str) -> int:
+    failure_code = int(cast("int", result.get("error_code", OPERATION_ERROR)))
     if output == "json":
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     else:
@@ -90,7 +110,9 @@ def _emit(result: dict[str, Any], output: str) -> int:
     return SUCCESS if result["status"] != "error" else failure_code
 
 
-def _match(items: list[dict[str, Any]], query: str | None) -> list[dict[str, Any]]:
+def _match(
+    items: list[dict[str, object]], query: str | None
+) -> list[dict[str, object]]:
     if not query:
         return items
     needle = query.strip().lower()
@@ -103,7 +125,7 @@ def _match(items: list[dict[str, Any]], query: str | None) -> list[dict[str, Any
     ]
 
 
-async def _mcp(args: Any) -> dict[str, Any]:
+async def _mcp(args: MarketplaceArgs) -> dict[str, object]:
     installed = [_public_server(server) for server in plugins.list_servers("local")]
     if args.action == "list":
         return _envelope("ok", installed)
@@ -142,7 +164,7 @@ async def _mcp(args: Any) -> dict[str, Any]:
     return _envelope("error", error="Comando MCP indisponível")
 
 
-async def _skills(args: Any) -> dict[str, Any]:  # noqa: PLR0911
+async def _skills(args: MarketplaceArgs) -> dict[str, object]:  # noqa: PLR0911
     if args.action == "list":
         return _envelope("ok", [_public_skill(skill) for skill in list_skills("local")])
     if args.action in {"search", "info"}:
@@ -199,7 +221,7 @@ async def _skills(args: Any) -> dict[str, Any]:  # noqa: PLR0911
     return _envelope("error", error="Comando de skill indisponível")
 
 
-def run_marketplace(args: Any) -> None:
+def run_marketplace(args: MarketplaceArgs) -> None:
     """Execute a marketplace command and terminate with its documented code."""
     try:
         result = asyncio.run(_mcp(args) if args.resource == "mcp" else _skills(args))

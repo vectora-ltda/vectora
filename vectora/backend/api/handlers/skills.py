@@ -19,7 +19,7 @@ memory_library.py::post_publish`.
 from __future__ import annotations
 
 import logging
-from typing import Literal
+from typing import Literal, TypedDict
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -50,6 +50,21 @@ class PublishSkillRequest(BaseModel):
 
 class ImportPreviewRequest(BaseModel):
     payload: object
+
+
+class SkillsListResponse(TypedDict):
+    skills: list[dict[str, object]]
+    total: int
+
+
+class SkillResponse(TypedDict):
+    status: str
+    skill: dict[str, object]
+
+
+class RemovalResponse(TypedDict):
+    status: str
+    id: str
 
 
 def _authorized_target(
@@ -91,7 +106,7 @@ async def list_user_skills(
     scope: Literal["user", "workspace", "project", "runtime"] = "user",
     target: str | None = None,
     workspace_id: str | None = None,
-) -> dict:
+) -> SkillsListResponse:
     """Lista as skills instaladas para o usuário autenticado."""
     target = _authorized_target(request, scope, target, workspace_id)
     skills = list_skills(_user_id(request), scope, target)
@@ -141,7 +156,9 @@ async def get_skills_catalog(
 
 
 @router.post("")
-async def install_user_skill(request: Request, body: InstallSkillRequest) -> dict:
+async def install_user_skill(
+    request: Request, body: InstallSkillRequest
+) -> SkillResponse:
     """Instala uma skill (git URL ou path local)."""
     try:
         target = _authorized_target(request, body.scope, body.target, body.workspace_id)
@@ -158,7 +175,7 @@ async def delete_user_skill(
     scope: Literal["user", "workspace", "project", "runtime"] = "user",
     target: str | None = None,
     workspace_id: str | None = None,
-) -> dict:
+) -> RemovalResponse:
     """Remove uma skill instalada."""
     target = _authorized_target(request, scope, target, workspace_id)
     removed = remove_skill(_user_id(request), skill_id, scope, target)
