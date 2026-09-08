@@ -19,9 +19,11 @@ Tool nativa (`@vtool`) — chamada como função async direta com
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
+from backend.services.desktop_windows import WindowInfo
 from backend.tools import computer_use as cu
 from backend.tools.context import ToolContext
 
@@ -48,12 +50,11 @@ class TestOptIn:
 
     async def test_com_secao_habilitada_a_tool_executa(self, monkeypatch):
         monkeypatch.setattr(cu, "_computer_use_enabled", lambda _workspace_id: True)
-        monkeypatch.setattr(cu, "_take_screenshot_sync", lambda: b"\x89PNG\r\n")
+        monkeypatch.setattr(cu, "_take_screenshot_sync", lambda *_args: b"\x89PNG\r\n")
 
         saida = json.loads(await cu.computer_use(action="screenshot", ctx=_ctx()))
 
-        assert "error" not in saida
-        assert saida["action"] == "screenshot"
+        assert saida == {"status": "error", "code": "window_unavailable"}
 
     def test_le_o_toml_de_verdade_via_load_workspace_config(self, tmp_path):
         """A checagem real (não mockada) lê `[computer_use]` do
@@ -82,16 +83,29 @@ class TestAcoes:
     @pytest.fixture(autouse=True)
     def _habilitado(self, monkeypatch):
         monkeypatch.setattr(cu, "_computer_use_enabled", lambda _workspace_id: True)
+        info = WindowInfo("window-1", "Fixture", 0, 0, 1200, 800, True)
+        selection = SimpleNamespace(
+            window_id=info.window_id, native=object(), info=info
+        )
+        monkeypatch.setattr(
+            cu.desktop_window_registry, "selected", lambda **_: selection
+        )
+        monkeypatch.setattr(
+            cu.desktop_window_registry, "require_focus", lambda _selection: info
+        )
 
     async def test_screenshot_devolve_path_do_arquivo_gerado(
         self, monkeypatch, tmp_path
     ):
-        monkeypatch.setattr(cu, "_take_screenshot_sync", lambda: b"\x89PNG\r\nfake")
+        monkeypatch.setattr(
+            cu, "_take_screenshot_sync", lambda *_args: b"\x89PNG\r\nfake"
+        )
         monkeypatch.setattr(cu, "_media_dir", lambda _s: tmp_path / "media")
 
         saida = json.loads(await cu.computer_use(action="screenshot", ctx=_ctx()))
 
         assert saida["path"].endswith(".png")
+        assert str(tmp_path) not in saida["path"]
 
     async def test_click_exige_coordenadas_e_falha_de_biblioteca_vira_erro_tipado(
         self, monkeypatch
@@ -140,7 +154,7 @@ class TestAcoes:
         monkeypatch.setattr(cu, "_click_sync", _explode)
 
         saida = json.loads(await cu.computer_use(action="click", x=1, y=1, ctx=_ctx()))
-        assert "X11 display" in saida["error"]
+        assert saida == {"status": "error", "code": "platform_failure"}
 
     async def test_acao_desconhecida_e_recusada(self):
         saida = json.loads(await cu.computer_use(action="explodir_tudo", ctx=_ctx()))
@@ -156,13 +170,61 @@ class TestAprovacaoSempreObrigatoria:
 
         for modo in ("bypass", "auto", "ask", "accept_edits", "plan"):
             assert _mode_should_interrupt(modo, "computer_use", []) is True
+            assert _mode_should_interrupt(modo, "select_desktop_window", []) is True
+            assert _mode_should_interrupt(modo, "focus_desktop_window", []) is True
 
     def test_esta_em_require_approval(self):
         from backend.engine.hitl import REQUIRE_APPROVAL
 
         assert "computer_use" in REQUIRE_APPROVAL
+        assert "select_desktop_window" in REQUIRE_APPROVAL
+        assert "focus_desktop_window" in REQUIRE_APPROVAL
 
     def test_registrada_em_all_tools(self):
         from backend.nodes.tools import ALL_TOOLS
 
         assert "computer_use" in {t.name for t in ALL_TOOLS}
+
+
+class TestJanelaSelecionada:
+    async def test_listagem_e_selecao_sao_limitadas_ao_contexto(self, monkeypatch):
+        info = WindowInfo("w1", "Editor", 10, 20, 800, 600, True)
+        monkeypatch.setattr(cu, "_computer_use_enabled", lambda _workspace_id: True)
+        monkeypatch.setattr(
+            cu.desktop_window_registry, "list_windows", lambda **_: [info]
+        )
+        monkeypatch.setattr(cu.desktop_window_registry, "select", lambda **_: info)
+        ctx = _ctx()
+
+        listed = json.loads(await cu.list_desktop_windows(ctx=ctx))
+        selected = json.loads(await cu.select_desktop_window(window_id="w1", ctx=ctx))
+
+        assert listed["windows"] == [
+            {
+                "window_id": "w1",
+                "title": "Editor",
+                "geometry": {"width": 800, "height": 600},
+                "visible": True,
+            }
+        ]
+        assert selected["status"] == "selected"
+
+    async def test_click_fora_da_janela_e_bloqueado(self, monkeypatch):
+        monkeypatch.setattr(cu, "_computer_use_enabled", lambda _workspace_id: True)
+        info = WindowInfo("w1", "Editor", 0, 0, 10, 10, True)
+        selection = SimpleNamespace(window_id="w1", native=object(), info=info)
+        monkeypatch.setattr(
+            cu.desktop_window_registry, "selected", lambda **_: selection
+        )
+        monkeypatch.setattr(
+            cu.desktop_window_registry, "require_focus", lambda _selection: info
+        )
+        clicked = []
+        monkeypatch.setattr(cu, "_click_sync", lambda x, y: clicked.append((x, y)))
+
+        result = json.loads(
+            await cu.computer_use(action="click", x=10, y=0, ctx=_ctx())
+        )
+
+        assert result["error"]
+        assert clicked == []

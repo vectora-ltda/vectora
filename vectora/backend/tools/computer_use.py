@@ -28,12 +28,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from backend.services.desktop_windows import (
+    DesktopWindowRegistry,
+    WindowInfo,
+    desktop_window_registry,
+    window_media_dir,
+)
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
 
 logger = logging.getLogger(__name__)
 
 _ACOES_VALIDAS = frozenset({"screenshot", "click", "type_text"})
+_MAX_TEXT_BYTES = 4096
 
 
 def _computer_use_enabled_for_cwd(cwd: str) -> bool:
@@ -73,13 +80,13 @@ def _media_dir(session_id: str) -> Path:
     )
 
 
-def _take_screenshot_sync() -> bytes:
+def _take_screenshot_sync(region: tuple[int, int, int, int] | None = None) -> bytes:
     import io
 
     import pyautogui
 
     buffer = io.BytesIO()
-    pyautogui.screenshot().save(buffer, format="PNG")
+    pyautogui.screenshot(region=region).save(buffer, format="PNG")
     return buffer.getvalue()
 
 
@@ -93,6 +100,123 @@ def _type_text_sync(text: str) -> None:
     import pyautogui
 
     pyautogui.typewrite(text)
+
+
+async def _audit_event(
+    ctx: ToolContext, action: str, *, success: bool, window_id: str = ""
+) -> None:
+    """Registra apenas metadados seguros; conteúdo e imagem nunca entram no audit."""
+    try:
+        from backend.rbac.auth import get_db_for_audit, write_audit
+
+        db = await get_db_for_audit()
+        await write_audit(
+            db,
+            ctx.user_id,
+            f"computer_use.{action}",
+            success=success,
+            metadata={
+                "workspace_id": ctx.workspace_id,
+                "thread_id": ctx.thread_id,
+                "window_id": window_id,
+                "action": action,
+            },
+            target_type="desktop_window",
+            target_id=window_id or None,
+        )
+    except Exception:
+        logger.debug("computer_use: auditoria indisponível", extra={"action": action})
+
+
+def _window_payload(info: WindowInfo) -> dict[str, object]:
+    return {
+        "window_id": info.window_id,
+        "title": info.title,
+        "geometry": {"width": info.width, "height": info.height},
+        "visible": info.visible,
+    }
+
+
+@vtool(
+    extras=ToolExtras(
+        render_hint="json", category="computer_use", destructive=False, icon="monitor"
+    )
+)
+async def list_desktop_windows(ctx: ToolContext) -> str:
+    """Lista janelas locais elegíveis sem capturar conteúdo ou aceitar handles."""
+    try:
+        if not _computer_use_enabled(ctx.workspace_id):
+            return json.dumps({"status": "error", "code": "opt_in_required"})
+        windows = await asyncio.to_thread(
+            desktop_window_registry.list_windows,
+            user_id=ctx.user_id,
+            workspace_id=ctx.workspace_id,
+            thread_id=ctx.thread_id,
+        )
+        await _audit_event(ctx, "list_windows", success=True)
+        return json.dumps(
+            {
+                "status": "ok",
+                "capabilities": DesktopWindowRegistry.capabilities(),
+                "windows": [_window_payload(window) for window in windows],
+            },
+            ensure_ascii=False,
+        )
+    except Exception:
+        await _audit_event(ctx, "list_windows", success=False)
+        return json.dumps({"status": "error", "code": "platform_unavailable"})
+
+
+@vtool(
+    extras=ToolExtras(
+        render_hint="json", category="computer_use", destructive=True, icon="monitor"
+    )
+)
+async def select_desktop_window(window_id: str, ctx: ToolContext) -> str:
+    """Seleciona uma janela descoberta no contexto atual, sem aceitar handles."""
+    try:
+        if not _computer_use_enabled(ctx.workspace_id):
+            return json.dumps({"status": "error", "code": "opt_in_required"})
+        info = await asyncio.to_thread(
+            desktop_window_registry.select,
+            user_id=ctx.user_id,
+            workspace_id=ctx.workspace_id,
+            thread_id=ctx.thread_id,
+            window_id=window_id,
+        )
+        await _audit_event(ctx, "select_window", success=True, window_id=info.window_id)
+        return json.dumps(
+            {"status": "selected", **_window_payload(info)}, ensure_ascii=False
+        )
+    except Exception:
+        await _audit_event(ctx, "select_window", success=False, window_id=window_id)
+        return json.dumps({"status": "error", "code": "window_unavailable"})
+
+
+@vtool(
+    extras=ToolExtras(
+        render_hint="json", category="computer_use", destructive=True, icon="monitor"
+    )
+)
+async def focus_desktop_window(ctx: ToolContext) -> str:
+    """Solicita foco e confirma a janela previamente selecionada."""
+    try:
+        if not _computer_use_enabled(ctx.workspace_id):
+            return json.dumps({"status": "error", "code": "opt_in_required"})
+        selection = desktop_window_registry.selected(
+            user_id=ctx.user_id, workspace_id=ctx.workspace_id, thread_id=ctx.thread_id
+        )
+        info = await asyncio.to_thread(desktop_window_registry.focus, selection)
+        await _audit_event(ctx, "focus_window", success=True, window_id=info.window_id)
+        return json.dumps(
+            {"status": "focused", **_window_payload(info)}, ensure_ascii=False
+        )
+    except PermissionError:
+        await _audit_event(ctx, "focus_lost", success=False)
+        return json.dumps({"status": "error", "code": "focus_lost"})
+    except Exception:
+        await _audit_event(ctx, "focus_window", success=False)
+        return json.dumps({"status": "error", "code": "window_unavailable"})
 
 
 @vtool(
@@ -145,32 +269,75 @@ async def computer_use(
                 {"error": f"ação desconhecida: {action!r}"}, ensure_ascii=False
             )
 
+        selection = desktop_window_registry.selected(
+            user_id=ctx.user_id, workspace_id=ctx.workspace_id, thread_id=ctx.thread_id
+        )
+        allowed = await asyncio.to_thread(
+            desktop_window_registry.allow_action,
+            user_id=ctx.user_id,
+            workspace_id=ctx.workspace_id,
+            thread_id=ctx.thread_id,
+        )
+        if not allowed:
+            await _audit_event(
+                ctx, "rate_limited", success=False, window_id=selection.window_id
+            )
+            return json.dumps({"status": "error", "code": "rate_limited"})
+        info = await asyncio.to_thread(desktop_window_registry.require_focus, selection)
+
         if action == "screenshot":
-            data = await asyncio.to_thread(_take_screenshot_sync)
-            directory = _media_dir(ctx.thread_id)
+            data = await asyncio.to_thread(
+                _take_screenshot_sync, (info.left, info.top, info.width, info.height)
+            )
+            directory = window_media_dir(ctx.thread_id)
             directory.mkdir(parents=True, exist_ok=True)
             path = (
                 directory / f"{datetime.now(UTC):%Y%m%d-%H%M%S}-{uuid4().hex[:8]}.png"
             )
             path.write_bytes(data)
+            await _audit_event(
+                ctx, "screenshot", success=True, window_id=info.window_id
+            )
             return json.dumps(
-                {"action": "screenshot", "path": str(path)}, ensure_ascii=False
+                {"status": "ok", "action": "screenshot", "path": f"media/{path.name}"},
+                ensure_ascii=False,
             )
 
         if action == "click":
-            if x is None or y is None:
+            if (
+                x is None
+                or y is None
+                or x < 0
+                or y < 0
+                or x >= info.width
+                or y >= info.height
+            ):
                 return json.dumps({"error": "click exige x e y"}, ensure_ascii=False)
-            await asyncio.to_thread(_click_sync, x, y)
-            return json.dumps({"action": "click", "x": x, "y": y}, ensure_ascii=False)
+            await asyncio.to_thread(desktop_window_registry.require_focus, selection)
+            await asyncio.to_thread(_click_sync, info.left + x, info.top + y)
+            await _audit_event(ctx, "click", success=True, window_id=info.window_id)
+            return json.dumps(
+                {"status": "ok", "action": "click", "x": x, "y": y}, ensure_ascii=False
+            )
 
         if not text:
             return json.dumps(
                 {"error": "type_text exige texto não vazio"}, ensure_ascii=False
             )
+        if len(text.encode("utf-8")) > _MAX_TEXT_BYTES:
+            return json.dumps({"status": "error", "code": "text_too_large"})
+        await asyncio.to_thread(desktop_window_registry.require_focus, selection)
         await asyncio.to_thread(_type_text_sync, text)
-        return json.dumps({"action": "type_text"}, ensure_ascii=False)
-    except Exception as exc:
+        await _audit_event(ctx, "type_text", success=True, window_id=info.window_id)
+        return json.dumps({"status": "ok", "action": "type_text"}, ensure_ascii=False)
+    except PermissionError:
+        logger.warning("computer_use: foco perdido", extra={"action": action})
+        await _audit_event(ctx, "focus_lost", success=False)
+        return json.dumps({"status": "error", "code": "focus_lost"})
+    except LookupError:
+        await _audit_event(ctx, "window_unavailable", success=False)
+        return json.dumps({"status": "error", "code": "window_unavailable"})
+    except Exception:
         logger.exception("computer_use: falha", extra={"action": action})
-        return json.dumps(
-            {"error": f"falha em computer_use: {exc}"}, ensure_ascii=False
-        )
+        await _audit_event(ctx, action, success=False)
+        return json.dumps({"status": "error", "code": "platform_failure"})
