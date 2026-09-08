@@ -29,14 +29,14 @@ from backend.persistence.native.session_store import SessionStore
 from backend.storage.sqlite.pool import AsyncConnectionPool
 
 
-def _http_request(user_id: str | None) -> MagicMock:
+def _http_request(user_id: str | None, device_id: str | None = None) -> MagicMock:
     request = MagicMock()
     if user_id is None:
-        request.state = MagicMock(user=None)
+        request.state = MagicMock(user=None, device_id=device_id)
     else:
         user = MagicMock()
         user.id = user_id
-        request.state = MagicMock(user=user)
+        request.state = MagicMock(user=user, device_id=device_id)
     return request
 
 
@@ -94,6 +94,33 @@ class TestListThreadsReflectsSessionStore:
 
         assert [t.id for t in result.threads] == ["thread-alice"]
         assert result.threads[0].title == "Conversa da Alice"
+
+    async def test_list_threads_serializa_atividade_remota(
+        self, session_store, monkeypatch
+    ) -> None:
+        await session_store.create_session("thread-alice", user_id="alice", mode="code")
+        await th._upsert_session("thread-alice", title="Conversa da Alice")
+        await th._increment_message_count("thread-alice")
+
+        async def _remote_activity(
+            user_id: str, thread_ids: list[str], current_device_id: str
+        ) -> dict[str, str]:
+            assert user_id == "alice"
+            assert thread_ids == ["thread-alice"]
+            assert current_device_id == "vdev_12345678-1234-1234-1234-123456789abc"
+            return {"thread-alice": "2026-09-08T12:00:00+00:00"}
+
+        monkeypatch.setattr(th, "get_remote_activity", _remote_activity)
+        result = await th.list_threads(
+            ListThreadsRequest(limit=50),
+            _http_request("alice", "vdev_12345678-1234-1234-1234-123456789abc"),
+        )
+
+        assert result.threads[0].remote_activity is not None
+        assert (
+            result.threads[0].remote_activity.last_active_at
+            == "2026-09-08T12:00:00+00:00"
+        )
 
     async def test_thread_de_outro_usuario_nao_vaza_na_listagem(self, session_store):
         """Erro/borda: uma thread registrada em SessionStore sob `bob` nunca
