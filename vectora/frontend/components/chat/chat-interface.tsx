@@ -1252,7 +1252,24 @@ export function ChatInterface({
     }
   }, []);
 
-  // Paste grande vira anexo. Mantém UX do ChatGPT/Claude:
+  const handleCaptureScreenshot = useCallback(async () => {
+    const capture = window.vectora?.captureScreenshot;
+    if (!capture) return;
+    try {
+      const bytes = await capture();
+      if (!bytes) return;
+      const file = new File(
+        [new Uint8Array(bytes)],
+        `screenshot-${Date.now()}.png`,
+        { type: "image/png" },
+      );
+      await processFiles([file]);
+    } catch {
+      setUploadError(msg.plus_capture_screenshot_error());
+    }
+  }, [processFiles]);
+
+  // Paste grande vira anexo para manter o composer responsivo:
   // texto curto cola normal; texto longo (> LARGE_PASTE_THRESHOLD)
   // entra como `pasted-<N>.txt` na grid de anexos. Imagens continuam
   // sendo capturadas pelo handlePaste do useFileUpload.
@@ -1351,6 +1368,12 @@ export function ChatInterface({
           onPaste={handleInputPaste}
           onRemoveFile={removeFile}
           onFileButtonClick={handleFileButtonClick}
+          onCaptureScreenshot={
+            typeof window !== "undefined" &&
+            Boolean(window.vectora?.captureScreenshot)
+              ? handleCaptureScreenshot
+              : undefined
+          }
           fileInputRef={fileInputRef}
           onFileSelect={handleFileSelect}
           textareaRef={textareaRef}

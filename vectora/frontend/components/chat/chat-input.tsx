@@ -102,6 +102,7 @@ interface ChatInputProps {
   onPaste: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void;
   onRemoveFile: (fileId: string) => void;
   onFileButtonClick: (e: React.MouseEvent) => void;
+  onCaptureScreenshot?: () => void;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   onFileSelect: (e: React.ChangeEvent<HTMLInputElement>) => void;
   textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
@@ -156,6 +157,7 @@ export function ChatInput({
   onPaste,
   onRemoveFile,
   onFileButtonClick,
+  onCaptureScreenshot,
   fileInputRef,
   onFileSelect,
   textareaRef,
@@ -457,6 +459,7 @@ export function ChatInput({
               <PlusMenu
                 disabled={!userId || offline}
                 onAddFiles={onFileButtonClick}
+                onCaptureScreenshot={onCaptureScreenshot}
               />
               {isVoiceSupported && onVoiceToggle && (
                 <VoiceInputButton
