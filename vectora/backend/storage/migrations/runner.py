@@ -50,6 +50,11 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     checksum   TEXT    NOT NULL,
     applied_at TEXT    NOT NULL
 );
+CREATE TABLE IF NOT EXISTS schema_migration_history (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    checksum   TEXT NOT NULL,
+    applied_at TEXT NOT NULL
+);
 """
 
 _ALTER_ADD_COLUMN_RE = re.compile(
@@ -172,6 +177,15 @@ class MigrationRunner:
             checksum=checksum,
         )
 
+    async def history(self) -> list[dict[str, str]]:
+        """Return the immutable checksum history for diagnostics and support."""
+        await self._ensure_control_table()
+        cursor = await self._conn.execute(
+            "SELECT checksum, applied_at FROM schema_migration_history ORDER BY id"
+        )
+        rows = await cursor.fetchall()
+        return [{"checksum": row[0], "applied_at": row[1]} for row in rows]
+
     async def _existing_columns(self, table: str) -> set[str]:
         cursor = await self._conn.execute(f"PRAGMA table_info({table})")  # nosec B608 — table vem de regex sobre schema.sql versionado, não input externo
         rows = await cursor.fetchall()
@@ -212,6 +226,10 @@ class MigrationRunner:
             "INSERT INTO schema_migrations (id, checksum, applied_at) VALUES (1, ?, ?) "
             "ON CONFLICT (id) DO UPDATE SET checksum = excluded.checksum, "
             "applied_at = excluded.applied_at",
+            (checksum, now),
+        )
+        await self._conn.execute(
+            "INSERT INTO schema_migration_history (checksum, applied_at) VALUES (?, ?)",
             (checksum, now),
         )
         await self._conn.commit()

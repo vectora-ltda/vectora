@@ -331,6 +331,16 @@ async def _storage_migrate(
             table.add_row(state, status.checksum[:12], ts)
             console.print(table)
 
+        elif subaction == "history":
+            from rich.table import Table
+
+            table = Table(title="Histórico de migrations")
+            table.add_column("Checksum", style="dim")
+            table.add_column("Aplicado em")
+            for item in await runner.history():
+                table.add_row(item["checksum"][:16], item["applied_at"])
+            console.print(table)
+
         elif subaction == "upgrade":
             applied = await runner.upgrade()
             if applied:
@@ -341,7 +351,7 @@ async def _storage_migrate(
         else:
             console.print(
                 f"[red]Sub-ação desconhecida: {subaction!r}[/red]\n"
-                "Opções: status | upgrade | "
+                "Opções: status | history | upgrade | "
                 "to-postgres | to-qdrant | to-pgvector | memory-to-native"
             )
             sys.exit(1)
