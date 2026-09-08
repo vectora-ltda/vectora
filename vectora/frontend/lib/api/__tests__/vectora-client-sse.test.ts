@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { streamChat } from "@/lib/api/vectora-client";
+import { resumeChat, streamChat } from "@/lib/api/vectora-client";
 
 const fetchMock = vi.fn();
 
@@ -102,5 +102,31 @@ describe("readSSEStream (via streamChat) — evento final sem \\n\\n terminador"
     );
 
     expect(events).toEqual([{ type: "token", content: "x" }]);
+  });
+});
+
+describe("resumeChat device activity", () => {
+  it("envia o identificador opaco do dispositivo no stream de retomada", async () => {
+    window.localStorage.setItem(
+      "vectora-device-id",
+      "vdev_12345678-1234-1234-1234-123456789abc",
+    );
+    fetchMock.mockResolvedValueOnce(
+      okResponse(makeControlledStream(['data: {"type":"done"}\n\n'])),
+    );
+
+    await collect(
+      resumeChat({ thread_id: "t1", interrupt_id: "i1", decision: "approve" }),
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("ResumeChat"),
+      expect.objectContaining({
+        headers: {
+          "Content-Type": "application/json",
+          "X-Vectora-Device-Id": "vdev_12345678-1234-1234-1234-123456789abc",
+        },
+      }),
+    );
   });
 });

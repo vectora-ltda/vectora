@@ -312,7 +312,10 @@ export async function* resumeChat(
   const doFetch = () =>
     fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(getDeviceId() ? { "X-Vectora-Device-Id": getDeviceId()! } : {}),
+      },
       credentials: "include",
       body: JSON.stringify(request),
       signal,
