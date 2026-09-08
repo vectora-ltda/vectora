@@ -277,9 +277,12 @@ async def run_conversation(
                     if isinstance(raw_options, list)
                     else []
                 )
-                priority = max(
-                    0, min(100, int(pendente.args.get("approval_priority", 0)))
-                )
+                try:
+                    priority = max(
+                        0, min(100, int(pendente.args.get("approval_priority", 0)))
+                    )
+                except (TypeError, ValueError):
+                    priority = 0
                 expires_at = pendente.args.get("approval_expires_at")
                 if approval_gate is not None:
                     await approval_gate.request_approval(
@@ -298,6 +301,8 @@ async def run_conversation(
                         args_json=args_json,
                         interrupt_id=interrupt_id,
                         options=options,
+                        priority=priority,
+                        expires_at=str(expires_at) if expires_at else None,
                     )
                 )
                 return LoopResult(

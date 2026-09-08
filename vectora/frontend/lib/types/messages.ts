@@ -78,5 +78,7 @@ export interface Message {
     /** Modo de permissão ativo (default/yolo/…). */
     permissionMode?: string;
     options?: Array<{ label: string; value: string }>;
+    priority?: number;
+    expiresAt?: string | null;
   };
 }

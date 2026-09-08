@@ -103,6 +103,8 @@ def _to_payload(event: EngineEvent) -> schemas.StreamChatEventPayload:  # noqa: 
             diff_preview=event.diff_preview,
             pre_approved=event.pre_approved,
             options=event.options,
+            priority=event.priority,
+            expires_at=event.expires_at,
         )
     if isinstance(event, WorkbenchInvalidate):
         return schemas.WorkbenchInvalidateEvent(

@@ -384,6 +384,8 @@ class HITLEvent(BaseModel):
     #: pausa igual; o humano confirma com um clique a menos.
     pre_approved: bool = False
     options: list[dict[str, str]] = []
+    priority: int = 0
+    expires_at: str | None = None
 
 
 class RagCitation(BaseModel):

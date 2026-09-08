@@ -967,6 +967,8 @@ async function handleEvent(
             preApproved: event.pre_approved,
             workspaceId: useWorkspacesStore.getState().active_id ?? undefined,
             options: event.options,
+            priority: event.priority,
+            expiresAt: event.expires_at,
           },
         })),
       );

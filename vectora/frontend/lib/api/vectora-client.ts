@@ -130,6 +130,10 @@ export type StreamEvent =
       pre_approved?: boolean;
       /** Escolhas estruturadas oferecidas pelo agente para esta aprovação. */
       options?: Array<{ label: string; value: string }>;
+      /** Prioridade durável da decisão, entre 0 e 100. */
+      priority?: number;
+      /** Prazo ISO após o qual a decisão deixa de ser válida. */
+      expires_at?: string | null;
     }
   | {
       type: "rag_citations";

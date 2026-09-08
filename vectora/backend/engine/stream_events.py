@@ -113,6 +113,8 @@ class HitlRequested:
     diff_preview: str = ""
     pre_approved: bool = False
     options: list[dict[str, str]] = field(default_factory=list)
+    priority: int = 0
+    expires_at: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
