@@ -34,6 +34,7 @@ class McpPolicyDecision(BaseModel):
 _rules: dict[tuple[str, str | None], McpPolicyRule] = {}
 _version = 0
 _loaded = False
+_policy_error = False
 
 
 def _policy_file() -> Path:
@@ -41,7 +42,7 @@ def _policy_file() -> Path:
 
 
 def _load() -> None:
-    global _loaded, _version
+    global _loaded, _version, _policy_error
     if _loaded:
         return
     _loaded = True
@@ -58,6 +59,7 @@ def _load() -> None:
     except Exception:
         # Uma política ilegível nunca deve liberar implicitamente servidores.
         _version += 1
+        _policy_error = True
 
 
 def _save() -> None:
@@ -126,6 +128,12 @@ def remove_rule(scope: McpPolicyScope, *, workspace_id: str | None = None) -> bo
 
 def evaluate(server_id: str, workspace_id: str | None = None) -> McpPolicyDecision:
     _load()
+    if _policy_error:
+        return McpPolicyDecision(
+            allowed=False,
+            code="policy_unavailable",
+            version=_version,
+        )
     workspace_rule = _rules.get(("workspace", workspace_id)) if workspace_id else None
     rule = workspace_rule or _rules.get(("instance", None))
     if rule is None:
@@ -146,15 +154,17 @@ def require_allowed(server_id: str, workspace_id: str | None = None) -> None:
 
 
 def _reset_for_tests() -> None:
-    global _loaded, _version
+    global _loaded, _version, _policy_error
     _rules.clear()
     _version = 0
     _loaded = False
+    _policy_error = False
 
 
 __all__ = [
     "McpPolicyDecision",
     "McpPolicyRule",
+    "McpPolicyScope",
     "evaluate",
     "list_rules",
     "policy_version",

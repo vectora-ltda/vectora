@@ -73,6 +73,7 @@ def validate_record(record: TrustRecord, *, confirmed: bool) -> None:
 __all__ = [
     "TrustRecord",
     "TrustState",
+    "content_record",
     "curated_record",
     "requires_confirmation",
     "unsigned_record",
