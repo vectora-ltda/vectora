@@ -44,7 +44,7 @@ export function Header({
       // do header do workbench (workbench-panel.tsx) — as 3 colunas do
       // layout precisam da mesma linha divisória de topo, senão a borda
       // horizontal desalinha entre elas.
-      className="border-b border-border/60 bg-background h-16 flex items-center"
+      className="safe-area-top border-b border-border/60 bg-background min-h-16 flex items-center"
     >
       <div className="flex items-center justify-between w-full min-w-0 px-4 sm:px-6">
         <div className="flex items-center gap-2 shrink-0">
