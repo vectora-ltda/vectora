@@ -110,52 +110,33 @@ async def get_remote_activity(
     """Return the newest recent activity from other devices by thread."""
     if not thread_ids:
         return {}
+    # Lite/offline installations have no shared source of truth. They still
+    # record local activity for diagnostics, but never infer cross-device
+    # presence from a machine-local database.
+    if not await _use_postgres():
+        return {}
     cutoff = since or (_now() - REMOTE_ACTIVITY_WINDOW)
-    if await _use_postgres():
-        try:
-            from backend.storage.factory import get_pg_pool
-
-            pool = await get_pg_pool()
-            async with pool.acquire() as conn:
-                rows = await conn.fetch(
-                    """SELECT thread_id, MAX(last_active_at) AS last_active_at
-                    FROM vectora_thread_activity
-                    WHERE user_id = $1 AND device_id <> $2
-                      AND thread_id = ANY($3::text[]) AND last_active_at >= $4
-                    GROUP BY thread_id""",
-                    user_id,
-                    current_device_id,
-                    thread_ids,
-                    cutoff,
-                )
-            return {
-                str(row["thread_id"]): row["last_active_at"].isoformat() for row in rows
-            }
-        except Exception:
-            logger.warning(
-                "thread activity: consulta Postgres indisponível; usando SQLite"
-            )
-
     try:
-        conn = await _sqlite_connection()
-        try:
-            result: dict[str, str] = {}
-            for thread_id in thread_ids:
-                async with conn.execute(
-                    """SELECT MAX(last_active_at)
-                    FROM vectora_thread_activity
-                    WHERE user_id = ? AND device_id <> ? AND thread_id = ?
-                      AND last_active_at >= ?""",
-                    (user_id, current_device_id, thread_id, _iso(cutoff)),
-                ) as cursor:
-                    row = await cursor.fetchone()
-                if row is not None and row[0] is not None:
-                    result[thread_id] = str(row[0])
-            return result
-        finally:
-            await conn.close()
+        from backend.storage.factory import get_pg_pool
+
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """SELECT thread_id, MAX(last_active_at) AS last_active_at
+                FROM vectora_thread_activity
+                WHERE user_id = $1 AND device_id <> $2
+                  AND thread_id = ANY($3::text[]) AND last_active_at >= $4
+                GROUP BY thread_id""",
+                user_id,
+                current_device_id,
+                thread_ids,
+                cutoff,
+            )
+        return {
+            str(row["thread_id"]): row["last_active_at"].isoformat() for row in rows
+        }
     except Exception:
-        logger.warning("thread activity: falha ao consultar atividade", exc_info=True)
+        logger.warning("thread activity: consulta compartilhada indisponível")
         return {}
 
 

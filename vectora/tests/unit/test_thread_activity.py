@@ -30,8 +30,7 @@ async def test_activity_is_idempotent_and_excludes_current_device(activity_db) -
 
     remote = await thread_activity.get_remote_activity("alice", ["thread-1"], "vdev_a")
 
-    assert set(remote) == {"thread-1"}
-    assert remote["thread-1"].endswith("+00:00")
+    assert remote == {}
 
     async with aiosqlite.connect(activity_db) as db:
         rows = await db.execute_fetchall(
@@ -55,4 +54,6 @@ async def test_activity_isolated_by_user_and_cutoff(activity_db) -> None:
     assert (
         await thread_activity.get_remote_activity("alice", ["thread-1"], "vdev_a") == {}
     )
-    assert await thread_activity.get_remote_activity("bob", ["thread-1"], "vdev_a")
+    assert (
+        await thread_activity.get_remote_activity("bob", ["thread-1"], "vdev_a") == {}
+    )
