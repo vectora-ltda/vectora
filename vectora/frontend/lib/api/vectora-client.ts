@@ -165,6 +165,7 @@ export interface Thread {
   mode?: string;
   /** Sessão fixada — aparece no topo da lista da sidebar. */
   pinned?: boolean;
+  unread_count?: number;
 }
 
 /** Anexo persistido de uma mensagem do histórico — `url`, quando presente,
@@ -538,6 +539,17 @@ export async function getTools(): Promise<GetToolsResponse> {
   }
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
+}
+
+export async function markThreadRead(threadId: string): Promise<void> {
+  const response = await fetch(
+    `${VECTORA_API_URL}/threads/${encodeURIComponent(threadId)}/read`,
+    {
+      method: "POST",
+      credentials: "include",
+    },
+  );
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
 }
 
 // ============================================================================

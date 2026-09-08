@@ -559,6 +559,7 @@ class Thread(BaseModel):
     workspace_id: str = ""
     mode: str = "dev"  # "chat" | "dev" — sessões legadas sem modo são "dev"
     pinned: bool = False
+    unread_count: int = 0
 
 
 class HistoryMessage(BaseModel):

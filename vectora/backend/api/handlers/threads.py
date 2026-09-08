@@ -130,6 +130,14 @@ async def _ensure_schema(db: Any) -> None:
             deleted_at TEXT NOT NULL
         )
     """)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS thread_read_cursors (
+            thread_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            read_count INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (thread_id, user_id)
+        )
+    """)
     await db.commit()
 
 
@@ -253,6 +261,7 @@ def _row_to_thread(row: tuple) -> Thread:
     thread_id, _, created_at, last_activity, _, extra_json = row[:6]
     mode_col = row[6] if len(row) > 6 else None
     pinned_col = row[7] if len(row) > 7 else 0
+    unread_col = row[8] if len(row) > 8 else 0
     title = ""
     workspace_id = ""
     try:
@@ -270,7 +279,19 @@ def _row_to_thread(row: tuple) -> Thread:
         workspace_id=workspace_id,
         mode=mode,
         pinned=bool(pinned_col),
+        unread_count=max(0, int(unread_col or 0)),
     )
+
+
+async def _unread_count(thread_id: str, user_id: str) -> int:
+    db = await _get_db()
+    async with db.execute(
+        "SELECT message_count - COALESCE((SELECT read_count FROM thread_read_cursors "
+        "WHERE thread_id = ? AND user_id = ?), 0) FROM vectora_sessions WHERE thread_id = ?",
+        (thread_id, user_id, thread_id),
+    ) as cur:
+        row = await cur.fetchone()
+    return max(0, int(row[0])) if row else 0
 
 
 # ---------------------------------------------------------------------------
@@ -687,7 +708,11 @@ async def get_thread(
             status_code=404, detail=f"Thread {request.thread_id!r} not found"
         )
     await _assert_owns_thread(request.thread_id, http_request)
-    return _row_to_thread(row)
+    thread = _row_to_thread(row)
+    thread.unread_count = await _unread_count(
+        thread.id, _user_id(http_request) if http_request is not None else "local"
+    )
+    return thread
 
 
 # ---------------------------------------------------------------------------
@@ -746,7 +771,38 @@ async def list_threads(
         )
         rows = [r for r in rows if r[0] not in foreign_ids]
 
-    return ListThreadsResponse(threads=[_row_to_thread(r) for r in rows])
+    user_id = _user_id(http_request) if http_request is not None else "local"
+    threads = []
+    for row in rows:
+        thread = _row_to_thread(row)
+        thread.unread_count = await _unread_count(thread.id, user_id)
+        threads.append(thread)
+    return ListThreadsResponse(threads=threads)
+
+
+class MarkThreadReadRequest(BaseModel):
+    thread_id: str
+
+
+@router.post("/threads/{thread_id}/read")
+async def mark_thread_read(thread_id: str, request: Request) -> dict[str, int | str]:
+    """Confirma a leitura da thread de modo idempotente e por usuário."""
+    await _assert_owns_thread(thread_id, request)
+    user_id = _user_id(request)
+    db = await _get_db()
+    async with db.execute(
+        "SELECT message_count FROM vectora_sessions WHERE thread_id = ?", (thread_id,)
+    ) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Thread não encontrada")
+    await db.execute(
+        "INSERT INTO thread_read_cursors(thread_id, user_id, read_count) VALUES (?, ?, ?) "
+        "ON CONFLICT(thread_id, user_id) DO UPDATE SET read_count = excluded.read_count",
+        (thread_id, user_id, int(row[0])),
+    )
+    await db.commit()
+    return {"thread_id": thread_id, "unread_count": 0}
 
 
 async def cleanup_empty_threads(max_age_hours: float = 1.0) -> int:
