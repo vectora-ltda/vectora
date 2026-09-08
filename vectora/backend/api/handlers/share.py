@@ -94,15 +94,14 @@ async def create_share(
     now = datetime.now(UTC)
     expires_at = (now + timedelta(hours=max(1, min(body.ttl_hours, 720)))).isoformat()
 
-    async with db.execute(
-        "SELECT extra FROM vectora_sessions WHERE thread_id = ?", (body.thread_id,)
-    ) as cur:
-        session_row = await cur.fetchone()
-    try:
-        session_extra = json.loads(session_row[0] or "{}") if session_row else {}
-    except (TypeError, ValueError):
-        session_extra = {}
-    owner_id = str(session_extra.get("user_id", ""))
+    # SessionStore é a fonte de verdade da posse; `vectora_sessions.extra` é
+    # apenas metadado de UI e não contém necessariamente o user_id.
+    from backend.services import agent_factory
+
+    session = await (await agent_factory.get_session_store()).get_session(
+        body.thread_id
+    )
+    owner_id = str(session.get("user_id", "")) if session else ""
     if (
         owner_id
         and owner_id != user_id

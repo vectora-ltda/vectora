@@ -512,6 +512,7 @@ export interface SharedThread {
   messages: HistoryMessage[];
   created_at: string;
   expires_at?: string;
+  permission?: "read" | "comment";
 }
 
 export async function getSharedThread(
