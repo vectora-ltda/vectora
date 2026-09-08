@@ -20,6 +20,7 @@ O resolver do agente consulta ``list_skill_paths(user_id)`` para montar o
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -33,6 +34,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from backend.services import extension_trust
 from backend.vtypes.skill import Skill
 
 logger = logging.getLogger(__name__)
@@ -243,7 +245,16 @@ def list_skill_paths(
     for current_scope, current_target in scopes:
         for skill in _load_index(user_id, current_scope, current_target):
             path = Path(skill.path)
-            if path.is_dir():
+            digest = ""
+            try:
+                digest = hashlib.sha256((path / "SKILL.md").read_bytes()).hexdigest()
+            except OSError:
+                continue
+            if (
+                path.is_dir()
+                and skill.trust.state != "invalid"
+                and (not skill.trust.digest or skill.trust.digest == digest)
+            ):
                 by_id[skill.id] = path
     return list(by_id.values())
 
@@ -320,6 +331,7 @@ class InstallSkillRequest(BaseModel):
     scope: SkillScope = "user"
     target: str | None = None
     workspace_id: str | None = None
+    confirm_unverified: bool = False
 
 
 def install_skill(
@@ -327,6 +339,8 @@ def install_skill(
     source: str,
     scope: SkillScope = "user",
     target: str | None = None,
+    *,
+    confirm_unverified: bool = False,
 ) -> Skill:
     """Instala uma skill a partir de URL git ou path local.
 
@@ -346,6 +360,7 @@ def install_skill(
     # Pasta de staging: clonamos / copiamos em <base>/.staging antes de
     # mover para o slug final (que só conhecemos após ler o SKILL.md).
     staging = base / ".staging"
+    trust = extension_trust.unsigned_record(source)
     if staging.exists():
         shutil.rmtree(staging, ignore_errors=True)
 
@@ -412,6 +427,12 @@ def install_skill(
             shutil.copytree(src, staging)
 
         name, description = _read_skill_metadata(staging)
+        trust = extension_trust.content_record(
+            source, (staging / "SKILL.md").read_text(encoding="utf-8")
+        )
+        extension_trust.validate_record(
+            trust, confirmed=confirm_unverified or scope == "runtime"
+        )
         skill_id = _slugify(name)
         target_dir = base / skill_id
         if target_dir.exists():
@@ -431,6 +452,8 @@ def install_skill(
         path=str(target_dir),
         installed_at=datetime.now(UTC).isoformat(),
         installed_by=user_id,
+        trust=trust,
+        trust_confirmed=confirm_unverified or scope == "runtime",
     )
     skills = [s for s in _load_index(user_id, scope, target) if s.id != skill_id]
     skills.append(skill)
@@ -530,6 +553,9 @@ def verify_skill(
         name, description = _read_skill_metadata(root)
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}
+    digest = hashlib.sha256((root / "SKILL.md").read_bytes()).hexdigest()
+    if entry.trust.digest and digest != entry.trust.digest:
+        return {"ok": False, "code": "invalid", "error": "digest da skill mudou"}
     # Atualiza name/description se mudaram.
     if name != entry.name or description != entry.description:
         skills = _load_index(user_id, scope, target)

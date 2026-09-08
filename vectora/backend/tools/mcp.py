@@ -67,6 +67,16 @@ def _safe_subprocess_env(extra_keys: frozenset[str] | None = None) -> dict[str, 
     return {k: v for k, v in os.environ.items() if k in keys}
 
 
+def stdio_sandbox_available() -> bool:
+    """Reports whether the persistent stdio sandbox adapter is configured.
+
+    ``run_sandboxed`` is a one-shot command runner and cannot safely wrap the
+    bidirectional MCP protocol. Until a protocol-aware launcher is installed,
+    unverified stdio servers fail closed instead of silently running on host.
+    """
+    return os.environ.get("VECTORA_MCP_STDIO_SANDBOX", "").lower() == "1"
+
+
 class VectoraMCPClient:
     """Uma `ClientSession` MCP por servidor configurado — gerencia conexões
     e expõe as tools agregadas.
@@ -116,6 +126,10 @@ class VectoraMCPClient:
     ) -> ClientSession:
         transport = cfg["transport"]
         if transport == "stdio":
+            if cfg.get("require_sandbox") and not stdio_sandbox_available():
+                raise RuntimeError(
+                    "sandbox obrigatório para servidor MCP stdio indisponível"
+                )
             extra_keys = frozenset(cfg.get("env_vars") or ())
             params = StdioServerParameters(
                 command=cfg["command"],

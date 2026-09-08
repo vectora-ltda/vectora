@@ -162,7 +162,13 @@ async def install_user_skill(
     """Instala uma skill (git URL ou path local)."""
     try:
         target = _authorized_target(request, body.scope, body.target, body.workspace_id)
-        skill = install_skill(_user_id(request), body.source, body.scope, target)
+        skill = install_skill(
+            _user_id(request),
+            body.source,
+            body.scope,
+            target,
+            confirm_unverified=body.confirm_unverified,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "ok", "skill": skill.model_dump()}
