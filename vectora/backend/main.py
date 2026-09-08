@@ -218,6 +218,31 @@ def _build_parser() -> argparse.ArgumentParser:
     add_marketplace_parser("mcp", "Gerencia servidores MCP")
     add_marketplace_parser("skills", "Gerencia skills")
 
+    media_p = sub.add_parser("media", help="Lista e executa ferramentas de mídia")
+    media_p.set_defaults(command="media")
+    media_sub = media_p.add_subparsers(dest="action", required=True)
+    media_list = media_sub.add_parser("list", help="lista ferramentas de mídia")
+    media_list.set_defaults(output="human")
+    image = media_sub.add_parser("image", help="gera imagem")
+    image.add_argument("prompt")
+    image.set_defaults(output="human")
+    speech = media_sub.add_parser("speech", help="converte texto em fala")
+    speech.add_argument("text")
+    speech.add_argument("--voice", default="")
+    speech.set_defaults(output="human")
+    video = media_sub.add_parser("video", help="gera vídeo")
+    video.add_argument("prompt")
+    video.set_defaults(output="human")
+    analyze = media_sub.add_parser("analyze-video", help="analisa vídeo autorizado")
+    analyze.add_argument("path")
+    analyze.add_argument("question")
+    analyze.set_defaults(output="human")
+    for child in media_sub.choices.values():
+        child.add_argument("--output", choices=("human", "json"), default="human")
+        child.add_argument("--user-id", default="local")
+        child.add_argument("--model", default="")
+        child.add_argument("--thread-id", default="cli")
+
     # ── start — backend + SPA (fullstack/headless) ─────────────────────────────
     start_p = sub.add_parser(
         "start",
@@ -714,6 +739,12 @@ def _run_marketplace_command(args: argparse.Namespace) -> None:
     run_marketplace(args)
 
 
+def _run_media_command(args: argparse.Namespace) -> None:
+    from backend.cli.media import run_media
+
+    run_media(args)
+
+
 def _run_auth_command(args: argparse.Namespace) -> None:
     from backend.auth import (
         cmd_login,
@@ -755,6 +786,7 @@ _COMMAND_HANDLERS: dict[str, Any] = {
     "run": _run_run_task_command,
     "mcp": _run_marketplace_command,
     "skills": _run_marketplace_command,
+    "media": _run_media_command,
 }
 
 
