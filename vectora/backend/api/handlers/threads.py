@@ -1590,6 +1590,22 @@ class SmartApprovalAllowlistResponse(BaseModel):
     allowlist: list[str]
 
 
+@router.get("/smart-approval/allowlist")
+async def get_smart_approval_allowlist(
+    workspace_id: str, request: Request
+) -> SmartApprovalAllowlistResponse:
+    """Lista regras persistentes sem expor comandos completos ao cliente."""
+    _user_id(request)
+    from backend.api.handlers.workspaces import require_workspace_access
+    from backend.services.smart_approval import get_allowlist
+
+    if require_workspace_access(workspace_id, request) is None:
+        raise HTTPException(status_code=404, detail="Workspace não encontrado")
+    rules = get_allowlist(workspace_id)
+    safe = [rule if len(rule) <= 96 else f"{rule[:93]}..." for rule in rules]
+    return SmartApprovalAllowlistResponse(allowlist=safe)
+
+
 @router.post("/smart-approval/allowlist")
 async def add_smart_approval_allowlist(
     body: SmartApprovalAllowlistRequest, request: Request
@@ -1598,6 +1614,10 @@ async def add_smart_approval_allowlist(
     próxima ocorrência do mesmo comando chegar já marcada como reconhecida
     (ver `backend/services/smart_approval.py`)."""
     _user_id(request)
+    from backend.api.handlers.workspaces import require_workspace_access
+
+    if require_workspace_access(body.workspace_id, request) is None:
+        raise HTTPException(status_code=404, detail="Workspace não encontrado")
     from backend.services.smart_approval import add_to_allowlist
 
     try:
@@ -1614,6 +1634,10 @@ async def remove_smart_approval_allowlist(
     """Revoga uma assinatura — a próxima ocorrência volta a exigir aprovação
     normal, sem o atalho visual."""
     _user_id(request)
+    from backend.api.handlers.workspaces import require_workspace_access
+
+    if require_workspace_access(body.workspace_id, request) is None:
+        raise HTTPException(status_code=404, detail="Workspace não encontrado")
     from backend.services.smart_approval import remove_from_allowlist
 
     allowlist = remove_from_allowlist(body.workspace_id, body.signature)
