@@ -14,7 +14,11 @@ import pytest
 from fastapi import HTTPException
 
 from backend.api.handlers.chat import transcribe_audio_endpoint
-from backend.api.schemas import TranscribeAudioRequest
+from backend.api.schemas import (
+    _ATTACHMENT_MAX_SIZE_AUDIO_BYTES,
+    TranscribeAudioRequest,
+    _max_base64_length,
+)
 from backend.llm.transcription import TranscriptionError
 
 
@@ -48,6 +52,18 @@ def test_audio_base64_invalido_retorna_422():
         asyncio.run(transcribe_audio_endpoint(request))
 
     assert exc.value.status_code == 422
+
+
+def test_audio_base64_acima_do_limite_e_recusado_antes_do_decode():
+    request = TranscribeAudioRequest(
+        audio_base64="A" * (_max_base64_length(_ATTACHMENT_MAX_SIZE_AUDIO_BYTES) + 1),
+        mime_type="audio/webm",
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(transcribe_audio_endpoint(request))
+
+    assert exc.value.status_code == 413
 
 
 def test_falha_na_transcricao_retorna_502():

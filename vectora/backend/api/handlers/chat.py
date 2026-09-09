@@ -1096,7 +1096,11 @@ async def transcribe_audio_endpoint(
     disponível — caso do Electron/Chromium, que não embarca a chave de voz
     proprietária do Google que o Chrome tem.
     """
+    from backend.api.schemas import _ATTACHMENT_MAX_SIZE_AUDIO_BYTES, _max_base64_length
     from backend.llm.transcription import TranscriptionError, transcribe_audio
+
+    if len(request.audio_base64) > _max_base64_length(_ATTACHMENT_MAX_SIZE_AUDIO_BYTES):
+        raise HTTPException(status_code=413, detail="áudio excede o limite de 25MB")
 
     try:
         audio_bytes = base64.b64decode(request.audio_base64, validate=True)
