@@ -350,7 +350,7 @@ class PostgresSessionStore:
             await conn.execute(
                 "INSERT INTO vectora_native_pending_approvals (thread_id, interrupt_id, "
                 "tool_name, tool_call_id, args_json, reasoning, options_json, priority, expires_at, created_at) "
-                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) "
                 "ON CONFLICT (thread_id) DO UPDATE SET "
                 "interrupt_id = EXCLUDED.interrupt_id, "
                 "tool_name = EXCLUDED.tool_name, "
