@@ -36,6 +36,7 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { apiCheckout, apiSync, type GitBranches, type GitStatus } from "./api";
+import type { GitOpsSnapshot } from "@/lib/stores/workbench-store";
 import { m } from "@/lib/paraglide/messages";
 
 export function GitToolbar({
@@ -47,6 +48,7 @@ export function GitToolbar({
   onOpenWorktrees,
   onOpenPR,
   onChanged,
+  operation,
 }: {
   workspaceId: string;
   status: GitStatus | null;
@@ -56,6 +58,7 @@ export function GitToolbar({
   onOpenWorktrees: () => void;
   onOpenPR: (head: string) => void;
   onChanged: () => void;
+  operation?: GitOpsSnapshot | null;
 }) {
   const [creating, setCreating] = useState(false);
   const [newBranch, setNewBranch] = useState("");
@@ -195,6 +198,24 @@ export function GitToolbar({
           <TooltipContent side="bottom">{m.tooltip_git_pr()}</TooltipContent>
         </Tooltip>
       </div>
+      {operation &&
+        (operation.state === "queued" || operation.state === "running") && (
+          <div
+            className="flex items-center gap-2 border-t border-border/40 px-3 py-1 text-[10px] text-muted-foreground"
+            role="status"
+          >
+            <Loader2 className="h-3 w-3 animate-spin text-primary" />
+            <span className="truncate">
+              {m.workbench_git_operation_running({
+                operation: operation.operation,
+                phase: operation.phase,
+              })}
+            </span>
+            <span className="ml-auto font-mono">
+              {Math.round(operation.progress)}%
+            </span>
+          </div>
+        )}
 
       {/* Linha de criação de branch (inline, aparece sob demanda) */}
       {creating && (

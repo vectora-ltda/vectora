@@ -49,6 +49,15 @@ const TRUST_LABEL = {
   community: m.library_skills_trust_community,
 } as const;
 
+const TRUST_STATE_LABEL = {
+  vectora_verified: m.library_skills_trust_builtin,
+  publisher_signed: m.library_skills_trust_publisher_signed,
+  community_listed: m.library_skills_trust_community_listed,
+  unsigned: m.library_skills_trust_unsigned,
+  invalid: m.library_skills_trust_invalid,
+  verification_unavailable: m.library_skills_trust_verification_unavailable,
+} as const;
+
 async function publishSkill(payload: {
   source: string;
   name: string;
@@ -196,15 +205,55 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
   const [busy, setBusy] = useState(false);
   const [installed, setInstalled] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const trustState =
+    skill.trust_state ??
+    (skillTrustLevel(skill) === "builtin"
+      ? "vectora_verified"
+      : skillTrustLevel(skill) === "verified"
+        ? "publisher_signed"
+        : "community_listed");
+  const invalid = trustState === "invalid";
+  const requiresConfirmation = [
+    "community_listed",
+    "unsigned",
+    "verification_unavailable",
+  ].includes(trustState);
+  const legacyTrust = skillTrustLevel(skill);
+  const badgeLabel = skill.trust_state
+    ? TRUST_STATE_LABEL[skill.trust_state]()
+    : TRUST_LABEL[legacyTrust]();
+  const badgeVariant = skill.trust_state
+    ? trustState === "vectora_verified"
+      ? "default"
+      : trustState === "publisher_signed"
+        ? "secondary"
+        : "outline"
+    : legacyTrust === "builtin"
+      ? "default"
+      : legacyTrust === "verified"
+        ? "secondary"
+        : "outline";
 
   const handleInstall = async () => {
+    if (invalid) {
+      setError(m.library_skills_trust_invalid_install());
+      return;
+    }
+    if (
+      requiresConfirmation &&
+      !window.confirm(m.library_skills_trust_confirm())
+    )
+      return;
     setBusy(true);
     setError(null);
     try {
       const res = await fetch("/skills", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: skill.source }),
+        body: JSON.stringify({
+          source: skill.source,
+          confirm_unverified: requiresConfirmation,
+        }),
       });
       if (!res.ok) {
         setError(m.library_skills_catalog_error_install());
@@ -233,16 +282,11 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
           </p>
           <div className="pt-0.5">
             <Badge
-              variant={
-                skillTrustLevel(skill) === "builtin"
-                  ? "default"
-                  : skillTrustLevel(skill) === "verified"
-                    ? "secondary"
-                    : "outline"
-              }
+              variant={badgeVariant}
               className="text-[10px] h-4 px-1.5 shrink-0"
+              aria-label={`${m.library_skills_trust_aria_prefix()}: ${badgeLabel}`}
             >
-              {TRUST_LABEL[skillTrustLevel(skill)]()}
+              {badgeLabel}
             </Badge>
           </div>
         </div>
@@ -251,7 +295,7 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
           size="sm"
           className="h-7 text-xs shrink-0"
           onClick={handleInstall}
-          disabled={busy || installed}
+          disabled={busy || installed || invalid}
         >
           {busy ? (
             <Loader2 className="w-3 h-3 animate-spin" />
@@ -263,6 +307,11 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
           )}
         </Button>
       </div>
+      {skill.trust_reason && (
+        <p className="text-xs text-muted-foreground" role="status">
+          {skill.trust_reason}
+        </p>
+      )}
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );
