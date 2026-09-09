@@ -24,6 +24,42 @@ function issueFormData(files: File[] = []) {
   return form;
 }
 
+async function signedWebhook(
+  payload: Record<string, unknown>,
+  delivery: string,
+) {
+  const secret = "webhook-test-secret";
+  const body = JSON.stringify(payload);
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const digest = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(body),
+  );
+  const signature = Array.from(new Uint8Array(digest), (value) =>
+    value.toString(16).padStart(2, "0"),
+  ).join("");
+  return issues.request(
+    "/github/webhook",
+    {
+      method: "POST",
+      headers: {
+        "x-hub-signature-256": `sha256=${signature}`,
+        "x-github-delivery": delivery,
+        "Content-Type": "application/json",
+      },
+      body,
+    },
+    { ...env, GITHUB_ISSUES_WEBHOOK_SECRET: secret },
+  );
+}
+
 describe("POST /issues", () => {
   it("creates an issue and lists it publicly without exposing the reporter email", async () => {
     vi.stubGlobal("fetch", mockResendFetch());
@@ -113,6 +149,101 @@ describe("POST /issues", () => {
     );
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "turnstile_failed" });
+  });
+});
+
+describe("POST /issues/github/webhook", () => {
+  it("rejects missing signatures and ignores replayed deliveries", async () => {
+    const missing = await issues.request(
+      "/github/webhook",
+      { method: "POST", body: "{}" },
+      { ...env, GITHUB_ISSUES_WEBHOOK_SECRET: "webhook-test-secret" },
+    );
+    expect(missing.status).toBe(400);
+
+    const payload = {
+      action: "opened",
+      repository: { full_name: "vectora-ltda/vectora-issues" },
+      issue: {
+        number: 9876,
+        title: "Webhook issue",
+        body: "body",
+        state: "open",
+        html_url: "https://github.com/vectora-ltda/vectora-issues/issues/9876",
+      },
+    };
+    expect((await signedWebhook(payload, "delivery-9876")).status).toBe(200);
+    const replay = await signedWebhook(payload, "delivery-9876");
+    expect(replay.status).toBe(200);
+    expect((await replay.json<{ duplicate?: boolean }>()).duplicate).toBe(true);
+  });
+
+  it("mirrors edited and deleted comments without exposing reporter email", async () => {
+    const base = {
+      repository: { full_name: "vectora-ltda/vectora-issues" },
+      issue: {
+        number: 9877,
+        title: "Comment issue",
+        body: "body",
+        state: "open",
+        html_url: "https://github.com/vectora-ltda/vectora-issues/issues/9877",
+      },
+    };
+    await signedWebhook({ ...base, action: "opened" }, "delivery-9877-open");
+    await signedWebhook(
+      {
+        ...base,
+        action: "created",
+        comment: {
+          id: 77,
+          body: "first",
+          html_url: "https://github.com/comment/77",
+          created_at: new Date().toISOString(),
+          user: { login: "reporter" },
+        },
+      },
+      "delivery-9877-comment",
+    );
+    await signedWebhook(
+      {
+        ...base,
+        action: "edited",
+        comment: {
+          id: 77,
+          body: "edited",
+          html_url: "https://github.com/comment/77",
+          created_at: new Date().toISOString(),
+          user: { login: "reporter" },
+        },
+      },
+      "delivery-9877-edit",
+    );
+    await signedWebhook(
+      {
+        ...base,
+        action: "deleted",
+        comment: {
+          id: 77,
+          body: "edited",
+          html_url: "https://github.com/comment/77",
+          created_at: new Date().toISOString(),
+          user: { login: "reporter" },
+        },
+      },
+      "delivery-9877-delete",
+    );
+    const local = await env.DB.prepare(
+      "SELECT id FROM issues WHERE github_number = ?",
+    )
+      .bind(9877)
+      .first<{ id: string }>();
+    const detail = await issues.request(`/${local?.id}`, {}, env);
+    const detailBody = await detail.json<{
+      comments: unknown[];
+      email?: string;
+    }>();
+    expect(detailBody.comments).toHaveLength(0);
+    expect("email" in detailBody).toBe(false);
   });
 });
 

@@ -4,7 +4,13 @@ import type { Env } from "../gateway/types";
 import { verifyTurnstile } from "../lib/turnstile";
 import { SUPPORT_EMAIL, waitlistJoinedHtml } from "../lib/email";
 import { enqueueEmail } from "../lib/queue";
-import { createIssue, intakeRepo, type GitHubIssue } from "./github";
+import {
+  createIssue,
+  findIssueByMarker,
+  intakeRepo,
+  listComments,
+  type GitHubIssue,
+} from "./github";
 import { githubApprovalAllowed, promoteIssue } from "./promotion";
 
 export const issues = new Hono<{ Bindings: Env }>();
@@ -47,6 +53,7 @@ function githubBody(
   ].join("\n");
 }
 
+/** Publish or reconcile a Company issue in the public intake repository. */
 export async function syncCreatedIssue(
   env: Env,
   issueId: string,
@@ -64,20 +71,28 @@ export async function syncCreatedIssue(
       github_number: number | null;
       github_url: string | null;
     }>();
-  if (existing?.github_repo && existing.github_number && existing.github_url)
-    return;
-  try {
-    const created = await createIssue(
+  if (existing?.github_repo && existing.github_number && existing.github_url) {
+    await reconcileIssueComments(
       env,
-      intakeRepo(env),
-      title,
-      githubBody(category, description, issueId),
+      issueId,
+      existing.github_repo,
+      existing.github_number,
     );
+    return;
+  }
+  try {
+    const repo = intakeRepo(env);
+    const marker = `vectora-company-issue:${issueId}`;
+    const body = githubBody(category, description, issueId);
+    const existingRemote = await findIssueByMarker(env, repo, marker);
+    const created =
+      existingRemote ?? (await createIssue(env, repo, title, body));
     await env.DB.prepare(
       "UPDATE issues SET github_repo = ?, github_number = ?, github_url = ?, github_sync_state = 'synced', github_sync_error = NULL WHERE id = ?",
     )
-      .bind(intakeRepo(env), created.number, created.html_url, issueId)
+      .bind(repo, created.number, created.html_url, issueId)
       .run();
+    await reconcileIssueComments(env, issueId, repo, created.number);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "github_sync_failed";
@@ -87,6 +102,43 @@ export async function syncCreatedIssue(
       .bind(message.slice(0, 200), issueId)
       .run();
     console.error("issue_github_sync_failed", { issueId, message });
+  }
+}
+
+/** Reconcile comments from GitHub so missed webhook deliveries are recoverable. */
+export async function reconcileIssueComments(
+  env: Env,
+  issueId: string,
+  repo: string,
+  number: number,
+): Promise<void> {
+  const comments = await listComments(env, repo, number);
+  const remoteIds = comments.map((comment) => comment.id);
+  for (const comment of comments) {
+    await env.DB.prepare(
+      `INSERT INTO issue_comments (id, issue_id, github_comment_id, author, body, html_url, created_at, updated_at, deleted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+       ON CONFLICT(issue_id, github_comment_id) DO UPDATE SET author = excluded.author, body = excluded.body, html_url = excluded.html_url, updated_at = excluded.updated_at, deleted_at = NULL`,
+    )
+      .bind(
+        crypto.randomUUID(),
+        issueId,
+        comment.id,
+        comment.user?.login ?? "github-user",
+        comment.body,
+        comment.html_url,
+        comment.created_at,
+        comment.updated_at ?? comment.created_at,
+      )
+      .run();
+  }
+  if (remoteIds.length > 0) {
+    const placeholders = remoteIds.map(() => "?").join(", ");
+    await env.DB.prepare(
+      `UPDATE issue_comments SET deleted_at = datetime('now') WHERE issue_id = ? AND github_comment_id NOT IN (${placeholders}) AND deleted_at IS NULL`,
+    )
+      .bind(issueId, ...remoteIds)
+      .run();
   }
 }
 
@@ -171,13 +223,19 @@ issues.post("/", async (c) => {
     )
     .run();
 
-  await syncCreatedIssue(
+  const syncPromise = syncCreatedIssue(
     c.env,
     issueId,
     body.title,
     body.category,
     body.description,
   );
+  try {
+    c.executionCtx.waitUntil(syncPromise);
+  } catch {
+    // O runtime de testes não fornece ExecutionContext; aguarde nesse caso.
+    await syncPromise;
+  }
 
   const filesHtml =
     fileKeys.length > 0
@@ -227,6 +285,8 @@ issues.post("/github/webhook", async (c) => {
   if (!secret) return c.json({ error: "github_webhook_not_configured" }, 503);
 
   const body = await c.req.raw.clone().arrayBuffer();
+  const deliveryId = c.req.header("x-github-delivery")?.trim();
+  if (!deliveryId) return c.json({ error: "delivery_id_required" }, 400);
   const signature = c.req.header("x-hub-signature-256") ?? "";
   const key = await crypto.subtle.importKey(
     "raw",
@@ -247,23 +307,50 @@ issues.post("/github/webhook", async (c) => {
     return c.json({ error: "invalid_signature" }, 401);
   }
 
-  const payload = JSON.parse(new TextDecoder().decode(body)) as {
+  const delivery = await c.env.DB.prepare(
+    `INSERT INTO github_webhook_deliveries (delivery_id, state)
+     VALUES (?, 'processing')
+     ON CONFLICT(delivery_id) DO UPDATE SET state = 'processing', error = NULL
+     WHERE github_webhook_deliveries.state = 'failed'`,
+  )
+    .bind(deliveryId)
+    .run();
+  if (delivery.meta.changes === 0) return c.json({ ok: true, duplicate: true });
+
+  let payload: {
     action?: string;
     issue?: GitHubIssue & { labels?: Array<{ name?: string }> };
     comment?: {
       id: number;
-      body: string;
-      html_url: string;
-      created_at: string;
+      body?: string;
+      html_url?: string;
+      created_at?: string;
       user?: { login?: string };
     };
     repository?: { full_name?: string };
     sender?: { login?: string };
+    label?: { name?: string };
   };
+  try {
+    payload = JSON.parse(new TextDecoder().decode(body)) as typeof payload;
+  } catch {
+    await c.env.DB.prepare(
+      "UPDATE github_webhook_deliveries SET state = 'failed', error = ? WHERE delivery_id = ?",
+    )
+      .bind("invalid_json", deliveryId)
+      .run();
+    return c.json({ error: "invalid_json" }, 400);
+  }
   const repo = payload.repository?.full_name;
   const issue = payload.issue;
-  if (repo !== intakeRepo(c.env) || !issue?.number)
+  if (repo !== intakeRepo(c.env) || !issue?.number) {
+    await c.env.DB.prepare(
+      "UPDATE github_webhook_deliveries SET state = 'done' WHERE delivery_id = ?",
+    )
+      .bind(deliveryId)
+      .run();
     return c.json({ ok: true, ignored: true });
+  }
 
   const existing = await c.env.DB.prepare(
     "SELECT id FROM issues WHERE github_repo = ? AND github_number = ?",
@@ -288,7 +375,14 @@ issues.post("/github/webhook", async (c) => {
       )
       .run();
   }
-  if (!issueId) return c.json({ ok: true, ignored: true });
+  if (!issueId) {
+    await c.env.DB.prepare(
+      "UPDATE github_webhook_deliveries SET state = 'done' WHERE delivery_id = ?",
+    )
+      .bind(deliveryId)
+      .run();
+    return c.json({ ok: true, ignored: true });
+  }
 
   if (
     ["edited", "reopened", "closed", "labeled", "unlabeled"].includes(
@@ -310,6 +404,8 @@ issues.post("/github/webhook", async (c) => {
       )
       .run();
     if (
+      payload.action === "labeled" &&
+      payload.label?.name === "approved-for-core" &&
       approved &&
       payload.sender?.login &&
       githubApprovalAllowed(c.env, payload.sender.login)
@@ -324,6 +420,11 @@ issues.post("/github/webhook", async (c) => {
         )
           .bind(message.slice(0, 200), issueId)
           .run();
+        await c.env.DB.prepare(
+          "UPDATE github_webhook_deliveries SET state = 'failed', error = ? WHERE delivery_id = ?",
+        )
+          .bind(message.slice(0, 200), deliveryId)
+          .run();
         console.error("issue_github_approval_failed", { issueId, message });
       }
     } else if (approved) {
@@ -334,21 +435,33 @@ issues.post("/github/webhook", async (c) => {
         .run();
     }
   }
-  if (payload.action === "created" && payload.comment) {
+  if (
+    ["created", "edited", "deleted"].includes(payload.action ?? "") &&
+    payload.comment
+  ) {
     await c.env.DB.prepare(
-      "INSERT OR IGNORE INTO issue_comments (id, issue_id, github_comment_id, author, body, html_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      `INSERT INTO issue_comments (id, issue_id, github_comment_id, author, body, html_url, created_at, updated_at, deleted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(issue_id, github_comment_id) DO UPDATE SET author = excluded.author, body = excluded.body, html_url = excluded.html_url, updated_at = excluded.updated_at, deleted_at = excluded.deleted_at`,
     )
       .bind(
         crypto.randomUUID(),
         issueId,
         payload.comment.id,
         payload.comment.user?.login ?? "github-user",
-        payload.comment.body,
-        payload.comment.html_url,
-        payload.comment.created_at,
+        payload.comment.body ?? "",
+        payload.comment.html_url ?? null,
+        payload.comment.created_at ?? new Date().toISOString(),
+        new Date().toISOString(),
+        payload.action === "deleted" ? new Date().toISOString() : null,
       )
       .run();
   }
+  await c.env.DB.prepare(
+    "UPDATE github_webhook_deliveries SET state = 'done' WHERE delivery_id = ?",
+  )
+    .bind(deliveryId)
+    .run();
   return c.json({ ok: true });
 });
 
@@ -382,7 +495,7 @@ issues.get("/:id", async (c) => {
     .first<{ files: string | null } & Record<string, unknown>>();
   if (!row) return c.json({ error: "not_found" }, 404);
   const { results: comments } = await c.env.DB.prepare(
-    "SELECT author, body, html_url, created_at FROM issue_comments WHERE issue_id = ? ORDER BY created_at ASC",
+    "SELECT author, body, html_url, created_at, updated_at FROM issue_comments WHERE issue_id = ? AND deleted_at IS NULL ORDER BY created_at ASC",
   )
     .bind(c.req.param("id"))
     .all();

@@ -3,6 +3,7 @@ import {
   addComment,
   coreRepo,
   createIssue,
+  findIssueByMarker,
   intakeRepo,
   updateIssue,
 } from "./github";
@@ -54,11 +55,23 @@ export async function promoteIssue(
     "",
     issue.description ?? "Sem descrição adicional.",
   ].join("\n");
-  const created = await createIssue(env, coreRepo(env), issue.title, body);
+  const targetRepo = coreRepo(env);
+  const marker = `vectora-company-issue:${issue.id}`;
+  const existingRemote = await findIssueByMarker(env, targetRepo, marker);
+  const claimed = await env.DB.prepare(
+    "UPDATE issues SET github_sync_state = 'promotion_pending', github_sync_error = NULL WHERE id = ? AND core_number IS NULL AND github_sync_state != 'promotion_pending'",
+  )
+    .bind(issueId)
+    .run();
+  if (claimed.meta.changes === 0 && !existingRemote) {
+    throw new Error("promotion_in_progress");
+  }
+  const created =
+    existingRemote ?? (await createIssue(env, targetRepo, issue.title, body));
   await env.DB.prepare(
     "UPDATE issues SET core_repo = ?, core_number = ?, core_url = ?, approved_at = datetime('now'), approved_by = ?, github_sync_state = 'promoted', github_sync_error = NULL WHERE id = ? AND core_number IS NULL",
   )
-    .bind(coreRepo(env), created.number, created.html_url, approvedBy, issueId)
+    .bind(targetRepo, created.number, created.html_url, approvedBy, issueId)
     .run();
 
   if (issue.github_repo && issue.github_number) {
@@ -75,6 +88,7 @@ export async function promoteIssue(
   return { url: created.html_url, number: created.number };
 }
 
+/** Check whether a GitHub actor may approve intake issues automatically. */
 export function githubApprovalAllowed(env: Env, login: string): boolean {
   const configured = env.GITHUB_ISSUES_APPROVERS?.split(",")
     .map((value) => value.trim().toLowerCase())

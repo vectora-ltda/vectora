@@ -14,6 +14,7 @@ import { giftReceivedHtml, issueResponseHtml } from "../lib/email";
 import { enqueueEmail } from "../lib/queue";
 import { promoteIssue } from "../issues/promotion";
 import { syncCreatedIssue } from "../issues/routes";
+import { addComment, updateIssue } from "../issues/github";
 
 export const admin = new Hono<{ Bindings: Env }>();
 
@@ -287,7 +288,7 @@ admin.get("/issues/:id", async (c) => {
   if (!row) return c.json({ error: "not_found" }, 404);
 
   const { results: comments } = await c.env.DB.prepare(
-    "SELECT author, body, html_url, created_at FROM issue_comments WHERE issue_id = ? ORDER BY created_at ASC",
+    "SELECT author, body, html_url, created_at, updated_at FROM issue_comments WHERE issue_id = ? AND deleted_at IS NULL ORDER BY created_at ASC",
   )
     .bind(c.req.param("id"))
     .all();
@@ -318,6 +319,8 @@ admin.post("/issues/:id/approve", async (c) => {
       return c.json({ error: "not_found" }, 404);
     if (message === "github_not_configured")
       return c.json({ error: message }, 503);
+    if (message === "promotion_in_progress")
+      return c.json({ error: message }, 409);
     console.error("issue_github_promotion_failed", { id, message });
     return c.json({ error: "promotion_failed" }, 502);
   }
@@ -354,6 +357,12 @@ admin.post("/issues/:id/sync", async (c) => {
       github_sync_state: string;
       github_sync_error: string | null;
     }>();
+  if (updated?.github_sync_state === "error") {
+    return c.json(
+      { error: "github_sync_failed", detail: updated.github_sync_error },
+      502,
+    );
+  }
   return c.json({ ok: true, ...updated });
 });
 
@@ -387,10 +396,15 @@ admin.post("/issues/:id/respond", async (c) => {
   }
 
   const issue = await c.env.DB.prepare(
-    "SELECT title, email FROM issues WHERE id = ?",
+    "SELECT title, email, github_repo, github_number FROM issues WHERE id = ?",
   )
     .bind(id)
-    .first<{ title: string; email: string | null }>();
+    .first<{
+      title: string;
+      email: string | null;
+      github_repo: string | null;
+      github_number: number | null;
+    }>();
   if (!issue) return c.json({ error: "not_found" }, 404);
 
   const newStatus = body.resolve ? "resolved" : "open";
@@ -399,6 +413,27 @@ admin.post("/issues/:id/respond", async (c) => {
   )
     .bind(body.response, newStatus, id)
     .run();
+
+  if (issue.github_repo && issue.github_number) {
+    try {
+      await addComment(
+        c.env,
+        issue.github_repo,
+        issue.github_number,
+        body.response,
+      );
+      if (body.resolve) {
+        await updateIssue(c.env, issue.github_repo, issue.github_number, {
+          state: "closed",
+        });
+      }
+    } catch (error) {
+      console.error("issue_github_response_sync_failed", {
+        id,
+        message: error instanceof Error ? error.message : "github_sync_failed",
+      });
+    }
+  }
 
   // Só notifica se o reporter deixou email (opcional no formulário) — sem
   // email, a resposta fica só visível na página pública da issue.

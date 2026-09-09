@@ -195,11 +195,21 @@ CREATE TABLE IF NOT EXISTS issue_comments (
   body TEXT NOT NULL,
   html_url TEXT,
   created_at TEXT NOT NULL,
+  updated_at TEXT,
+  deleted_at TEXT,
   UNIQUE(issue_id, github_comment_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_issue_comments_issue
   ON issue_comments(issue_id, created_at ASC);
+
+CREATE TABLE IF NOT EXISTS github_webhook_deliveries (
+  delivery_id TEXT PRIMARY KEY,
+  state TEXT NOT NULL CHECK (state IN ('processing', 'done', 'failed')),
+  error TEXT,
+  received_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 -- Biblioteca de bancos RAG pré-indexados (catálogo só-leitura; artefatos
 -- de verdade vivem em storage externo, não Cloudflare). status:
