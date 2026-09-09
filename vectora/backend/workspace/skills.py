@@ -31,6 +31,7 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel
 
@@ -228,9 +229,21 @@ def _skill_lock_entry(skill: Skill) -> dict[str, object]:
         if not separator or not dependency.strip() or not constraint.strip():
             raise ValueError(f"requires_skills inválido para skill {skill.id}")
         requirements[dependency.strip()] = constraint.strip()
+    source = skill.source
+    parsed = urlsplit(source)
+    if parsed.username or parsed.password:
+        source = urlunsplit(
+            (
+                parsed.scheme,
+                parsed.hostname or "",
+                parsed.path,
+                parsed.query,
+                parsed.fragment,
+            )
+        )
     return {
         "version": version,
-        "source": skill.source,
+        "source": source,
         "revision": skill.trust.digest
         or hashlib.sha256((Path(skill.path) / "SKILL.md").read_bytes()).hexdigest(),
         "integrity": skill.trust.digest
