@@ -65,7 +65,10 @@ describe("Header", () => {
     expect(screen.getAllByText("nav_login").length).toBeGreaterThan(0);
     expect(screen.getAllByText("nav_signup").length).toBeGreaterThan(0);
     expect(screen.queryByText("Dashboard")).not.toBeInTheDocument();
-    expect(container.querySelector("nav")).toHaveClass("start-1/2");
+    expect(container.querySelector("nav")).toHaveClass(
+      "left-1/2",
+      "-translate-x-1/2",
+    );
   });
 
   it("mostra o link Dashboard quando há sessão (edge — usuário logado)", () => {
@@ -92,7 +95,10 @@ describe("Header", () => {
     render(<Header session={null} />);
 
     fireEvent.click(screen.getByLabelText("language_label"));
-    expect(screen.getByRole("listbox")).toHaveClass("start-1/2");
+    expect(screen.getByRole("listbox")).toHaveClass(
+      "left-1/2",
+      "-translate-x-1/2",
+    );
 
     fireEvent.click(screen.getByRole("option", { name: "EN" }));
     expect(mockSetLocale).toHaveBeenCalledWith("en");
