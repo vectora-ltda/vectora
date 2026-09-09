@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import uuid
 from enum import StrEnum
 from typing import Any, Literal
 
@@ -224,6 +225,7 @@ class Attachment(BaseModel):
 
 class StreamChatRequest(BaseModel):
     thread_id: str = ""  # vazio → cria nova thread
+    turn_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     content: str
     config: ChatConfig = Field(default_factory=ChatConfig)
     attachments: list[Attachment] = Field(default_factory=list)
@@ -232,6 +234,7 @@ class StreamChatRequest(BaseModel):
 class ResumeChatRequest(BaseModel):
     thread_id: str
     interrupt_id: str
+    turn_id: str | None = None
     decision: str  # "approve" | "reject" | "edit:<args_json>"
 
 

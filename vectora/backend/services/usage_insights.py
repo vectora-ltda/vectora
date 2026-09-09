@@ -6,6 +6,7 @@ recebem texto, argumentos, resultados de tools, anexos ou URLs de conteúdo.
 
 from __future__ import annotations
 
+import contextlib
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -133,7 +134,7 @@ class UsageInsightStore:
         if hasattr(db, "acquire"):
             async with db.acquire() as connection:
                 rows = await connection.fetch(
-                    """SELECT model, input_tokens, output_tokens, total_tokens,
+                    """SELECT event_id, model, input_tokens, output_tokens, total_tokens,
                               estimated_cost_cents, tool_names
                        FROM usage_insight_events
                        WHERE user_id = $1 AND occurred_at >= $2 AND occurred_at < $3""",
@@ -143,7 +144,7 @@ class UsageInsightStore:
                 )
             return self._aggregate_rows(rows, weeks, start=start, end=end)
         async with db.execute(
-            """SELECT model, input_tokens, output_tokens, total_tokens,
+            """SELECT event_id, model, input_tokens, output_tokens, total_tokens,
                       estimated_cost_cents, tool_names
                FROM usage_insight_events
                WHERE user_id = ? AND occurred_at >= ? AND occurred_at < ?""",
@@ -164,9 +165,12 @@ class UsageInsightStore:
         input_total = output_total = total_total = 0
         known_cost = 0.0
         unknown_cost_events = 0
+        turn_ids: set[str] = set()
+        counted_tools_turns: set[str] = set()
         for row in rows:
             if hasattr(row, "get"):
-                model, inp, out, total, cost, names = (
+                event_id, model, inp, out, total, cost, names = (
+                    row.get("event_id"),
                     row.get("model"),
                     row.get("input_tokens"),
                     row.get("output_tokens"),
@@ -174,8 +178,17 @@ class UsageInsightStore:
                     row.get("estimated_cost_cents"),
                     row.get("tool_names"),
                 )
+            elif len(row) == 7:
+                event_id, model, inp, out, total, cost, names = row
             else:
+                event_id = ""
                 model, inp, out, total, cost, names = row
+            event_key = str(event_id or "")
+            turn_key = (
+                event_key.rsplit(":call:", 1)[0] if ":call:" in event_key else event_key
+            )
+            if turn_key:
+                turn_ids.add(turn_key)
             if model:
                 model_counts[str(model)] += 1
             input_total += int(inp or 0)
@@ -185,15 +198,15 @@ class UsageInsightStore:
                 unknown_cost_events += 1
             else:
                 known_cost += float(cost)
-            try:
-                tool_counts.update(str(name) for name in json.loads(names or "[]"))
-            except (TypeError, ValueError):
-                continue
+            if turn_key not in counted_tools_turns:
+                with contextlib.suppress(TypeError, ValueError):
+                    tool_counts.update(str(name) for name in json.loads(names or "[]"))
+                counted_tools_turns.add(turn_key)
         return {
             "window_weeks": weeks,
             "window_start": start.isoformat(),
             "window_end": end.isoformat(),
-            "event_count": len(rows),
+            "event_count": len(turn_ids) if turn_ids else len(rows),
             "input_tokens": input_total,
             "output_tokens": output_total,
             "total_tokens": total_total,

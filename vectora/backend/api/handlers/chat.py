@@ -605,6 +605,12 @@ def _apply_persisted_model_preference(config: ChatConfig, user_id: str) -> None:
         config.model = preference
 
 
+async def _idempotent_turn_stream(thread_id: str) -> AsyncGenerator[str]:
+    """Confirma um turno já persistido sem executar o agente novamente."""
+    yield encode_event(ThreadEvent(thread_id=thread_id))
+    yield encode_event(DoneEvent(thread_id=thread_id))
+
+
 @router.post("/vectora.chat.v1.ChatService/StreamChat")
 async def stream_chat(
     request: StreamChatRequest, http_request: Request
@@ -892,12 +898,19 @@ async def stream_chat(
         parent_id = await session_store.append_message(
             thread_id, text_message(MessageRole.SYSTEM, native_agent.system_prompt)
         )
+    existing_message_id = await session_store.get_message_id_by_turn_id(
+        thread_id, request.turn_id
+    )
+    if existing_message_id is not None:
+        return StreamingResponse(
+            _idempotent_turn_stream(thread_id),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
     user_message_id = await session_store.append_message(
-        thread_id, user_msg, parent_message_id=parent_id
+        thread_id, user_msg, parent_message_id=parent_id, turn_id=request.turn_id
     )
-    _thread_usage_event_ids.setdefault(
-        thread_id, f"{thread_id}:message:{user_message_id}"
-    )
+    _thread_usage_event_ids[thread_id] = request.turn_id
 
     async def run(on_event: EventSink) -> str:
         chat_client = FallbackChatClient(primary_model_id=configurable.get("model", ""))
@@ -967,7 +980,7 @@ async def stream_chat(
                             if model_id is not None
                             else None
                         ),
-                        tool_names=list(result.tool_names),
+                        tool_names=list(result.tool_names) if index == 0 else [],
                     )
             except Exception:
                 logger.warning(
@@ -1069,7 +1082,8 @@ async def resume_chat(
         ):
             _thread_usage_event_ids.setdefault(
                 request.thread_id,
-                f"{request.thread_id}:interrupt:{pending_for_event['interrupt_id']}",
+                request.turn_id
+                or f"{request.thread_id}:interrupt:{pending_for_event['interrupt_id']}",
             )
     except Exception as exc:
         logger.exception("api/chat: erro ao inicializar o motor nativo (resume)")
@@ -1146,7 +1160,8 @@ async def resume_chat(
 
                 db = await get_usage_database()
                 model_base = _thread_usage_event_ids.setdefault(
-                    request.thread_id, f"{request.thread_id}:{uuid.uuid4()}"
+                    request.thread_id,
+                    request.turn_id or f"{request.thread_id}:{uuid.uuid4()}",
                 )
                 records = result.usage_records or (
                     (
@@ -1170,7 +1185,7 @@ async def resume_chat(
                             if model_id is not None
                             else None
                         ),
-                        tool_names=list(result.tool_names),
+                        tool_names=list(result.tool_names) if index == 0 else [],
                     )
             except Exception:
                 logger.warning(

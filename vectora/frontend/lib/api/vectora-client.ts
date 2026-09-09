@@ -57,6 +57,8 @@ export interface Attachment {
 
 export interface StreamChatRequest {
   thread_id?: string;
+  /** Identificador est�vel do turno, reutilizado em retries. */
+  turn_id?: string;
   content: string;
   config?: ChatConfig;
   /** Arquivos anexados à mensagem (F1 — multimodal). */
@@ -66,6 +68,7 @@ export interface StreamChatRequest {
 export interface ResumeChatRequest {
   thread_id: string;
   interrupt_id: string;
+  turn_id?: string;
   decision: "approve" | "reject" | `edit:${string}`;
 }
 
@@ -262,13 +265,17 @@ export async function* streamChat(
   signal?: AbortSignal,
 ): AsyncGenerator<StreamEvent> {
   const url = `${VECTORA_API_URL}/vectora.chat.v1.ChatService/StreamChat`;
+  const requestWithTurn = {
+    ...request,
+    turn_id: request.turn_id ?? crypto.randomUUID(),
+  };
 
   const doFetch = () =>
     fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify(request),
+      body: JSON.stringify(requestWithTurn),
       signal,
     });
 
