@@ -79,18 +79,17 @@ def apply_remote_version(
     bindado (``llm_tools._bound_cache``) é invalidado por consequência, pois
     sua chave inclui esta versão.
     """
-    if version <= _versions.get(user_id, 0):
-        return
-    _versions[user_id] = version
+    if version > _versions.get(user_id, 0):
+        _versions[user_id] = version
 
     def affected(key: tuple) -> bool:
-        if key[0] == user_id:
+        if scope == "user" and key[0] == user_id:
             return True
         if scope == "project" and target and len(key) > 3 and key[3] == target:
             return True
-        return bool(
-            scope == "workspace" and target and len(key) > 2 and key[2] == target
-        )
+        if scope == "workspace" and target and len(key) > 2 and key[2] == target:
+            return True
+        return bool(scope == "runtime" and target and len(key) > 4 and key[4] == target)
 
     for cache_key in [key for key in _mcp_tools_cache if affected(key)]:
         _mcp_tools_cache.pop(cache_key, None)

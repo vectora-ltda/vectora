@@ -86,6 +86,33 @@ async def test_tools_changed_versao_antiga_e_noop() -> None:
 
 
 @pytest.mark.asyncio
+async def test_tools_changed_scoped_invalida_cache_mesmo_com_versao_antiga() -> None:
+    await cache_sync.start_cache_sync()
+    plugins._versions["u1"] = 10
+    scoped_key = ("u2", None, "workspace-1", None, None)
+    plugins._mcp_tools_cache[scoped_key] = (
+        10,
+        0,
+        cast("list[ToolSpec]", ["tool"]),
+    )
+
+    await (await get_kv()).publish(
+        cache_sync.CHANNEL_TOOLS,
+        json.dumps(
+            {
+                "user_id": "u1",
+                "version": 3,
+                "scope": "workspace",
+                "target": "workspace-1",
+            }
+        ),
+    )
+
+    assert plugins.tools_version("u1") == 10
+    assert scoped_key not in plugins._mcp_tools_cache
+
+
+@pytest.mark.asyncio
 async def test_policy_changed_avanca_versao() -> None:
     await cache_sync.start_cache_sync()
     await (await get_kv()).publish(
