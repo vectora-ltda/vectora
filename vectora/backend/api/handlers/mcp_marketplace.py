@@ -173,16 +173,17 @@ def _connector_to_server(connector: MCPConnector) -> McpServer:
     from backend.workspace.plugins import McpServer
 
     parts = connector.install_cmd.split() if connector.install_cmd else ["npx"]
-    if connector.trust_state == "vectora_verified":
-        trust = extension_trust.curated_record(
-            f"marketplace:{connector.id}", connector.model_dump_json()
-        )
-    else:
-        trust = extension_trust.TrustRecord(
-            source=f"marketplace:{connector.id}",
-            state=connector.trust_state,
-            reason=connector.trust_reason,
-        )
+    trust = extension_trust.TrustRecord(
+        source=f"marketplace:{connector.id}",
+        state=(
+            "community_listed" if connector.vectora_verified else connector.trust_state
+        ),
+        reason=(
+            "catalog_curated_without_signature"
+            if connector.vectora_verified
+            else connector.trust_reason
+        ),
+    )
     return McpServer(
         name=connector.id,
         transport="stdio",
@@ -265,14 +266,6 @@ async def list_registry() -> list[MCPConnector]:
             connectors.setdefault(connector.id, connector)
     for connector in _REGISTRY:
         connectors.setdefault(connector.id, connector)
-    for connector_id, connector in list(connectors.items()):
-        if connector.vectora_verified and connector.trust_state == "unsigned":
-            connectors[connector_id] = connector.model_copy(
-                update={
-                    "trust_state": "vectora_verified",
-                    "trust_reason": "catalog_curated",
-                }
-            )
     return sorted(
         connectors.values(), key=lambda c: (not c.vectora_verified, c.name.lower())
     )

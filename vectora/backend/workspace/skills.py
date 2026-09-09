@@ -428,11 +428,9 @@ def install_skill(
 
         name, description = _read_skill_metadata(staging)
         trust = extension_trust.content_record(
-            source, (staging / "SKILL.md").read_text(encoding="utf-8")
+            source, (staging / "SKILL.md").read_bytes()
         )
-        extension_trust.validate_record(
-            trust, confirmed=confirm_unverified or scope == "runtime"
-        )
+        extension_trust.validate_record(trust, confirmed=confirm_unverified)
         skill_id = _slugify(name)
         target_dir = base / skill_id
         if target_dir.exists():
@@ -453,7 +451,7 @@ def install_skill(
         installed_at=datetime.now(UTC).isoformat(),
         installed_by=user_id,
         trust=trust,
-        trust_confirmed=confirm_unverified or scope == "runtime",
+        trust_confirmed=confirm_unverified,
     )
     skills = [s for s in _load_index(user_id, scope, target) if s.id != skill_id]
     skills.append(skill)

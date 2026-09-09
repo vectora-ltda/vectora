@@ -20,6 +20,7 @@ import asyncio
 import json
 import logging
 import os
+import shutil
 import time
 from contextlib import AsyncExitStack
 from typing import Any
@@ -67,14 +68,19 @@ def _safe_subprocess_env(extra_keys: frozenset[str] | None = None) -> dict[str, 
     return {k: v for k, v in os.environ.items() if k in keys}
 
 
-def stdio_sandbox_available() -> bool:
+def stdio_sandbox_available(launcher: str | None = None) -> bool:
     """Reports whether the persistent stdio sandbox adapter is configured.
 
     ``run_sandboxed`` is a one-shot command runner and cannot safely wrap the
     bidirectional MCP protocol. Until a protocol-aware launcher is installed,
     unverified stdio servers fail closed instead of silently running on host.
     """
-    return os.environ.get("VECTORA_MCP_STDIO_SANDBOX", "").lower() == "1"
+    candidate = launcher or os.environ.get("VECTORA_MCP_STDIO_SANDBOX_LAUNCHER", "")
+    return bool(
+        os.environ.get("VECTORA_MCP_STDIO_SANDBOX", "").lower() == "1"
+        and candidate
+        and shutil.which(candidate)
+    )
 
 
 class VectoraMCPClient:
@@ -126,14 +132,19 @@ class VectoraMCPClient:
     ) -> ClientSession:
         transport = cfg["transport"]
         if transport == "stdio":
-            if cfg.get("require_sandbox") and not stdio_sandbox_available():
+            launcher = str(cfg.get("sandbox_launcher") or "")
+            if cfg.get("require_sandbox") and not stdio_sandbox_available(launcher):
                 raise RuntimeError(
-                    "sandbox obrigatório para servidor MCP stdio indisponível"
+                    "sandbox protocol-aware obrigatório para servidor MCP stdio indisponível"
                 )
             extra_keys = frozenset(cfg.get("env_vars") or ())
+            command = cfg["command"]
+            args = list(cfg.get("args") or [])
+            if cfg.get("require_sandbox"):
+                command, args = launcher, [command, *args]
             params = StdioServerParameters(
-                command=cfg["command"],
-                args=cfg.get("args") or [],
+                command=command,
+                args=args,
                 env=_safe_subprocess_env(extra_keys),
             )
             read, write = await self._stack.enter_async_context(stdio_client(params))

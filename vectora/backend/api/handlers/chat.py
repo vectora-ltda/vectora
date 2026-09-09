@@ -757,6 +757,8 @@ async def stream_chat(
             user_id,
             native_agent.tool_registry,
             workspace_id=workspace_id or "",
+            project_root=project_root,
+            runtime_id=thread_id,
         )
         session_store = await agent_factory.get_session_store()
     except Exception as exc:
@@ -989,6 +991,8 @@ async def resume_chat(
             resume_user_id,
             native_agent.tool_registry,
             workspace_id=selector_workspace_id or "",
+            project_root=project_root,
+            runtime_id=request.thread_id,
         )
         session_store = await agent_factory.get_session_store()
         approval_gate = await agent_factory.get_approval_gate()

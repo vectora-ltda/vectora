@@ -102,7 +102,7 @@ async def verify_plugin(request: Request, name: str) -> dict:
     if not mcp_policy.evaluate(server.name, workspace_id).allowed:
         raise HTTPException(status_code=403, detail="Servidor bloqueado pela política.")
     try:
-        extension_trust.validate_record(server.trust, confirmed=False)
+        extension_trust.validate_record(server.trust, confirmed=server.trust_confirmed)
     except PermissionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return await health_check(server)

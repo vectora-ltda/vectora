@@ -40,20 +40,19 @@ def unsigned_record(source: str = "") -> TrustRecord:
     return TrustRecord(source=source, state="unsigned", reason="confirmation_required")
 
 
-def curated_record(source: str, material: str) -> TrustRecord:
-    digest = hashlib.sha256(material.encode("utf-8")).hexdigest()
+def curated_record(source: str, material: bytes) -> TrustRecord:
+    digest = hashlib.sha256(material).hexdigest()
     return TrustRecord(
         source=source,
         digest=digest,
         signature_status="missing",
-        state="vectora_verified",
-        verified_at=datetime.now(UTC).isoformat(),
-        reason="catalog_curated",
+        state="community_listed",
+        reason="catalog_curated_without_signature",
     )
 
 
-def content_record(source: str, material: str) -> TrustRecord:
-    digest = hashlib.sha256(material.encode("utf-8")).hexdigest()
+def content_record(source: str, material: bytes) -> TrustRecord:
+    digest = hashlib.sha256(material).hexdigest()
     return TrustRecord(source=source, digest=digest)
 
 

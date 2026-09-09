@@ -35,6 +35,7 @@ _rules: dict[tuple[str, str | None], McpPolicyRule] = {}
 _version = 0
 _loaded = False
 _policy_error = False
+_loaded_mtime_ns: int | None = None
 
 
 def _policy_file() -> Path:
@@ -42,11 +43,18 @@ def _policy_file() -> Path:
 
 
 def _load() -> None:
-    global _loaded, _version, _policy_error
-    if _loaded:
-        return
-    _loaded = True
+    global _loaded, _version, _policy_error, _loaded_mtime_ns
     path = _policy_file()
+    try:
+        mtime_ns = path.stat().st_mtime_ns
+    except FileNotFoundError:
+        mtime_ns = None
+    if _loaded and not _policy_error and mtime_ns == _loaded_mtime_ns:
+        return
+    _rules.clear()
+    _policy_error = False
+    _loaded = True
+    _loaded_mtime_ns = mtime_ns
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
         _version = int(raw.get("version", 0))
@@ -60,6 +68,7 @@ def _load() -> None:
         # Uma política ilegível nunca deve liberar implicitamente servidores.
         _version += 1
         _policy_error = True
+        _loaded_mtime_ns = None
 
 
 def _save() -> None:
@@ -154,11 +163,12 @@ def require_allowed(server_id: str, workspace_id: str | None = None) -> None:
 
 
 def _reset_for_tests() -> None:
-    global _loaded, _version, _policy_error
+    global _loaded, _version, _policy_error, _loaded_mtime_ns
     _rules.clear()
     _version = 0
     _loaded = False
     _policy_error = False
+    _loaded_mtime_ns = None
 
 
 __all__ = [

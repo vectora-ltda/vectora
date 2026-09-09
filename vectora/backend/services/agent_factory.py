@@ -733,6 +733,8 @@ async def get_native_agent(
     o dispatch de produção do chat — cache por ``(user_id, chat_mode,
     workspace_id)``. Thread-safe via ``_lock``."""
     _check_global_tools_version()
+    if user_id:
+        _track_versions(user_id)
 
     key = (
         user_id or "",
@@ -747,8 +749,6 @@ async def get_native_agent(
                 _native_agents[key] = _build_native_agent(
                     user_id, chat_mode, workspace_id, project_root, runtime_id
                 )
-        if user_id:
-            _track_versions(user_id)
     return _native_agents[key]
 
 
