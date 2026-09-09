@@ -6,6 +6,7 @@ import {
   ISSUE_FILE_LIMITS,
   reconcileIssueComments,
 } from "../../src/issues/routes";
+import { reconcilePendingPromotions } from "../../src/issues/promotion";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -245,6 +246,49 @@ describe("POST /issues/github/webhook", () => {
     }>();
     expect(detailBody.comments).toHaveLength(0);
     expect("email" in detailBody).toBe(false);
+  });
+
+  it("retoma promoção pendente sem número da issue core", async () => {
+    const issueId = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO issues (id, title, category, description, github_sync_state, approved_by) VALUES (?, 'bug pendente', 'bug', 'descrição', 'promotion_pending', 'admin')",
+    )
+      .bind(issueId)
+      .run();
+    const requests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        requests.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.includes("search/issues")) {
+          return new Response(JSON.stringify({ items: [] }), { status: 200 });
+        }
+        return new Response(
+          JSON.stringify({
+            number: 4321,
+            title: "bug pendente",
+            body: "body",
+            state: "open",
+            html_url: "https://github.com/vectora-ltda/vectora/issues/4321",
+          }),
+          { status: 201 },
+        );
+      }),
+    );
+
+    await reconcilePendingPromotions({
+      ...env,
+      GITHUB_TOKEN: "test-token",
+    });
+
+    const row = await env.DB.prepare(
+      "SELECT core_number, github_sync_state FROM issues WHERE id = ?",
+    )
+      .bind(issueId)
+      .first<{ core_number: number | null; github_sync_state: string }>();
+    expect(row).toEqual({ core_number: 4321, github_sync_state: "promoted" });
+    expect(requests.some((request) => request.startsWith("POST "))).toBe(true);
   });
 
   it("marca comentários ativos como removidos quando o GitHub retorna uma lista vazia", async () => {

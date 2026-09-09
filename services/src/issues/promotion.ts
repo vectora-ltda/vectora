@@ -142,7 +142,7 @@ export function githubApprovalAllowed(env: Env, login: string): boolean {
 /** Retoma promoções que criaram a issue principal mas ainda não fecharam a pública. */
 export async function reconcilePendingPromotions(env: Env): Promise<void> {
   const { results } = await env.DB.prepare(
-    "SELECT id, approved_by FROM issues WHERE github_sync_state = 'promotion_pending' AND approved_by IS NOT NULL LIMIT 25",
+    "SELECT id, approved_by FROM issues WHERE github_sync_state IN ('promotion_pending', 'approval_error') AND approved_by IS NOT NULL LIMIT 25",
   ).all<{ id: string; approved_by: string }>();
   for (const issue of results) {
     try {

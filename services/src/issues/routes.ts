@@ -549,9 +549,9 @@ issues.post("/github/webhook", async (c) => {
         const message =
           error instanceof Error ? error.message : "promotion_failed";
         await c.env.DB.prepare(
-          "UPDATE issues SET github_sync_state = 'approval_error', github_sync_error = ? WHERE id = ?",
+          "UPDATE issues SET github_sync_state = 'promotion_pending', github_sync_error = ?, approved_by = COALESCE(approved_by, ?) WHERE id = ?",
         )
-          .bind(message.slice(0, 200), issueId)
+          .bind(message.slice(0, 200), payload.sender.login, issueId)
           .run();
         await c.env.DB.prepare(
           "UPDATE github_webhook_deliveries SET state = 'failed', error = ? WHERE delivery_id = ?",
