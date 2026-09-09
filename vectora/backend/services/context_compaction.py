@@ -28,6 +28,33 @@ def _marker(removed: int) -> VMessage:
     )
 
 
+def _conversation_units(messages: list[VMessage]) -> list[list[VMessage]]:
+    """Group assistant tool calls with their tool results as one unit.
+
+    Providers reject histories that contain a tool result without the assistant
+    call that requested it, so compaction must never split that pair.
+    """
+    units: list[list[VMessage]] = []
+    index = 0
+    while index < len(messages):
+        message = messages[index]
+        unit = [message]
+        index += 1
+        if message.role is MessageRole.ASSISTANT and message.tool_calls:
+            call_ids = {call.id for call in message.tool_calls}
+            while index < len(messages):
+                candidate = messages[index]
+                if (
+                    candidate.role is not MessageRole.TOOL
+                    or candidate.tool_call_id not in call_ids
+                ):
+                    break
+                unit.append(candidate)
+                index += 1
+        units.append(unit)
+    return units
+
+
 def compact_messages(
     messages: list[VMessage], *, max_tokens: int, enabled: bool = True
 ) -> list[VMessage]:
@@ -38,20 +65,20 @@ def compact_messages(
         return messages
 
     systems = [message for message in messages if message.role == MessageRole.SYSTEM]
-    selected: list[VMessage] = []
+    non_system = [message for message in messages if message.role != MessageRole.SYSTEM]
+    units = _conversation_units(non_system)
+    selected_units: list[list[VMessage]] = []
     used = sum(_message_tokens(message) for message in systems)
-    for message in reversed(messages):
-        if message.role == MessageRole.SYSTEM:
+    for unit in reversed(units):
+        cost = sum(_message_tokens(message) for message in unit)
+        if used + cost > max_tokens and selected_units:
             continue
-        cost = _message_tokens(message)
-        if used + cost > max_tokens and selected:
-            continue
-        selected.append(message)
+        selected_units.append(unit)
         used += cost
         if used >= max_tokens:
             break
-    selected.reverse()
-    omitted = len(messages) - len(systems) - len(selected)
+    selected = [message for unit in reversed(selected_units) for message in unit]
+    omitted = len(non_system) - len(selected)
     result = [*systems]
     if omitted > 0:
         result.append(_marker(omitted))
