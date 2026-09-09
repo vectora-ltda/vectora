@@ -230,8 +230,8 @@ class TestApisWindowsSimuladas:
         chamadas: list[dict[str, object]] = []
 
         class FakeImage:
-            def save(self, buffer: object, *, format: str) -> None:
-                assert format == "PNG"
+            def save(self, buffer: object, **kwargs: object) -> None:
+                assert kwargs["format"] == "PNG"
 
         image_grab = types.SimpleNamespace(
             grab=lambda **kwargs: chamadas.append(kwargs) or FakeImage()
