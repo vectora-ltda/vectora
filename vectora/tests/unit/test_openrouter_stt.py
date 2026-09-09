@@ -165,6 +165,13 @@ class TestCadeiaDeTranscricao:
         monkeypatch.setattr(_s, "google_api_key", "", raising=False)
         monkeypatch.setattr(_s, "openrouter_api_key", "sk-or-test", raising=False)
 
+        def configured_model(_provider: str, _capability: str) -> str:
+            return "whisper"
+
+        monkeypatch.setattr(
+            "backend.settings.configured_gateway_model", configured_model
+        )
+
         async def _fake(_client, **kwargs):
             assert kwargs["model"] == "whisper"
             return "transcrito via openrouter"
@@ -195,7 +202,7 @@ class TestCadeiaDeTranscricao:
 
         with pytest.raises(
             transcription.TranscriptionError,
-            match="provider de transcrição indisponível",
+            match="modelo de STT do OpenRouter|provider de transcrição indisponível",
         ):
             await transcription.transcribe_audio(
                 _AUDIO,
@@ -216,6 +223,13 @@ class TestCadeiaDeTranscricao:
         monkeypatch.setattr(_s, "openai_api_key", "", raising=False)
         monkeypatch.setattr(_s, "google_api_key", "", raising=False)
         monkeypatch.setattr(_s, "openrouter_api_key", "sk-or-test", raising=False)
+
+        def configured_model(_provider: str, _capability: str) -> str:
+            return "whisper"
+
+        monkeypatch.setattr(
+            "backend.settings.configured_gateway_model", configured_model
+        )
 
         async def _fake(_client, **kwargs):
             assert kwargs["model"] == "whisper"

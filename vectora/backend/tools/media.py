@@ -592,7 +592,13 @@ def _audio_signature_matches(data: bytes, suffix: str) -> bool:
     signatures = {
         ".wav": data.startswith(b"RIFF") and data[8:12] == b"WAVE",
         ".mp3": data.startswith(b"ID3")
-        or data[:2] in {b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"},
+        or (
+            len(data) >= 2
+            and data[0] == 0xFF
+            and data[1] & 0xE0 == 0xE0
+            and data[1] & 0x06 == 0x02
+            and data[1] & 0x18 != 0x08
+        ),
         ".m4a": len(data) >= 12 and data[4:8] == b"ftyp",
         ".webm": data.startswith(b"\x1a\x45\xdf\xa3"),
         ".ogg": data.startswith(b"OggS"),
@@ -615,7 +621,11 @@ async def audio_transcribe(ctx: ToolContext, path: str, language: str = "") -> s
         from backend.settings import configured_gateway_model, provider_supports
         from backend.tools.fs import _confine
 
-        stt_model = configured_gateway_model(provider, "stt") or _active_model(ctx)
+        stt_model = configured_gateway_model(provider, "stt")
+        if provider in {"openai", "openai-api"}:
+            stt_model = "whisper-1"
+        elif provider in {"google", "google-genai", "gemini"}:
+            stt_model = "gemini-2.5-flash"
         if not stt_model or not provider_supports(provider, "stt"):
             return _unsupported(
                 provider,
