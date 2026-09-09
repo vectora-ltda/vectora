@@ -37,6 +37,29 @@ async def test_perfil_scoped_nao_vaza_para_outro_workspace(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
+async def test_resolve_exige_o_tipo_de_escopo(tmp_path: Path) -> None:
+    store = BrowserProfileStore(tmp_path)
+    profile = await store.create(
+        "alice", "Sessão", scope="session", scope_target="thread-1"
+    )
+    with pytest.raises(KeyError):
+        await store.resolve("alice", profile.profile_id, "thread-1", "workspace")
+    assert (
+        await store.resolve("alice", profile.profile_id, "thread-1", "session")
+    ) == profile
+
+
+@pytest.mark.asyncio
+async def test_perfil_legado_sem_expiracao_respeita_retencao(tmp_path: Path) -> None:
+    store = BrowserProfileStore(tmp_path)
+    profile = await store.create("alice", "Legado", scope_target="ws-1")
+    profile.expires_at = None
+    profile.created_at = "2000-01-01T00:00:00+00:00"
+    store._write_sync([profile])
+    assert await store.list_profiles("alice", "ws-1") == []
+
+
+@pytest.mark.asyncio
 async def test_store_instances_preservam_mutacoes_concorrentes(tmp_path: Path) -> None:
     first = BrowserProfileStore(tmp_path)
     second = BrowserProfileStore(tmp_path)

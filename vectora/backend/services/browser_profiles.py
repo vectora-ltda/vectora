@@ -24,10 +24,22 @@ class _Fcntl(Protocol):
     def flock(self, file_descriptor: int, operation: int) -> None: ...
 
 
+class _Msvcrt(Protocol):
+    LK_LOCK: int
+    LK_UNLCK: int
+
+    def locking(self, file_descriptor: int, mode: int, nbytes: int) -> None: ...
+
+
 try:
     _fcntl: _Fcntl | None = cast("_Fcntl", importlib.import_module("fcntl"))
 except ImportError:  # pragma: no cover - usado no Windows
     _fcntl = None
+
+try:
+    _msvcrt: _Msvcrt | None = cast("_Msvcrt", importlib.import_module("msvcrt"))
+except ImportError:  # pragma: no cover - usado em sistemas POSIX
+    _msvcrt = None
 
 
 @dataclass(slots=True)
@@ -63,20 +75,20 @@ class BrowserProfileStore:
             if _fcntl is not None:
                 _fcntl.flock(handle.fileno(), _fcntl.LOCK_EX)
             else:  # pragma: no cover - exercitado somente no Windows
-                import msvcrt
-
+                if _msvcrt is None:
+                    raise RuntimeError("backend de lock de processo indisponível")
                 handle.seek(0)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+                _msvcrt.locking(handle.fileno(), _msvcrt.LK_LOCK, 1)
             try:
                 yield
             finally:
                 if _fcntl is not None:
                     _fcntl.flock(handle.fileno(), _fcntl.LOCK_UN)
                 else:  # pragma: no cover - exercitado somente no Windows
-                    import msvcrt
-
+                    if _msvcrt is None:
+                        raise RuntimeError("backend de lock de processo indisponível")
                     handle.seek(0)
-                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                    _msvcrt.locking(handle.fileno(), _msvcrt.LK_UNLCK, 1)
 
     def _read_sync(self) -> list[BrowserProfile]:
         if not self._index.exists():
@@ -97,9 +109,13 @@ class BrowserProfileStore:
 
     @staticmethod
     def _expired(profile: BrowserProfile, now: datetime) -> bool:
-        if profile.expires_at is None:
-            return False
-        return datetime.fromisoformat(profile.expires_at) <= now
+        expiration = (
+            datetime.fromisoformat(profile.expires_at)
+            if profile.expires_at is not None
+            else datetime.fromisoformat(profile.created_at)
+            + timedelta(days=profile.retention_days)
+        )
+        return expiration <= now
 
     def _purge_expired_sync(
         self, profiles: list[BrowserProfile]
@@ -111,7 +127,10 @@ class BrowserProfileStore:
         return active
 
     async def list_profiles(
-        self, owner_id: str, scope_target: str | None = None
+        self,
+        owner_id: str,
+        scope_target: str | None = None,
+        scope: str | None = None,
     ) -> list[BrowserProfile]:
         async with self._lock:
 
@@ -122,6 +141,7 @@ class BrowserProfileStore:
                         profile
                         for profile in profiles
                         if profile.owner_id == owner_id
+                        and (scope is None or profile.scope == scope)
                         and (
                             scope_target is None
                             or profile.scope == "global"
@@ -170,9 +190,13 @@ class BrowserProfileStore:
             return await asyncio.to_thread(write)
 
     async def resolve(
-        self, owner_id: str, profile_id: str, scope_target: str | None = None
+        self,
+        owner_id: str,
+        profile_id: str,
+        scope_target: str | None = None,
+        scope: str | None = None,
     ) -> BrowserProfile:
-        profiles = await self.list_profiles(owner_id, scope_target)
+        profiles = await self.list_profiles(owner_id, scope_target, scope)
         for profile in profiles:
             if profile.profile_id == profile_id:
                 return profile
