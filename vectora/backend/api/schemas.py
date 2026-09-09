@@ -72,6 +72,12 @@ _ATTACHMENT_MAX_SIZE_DEFAULT_BYTES = 10 * 1024 * 1024
 _ATTACHMENT_MAX_SIZE_AUDIO_BYTES = 25 * 1024 * 1024
 _ATTACHMENT_MAX_SIZE_HAR_BYTES = 50 * 1024 * 1024
 
+
+def _max_base64_length(max_bytes: int) -> int:
+    """Return the largest base64 payload that can represent ``max_bytes``."""
+    return 4 * ((max_bytes + 2) // 3)
+
+
 _ATTACHMENT_SUPPORTED_MIME_TYPES = {
     "image/jpeg",
     "image/jpg",
@@ -192,12 +198,18 @@ class Attachment(BaseModel):
                 f"Tipo de arquivo não suportado: {self.name!r} ({self.mime_type!r})"
             )
 
+        max_size = _attachment_max_size_bytes(self.name, self.mime_type)
+        if len(self.base64_data) > _max_base64_length(max_size):
+            raise ValueError(
+                f"Arquivo {self.name!r} excede o limite de "
+                f"{max_size // (1024 * 1024)}MB"
+            )
+
         try:
             decoded = base64.b64decode(self.base64_data, validate=True)
         except (binascii.Error, ValueError) as exc:
             raise ValueError("base64_data inválido") from exc
 
-        max_size = _attachment_max_size_bytes(self.name, self.mime_type)
         if len(decoded) > max_size:
             raise ValueError(
                 f"Arquivo {self.name!r} excede o limite de {max_size // (1024 * 1024)}MB"
