@@ -11,6 +11,7 @@ import {
   respondToIssue,
   archiveIssue,
   approveIssue,
+  syncIssue,
 } from "#/server/fns/admin";
 import { resolveViewerRole } from "#/lib/auth/viewer";
 
@@ -118,6 +119,12 @@ function IssueDetailPage() {
 
   const approveMutation = useMutation({
     mutationFn: () => approveIssue({ data: { id: issueId } }),
+    onSuccess: () => void router.invalidate(),
+    onError: () => toast.error(m.error_generic()),
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: () => syncIssue({ data: { id: issueId } }),
     onSuccess: () => void router.invalidate(),
     onError: () => toast.error(m.error_generic()),
   });
@@ -300,6 +307,15 @@ function IssueDetailPage() {
                   {approveMutation.isPending
                     ? "Promoting…"
                     : "Approve for core"}
+                </button>
+              )}
+              {!issue.github_url && (
+                <button
+                  onClick={() => syncMutation.mutate()}
+                  disabled={syncMutation.isPending}
+                  className="rounded-lg border border-border px-4 py-2 text-sm text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"
+                >
+                  {syncMutation.isPending ? "Syncing…" : "Retry GitHub sync"}
                 </button>
               )}
               <button

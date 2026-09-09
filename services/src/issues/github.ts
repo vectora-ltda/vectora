@@ -76,7 +76,17 @@ async function request<T>(
   headers.set("Authorization", `Bearer ${accessToken}`);
   if (init.body !== undefined) headers.set("Content-Type", "application/json");
 
-  const response = await fetch(`${API}/${path}`, { ...init, headers });
+  let response: Response | undefined;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    response = await fetch(`${API}/${path}`, { ...init, headers });
+    if (![429, 500, 502, 503, 504].includes(response.status) || attempt === 2)
+      break;
+    const retryAfter = Number(response.headers.get("retry-after") ?? "1");
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.min(Math.max(retryAfter, 1), 10) * 1000),
+    );
+  }
+  if (!response) throw new GitHubIssueError(502, "github_request_failed");
   const text = await response.text();
   let payload: unknown = null;
   try {

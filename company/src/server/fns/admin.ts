@@ -171,6 +171,17 @@ export const approveIssue = createServerFn({ method: "POST" })
     });
   });
 
+export const syncIssue = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string().min(1) }))
+  .handler(async ({ data }) => {
+    return servicesFetch<{
+      ok: true;
+      github_url: string | null;
+      github_sync_state: string;
+      github_sync_error: string | null;
+    }>(`/admin/issues/${encodeURIComponent(data.id)}/sync`, { method: "POST" });
+  });
+
 const ArchiveIssueSchema = z.object({
   id: z.string().min(1),
   archived: z.boolean(),

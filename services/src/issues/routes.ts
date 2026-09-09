@@ -47,7 +47,7 @@ function githubBody(
   ].join("\n");
 }
 
-async function syncCreatedIssue(
+export async function syncCreatedIssue(
   env: Env,
   issueId: string,
   title: string,
@@ -55,6 +55,17 @@ async function syncCreatedIssue(
   description: string | undefined,
 ): Promise<void> {
   if (!env.GITHUB_ISSUES_TOKEN && !env.GITHUB_TOKEN) return;
+  const existing = await env.DB.prepare(
+    "SELECT github_repo, github_number, github_url FROM issues WHERE id = ?",
+  )
+    .bind(issueId)
+    .first<{
+      github_repo: string | null;
+      github_number: number | null;
+      github_url: string | null;
+    }>();
+  if (existing?.github_repo && existing.github_number && existing.github_url)
+    return;
   try {
     const created = await createIssue(
       env,

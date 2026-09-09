@@ -13,6 +13,7 @@ import { grantSubscription } from "../billing/routes";
 import { giftReceivedHtml, issueResponseHtml } from "../lib/email";
 import { enqueueEmail } from "../lib/queue";
 import { promoteIssue } from "../issues/promotion";
+import { syncCreatedIssue } from "../issues/routes";
 
 export const admin = new Hono<{ Bindings: Env }>();
 
@@ -320,6 +321,40 @@ admin.post("/issues/:id/approve", async (c) => {
     console.error("issue_github_promotion_failed", { id, message });
     return c.json({ error: "promotion_failed" }, 502);
   }
+});
+
+admin.post("/issues/:id/sync", async (c) => {
+  const adminId = await requireAdmin(c);
+  if (!adminId) return c.json({ error: "forbidden" }, 403);
+  const id = c.req.param("id");
+  const issue = await c.env.DB.prepare(
+    "SELECT id, title, category, description FROM issues WHERE id = ?",
+  )
+    .bind(id)
+    .first<{
+      id: string;
+      title: string;
+      category: string;
+      description: string | null;
+    }>();
+  if (!issue) return c.json({ error: "not_found" }, 404);
+  await syncCreatedIssue(
+    c.env,
+    issue.id,
+    issue.title,
+    issue.category,
+    issue.description ?? undefined,
+  );
+  const updated = await c.env.DB.prepare(
+    "SELECT github_url, github_sync_state, github_sync_error FROM issues WHERE id = ?",
+  )
+    .bind(id)
+    .first<{
+      github_url: string | null;
+      github_sync_state: string;
+      github_sync_error: string | null;
+    }>();
+  return c.json({ ok: true, ...updated });
 });
 
 admin.post("/issues/:id/archive", async (c) => {
