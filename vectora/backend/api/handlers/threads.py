@@ -51,6 +51,11 @@ from backend.api.schemas import (
     TodoItem,
     UpdateThreadRequest,
 )
+
+type ThreadRow = (
+    tuple[str, str | None, str, str, int, str | None]
+    | tuple[str, str | None, str, str, int, str | None, str | None, int | None]
+)
 from backend.persistence.thread_activity import (
     get_remote_activity,
     record_activity,
@@ -262,16 +267,28 @@ def _normalize_mode(mode: str | None) -> str:
     return "code"
 
 
-def _row_to_thread(row: tuple, remote_activity: str | None = None) -> Thread:
+def _row_to_thread(row: ThreadRow, remote_activity: str | None = None) -> Thread:
     """Converte uma linha da tabela vectora_sessions em Thread.
 
     A linha traz até 8 colunas (``mode`` e ``pinned`` de 1ª classe nas duas
     últimas posições). Ambas têm fallback pra ``None``/``0`` quando a SELECT
     de origem não as inclui (compatibilidade com chamadas mais antigas).
     """
-    thread_id, _, created_at, last_activity, _, extra_json = row[:6]
-    mode_col = row[6] if len(row) > 6 else None
-    pinned_col = row[7] if len(row) > 7 else 0
+    if len(row) == 6:
+        thread_id, _, created_at, last_activity, _, extra_json = row
+        mode_col = None
+        pinned_col = 0
+    else:
+        (
+            thread_id,
+            _,
+            created_at,
+            last_activity,
+            _,
+            extra_json,
+            mode_col,
+            pinned_col,
+        ) = row
     title = ""
     workspace_id = ""
     try:

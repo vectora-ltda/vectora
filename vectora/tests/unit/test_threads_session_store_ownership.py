@@ -96,7 +96,7 @@ class TestListThreadsReflectsSessionStore:
         assert result.threads[0].title == "Conversa da Alice"
 
     async def test_list_threads_serializa_atividade_remota(
-        self, session_store, monkeypatch
+        self, session_store: SessionStore, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         await session_store.create_session("thread-alice", user_id="alice", mode="code")
         await th._upsert_session("thread-alice", title="Conversa da Alice")

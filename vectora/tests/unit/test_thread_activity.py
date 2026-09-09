@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import aiosqlite
 import pytest
@@ -15,7 +16,7 @@ async def _false() -> bool:
 
 
 @pytest.fixture
-async def activity_db(tmp_path, monkeypatch):
+async def activity_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     from backend.settings import settings
 
     db_path = tmp_path / "activity.db"
@@ -24,7 +25,9 @@ async def activity_db(tmp_path, monkeypatch):
     return db_path
 
 
-async def test_activity_is_idempotent_and_excludes_current_device(activity_db) -> None:
+async def test_activity_is_idempotent_and_excludes_current_device(
+    activity_db: Path,
+) -> None:
     await thread_activity.record_activity("alice", "vdev_a", "thread-1")
     await thread_activity.record_activity("alice", "vdev_b", "thread-1")
 
@@ -39,7 +42,7 @@ async def test_activity_is_idempotent_and_excludes_current_device(activity_db) -
     assert rows == [("alice", "vdev_a", "thread-1"), ("alice", "vdev_b", "thread-1")]
 
 
-async def test_activity_isolated_by_user_and_cutoff(activity_db) -> None:
+async def test_activity_isolated_by_user_and_cutoff(activity_db: Path) -> None:
     await thread_activity.record_activity("alice", "vdev_b", "thread-1")
     await thread_activity.record_activity("bob", "vdev_b", "thread-1")
 
@@ -59,7 +62,9 @@ async def test_activity_isolated_by_user_and_cutoff(activity_db) -> None:
     )
 
 
-async def test_revoke_propagates_falha_de_persistencia(monkeypatch) -> None:
+async def test_revoke_propagates_falha_de_persistencia(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class FailingConnection:
         async def execute(self, *_args: object) -> None:
             raise RuntimeError("falha no banco")
