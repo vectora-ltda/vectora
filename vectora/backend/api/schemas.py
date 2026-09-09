@@ -397,6 +397,17 @@ class HITLEvent(BaseModel):
     pre_approved: bool = False
 
 
+class StructuredQuestionEvent(BaseModel):
+    """Pergunta aguardando uma resposta explícita do usuário no stream."""
+
+    question_id: str
+    thread_id: str
+    prompt: str
+    options: list[str]
+    allow_free_text: bool
+    expires_at: str = ""
+
+
 class RagCitation(BaseModel):
     index: int
     source: str
@@ -516,6 +527,7 @@ StreamChatEventPayload = (
     | NodeEvent
     | UIMetricsEvent
     | HITLEvent
+    | StructuredQuestionEvent
     | SubagentOutputEvent
     | RagCitationEvent
     | ErrorEvent
@@ -536,6 +548,7 @@ _TYPE_MAP: dict[type, str] = {
     NodeEvent: "node",
     UIMetricsEvent: "ui_metrics",
     HITLEvent: "hitl",
+    StructuredQuestionEvent: "structured_question",
     SubagentOutputEvent: "subagent_output",
     RagCitationEvent: "rag_citations",
     ErrorEvent: "error",

@@ -130,6 +130,15 @@ export type StreamEvent =
       pre_approved?: boolean;
     }
   | {
+      type: "structured_question";
+      question_id: string;
+      thread_id: string;
+      prompt: string;
+      options: string[];
+      allow_free_text: boolean;
+      expires_at?: string;
+    }
+  | {
       type: "rag_citations";
       citations: Array<{ index: number; source: string; chunk: string }>;
     }
@@ -147,6 +156,33 @@ export type StreamEvent =
   | { type: "model_switched"; from_model: string; to_model: string }
   | { type: "terminal_line"; line: string }
   | { type: "todos_updated"; todos: TodoItem[] };
+
+export async function answerStructuredQuestion(
+  threadId: string,
+  questionId: string,
+  answer?: string,
+  cancel = false,
+): Promise<{
+  question_id: string;
+  status: "answered" | "cancelled";
+  answer?: string | null;
+}> {
+  const response = await fetch(
+    `${VECTORA_API_URL}/threads/${encodeURIComponent(threadId)}/structured-questions/answer`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ question_id: questionId, answer, cancel }),
+    },
+  );
+  if (!response.ok) throw new Error("Não foi possível enviar a resposta");
+  return (await response.json()) as {
+    question_id: string;
+    status: "answered" | "cancelled";
+    answer?: string | null;
+  };
+}
 
 /** Item da checklist de write_todos (TodoListMiddleware) — Plan Mode real. */
 export interface TodoItem {

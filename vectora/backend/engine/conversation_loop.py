@@ -309,7 +309,11 @@ async def run_conversation(
             )
 
         resultados = await execute_tool_batch(
-            tool_calls, tool_registry=tool_registry, ctx=ctx, turn_budget=turn_budget
+            tool_calls,
+            tool_registry=tool_registry,
+            ctx=ctx,
+            turn_budget=turn_budget,
+            on_event=on_event,
         )
         for resultado in resultados:
             parent_id = await session_store.append_message(
@@ -373,7 +377,11 @@ async def run_conversation(
 
 
 async def _execute_single_call(
-    tool_call: ToolCall, *, tool_registry: ToolRegistry, ctx: ToolContext
+    tool_call: ToolCall,
+    *,
+    tool_registry: ToolRegistry,
+    ctx: ToolContext,
+    on_event: EventSink | None = None,
 ) -> VMessage:
     """Mesma lógica de execução de ``tool_batch._run_one``, sem
     ``TurnBudget`` (o teto de volume é do turno que gerou o lote original,
@@ -388,7 +396,12 @@ async def _execute_single_call(
         # que eventos de duas tools executadas em lote compartilhem o mesmo
         # ID e permite que delegações internas atualizem o card correto.
         texto = await spec.ainvoke(
-            tool_call.args, replace(ctx, tool_call_id=tool_call.id)
+            tool_call.args,
+            replace(
+                ctx,
+                tool_call_id=tool_call.id,
+                _extra={**ctx._extra, "event_sink": on_event},
+            ),
         )
         is_error = texto.startswith("Error:")
     return VMessage(
@@ -464,7 +477,10 @@ async def resume_conversation(
             if decision == "edit" and edited_args is not None:
                 args = edited_args
             resultado = await _execute_single_call(
-                replace(tc, args=args), tool_registry=tool_registry, ctx=ctx
+                replace(tc, args=args),
+                tool_registry=tool_registry,
+                ctx=ctx,
+                on_event=on_event,
             )
 
         parent_id = await session_store.append_message(

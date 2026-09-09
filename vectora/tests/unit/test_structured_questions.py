@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pytest
 
+from backend.services import structured_questions
 from backend.services.structured_questions import StructuredQuestionStore
 
 
@@ -24,7 +26,7 @@ async def test_pergunta_expira_e_cancelamento_desperta() -> None:
     assert await store.wait(question, 0.01) is None
     task = asyncio.create_task(store.wait(question, 1.0))
     await store.cancel(question.question_id, "thread")
-    assert await task == ""
+    assert await task is None
 
 
 @pytest.mark.asyncio
@@ -33,3 +35,20 @@ async def test_rejeita_opcao_fora_do_contrato() -> None:
     question = await store.create("thread", "Escolha", ["a"], False, "invalid")
     with pytest.raises(ValueError):
         await store.answer(question.question_id, "thread", "c")
+
+
+@pytest.mark.asyncio
+async def test_persistencia_reidrata_pergunta_e_marca_expirada(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    arquivo = tmp_path / "structured_questions.json"
+    monkeypatch.setattr(structured_questions, "_store_path", lambda: arquivo)
+    store = StructuredQuestionStore()
+    question = await store.create("thread", "Escolha", ["a"], False, "persistente")
+    question.status = "expired"
+    await store._save()
+
+    reidratado = StructuredQuestionStore()
+    restored = await reidratado.create("thread", "outra", ["b"], False, "persistente")
+    assert restored.question_id == question.question_id
+    assert restored.status == "expired"

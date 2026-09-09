@@ -453,6 +453,10 @@ export function useStreamHandler({
             streamCompletedNormally = true;
             break;
           }
+          if (event.type === "structured_question") {
+            streamCompletedNormally = true;
+            break;
+          }
           if (event.type === "done") {
             resolvedRunId = event.run_id || undefined;
             streamCompletedNormally = true;
@@ -658,6 +662,10 @@ export function useStreamHandler({
           if (event.type === "hitl") {
             // Pausa deliberada pra aprovação humana — ver comentário
             // equivalente em processStream.
+            streamCompletedNormally = true;
+            break;
+          }
+          if (event.type === "structured_question") {
             streamCompletedNormally = true;
             break;
           }
@@ -966,6 +974,24 @@ async function handleEvent(
             permissionMode: event.permission_mode,
             preApproved: event.pre_approved,
             workspaceId: useWorkspacesStore.getState().active_id ?? undefined,
+          },
+        })),
+      );
+      break;
+    }
+
+    case "structured_question": {
+      setMessages((prev) =>
+        updateMessageInList(prev, assistantMessageId, (m) => ({
+          ...m,
+          isThinking: false,
+          structuredQuestionPending: {
+            questionId: event.question_id,
+            threadId: event.thread_id,
+            prompt: event.prompt,
+            options: event.options,
+            allowFreeText: event.allow_free_text,
+            expiresAt: event.expires_at,
           },
         })),
       );
