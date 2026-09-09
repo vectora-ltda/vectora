@@ -69,18 +69,15 @@ export async function promoteIssue(
       ? { number: issue.core_number, html_url: issue.core_url }
       : await findIssueByMarker(env, targetRepo, marker);
   if (!created) {
-    // Uma falha antes do POST remoto deixa a reserva pendente sem número.
-    // Reconfirme o marcador antes de liberar essa reserva para retry seguro.
+    // Uma promoção pendente pertence a outra execução. O reconciliador libera
+    // a reserva com uma atualização condicional antes de tentar novamente;
+    // nunca a libere aqui usando um snapshot possivelmente antigo.
     if (issue.github_sync_state === "promotion_pending") {
       const recovered = await findIssueByMarker(env, targetRepo, marker);
       if (recovered) {
         created = recovered;
       } else {
-        await env.DB.prepare(
-          "UPDATE issues SET github_sync_state = 'promotion_failed', github_sync_error = NULL WHERE id = ? AND core_number IS NULL AND github_sync_state = 'promotion_pending'",
-        )
-          .bind(issueId)
-          .run();
+        throw new Error("promotion_in_progress");
       }
     }
     if (!created) {
@@ -146,6 +143,13 @@ export async function reconcilePendingPromotions(env: Env): Promise<void> {
   ).all<{ id: string; approved_by: string }>();
   for (const issue of results) {
     try {
+      // Só uma réplica pode liberar a reserva. A condição evita que uma
+      // tentativa concorrente sobrescreva uma promoção já em andamento.
+      await env.DB.prepare(
+        "UPDATE issues SET github_sync_state = 'promotion_failed', github_sync_error = NULL WHERE id = ? AND core_number IS NULL AND github_sync_state IN ('promotion_pending', 'approval_error')",
+      )
+        .bind(issue.id)
+        .run();
       await promoteIssue(env, issue.id, issue.approved_by);
     } catch (error) {
       console.error("issue_github_promotion_retry_failed", {
