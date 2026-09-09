@@ -906,11 +906,13 @@ async def stream_chat(
             is True
         ):
             try:
-                from backend.api.handlers.threads import _get_db
                 from backend.scheduling.budget import estimate_cost_cents
-                from backend.services.usage_insights import usage_insight_store
+                from backend.services.usage_insights import (
+                    get_usage_database,
+                    usage_insight_store,
+                )
 
-                db = await _get_db()
+                db = await get_usage_database()
                 await usage_insight_store.record(
                     db,
                     user_id=user_id,
@@ -967,6 +969,9 @@ async def resume_chat(
     - ``"reject"`` — cancela; o agente recebe feedback de rejeição
     - ``"edit:<args_json>"`` — executa com args modificados
     """
+    from backend.api.handlers.threads import _assert_owns_thread
+
+    await _assert_owns_thread(request.thread_id, http_request)
     resume_user_id = _user_id_from_request(http_request)
     permission_mode = _thread_permission_mode.get(request.thread_id, "ask")
     selector = _thread_graph_selector.get(request.thread_id, {})
@@ -1068,11 +1073,13 @@ async def resume_chat(
             is True
         ):
             try:
-                from backend.api.handlers.threads import _get_db
                 from backend.scheduling.budget import estimate_cost_cents
-                from backend.services.usage_insights import usage_insight_store
+                from backend.services.usage_insights import (
+                    get_usage_database,
+                    usage_insight_store,
+                )
 
-                db = await _get_db()
+                db = await get_usage_database()
                 model_id = getattr(chat_client, "last_model_id", None) or selector_model
                 await usage_insight_store.record(
                     db,

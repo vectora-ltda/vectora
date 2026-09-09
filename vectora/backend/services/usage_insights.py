@@ -15,6 +15,8 @@ class UsageInsightStore:
     """Armazena eventos técnicos e devolve apenas agregados por usuário."""
 
     async def ensure_schema(self, db: Any) -> None:
+        if hasattr(db, "acquire"):
+            return
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS usage_insight_events (
@@ -64,6 +66,25 @@ class UsageInsightStore:
         import json
 
         when = (occurred_at or datetime.now(UTC)).isoformat()
+        if hasattr(db, "acquire"):
+            async with db.acquire() as connection:
+                await connection.execute(
+                    """INSERT INTO usage_insight_events
+                    (user_id, event_id, occurred_at, model, input_tokens,
+                     output_tokens, total_tokens, estimated_cost_cents, tool_names)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    ON CONFLICT (user_id, event_id) DO NOTHING""",
+                    user_id,
+                    event_id,
+                    when,
+                    model,
+                    input_tokens,
+                    output_tokens,
+                    total_tokens,
+                    estimated_cost_cents,
+                    json.dumps(sorted(set(tool_names)), ensure_ascii=False),
+                )
+            return
         await db.execute(
             """INSERT OR IGNORE INTO usage_insight_events
             (user_id, event_id, occurred_at, model, input_tokens, output_tokens,
@@ -92,12 +113,22 @@ class UsageInsightStore:
         now: datetime | None = None,
     ) -> dict[str, Any]:
         """Agrega a janela móvel permitida sem retornar eventos brutos."""
-        import json
-
         if weeks not in {1, 2, 4}:
             raise ValueError("weeks deve ser 1, 2 ou 4")
         end = now or datetime.now(UTC)
         start = end - timedelta(days=7 * weeks)
+        if hasattr(db, "acquire"):
+            async with db.acquire() as connection:
+                rows = await connection.fetch(
+                    """SELECT model, input_tokens, output_tokens, total_tokens,
+                              estimated_cost_cents, tool_names
+                       FROM usage_insight_events
+                       WHERE user_id = $1 AND occurred_at >= $2 AND occurred_at < $3""",
+                    user_id,
+                    start,
+                    end,
+                )
+            return self._aggregate_rows(rows, weeks)
         async with db.execute(
             """SELECT model, input_tokens, output_tokens, total_tokens,
                       estimated_cost_cents, tool_names
@@ -107,12 +138,29 @@ class UsageInsightStore:
         ) as cursor:
             rows = await cursor.fetchall()
 
+        return self._aggregate_rows(rows, weeks)
+
+    def _aggregate_rows(self, rows: list[Any], weeks: int) -> dict[str, Any]:
+        """Agrega linhas SQLite ou asyncpg com o mesmo contrato público."""
+        import json
+
         model_counts: Counter[str] = Counter()
         tool_counts: Counter[str] = Counter()
         input_total = output_total = total_total = 0
         known_cost = 0.0
         unknown_cost_events = 0
-        for model, inp, out, total, cost, names in rows:
+        for row in rows:
+            if hasattr(row, "get"):
+                model, inp, out, total, cost, names = (
+                    row.get("model"),
+                    row.get("input_tokens"),
+                    row.get("output_tokens"),
+                    row.get("total_tokens"),
+                    row.get("estimated_cost_cents"),
+                    row.get("tool_names"),
+                )
+            else:
+                model, inp, out, total, cost, names = row
             if model:
                 model_counts[str(model)] += 1
             input_total += int(inp or 0)
@@ -151,3 +199,16 @@ class UsageInsightStore:
 
 
 usage_insight_store = UsageInsightStore()
+
+
+async def get_usage_database() -> Any:
+    """Retorna o backend ativo: SQLite no modo lite e pool Postgres no complete."""
+    from backend.services.license import get_effective_storage_mode
+
+    if get_effective_storage_mode() == "complete":
+        from backend.storage.factory import get_pg_pool
+
+        return await get_pg_pool()
+    from backend.api.handlers.threads import _get_db
+
+    return await _get_db()

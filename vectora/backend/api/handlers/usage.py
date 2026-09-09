@@ -197,8 +197,8 @@ async def get_weekly_insight(
     request: Request, weeks: Annotated[int, Query()] = 1
 ) -> dict[str, Any]:
     """Retorna somente agregados técnicos da conta autenticada."""
-    from backend.api.handlers.threads import _get_db, _user_id
-    from backend.services.usage_insights import usage_insight_store
+    from backend.api.handlers.threads import _user_id
+    from backend.services.usage_insights import get_usage_database, usage_insight_store
     from backend.workspace.runtime_settings import runtime_settings
 
     if weeks not in {1, 2, 4}:
@@ -220,5 +220,5 @@ async def get_weekly_insight(
             "tools": [],
         }
 
-    db = await _get_db()
+    db = await get_usage_database()
     return await usage_insight_store.aggregate(db, user_id=user_id, weeks=weeks)
