@@ -3,6 +3,8 @@ Fixture com pool real sobre `tmp_path`, sem mock."""
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from backend.persistence.native.session_store import SessionStore
@@ -319,6 +321,26 @@ class TestPendingApprovals:
         )
 
         assert await store.get_pending_approval("thread-expired") is None
+
+    async def test_claim_pending_approval_e_atomico_para_duas_retomas(
+        self, store: SessionStore
+    ) -> None:
+        """Somente uma retomada concorrente pode reivindicar o interrupt."""
+        await store.create_session("thread-claim", user_id="alice")
+        await store.put_pending_approval(
+            "thread-claim",
+            interrupt_id="intr-claim",
+            tool_name="terminal",
+            tool_call_id="call-claim",
+            args={"command": "echo ok"},
+        )
+
+        claimed = await asyncio.gather(
+            store.claim_pending_approval("thread-claim", interrupt_id="intr-claim"),
+            store.claim_pending_approval("thread-claim", interrupt_id="intr-claim"),
+        )
+
+        assert sum(item is not None for item in claimed) == 1
 
     async def test_round_trip_put_get_clear(self, store: SessionStore):
         await store.create_session("thread-1", user_id="alice")

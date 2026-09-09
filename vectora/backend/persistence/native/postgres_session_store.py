@@ -347,6 +347,34 @@ class PostgresSessionStore:
             "created_at": row["created_at"],
         }
 
+    async def claim_pending_approval(
+        self, thread_id: str, *, interrupt_id: str
+    ) -> dict[str, Any] | None:
+        """Atomically consume a matching pending approval for one resumer."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "DELETE FROM vectora_native_pending_approvals "
+                "WHERE thread_id = $1 AND interrupt_id = $2 "
+                "RETURNING interrupt_id, tool_name, tool_call_id, args_json, reasoning, "
+                "options_json, priority, expires_at, created_at",
+                thread_id,
+                interrupt_id,
+            )
+        if row is None or (row["expires_at"] and row["expires_at"] <= _now()):
+            return None
+        return {
+            "interrupt_id": row["interrupt_id"],
+            "tool_name": row["tool_name"],
+            "tool_call_id": row["tool_call_id"],
+            "args": json.loads(row["args_json"]),
+            "reasoning": row["reasoning"],
+            "options": json.loads(row["options_json"] or "[]"),
+            "priority": int(row["priority"]),
+            "expires_at": row["expires_at"],
+            "created_at": row["created_at"],
+        }
+
     async def put_pending_approval(
         self,
         thread_id: str,

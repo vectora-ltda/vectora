@@ -435,6 +435,7 @@ async def resume_conversation(
     decision: str,
     edited_args: dict[str, Any] | None = None,
     decided_by: str | None = None,
+    interrupt_id: str | None = None,
     approval_gate: ApprovalGate | None = None,
     on_event: EventSink | None = None,
 ) -> bool:
@@ -456,7 +457,19 @@ async def resume_conversation(
     cliente. ``True`` quando o lote foi executado e a pendência resolvida.
     """
     emit = on_event or _noop_event
-    pending = await session_store.get_pending_approval(thread_id)
+    requested_interrupt_id = interrupt_id
+    if requested_interrupt_id is None:
+        snapshot = await session_store.get_pending_approval(thread_id)
+        if snapshot is None:
+            return False
+        requested_interrupt_id = str(snapshot["interrupt_id"])
+    claim_pending = getattr(session_store, "claim_pending_approval", None)
+    if claim_pending is None:
+        pending = await session_store.get_pending_approval(thread_id)
+        if pending is None or pending["interrupt_id"] != requested_interrupt_id:
+            return False
+    else:
+        pending = await claim_pending(thread_id, interrupt_id=requested_interrupt_id)
     if pending is None:
         return False
 
@@ -529,6 +542,6 @@ async def resume_conversation(
         )
     if approval_gate is not None:
         await approval_gate.resolve(thread_id)
-    else:
+    elif claim_pending is None:
         await session_store.clear_pending_approval(thread_id)
     return True

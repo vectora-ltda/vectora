@@ -502,6 +502,47 @@ class SessionStore:
             "created_at": created_at,
         }
 
+    async def claim_pending_approval(
+        self, thread_id: str, *, interrupt_id: str
+    ) -> dict[str, Any] | None:
+        """Atomically consume a matching pending approval for one resumer."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "DELETE FROM pending_approvals WHERE thread_id = ? AND interrupt_id = ? "
+                "RETURNING interrupt_id, tool_name, tool_call_id, args_json, reasoning, "
+                "options_json, priority, expires_at, created_at",
+                (thread_id, interrupt_id),
+            )
+            row = await cur.fetchone()
+            await conn.commit()
+        if row is None:
+            return None
+        (
+            claimed_id,
+            tool_name,
+            tool_call_id,
+            args_json,
+            reasoning,
+            options_json,
+            priority,
+            expires_at,
+            created_at,
+        ) = row
+        if expires_at and expires_at <= _now():
+            return None
+        return {
+            "interrupt_id": claimed_id,
+            "tool_name": tool_name,
+            "tool_call_id": tool_call_id,
+            "args": json.loads(args_json),
+            "reasoning": reasoning,
+            "options": json.loads(options_json or "[]"),
+            "priority": int(priority),
+            "expires_at": expires_at,
+            "created_at": created_at,
+        }
+
     async def put_pending_approval(
         self,
         thread_id: str,

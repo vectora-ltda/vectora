@@ -1002,6 +1002,7 @@ async def resume_chat(
             decision=decision,
             edited_args=edited_args,
             decided_by=resume_user_id,
+            interrupt_id=request.interrupt_id,
             approval_gate=approval_gate,
             on_event=on_event,
         )
