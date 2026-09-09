@@ -124,6 +124,36 @@ describe("ThreadItem — menu de contexto", () => {
     expect(queryClient.setQueryData).toHaveBeenCalled();
   });
 
+  it("zera somente a thread correta no updater do cache", async () => {
+    render(
+      <ThreadItem
+        thread={makeThread({ unread_count: 2 })}
+        isActive
+        onSelect={vi.fn()}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    await act(async () => undefined);
+
+    const call = vi.mocked(queryClient.setQueryData).mock.calls[0];
+    const updater = call[1] as (data: {
+      threads: { id: string; unread_count?: number }[];
+    }) => { threads: { id: string; unread_count?: number }[] };
+    const updated = updater({
+      threads: [
+        { id: "t1", unread_count: 2 },
+        { id: "t2", unread_count: 4 },
+      ],
+    });
+
+    expect(updated.threads).toEqual([
+      { id: "t1", unread_count: 0 },
+      { id: "t2", unread_count: 4 },
+    ]);
+  });
+
   it("clicar em 'Fixar' chama onTogglePin com o novo estado", () => {
     const onTogglePin = vi.fn();
     render(
