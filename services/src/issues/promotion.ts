@@ -69,15 +69,31 @@ export async function promoteIssue(
       ? { number: issue.core_number, html_url: issue.core_url }
       : await findIssueByMarker(env, targetRepo, marker);
   if (!created) {
-    const claimed = await env.DB.prepare(
-      "UPDATE issues SET github_sync_state = 'promotion_pending', github_sync_error = NULL WHERE id = ? AND core_number IS NULL AND github_sync_state != 'promotion_pending'",
-    )
-      .bind(issueId)
-      .run();
-    if (claimed.meta.changes === 0) {
-      throw new Error("promotion_in_progress");
+    // Uma falha antes do POST remoto deixa a reserva pendente sem número.
+    // Reconfirme o marcador antes de liberar essa reserva para retry seguro.
+    if (issue.github_sync_state === "promotion_pending") {
+      const recovered = await findIssueByMarker(env, targetRepo, marker);
+      if (recovered) {
+        created = recovered;
+      } else {
+        await env.DB.prepare(
+          "UPDATE issues SET github_sync_state = 'promotion_failed', github_sync_error = NULL WHERE id = ? AND core_number IS NULL AND github_sync_state = 'promotion_pending'",
+        )
+          .bind(issueId)
+          .run();
+      }
     }
-    created = await createIssue(env, targetRepo, issue.title, body);
+    if (!created) {
+      const claimed = await env.DB.prepare(
+        "UPDATE issues SET github_sync_state = 'promotion_pending', github_sync_error = NULL, approved_at = COALESCE(approved_at, datetime('now')), approved_by = COALESCE(approved_by, ?) WHERE id = ? AND core_number IS NULL AND github_sync_state != 'promotion_pending'",
+      )
+        .bind(approvedBy, issueId)
+        .run();
+      if (claimed.meta.changes === 0) {
+        throw new Error("promotion_in_progress");
+      }
+      created = await createIssue(env, targetRepo, issue.title, body);
+    }
   }
   await env.DB.prepare(
     "UPDATE issues SET core_repo = ?, core_number = ?, core_url = ?, approved_at = COALESCE(approved_at, datetime('now')), approved_by = COALESCE(approved_by, ?), github_sync_state = 'promotion_pending', github_sync_error = NULL WHERE id = ?",
@@ -126,7 +142,7 @@ export function githubApprovalAllowed(env: Env, login: string): boolean {
 /** Retoma promoções que criaram a issue principal mas ainda não fecharam a pública. */
 export async function reconcilePendingPromotions(env: Env): Promise<void> {
   const { results } = await env.DB.prepare(
-    "SELECT id, approved_by FROM issues WHERE github_sync_state = 'promotion_pending' AND core_number IS NOT NULL AND approved_by IS NOT NULL LIMIT 25",
+    "SELECT id, approved_by FROM issues WHERE github_sync_state = 'promotion_pending' AND approved_by IS NOT NULL LIMIT 25",
   ).all<{ id: string; approved_by: string }>();
   for (const issue of results) {
     try {

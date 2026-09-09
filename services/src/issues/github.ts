@@ -187,7 +187,7 @@ export async function listComments(
   number: number,
 ): Promise<GitHubComment[]> {
   const all: GitHubComment[] = [];
-  for (let page = 1; page <= 10; page += 1) {
+  for (let page = 1; ; page += 1) {
     const batch = await request<GitHubComment[]>(
       env,
       `${repoPath(repo)}/issues/${number}/comments?per_page=100&page=${page}`,
