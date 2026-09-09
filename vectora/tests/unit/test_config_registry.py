@@ -86,8 +86,20 @@ class TestSettingField:
     def test_chave_inexistente_retorna_none(self, clean_registry):
         assert get_field("nao-existe") is None
 
-    def test_get_set_value_delegam_para_adapter(self, clean_registry):
-        adapter = _NoopAdapter()
+    def test_get_set_value_delegam_para_adapter(
+        self: TestSettingField, clean_registry: None
+    ) -> None:
+        calls: list[tuple[str, object]] = []
+
+        class _RecordingAdapter:
+            def get(self, key: str) -> object:
+                calls.append(("get", key))
+                return "value"
+
+            def set(self, key: str, value: object) -> None:
+                calls.append(("set", value))
+
+        adapter = _RecordingAdapter()
         setting_field(
             "delegated",
             category="preferences",
@@ -96,7 +108,8 @@ class TestSettingField:
             adapter=adapter,
         )
         set_value("delegated", "value")
-        assert get_value("delegated") is None
+        assert get_value("delegated") == "value"
+        assert calls == [("set", "value"), ("get", "delegated")]
         with pytest.raises(KeyError):
             get_value("missing")
 
