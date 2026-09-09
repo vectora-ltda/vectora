@@ -22,6 +22,8 @@ export interface FrontendPrefs {
 
 export interface WeeklyUsageInsight {
   window_weeks: number;
+  window_start: string;
+  window_end: string;
   event_count: number;
   input_tokens: number;
   output_tokens: number;

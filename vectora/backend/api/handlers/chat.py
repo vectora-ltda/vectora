@@ -901,7 +901,7 @@ async def stream_chat(
 
         if (
             result.usage
-            and result.stopped_reason != "interrupted"
+            and result.stopped_reason == "stop"
             and runtime_settings.get_frontend_prefs(user_id).get("weeklyInsightEnabled")
             is True
         ):
@@ -917,15 +917,18 @@ async def stream_chat(
                     db,
                     user_id=user_id,
                     event_id=_thread_usage_event_ids[thread_id],
-                    model=getattr(chat_client, "last_model_id", None)
-                    or getattr(chat_client, "primary_model_id", None),
+                    model=(
+                        result.usage_models[0]
+                        if len(result.usage_models) == 1
+                        else None
+                    ),
                     input_tokens=result.usage.get("input_tokens"),
                     output_tokens=result.usage.get("output_tokens"),
                     total_tokens=result.usage.get("total_tokens"),
-                    estimated_cost_cents=estimate_cost_cents(
-                        getattr(chat_client, "last_model_id", None)
-                        or getattr(chat_client, "primary_model_id", ""),
-                        result.usage,
+                    estimated_cost_cents=(
+                        estimate_cost_cents(result.usage_models[0], result.usage)
+                        if len(result.usage_models) == 1
+                        else None
                     ),
                     tool_names=list(result.tool_names),
                 )
@@ -1066,7 +1069,7 @@ async def resume_chat(
 
         if (
             result.usage
-            and result.stopped_reason != "interrupted"
+            and result.stopped_reason == "stop"
             and runtime_settings.get_frontend_prefs(resume_user_id).get(
                 "weeklyInsightEnabled"
             )
@@ -1080,7 +1083,9 @@ async def resume_chat(
                 )
 
                 db = await get_usage_database()
-                model_id = getattr(chat_client, "last_model_id", None) or selector_model
+                model_id = (
+                    result.usage_models[0] if len(result.usage_models) == 1 else None
+                )
                 await usage_insight_store.record(
                     db,
                     user_id=resume_user_id,
@@ -1091,7 +1096,11 @@ async def resume_chat(
                     input_tokens=result.usage.get("input_tokens"),
                     output_tokens=result.usage.get("output_tokens"),
                     total_tokens=result.usage.get("total_tokens"),
-                    estimated_cost_cents=estimate_cost_cents(model_id, result.usage),
+                    estimated_cost_cents=(
+                        estimate_cost_cents(model_id, result.usage)
+                        if model_id is not None
+                        else None
+                    ),
                     tool_names=list(result.tool_names),
                 )
             except Exception:

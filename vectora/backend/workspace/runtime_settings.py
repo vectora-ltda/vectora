@@ -475,11 +475,10 @@ class RuntimeSettings:
             allowed["weeklyInsightEnabled"], bool
         ):
             allowed.pop("weeklyInsightEnabled")
-        if "weeklyInsightWeeks" in allowed and allowed["weeklyInsightWeeks"] not in {
-            1,
-            2,
-            4,
-        }:
+        if "weeklyInsightWeeks" in allowed and (
+            isinstance(allowed["weeklyInsightWeeks"], bool)
+            or allowed["weeklyInsightWeeks"] not in {1, 2, 4}
+        ):
             allowed.pop("weeklyInsightWeeks")
         if "weeklyInsightDismissedWindow" in allowed and not isinstance(
             allowed["weeklyInsightDismissedWindow"], str

@@ -128,7 +128,7 @@ class UsageInsightStore:
                     start,
                     end,
                 )
-            return self._aggregate_rows(rows, weeks)
+            return self._aggregate_rows(rows, weeks, start=start, end=end)
         async with db.execute(
             """SELECT model, input_tokens, output_tokens, total_tokens,
                       estimated_cost_cents, tool_names
@@ -138,9 +138,11 @@ class UsageInsightStore:
         ) as cursor:
             rows = await cursor.fetchall()
 
-        return self._aggregate_rows(rows, weeks)
+        return self._aggregate_rows(rows, weeks, start=start, end=end)
 
-    def _aggregate_rows(self, rows: list[Any], weeks: int) -> dict[str, Any]:
+    def _aggregate_rows(
+        self, rows: list[Any], weeks: int, *, start: datetime, end: datetime
+    ) -> dict[str, Any]:
         """Agrega linhas SQLite ou asyncpg com o mesmo contrato público."""
         import json
 
@@ -176,6 +178,8 @@ class UsageInsightStore:
                 continue
         return {
             "window_weeks": weeks,
+            "window_start": start.isoformat(),
+            "window_end": end.isoformat(),
             "event_count": len(rows),
             "input_tokens": input_total,
             "output_tokens": output_total,

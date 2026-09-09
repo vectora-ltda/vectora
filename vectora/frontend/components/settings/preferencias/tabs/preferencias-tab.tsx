@@ -366,7 +366,7 @@ export function PreferenciasTab() {
             </Select>
             {weeklyInsight &&
               weeklyInsightDismissedWindow !==
-                `${weeklyInsight.window_weeks}` && (
+                `${weeklyInsight.window_start}/${weeklyInsight.window_end}` && (
                 <div
                   className="rounded-md bg-muted/40 p-3 text-xs space-y-1"
                   role="status"
@@ -374,6 +374,21 @@ export function PreferenciasTab() {
                   <div>
                     {m.prefs_weekly_insight_tokens({
                       n: weeklyInsight.total_tokens,
+                    })}
+                  </div>
+                  <div>
+                    {m.prefs_weekly_insight_input_tokens({
+                      n: weeklyInsight.input_tokens,
+                    })}
+                  </div>
+                  <div>
+                    {m.prefs_weekly_insight_output_tokens({
+                      n: weeklyInsight.output_tokens,
+                    })}
+                  </div>
+                  <div>
+                    {m.prefs_weekly_insight_tools({
+                      n: weeklyInsight.tools.length,
                     })}
                   </div>
                   <div>
@@ -395,7 +410,7 @@ export function PreferenciasTab() {
                     className="text-muted-foreground underline"
                     onClick={() =>
                       setWeeklyInsightDismissedWindow(
-                        `${weeklyInsight.window_weeks}`,
+                        `${weeklyInsight.window_start}/${weeklyInsight.window_end}`,
                       )
                     }
                   >
