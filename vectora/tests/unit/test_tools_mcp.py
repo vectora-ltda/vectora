@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 from anyio import BrokenResourceError
+from mcp import StdioServerParameters
 
 from backend.tools import mcp as mcp_tool_module
 from backend.tools.mcp import VectoraMCPClient, _safe_subprocess_env, call_mcp_tool
@@ -115,7 +116,7 @@ class TestVectoraMCPClientReal:
     async def test_launcher_de_ambiente_e_configuracao_usam_o_mesmo_proxy(
         self, monkeypatch
     ):
-        captured: list[object] = []
+        captured: list[StdioServerParameters] = []
 
         class FakeSession:
             async def initialize(self) -> None:
@@ -157,11 +158,11 @@ class TestVectoraMCPClientReal:
             )
         finally:
             await client.aclose()
-        assert [getattr(params, "command") for params in captured] == [
+        assert [params.command for params in captured] == [
             sys.executable,
             sys.executable,
         ]
-        assert [getattr(params, "args") for params in captured] == [
+        assert [params.args for params in captured] == [
             ["server-command", "--stdio"],
             ["server-command", "--stdio"],
         ]
