@@ -66,6 +66,15 @@ async def add_plugin(request: Request, body: McpServer) -> dict:
     workspace_id = request.query_params.get("workspace_id")
     if not mcp_policy.evaluate(body.name, workspace_id).allowed:
         raise HTTPException(status_code=403, detail="Servidor bloqueado pela política.")
+    # Trust is derived from installed material. Never accept publisher, digest,
+    # signature, or verification fields supplied by a manual client payload.
+    source = body.url if body.transport in {"sse", "http"} else body.command
+    body = body.model_copy(
+        update={
+            "trust": extension_trust.unsigned_record(source),
+            "trust_confirmed": body.trust_confirmed,
+        }
+    )
     try:
         extension_trust.validate_record(body.trust, confirmed=body.trust_confirmed)
     except PermissionError as exc:
