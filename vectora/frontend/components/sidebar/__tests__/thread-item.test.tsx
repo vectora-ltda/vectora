@@ -33,6 +33,7 @@ vi.mock("@/lib/queries/threads", () => ({
 
 vi.mock("@/lib/paraglide/messages", () => ({
   m: {
+    workbench_close: () => "Fechar",
     sidebar_new_conversation: () => "Nova conversa",
     sidebar_ctx_rename: () => "Renomear",
     sidebar_ctx_pin: () => "Fixar",
