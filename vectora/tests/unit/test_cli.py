@@ -7,13 +7,16 @@ erro por comando conforme o padrão de TDD do projeto.
 
 from __future__ import annotations
 
+import asyncio
 import io
+import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from rich.console import Console as _Console
 
-from backend.cli import infra, keys
+from backend.cli import infra, keys, marketplace
 from backend.main import _build_parser
 
 
@@ -74,6 +77,61 @@ def test_parser_config_sem_acao_aceita_set():
     args = parser.parse_args(["config", "--set", "verbosity=2"])
     assert args.config_action is None
     assert args.set_values == ["verbosity=2"]
+
+
+def test_parser_marketplace_define_matriz_de_comandos() -> None:
+    parser = _build_parser()
+    assert parser.parse_args(["mcp", "list", "--output", "json"]).output == "json"
+    assert parser.parse_args(["mcp", "install", "github"]).identifier == "github"
+    assert parser.parse_args(["skills", "search", "rag"]).query == "rag"
+    publish = parser.parse_args(
+        ["skills", "publish", "src", "Name", "Description", "--tag", "ai"]
+    )
+    assert publish.tags == ["ai"]
+
+
+def test_marketplace_json_envelope_nao_vaza_caminho(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    code = marketplace._emit(
+        marketplace._envelope(
+            "ok",
+            marketplace._public_skill({"path": "C:/private/.vectora", "name": "demo"}),
+        ),
+        "json",
+    )
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["schema_version"] == "1"
+    assert "path" not in payload["data"]
+
+
+def test_mcp_install_remove_reutiliza_handlers(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    async def _empty_registry() -> list[object]:
+        return []
+
+    async def _install(request: object, user_id: str) -> dict[str, str]:
+        calls.append(f"install:{user_id}")
+        return {"status": "installed", "mcp_id": "github"}
+
+    async def _remove(request: object, user_id: str) -> dict[str, str]:
+        calls.append(f"remove:{user_id}")
+        return {"status": "removed", "mcp_id": "github"}
+
+    monkeypatch.setattr(marketplace.mcp_marketplace, "install_mcp", _install)
+    monkeypatch.setattr(marketplace.mcp_marketplace, "uninstall_mcp", _remove)
+    monkeypatch.setattr(
+        marketplace.mcp_marketplace,
+        "list_registry",
+        _empty_registry,
+    )
+    install_args = SimpleNamespace(action="install", identifier="github", query=None)
+    remove_args = SimpleNamespace(action="remove", identifier="github", query=None)
+    assert asyncio.run(marketplace._mcp(install_args))["status"] == "ok"
+    assert asyncio.run(marketplace._mcp(remove_args))["status"] == "ok"
+    assert calls == ["install:local", "remove:local"]
 
 
 # ---------------------------------------------------------------------------
