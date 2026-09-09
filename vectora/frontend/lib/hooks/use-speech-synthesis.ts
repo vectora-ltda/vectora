@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type SpeechState = "idle" | "speaking" | "paused";
 let activeCancel: (() => void) | null = null;
+let activeOwner: symbol | null = null;
 
 export function spokenMessageText(content: string): string {
   return content
-    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/(?:```|~~~)[\s\S]*?(?:```|~~~|$)/g, " ")
     .replace(/`[^`]*`/g, " ")
     .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
@@ -30,10 +31,18 @@ export function useSpeechSynthesis(
     "speechSynthesis" in window &&
     "SpeechSynthesisUtterance" in window;
   const [state, setState] = useState<SpeechState>("idle");
+  const owner = useRef(Symbol());
   const stop = useCallback(() => {
-    if (typeof window !== "undefined" && "speechSynthesis" in window)
+    if (
+      activeOwner === owner.current &&
+      typeof window !== "undefined" &&
+      "speechSynthesis" in window
+    )
       window.speechSynthesis.cancel();
-    activeCancel = null;
+    if (activeOwner === owner.current) {
+      activeCancel = null;
+      activeOwner = null;
+    }
     setState("idle");
   }, []);
   const speak = useCallback(() => {
@@ -46,6 +55,7 @@ export function useSpeechSynthesis(
     utterance.onend = () => setState("idle");
     utterance.onerror = () => setState("idle");
     activeCancel = () => window.speechSynthesis.cancel();
+    activeOwner = owner.current;
     window.speechSynthesis.speak(utterance);
     setState("speaking");
   }, [supported, text]);

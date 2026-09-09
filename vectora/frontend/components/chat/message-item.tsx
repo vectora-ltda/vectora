@@ -297,7 +297,9 @@ function RagCitationList({ citations }: { citations: RagCitation[] }) {
         aria-expanded={open}
       >
         <span className="text-[10px] font-mono bg-primary/10 text-primary px-1 rounded">
-          {m.chat_rag_sources({ count: citations.length })}
+          {citations.length === 1
+            ? m.chat_rag_sources_one()
+            : m.chat_rag_sources_plural({ count: citations.length })}
         </span>
         <span className="text-[10px]">{m.chat_rag_label()}</span>
         <span className="text-[9px] opacity-60">{open ? "▲" : "▼"}</span>
@@ -1128,15 +1130,22 @@ export const MessageItem = memo(
                                   </TooltipContent>
                                 </Tooltip>
                                 {speech.state !== "idle" && (
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                                    onClick={speech.stop}
-                                    aria-label={m.message_tts_stop()}
-                                  >
-                                    <Square className="w-3 h-3" />
-                                  </Button>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                                        onClick={speech.stop}
+                                        aria-label={m.message_tts_stop()}
+                                      >
+                                        <Square className="w-3 h-3" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      {m.message_tts_stop()}
+                                    </TooltipContent>
+                                  </Tooltip>
                                 )}
                               </>
                             )}
@@ -1442,6 +1451,7 @@ export const MessageItem = memo(
 
     // Other props that affect rendering
     const otherPropsChanged =
+      prevProps.threadId !== nextProps.threadId ||
       prevProps.showToolCalls !== nextProps.showToolCalls ||
       prevProps.isRegenerating !== nextProps.isRegenerating ||
       prevProps.isLastAssistant !== nextProps.isLastAssistant ||
