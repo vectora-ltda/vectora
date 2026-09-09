@@ -287,12 +287,21 @@ async def _transcribe_attachment(att: Attachment) -> str:
     from backend.llm.transcription import TranscriptionError, transcribe_audio
 
     try:
-        audio_bytes = base64.b64decode(att.base64_data)
+        audio_bytes = base64.b64decode(att.base64_data, validate=True)
     except Exception:
         return f"\n[Áudio: {att.name} — não foi possível decodificar o arquivo]"
 
     try:
-        transcript = await transcribe_audio(audio_bytes, att.name, att.mime_type)
+        from backend.workspace.runtime_settings import runtime_settings
+
+        transcript = await transcribe_audio(
+            audio_bytes,
+            att.name,
+            att.mime_type,
+            provider=runtime_settings.active_provider,
+            model=runtime_settings.active_model,
+            language="",
+        )
     except TranscriptionError:
         logger.exception("chat: falha ao transcrever áudio %s", att.name)
         return f"\n[Áudio: {att.name} — falha ao transcrever]"
@@ -1087,15 +1096,28 @@ async def transcribe_audio_endpoint(
     disponível — caso do Electron/Chromium, que não embarca a chave de voz
     proprietária do Google que o Chrome tem.
     """
+    from backend.api.schemas import _ATTACHMENT_MAX_SIZE_AUDIO_BYTES, _max_base64_length
     from backend.llm.transcription import TranscriptionError, transcribe_audio
 
+    if len(request.audio_base64) > _max_base64_length(_ATTACHMENT_MAX_SIZE_AUDIO_BYTES):
+        raise HTTPException(status_code=413, detail="áudio excede o limite de 25MB")
+
     try:
-        audio_bytes = base64.b64decode(request.audio_base64)
+        audio_bytes = base64.b64decode(request.audio_base64, validate=True)
     except Exception as exc:
         raise HTTPException(status_code=422, detail="áudio em base64 inválido") from exc
 
     try:
-        text = await transcribe_audio(audio_bytes, request.filename, request.mime_type)
+        from backend.workspace.runtime_settings import runtime_settings
+
+        text = await transcribe_audio(
+            audio_bytes,
+            request.filename,
+            request.mime_type,
+            provider=runtime_settings.active_provider,
+            model=runtime_settings.active_model,
+            language="",
+        )
     except TranscriptionError as exc:
         logger.exception("chat: falha ao transcrever ditado de voz")
         raise HTTPException(status_code=502, detail=str(exc)) from exc
