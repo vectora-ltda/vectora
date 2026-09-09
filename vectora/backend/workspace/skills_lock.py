@@ -7,30 +7,68 @@ import re
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
+from functools import total_ordering
 from pathlib import Path
 from threading import Lock
 from typing import cast
 
-_SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
+_SEMVER = re.compile(
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+    r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
+    r"(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$"
+)
 _LOCKS: dict[Path, Lock] = {}
 _LOCKS_GUARD = Lock()
 
 
-@dataclass(frozen=True, order=True)
+@total_ordering
+@dataclass(frozen=True)
 class Version:
     major: int
     minor: int
     patch: int
+    prerelease: tuple[str, ...] = ()
 
     @classmethod
     def parse(cls, value: str) -> Version:
         match = _SEMVER.fullmatch(value.strip())
         if not match:
             raise ValueError(f"versão SemVer inválida: {value}")
-        return cls(*(int(part) for part in match.groups()))
+        major, minor, patch, prerelease, _build = match.groups()
+        identifiers = tuple(prerelease.split(".")) if prerelease else ()
+        if any(
+            identifier.isdigit() and len(identifier) > 1 and identifier[0] == "0"
+            for identifier in identifiers
+        ):
+            raise ValueError(f"versão SemVer inválida: {value}")
+        return cls(int(major), int(minor), int(patch), identifiers)
+
+    def __lt__(self, other: object) -> bool:  # noqa: PLR0911
+        if not isinstance(other, Version):
+            return NotImplemented
+        base = (self.major, self.minor, self.patch)
+        other_base = (other.major, other.minor, other.patch)
+        if base != other_base:
+            return base < other_base
+        if not self.prerelease and not other.prerelease:
+            return False
+        if not self.prerelease:
+            return False
+        if not other.prerelease:
+            return True
+        for left, right in zip(self.prerelease, other.prerelease, strict=False):
+            if left == right:
+                continue
+            if left.isdigit() and right.isdigit():
+                return int(left) < int(right)
+            if left.isdigit() != right.isdigit():
+                return left.isdigit()
+            return left < right
+        return len(self.prerelease) < len(other.prerelease)
 
     def __str__(self) -> str:
-        return f"{self.major}.{self.minor}.{self.patch}"
+        suffix = f"-{'.'.join(self.prerelease)}" if self.prerelease else ""
+        return f"{self.major}.{self.minor}.{self.patch}{suffix}"
 
 
 def satisfies(version: Version, constraint: str) -> bool:
@@ -169,7 +207,7 @@ def validate_lock_entries(entries: dict[str, dict[str, object]]) -> None:
         Version.parse(version)
         for field in ("source", "revision", "integrity"):
             value = entry.get(field)
-            if value is not None and (not isinstance(value, str) or not value.strip()):
+            if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{field} inválido para skill {skill_id}")
         requirements = entry.get("requires_skills", {})
         if not isinstance(requirements, dict) or any(

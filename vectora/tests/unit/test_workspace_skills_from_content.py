@@ -47,7 +47,8 @@ def test_runtime_skill_install_uses_session_scoped_memory(tmp_path) -> None:
     source = tmp_path / "runtime-skill"
     source.mkdir()
     (source / "SKILL.md").write_text(
-        "---\nname: Runtime\ndescription: Session only\n---\n", encoding="utf-8"
+        "---\nname: Runtime\ndescription: Session only\nversion: 1.0.0\n---\n",
+        encoding="utf-8",
     )
 
     installed = skills.install_skill(

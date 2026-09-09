@@ -218,16 +218,21 @@ def _skill_lock_entry(skill: Skill) -> dict[str, object]:
     frontmatter = _parse_frontmatter(
         (Path(skill.path) / "SKILL.md").read_text(encoding="utf-8")
     )
-    version = frontmatter.get("version", "0.0.0").strip()
+    version = frontmatter.get("version", "").strip()
+    if not version:
+        raise ValueError(f"frontmatter sem version para skill {skill.id}")
     requirements: dict[str, str] = {}
     raw_requirements = frontmatter.get("requires_skills", "").strip()
     for item in raw_requirements.split(",") if raw_requirements else []:
         dependency, separator, constraint = item.partition(":")
-        if separator and dependency.strip() and constraint.strip():
-            requirements[dependency.strip()] = constraint.strip()
+        if not separator or not dependency.strip() or not constraint.strip():
+            raise ValueError(f"requires_skills inválido para skill {skill.id}")
+        requirements[dependency.strip()] = constraint.strip()
     return {
         "version": version,
         "source": skill.source,
+        "revision": skill.trust.digest
+        or hashlib.sha256((Path(skill.path) / "SKILL.md").read_bytes()).hexdigest(),
         "integrity": skill.trust.digest
         or hashlib.sha256((Path(skill.path) / "SKILL.md").read_bytes()).hexdigest(),
         "requires_skills": requirements,
@@ -248,6 +253,16 @@ def _write_scope_lock(
     }
     skills_lock.resolve_dependencies(candidates)
     skills_lock.write_lockfile(lock_path, entries)
+
+
+def _validate_scope_lock(skills: list[Skill]) -> None:
+    """Valida uma composição antes de persistir índice ou lockfile."""
+    entries = {skill.id: _skill_lock_entry(skill) for skill in skills}
+    candidates: dict[str, object] = {
+        skill_id: (str(entry["version"]), entry["requires_skills"])
+        for skill_id, entry in entries.items()
+    }
+    skills_lock.resolve_dependencies(candidates)
 
 
 # ---------------------------------------------------------------------------
@@ -504,6 +519,7 @@ def install_skill(
     )
     skills = [s for s in _load_index(user_id, scope, target) if s.id != skill_id]
     skills.append(skill)
+    _validate_scope_lock(skills)
     if scope == "runtime":
         _runtime_skills[f"{user_id}:{target}"] = skills
     else:
@@ -538,7 +554,10 @@ def install_skill_from_content(
         )
 
     target.mkdir(parents=True)
-    skill_md = f'---\nname: "{name}"\ndescription: "{description}"\n---\n\n{content}\n'
+    skill_md = (
+        f'---\nname: "{name}"\ndescription: "{description}"\nversion: "1.0.0"\n'
+        f"---\n\n{content}\n"
+    )
     (target / "SKILL.md").write_text(skill_md, encoding="utf-8")
 
     skill = Skill(

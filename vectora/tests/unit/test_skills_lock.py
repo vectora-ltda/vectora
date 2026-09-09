@@ -18,7 +18,13 @@ def test_resolves_transitive_dependencies_deterministically(tmp_path) -> None:
     }
     assert resolve_dependencies(candidates) == ["base", "app"]
     lock = tmp_path / ".vectora" / "skills.lock.json"
-    write_lockfile(lock, {"app": {"version": "1.0.0"}, "base": {"version": "1.2.0"}})
+    entry: dict[str, object] = {
+        "version": "1.0.0",
+        "source": "local",
+        "revision": "r1",
+        "integrity": "a" * 64,
+    }
+    write_lockfile(lock, {"app": entry, "base": {**entry, "version": "1.2.0"}})
     assert read_lockfile(lock)["format_version"] == 1
 
 
@@ -37,6 +43,8 @@ def test_semver_constraints_are_strict() -> None:
     assert satisfies(Version.parse("1.2.3"), "^1.0.0")
     assert satisfies(Version.parse("1.2.3"), "~1.2.0")
     assert not satisfies(Version.parse("2.0.0"), "^1.0.0")
+    assert Version.parse("1.0.0-rc.1") < Version.parse("1.0.0")
+    assert Version.parse("1.0.0+build.7") == Version.parse("1.0.0")
 
 
 def test_resolve_seleciona_maior_candidato_que_satisfaz_todas_as_constraints() -> None:
@@ -46,6 +54,22 @@ def test_resolve_seleciona_maior_candidato_que_satisfaz_todas_as_constraints() -
     }
 
     assert resolve_dependencies(candidates) == ["base", "app"]
+
+
+def test_resolve_revisita_dependencias_quando_a_versao_muda() -> None:
+    candidates = {
+        "a": ("1.0.0", {"b": "^1.0.0"}),
+        "c": ("1.0.0", {"b": "^2.0.0"}),
+        "b": [
+            ("1.0.0", {"x": "1.0.0"}),
+            ("2.0.0", {"y": "1.0.0"}),
+        ],
+        "x": ("1.0.0", {}),
+        "y": ("1.0.0", {}),
+    }
+
+    with pytest.raises(ValueError, match="versão incompatível"):
+        resolve_dependencies(candidates)
 
 
 def test_lockfile_rejeita_entrada_nula_ou_campos_desconhecidos(tmp_path) -> None:
@@ -64,7 +88,17 @@ def test_escritores_concorrentes_publicam_lockfile_valido(tmp_path) -> None:
     path = tmp_path / "skills.lock.json"
 
     def publish(index: int) -> None:
-        write_lockfile(path, {f"skill-{index}": {"version": "1.0.0"}})
+        write_lockfile(
+            path,
+            {
+                f"skill-{index}": {
+                    "version": "1.0.0",
+                    "source": "local",
+                    "revision": str(index),
+                    "integrity": "a" * 64,
+                }
+            },
+        )
 
     with ThreadPoolExecutor(max_workers=4) as executor:
         list(executor.map(publish, range(8)))
