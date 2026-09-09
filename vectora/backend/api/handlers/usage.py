@@ -19,7 +19,7 @@ import logging
 import time
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 logger = logging.getLogger(__name__)
 
@@ -199,8 +199,26 @@ async def get_weekly_insight(
     """Retorna somente agregados técnicos da conta autenticada."""
     from backend.api.handlers.threads import _get_db, _user_id
     from backend.services.usage_insights import usage_insight_store
+    from backend.workspace.runtime_settings import runtime_settings
+
+    if weeks not in {1, 2, 4}:
+        raise HTTPException(status_code=422, detail="weeks deve ser 1, 2 ou 4")
+    user_id = _user_id(request)
+    if (
+        runtime_settings.get_frontend_prefs(user_id).get("weeklyInsightEnabled")
+        is not True
+    ):
+        return {
+            "window_weeks": weeks,
+            "event_count": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "estimated_cost_cents": None,
+            "unknown_cost_events": 0,
+            "most_used_model": None,
+            "tools": [],
+        }
 
     db = await _get_db()
-    return await usage_insight_store.aggregate(
-        db, user_id=_user_id(request), weeks=weeks
-    )
+    return await usage_insight_store.aggregate(db, user_id=user_id, weeks=weeks)

@@ -19,6 +19,7 @@ class UsageInsightStore:
             """
             CREATE TABLE IF NOT EXISTS usage_insight_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id TEXT NOT NULL DEFAULT '',
                 user_id TEXT NOT NULL,
                 occurred_at TEXT NOT NULL,
                 model TEXT,
@@ -29,6 +30,15 @@ class UsageInsightStore:
                 tool_names TEXT NOT NULL DEFAULT '[]'
             )
             """
+        )
+        columns = await db.execute_fetchall("PRAGMA table_info(usage_insight_events)")
+        if not any(str(column[1]) == "event_id" for column in columns):
+            await db.execute(
+                "ALTER TABLE usage_insight_events ADD COLUMN event_id TEXT NOT NULL DEFAULT ''"
+            )
+        await db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_insight_event_id "
+            "ON usage_insight_events(user_id, event_id) WHERE event_id <> ''"
         )
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_usage_insight_user_time "
@@ -41,6 +51,7 @@ class UsageInsightStore:
         db: Any,
         *,
         user_id: str,
+        event_id: str,
         model: str | None,
         input_tokens: int | None,
         output_tokens: int | None,
@@ -54,12 +65,13 @@ class UsageInsightStore:
 
         when = (occurred_at or datetime.now(UTC)).isoformat()
         await db.execute(
-            """INSERT INTO usage_insight_events
-            (user_id, occurred_at, model, input_tokens, output_tokens,
+            """INSERT OR IGNORE INTO usage_insight_events
+            (user_id, event_id, occurred_at, model, input_tokens, output_tokens,
              total_tokens, estimated_cost_cents, tool_names)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 user_id,
+                event_id,
                 when,
                 model,
                 input_tokens,

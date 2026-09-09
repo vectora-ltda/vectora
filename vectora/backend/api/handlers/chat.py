@@ -892,20 +892,30 @@ async def stream_chat(
             should_require_approval=should_require_approval,
             approval_gate=approval_gate,
         )
-        if result.usage:
+        from backend.workspace.runtime_settings import runtime_settings
+
+        if (
+            result.usage
+            and runtime_settings.get_frontend_prefs(user_id).get("weeklyInsightEnabled")
+            is True
+        ):
             try:
                 from backend.api.handlers.threads import _get_db
+                from backend.scheduling.budget import estimate_cost_cents
                 from backend.services.usage_insights import usage_insight_store
 
                 db = await _get_db()
                 await usage_insight_store.record(
                     db,
                     user_id=user_id,
+                    event_id=f"{thread_id}:completion",
                     model=getattr(chat_client, "primary_model_id", None),
                     input_tokens=result.usage.get("input_tokens"),
                     output_tokens=result.usage.get("output_tokens"),
                     total_tokens=result.usage.get("total_tokens"),
-                    estimated_cost_cents=None,
+                    estimated_cost_cents=estimate_cost_cents(
+                        getattr(chat_client, "primary_model_id", ""), result.usage
+                    ),
                     tool_names=list(result.tool_names),
                 )
             except Exception:
