@@ -46,6 +46,28 @@ def _authorized_workspace(request: Request) -> str | None:
     return workspace_id
 
 
+async def _audit_policy_block(
+    request: Request, *, action: str, mcp_id: str, workspace_id: str | None
+) -> None:
+    """Audita bloqueios sem incluir URL, comando, argumentos ou segredos."""
+    try:
+        from backend.rbac.auth import get_db_for_audit, write_audit
+
+        db = await get_db_for_audit()
+        await write_audit(
+            db,
+            _user_id(request),
+            f"mcp.{action}",
+            success=False,
+            metadata={"mcp_id": mcp_id, "scope": workspace_id or "instance"},
+            target_type="mcp",
+        )
+    except Exception:
+        logger.debug(
+            "plugins: auditoria de bloqueio indisponível", extra={"action": action}
+        )
+
+
 @router.get("")
 async def list_plugins(request: Request) -> dict:
     """Lista os servidores MCP do usuário autenticado."""
@@ -74,6 +96,9 @@ async def add_plugin(request: Request, body: McpServer) -> dict:
 
     workspace_id = _authorized_workspace(request)
     if not mcp_policy.evaluate(body.name, workspace_id).allowed:
+        await _audit_policy_block(
+            request, action="configure", mcp_id=body.name, workspace_id=workspace_id
+        )
         raise HTTPException(status_code=403, detail="Servidor bloqueado pela política.")
     # Trust is derived from installed material. Never accept publisher, digest,
     # signature, or verification fields supplied by a manual client payload.
@@ -109,6 +134,9 @@ async def verify_plugin(request: Request, name: str) -> dict:
     if server is None:
         raise HTTPException(status_code=404, detail="Servidor não encontrado.")
     if not mcp_policy.evaluate(server.name, workspace_id).allowed:
+        await _audit_policy_block(
+            request, action="verify", mcp_id=server.name, workspace_id=workspace_id
+        )
         raise HTTPException(status_code=403, detail="Servidor bloqueado pela política.")
     try:
         extension_trust.validate_record(server.trust, confirmed=server.trust_confirmed)

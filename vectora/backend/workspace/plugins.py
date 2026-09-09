@@ -35,6 +35,35 @@ McpScope = Literal["user", "workspace", "project", "runtime"]
 _runtime_servers: dict[str, list[McpServer]] = {}
 
 
+def _schedule_policy_audit(
+    user_id: str, *, action: str, mcp_id: str, scope: str
+) -> None:
+    """Agenda auditoria best-effort sem bloquear o handler de uma tool."""
+
+    async def _write() -> None:
+        try:
+            from backend.rbac.auth import get_db_for_audit, write_audit
+
+            db = await get_db_for_audit()
+            await write_audit(
+                db,
+                user_id,
+                f"mcp.{action}",
+                success=False,
+                metadata={"mcp_id": mcp_id, "scope": scope},
+                target_type="mcp",
+            )
+        except Exception:
+            logger.debug(
+                "plugins: auditoria de execução indisponível", extra={"action": action}
+            )
+
+    try:
+        asyncio.get_running_loop().create_task(_write())
+    except RuntimeError:
+        return
+
+
 def _plugins_dir() -> Path:
     """Diretório base dos arquivos de plugins por usuário."""
     return Path.home() / ".vectora" / "mcp"
@@ -338,6 +367,12 @@ def _remote_tool_spec(
     async def _handler(**kwargs: Any) -> str:
         decision = mcp_policy.evaluate(server_name, workspace_id or None)
         if not decision.allowed:
+            _schedule_policy_audit(
+                user_id,
+                action="execute",
+                mcp_id=server_name,
+                scope=workspace_id or "instance",
+            )
             return "Erro: servidor MCP bloqueado pela política."
         if not tool_policy.is_allowed(user_id, tool_name):
             return f"Erro: tool MCP '{tool_name}' desabilitada."

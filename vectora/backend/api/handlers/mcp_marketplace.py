@@ -49,6 +49,31 @@ async def _audit_policy(request: Request, action: str, success: bool) -> None:
         logger.debug("mcp_policy: auditoria indisponível", extra={"action": action})
 
 
+async def _audit_mcp_decision(
+    request: Request,
+    *,
+    action: str,
+    mcp_id: str,
+    scope: str,
+    allowed: bool,
+) -> None:
+    """Registra apenas o principal, ação, escopo e ID estável do MCP."""
+    try:
+        from backend.rbac.auth import get_db_for_audit, write_audit
+
+        db = await get_db_for_audit()
+        await write_audit(
+            db,
+            _req_user_id(request),
+            f"mcp.{action}",
+            success=allowed,
+            metadata={"mcp_id": mcp_id, "scope": scope},
+            target_type="mcp",
+        )
+    except Exception:
+        logger.debug("mcp: auditoria de decisão indisponível", extra={"action": action})
+
+
 # ---------------------------------------------------------------------------
 # Modelos
 # ---------------------------------------------------------------------------
@@ -469,7 +494,16 @@ async def get_registry(
 @router.post("/install")
 async def post_install(req: InstallRequest, request: Request) -> dict:
     req.target = _authorized_target(request, req.scope, req.target, req.workspace_id)
-    return await install_mcp(req, _req_user_id(request))
+    result = await install_mcp(req, _req_user_id(request))
+    if result.get("code") in {"policy_blocked", "policy_unavailable"}:
+        await _audit_mcp_decision(
+            request,
+            action="install",
+            mcp_id=req.mcp_id,
+            scope=req.scope,
+            allowed=False,
+        )
+    return result
 
 
 @router.post("/uninstall")
