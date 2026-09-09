@@ -44,7 +44,7 @@ export function Snackbar({
       role="status"
       aria-live="polite"
       className={cn(
-        "safe-area-bottom safe-area-right pointer-events-auto fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded-md px-4 py-3 text-sm shadow-lg backdrop-blur-sm animate-in slide-in-from-bottom-5 fade-in-0",
+        "safe-area-bottom-snackbar safe-area-right-snackbar pointer-events-auto fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded-md px-4 py-3 text-sm shadow-lg backdrop-blur-sm animate-in slide-in-from-bottom-5 fade-in-0",
         variantStyles[variant],
         className,
       )}

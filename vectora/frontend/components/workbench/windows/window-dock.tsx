@@ -14,7 +14,7 @@ export function WindowDock() {
   const minimized = windows.filter((w) => w.minimized);
   if (minimized.length === 0) return null;
   return (
-    <div className="safe-area-bottom fixed bottom-2 left-1/2 -translate-x-1/2 z-[70] flex items-center gap-1 px-1.5 py-1 rounded-lg border border-border bg-card/95 shadow-xl backdrop-blur">
+    <div className="safe-area-bottom-dock fixed bottom-2 left-1/2 -translate-x-1/2 z-[70] flex items-center gap-1 px-1.5 py-1 rounded-lg border border-border bg-card/95 shadow-xl backdrop-blur">
       {minimized.map((win) => (
         <button
           key={win.id}
