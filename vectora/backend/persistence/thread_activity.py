@@ -175,26 +175,23 @@ async def prune(before: datetime | None = None) -> None:
 
 async def revoke_device_activity(user_id: str, device_id: str) -> None:
     """Remove all activity records for one authenticated installation."""
-    try:
-        if await _use_postgres():
-            from backend.storage.factory import get_pg_pool
+    if await _use_postgres():
+        from backend.storage.factory import get_pg_pool
 
-            pool = await get_pg_pool()
-            async with pool.acquire() as conn:
-                await conn.execute(
-                    "DELETE FROM vectora_thread_activity WHERE user_id = $1 AND device_id = $2",
-                    user_id,
-                    device_id,
-                )
-            return
-        conn = await _sqlite_connection()
-        try:
+        pool = await get_pg_pool()
+        async with pool.acquire() as conn:
             await conn.execute(
-                "DELETE FROM vectora_thread_activity WHERE user_id = ? AND device_id = ?",
-                (user_id, device_id),
+                "DELETE FROM vectora_thread_activity WHERE user_id = $1 AND device_id = $2",
+                user_id,
+                device_id,
             )
-            await conn.commit()
-        finally:
-            await conn.close()
-    except Exception:
-        logger.warning("thread activity: falha ao revogar dispositivo", exc_info=True)
+        return
+    conn = await _sqlite_connection()
+    try:
+        await conn.execute(
+            "DELETE FROM vectora_thread_activity WHERE user_id = ? AND device_id = ?",
+            (user_id, device_id),
+        )
+        await conn.commit()
+    finally:
+        await conn.close()

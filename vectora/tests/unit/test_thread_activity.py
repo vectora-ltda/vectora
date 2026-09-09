@@ -57,3 +57,21 @@ async def test_activity_isolated_by_user_and_cutoff(activity_db) -> None:
     assert (
         await thread_activity.get_remote_activity("bob", ["thread-1"], "vdev_a") == {}
     )
+
+
+async def test_revoke_propagates_falha_de_persistencia(monkeypatch) -> None:
+    class FailingConnection:
+        async def execute(self, *_args: object) -> None:
+            raise RuntimeError("falha no banco")
+
+        async def close(self) -> None:
+            return None
+
+    async def connection() -> FailingConnection:
+        return FailingConnection()
+
+    monkeypatch.setattr(thread_activity, "_sqlite_connection", connection)
+    monkeypatch.setattr(thread_activity, "_use_postgres", _false)
+
+    with pytest.raises(RuntimeError, match="falha no banco"):
+        await thread_activity.revoke_device_activity("alice", "device-1")
