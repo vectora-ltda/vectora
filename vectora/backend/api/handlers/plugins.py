@@ -16,6 +16,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request
 
+from backend.api.handlers.workspaces import require_workspace_access
 from backend.services import extension_trust, mcp_policy
 from backend.workspace.plugins import (
     McpServer,
@@ -37,10 +38,18 @@ def _user_id(request: Request) -> str:
     return "local"
 
 
+def _authorized_workspace(request: Request) -> str | None:
+    """Validate a client-supplied workspace before using it in policy checks."""
+    workspace_id = request.query_params.get("workspace_id")
+    if workspace_id:
+        require_workspace_access(workspace_id, request)
+    return workspace_id
+
+
 @router.get("")
 async def list_plugins(request: Request) -> dict:
     """Lista os servidores MCP do usuário autenticado."""
-    workspace_id = request.query_params.get("workspace_id")
+    workspace_id = _authorized_workspace(request)
     servers = [
         server
         for server in list_servers(_user_id(request))
@@ -63,7 +72,7 @@ async def add_plugin(request: Request, body: McpServer) -> dict:
     if body.transport in {"sse", "http"} and not body.url.strip():
         raise HTTPException(status_code=400, detail="sse/http exige 'url'.")
 
-    workspace_id = request.query_params.get("workspace_id")
+    workspace_id = _authorized_workspace(request)
     if not mcp_policy.evaluate(body.name, workspace_id).allowed:
         raise HTTPException(status_code=403, detail="Servidor bloqueado pela política.")
     # Trust is derived from installed material. Never accept publisher, digest,
@@ -95,7 +104,7 @@ async def delete_plugin(request: Request, name: str) -> dict:
 @router.post("/{name}/verify")
 async def verify_plugin(request: Request, name: str) -> dict:
     """Health-check: conecta ao servidor e lista suas tools."""
-    workspace_id = request.query_params.get("workspace_id")
+    workspace_id = _authorized_workspace(request)
     server = next((s for s in list_servers(_user_id(request)) if s.name == name), None)
     if server is None:
         raise HTTPException(status_code=404, detail="Servidor não encontrado.")
