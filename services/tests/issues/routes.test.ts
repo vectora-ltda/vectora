@@ -327,6 +327,25 @@ describe("POST /issues/github/webhook", () => {
     expect(requests.some((request) => request.startsWith("POST "))).toBe(true);
   });
 
+  it("não toma uma reserva de promoção ainda dentro do lease", async () => {
+    const issueId = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO issues (id, title, category, description, github_sync_state, github_sync_error, approved_at, approved_by) VALUES (?, 'lease', 'bug', 'descrição', 'promotion_pending', 'token-ativo', datetime('now'), 'admin')",
+    )
+      .bind(issueId)
+      .run();
+    await reconcilePendingPromotions({ ...env, GITHUB_TOKEN: "test-token" });
+    const row = await env.DB.prepare(
+      "SELECT github_sync_state, github_sync_error FROM issues WHERE id = ?",
+    )
+      .bind(issueId)
+      .first<{ github_sync_state: string; github_sync_error: string }>();
+    expect(row).toEqual({
+      github_sync_state: "promotion_pending",
+      github_sync_error: "token-ativo",
+    });
+  });
+
   it("retoma promoção após persistir o mapeamento core sem recriar a issue", async () => {
     const issueId = crypto.randomUUID();
     await env.DB.prepare(

@@ -548,6 +548,14 @@ issues.post("/github/webhook", async (c) => {
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "promotion_failed";
+        if (message === "promotion_in_progress") {
+          await c.env.DB.prepare(
+            "UPDATE github_webhook_deliveries SET state = 'done' WHERE delivery_id = ?",
+          )
+            .bind(deliveryId)
+            .run();
+          return c.json({ ok: true, promotion: "in_progress" }, 202);
+        }
         await c.env.DB.prepare(
           "UPDATE issues SET github_sync_state = 'promotion_pending', github_sync_error = ?, approved_by = COALESCE(approved_by, ?) WHERE id = ?",
         )
