@@ -158,4 +158,14 @@ describe("revokeCurrentDevice", () => {
     );
     expect(window.localStorage.getItem("vectora-device-id")).toBeNull();
   });
+
+  it("preserva o device id quando a revogação falha", async () => {
+    const deviceId = "vdev_12345678-1234-1234-1234-123456789abc";
+    window.localStorage.setItem("vectora-device-id", deviceId);
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 500 });
+
+    await expect(revokeCurrentDevice()).rejects.toThrow("HTTP 500");
+
+    expect(window.localStorage.getItem("vectora-device-id")).toBe(deviceId);
+  });
 });
