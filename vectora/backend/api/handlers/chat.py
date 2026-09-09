@@ -932,6 +932,12 @@ async def resume_chat(
     selector_model = str(selector.get("model", "") or "")
     selector_chat_mode = bool(selector.get("chat_mode", False))
     selector_workspace_id = selector.get("workspace_id")
+    pending_store = await agent_factory.get_session_store()
+    pending = await pending_store.get_pending_approval(request.thread_id)
+    if pending is None or pending["interrupt_id"] != request.interrupt_id:
+        raise HTTPException(
+            status_code=409, detail="HITL interrupt is no longer pending"
+        )
 
     if request.decision == "approve":
         decision = "approve"
@@ -941,13 +947,8 @@ async def resume_chat(
         edited_args = None
     elif request.decision.startswith("option:"):
         decision = "option"
-        pending = await (await agent_factory.get_session_store()).get_pending_approval(
-            request.thread_id
-        )
         value = request.decision[7:]
-        if pending is None or value not in {
-            str(item.get("value")) for item in pending.get("options", [])
-        }:
+        if value not in {str(item.get("value")) for item in pending.get("options", [])}:
             raise HTTPException(status_code=400, detail="Invalid HITL option")
         edited_args = {**pending["args"], "selection": value}
     elif request.decision.startswith("edit:"):
