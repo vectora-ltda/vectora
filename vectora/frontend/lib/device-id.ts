@@ -15,3 +15,12 @@ export function getDeviceId(): string | null {
     return null;
   }
 }
+
+export function resetDeviceId(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Storage may be unavailable in private browsing contexts.
+  }
+}

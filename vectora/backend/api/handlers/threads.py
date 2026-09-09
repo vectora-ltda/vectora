@@ -54,6 +54,7 @@ from backend.api.schemas import (
 from backend.persistence.thread_activity import (
     get_remote_activity,
     record_activity,
+    revoke_device_activity,
 )
 from backend.rbac.device_id import validate_device_id
 
@@ -1530,6 +1531,18 @@ class ActivityResponse(BaseModel):
     files_touched: list[str]
     tool_call_counts: dict[str, int]
     turn_count: int
+
+
+@router.post("/threads/device/revoke")
+async def revoke_current_device(request: Request) -> dict[str, bool]:
+    """Revoke this installation's activity identifier and its records."""
+    device_id = validate_device_id(getattr(request.state, "device_id", None))
+    if not device_id:
+        raise HTTPException(
+            status_code=400, detail="Identificador de dispositivo inválido"
+        )
+    await revoke_device_activity(_user_id(request), device_id)
+    return {"revoked": True}
 
 
 @router.get("/threads/{thread_id}/activity", response_model=ActivityResponse)

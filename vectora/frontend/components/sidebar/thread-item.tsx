@@ -144,12 +144,15 @@ export const ThreadItem = memo(function ThreadItem({
           <Pin className="shrink-0 w-3 h-3 text-muted-foreground/70 fill-current" />
         )}
         {remoteActivity && (
-          <span
-            className="shrink-0 w-1.5 h-1.5 rounded-full bg-primary"
+          <button
+            type="button"
+            className="shrink-0 w-3 h-3 rounded-full bg-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
             title={m.sidebar_remote_activity_tooltip({ time: remoteActivity })}
-            aria-label={m.sidebar_remote_activity_tooltip({
-              time: remoteActivity,
-            })}
+            aria-label={m.sidebar_ctx_resume()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect(thread.thread_id);
+            }}
           />
         )}
         <span className="truncate text-[12px] leading-5">{title}</span>

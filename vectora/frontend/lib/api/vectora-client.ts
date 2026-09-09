@@ -501,6 +501,14 @@ export async function getThreadActivity(
   return res.json() as Promise<ThreadActivity>;
 }
 
+export async function revokeCurrentDevice(): Promise<void> {
+  const res = await fetch("/threads/device/revoke", {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+
 // ============================================================================
 // Stack hint — detects project type for contextual suggestions
 // ============================================================================

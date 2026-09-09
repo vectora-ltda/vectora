@@ -72,7 +72,10 @@ async def record_activity(user_id: str, device_id: str, thread_id: str) -> None:
                     (user_id, device_id, thread_id, last_active_at)
                     VALUES ($1, $2, $3, $4)
                     ON CONFLICT (user_id, device_id, thread_id)
-                    DO UPDATE SET last_active_at = EXCLUDED.last_active_at""",
+                    DO UPDATE SET last_active_at = GREATEST(
+                        vectora_thread_activity.last_active_at,
+                        EXCLUDED.last_active_at
+                    )""",
                     user_id,
                     device_id,
                     thread_id,
@@ -90,7 +93,10 @@ async def record_activity(user_id: str, device_id: str, thread_id: str) -> None:
                 (user_id, device_id, thread_id, last_active_at)
                 VALUES (?, ?, ?, ?)
                 ON CONFLICT(user_id, device_id, thread_id)
-                DO UPDATE SET last_active_at = excluded.last_active_at""",
+                DO UPDATE SET last_active_at = MAX(
+                    vectora_thread_activity.last_active_at,
+                    excluded.last_active_at
+                )""",
                 (user_id, device_id, thread_id, _iso(stamp)),
             )
             await conn.commit()
@@ -165,3 +171,30 @@ async def prune(before: datetime | None = None) -> None:
             await conn.close()
     except Exception:
         logger.debug("thread activity: falha ao podar registros", exc_info=True)
+
+
+async def revoke_device_activity(user_id: str, device_id: str) -> None:
+    """Remove all activity records for one authenticated installation."""
+    try:
+        if await _use_postgres():
+            from backend.storage.factory import get_pg_pool
+
+            pool = await get_pg_pool()
+            async with pool.acquire() as conn:
+                await conn.execute(
+                    "DELETE FROM vectora_thread_activity WHERE user_id = $1 AND device_id = $2",
+                    user_id,
+                    device_id,
+                )
+            return
+        conn = await _sqlite_connection()
+        try:
+            await conn.execute(
+                "DELETE FROM vectora_thread_activity WHERE user_id = ? AND device_id = ?",
+                (user_id, device_id),
+            )
+            await conn.commit()
+        finally:
+            await conn.close()
+    except Exception:
+        logger.warning("thread activity: falha ao revogar dispositivo", exc_info=True)
