@@ -220,7 +220,7 @@ class MigrationRunner:
             return []
         cursor = await self._conn.execute("PRAGMA table_info(schema_migration_history)")
         columns = {row[1] for row in await cursor.fetchall()}
-        if {"checksum", "applied_at"} - columns:
+        if {"id", "checksum", "applied_at"} - columns:
             return []
         cursor = await self._conn.execute(
             "SELECT checksum, applied_at FROM schema_migration_history ORDER BY id"

@@ -263,6 +263,18 @@ class TestMigrationRunner:
         assert await cur.fetchall() == []
 
     @pytest.mark.asyncio
+    async def test_history_ignora_formato_sem_id(self, runner_conn):
+        """history() rejeita tabela de controle sem a coluna de ordenação."""
+        from backend.storage.migrations.runner import MigrationRunner
+
+        await runner_conn.execute(
+            "CREATE TABLE schema_migration_history "
+            "(checksum TEXT NOT NULL, applied_at TEXT NOT NULL)"
+        )
+        await runner_conn.commit()
+        assert await MigrationRunner(runner_conn).history() == []
+
+    @pytest.mark.asyncio
     async def test_alter_add_column_skips_existing_column(self, runner_conn):
         """ALTER TABLE ... ADD COLUMN não falha quando a coluna já existe."""
         from backend.storage.migrations.runner import MigrationRunner
