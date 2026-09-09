@@ -65,6 +65,18 @@ async def test_record_is_idempotent_for_same_event() -> None:
     assert result["total_tokens"] == 15
 
 
+def test_window_bounds_are_stable_within_the_same_week() -> None:
+    store = UsageInsightStore()
+    first = datetime(2026, 1, 8, 12, tzinfo=UTC)
+    second = first + timedelta(days=2)
+
+    assert store.window_bounds(1, now=first) == store.window_bounds(1, now=second)
+
+    start, end = store.window_bounds(2, now=first)
+    assert end.isoformat() == "2026-01-12T00:00:00+00:00"
+    assert start.isoformat() == "2025-12-29T00:00:00+00:00"
+
+
 def test_estimate_cost_preserves_known_and_unknown_models() -> None:
     assert (
         estimate_cost_cents(

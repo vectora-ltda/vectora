@@ -14,6 +14,20 @@ from typing import Any
 class UsageInsightStore:
     """Armazena eventos técnicos e devolve apenas agregados por usuário."""
 
+    @staticmethod
+    def window_bounds(
+        weeks: int, *, now: datetime | None = None
+    ) -> tuple[datetime, datetime]:
+        """Return stable UTC week boundaries for the requested insight window."""
+        if weeks not in {1, 2, 4}:
+            raise ValueError("weeks deve ser 1, 2 ou 4")
+        current = now or datetime.now(UTC)
+        week_start = (current - timedelta(days=current.weekday())).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        end = week_start + timedelta(days=7)
+        return end - timedelta(days=7 * weeks), end
+
     async def ensure_schema(self, db: Any) -> None:
         if hasattr(db, "acquire"):
             return
@@ -115,8 +129,7 @@ class UsageInsightStore:
         """Agrega a janela móvel permitida sem retornar eventos brutos."""
         if weeks not in {1, 2, 4}:
             raise ValueError("weeks deve ser 1, 2 ou 4")
-        end = now or datetime.now(UTC)
-        start = end - timedelta(days=7 * weeks)
+        start, end = self.window_bounds(weeks, now=now)
         if hasattr(db, "acquire"):
             async with db.acquire() as connection:
                 rows = await connection.fetch(

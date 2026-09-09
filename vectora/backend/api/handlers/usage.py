@@ -203,6 +203,7 @@ async def get_weekly_insight(
 
     if weeks not in {1, 2, 4}:
         raise HTTPException(status_code=422, detail="weeks deve ser 1, 2 ou 4")
+    start, end = usage_insight_store.window_bounds(weeks)
     user_id = _user_id(request)
     if (
         runtime_settings.get_frontend_prefs(user_id).get("weeklyInsightEnabled")
@@ -210,6 +211,8 @@ async def get_weekly_insight(
     ):
         return {
             "window_weeks": weeks,
+            "window_start": start.isoformat(),
+            "window_end": end.isoformat(),
             "event_count": 0,
             "input_tokens": 0,
             "output_tokens": 0,

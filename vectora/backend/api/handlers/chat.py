@@ -607,7 +607,6 @@ async def stream_chat(
     recebido para continuar a conversa.
     """
     thread_id = request.thread_id or str(uuid.uuid4())
-    _thread_usage_event_ids.setdefault(thread_id, f"{thread_id}:{uuid.uuid4()}")
 
     # user_id alimenta o namespace de memória (user:<id>) — precisa bater com o
     # namespace lido por GET /memory (handlers/memory.py). Sem isso, save_memory
@@ -865,7 +864,12 @@ async def stream_chat(
         parent_id = await session_store.append_message(
             thread_id, text_message(MessageRole.SYSTEM, native_agent.system_prompt)
         )
-    await session_store.append_message(thread_id, user_msg, parent_message_id=parent_id)
+    user_message_id = await session_store.append_message(
+        thread_id, user_msg, parent_message_id=parent_id
+    )
+    _thread_usage_event_ids.setdefault(
+        thread_id, f"{thread_id}:message:{user_message_id}"
+    )
 
     async def run(on_event: EventSink) -> str:
         chat_client = FallbackChatClient(primary_model_id=configurable.get("model", ""))
@@ -1009,6 +1013,14 @@ async def resume_chat(
         )
         session_store = await agent_factory.get_session_store()
         approval_gate = await agent_factory.get_approval_gate()
+        pending_for_event = await session_store.get_pending_approval(request.thread_id)
+        if isinstance(pending_for_event, dict) and pending_for_event.get(
+            "interrupt_id"
+        ):
+            _thread_usage_event_ids.setdefault(
+                request.thread_id,
+                f"{request.thread_id}:interrupt:{pending_for_event['interrupt_id']}",
+            )
     except Exception as exc:
         logger.exception("api/chat: erro ao inicializar o motor nativo (resume)")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
