@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 import types
 from pathlib import Path
 from types import SimpleNamespace
@@ -368,10 +369,16 @@ def test_desktop_registry_invalidate_e_rate_limit_atomico() -> None:
 def test_desktop_registry_expira_selecao_e_isola_contextos() -> None:
     registry = DesktopWindowRegistry()
     registry._selections[("u1", "w1", "t1")] = _Selection(
-        "w1", SimpleNamespace(), WindowInfo("w1", "Editor", 0, 0, 1, 1, True), 0.0
+        "w1",
+        SimpleNamespace(),
+        WindowInfo("w1", "Editor", 0, 0, 1, 1, True),
+        time.monotonic() - 9999,
     )
     registry._selections[("u2", "w1", "t1")] = _Selection(
-        "w2", SimpleNamespace(), WindowInfo("w2", "Editor", 0, 0, 1, 1, True), 0.0
+        "w2",
+        SimpleNamespace(),
+        WindowInfo("w2", "Editor", 0, 0, 1, 1, True),
+        time.monotonic() - 9999,
     )
 
     with pytest.raises(LookupError, match="expirada"):
