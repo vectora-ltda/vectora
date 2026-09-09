@@ -21,15 +21,20 @@ describe("registry — catálogos reais de MCP/Skills (D1)", () => {
     expect(ids.length).toBeGreaterThanOrEqual(6);
   });
 
-  it("GET /registry/skills devolve {entries: []} quando o catálogo está vazio, sem erro 500", async () => {
+  it("GET /registry/skills devolve as skills oficiais seedadas", async () => {
     const ctx = createExecutionContext();
     const req = new Request("https://services.vectora.company/registry/skills");
     const res = await worker.fetch(req, env, ctx);
     await waitOnExecutionContext(ctx);
 
     expect(res.status).toBe(200);
-    const body = await res.json<{ entries: unknown[] }>();
-    expect(body.entries).toEqual([]);
+    const body = await res.json<{ entries: Array<{ id: string }> }>();
+    expect(body.entries.map((entry) => entry.id)).toEqual([
+      "vectora-code-review",
+      "vectora-adr",
+      "vectora-rfc",
+      "vectora-prd",
+    ]);
   });
 
   it("GET /registry/extensions continua placeholder (fora de escopo — SDK de extensões não existe)", async () => {

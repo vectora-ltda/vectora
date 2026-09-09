@@ -50,6 +50,10 @@ def test_provider_supports_gateway_depende_do_modelo_configurado(monkeypatch):
     monkeypatch.setattr(settings, "ollama_image_model", "algum-modelo", raising=False)
     assert provider_supports("ollama", "image") is True
 
+    # Ollama STT remains unavailable until a real transcription adapter exists;
+    # a configured model must not advertise an unexecutable capability.
+    assert provider_supports("ollama", "stt") is False
+
     # Borda: string vazia conta como não configurado (não como "existe").
     monkeypatch.setattr(settings, "openrouter_tts_model", "", raising=False)
     assert provider_supports("openrouter", "tts") is False
