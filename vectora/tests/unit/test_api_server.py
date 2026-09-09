@@ -136,6 +136,15 @@ class TestHealth:
         assert response.json()["version"] != ""
 
 
+class TestUpdateChangelog:
+    def test_returns_latest_packaged_release_notes(self, client):
+        response = client.get("/api/updates/changelog")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["version"]
+        assert body["notes"].startswith("## ")
+
+
 # ---------------------------------------------------------------------------
 # /metrics
 # ---------------------------------------------------------------------------

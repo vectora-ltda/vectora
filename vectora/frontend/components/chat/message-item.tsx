@@ -10,6 +10,10 @@ import {
   Download,
   X,
   AlertTriangle,
+  Volume2,
+  Pause,
+  Play,
+  Square,
 } from "lucide-react";
 import { ToolCallRenderer } from "./tool-call-renderer";
 import { AgentStatusLine } from "./agent-status-line";
@@ -48,6 +52,10 @@ import { formatDistanceToNow } from "date-fns";
 import { ptBR, es as esLocale, enUS } from "date-fns/locale";
 import { useQueryClient } from "@tanstack/react-query";
 import { m } from "@/lib/paraglide/messages";
+import {
+  spokenMessageText,
+  useSpeechSynthesis,
+} from "@/lib/hooks/use-speech-synthesis";
 
 /** Locale do date-fns a partir do idioma da UI (item 9 — "há quanto tempo"). */
 const DATE_FNS_LOCALES = { pt: ptBR, es: esLocale, en: enUS } as const;
@@ -255,17 +263,17 @@ const CodeBlock = memo(
             border: `1px solid ${colors.blockBorder}`,
             willChange: "opacity",
           }}
-          aria-label="Copy code to clipboard"
+          aria-label={m.chat_copy()}
         >
           {isCopied ? (
             <>
               <Check className="w-3.5 h-3.5" />
-              Copied
+              {m.chat_copied()}
             </>
           ) : (
             <>
               <Copy className="w-3.5 h-3.5" />
-              Copy
+              {m.chat_copy()}
             </>
           )}
         </button>
@@ -289,9 +297,11 @@ function RagCitationList({ citations }: { citations: RagCitation[] }) {
         aria-expanded={open}
       >
         <span className="text-[10px] font-mono bg-primary/10 text-primary px-1 rounded">
-          {citations.length} fonte{citations.length !== 1 ? "s" : ""}
+          {citations.length === 1
+            ? m.chat_rag_sources_one()
+            : m.chat_rag_sources_plural({ count: citations.length })}
         </span>
-        <span className="text-[10px]">RAG</span>
+        <span className="text-[10px]">{m.chat_rag_label()}</span>
         <span className="text-[9px] opacity-60">{open ? "▲" : "▼"}</span>
       </button>
       {open && (
@@ -395,6 +405,7 @@ export const MessageItem = memo(
     const [editContent, setEditContent] = useState(message.content);
     const [editError] = useState<string | null>(null);
     const prevContentRef = useRef(message.content);
+    const speech = useSpeechSynthesis(message.content, threadId);
 
     // Sync editContent when message.content changes (e.g., during streaming)
     useEffect(() => {
@@ -831,7 +842,9 @@ export const MessageItem = memo(
                                     </span>
                                     {fileSizeKB > 0 && (
                                       <span className="text-xs text-muted-foreground">
-                                        {fileSizeKB}KB
+                                        {m.chat_file_size_kb({
+                                          size: fileSizeKB,
+                                        })}
                                       </span>
                                     )}
                                   </div>
@@ -848,7 +861,7 @@ export const MessageItem = memo(
                         data-testid={`message-content-${message.role}`}
                         className="text-sm leading-relaxed whitespace-pre-wrap break-words cursor-pointer rounded px-2 py-1 -mx-2 -my-1 transition-colors overflow-wrap break-word"
                         onClick={() => onEditAndRerun && handleStartEdit()}
-                        title="Click to edit and rerun from here"
+                        title={m.chat_edit_rerun()}
                       >
                         {String(message.content || "")}
                       </p>
@@ -1027,7 +1040,7 @@ export const MessageItem = memo(
             {message.role === "assistant" && (
               <>
                 <TooltipProvider delayDuration={300}>
-                  <div className="flex items-center justify-between mt-0.5 opacity-0 group-hover/message:opacity-100 transition-opacity duration-150">
+                  <div className="flex items-center justify-between mt-0.5 opacity-100 md:opacity-0 md:group-hover/message:opacity-100 md:group-focus-within/message:opacity-100 transition-opacity duration-150">
                     <div className="flex gap-0.5 items-center flex-wrap">
                       {/* M5 — Botão de retry para mensagens de erro */}
                       {message.isError && onRetry && (
@@ -1073,6 +1086,69 @@ export const MessageItem = memo(
                                 : m.chat_copy()}
                             </TooltipContent>
                           </Tooltip>
+
+                          {speech.supported &&
+                            spokenMessageText(message.content).length > 0 && (
+                              <>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                                      onClick={
+                                        speech.state === "idle"
+                                          ? speech.speak
+                                          : speech.state === "paused"
+                                            ? speech.resume
+                                            : speech.pause
+                                      }
+                                      aria-label={
+                                        speech.state === "speaking"
+                                          ? m.message_tts_pause()
+                                          : speech.state === "paused"
+                                            ? m.message_tts_resume()
+                                            : m.message_tts_listen()
+                                      }
+                                      aria-pressed={speech.state === "speaking"}
+                                    >
+                                      {speech.state === "speaking" ? (
+                                        <Pause className="w-3 h-3" />
+                                      ) : speech.state === "paused" ? (
+                                        <Play className="w-3 h-3" />
+                                      ) : (
+                                        <Volume2 className="w-3 h-3" />
+                                      )}
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    {speech.state === "speaking"
+                                      ? m.message_tts_pause()
+                                      : speech.state === "paused"
+                                        ? m.message_tts_resume()
+                                        : m.message_tts_listen()}
+                                  </TooltipContent>
+                                </Tooltip>
+                                {speech.state !== "idle" && (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                                        onClick={speech.stop}
+                                        aria-label={m.message_tts_stop()}
+                                      >
+                                        <Square className="w-3 h-3" />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      {m.message_tts_stop()}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                )}
+                              </>
+                            )}
 
                           {isLastAssistant && (
                             <Tooltip>
@@ -1194,7 +1270,11 @@ export const MessageItem = memo(
                             locale: DATE_FNS_LOCALES[uiLang] ?? enUS,
                           })}
                           {" · "}
-                          {(message.thinkingDuration / 1000).toFixed(1)}s
+                          {m.chat_thinking_seconds({
+                            seconds: (message.thinkingDuration / 1000).toFixed(
+                              1,
+                            ),
+                          })}
                           {modelId &&
                             message.usageMetadata?.input_tokens != null &&
                             message.usageMetadata?.output_tokens != null &&
@@ -1214,7 +1294,7 @@ export const MessageItem = memo(
                           [message.id]: e.target.value,
                         }));
                       }}
-                      placeholder="Add feedback about this response..."
+                      placeholder={m.chat_feedback_placeholder()}
                       className="min-h-[60px] text-xs"
                       autoFocus
                       onKeyDown={(e) => {
@@ -1233,7 +1313,7 @@ export const MessageItem = memo(
                     />
                     {!message.feedback && (
                       <p className="text-[10px] text-muted-foreground mt-1">
-                        Select thumbs up or down before submitting
+                        {m.chat_feedback_select_rating()}
                       </p>
                     )}
                   </div>
@@ -1271,11 +1351,7 @@ export const MessageItem = memo(
                 {message.checkpointId === "partial" && !message.isThinking && (
                   <div className="mt-3 flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive border border-destructive/20">
                     <AlertTriangle className="w-4 h-4 shrink-0" />
-                    <span>
-                      Esta resposta foi recuperada parcialmente. A conexão caiu
-                      ou a geração falhou antes do assistente concluir o
-                      pensamento.
-                    </span>
+                    <span>{m.chat_partial_response()}</span>
                   </div>
                 )}
 
@@ -1375,6 +1451,7 @@ export const MessageItem = memo(
 
     // Other props that affect rendering
     const otherPropsChanged =
+      prevProps.threadId !== nextProps.threadId ||
       prevProps.showToolCalls !== nextProps.showToolCalls ||
       prevProps.isRegenerating !== nextProps.isRegenerating ||
       prevProps.isLastAssistant !== nextProps.isLastAssistant ||

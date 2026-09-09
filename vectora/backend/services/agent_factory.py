@@ -64,7 +64,8 @@ if TYPE_CHECKING:
     from backend.engine.hitl import ApprovalGate
     from backend.engine.subagents import SubagentSpec
     from backend.persistence.native.session_store import SessionStore
-    from backend.tools.registry import ToolRegistry
+from backend.tools.registry import ToolRegistry
+from backend.workspace.skills import list_skill_paths
 
 logger = logging.getLogger(__name__)
 
@@ -360,8 +361,45 @@ def _build_delegation_souls_block() -> str:
     )
 
 
+def _build_skills_context(
+    user_id: str | None,
+    workspace_id: str | None,
+    project_root: str | None,
+    runtime_id: str | None,
+) -> str | None:
+    """Load validated scoped skills into a bounded, explicit prompt section."""
+    if not user_id or user_id == "local":
+        return None
+    try:
+        paths = list_skill_paths(
+            user_id,
+            workspace_id=workspace_id or "",
+            project_root=project_root,
+            runtime_id=runtime_id,
+        )
+    except Exception:
+        logger.warning("agent_factory: skills indisponíveis para %s", user_id)
+        return None
+    from backend.services.prompt_injection import envelope_untrusted
+
+    entries: list[str] = []
+    for path in paths:
+        try:
+            content = (path / "SKILL.md").read_text(encoding="utf-8")[:12000]
+        except OSError:
+            continue
+        entries.append(
+            envelope_untrusted(f"### Skill: {path.name}\n{content}", source=str(path))
+        )
+    return "\n\n".join(entries) if entries else None
+
+
 def _build_session_system_prompt(
     workspace_id: str | None = None,
+    *,
+    user_id: str | None = None,
+    project_root: str | None = None,
+    runtime_id: str | None = None,
 ) -> str:
     """Monta system prompt completo com contexto da sessão.
 
@@ -378,9 +416,12 @@ def _build_session_system_prompt(
     try:
         ctx = _load_session_context(workspace_id)
         if ctx:
-            return base + f"\n\n---\n\n## Contexto do Projeto\n\n{ctx}"
+            base += f"\n\n---\n\n## Contexto do Projeto\n\n{ctx}"
     except Exception:
         pass
+    skills = _build_skills_context(user_id, workspace_id, project_root, runtime_id)
+    if skills:
+        base += f"\n\n---\n\n## Skills disponíveis\n\n{skills}"
     return base
 
 
@@ -417,7 +458,7 @@ class NativeAgent:
     system_prompt: str
 
 
-_native_agents: dict[tuple[str, bool, str], NativeAgent] = {}
+_native_agents: dict[tuple[str, bool, str, str, str], NativeAgent] = {}
 """Cache por ``(user_id, chat_mode, workspace_id)`` — sem partição por
 modelo: o ``ChatClient`` é resolvido por chamada (``FallbackChatClient``),
 não fica preso ao componente cacheado."""
@@ -654,13 +695,22 @@ def _native_subagent_catalog(user_id: str | None) -> dict[str, SubagentSpec]:
 
 
 def _build_native_agent(
-    user_id: str | None, chat_mode: bool, workspace_id: str | None
+    user_id: str | None,
+    chat_mode: bool,
+    workspace_id: str | None,
+    project_root: str | None,
+    runtime_id: str | None,
 ) -> NativeAgent:
     tool_registry = _native_tool_registry(chat_mode, user_id)
     subagent_catalog: dict[str, SubagentSpec] = (
         {} if chat_mode else _native_subagent_catalog(user_id)
     )
-    system_prompt = _build_session_system_prompt(workspace_id)
+    system_prompt = _build_session_system_prompt(
+        workspace_id,
+        user_id=user_id,
+        project_root=project_root,
+        runtime_id=runtime_id,
+    )
     logger.info(
         "agent_factory: NativeAgent construído (user=%s, chat_mode=%s, "
         "%d tools + %d subagentes)",
@@ -680,21 +730,29 @@ async def get_native_agent(
     user_id: str | None = None,
     chat_mode: bool = False,
     workspace_id: str | None = None,
+    project_root: str | None = None,
+    runtime_id: str | None = None,
 ) -> NativeAgent:
     """Componentes do motor nativo (tools, subagentes, system prompt) para
     o dispatch de produção do chat — cache por ``(user_id, chat_mode,
     workspace_id)``. Thread-safe via ``_lock``."""
     _check_global_tools_version()
+    if user_id:
+        _track_versions(user_id)
 
-    key = (user_id or "", chat_mode, workspace_id or "")
+    key = (
+        user_id or "",
+        chat_mode,
+        workspace_id or "",
+        project_root or "",
+        runtime_id or "",
+    )
     if key not in _native_agents:
         async with _lock:
             if key not in _native_agents:
                 _native_agents[key] = _build_native_agent(
-                    user_id, chat_mode, workspace_id
+                    user_id, chat_mode, workspace_id, project_root, runtime_id
                 )
-        if user_id:
-            _track_versions(user_id)
     return _native_agents[key]
 
 

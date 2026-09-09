@@ -12,6 +12,7 @@ from backend.workspace.plugins import (
     McpServer,
     add_server,
     build_connection,
+    get_user_mcp_tools,
     list_servers,
     remove_server,
 )
@@ -76,6 +77,22 @@ def test_persists_across_calls():
     add_server("u1", McpServer(name="p", transport="http", url="http://h/mcp"))
     # Nova leitura lê do disco (sem cache em memória entre chamadas)
     assert list_servers("u1")[0].url == "http://h/mcp"
+
+
+def test_workspace_and_runtime_scopes_are_isolated() -> None:
+    server = McpServer(name="scoped", transport="stdio", command="cmd")
+    add_server("u1", server, "workspace", "ws-a")
+    add_server("u1", server.model_copy(update={"name": "runtime"}), "runtime", "run-a")
+    assert [item.name for item in list_servers("u1", "workspace", "ws-a")] == ["scoped"]
+    assert list_servers("u1", "workspace", "ws-b") == []
+    assert [item.name for item in list_servers("u1", "runtime", "run-a")] == ["runtime"]
+    assert list_servers("u1", "runtime", "run-b") == []
+
+
+@pytest.mark.asyncio
+async def test_mcp_tools_podem_ser_filtradas_por_nome() -> None:
+    add_server("u1", McpServer(name="allowed", transport="stdio", command="cmd"))
+    assert await get_user_mcp_tools("u1", {"other"}) == []
 
 
 # ---------------------------------------------------------------------------

@@ -130,7 +130,8 @@ export function lintSource(sourceText: string, file: string): I18nViolation[] {
     };
     if (
       candidate.type === "JSXExpressionContainer" &&
-      parentType !== "JSXAttribute"
+      parentType !== "JSXAttribute" &&
+      parentType !== "JSXStyleElement"
     ) {
       const expression = (candidate as { expression?: unknown }).expression;
       const text = staticLiteralText(expression);
@@ -139,7 +140,8 @@ export function lintSource(sourceText: string, file: string): I18nViolation[] {
       }
     } else if (
       candidate.type === "JSXText" &&
-      typeof candidate.value === "string"
+      typeof candidate.value === "string" &&
+      parentType !== "JSXStyleElement"
     ) {
       const text = candidate.value.replace(/\s+/g, " ").trim();
       if (hasLetters(text))
@@ -170,10 +172,17 @@ export function lintSource(sourceText: string, file: string): I18nViolation[] {
         );
       }
     }
+    const childParentType =
+      candidate.type === "JSXElement" &&
+      (candidate as { openingElement?: { name?: { name?: string } } })
+        .openingElement?.name?.name === "style"
+        ? "JSXStyleElement"
+        : candidate.type;
     for (const value of Object.values(candidate)) {
       if (Array.isArray(value))
-        value.forEach((child) => visit(child, candidate.type));
-      else if (value && typeof value === "object") visit(value, candidate.type);
+        value.forEach((child) => visit(child, childParentType));
+      else if (value && typeof value === "object")
+        visit(value, childParentType);
     }
   }
 
