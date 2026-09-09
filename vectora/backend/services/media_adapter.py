@@ -33,14 +33,14 @@ def _validated_video_path(path: str, context: ToolContext) -> str | None:
     return str(resolved)
 
 
-def media_specs() -> list[ToolSpec]:
-    """Return the registered media specs without invoking providers."""
+def media_specs(user_id: str = "local") -> list[ToolSpec]:
+    """Return only media specs allowed for the authenticated principal."""
     import backend.tools.media
 
     return [
         spec
         for name in MEDIA_TOOL_NAMES
-        if (spec := TOOL_REGISTRY.get(name)) is not None
+        if is_allowed(user_id, name) and (spec := TOOL_REGISTRY.get(name)) is not None
     ]
 
 

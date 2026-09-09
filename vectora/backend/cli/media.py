@@ -33,7 +33,7 @@ def run_media(args: Any) -> None:
     if args.action == "list":
         data = [
             {"name": spec.name, "description": spec.description}
-            for spec in media_specs()
+            for spec in media_specs("local")
         ]
         raise SystemExit(_print(_result("ok", data), args.output))
     names = {

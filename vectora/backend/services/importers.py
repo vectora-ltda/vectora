@@ -3,6 +3,24 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
+
+
+def _safe_preview_url(value: str) -> str:
+    """Strip URL credentials, query parameters, and fragments from previews."""
+    parts = urlsplit(value)
+    if not parts.scheme and not parts.netloc:
+        return value.split("?", 1)[0].split("#", 1)[0]
+    try:
+        hostname = parts.hostname or ""
+        netloc = hostname
+        if ":" in hostname and not hostname.startswith("["):
+            netloc = f"[{hostname}]"
+        if parts.port is not None:
+            netloc = f"{netloc}:{parts.port}"
+    except ValueError:
+        netloc = ""
+    return urlunsplit((parts.scheme, netloc, parts.path, "", ""))
 
 
 def preview_mcp_config(payload: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
@@ -31,7 +49,7 @@ def preview_mcp_config(payload: dict[str, Any]) -> dict[str, list[dict[str, Any]
                 "args": [
                     str(item) for item in raw.get("args", []) if isinstance(item, str)
                 ],
-                "url": url if isinstance(url, str) else "",
+                "url": _safe_preview_url(url) if isinstance(url, str) else "",
                 "env_vars": env_vars,
             }
         )
@@ -61,7 +79,7 @@ def preview_skill_config(payload: Any) -> dict[str, list[dict[str, Any]]]:
                 .replace(" ", "-"),
                 "name": str(raw["name"]),
                 "description": str(raw.get("description", "")),
-                "source": str(raw["source"]),
+                "source": _safe_preview_url(str(raw["source"])),
             }
         )
     return {"valid": valid, "ignored": ignored}

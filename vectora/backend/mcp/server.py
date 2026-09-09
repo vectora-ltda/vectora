@@ -12,7 +12,7 @@ import os
 
 from mcp.server.fastmcp import FastMCP  # ty: ignore[unresolved-import]
 
-from backend.services.media_adapter import invoke_media
+from backend.services.media_adapter import invoke_media, media_specs
 from backend.tools.context import ToolContext
 
 
@@ -23,37 +23,36 @@ def create_media_server() -> FastMCP:
     if not user_id:
         raise RuntimeError("VECTORA_MCP_USER_ID é obrigatório para o servidor MCP")
 
-    @server.tool()
-    async def generate_image(prompt: str) -> str:
-        return await invoke_media(
-            "generate_image",
-            {"prompt": prompt},
-            ToolContext(user_id=user_id, thread_id="mcp"),
-        )
+    allowed = {spec.name for spec in media_specs(user_id)}
+    context = ToolContext(user_id=user_id, thread_id="mcp")
 
-    @server.tool()
-    async def text_to_speech(text: str, voice: str = "") -> str:
-        return await invoke_media(
-            "text_to_speech",
-            {"text": text, "voice": voice},
-            ToolContext(user_id=user_id, thread_id="mcp"),
-        )
+    if "generate_image" in allowed:
 
-    @server.tool()
-    async def generate_video(prompt: str) -> str:
-        return await invoke_media(
-            "generate_video",
-            {"prompt": prompt},
-            ToolContext(user_id=user_id, thread_id="mcp"),
-        )
+        @server.tool()
+        async def generate_image(prompt: str) -> str:
+            return await invoke_media("generate_image", {"prompt": prompt}, context)
 
-    @server.tool()
-    async def analyze_video(path: str, question: str) -> str:
-        return await invoke_media(
-            "analyze_video",
-            {"path": path, "question": question},
-            ToolContext(user_id=user_id, thread_id="mcp"),
-        )
+    if "text_to_speech" in allowed:
+
+        @server.tool()
+        async def text_to_speech(text: str, voice: str = "") -> str:
+            return await invoke_media(
+                "text_to_speech", {"text": text, "voice": voice}, context
+            )
+
+    if "generate_video" in allowed:
+
+        @server.tool()
+        async def generate_video(prompt: str) -> str:
+            return await invoke_media("generate_video", {"prompt": prompt}, context)
+
+    if "analyze_video" in allowed:
+
+        @server.tool()
+        async def analyze_video(path: str, question: str) -> str:
+            return await invoke_media(
+                "analyze_video", {"path": path, "question": question}, context
+            )
 
     return server
 
