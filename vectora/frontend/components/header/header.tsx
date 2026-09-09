@@ -44,7 +44,7 @@ export function Header({
       // do header do workbench (workbench-panel.tsx) — as 3 colunas do
       // layout precisam da mesma linha divisória de topo, senão a borda
       // horizontal desalinha entre elas.
-      className="border-b border-border/60 bg-background h-16 flex items-center"
+      className="safe-area-top-header border-b border-border/60 bg-background min-h-16 flex items-center"
     >
       <div className="flex items-center justify-between w-full min-w-0 px-4 sm:px-6">
         <div className="flex items-center gap-2 shrink-0">
@@ -63,7 +63,7 @@ export function Header({
             <>
               <Image
                 src="/vectora.svg"
-                alt="Vectora"
+                alt={m.app_name()}
                 width={28}
                 height={28}
                 priority
@@ -73,7 +73,7 @@ export function Header({
                 className="text-xl font-semibold tracking-tight text-foreground"
                 style={{ fontFamily: "var(--font-aeonik-mono)" }}
               >
-                Vectora
+                {m.app_name()}
               </span>
             </>
           )}

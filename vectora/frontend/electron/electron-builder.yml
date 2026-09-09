@@ -61,6 +61,9 @@ files:
 # dois níveis abaixo do repo-root (frontend/ -> vectora/ -> repo-root/), daí
 # os dois "..".
 extraResources:
+  # O backend sidecar lê as notas a partir do diretório do executável.
+  - from: ../CHANGELOG.md
+    to: vectora-core/CHANGELOG.md
   - from: ../../dist/vectora
     to: vectora-core
   # Sidecar nats-server (fila/KV persistente): baixado por `scons nats` (dep do
