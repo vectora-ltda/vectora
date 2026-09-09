@@ -63,7 +63,7 @@ export function Header({
             <>
               <Image
                 src="/vectora.svg"
-                alt="Vectora"
+                alt={m.app_name()}
                 width={28}
                 height={28}
                 priority
@@ -73,7 +73,7 @@ export function Header({
                 className="text-xl font-semibold tracking-tight text-foreground"
                 style={{ fontFamily: "var(--font-aeonik-mono)" }}
               >
-                Vectora
+                {m.app_name()}
               </span>
             </>
           )}

@@ -21,6 +21,8 @@ import {
   signalWorkspaceChoiceForNewSession,
 } from "@/lib/stores/new-session-signal";
 import { disposeBrowserThread } from "@/lib/browser-session-store";
+import { useToastStore } from "@/lib/stores/toast-store";
+import { m } from "@/lib/paraglide/messages";
 
 /** Largura da sidebar na tela inicial — mais larga que o normal para dar destaque. */
 const HOME_SIDEBAR_WIDTH = 280;
@@ -45,7 +47,11 @@ export const Route = createFileRoute("/")({
 function HomeScreen() {
   const navigate = useNavigate();
   const userId = useAuthStore((s) => s.user?.id);
-  const { data: threads = [], isLoading } = useThreadsQuery(userId);
+  const {
+    data: threads = [],
+    isLoading,
+    refetch: refetchThreads,
+  } = useThreadsQuery(userId);
   const deleteThread = useDeleteThread();
   const setChatMode = useSettingsStore((s) => s.setChatMode);
   const sidebarWidth = useSettingsStore((s) => s.sidebarWidth);
@@ -106,6 +112,13 @@ function HomeScreen() {
     disposeBrowserThread(id);
   };
 
+  const refreshThreads = async (): Promise<void> => {
+    const result = await refetchThreads();
+    if (result.isError || result.error) {
+      useToastStore.getState().error(m.threads_error_list());
+    }
+  };
+
   return (
     <div className="flex flex-col h-full overflow-hidden bg-background">
       <LicenseBanner fullWidth />
@@ -127,6 +140,7 @@ function HomeScreen() {
             onNewChat={handleNewChat}
             isLoading={isLoading}
             isNewSession={false}
+            onRefreshThreads={refreshThreads}
           />
         </div>
         {/* Mobile: a sidebar de verdade some (hidden md:flex acima) — sem
@@ -151,6 +165,7 @@ function HomeScreen() {
               }}
               isLoading={isLoading}
               isNewSession={false}
+              onRefreshThreads={refreshThreads}
             />
           </SheetContent>
         </Sheet>

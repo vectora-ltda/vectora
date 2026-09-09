@@ -3,6 +3,7 @@
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { XIcon } from "lucide-react";
+import { m } from "@/lib/paraglide/messages";
 
 import { cn } from "@/lib/utils";
 
@@ -68,7 +69,7 @@ function SheetContent({
             className="ring-offset-background absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:outline-hidden disabled:pointer-events-none"
           >
             <XIcon className="size-4" />
-            <span className="sr-only">Fechar</span>
+            <span className="sr-only">{m.workbench_close()}</span>
           </DialogPrimitive.Close>
         )}
       </DialogPrimitive.Content>
@@ -112,4 +113,4 @@ function SheetDescription({
   );
 }
 
-export { Sheet, SheetContent };
+export { Sheet, SheetContent, SheetDescription, SheetTitle };
