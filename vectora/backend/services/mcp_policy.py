@@ -8,6 +8,7 @@ compatibilidade; uma regra existente com lista vazia bloqueia tudo.
 from __future__ import annotations
 
 import json
+import uuid
 from pathlib import Path
 from typing import Literal
 
@@ -36,6 +37,7 @@ _version = 0
 _loaded = False
 _policy_error = False
 _loaded_mtime_ns: int | None = None
+_origin = uuid.uuid4().hex
 
 
 def _policy_file() -> Path:
@@ -43,7 +45,7 @@ def _policy_file() -> Path:
 
 
 def _load() -> None:
-    global _loaded, _version, _policy_error, _loaded_mtime_ns
+    global _loaded, _version, _policy_error, _loaded_mtime_ns, _origin
     path = _policy_file()
     try:
         mtime_ns = path.stat().st_mtime_ns
@@ -58,6 +60,7 @@ def _load() -> None:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
         _version = int(raw.get("version", 0))
+        _origin = str(raw.get("origin", _origin))
         for item in raw.get("rules", []):
             rule = McpPolicyRule.model_validate(item)
             key = (rule.scope, rule.workspace_id)
@@ -77,7 +80,11 @@ def _save() -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(
         json.dumps(
-            {"version": _version, "rules": [r.model_dump() for r in _rules.values()]},
+            {
+                "version": _version,
+                "origin": _origin,
+                "rules": [r.model_dump() for r in _rules.values()],
+            },
             indent=2,
             ensure_ascii=False,
         ),
@@ -97,6 +104,7 @@ def _publish_change() -> None:
         _json.dumps(
             {
                 "version": _version,
+                "origin": _origin,
                 "rules": [rule.model_dump(mode="json") for rule in _rules.values()],
             }
         ),
@@ -104,11 +112,15 @@ def _publish_change() -> None:
 
 
 def apply_remote_version(
-    version: int, rules: list[dict[str, object]] | None = None
+    version: int,
+    rules: list[dict[str, object]] | None = None,
+    origin: str | None = None,
 ) -> None:
     """Aplica um snapshot remoto antes de invalidar os caches dependentes."""
-    global _loaded, _loaded_mtime_ns, _policy_error, _version
-    if version <= _version and _loaded:
+    global _loaded, _loaded_mtime_ns, _policy_error, _version, _origin
+    if _loaded and (
+        version < _version or (version == _version and (origin or "") <= _origin)
+    ):
         return
     if rules is not None:
         try:
@@ -124,6 +136,8 @@ def apply_remote_version(
             except FileNotFoundError:
                 _loaded_mtime_ns = None
             _version = version
+            if origin:
+                _origin = origin
         except Exception:
             _rules.clear()
             _policy_error = True
@@ -219,12 +233,13 @@ def require_allowed(server_id: str, workspace_id: str | None = None) -> None:
 
 
 def _reset_for_tests() -> None:
-    global _loaded, _version, _policy_error, _loaded_mtime_ns
+    global _loaded, _version, _policy_error, _loaded_mtime_ns, _origin
     _rules.clear()
     _version = 0
     _loaded = False
     _policy_error = False
     _loaded_mtime_ns = None
+    _origin = uuid.uuid4().hex
 
 
 __all__ = [

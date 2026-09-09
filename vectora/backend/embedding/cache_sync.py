@@ -82,7 +82,10 @@ def _on_mcp_policy_changed(payload: str) -> None:
 
     rules = data.get("rules")
     snapshot = rules if isinstance(rules, list) else None
-    mcp_policy.apply_remote_version(version, snapshot)
+    origin = data.get("origin")
+    mcp_policy.apply_remote_version(
+        version, snapshot, origin if isinstance(origin, str) else None
+    )
 
 
 def _on_ws_active_changed(payload: str) -> None:

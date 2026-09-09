@@ -44,11 +44,13 @@ def test_remote_snapshot_replaces_isolated_replica_before_cache_invalidation(
         lambda channel, payload: published.append(payload),
     )
     mcp_policy._reset_for_tests()
+    mcp_policy._origin = "sender"
     mcp_policy.set_rule("instance", ["github"], updated_by="admin")
     snapshot = json.loads(published[-1])
 
     monkeypatch.setattr(mcp_policy, "_policy_file", lambda: second_path)
     mcp_policy._reset_for_tests()
+    mcp_policy._origin = "receiver"
     mcp_policy.set_rule("instance", ["github", "slack"], updated_by="other")
     assert mcp_policy.evaluate("slack").allowed
 
@@ -57,7 +59,9 @@ def test_remote_snapshot_replaces_isolated_replica_before_cache_invalidation(
         "backend.workspace.plugins.invalidate_mcp_cache",
         lambda: invalidations.append(True),
     )
-    mcp_policy.apply_remote_version(snapshot["version"] + 1, snapshot["rules"])
+    mcp_policy.apply_remote_version(
+        snapshot["version"], snapshot["rules"], snapshot["origin"]
+    )
 
     assert not mcp_policy.evaluate("slack").allowed
     assert mcp_policy.evaluate("github").allowed
