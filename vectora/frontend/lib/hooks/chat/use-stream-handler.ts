@@ -454,8 +454,8 @@ export function useStreamHandler({
             break;
           }
           if (event.type === "structured_question") {
-            streamCompletedNormally = true;
-            break;
+            // Evento intermediário: o stream continua até a resposta da tool.
+            continue;
           }
           if (event.type === "done") {
             resolvedRunId = event.run_id || undefined;
@@ -666,8 +666,8 @@ export function useStreamHandler({
             break;
           }
           if (event.type === "structured_question") {
-            streamCompletedNormally = true;
-            break;
+            // Evento intermediário: o stream continua até a resposta da tool.
+            continue;
           }
           if (event.type === "done") {
             streamCompletedNormally = true;

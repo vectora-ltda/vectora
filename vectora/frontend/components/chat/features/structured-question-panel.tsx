@@ -21,19 +21,21 @@ export function StructuredQuestionPanel({
   pending,
 }: StructuredQuestionPanelProps) {
   const [value, setValue] = useState("");
-  const [submitted, setSubmitted] = useState(false);
+  const [submitted, setSubmitted] = useState<
+    "answered" | "cancelled" | "expired" | false
+  >(false);
   const [error, setError] = useState<string | null>(null);
 
   const submit = async (answer?: string, cancel = false) => {
     setError(null);
     try {
-      await answerStructuredQuestion(
+      const response = await answerStructuredQuestion(
         pending.threadId,
         pending.questionId,
         answer,
         cancel,
       );
-      setSubmitted(true);
+      setSubmitted(response.status);
     } catch (reason) {
       setError(
         reason instanceof Error
@@ -46,7 +48,9 @@ export function StructuredQuestionPanel({
   if (submitted) {
     return (
       <div className="mt-3 rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm text-muted-foreground">
-        {m.chat_structured_question_answered()}
+        {submitted === "expired"
+          ? m.chat_structured_question_expiry()
+          : m.chat_structured_question_answered()}
       </div>
     );
   }

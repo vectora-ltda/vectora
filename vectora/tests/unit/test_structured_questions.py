@@ -10,6 +10,15 @@ from backend.services import structured_questions
 from backend.services.structured_questions import StructuredQuestionStore
 
 
+@pytest.fixture(autouse=True)
+def isolated_question_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        structured_questions,
+        "_store_path",
+        lambda: tmp_path / "structured_questions.json",
+    )
+
+
 @pytest.mark.asyncio
 async def test_pergunta_idempotente_resposta_e_cancelamento() -> None:
     store = StructuredQuestionStore()
@@ -73,4 +82,18 @@ async def test_persistencia_reidrata_pergunta_e_marca_expirada(
     reidratado = StructuredQuestionStore()
     restored = await reidratado.create("thread", "outra", ["b"], False, "persistente")
     assert restored.question_id == question.question_id
+    assert restored.status == "expired"
+
+
+@pytest.mark.asyncio
+async def test_pergunta_pendente_orfa_do_restart_expira_com_seguranca(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    arquivo = tmp_path / "structured_questions.json"
+    monkeypatch.setattr(structured_questions, "_store_path", lambda: arquivo)
+    store = StructuredQuestionStore()
+    question = await store.create("thread", "Escolha", ["a"], False, "restart")
+    reidratado = StructuredQuestionStore()
+    restored = await reidratado.get(question.question_id, "thread")
+    assert restored is not None
     assert restored.status == "expired"

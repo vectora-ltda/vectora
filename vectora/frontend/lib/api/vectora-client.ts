@@ -164,7 +164,7 @@ export async function answerStructuredQuestion(
   cancel = false,
 ): Promise<{
   question_id: string;
-  status: "answered" | "cancelled";
+  status: "answered" | "cancelled" | "expired";
   answer?: string | null;
 }> {
   const response = await fetch(
@@ -179,7 +179,7 @@ export async function answerStructuredQuestion(
   if (!response.ok) throw new Error("Não foi possível enviar a resposta");
   return (await response.json()) as {
     question_id: string;
-    status: "answered" | "cancelled";
+    status: "answered" | "cancelled" | "expired";
     answer?: string | null;
   };
 }

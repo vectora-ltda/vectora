@@ -67,6 +67,12 @@ class StructuredQuestionStore:
                 )
             except (KeyError, TypeError, ValueError):
                 continue
+            # A coroutine waiting on the question cannot survive a process
+            # restart. Expire the orphaned request instead of leaving the UI
+            # with a pending question whose agent turn no longer exists.
+            if question.status == "pending":
+                question.status = "expired"
+                question.expires_at = now.isoformat()
             if question.status == "pending" and question.expires_at:
                 try:
                     if datetime.fromisoformat(question.expires_at) <= now:
