@@ -263,7 +263,12 @@ async def run_conversation(
             )
             if pendente is not None:
                 interrupt_id = str(uuid4())
-                args_json = json.dumps(pendente.args, ensure_ascii=False)
+                approval_args = dict(pendente.args)
+                if pendente.name == "write_terminal":
+                    raw_input = str(approval_args.pop("input_data", ""))
+                    approval_args["input_preview"] = raw_input[:32].replace("\n", "\\n")
+                    approval_args["input_length"] = len(raw_input.encode("utf-8"))
+                args_json = json.dumps(approval_args, ensure_ascii=False)
                 if approval_gate is not None:
                     await approval_gate.request_approval(
                         thread_id,

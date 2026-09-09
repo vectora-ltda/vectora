@@ -28,7 +28,7 @@ _DEFAULT_CONTEXT = ToolContext()
 async def list_terminals(ctx: ToolContext) -> str:
     """Lista os terminais PTY abertos manualmente pelo usuário nesta sessão."""
     sessions = pty_registry.list_for_context(
-        thread_id=ctx.thread_id, workspace_id=ctx.workspace_id
+        user_id=ctx.user_id, thread_id=ctx.thread_id, workspace_id=ctx.workspace_id
     )
     return json.dumps(
         {
@@ -37,6 +37,7 @@ async def list_terminals(ctx: ToolContext) -> str:
                     "terminal_id": s.terminal_id,
                     "thread_id": s.thread_id,
                     "workspace_id": s.workspace_id,
+                    "user_id": getattr(s, "user_id", "local"),
                     "alive": s.is_alive(),
                 }
                 for s in sessions
@@ -61,7 +62,10 @@ async def close_terminal(terminal_id: str, ctx: ToolContext = _DEFAULT_CONTEXT) 
     if session is None or (
         ctx is not _DEFAULT_CONTEXT
         and pty_registry.resolve_for_context(
-            terminal_id, thread_id=ctx.thread_id, workspace_id=ctx.workspace_id
+            terminal_id,
+            user_id=ctx.user_id,
+            thread_id=ctx.thread_id,
+            workspace_id=ctx.workspace_id,
         )
         is None
     ):
@@ -91,10 +95,28 @@ async def read_terminal(
     if not terminal_id:
         return json.dumps({"status": "error", "code": "terminal_required"})
     session = pty_registry.resolve_for_context(
-        terminal_id, thread_id=ctx.thread_id, workspace_id=ctx.workspace_id
+        terminal_id,
+        user_id=ctx.user_id,
+        thread_id=ctx.thread_id,
+        workspace_id=ctx.workspace_id,
     )
     if session is None:
-        return json.dumps({"status": "error", "code": "not_found"})
+        code = (
+            "closed"
+            if pty_registry.was_closed_for_context(
+                terminal_id,
+                user_id=ctx.user_id,
+                thread_id=ctx.thread_id,
+                workspace_id=ctx.workspace_id,
+            )
+            else "not_found"
+        )
+        return json.dumps({"status": "error", "code": code})
+    retry_after = session.consume_rate_limit()
+    if retry_after is not None:
+        return json.dumps(
+            {"status": "error", "code": "rate_limited", "retry_after": retry_after}
+        )
     try:
         result = session.read_since(cursor, max_bytes)
     except (TypeError, ValueError):
@@ -128,10 +150,28 @@ async def write_terminal(
     if not request_id:
         return json.dumps({"status": "error", "code": "request_id_required"})
     session = pty_registry.resolve_for_context(
-        terminal_id, thread_id=ctx.thread_id, workspace_id=ctx.workspace_id
+        terminal_id,
+        user_id=ctx.user_id,
+        thread_id=ctx.thread_id,
+        workspace_id=ctx.workspace_id,
     )
     if session is None:
-        return json.dumps({"status": "error", "code": "not_found"})
+        code = (
+            "closed"
+            if pty_registry.was_closed_for_context(
+                terminal_id,
+                user_id=ctx.user_id,
+                thread_id=ctx.thread_id,
+                workspace_id=ctx.workspace_id,
+            )
+            else "not_found"
+        )
+        return json.dumps({"status": "error", "code": code})
+    retry_after = session.consume_rate_limit()
+    if retry_after is not None:
+        return json.dumps(
+            {"status": "error", "code": "rate_limited", "retry_after": retry_after}
+        )
     return json.dumps(
         session.write_input(input_data.encode("utf-8"), request_id), ensure_ascii=False
     )

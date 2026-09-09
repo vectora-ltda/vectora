@@ -11,11 +11,16 @@ from backend.services.pty_registry import PtyRegistry
 
 class _FakeSession:
     def __init__(
-        self, terminal_id: str, thread_id: str = "t1", workspace_id: str = "ws1"
+        self,
+        terminal_id: str,
+        thread_id: str = "t1",
+        workspace_id: str = "ws1",
+        user_id: str = "u1",
     ) -> None:
         self.terminal_id = terminal_id
         self.thread_id = thread_id
         self.workspace_id = workspace_id
+        self.user_id = user_id
         self.closed = False
 
     def close(self) -> None:
@@ -56,10 +61,22 @@ def test_resolve_for_context_requires_thread_and_workspace():
     reg = PtyRegistry()
     session = _FakeSession("a", thread_id="t1", workspace_id="ws1")
     reg.add(session)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-    assert reg.resolve_for_context("a", thread_id="t1", workspace_id="ws1") is session
-    assert reg.resolve_for_context("a", thread_id="t2", workspace_id="ws1") is None
-    assert reg.resolve_for_context("a", thread_id="t1", workspace_id="ws2") is None
-    assert reg.resolve_for_context("a", thread_id="", workspace_id="ws1") is None
+    assert (
+        reg.resolve_for_context("a", user_id="u1", thread_id="t1", workspace_id="ws1")
+        is session
+    )
+    assert (
+        reg.resolve_for_context("a", user_id="u1", thread_id="t2", workspace_id="ws1")
+        is None
+    )
+    assert (
+        reg.resolve_for_context("a", user_id="u1", thread_id="t1", workspace_id="ws2")
+        is None
+    )
+    assert (
+        reg.resolve_for_context("a", user_id="u1", thread_id="", workspace_id="ws1")
+        is None
+    )
 
 
 def test_close_all_clears():
@@ -72,3 +89,22 @@ def test_close_all_clears():
     assert b.closed
     assert reg.get("a") is None
     assert reg.get("b") is None
+
+
+def test_user_isolation_and_closed_state() -> None:
+    reg = PtyRegistry()
+    session = _FakeSession("a", user_id="owner")
+    reg.add(session)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+    assert (
+        reg.resolve_for_context(
+            "a", user_id="other", thread_id="t1", workspace_id="ws1"
+        )
+        is None
+    )
+    assert reg.close("a") is True
+    assert reg.was_closed_for_context(
+        "a", user_id="owner", thread_id="t1", workspace_id="ws1"
+    )
+    assert not reg.was_closed_for_context(
+        "a", user_id="other", thread_id="t1", workspace_id="ws1"
+    )

@@ -132,6 +132,16 @@ async def terminal_ws(ws: WebSocket) -> None:
         return
 
     session = pty_registry.get(terminal_id)
+    if session is not None and (
+        getattr(session, "user_id", "local") != str(getattr(user, "id", "local"))
+        or session.thread_id != thread_id
+        or session.workspace_id != workspace_id
+    ):
+        await ws.send_text(
+            json.dumps({"type": "error", "message": "acesso negado ao terminal"})
+        )
+        await ws.close(code=1008)
+        return
     if session is None or not session.is_alive():
         try:
             from pathlib import Path
@@ -143,6 +153,7 @@ async def terminal_ws(ws: WebSocket) -> None:
                 terminal_id=terminal_id,
                 workspace_id=workspace_id,
                 thread_id=thread_id,
+                user_id=str(getattr(user, "id", "local")),
                 cwd=workspace.cwd,
                 policy=policy,
             )

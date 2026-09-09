@@ -179,12 +179,17 @@ class ApprovalGate:
     ) -> None:
         import asyncio
 
+        safe_args = dict(args)
+        if tool_name == "write_terminal":
+            raw_input = str(safe_args.pop("input_data", ""))
+            safe_args["input_preview"] = raw_input[:32].replace("\n", "\\n")
+            safe_args["input_length"] = len(raw_input.encode("utf-8"))
         await self._session_store.put_pending_approval(
             thread_id,
             interrupt_id=interrupt_id,
             tool_name=tool_name,
             tool_call_id=tool_call_id,
-            args=args,
+            args=safe_args,
             reasoning=reasoning,
         )
         self._events[thread_id] = asyncio.Event()

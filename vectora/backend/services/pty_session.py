@@ -16,6 +16,7 @@ import logging
 import os
 import platform
 import threading
+import time
 from collections import deque
 from typing import TYPE_CHECKING, Any
 
@@ -78,10 +79,12 @@ class PtySession:
         workspace_id: str,
         thread_id: str,
         proc: Any,
+        user_id: str = "local",
     ) -> None:
         self.terminal_id = terminal_id
         self.workspace_id = workspace_id
         self.thread_id = thread_id
+        self.user_id = user_id
         self._proc = proc
         # Fan-out: cada WS que abre este terminal ganha sua própria fila via
         # subscribe() — o read-loop faz broadcast do mesmo chunk pra todas as
@@ -96,6 +99,8 @@ class PtySession:
         self._next_cursor = 0
         self._input_ids: deque[str] = deque(maxlen=128)
         self._input_lock = threading.Lock()
+        self._rate_lock = threading.Lock()
+        self._rate_events: deque[float] = deque()
         self._closed = False
         self._read_task: asyncio.Task | None = None
 
@@ -109,6 +114,7 @@ class PtySession:
         workspace_id: str,
         thread_id: str,
         cwd: str,
+        user_id: str = "local",
         env: dict[str, str] | None = None,
         cols: int = 80,
         rows: int = 24,
@@ -166,6 +172,7 @@ class PtySession:
             terminal_id=terminal_id,
             workspace_id=workspace_id,
             thread_id=thread_id,
+            user_id=user_id,
             proc=proc,
         )
         session._read_task = asyncio.create_task(
@@ -268,6 +275,19 @@ class PtySession:
             "truncated": truncated,
             "has_more": next_cursor < self._next_cursor,
         }
+
+    def consume_rate_limit(
+        self, *, limit: int = 60, window_s: float = 10.0
+    ) -> float | None:
+        """Registra uma operação e informa os segundos restantes quando excedida."""
+        now = time.monotonic()
+        with self._rate_lock:
+            while self._rate_events and now - self._rate_events[0] >= window_s:
+                self._rate_events.popleft()
+            if len(self._rate_events) >= limit:
+                return max(0.1, window_s - (now - self._rate_events[0]))
+            self._rate_events.append(now)
+        return None
 
     def write(self, data: bytes) -> bool:
         if self._closed:

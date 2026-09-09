@@ -20,12 +20,18 @@ from backend.tools.terminal_sessions import (
 
 
 def _fake_session(
-    terminal_id: str, thread_id: str, workspace_id: str, alive: bool = True
+    terminal_id: str,
+    thread_id: str,
+    workspace_id: str,
+    alive: bool = True,
+    user_id: str = "local",
 ):
     return SimpleNamespace(
         terminal_id=terminal_id,
         thread_id=thread_id,
         workspace_id=workspace_id,
+        user_id=user_id,
+        consume_rate_limit=lambda: None,
         is_alive=lambda: alive,
     )
 
@@ -103,9 +109,13 @@ class TestInteractiveTerminalTools:
     @pytest.mark.asyncio
     async def test_leitura_e_escrita_respeitam_contexto(self) -> None:
         class Session:
+            user_id = "local"
             terminal_id = "t1"
             thread_id = "thr-1"
             workspace_id = "ws-1"
+
+            def consume_rate_limit(self):
+                return None
 
             def read_since(self, cursor, max_bytes):
                 return {
