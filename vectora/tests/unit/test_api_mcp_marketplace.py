@@ -8,6 +8,7 @@ POST /mcp/uninstall — remove um MCP do workspace
 from __future__ import annotations
 
 import pytest
+from fastapi import Request
 
 from backend.api.handlers.mcp_marketplace import (
     _REGISTRY,
@@ -537,3 +538,45 @@ async def test_install_uninstall_mcp_tratam_excecao_do_store(
     out_uninstall = await uninstall_mcp(UninstallRequest(mcp_id=_REGISTRY[0].id))
     assert out_uninstall["status"] == "error"
     assert "arquivo corrompido" in out_uninstall["error"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", ["blocked", "policy_unavailable"])
+async def test_install_mcp_audita_negacao_da_allowlist(
+    _functional_store, monkeypatch, code
+):
+    """Negações de instalação geram auditoria sem expor configuração sensível."""
+    from types import SimpleNamespace
+    from typing import cast
+    from unittest.mock import AsyncMock
+
+    from backend.api.handlers import mcp_marketplace
+    from backend.services.mcp_policy import McpPolicyDecision
+
+    audit = AsyncMock()
+    monkeypatch.setattr(mcp_marketplace, "_audit_mcp_decision", audit)
+    monkeypatch.setattr(
+        mcp_marketplace.mcp_policy,
+        "evaluate",
+        lambda *_args: McpPolicyDecision(
+            allowed=False, code=code, scope="instance", version=3
+        ),
+    )
+    request = SimpleNamespace(state=SimpleNamespace(user=None), query_params={})
+
+    result = await install_mcp(
+        InstallRequest(mcp_id=_REGISTRY[0].id), request=cast(Request, request)
+    )
+
+    assert result["status"] == "error"
+    expected_code = (
+        "policy_unavailable" if code == "policy_unavailable" else "policy_blocked"
+    )
+    assert result["code"] == expected_code
+    audit.assert_awaited_once_with(
+        request,
+        action="install",
+        mcp_id=_REGISTRY[0].id,
+        scope="user",
+        allowed=False,
+    )

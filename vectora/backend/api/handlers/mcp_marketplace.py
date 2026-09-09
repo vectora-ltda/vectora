@@ -296,7 +296,9 @@ async def list_registry() -> list[MCPConnector]:
     )
 
 
-async def install_mcp(req: InstallRequest, user_id: str = "local") -> dict:
+async def install_mcp(
+    req: InstallRequest, user_id: str = "local", request: Request | None = None
+) -> dict:
     connector = next((c for c in await list_registry() if c.id == req.mcp_id), None)
     if connector is None:
         return {
@@ -308,6 +310,14 @@ async def install_mcp(req: InstallRequest, user_id: str = "local") -> dict:
 
         decision = mcp_policy.evaluate(connector.id, req.workspace_id)
         if not decision.allowed:
+            if request is not None:
+                await _audit_mcp_decision(
+                    request,
+                    action="install",
+                    mcp_id=connector.id,
+                    scope=req.scope,
+                    allowed=False,
+                )
             return {
                 "status": "error",
                 "code": (
@@ -494,16 +504,7 @@ async def get_registry(
 @router.post("/install")
 async def post_install(req: InstallRequest, request: Request) -> dict:
     req.target = _authorized_target(request, req.scope, req.target, req.workspace_id)
-    result = await install_mcp(req, _req_user_id(request))
-    if result.get("code") in {"policy_blocked", "policy_unavailable"}:
-        await _audit_mcp_decision(
-            request,
-            action="install",
-            mcp_id=req.mcp_id,
-            scope=req.scope,
-            allowed=False,
-        )
-    return result
+    return await install_mcp(req, _req_user_id(request), request)
 
 
 @router.post("/uninstall")
