@@ -445,6 +445,88 @@ describe("POST /issues/github/webhook", () => {
     ).toHaveLength(1);
   });
 
+  it("abandona a promoção antiga quando o reconciliador substitui o lease", async () => {
+    const issueId = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO issues (id, title, category, description, github_repo, github_number, github_url, github_sync_state, approved_at, approved_by) VALUES (?, 'lease expirado', 'bug', 'descrição', ?, 9883, ?, 'approval_error', datetime('now', '-1 hour'), 'admin')",
+    )
+      .bind(
+        issueId,
+        "vectora-ltda/vectora-issues",
+        "https://github.com/vectora-ltda/vectora-issues/issues/9883",
+      )
+      .run();
+
+    let releaseFirstComment!: (response: Response) => void;
+    const firstComment = new Promise<Response>((resolve) => {
+      releaseFirstComment = resolve;
+    });
+    let commentReads = 0;
+    let commentPosts = 0;
+    let issueCloses = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("search/issues")) {
+          return new Response('{"items":[]}');
+        }
+        if (url.includes("/comments") && (init?.method ?? "GET") === "GET") {
+          commentReads += 1;
+          return commentReads === 1 ? firstComment : new Response("[]");
+        }
+        if (url.endsWith("/issues") && init?.method === "POST") {
+          return new Response(
+            JSON.stringify({
+              number: 9884,
+              html_url: "https://github.com/vectora-ltda/vectora/issues/9884",
+            }),
+            { status: 201 },
+          );
+        }
+        if (url.includes("/comments") && init?.method === "POST") {
+          commentPosts += 1;
+          return new Response(
+            JSON.stringify({
+              id: 1234,
+              body: "backlink",
+              html_url: "https://github.com/comment/1234",
+              created_at: new Date().toISOString(),
+            }),
+            { status: 201 },
+          );
+        }
+        if (init?.method === "PATCH") {
+          issueCloses += 1;
+        }
+        return new Response("{}", { status: 200 });
+      }),
+    );
+
+    const oldPromotion = promoteIssue(
+      { ...env, GITHUB_TOKEN: "test-token" },
+      issueId,
+      "admin",
+    );
+    for (let attempt = 0; attempt < 100 && commentReads === 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    expect(commentReads).toBe(1);
+
+    await env.DB.prepare(
+      "UPDATE issues SET approved_at = datetime('now', '-1 hour') WHERE id = ?",
+    )
+      .bind(issueId)
+      .run();
+    await reconcilePendingPromotions({ ...env, GITHUB_TOKEN: "test-token" });
+    releaseFirstComment(new Response("[]"));
+    const oldResult = await Promise.allSettled([oldPromotion]);
+
+    expect(oldResult[0]?.status).toBe("rejected");
+    expect(commentPosts).toBe(1);
+    expect(issueCloses).toBe(1);
+  });
+
   it("marca comentários ativos como removidos quando o GitHub retorna uma lista vazia", async () => {
     const issueId = crypto.randomUUID();
     await env.DB.prepare(

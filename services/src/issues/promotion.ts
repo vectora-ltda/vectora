@@ -15,6 +15,19 @@ export interface PromotionResult {
   alreadyPromoted?: boolean;
 }
 
+async function renewPromotionLease(
+  env: Env,
+  issueId: string,
+  operationToken: string,
+): Promise<void> {
+  const renewed = await env.DB.prepare(
+    "UPDATE issues SET approved_at = datetime('now') WHERE id = ? AND github_sync_state = 'promotion_pending' AND github_sync_error = ?",
+  )
+    .bind(issueId, operationToken)
+    .run();
+  if (renewed.meta.changes === 0) throw new Error("promotion_lost");
+}
+
 /** Promove uma issue da Company para o repositório privado principal da Vectora. */
 export async function promoteIssue(
   env: Env,
@@ -88,7 +101,7 @@ export async function promoteIssue(
   if (!created) {
     created = await createIssue(env, targetRepo, issue.title, body);
   }
-  await env.DB.prepare(
+  const persisted = await env.DB.prepare(
     "UPDATE issues SET core_repo = ?, core_number = ?, core_url = ?, approved_at = COALESCE(approved_at, datetime('now')), approved_by = COALESCE(approved_by, ?), github_sync_state = 'promotion_pending', github_sync_error = ? WHERE id = ? AND github_sync_error = ?",
   )
     .bind(
@@ -101,9 +114,12 @@ export async function promoteIssue(
       operationToken,
     )
     .run();
+  if (persisted.meta.changes === 0) throw new Error("promotion_lost");
+  await renewPromotionLease(env, issueId, operationToken);
 
   if (issue.github_repo && issue.github_number) {
     const backlinkMarker = `vectora-company-promotion:${issue.id}`;
+    await renewPromotionLease(env, issueId, operationToken);
     const existingBacklink = await findCommentByMarker(
       env,
       issue.github_repo,
@@ -111,6 +127,7 @@ export async function promoteIssue(
       backlinkMarker,
     );
     if (!existingBacklink) {
+      await renewPromotionLease(env, issueId, operationToken);
       await addComment(
         env,
         issue.github_repo,
@@ -118,6 +135,7 @@ export async function promoteIssue(
         `<!-- ${backlinkMarker} -->\nAprovada pela Company e promovida ao repositório principal: ${created.html_url}`,
       );
     }
+    await renewPromotionLease(env, issueId, operationToken);
     await updateIssue(env, issue.github_repo, issue.github_number, {
       state: "closed",
     });
