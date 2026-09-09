@@ -34,7 +34,14 @@ from backend.storage.sqlite.pool import AsyncConnectionPool
 from backend.tools import planning as _planning_module
 from backend.tools.context import ToolContext
 from backend.tools.registry import TOOL_REGISTRY, ToolExtras, ToolRegistry, vtool
-from backend.vtypes.message import ToolCallChunk, VMessageChunk
+from backend.vtypes.message import (
+    ContentBlock,
+    MessageRole,
+    ToolCall,
+    ToolCallChunk,
+    VMessage,
+    VMessageChunk,
+)
 
 
 def _register(registry: ToolRegistry, nome: str) -> None:
@@ -504,8 +511,8 @@ class TestEmissaoDeEventos:
         assert hitl_eventos[0].args_json == "{}"
         assert hitl_eventos[0].interrupt_id  # gerado, não vazio
 
-    async def test_write_terminal_redige_entrada_do_historico_e_da_aprovacao(
-        self, session_store, ctx
+    async def test_write_terminal_preserva_entrada_bruta_ao_aprovar(
+        self, session_store, ctx, monkeypatch
     ) -> None:
         import backend.tools.terminal_sessions
 
@@ -549,6 +556,41 @@ class TestEmissaoDeEventos:
         assert segredo not in json.dumps(pending)
         assert segredo not in json.dumps([message.to_dict() for message in history])
         assert pending["args"]["input_preview"] == "<redacted>"
+
+        chamadas: list[dict[str, object]] = []
+
+        async def fake_execute(
+            tool_call: ToolCall,
+            *,
+            tool_registry: ToolRegistry,
+            ctx: ToolContext,
+        ) -> VMessage:
+            chamadas.append(dict(tool_call.args))
+            return VMessage(
+                role=MessageRole.TOOL,
+                content=[ContentBlock(kind="text", text="written")],
+                tool_call_id=tool_call.id,
+                name=tool_call.name,
+            )
+
+        monkeypatch.setattr(
+            "backend.engine.conversation_loop._execute_single_call", fake_execute
+        )
+        assert await resume_conversation(
+            session_store=session_store,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            decision="approve",
+            approval_gate=gate,
+        )
+        assert chamadas == [
+            {
+                "terminal_id": "term-1",
+                "input_data": segredo,
+                "request_id": "req-1",
+            }
+        ]
 
     async def test_tool_call_started_e_activity_emitidos_antes_e_depois(
         self, session_store, ctx

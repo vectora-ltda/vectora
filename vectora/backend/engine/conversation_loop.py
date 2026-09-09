@@ -287,7 +287,7 @@ async def run_conversation(
                         interrupt_id=interrupt_id,
                         tool_name=pendente.name,
                         tool_call_id=pendente.id,
-                        args=approval_args,
+                        args=pendente.args,
                     )
                 await emit(
                     HitlRequested(
