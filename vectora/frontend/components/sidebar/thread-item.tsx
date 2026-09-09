@@ -148,7 +148,9 @@ export const ThreadItem = memo(function ThreadItem({
             type="button"
             className="shrink-0 w-3 h-3 rounded-full bg-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
             title={m.sidebar_remote_activity_tooltip({ time: remoteActivity })}
-            aria-label={m.sidebar_ctx_resume()}
+            aria-label={m.sidebar_remote_activity_tooltip({
+              time: remoteActivity,
+            })}
             onClick={(e) => {
               e.stopPropagation();
               onSelect(thread.thread_id);
