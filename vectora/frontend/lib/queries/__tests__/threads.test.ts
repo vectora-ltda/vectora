@@ -12,12 +12,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const listThreads = vi.fn();
 const deleteThread = vi.fn();
 const updateThread = vi.fn();
+const markThreadRead = vi.fn();
 const broadcastEvent = vi.fn();
 
 vi.mock("@/lib/api/vectora-client", () => ({
   listThreads: (...a: unknown[]) => listThreads(...a),
   deleteThread: (...a: unknown[]) => deleteThread(...a),
   updateThread: (...a: unknown[]) => updateThread(...a),
+  markThreadRead: (...a: unknown[]) => markThreadRead(...a),
 }));
 
 vi.mock("@/lib/hooks/use-broadcast-sync", () => ({
@@ -54,6 +56,7 @@ beforeEach(() => {
   listThreads.mockReset();
   deleteThread.mockReset();
   updateThread.mockReset();
+  markThreadRead.mockReset();
   broadcastEvent.mockReset();
 });
 
@@ -105,6 +108,16 @@ describe("useThreadsQuery", () => {
     const { result } = renderHook(() => useThreadsQuery("u1"), { wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data![0].pinned).toBe(true);
+  });
+
+  it("propaga unread_count para a sidebar", async () => {
+    listThreads.mockResolvedValueOnce({
+      threads: [vthread("t1", { unread_count: 4 })],
+    });
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useThreadsQuery("u1"), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data![0].unread_count).toBe(4);
   });
 
   it("erro/borda: pinned ausente no backend vira false", async () => {

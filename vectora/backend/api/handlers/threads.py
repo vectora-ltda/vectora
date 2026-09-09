@@ -798,7 +798,8 @@ async def mark_thread_read(thread_id: str, request: Request) -> dict[str, int | 
         raise HTTPException(status_code=404, detail="Thread não encontrada")
     await db.execute(
         "INSERT INTO thread_read_cursors(thread_id, user_id, read_count) VALUES (?, ?, ?) "
-        "ON CONFLICT(thread_id, user_id) DO UPDATE SET read_count = excluded.read_count",
+        "ON CONFLICT(thread_id, user_id) DO UPDATE SET read_count = "
+        "MAX(thread_read_cursors.read_count, excluded.read_count)",
         (thread_id, user_id, int(row[0])),
     )
     await db.commit()

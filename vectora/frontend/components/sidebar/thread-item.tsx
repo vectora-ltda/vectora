@@ -4,7 +4,11 @@ import { memo, useRef, useState } from "react";
 import { Pin, Trash2 } from "lucide-react";
 import type { Thread } from "@/lib/hooks/threads";
 import { queryClient } from "../../src/router";
-import { getHistory, listThreads } from "@/lib/api/vectora-client";
+import {
+  getHistory,
+  listThreads,
+  markThreadRead,
+} from "@/lib/api/vectora-client";
 import { threadsQueryKey } from "@/lib/queries/threads";
 import { THREAD_FETCH_LIMIT } from "@/lib/constants/features";
 import { m } from "@/lib/paraglide/messages";
@@ -124,6 +128,28 @@ export const ThreadItem = memo(function ThreadItem({
     ]);
   };
 
+  const handleSelect = () => {
+    // Limpa a indicação imediatamente e confirma no backend. Em caso de
+    // falha, a invalidação restaura a contagem real na próxima consulta.
+    queryClient.setQueryData<{
+      threads: { id: string; unread_count?: number }[];
+    }>(threadsQueryKey(), (data) =>
+      data
+        ? {
+            threads: data.threads.map((item) =>
+              item.id === thread.thread_id
+                ? { ...item, unread_count: 0 }
+                : item,
+            ),
+          }
+        : data,
+    );
+    void markThreadRead(thread.thread_id).catch(() => {
+      void queryClient.invalidateQueries({ queryKey: threadsQueryKey() });
+    });
+    onSelect(thread.thread_id);
+  };
+
   if (isEditing) {
     return (
       <div
@@ -165,7 +191,7 @@ export const ThreadItem = memo(function ThreadItem({
           suppressClick.current = false;
           return;
         }
-        onSelect(thread.thread_id);
+        handleSelect();
       }}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
@@ -184,6 +210,14 @@ export const ThreadItem = memo(function ThreadItem({
           <Pin className="shrink-0 w-3 h-3 text-muted-foreground/70 fill-current" />
         )}
         <span className="truncate text-[12px] leading-5">{title}</span>
+        {thread.unread_count && thread.unread_count > 0 ? (
+          <span
+            className="shrink-0 rounded-full bg-primary px-1.5 text-[10px] leading-4 text-primary-foreground"
+            aria-label={`${thread.unread_count} mensagens não lidas`}
+          >
+            {thread.unread_count > 99 ? "99+" : thread.unread_count}
+          </span>
+        ) : null}
       </div>
       <button
         onClick={(e) => onDelete(thread.thread_id, e)}

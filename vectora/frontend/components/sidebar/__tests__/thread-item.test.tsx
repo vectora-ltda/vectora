@@ -21,11 +21,16 @@ vi.mock("@/lib/stores/streaming-store", () => ({
 }));
 
 vi.mock("../../../src/router", () => ({
-  queryClient: { prefetchQuery: vi.fn() },
+  queryClient: {
+    prefetchQuery: vi.fn(),
+    setQueryData: vi.fn(),
+    invalidateQueries: vi.fn(),
+  },
 }));
 vi.mock("@/lib/api/vectora-client", () => ({
   getHistory: vi.fn(),
   listThreads: vi.fn(),
+  markThreadRead: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@/lib/queries/threads", () => ({
   threadsQueryKey: (limit = 100) => ["threads", limit],
