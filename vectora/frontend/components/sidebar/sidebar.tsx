@@ -31,6 +31,7 @@ interface SidebarProps {
   isLoading?: boolean;
   /** true quando a sessão atual é nova/vazia — destaca "Nova sessão". */
   isNewSession?: boolean;
+  onRefreshThreads?: () => Promise<unknown>;
 }
 
 export const Sidebar = memo(function Sidebar({
@@ -43,6 +44,7 @@ export const Sidebar = memo(function Sidebar({
   onNewChat,
   isLoading = false,
   isNewSession = false,
+  onRefreshThreads,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Set<string>>(
@@ -225,6 +227,7 @@ export const Sidebar = memo(function Sidebar({
                 onRenameThread={handleRenameThread}
                 onTogglePinThread={handleTogglePin}
                 onToggleWorkspace={toggleWorkspaceGroup}
+                onRefresh={onRefreshThreads}
               />
 
               <SidebarFooter />
