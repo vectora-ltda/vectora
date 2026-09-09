@@ -738,8 +738,18 @@ async def stream_chat(
         "workspace_id": workspace_id or None,
     }
     try:
+        project_root = None
+        if workspace_id:
+            from backend.workspace.workspace import workspace_registry
+
+            workspace = workspace_registry.get(workspace_id)
+            project_root = str(workspace.cwd) if workspace is not None else None
         native_agent = await agent_factory.get_native_agent(
-            user_id, chat_mode=chat_mode, workspace_id=workspace_id or None
+            user_id,
+            chat_mode=chat_mode,
+            workspace_id=workspace_id or None,
+            project_root=project_root,
+            runtime_id=thread_id,
         )
         from backend.services.tool_resolver import resolve_registry
 
@@ -960,10 +970,18 @@ async def resume_chat(
         )
 
     try:
+        project_root = None
+        if selector_workspace_id:
+            from backend.workspace.workspace import workspace_registry
+
+            workspace = workspace_registry.get(selector_workspace_id)
+            project_root = str(workspace.cwd) if workspace is not None else None
         native_agent = await agent_factory.get_native_agent(
             resume_user_id,
             chat_mode=selector_chat_mode,
             workspace_id=selector_workspace_id,
+            project_root=project_root,
+            runtime_id=request.thread_id,
         )
         from backend.services.tool_resolver import resolve_registry
 
