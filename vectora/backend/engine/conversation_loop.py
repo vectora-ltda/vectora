@@ -88,6 +88,7 @@ class LoopResult:
     final_message: VMessage | None = None
     usage: dict[str, int] | None = None
     usage_models: tuple[str, ...] = ()
+    usage_records: tuple[tuple[str | None, dict[str, int]], ...] = ()
     tool_names: tuple[str, ...] = ()
 
 
@@ -188,6 +189,7 @@ async def run_conversation(
     turn_budget = TurnBudget(config=config.loop_caps)
     last_usage: dict[str, int] | None = None
     usage_models: set[str] = set()
+    usage_records: list[tuple[str | None, dict[str, int]]] = []
     observed_tools: set[str] = set()
 
     for _iteracao in range(config.max_iterations):
@@ -231,6 +233,8 @@ async def run_conversation(
         model_id = getattr(chat_client, "last_model_id", None)
         if model_id:
             usage_models.add(str(model_id))
+        if stream_usage is not None:
+            usage_records.append((str(model_id) if model_id else None, stream_usage))
 
         texto_final = "".join(partes_texto)
         tool_calls = _resolve_tool_calls(tool_call_chunks_por_indice)
@@ -255,6 +259,7 @@ async def run_conversation(
                 final_message=assistant_msg,
                 usage=last_usage,
                 usage_models=tuple(sorted(usage_models)),
+                usage_records=tuple(usage_records),
                 tool_names=tuple(sorted(observed_tools)),
             )
 
@@ -309,6 +314,7 @@ async def run_conversation(
                     final_message=assistant_msg,
                     usage=last_usage,
                     usage_models=tuple(sorted(usage_models)),
+                    usage_records=tuple(usage_records),
                     tool_names=tuple(sorted(observed_tools)),
                 )
 
@@ -393,6 +399,7 @@ async def run_conversation(
                 final_message=assistant_msg,
                 usage=last_usage,
                 usage_models=tuple(sorted(usage_models)),
+                usage_records=tuple(usage_records),
                 tool_names=tuple(sorted(observed_tools)),
             )
 
@@ -406,6 +413,7 @@ async def run_conversation(
         stopped_reason="max_iterations",
         usage=last_usage,
         usage_models=tuple(sorted(usage_models)),
+        usage_records=tuple(usage_records),
         tool_names=tuple(sorted(observed_tools)),
     )
 

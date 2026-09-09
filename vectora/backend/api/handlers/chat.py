@@ -945,25 +945,30 @@ async def stream_chat(
                 )
 
                 db = await get_usage_database()
-                await usage_insight_store.record(
-                    db,
-                    user_id=user_id,
-                    event_id=_thread_usage_event_ids[thread_id],
-                    model=(
+                records = result.usage_records or (
+                    (
                         result.usage_models[0]
                         if len(result.usage_models) == 1
-                        else None
+                        else None,
+                        result.usage,
                     ),
-                    input_tokens=result.usage.get("input_tokens"),
-                    output_tokens=result.usage.get("output_tokens"),
-                    total_tokens=result.usage.get("total_tokens"),
-                    estimated_cost_cents=(
-                        estimate_cost_cents(result.usage_models[0], result.usage)
-                        if len(result.usage_models) == 1
-                        else None
-                    ),
-                    tool_names=list(result.tool_names),
                 )
+                for index, (model_id, usage) in enumerate(records):
+                    await usage_insight_store.record(
+                        db,
+                        user_id=user_id,
+                        event_id=f"{_thread_usage_event_ids[thread_id]}:call:{index}",
+                        model=model_id,
+                        input_tokens=usage.get("input_tokens"),
+                        output_tokens=usage.get("output_tokens"),
+                        total_tokens=usage.get("total_tokens"),
+                        estimated_cost_cents=(
+                            estimate_cost_cents(model_id, usage)
+                            if model_id is not None
+                            else None
+                        ),
+                        tool_names=list(result.tool_names),
+                    )
             except Exception:
                 logger.warning(
                     "api/chat: falha ao registrar insight de uso", exc_info=True
@@ -1140,26 +1145,33 @@ async def resume_chat(
                 )
 
                 db = await get_usage_database()
-                model_id = (
-                    result.usage_models[0] if len(result.usage_models) == 1 else None
+                model_base = _thread_usage_event_ids.setdefault(
+                    request.thread_id, f"{request.thread_id}:{uuid.uuid4()}"
                 )
-                await usage_insight_store.record(
-                    db,
-                    user_id=resume_user_id,
-                    event_id=_thread_usage_event_ids.setdefault(
-                        request.thread_id, f"{request.thread_id}:{uuid.uuid4()}"
+                records = result.usage_records or (
+                    (
+                        result.usage_models[0]
+                        if len(result.usage_models) == 1
+                        else None,
+                        result.usage,
                     ),
-                    model=model_id,
-                    input_tokens=result.usage.get("input_tokens"),
-                    output_tokens=result.usage.get("output_tokens"),
-                    total_tokens=result.usage.get("total_tokens"),
-                    estimated_cost_cents=(
-                        estimate_cost_cents(model_id, result.usage)
-                        if model_id is not None
-                        else None
-                    ),
-                    tool_names=list(result.tool_names),
                 )
+                for index, (model_id, usage) in enumerate(records):
+                    await usage_insight_store.record(
+                        db,
+                        user_id=resume_user_id,
+                        event_id=f"{model_base}:call:{index}",
+                        model=model_id,
+                        input_tokens=usage.get("input_tokens"),
+                        output_tokens=usage.get("output_tokens"),
+                        total_tokens=usage.get("total_tokens"),
+                        estimated_cost_cents=(
+                            estimate_cost_cents(model_id, usage)
+                            if model_id is not None
+                            else None
+                        ),
+                        tool_names=list(result.tool_names),
+                    )
             except Exception:
                 logger.warning(
                     "api/chat: falha ao registrar insight de uso (resume)",
