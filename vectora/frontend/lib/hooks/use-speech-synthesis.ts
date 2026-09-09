@@ -11,12 +11,42 @@ function cancelActiveSpeech(): void {
   cancel?.();
 }
 
-const FENCED_CODE_RE =
-  /(?:^|\n)[\t ]*(`{3,}|~{3,})[^\n]*\r?\n[\s\S]*?(?:\r?\n[\t ]*\1[\t ]*(?=\r?\n|$)|$)/g;
+function removeFencedCode(content: string): string {
+  const lines = content.split(/\r?\n/);
+  const output: string[] = [];
+  let opening: { character: "`" | "~"; length: number } | null = null;
+
+  for (const line of lines) {
+    if (opening === null) {
+      const match = line.match(/^[\t ]*(`{3,}|~{3,})/);
+      if (match) {
+        opening = {
+          character: match[1][0] as "`" | "~",
+          length: match[1].length,
+        };
+        output.push(" ");
+      } else {
+        output.push(line);
+      }
+      continue;
+    }
+
+    const closing = line.match(/^[\t ]*([`~]+)[\t ]*$/);
+    if (
+      closing &&
+      closing[1][0] === opening.character &&
+      closing[1].length >= opening.length
+    ) {
+      opening = null;
+    }
+    output.push(" ");
+  }
+
+  return output.join("\n");
+}
 
 export function spokenMessageText(content: string): string {
-  return content
-    .replace(FENCED_CODE_RE, " ")
+  return removeFencedCode(content)
     .replace(/`[^`]*`/g, " ")
     .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")

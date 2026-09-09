@@ -47,6 +47,12 @@ describe("useSpeechSynthesis", () => {
     ).toBe("Antes Depois");
   });
 
+  it("preserves prose after a longer closing fence", () => {
+    expect(spokenMessageText("Antes\n```ts\nconst x = 1\n````\nDepois")).toBe(
+      "Antes Depois",
+    );
+  });
+
   it("supports start, pause, resume and stop", () => {
     const { result } = renderHook(() => useSpeechSynthesis("Olá", "thread-1"));
 
