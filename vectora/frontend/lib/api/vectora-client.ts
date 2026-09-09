@@ -13,7 +13,7 @@
 
 import { VECTORA_API_URL } from "@/lib/constants/api";
 import { saveReturnTo } from "@/lib/utils/return-to";
-import { getDeviceId } from "@/lib/device-id";
+import { getDeviceId, resetDeviceId } from "@/lib/device-id";
 
 // ============================================================================
 // Types — espelham os schemas do src/api/schemas.py
@@ -502,11 +502,17 @@ export async function getThreadActivity(
 }
 
 export async function revokeCurrentDevice(): Promise<void> {
+  const deviceId = getDeviceId();
   const res = await fetch("/threads/device/revoke", {
     method: "POST",
-    headers: { Accept: "application/json" },
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      ...(deviceId ? { "X-Vectora-Device-Id": deviceId } : {}),
+    },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  resetDeviceId();
 }
 
 // ============================================================================

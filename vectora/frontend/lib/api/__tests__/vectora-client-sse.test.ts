@@ -8,7 +8,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { resumeChat, streamChat } from "@/lib/api/vectora-client";
+import {
+  resumeChat,
+  revokeCurrentDevice,
+  streamChat,
+} from "@/lib/api/vectora-client";
 
 const fetchMock = vi.fn();
 
@@ -128,5 +132,30 @@ describe("resumeChat device activity", () => {
         },
       }),
     );
+  });
+});
+
+describe("revokeCurrentDevice", () => {
+  it("envia o device id, remove a atividade remota e gira o id local", async () => {
+    window.localStorage.setItem(
+      "vectora-device-id",
+      "vdev_12345678-1234-1234-1234-123456789abc",
+    );
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 204 });
+
+    await revokeCurrentDevice();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/threads/device/revoke",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+          "X-Vectora-Device-Id": "vdev_12345678-1234-1234-1234-123456789abc",
+        },
+      }),
+    );
+    expect(window.localStorage.getItem("vectora-device-id")).toBeNull();
   });
 });
