@@ -15,7 +15,7 @@ from backend.services.pty_session import PtySession
 
 def _request(user_id: str) -> Request:
     return cast(
-        Request,
+        "Request",
         SimpleNamespace(state=SimpleNamespace(user=SimpleNamespace(id=user_id))),
     )
 
@@ -28,7 +28,7 @@ def _session(
     workspace_id: str,
 ) -> PtySession:
     return cast(
-        PtySession,
+        "PtySession",
         SimpleNamespace(
             terminal_id=terminal_id,
             user_id=user_id,
@@ -93,7 +93,7 @@ async def test_list_route_filters_user_workspace_and_thread() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "user_id,thread_id,workspace_id",
+    ("user_id", "thread_id", "workspace_id"),
     [
         ("bob", "thread-1", "workspace-1"),
         ("alice", "thread-2", "workspace-1"),
