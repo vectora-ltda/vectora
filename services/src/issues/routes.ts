@@ -4,6 +4,8 @@ import type { Env } from "../gateway/types";
 import { verifyTurnstile } from "../lib/turnstile";
 import { SUPPORT_EMAIL, waitlistJoinedHtml } from "../lib/email";
 import { enqueueEmail } from "../lib/queue";
+import { createIssue, intakeRepo, type GitHubIssue } from "./github";
+import { githubApprovalAllowed, promoteIssue } from "./promotion";
 
 export const issues = new Hono<{ Bindings: Env }>();
 
@@ -28,6 +30,53 @@ interface IssueFields {
   email?: string;
   turnstileToken?: string;
   files: File[];
+}
+
+function githubBody(
+  category: string,
+  description: string | undefined,
+  sourceId: string,
+): string {
+  return [
+    `<!-- vectora-company-issue:${sourceId} -->`,
+    `**Categoria:** ${category}`,
+    "",
+    description?.trim() || "Sem descrição adicional.",
+    "",
+    `Origem: https://vectora.company/issues/${sourceId}`,
+  ].join("\n");
+}
+
+async function syncCreatedIssue(
+  env: Env,
+  issueId: string,
+  title: string,
+  category: string,
+  description: string | undefined,
+): Promise<void> {
+  if (!env.GITHUB_ISSUES_TOKEN && !env.GITHUB_TOKEN) return;
+  try {
+    const created = await createIssue(
+      env,
+      intakeRepo(env),
+      title,
+      githubBody(category, description, issueId),
+    );
+    await env.DB.prepare(
+      "UPDATE issues SET github_repo = ?, github_number = ?, github_url = ?, github_sync_state = 'synced', github_sync_error = NULL WHERE id = ?",
+    )
+      .bind(intakeRepo(env), created.number, created.html_url, issueId)
+      .run();
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "github_sync_failed";
+    await env.DB.prepare(
+      "UPDATE issues SET github_sync_state = 'error', github_sync_error = ? WHERE id = ?",
+    )
+      .bind(message.slice(0, 200), issueId)
+      .run();
+    console.error("issue_github_sync_failed", { issueId, message });
+  }
 }
 
 async function readIssueBody(c: {
@@ -111,6 +160,14 @@ issues.post("/", async (c) => {
     )
     .run();
 
+  await syncCreatedIssue(
+    c.env,
+    issueId,
+    body.title,
+    body.category,
+    body.description,
+  );
+
   const filesHtml =
     fileKeys.length > 0
       ? `<p><strong>Anexos:</strong> ${fileKeys
@@ -149,6 +206,141 @@ issues.get("/", async (c) => {
   );
 });
 
+/**
+ * GitHub webhook for the public intake repository.
+ * The signature is mandatory when a secret is configured; an unconfigured
+ * production endpoint fails closed instead of accepting unsigned events.
+ */
+issues.post("/github/webhook", async (c) => {
+  const secret = c.env.GITHUB_ISSUES_WEBHOOK_SECRET?.trim();
+  if (!secret) return c.json({ error: "github_webhook_not_configured" }, 503);
+
+  const body = await c.req.raw.clone().arrayBuffer();
+  const signature = c.req.header("x-hub-signature-256") ?? "";
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["verify"],
+  );
+  const providedHex = signature.startsWith("sha256=") ? signature.slice(7) : "";
+  const provided =
+    providedHex.length === 64 && /^[0-9a-f]+$/i.test(providedHex)
+      ? Uint8Array.from(providedHex.match(/.{2}/g)!, (byte) =>
+          parseInt(byte, 16),
+        )
+      : new Uint8Array();
+  const valid = await crypto.subtle.verify("HMAC", key, provided, body);
+  if (!valid) {
+    return c.json({ error: "invalid_signature" }, 401);
+  }
+
+  const payload = JSON.parse(new TextDecoder().decode(body)) as {
+    action?: string;
+    issue?: GitHubIssue & { labels?: Array<{ name?: string }> };
+    comment?: {
+      id: number;
+      body: string;
+      html_url: string;
+      created_at: string;
+      user?: { login?: string };
+    };
+    repository?: { full_name?: string };
+    sender?: { login?: string };
+  };
+  const repo = payload.repository?.full_name;
+  const issue = payload.issue;
+  if (repo !== intakeRepo(c.env) || !issue?.number)
+    return c.json({ ok: true, ignored: true });
+
+  const existing = await c.env.DB.prepare(
+    "SELECT id FROM issues WHERE github_repo = ? AND github_number = ?",
+  )
+    .bind(repo, issue.number)
+    .first<{ id: string }>();
+  let issueId = existing?.id;
+  if (!issueId && payload.action === "opened") {
+    issueId = crypto.randomUUID();
+    await c.env.DB.prepare(
+      "INSERT OR IGNORE INTO issues (id, title, category, description, status, github_repo, github_number, github_url, github_sync_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced')",
+    )
+      .bind(
+        issueId,
+        issue.title,
+        "feedback",
+        issue.body ?? null,
+        issue.state === "closed" ? "resolved" : "open",
+        repo,
+        issue.number,
+        issue.html_url,
+      )
+      .run();
+  }
+  if (!issueId) return c.json({ ok: true, ignored: true });
+
+  if (
+    ["edited", "reopened", "closed", "labeled", "unlabeled"].includes(
+      payload.action ?? "",
+    )
+  ) {
+    const approved = issue.labels?.some(
+      (label) => label.name === "approved-for-core",
+    );
+    await c.env.DB.prepare(
+      "UPDATE issues SET title = ?, description = ?, status = ?, github_url = ?, github_sync_state = 'synced', github_sync_error = NULL WHERE id = ?",
+    )
+      .bind(
+        issue.title,
+        issue.body ?? null,
+        issue.state === "closed" ? "resolved" : "open",
+        issue.html_url,
+        issueId,
+      )
+      .run();
+    if (
+      approved &&
+      payload.sender?.login &&
+      githubApprovalAllowed(c.env, payload.sender.login)
+    ) {
+      try {
+        await promoteIssue(c.env, issueId, payload.sender.login);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "promotion_failed";
+        await c.env.DB.prepare(
+          "UPDATE issues SET github_sync_state = 'approval_error', github_sync_error = ? WHERE id = ?",
+        )
+          .bind(message.slice(0, 200), issueId)
+          .run();
+        console.error("issue_github_approval_failed", { issueId, message });
+      }
+    } else if (approved) {
+      await c.env.DB.prepare(
+        "UPDATE issues SET github_sync_state = 'approval_pending' WHERE id = ? AND core_number IS NULL",
+      )
+        .bind(issueId)
+        .run();
+    }
+  }
+  if (payload.action === "created" && payload.comment) {
+    await c.env.DB.prepare(
+      "INSERT OR IGNORE INTO issue_comments (id, issue_id, github_comment_id, author, body, html_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+      .bind(
+        crypto.randomUUID(),
+        issueId,
+        payload.comment.id,
+        payload.comment.user?.login ?? "github-user",
+        payload.comment.body,
+        payload.comment.html_url,
+        payload.comment.created_at,
+      )
+      .run();
+  }
+  return c.json({ ok: true });
+});
+
 // Serve um anexo do R2. Público por design: a key contém UUID e não é
 // enumerável; quem tem a key veio da listagem pública da issue. Declarado
 // ANTES de GET /:id — "files" nunca deve casar com o param de id.
@@ -173,14 +365,20 @@ issues.get("/files/*", async (c) => {
 // arquivada é admin, via GET /admin/issues/:id.
 issues.get("/:id", async (c) => {
   const row = await c.env.DB.prepare(
-    "SELECT id, title, category, description, files, status, created_at FROM issues WHERE id = ? AND archived_at IS NULL",
+    "SELECT id, title, category, description, files, status, created_at, github_url, github_sync_state, core_url FROM issues WHERE id = ? AND archived_at IS NULL",
   )
     .bind(c.req.param("id"))
     .first<{ files: string | null } & Record<string, unknown>>();
   if (!row) return c.json({ error: "not_found" }, 404);
+  const { results: comments } = await c.env.DB.prepare(
+    "SELECT author, body, html_url, created_at FROM issue_comments WHERE issue_id = ? ORDER BY created_at ASC",
+  )
+    .bind(c.req.param("id"))
+    .all();
   return c.json({
     ...row,
     files: row.files ? (JSON.parse(row.files) as string[]) : [],
+    comments,
   });
 });
 

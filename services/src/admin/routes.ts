@@ -12,6 +12,7 @@ import { requireAdmin } from "../auth/roles";
 import { grantSubscription } from "../billing/routes";
 import { giftReceivedHtml, issueResponseHtml } from "../lib/email";
 import { enqueueEmail } from "../lib/queue";
+import { promoteIssue } from "../issues/promotion";
 
 export const admin = new Hono<{ Bindings: Env }>();
 
@@ -234,6 +235,16 @@ interface AdminIssueRow {
   responded_at: string | null;
   archived_at: string | null;
   created_at: string;
+  github_repo: string | null;
+  github_number: number | null;
+  github_url: string | null;
+  github_sync_state: string;
+  github_sync_error: string | null;
+  core_repo: string | null;
+  core_number: number | null;
+  core_url: string | null;
+  approved_at: string | null;
+  approved_by: string | null;
 }
 
 // Lista completa (com email — o público NUNCA vê esse campo) pro admin
@@ -248,7 +259,7 @@ admin.get("/issues", async (c) => {
   const offset = Number(c.req.query("offset") ?? "0");
 
   const { results } = await c.env.DB.prepare(
-    "SELECT id, title, category, description, email, files, status, response, responded_at, archived_at, created_at FROM issues WHERE archived_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?",
+    "SELECT id, title, category, description, email, files, status, response, responded_at, archived_at, created_at, github_repo, github_number, github_url, github_sync_state, github_sync_error, core_repo, core_number, core_url, approved_at, approved_by FROM issues WHERE archived_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?",
   )
     .bind(limit, offset)
     .all<AdminIssueRow>();
@@ -268,16 +279,47 @@ admin.get("/issues/:id", async (c) => {
   if (!adminId) return c.json({ error: "forbidden" }, 403);
 
   const row = await c.env.DB.prepare(
-    "SELECT id, title, category, description, email, files, status, response, responded_at, archived_at, created_at FROM issues WHERE id = ?",
+    "SELECT id, title, category, description, email, files, status, response, responded_at, archived_at, created_at, github_repo, github_number, github_url, github_sync_state, github_sync_error, core_repo, core_number, core_url, approved_at, approved_by FROM issues WHERE id = ?",
   )
     .bind(c.req.param("id"))
     .first<AdminIssueRow>();
   if (!row) return c.json({ error: "not_found" }, 404);
 
+  const { results: comments } = await c.env.DB.prepare(
+    "SELECT author, body, html_url, created_at FROM issue_comments WHERE issue_id = ? ORDER BY created_at ASC",
+  )
+    .bind(c.req.param("id"))
+    .all();
+
   return c.json({
     ...row,
     files: row.files ? (JSON.parse(row.files) as string[]) : [],
+    comments,
   });
+});
+
+admin.post("/issues/:id/approve", async (c) => {
+  const adminId = await requireAdmin(c);
+  if (!adminId) return c.json({ error: "forbidden" }, 403);
+
+  const id = c.req.param("id");
+  try {
+    const result = await promoteIssue(c.env, id, adminId);
+    return c.json({
+      ok: true,
+      promoted: !result.alreadyPromoted,
+      already_promoted: result.alreadyPromoted ?? false,
+      url: result.url,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "promotion_failed";
+    if (message === "issue_not_found")
+      return c.json({ error: "not_found" }, 404);
+    if (message === "github_not_configured")
+      return c.json({ error: message }, 503);
+    console.error("issue_github_promotion_failed", { id, message });
+    return c.json({ error: "promotion_failed" }, 502);
+  }
 });
 
 admin.post("/issues/:id/archive", async (c) => {

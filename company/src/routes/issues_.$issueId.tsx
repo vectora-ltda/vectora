@@ -10,6 +10,7 @@ import {
   getIssueAdmin,
   respondToIssue,
   archiveIssue,
+  approveIssue,
 } from "#/server/fns/admin";
 import { resolveViewerRole } from "#/lib/auth/viewer";
 
@@ -115,6 +116,12 @@ function IssueDetailPage() {
     onError: () => toast.error(m.error_generic()),
   });
 
+  const approveMutation = useMutation({
+    mutationFn: () => approveIssue({ data: { id: issueId } }),
+    onSuccess: () => void router.invalidate(),
+    onError: () => toast.error(m.error_generic()),
+  });
+
   if (!issue) {
     return (
       <Container size="prose" className="py-16">
@@ -158,6 +165,26 @@ function IssueDetailPage() {
               {issue.email}
             </span>
           )}
+          {issue.github_url && (
+            <a
+              href={issue.github_url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-primary hover:underline"
+            >
+              GitHub intake ↗
+            </a>
+          )}
+          {issue.core_url && (
+            <a
+              href={issue.core_url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-primary hover:underline"
+            >
+              Core issue ↗
+            </a>
+          )}
         </div>
 
         {issue.description && (
@@ -183,6 +210,38 @@ function IssueDetailPage() {
           {new Date(issue.created_at).toLocaleDateString()}
         </time>
       </div>
+
+      {issue.comments && issue.comments.length > 0 && (
+        <div className="mt-6 space-y-3">
+          <h2 className="text-sm font-semibold text-foreground">
+            GitHub discussion
+          </h2>
+          {issue.comments.map((comment) => (
+            <div
+              key={`${comment.author}-${comment.created_at}`}
+              className="rounded-xl border border-border bg-card/30 p-4"
+            >
+              <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                <span>{comment.author}</span>
+                <time>{new Date(comment.created_at).toLocaleString()}</time>
+              </div>
+              <p className="mt-2 whitespace-pre-wrap text-sm text-foreground/90">
+                {comment.body}
+              </p>
+              {comment.html_url && (
+                <a
+                  href={comment.html_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 inline-block text-xs text-primary hover:underline"
+                >
+                  View on GitHub ↗
+                </a>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {isAdmin && (
         <div className="mt-6 space-y-4">
@@ -232,6 +291,17 @@ function IssueDetailPage() {
                   ? m.form_submitting()
                   : m.admin_issue_response_submit()}
               </button>
+              {!issue.core_url && (
+                <button
+                  onClick={() => approveMutation.mutate()}
+                  disabled={approveMutation.isPending}
+                  className="rounded-lg border border-primary px-4 py-2 text-sm text-primary hover:bg-primary/10 disabled:opacity-40 transition-colors"
+                >
+                  {approveMutation.isPending
+                    ? "Promoting…"
+                    : "Approve for core"}
+                </button>
+              )}
               <button
                 onClick={() => archiveMutation.mutate()}
                 disabled={archiveMutation.isPending}

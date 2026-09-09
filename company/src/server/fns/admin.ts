@@ -97,6 +97,22 @@ export interface AdminIssueRow {
   responded_at: string | null;
   archived_at: string | null;
   created_at: string;
+  github_repo: string | null;
+  github_number: number | null;
+  github_url: string | null;
+  github_sync_state: string;
+  github_sync_error: string | null;
+  core_repo: string | null;
+  core_number: number | null;
+  core_url: string | null;
+  approved_at: string | null;
+  approved_by: string | null;
+  comments?: Array<{
+    author: string;
+    body: string;
+    html_url: string | null;
+    created_at: string;
+  }>;
 }
 
 export const listIssuesAdmin = createServerFn({ method: "GET" })
@@ -140,6 +156,19 @@ export const respondToIssue = createServerFn({ method: "POST" })
         }),
       },
     );
+  });
+
+export const approveIssue = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string().min(1) }))
+  .handler(async ({ data }) => {
+    return servicesFetch<{
+      ok: true;
+      promoted: boolean;
+      already_promoted: boolean;
+      url: string;
+    }>(`/admin/issues/${encodeURIComponent(data.id)}/approve`, {
+      method: "POST",
+    });
   });
 
 const ArchiveIssueSchema = z.object({
