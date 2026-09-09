@@ -13,6 +13,7 @@ import {
 import { HorizontalSplit } from "@/components/layout/horizontal-split";
 import { IdeModeLayout } from "@/components/layout/ide-mode-layout";
 import { LicenseBanner } from "@/components/layout/license-banner";
+import { m } from "@/lib/paraglide/messages";
 import { KeyboardShortcutsDialog } from "@/components/layout/keyboard-shortcuts-dialog";
 import {
   CommandPalette,
@@ -67,8 +68,8 @@ import {
 } from "@/lib/hooks/use-broadcast-sync";
 import { useGlobalShortcuts } from "@/lib/hooks/use-global-shortcuts";
 import { buildOptimisticThread } from "./-thread-cache-helpers";
-import { m } from "@/lib/paraglide/messages";
 import { disposeBrowserThread } from "@/lib/browser-session-store";
+import { useToastStore } from "@/lib/stores/toast-store";
 export const Route = createFileRoute("/session/$threadId")({
   // Só a lista de threads (sidebar) bloqueia a navegação — o histórico da
   // thread ativa é prefetch em background (ver comentário abaixo). O
@@ -593,6 +594,12 @@ function SessionPage() {
         onNewChat={handleNewChat}
         isLoading={isLoading}
         isNewSession={isNewSession}
+        onRefreshThreads={async () => {
+          const result = await refetchThreads();
+          if (result.isError || result.error) {
+            useToastStore.getState().error(m.threads_error_list());
+          }
+        }}
       />
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -797,7 +804,7 @@ function SessionPage() {
                       <div
                         role="separator"
                         aria-orientation="vertical"
-                        aria-label="Redimensionar workbench"
+                        aria-label={m.resize_workbench()}
                         onPointerDown={onWorkbenchResizeDown}
                         onPointerMove={onWorkbenchResizeMove}
                         onPointerUp={onWorkbenchResizeUp}
@@ -832,7 +839,7 @@ function SessionPage() {
                       <div
                         role="separator"
                         aria-orientation="vertical"
-                        aria-label="Redimensionar chat"
+                        aria-label={m.resize_chat()}
                         onPointerDown={onChatSidebarResizeDown}
                         onPointerMove={onChatSidebarResizeMove}
                         onPointerUp={onChatSidebarResizeUp}

@@ -8,10 +8,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
 from anyio import BrokenResourceError
+from mcp import StdioServerParameters
 
 from backend.tools import mcp as mcp_tool_module
 from backend.tools.mcp import VectoraMCPClient, _safe_subprocess_env, call_mcp_tool
@@ -110,6 +112,60 @@ class TestVectoraMCPClientReal:
             assert result_sum == "5"
         finally:
             await client.aclose()
+
+    async def test_launcher_de_ambiente_e_configuracao_usam_o_mesmo_proxy(
+        self, monkeypatch
+    ):
+        captured: list[StdioServerParameters] = []
+
+        class FakeSession:
+            async def initialize(self) -> None:
+                return None
+
+        @asynccontextmanager
+        async def fake_stdio(params):
+            captured.append(params)
+            yield object(), object()
+
+        @asynccontextmanager
+        async def fake_session(_read, _write):
+            yield FakeSession()
+
+        monkeypatch.setenv("VECTORA_MCP_STDIO_SANDBOX", "1")
+        monkeypatch.setenv("VECTORA_MCP_STDIO_SANDBOX_LAUNCHER", sys.executable)
+        monkeypatch.setattr(mcp_tool_module, "stdio_client", fake_stdio)
+        monkeypatch.setattr(mcp_tool_module, "ClientSession", fake_session)
+        client = VectoraMCPClient()
+        try:
+            await client._connect_one(
+                "env",
+                {
+                    "transport": "stdio",
+                    "command": "server-command",
+                    "args": ["--stdio"],
+                    "require_sandbox": True,
+                },
+            )
+            await client._connect_one(
+                "config",
+                {
+                    "transport": "stdio",
+                    "command": "server-command",
+                    "args": ["--stdio"],
+                    "sandbox_launcher": sys.executable,
+                    "require_sandbox": True,
+                },
+            )
+        finally:
+            await client.aclose()
+        assert [params.command for params in captured] == [
+            sys.executable,
+            sys.executable,
+        ]
+        assert [params.args for params in captured] == [
+            ["server-command", "--stdio"],
+            ["server-command", "--stdio"],
+        ]
 
     async def test_env_do_subprocesso_e_allowlist_nao_variavel_sensivel(
         self, monkeypatch

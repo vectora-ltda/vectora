@@ -77,7 +77,12 @@ vi.mock("../tabs/diff-skeleton", () => ({
   DiffSkeleton: () => <div>skeleton</div>,
 }));
 vi.mock("../git-toolbar", () => ({
-  GitToolbar: () => <div>stub-toolbar</div>,
+  GitToolbar: ({ onCompare }: { onCompare: () => void }) => (
+    <>
+      <div>stub-toolbar</div>
+      <button onClick={onCompare}>open-compare</button>
+    </>
+  ),
 }));
 vi.mock("../changes-view", () => ({
   ChangesView: () => <div>stub-changes</div>,
@@ -218,6 +223,24 @@ describe("GitTab", () => {
     fireEvent.click(screen.getByText("workbench_git_tab_history"));
     expect(screen.getByText("stub-history")).toBeInTheDocument();
     expect(screen.queryByText("stub-changes")).not.toBeInTheDocument();
+  });
+
+  it("mantém as três abas navegáveis quando Compare está aberto", async () => {
+    mockSummary = repoSummary();
+    render(<GitTab threadId="t1" />);
+    await waitFor(() => expect(api.fetchGitStatus).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByText("open-compare"));
+    expect(screen.getByText("stub-compare")).toBeInTheDocument();
+    expect(
+      screen.getByRole("tab", { name: "workbench_git_document_compare" }),
+    ).toHaveAttribute("aria-selected", "true");
+
+    fireEvent.click(
+      screen.getByRole("tab", { name: "workbench_diff_tab_changes" }),
+    );
+    expect(screen.getByText("stub-changes")).toBeInTheDocument();
+    expect(screen.queryByText("stub-compare")).not.toBeInTheDocument();
   });
 
   it("não mostra o badge de CI quando lastRun é null", async () => {
