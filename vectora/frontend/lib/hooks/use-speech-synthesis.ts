@@ -4,6 +4,13 @@ type SpeechState = "idle" | "speaking" | "paused";
 let activeCancel: (() => void) | null = null;
 let activeOwner: symbol | null = null;
 
+function cancelActiveSpeech(): void {
+  const cancel = activeCancel;
+  activeCancel = null;
+  activeOwner = null;
+  cancel?.();
+}
+
 const FENCED_CODE_RE =
   /(?:^|\n)[\t ]*(`{3,}|~{3,})[^\n]*\r?\n[\s\S]*?(?:\r?\n[\t ]*\1[\t ]*(?=\r?\n|$)|$)/g;
 
@@ -36,12 +43,7 @@ export function useSpeechSynthesis(
   const [state, setState] = useState<SpeechState>("idle");
   const owner = useRef(Symbol());
   const stop = useCallback(() => {
-    if (
-      activeOwner === owner.current &&
-      typeof window !== "undefined" &&
-      "speechSynthesis" in window
-    )
-      window.speechSynthesis.cancel();
+    if (activeOwner === owner.current) cancelActiveSpeech();
     if (activeOwner === owner.current) {
       activeCancel = null;
       activeOwner = null;
@@ -50,26 +52,33 @@ export function useSpeechSynthesis(
   }, []);
   const speak = useCallback(() => {
     if (!supported) return;
-    activeCancel?.();
+    cancelActiveSpeech();
     const value = spokenMessageText(text);
     if (!value) return;
     const utterance = new SpeechSynthesisUtterance(value);
     utterance.lang = document.documentElement.lang || "pt-BR";
-    utterance.onend = () => setState("idle");
-    utterance.onerror = () => setState("idle");
-    activeCancel = () => window.speechSynthesis.cancel();
+    utterance.onend = () => {
+      if (activeOwner === owner.current) setState("idle");
+    };
+    utterance.onerror = () => {
+      if (activeOwner === owner.current) setState("idle");
+    };
+    activeCancel = () => {
+      window.speechSynthesis.cancel();
+      setState("idle");
+    };
     activeOwner = owner.current;
     window.speechSynthesis.speak(utterance);
     setState("speaking");
   }, [supported, text]);
   const pause = useCallback(() => {
-    if (supported) {
+    if (supported && activeOwner === owner.current) {
       window.speechSynthesis.pause();
       setState("paused");
     }
   }, [supported]);
   const resume = useCallback(() => {
-    if (supported) {
+    if (supported && activeOwner === owner.current) {
       window.speechSynthesis.resume();
       setState("speaking");
     }

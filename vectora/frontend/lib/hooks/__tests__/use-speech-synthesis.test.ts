@@ -62,4 +62,21 @@ describe("useSpeechSynthesis", () => {
     expect(result.current.state).toBe("idle");
     expect(speech.cancel).toHaveBeenCalled();
   });
+
+  it("invalidates the previous owner when another instance starts speaking", () => {
+    const { result } = renderHook(() => ({
+      first: useSpeechSynthesis("Primeiro", "thread-1"),
+      second: useSpeechSynthesis("Segundo", "thread-2"),
+    }));
+
+    act(() => result.current.first.speak());
+    act(() => result.current.second.speak());
+
+    expect(result.current.first.state).toBe("idle");
+    expect(result.current.second.state).toBe("speaking");
+    act(() => result.current.first.pause());
+    act(() => result.current.first.resume());
+    expect(speech.pause).not.toHaveBeenCalled();
+    expect(speech.resume).not.toHaveBeenCalled();
+  });
 });
