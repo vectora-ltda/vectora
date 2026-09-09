@@ -157,6 +157,8 @@ def _build_parser() -> argparse.ArgumentParser:
   vectora auth login                   autentica no servidor Vectora
   vectora sessions                     lista as sessões salvas
   vectora storage info                 status dos backends de dados
+  vectora storage migrate history      mostra o histórico de migrations
+  vectora storage migrate plan         mostra o plano sem alterar o banco
   vectora storage migrate upgrade      aplica migrations SQLite pendentes
 """,
     )
@@ -381,7 +383,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "  up / down          sobe/para Postgres+pgvector, Redis e Qdrant\n"
             "  test <DSN>         testa conectividade a um banco\n"
             "  wizard             configura o backend interativamente (BaaS)\n"
-            "  migrate status|upgrade\n"
+            "  migrate status|history|plan|upgrade\n"
             "  backup / restore <arquivo>"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -406,7 +408,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "subaction",
         nargs="?",
         default=None,
-        help="Sub-ação: status/upgrade (migrate), DSN (test), arquivo (restore)",
+        help="Sub-ação: status/history/plan/upgrade (migrate), DSN (test), arquivo (restore)",
     )
     storage_p.add_argument(
         "version", nargs="?", default=None, help="Parâmetro extra (migrações de dados)"

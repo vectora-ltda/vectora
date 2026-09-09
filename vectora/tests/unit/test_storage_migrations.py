@@ -236,6 +236,45 @@ class TestMigrationRunner:
         assert status.drift is False
 
     @pytest.mark.asyncio
+    async def test_plan_diagnostica_sem_mutar_o_banco(self, runner_conn):
+        """O plano expõe drift e contagem sem aplicar ou criar tabelas do
+        schema de negócio."""
+        from backend.storage.migrations.runner import MigrationRunner
+
+        runner = MigrationRunner(runner_conn)
+        plan = await runner.plan()
+        assert plan["will_apply"] is True
+        assert plan["statement_count"] > 0
+        cur = await runner_conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='vectora_sessions'"
+        )
+        assert await cur.fetchone() is None
+
+    @pytest.mark.asyncio
+    async def test_history_diagnostica_sem_mutar_banco_vazio(self, runner_conn):
+        """history() é somente leitura quando não há tabelas de controle."""
+        from backend.storage.migrations.runner import MigrationRunner
+
+        runner = MigrationRunner(runner_conn)
+        assert await runner.history() == []
+        cur = await runner_conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        )
+        assert await cur.fetchall() == []
+
+    @pytest.mark.asyncio
+    async def test_history_ignora_formato_sem_id(self, runner_conn):
+        """history() rejeita tabela de controle sem a coluna de ordenação."""
+        from backend.storage.migrations.runner import MigrationRunner
+
+        await runner_conn.execute(
+            "CREATE TABLE schema_migration_history "
+            "(checksum TEXT NOT NULL, applied_at TEXT NOT NULL)"
+        )
+        await runner_conn.commit()
+        assert await MigrationRunner(runner_conn).history() == []
+
+    @pytest.mark.asyncio
     async def test_alter_add_column_skips_existing_column(self, runner_conn):
         """ALTER TABLE ... ADD COLUMN não falha quando a coluna já existe."""
         from backend.storage.migrations.runner import MigrationRunner
