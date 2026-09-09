@@ -209,6 +209,21 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
     "unsigned",
     "verification_unavailable",
   ].includes(trustState);
+  const legacyTrust = skillTrustLevel(skill);
+  const badgeLabel = skill.trust_state
+    ? skill.trust_state
+    : TRUST_LABEL[legacyTrust]();
+  const badgeVariant = skill.trust_state
+    ? trustState === "vectora_verified"
+      ? "default"
+      : trustState === "publisher_signed"
+        ? "secondary"
+        : "outline"
+    : legacyTrust === "builtin"
+      ? "default"
+      : legacyTrust === "verified"
+        ? "secondary"
+        : "outline";
 
   const handleInstall = async () => {
     if (invalid) {
@@ -260,16 +275,11 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
           </p>
           <div className="pt-0.5">
             <Badge
-              variant={
-                skillTrustLevel(skill) === "builtin"
-                  ? "default"
-                  : skillTrustLevel(skill) === "verified"
-                    ? "secondary"
-                    : "outline"
-              }
+              variant={badgeVariant}
               className="text-[10px] h-4 px-1.5 shrink-0"
+              aria-label={`Trust: ${badgeLabel}`}
             >
-              {TRUST_LABEL[skillTrustLevel(skill)]()}
+              {badgeLabel}
             </Badge>
           </div>
         </div>
