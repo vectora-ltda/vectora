@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import tempfile
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Lock
 from typing import Protocol, cast
 from uuid import uuid4
 
@@ -24,6 +26,9 @@ try:
     _fcntl: _Fcntl | None = cast("_Fcntl", importlib.import_module("fcntl"))
 except ImportError:  # pragma: no cover - Windows
     _fcntl = None
+
+_PROCESS_LOCKS: dict[Path, Lock] = {}
+_PROCESS_LOCKS_GUARD = Lock()
 
 ALLOWED_MIME = {"image/png", "image/jpeg", "audio/mpeg", "video/mp4"}
 MAX_ASSET_BYTES = 100 * 1024 * 1024
@@ -49,6 +54,10 @@ class AssetStore:
         self.root = root or settings.vectora_home / "assets"
         self.index = self.root / "index.json"
         self._lock = self.root / "index.lock"
+
+    def _process_lock(self) -> Lock:
+        with _PROCESS_LOCKS_GUARD:
+            return _PROCESS_LOCKS.setdefault(self.index.resolve(), Lock())
 
     def create(
         self,
@@ -77,8 +86,7 @@ class AssetStore:
             datetime.now(UTC).isoformat(),
         )
         self.root.mkdir(parents=True, exist_ok=True)
-        self.root.mkdir(parents=True, exist_ok=True)
-        with self._lock.open("a+b") as lock:
+        with self._process_lock(), self._lock.open("a+b") as lock:
             if _fcntl is not None:
                 _fcntl.flock(lock.fileno(), _fcntl.LOCK_EX)
             records = self._read()
@@ -87,8 +95,13 @@ class AssetStore:
                 mode="w", encoding="utf-8", dir=self.root, delete=False
             ) as temporary:
                 temporary.write(json.dumps(records, ensure_ascii=False))
+                temporary.flush()
+                os.fsync(temporary.fileno())
                 temporary_path = Path(temporary.name)
-            temporary_path.replace(self.index)
+            try:
+                temporary_path.replace(self.index)
+            finally:
+                temporary_path.unlink(missing_ok=True)
         return item
 
     def get(

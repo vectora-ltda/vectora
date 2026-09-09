@@ -1481,6 +1481,36 @@ async def get_thread_attachment(thread_id: str, filename: str) -> FileResponse:
     return FileResponse(path)
 
 
+@router.get("/threads/{thread_id}/assets/{asset_id}")
+async def get_thread_asset(
+    thread_id: str, asset_id: str, request: Request
+) -> FileResponse:
+    """Serve um asset multimodal após validar dono, workspace e thread."""
+    await _assert_owns_thread(thread_id, request)
+    db = await _get_db()
+    async with db.execute(
+        "SELECT extra FROM vectora_sessions WHERE thread_id = ?", (thread_id,)
+    ) as cursor:
+        row = await cursor.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Thread não encontrada")
+    try:
+        workspace_id = str((json.loads(row[0] or "{}")).get("workspace_id") or "")
+    except (TypeError, json.JSONDecodeError):
+        workspace_id = ""
+    from backend.services.assets import asset_store
+
+    asset = asset_store.get(
+        asset_id,
+        owner_id=_user_id(request),
+        workspace_id=workspace_id,
+        thread_id=thread_id,
+    )
+    if asset is None:
+        raise HTTPException(status_code=404, detail="Asset não encontrado")
+    return FileResponse(asset.path, media_type=asset.mime_type)
+
+
 # ---------------------------------------------------------------------------
 
 
