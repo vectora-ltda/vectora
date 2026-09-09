@@ -74,7 +74,7 @@ export async function promoteIssue(
         .bind(issueId, claimToken)
         .run()
     : await env.DB.prepare(
-        "UPDATE issues SET github_sync_state = 'promotion_pending', github_sync_error = ?, approved_at = COALESCE(approved_at, datetime('now')), approved_by = COALESCE(approved_by, ?) WHERE id = ? AND github_sync_state NOT IN ('promotion_pending', 'promoted')",
+        "UPDATE issues SET github_sync_state = 'promotion_pending', github_sync_error = ?, approved_at = datetime('now'), approved_by = COALESCE(approved_by, ?) WHERE id = ? AND github_sync_state NOT IN ('promotion_pending', 'promoted')",
       )
         .bind(operationToken, approvedBy, issueId)
         .run();

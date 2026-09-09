@@ -393,7 +393,7 @@ describe("POST /issues/github/webhook", () => {
   it("mantém uma única reserva durante promoções concorrentes", async () => {
     const issueId = crypto.randomUUID();
     await env.DB.prepare(
-      "INSERT INTO issues (id, title, category, description, github_repo, github_number, github_url, github_sync_state, approved_by) VALUES (?, 'concorrente', 'bug', 'descrição', ?, 9881, ?, 'approval_pending', 'admin')",
+      "INSERT INTO issues (id, title, category, description, github_repo, github_number, github_url, github_sync_state, approved_at, approved_by) VALUES (?, 'concorrente', 'bug', 'descrição', ?, 9881, ?, 'approval_error', datetime('now', '-1 hour'), 'admin')",
     )
       .bind(
         issueId,
@@ -431,6 +431,12 @@ describe("POST /issues/github/webhook", () => {
     expect(
       results.filter((result) => result.status === "rejected"),
     ).toHaveLength(1);
+    const reservation = await env.DB.prepare(
+      "SELECT approved_at FROM issues WHERE id = ?",
+    )
+      .bind(issueId)
+      .first<{ approved_at: string }>();
+    expect(reservation?.approved_at).not.toBeNull();
     expect(
       requests.filter(
         (request) =>
