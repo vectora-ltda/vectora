@@ -16,6 +16,8 @@ Configuração (operacional, para VPS via SSH):
   vectora storage <ação>         migrations, diagnóstico, backup/restore
   vectora auth <ação>            signup | login | logout | whoami | refresh
   vectora sessions               lista as sessões salvas
+  vectora mcp list               lista MCPs instalados
+  vectora skills list            lista skills instaladas
 """
 
 from __future__ import annotations
@@ -157,6 +159,8 @@ def _build_parser() -> argparse.ArgumentParser:
   vectora auth login                   autentica no servidor Vectora
   vectora sessions                     lista as sessões salvas
   vectora storage info                 status dos backends de dados
+  vectora storage migrate history      mostra o histórico de migrations
+  vectora storage migrate plan         mostra o plano sem alterar o banco
   vectora storage migrate upgrade      aplica migrations SQLite pendentes
 """,
     )
@@ -169,6 +173,77 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     sub = parser.add_subparsers(dest="command", metavar="subcommand")
+
+    def add_marketplace_parser(resource: str, help_text: str) -> None:
+        resource_parser = sub.add_parser(resource, help=help_text)
+        resource_parser.set_defaults(command=resource, resource=resource)
+        resource_sub = resource_parser.add_subparsers(dest="action", required=True)
+        list_parser = resource_sub.add_parser("list", help="lista itens instalados")
+        list_parser.set_defaults(output="human")
+        search_parser = resource_sub.add_parser("search", help="pesquisa no catálogo")
+        search_parser.add_argument("query", nargs="?", default=None)
+        search_parser.set_defaults(output="human")
+        info_parser = resource_sub.add_parser("info", help="mostra um item do catálogo")
+        info_parser.add_argument("identifier")
+        info_parser.set_defaults(output="human")
+        install_parser = resource_sub.add_parser("install", help="instala um item")
+        if resource == "mcp":
+            install_parser.add_argument("identifier")
+        else:
+            install_parser.add_argument("source")
+        install_parser.set_defaults(output="human")
+        remove_parser = resource_sub.add_parser(
+            "remove", help="remove um item instalado"
+        )
+        remove_parser.add_argument("identifier")
+        remove_parser.set_defaults(output="human")
+        if resource == "skills":
+            validate_parser = resource_sub.add_parser(
+                "validate", help="valida uma skill instalada"
+            )
+            validate_parser.add_argument("identifier")
+            validate_parser.set_defaults(output="human")
+            publish_parser = resource_sub.add_parser(
+                "publish", help="publica uma skill no catálogo"
+            )
+            publish_parser.add_argument("source")
+            publish_parser.add_argument("name")
+            publish_parser.add_argument("description")
+            publish_parser.add_argument("--category", default=None)
+            publish_parser.add_argument(
+                "--tag", dest="tags", action="append", default=[]
+            )
+            publish_parser.set_defaults(output="human")
+        for child in resource_sub.choices.values():
+            child.add_argument("--output", choices=("human", "json"), default="human")
+
+    add_marketplace_parser("mcp", "Gerencia servidores MCP")
+    add_marketplace_parser("skills", "Gerencia skills")
+
+    media_p = sub.add_parser("media", help="Lista e executa ferramentas de mídia")
+    media_p.set_defaults(command="media")
+    media_sub = media_p.add_subparsers(dest="action", required=True)
+    media_list = media_sub.add_parser("list", help="lista ferramentas de mídia")
+    media_list.set_defaults(output="human")
+    image = media_sub.add_parser("image", help="gera imagem")
+    image.add_argument("prompt")
+    image.set_defaults(output="human")
+    speech = media_sub.add_parser("speech", help="converte texto em fala")
+    speech.add_argument("text")
+    speech.add_argument("--voice", default="")
+    speech.set_defaults(output="human")
+    video = media_sub.add_parser("video", help="gera vídeo")
+    video.add_argument("prompt")
+    video.set_defaults(output="human")
+    analyze = media_sub.add_parser("analyze-video", help="analisa vídeo autorizado")
+    analyze.add_argument("path")
+    analyze.add_argument("question")
+    analyze.set_defaults(output="human")
+    for child in media_sub.choices.values():
+        child.add_argument("--output", choices=("human", "json"), default="human")
+        child.add_argument("--user-id", default="local")
+        child.add_argument("--model", default="")
+        child.add_argument("--thread-id", default="cli")
 
     # ── start — backend + SPA (fullstack/headless) ─────────────────────────────
     start_p = sub.add_parser(
@@ -381,7 +456,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "  up / down          sobe/para Postgres+pgvector, Redis e Qdrant\n"
             "  test <DSN>         testa conectividade a um banco\n"
             "  wizard             configura o backend interativamente (BaaS)\n"
-            "  migrate status|upgrade\n"
+            "  migrate status|history|plan|upgrade\n"
             "  backup / restore <arquivo>"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -406,7 +481,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "subaction",
         nargs="?",
         default=None,
-        help="Sub-ação: status/upgrade (migrate), DSN (test), arquivo (restore)",
+        help="Sub-ação: status/history/plan/upgrade (migrate), DSN (test), arquivo (restore)",
     )
     storage_p.add_argument(
         "version", nargs="?", default=None, help="Parâmetro extra (migrações de dados)"
@@ -660,6 +735,18 @@ def _run_run_task_command(args: argparse.Namespace) -> None:
     run_run_task(args)
 
 
+def _run_marketplace_command(args: argparse.Namespace) -> None:
+    from backend.cli.marketplace import run_marketplace
+
+    run_marketplace(args)
+
+
+def _run_media_command(args: argparse.Namespace) -> None:
+    from backend.cli.media import run_media
+
+    run_media(args)
+
+
 def _run_auth_command(args: argparse.Namespace) -> None:
     from backend.auth import (
         cmd_login,
@@ -699,6 +786,9 @@ _COMMAND_HANDLERS: dict[str, Any] = {
     "doctor": _run_doctor_command,
     "auth": _run_auth_command,
     "run": _run_run_task_command,
+    "mcp": _run_marketplace_command,
+    "skills": _run_marketplace_command,
+    "media": _run_media_command,
 }
 
 

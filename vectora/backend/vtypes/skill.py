@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from backend.services.extension_trust import TrustRecord
+
 
 class Skill(BaseModel):
     """Skill instalada para um usuário."""
@@ -24,3 +26,5 @@ class Skill(BaseModel):
     path: str = Field(description="Path absoluto onde a skill está extraída.")
     installed_at: str = Field(description="Timestamp ISO 8601 da instalação.")
     installed_by: str = Field(description="user_id que instalou.")
+    trust: TrustRecord = Field(default_factory=TrustRecord)
+    trust_confirmed: bool = False
