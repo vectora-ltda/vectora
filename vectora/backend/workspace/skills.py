@@ -414,6 +414,17 @@ def install_skill(
             source_root = staging / subpath if subpath else staging
             if not source_root.is_dir() or source_root.is_symlink():
                 raise ValueError("subdiretório da fonte Git não é válido")
+            resolved_staging = staging.resolve()
+            if not source_root.resolve().is_relative_to(resolved_staging):
+                raise ValueError("subdiretório da fonte Git escapa do staging")
+            for current_root, directories, files in os.walk(
+                source_root, followlinks=False
+            ):
+                if any(
+                    (Path(current_root) / name).is_symlink()
+                    for name in (*directories, *files)
+                ):
+                    raise ValueError("a fonte Git não pode conter symlinks")
             if source_root != staging:
                 extracted = staging.with_name(f"{staging.name}-extracted")
                 shutil.copytree(source_root, extracted)

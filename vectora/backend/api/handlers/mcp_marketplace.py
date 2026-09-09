@@ -425,10 +425,12 @@ def _authorized_target(
 
     ws_id = workspace_id or target
     if not ws_id:
-        raise ValueError("workspace_id obrigatório para escopo não-usuário")
+        raise HTTPException(
+            status_code=400, detail="workspace_id obrigatório para escopo não-usuário"
+        )
     ws = require_workspace_access(ws_id, request)
     if ws is None:
-        raise ValueError("workspace não encontrado")
+        raise HTTPException(status_code=404, detail="workspace não encontrado")
     if scope == "project":
         return str(ws.cwd)
     if scope == "workspace":

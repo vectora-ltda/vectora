@@ -380,13 +380,17 @@ def _build_skills_context(
     except Exception:
         logger.warning("agent_factory: skills indisponíveis para %s", user_id)
         return None
+    from backend.services.prompt_injection import envelope_untrusted
+
     entries: list[str] = []
     for path in paths:
         try:
             content = (path / "SKILL.md").read_text(encoding="utf-8")[:12000]
         except OSError:
             continue
-        entries.append(f"### Skill: {path.name}\n{content}")
+        entries.append(
+            envelope_untrusted(f"### Skill: {path.name}\n{content}", source=str(path))
+        )
     return "\n\n".join(entries) if entries else None
 
 

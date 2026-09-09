@@ -107,7 +107,18 @@ function ConfigureDialog({
       await Promise.all(
         connector.env_vars.map((key) => saveEnvVar(key, values[key].trim())),
       );
-      const result = await installMcp(connector.id);
+      const requiresConfirmation = [
+        "unsigned",
+        "verification_unavailable",
+      ].includes(connector.trust_state ?? "");
+      if (
+        requiresConfirmation &&
+        !window.confirm(
+          "Este MCP não possui verificação criptográfica. Deseja instalar?",
+        )
+      )
+        return;
+      const result = await installMcp(connector.id, requiresConfirmation);
       if (result.status === "error") {
         setError(m.library_mcp_error_install());
         return;
@@ -190,7 +201,18 @@ function ConnectorCard({
     setBusy(true);
     setError(null);
     try {
-      const result = await installMcp(connector.id);
+      const requiresConfirmation = [
+        "unsigned",
+        "verification_unavailable",
+      ].includes(connector.trust_state ?? "");
+      if (
+        requiresConfirmation &&
+        !window.confirm(
+          "Este MCP não possui verificação criptográfica. Deseja instalar?",
+        )
+      )
+        return;
+      const result = await installMcp(connector.id, requiresConfirmation);
       if (result.status === "error") {
         setError(m.library_mcp_error_install());
         return;
@@ -244,9 +266,9 @@ function ConnectorCard({
             >
               {connector.category}
             </Badge>
-            {connector.vectora_verified && (
+            {(connector.vectora_verified || connector.trust_state) && (
               <Badge className="text-[10px] h-4 px-1.5 shrink-0">
-                {m.library_mcp_verified()}
+                {connector.trust_state ?? "community_listed"}
               </Badge>
             )}
           </div>

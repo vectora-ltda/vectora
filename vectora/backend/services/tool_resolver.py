@@ -78,12 +78,17 @@ async def resolve_registry(
         registry.register(spec)
     if not user_id or user_id == "local":
         return registry
-    for spec in await get_user_mcp_tools(
-        user_id,
-        workspace_id=workspace_id,
-        project_root=project_root,
-        runtime_id=runtime_id,
-    ):
+    try:
+        mcp_tools = await get_user_mcp_tools(
+            user_id,
+            workspace_id=workspace_id,
+            project_root=project_root,
+            runtime_id=runtime_id,
+        )
+    except Exception:
+        logger.exception("tool_resolver: MCP registry unavailable")
+        mcp_tools = []
+    for spec in mcp_tools:
         if spec.name not in registry:
             registry.register(spec)
     return registry

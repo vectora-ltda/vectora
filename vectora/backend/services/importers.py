@@ -65,6 +65,8 @@ def preview_skill_config(payload: Any) -> dict[str, list[dict[str, Any]]]:
         if isinstance(payload, dict)
         else []
     )
+    if not isinstance(entries, list):
+        entries = []
     valid: list[dict[str, Any]] = []
     ignored: list[dict[str, Any]] = []
     for raw in entries:
