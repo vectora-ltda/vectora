@@ -274,7 +274,11 @@ async def health_check(server: McpServer) -> dict:
     client = VectoraMCPClient()
     try:
         connection = build_connection(server)
-        if server.trust.state in {"unsigned", "verification_unavailable"}:
+        if server.trust.state in {
+            "community_listed",
+            "unsigned",
+            "verification_unavailable",
+        }:
             connection["require_sandbox"] = True
         async with asyncio.timeout(_HEALTH_TIMEOUT_S):
             await client.connect({server.name: connection}, strict=True)
@@ -409,7 +413,11 @@ async def get_user_mcp_tools(
 
     connections = {s.name: build_connection(s) for s in servers}
     for server in servers:
-        if server.trust.state in {"unsigned", "verification_unavailable"}:
+        if server.trust.state in {
+            "community_listed",
+            "unsigned",
+            "verification_unavailable",
+        }:
             connections[server.name]["require_sandbox"] = True
     client = VectoraMCPClient()
     try:

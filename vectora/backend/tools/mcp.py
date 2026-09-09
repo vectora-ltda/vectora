@@ -132,7 +132,10 @@ class VectoraMCPClient:
     ) -> ClientSession:
         transport = cfg["transport"]
         if transport == "stdio":
-            launcher = str(cfg.get("sandbox_launcher") or "")
+            launcher = str(
+                cfg.get("sandbox_launcher")
+                or os.environ.get("VECTORA_MCP_STDIO_SANDBOX_LAUNCHER", "")
+            )
             if cfg.get("require_sandbox") and not stdio_sandbox_available(launcher):
                 raise RuntimeError(
                     "sandbox protocol-aware obrigatório para servidor MCP stdio indisponível"

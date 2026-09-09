@@ -57,7 +57,7 @@ def content_record(source: str, material: bytes) -> TrustRecord:
 
 
 def requires_confirmation(record: TrustRecord) -> bool:
-    return record.state in {"unsigned", "verification_unavailable"}
+    return record.state in {"community_listed", "unsigned", "verification_unavailable"}
 
 
 def validate_record(record: TrustRecord, *, confirmed: bool) -> None:
