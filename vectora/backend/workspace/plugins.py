@@ -45,6 +45,11 @@ def tools_version(user_id: str) -> int:
     return _versions.get(user_id, 0)
 
 
+def invalidate_mcp_cache() -> None:
+    """Remove resultados MCP para que uma policy replicada seja aplicada."""
+    _mcp_tools_cache.clear()
+
+
 def _bump_version(
     user_id: str, scope: McpScope = "user", target: str | None = None
 ) -> None:

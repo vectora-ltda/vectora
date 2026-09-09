@@ -86,6 +86,29 @@ def _save() -> None:
     tmp.replace(path)
 
 
+def _publish_change() -> None:
+    """Notifica outras réplicas para recarregarem a allowlist MCP."""
+    import json as _json
+
+    from backend.persistence.kv import publish_soon
+
+    publish_soon("vectora:mcp-policy", _json.dumps({"version": _version}))
+
+
+def apply_remote_version(version: int) -> None:
+    """Descarta a policy local após uma alteração recebida de outra réplica."""
+    global _loaded, _loaded_mtime_ns, _policy_error, _version
+    if version <= _version and _loaded:
+        return
+    _loaded = False
+    _loaded_mtime_ns = None
+    _policy_error = False
+    _version = max(_version, version)
+    from backend.workspace import plugins
+
+    plugins.invalidate_mcp_cache()
+
+
 def policy_version() -> int:
     _load()
     return _version
@@ -120,6 +143,7 @@ def set_rule(
     )
     _rules[(scope, workspace_id)] = rule
     _save()
+    _publish_change()
     return rule
 
 
@@ -132,6 +156,7 @@ def remove_rule(scope: McpPolicyScope, *, workspace_id: str | None = None) -> bo
     del _rules[key]
     _version += 1
     _save()
+    _publish_change()
     return True
 
 
@@ -176,6 +201,7 @@ __all__ = [
     "McpPolicyRule",
     "McpPolicyScope",
     "evaluate",
+    "apply_remote_version",
     "list_rules",
     "policy_version",
     "remove_rule",
