@@ -16,6 +16,7 @@ from contextlib import ExitStack
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
 
 from backend.api.schemas import ChatConfig, ResumeChatRequest, StreamChatRequest
 from backend.engine.conversation_loop import LoopResult
@@ -203,10 +204,9 @@ class TestResumeChatUsesSameNativeAgentAsStreamChat:
                 interrupt_id="irrelevant",
                 decision="approve",
             )
-            resume_response = await chat_mod.resume_chat(resume_request, http_request)
-            async for _chunk in resume_response.body_iterator:
-                pass
+            with pytest.raises(HTTPException) as exc_info:
+                await chat_mod.resume_chat(resume_request, http_request)
 
-        assert len(get_native_agent_calls) == 1
-        assert get_native_agent_calls[0]["chat_mode"] is False
-        assert get_native_agent_calls[0]["workspace_id"] is None
+        assert exc_info.value.status_code == 409
+        assert exc_info.value.detail == "HITL interrupt is no longer pending"
+        assert get_native_agent_calls == []
