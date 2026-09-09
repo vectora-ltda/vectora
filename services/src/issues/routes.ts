@@ -474,137 +474,149 @@ issues.post("/github/webhook", async (c) => {
       .run();
     return c.json({ error: "invalid_json" }, 400);
   }
-  const repo = payload.repository?.full_name;
-  const issue = payload.issue;
-  if (repo !== intakeRepo(c.env) || !issue?.number) {
-    await c.env.DB.prepare(
-      "UPDATE github_webhook_deliveries SET state = 'done' WHERE delivery_id = ?",
-    )
-      .bind(deliveryId)
-      .run();
-    return c.json({ ok: true, ignored: true });
-  }
-
-  const existing = await c.env.DB.prepare(
-    "SELECT id FROM issues WHERE github_repo = ? AND github_number = ?",
-  )
-    .bind(repo, issue.number)
-    .first<{ id: string }>();
-  let issueId = existing?.id;
-  if (!issueId && payload.action === "opened") {
-    issueId = crypto.randomUUID();
-    await c.env.DB.prepare(
-      "INSERT OR IGNORE INTO issues (id, title, category, description, status, github_repo, github_number, github_url, github_sync_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced')",
-    )
-      .bind(
-        issueId,
-        issue.title,
-        "feedback",
-        issue.body ?? null,
-        issue.state === "closed" ? "resolved" : "open",
-        repo,
-        issue.number,
-        issue.html_url,
-      )
-      .run();
-  }
-  if (!issueId) {
-    await c.env.DB.prepare(
-      "UPDATE github_webhook_deliveries SET state = 'done' WHERE delivery_id = ?",
-    )
-      .bind(deliveryId)
-      .run();
-    return c.json({ ok: true, ignored: true });
-  }
-
-  if (
-    ["edited", "reopened", "closed", "labeled", "unlabeled"].includes(
-      payload.action ?? "",
-    )
-  ) {
-    const approved = issue.labels?.some(
-      (label) => label.name === "approved-for-core",
-    );
-    await c.env.DB.prepare(
-      "UPDATE issues SET title = ?, description = ?, status = ?, github_url = ?, github_sync_state = CASE WHEN github_sync_state IN ('promotion_pending', 'promotion_failed', 'approval_error', 'promoted') THEN github_sync_state ELSE 'synced' END, github_sync_error = CASE WHEN github_sync_state IN ('promotion_pending', 'promotion_failed', 'approval_error', 'promoted') THEN github_sync_error ELSE NULL END WHERE id = ?",
-    )
-      .bind(
-        issue.title,
-        issue.body ?? null,
-        issue.state === "closed" ? "resolved" : "open",
-        issue.html_url,
-        issueId,
-      )
-      .run();
-    if (
-      payload.action === "labeled" &&
-      payload.label?.name === "approved-for-core" &&
-      approved &&
-      payload.sender?.login &&
-      githubApprovalAllowed(c.env, payload.sender.login)
-    ) {
-      try {
-        await promoteIssue(c.env, issueId, payload.sender.login);
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "promotion_failed";
-        if (message === "promotion_in_progress") {
-          await c.env.DB.prepare(
-            "UPDATE github_webhook_deliveries SET state = 'done' WHERE delivery_id = ?",
-          )
-            .bind(deliveryId)
-            .run();
-          return c.json({ ok: true, promotion: "in_progress" }, 202);
-        }
-        await c.env.DB.prepare(
-          "UPDATE issues SET github_sync_state = 'promotion_pending', github_sync_error = ?, approved_by = COALESCE(approved_by, ?) WHERE id = ?",
-        )
-          .bind(message.slice(0, 200), payload.sender.login, issueId)
-          .run();
-        await c.env.DB.prepare(
-          "UPDATE github_webhook_deliveries SET state = 'failed', error = ? WHERE delivery_id = ?",
-        )
-          .bind(message.slice(0, 200), deliveryId)
-          .run();
-        console.error("issue_github_approval_failed", { issueId, message });
-        return c.json({ error: "promotion_failed" }, 502);
-      }
-    } else if (approved) {
+  try {
+    const repo = payload.repository?.full_name;
+    const issue = payload.issue;
+    if (repo !== intakeRepo(c.env) || !issue?.number) {
       await c.env.DB.prepare(
-        "UPDATE issues SET github_sync_state = 'approval_pending' WHERE id = ? AND core_number IS NULL AND github_sync_state NOT IN ('promotion_pending', 'promotion_failed', 'approval_error', 'promoted')",
+        "UPDATE github_webhook_deliveries SET state = 'done' WHERE delivery_id = ?",
       )
-        .bind(issueId)
+        .bind(deliveryId)
+        .run();
+      return c.json({ ok: true, ignored: true });
+    }
+
+    const existing = await c.env.DB.prepare(
+      "SELECT id FROM issues WHERE github_repo = ? AND github_number = ?",
+    )
+      .bind(repo, issue.number)
+      .first<{ id: string }>();
+    let issueId = existing?.id;
+    if (!issueId && payload.action === "opened") {
+      issueId = crypto.randomUUID();
+      await c.env.DB.prepare(
+        "INSERT OR IGNORE INTO issues (id, title, category, description, status, github_repo, github_number, github_url, github_sync_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced')",
+      )
+        .bind(
+          issueId,
+          issue.title,
+          "feedback",
+          issue.body ?? null,
+          issue.state === "closed" ? "resolved" : "open",
+          repo,
+          issue.number,
+          issue.html_url,
+        )
         .run();
     }
-  }
-  if (
-    ["created", "edited", "deleted"].includes(payload.action ?? "") &&
-    payload.comment
-  ) {
-    await c.env.DB.prepare(
-      `INSERT INTO issue_comments (id, issue_id, github_comment_id, author, body, html_url, created_at, updated_at, deleted_at)
+    if (!issueId) {
+      await c.env.DB.prepare(
+        "UPDATE github_webhook_deliveries SET state = 'done' WHERE delivery_id = ?",
+      )
+        .bind(deliveryId)
+        .run();
+      return c.json({ ok: true, ignored: true });
+    }
+
+    if (
+      ["edited", "reopened", "closed", "labeled", "unlabeled"].includes(
+        payload.action ?? "",
+      )
+    ) {
+      const approved = issue.labels?.some(
+        (label) => label.name === "approved-for-core",
+      );
+      await c.env.DB.prepare(
+        "UPDATE issues SET title = ?, description = ?, status = ?, github_url = ?, github_sync_state = CASE WHEN github_sync_state IN ('promotion_pending', 'promotion_failed', 'approval_error', 'promoted') THEN github_sync_state ELSE 'synced' END, github_sync_error = CASE WHEN github_sync_state IN ('promotion_pending', 'promotion_failed', 'approval_error', 'promoted') THEN github_sync_error ELSE NULL END WHERE id = ?",
+      )
+        .bind(
+          issue.title,
+          issue.body ?? null,
+          issue.state === "closed" ? "resolved" : "open",
+          issue.html_url,
+          issueId,
+        )
+        .run();
+      if (
+        payload.action === "labeled" &&
+        payload.label?.name === "approved-for-core" &&
+        approved &&
+        payload.sender?.login &&
+        githubApprovalAllowed(c.env, payload.sender.login)
+      ) {
+        try {
+          await promoteIssue(c.env, issueId, payload.sender.login);
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "promotion_failed";
+          if (message === "promotion_in_progress") {
+            await c.env.DB.prepare(
+              "UPDATE github_webhook_deliveries SET state = 'done' WHERE delivery_id = ?",
+            )
+              .bind(deliveryId)
+              .run();
+            return c.json({ ok: true, promotion: "in_progress" }, 202);
+          }
+          await c.env.DB.prepare(
+            "UPDATE issues SET github_sync_state = 'promotion_pending', github_sync_error = ?, approved_by = COALESCE(approved_by, ?) WHERE id = ?",
+          )
+            .bind(message.slice(0, 200), payload.sender.login, issueId)
+            .run();
+          await c.env.DB.prepare(
+            "UPDATE github_webhook_deliveries SET state = 'failed', error = ? WHERE delivery_id = ?",
+          )
+            .bind(message.slice(0, 200), deliveryId)
+            .run();
+          console.error("issue_github_approval_failed", { issueId, message });
+          return c.json({ error: "promotion_failed" }, 502);
+        }
+      } else if (approved) {
+        await c.env.DB.prepare(
+          "UPDATE issues SET github_sync_state = 'approval_pending' WHERE id = ? AND core_number IS NULL AND github_sync_state NOT IN ('promotion_pending', 'promotion_failed', 'approval_error', 'promoted')",
+        )
+          .bind(issueId)
+          .run();
+      }
+    }
+    if (
+      ["created", "edited", "deleted"].includes(payload.action ?? "") &&
+      payload.comment
+    ) {
+      await c.env.DB.prepare(
+        `INSERT INTO issue_comments (id, issue_id, github_comment_id, author, body, html_url, created_at, updated_at, deleted_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(issue_id, github_comment_id) DO UPDATE SET author = excluded.author, body = excluded.body, html_url = excluded.html_url, updated_at = excluded.updated_at, deleted_at = excluded.deleted_at`,
-    )
-      .bind(
-        crypto.randomUUID(),
-        issueId,
-        payload.comment.id,
-        payload.comment.user?.login ?? "github-user",
-        payload.comment.body ?? "",
-        payload.comment.html_url ?? null,
-        payload.comment.created_at ?? new Date().toISOString(),
-        new Date().toISOString(),
-        payload.action === "deleted" ? new Date().toISOString() : null,
       )
+        .bind(
+          crypto.randomUUID(),
+          issueId,
+          payload.comment.id,
+          payload.comment.user?.login ?? "github-user",
+          payload.comment.body ?? "",
+          payload.comment.html_url ?? null,
+          payload.comment.created_at ?? new Date().toISOString(),
+          new Date().toISOString(),
+          payload.action === "deleted" ? new Date().toISOString() : null,
+        )
+        .run();
+    }
+    await c.env.DB.prepare(
+      "UPDATE github_webhook_deliveries SET state = 'done', updated_at = datetime('now') WHERE delivery_id = ? AND state = 'processing'",
+    )
+      .bind(deliveryId)
       .run();
+    return c.json({ ok: true });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "webhook_processing_failed";
+    await c.env.DB.prepare(
+      "UPDATE github_webhook_deliveries SET state = 'failed', error = ?, updated_at = datetime('now') WHERE delivery_id = ? AND state = 'processing'",
+    )
+      .bind(message.slice(0, 200), deliveryId)
+      .run();
+    console.error("github_webhook_processing_failed", { deliveryId, message });
+    return c.json({ error: "webhook_processing_failed" }, 500);
   }
-  await c.env.DB.prepare(
-    "UPDATE github_webhook_deliveries SET state = 'done', updated_at = datetime('now') WHERE delivery_id = ? AND state = 'processing'",
-  )
-    .bind(deliveryId)
-    .run();
-  return c.json({ ok: true });
 });
 
 // Serve um anexo do R2. Público por design: a key contém UUID e não é

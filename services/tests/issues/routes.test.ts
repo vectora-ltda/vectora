@@ -216,6 +216,39 @@ describe("POST /issues/github/webhook", () => {
     expect((await replay.json<{ duplicate?: boolean }>()).duplicate).toBe(true);
   });
 
+  it("marca a entrega como failed quando o processamento falha e permite replay", async () => {
+    const delivery = `delivery-processing-failure-${crypto.randomUUID()}`;
+    const issueNumber = 10000 + Math.floor(Math.random() * 100000);
+    const invalidPayload = {
+      action: "opened",
+      repository: { full_name: "vectora-ltda/vectora-issues" },
+      issue: {
+        number: issueNumber,
+        body: "body",
+        state: "open",
+        html_url: `https://github.com/vectora-ltda/vectora-issues/issues/${issueNumber}`,
+      },
+    };
+    const failed = await signedWebhook(invalidPayload, delivery);
+    expect(failed.status).toBe(500);
+    const state = await env.DB.prepare(
+      "SELECT state FROM github_webhook_deliveries WHERE delivery_id = ?",
+    )
+      .bind(delivery)
+      .first<{ state: string }>();
+    expect(state?.state).toBe("failed");
+
+    const validPayload = {
+      ...invalidPayload,
+      issue: { ...invalidPayload.issue, title: "Replay válido" },
+    };
+    const replay = await signedWebhook(validPayload, delivery);
+    expect(replay.status).toBe(200);
+    expect((await replay.json<{ duplicate?: boolean }>()).duplicate).not.toBe(
+      true,
+    );
+  });
+
   it("mirrors edited and deleted comments without exposing reporter email", async () => {
     const base = {
       repository: { full_name: "vectora-ltda/vectora-issues" },
