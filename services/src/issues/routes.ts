@@ -592,7 +592,7 @@ issues.post("/github/webhook", async (c) => {
       .run();
   }
   await c.env.DB.prepare(
-    "UPDATE github_webhook_deliveries SET state = 'done' WHERE delivery_id = ?",
+    "UPDATE github_webhook_deliveries SET state = 'done', updated_at = datetime('now') WHERE delivery_id = ? AND state = 'processing'",
   )
     .bind(deliveryId)
     .run();
