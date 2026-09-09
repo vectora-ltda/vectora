@@ -58,6 +58,21 @@ CREATE TABLE IF NOT EXISTS pending_approvals (
     expires_at TEXT,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS approval_decisions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id TEXT NOT NULL,
+    interrupt_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    selection TEXT,
+    decided_by TEXT,
+    decided_at TEXT NOT NULL,
+    options_json TEXT NOT NULL DEFAULT '[]',
+    priority INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_approval_decisions_thread
+    ON approval_decisions(thread_id, decided_at);
 """
 
 
@@ -529,6 +544,41 @@ class SessionStore:
         async with self._pool.acquire() as conn:
             await conn.execute(
                 "DELETE FROM pending_approvals WHERE thread_id = ?", (thread_id,)
+            )
+            await conn.commit()
+
+    async def record_approval_decision(
+        self,
+        thread_id: str,
+        *,
+        interrupt_id: str,
+        tool_name: str,
+        decision: str,
+        selection: str | None,
+        decided_by: str | None,
+        options: list[dict[str, str]],
+        priority: int,
+        expires_at: str | None,
+    ) -> None:
+        """Persist the final HITL decision before clearing its pending state."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO approval_decisions (thread_id, interrupt_id, tool_name, "
+                "decision, selection, decided_by, decided_at, options_json, priority, expires_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    thread_id,
+                    interrupt_id,
+                    tool_name,
+                    decision,
+                    selection,
+                    decided_by,
+                    _now(),
+                    json.dumps(options, ensure_ascii=False),
+                    priority,
+                    expires_at,
+                ),
             )
             await conn.commit()
 

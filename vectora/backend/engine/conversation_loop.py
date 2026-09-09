@@ -434,6 +434,7 @@ async def resume_conversation(
     thread_id: str,
     decision: str,
     edited_args: dict[str, Any] | None = None,
+    decided_by: str | None = None,
     approval_gate: ApprovalGate | None = None,
     on_event: EventSink | None = None,
 ) -> bool:
@@ -511,6 +512,21 @@ async def resume_conversation(
                 )
             )
 
+    record_decision = getattr(session_store, "record_approval_decision", None)
+    if record_decision is not None:
+        await record_decision(
+            thread_id,
+            interrupt_id=str(pending["interrupt_id"]),
+            tool_name=str(pending["tool_name"]),
+            decision=decision,
+            selection=(edited_args or {}).get("selection")
+            if decision == "option"
+            else None,
+            decided_by=decided_by,
+            options=list(pending.get("options", [])),
+            priority=int(pending.get("priority", 0)),
+            expires_at=pending.get("expires_at"),
+        )
     if approval_gate is not None:
         await approval_gate.resolve(thread_id)
     else:

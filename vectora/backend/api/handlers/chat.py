@@ -1000,6 +1000,7 @@ async def resume_chat(
             thread_id=request.thread_id,
             decision=decision,
             edited_args=edited_args,
+            decided_by=resume_user_id,
             approval_gate=approval_gate,
             on_event=on_event,
         )
