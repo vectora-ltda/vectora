@@ -504,6 +504,52 @@ class TestEmissaoDeEventos:
         assert hitl_eventos[0].args_json == "{}"
         assert hitl_eventos[0].interrupt_id  # gerado, não vazio
 
+    async def test_write_terminal_redige_entrada_do_historico_e_da_aprovacao(
+        self, session_store, ctx
+    ) -> None:
+        import backend.tools.terminal_sessions
+
+        registry = ToolRegistry()
+        _register(registry, "write_terminal")
+        segredo = "sk-test ghp_secret AKIAEXAMPLE"
+        client = _ScriptedChatClient(
+            [
+                [
+                    _tool_call_chunk(
+                        index=0,
+                        id="call-terminal",
+                        name="write_terminal",
+                        args=json.dumps(
+                            {
+                                "terminal_id": "term-1",
+                                "input_data": segredo,
+                                "request_id": "req-1",
+                            }
+                        ),
+                    )
+                ]
+            ]
+        )
+        gate = ApprovalGate(session_store)
+
+        await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+            approval_gate=gate,
+            should_require_approval=lambda name, *_args: name == "write_terminal",
+        )
+
+        pending = await session_store.get_pending_approval("thread-1")
+        history = await session_store.get_history("thread-1")
+        assert pending is not None
+        assert segredo not in json.dumps(pending)
+        assert segredo not in json.dumps([message.to_dict() for message in history])
+        assert pending["args"]["input_preview"] == "<redacted>"
+
     async def test_tool_call_started_e_activity_emitidos_antes_e_depois(
         self, session_store, ctx
     ):
