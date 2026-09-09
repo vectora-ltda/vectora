@@ -13,7 +13,12 @@ import { m } from "@/lib/paraglide/messages";
 
 export function UpdateBanner() {
   const [state, setState] = useState<
-    "available" | "downloading" | "downloaded" | "error"
+    | "available"
+    | "downloading"
+    | "downloaded"
+    | "error"
+    | "checking"
+    | "not-available"
   >();
   const [version, setVersion] = useState<string>("");
   const [progress, setProgress] = useState(0);
@@ -25,7 +30,11 @@ export function UpdateBanner() {
       return;
     }
     const unsubscribe = window.vectora.onUpdateStatus((status) => {
-      if (status.state === "available") {
+      if (status.state === "checking" || status.state === "not-available") {
+        setState(undefined);
+        setError("");
+        setProgress(0);
+      } else if (status.state === "available") {
         setState("available");
         setError("");
         setChangelog(status.changelog ?? "");

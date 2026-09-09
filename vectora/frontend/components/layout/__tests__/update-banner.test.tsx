@@ -28,4 +28,23 @@ describe("UpdateBanner", () => {
     fireEvent.click(screen.getByRole("button", { name: /Download now/i }));
     expect(downloadUpdate).toHaveBeenCalledOnce();
   });
+
+  it("remove o banner ao concluir uma checagem sem atualização", () => {
+    const onUpdateStatus = vi.fn((callback) => {
+      callback({ state: "available", message: "1.2.3" });
+      callback({ state: "checking" });
+      callback({ state: "not-available" });
+      return () => undefined;
+    });
+    Object.defineProperty(window, "vectora", {
+      configurable: true,
+      value: { onUpdateStatus },
+    });
+
+    render(<UpdateBanner />);
+
+    expect(
+      screen.queryByText(/Update available|Update failed|Downloading/),
+    ).toBeNull();
+  });
 });
