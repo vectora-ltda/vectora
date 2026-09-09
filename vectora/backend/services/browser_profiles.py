@@ -97,7 +97,12 @@ class BrowserProfileStore:
         if not self._index.exists():
             return []
         raw = json.loads(self._index.read_text(encoding="utf-8"))
-        return [BrowserProfile(**item) for item in raw]
+        profiles: list[BrowserProfile] = []
+        for item in raw:
+            if item.get("scope") not in {"global", "workspace", "session"}:
+                raise ValueError("escopo persistido inválido")
+            profiles.append(BrowserProfile(**item))
+        return profiles
 
     def _write_sync(self, profiles: list[BrowserProfile]) -> None:
         payload = json.dumps(

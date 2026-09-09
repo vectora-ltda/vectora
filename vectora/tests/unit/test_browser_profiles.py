@@ -65,6 +65,18 @@ async def test_perfil_legado_sem_expiracao_respeita_retencao(tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
+async def test_store_rejeita_escopo_persistido_invalido(tmp_path: Path) -> None:
+    store = BrowserProfileStore(tmp_path)
+    store._root.mkdir(parents=True, exist_ok=True)
+    store._index.write_text(
+        '[{"profile_id":"p1","owner_id":"alice","scope":"other","name":"Inválido"}]',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="escopo persistido inválido"):
+        await store.list_profiles("alice")
+
+
+@pytest.mark.asyncio
 async def test_store_instances_preservam_mutacoes_concorrentes(tmp_path: Path) -> None:
     first = BrowserProfileStore(tmp_path)
     second = BrowserProfileStore(tmp_path)
