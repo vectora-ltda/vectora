@@ -268,7 +268,7 @@ async def run_conversation(
                 options = (
                     [
                         {
-                            "label": str(item.get("label", item.get("value", ""))),
+                            "label": str(item.get("label") or item["value"]),
                             "value": str(item["value"]),
                         }
                         for item in raw_options
@@ -487,7 +487,7 @@ async def resume_conversation(
             )
         else:
             args = tc.args
-            if decision == "edit" and edited_args is not None:
+            if decision in {"edit", "option"} and edited_args is not None:
                 args = edited_args
             resultado = await _execute_single_call(
                 replace(tc, args=args), tool_registry=tool_registry, ctx=ctx

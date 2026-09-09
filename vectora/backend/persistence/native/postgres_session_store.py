@@ -118,6 +118,21 @@ class PostgresSessionStore:
             return
         async with self._pool.acquire() as conn:
             await conn.execute(_SETUP_SQL)
+            for statement in (
+                (
+                    "ALTER TABLE vectora_native_pending_approvals "
+                    "ADD COLUMN IF NOT EXISTS options_json TEXT NOT NULL DEFAULT '[]'"
+                ),
+                (
+                    "ALTER TABLE vectora_native_pending_approvals "
+                    "ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0"
+                ),
+                (
+                    "ALTER TABLE vectora_native_pending_approvals "
+                    "ADD COLUMN IF NOT EXISTS expires_at TEXT"
+                ),
+            ):
+                await conn.execute(statement)
         self._is_setup = True
 
     async def create_session(
@@ -301,6 +316,9 @@ class PostgresSessionStore:
                 thread_id,
             )
         if row is None:
+            return None
+        if row["expires_at"] and row["expires_at"] <= _now():
+            await self.clear_pending_approval(thread_id)
             return None
         return {
             "interrupt_id": row["interrupt_id"],
