@@ -49,6 +49,15 @@ const TRUST_LABEL = {
   community: m.library_skills_trust_community,
 } as const;
 
+const TRUST_STATE_LABEL = {
+  vectora_verified: m.library_skills_trust_builtin,
+  publisher_signed: m.library_skills_trust_publisher_signed,
+  community_listed: m.library_skills_trust_community_listed,
+  unsigned: m.library_skills_trust_unsigned,
+  invalid: m.library_skills_trust_invalid,
+  verification_unavailable: m.library_skills_trust_verification_unavailable,
+} as const;
+
 async function publishSkill(payload: {
   source: string;
   name: string;
@@ -211,7 +220,7 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
   ].includes(trustState);
   const legacyTrust = skillTrustLevel(skill);
   const badgeLabel = skill.trust_state
-    ? skill.trust_state
+    ? TRUST_STATE_LABEL[skill.trust_state]()
     : TRUST_LABEL[legacyTrust]();
   const badgeVariant = skill.trust_state
     ? trustState === "vectora_verified"
@@ -227,14 +236,12 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
 
   const handleInstall = async () => {
     if (invalid) {
-      setError("Esta skill foi rejeitada pela verificação de integridade.");
+      setError(m.library_skills_trust_invalid_install());
       return;
     }
     if (
       requiresConfirmation &&
-      !window.confirm(
-        `Esta skill não possui verificação criptográfica${skill.trust_reason ? ` (${skill.trust_reason})` : ""}. Deseja instalar?`,
-      )
+      !window.confirm(m.library_skills_trust_confirm())
     )
       return;
     setBusy(true);
@@ -277,7 +284,7 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
             <Badge
               variant={badgeVariant}
               className="text-[10px] h-4 px-1.5 shrink-0"
-              aria-label={`Trust: ${badgeLabel}`}
+              aria-label={`${m.library_skills_trust_aria_prefix()}: ${badgeLabel}`}
             >
               {badgeLabel}
             </Badge>
