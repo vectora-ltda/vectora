@@ -270,7 +270,10 @@ def _write_scope_lock(
     user_id: str, scope: SkillScope, target: str | None, skills: list[Skill]
 ) -> None:
     """Valida e grava o lock da composição instalada do escopo."""
-    lock_path = _skills_dir(user_id, scope, target) / "skills.lock.json"
+    # Escopos ligados a um workspace mantêm um único lock na raiz do
+    # workspace; isso permite que o lock seja versionado junto do projeto e
+    # evita criar um lock interno ao diretório de cada skill.
+    lock_path = _scope_lock_path(user_id, scope, target)
     if lock_path.exists():
         skills_lock.read_lockfile(lock_path)
     entries = {skill.id: _skill_lock_entry(skill) for skill in skills}
@@ -290,6 +293,33 @@ def _write_scope_lock(
                 for dependency, constraint in requirements.items()
             }
     skills_lock.write_lockfile(lock_path, entries)
+
+
+def _scope_lock_path(user_id: str, scope: SkillScope, target: str | None) -> Path:
+    """Retorna o caminho canônico do lockfile do escopo."""
+    skills_dir = _skills_dir(user_id, scope, target)
+    return (
+        skills_dir.parent / "skills.lock.json"
+        if scope in ("workspace", "project")
+        else skills_dir / "skills.lock.json"
+    )
+
+
+def _file_snapshot(path: Path) -> bytes | None:
+    """Captura um arquivo para permitir rollback de uma publicação parcial."""
+    try:
+        return path.read_bytes() if path.is_file() else None
+    except OSError:
+        return None
+
+
+def _restore_file(path: Path, snapshot: bytes | None) -> None:
+    """Restaura ou remove um arquivo durante rollback transacional."""
+    if snapshot is None:
+        path.unlink(missing_ok=True)
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(snapshot)
 
 
 def _validate_scope_lock(skills: list[Skill]) -> None:
@@ -583,11 +613,30 @@ def install_skill(
     skills = [s for s in _load_index(user_id, scope, target) if s.id != skill_id]
     skills.append(skill)
     _validate_scope_lock(skills)
-    if scope == "runtime":
-        _runtime_skills[f"{user_id}:{target}"] = skills
-    else:
-        _save_index(user_id, skills, scope, target)
-    _write_scope_lock(user_id, scope, target, skills)
+    index_path = _index_file(user_id, scope, target)
+    lock_path = _scope_lock_path(user_id, scope, target)
+    index_snapshot = _file_snapshot(index_path)
+    lock_snapshot = _file_snapshot(lock_path)
+    published = False
+    try:
+        if scope == "runtime":
+            _runtime_skills[f"{user_id}:{target}"] = skills
+        else:
+            _save_index(user_id, skills, scope, target)
+        _write_scope_lock(user_id, scope, target, skills)
+        published = True
+    finally:
+        if not published:
+            _restore_file(index_path, index_snapshot)
+            _restore_file(lock_path, lock_snapshot)
+            if scope == "runtime":
+                key = f"{user_id}:{target}"
+                if index_snapshot is None:
+                    _runtime_skills.pop(key, None)
+                else:
+                    _runtime_skills[key] = _load_index(user_id, scope, target)
+            if target_dir.exists():
+                shutil.rmtree(target_dir, ignore_errors=True)
     _bump_version(user_id)
     return skill
 
@@ -637,11 +686,24 @@ def install_skill_from_content(
     )
     skills = [s for s in _load_index(user_id) if s.id != skill_id]
     _validate_scope_lock([*skills, skill])
+    index_path = _index_file(user_id)
+    lock_path = _scope_lock_path(user_id, "user", None)
+    index_snapshot = _file_snapshot(index_path)
+    lock_snapshot = _file_snapshot(lock_path)
+    published = False
     staging.rename(target)
-    skill = skill.model_copy(update={"path": str(target)})
-    skills.append(skill)
-    _save_index(user_id, skills)
-    _write_scope_lock(user_id, "user", None, skills)
+    try:
+        skill = skill.model_copy(update={"path": str(target)})
+        skills.append(skill)
+        _save_index(user_id, skills)
+        _write_scope_lock(user_id, "user", None, skills)
+        published = True
+    finally:
+        if not published:
+            _restore_file(index_path, index_snapshot)
+            _restore_file(lock_path, lock_snapshot)
+            if target.exists():
+                shutil.rmtree(target, ignore_errors=True)
     _bump_version(user_id)
     return skill
 
@@ -662,13 +724,33 @@ def remove_skill(
         return False
     remaining = [s for s in skills if s.id != skill_id]
     _validate_scope_lock(remaining)
-    if p.is_dir():
-        shutil.rmtree(p, ignore_errors=True)
-    if scope == "runtime":
-        _runtime_skills[f"{user_id}:{target}"] = remaining
-    else:
-        _save_index(user_id, remaining, scope, target)
-    _write_scope_lock(user_id, scope, target, remaining)
+    index_path = _index_file(user_id, scope, target)
+    lock_path = _scope_lock_path(user_id, scope, target)
+    index_snapshot = _file_snapshot(index_path)
+    lock_snapshot = _file_snapshot(lock_path)
+    backup = p.with_name(f".{p.name}.rollback") if p.is_dir() else None
+    if backup is not None and backup.exists():
+        shutil.rmtree(backup, ignore_errors=True)
+    published = False
+    try:
+        if backup is not None:
+            p.rename(backup)
+        if scope == "runtime":
+            _runtime_skills[f"{user_id}:{target}"] = remaining
+        else:
+            _save_index(user_id, remaining, scope, target)
+        _write_scope_lock(user_id, scope, target, remaining)
+        published = True
+    finally:
+        if not published:
+            _restore_file(index_path, index_snapshot)
+            _restore_file(lock_path, lock_snapshot)
+            if scope == "runtime":
+                _runtime_skills[f"{user_id}:{target}"] = skills
+            if backup is not None and backup.exists() and not p.exists():
+                backup.rename(p)
+        elif backup is not None and backup.exists():
+            shutil.rmtree(backup, ignore_errors=True)
     _bump_version(user_id)
     return True
 
