@@ -37,6 +37,7 @@ import { Input } from "@/components/ui/input";
 import { PluginsTab } from "@/components/settings/environment/tabs/plugins-tab";
 import { m } from "@/lib/paraglide/messages";
 import { useLibraryStore, type MCPConnector } from "@/lib/stores/library-store";
+import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import type { LibraryItem } from "./library-tab";
 
 async function saveEnvVar(key: string, value: string): Promise<void> {
@@ -48,20 +49,32 @@ async function saveEnvVar(key: string, value: string): Promise<void> {
   if (!res.ok) throw new Error(`Erro ${res.status}`);
 }
 
-async function installMcp(mcpId: string): Promise<{ status: string }> {
+async function installMcp(
+  mcpId: string,
+  confirmUnverified = false,
+): Promise<{ status: string }> {
+  const workspaceId = useWorkspacesStore.getState().active_id;
   const res = await fetch("/mcp/install", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mcp_id: mcpId }),
+    body: JSON.stringify({
+      mcp_id: mcpId,
+      workspace_id: workspaceId ?? undefined,
+      confirm_unverified: confirmUnverified,
+    }),
   });
   return res.json();
 }
 
 async function uninstallMcp(mcpId: string): Promise<void> {
+  const workspaceId = useWorkspacesStore.getState().active_id;
   await fetch("/mcp/uninstall", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mcp_id: mcpId }),
+    body: JSON.stringify({
+      mcp_id: mcpId,
+      workspace_id: workspaceId ?? undefined,
+    }),
   });
 }
 
@@ -94,7 +107,23 @@ function ConfigureDialog({
       await Promise.all(
         connector.env_vars.map((key) => saveEnvVar(key, values[key].trim())),
       );
-      const result = await installMcp(connector.id);
+      const requiresConfirmation = [
+        "community_listed",
+        "unsigned",
+        "verification_unavailable",
+      ].includes(connector.trust_state ?? "");
+      if (connector.trust_state === "invalid") {
+        setError("Este MCP foi rejeitado pela verificação de integridade.");
+        return;
+      }
+      if (
+        requiresConfirmation &&
+        !window.confirm(
+          "Este MCP não possui verificação criptográfica. Deseja instalar?",
+        )
+      )
+        return;
+      const result = await installMcp(connector.id, requiresConfirmation);
       if (result.status === "error") {
         setError(m.library_mcp_error_install());
         return;
@@ -177,7 +206,23 @@ function ConnectorCard({
     setBusy(true);
     setError(null);
     try {
-      const result = await installMcp(connector.id);
+      const requiresConfirmation = [
+        "community_listed",
+        "unsigned",
+        "verification_unavailable",
+      ].includes(connector.trust_state ?? "");
+      if (connector.trust_state === "invalid") {
+        setError("Este MCP foi rejeitado pela verificação de integridade.");
+        return;
+      }
+      if (
+        requiresConfirmation &&
+        !window.confirm(
+          "Este MCP não possui verificação criptográfica. Deseja instalar?",
+        )
+      )
+        return;
+      const result = await installMcp(connector.id, requiresConfirmation);
       if (result.status === "error") {
         setError(m.library_mcp_error_install());
         return;
@@ -231,9 +276,9 @@ function ConnectorCard({
             >
               {connector.category}
             </Badge>
-            {connector.vectora_verified && (
+            {(connector.vectora_verified || connector.trust_state) && (
               <Badge className="text-[10px] h-4 px-1.5 shrink-0">
-                {m.library_mcp_verified()}
+                {connector.trust_state ?? "community_listed"}
               </Badge>
             )}
           </div>

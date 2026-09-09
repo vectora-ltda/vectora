@@ -23,12 +23,12 @@ describe("NetworkStatusBanner", () => {
     act(() => {
       window.dispatchEvent(new Event("offline"));
     });
-    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveClass("safe-area-top-banner");
   });
 
   it("mostra status 'reconectando' quando o SSE está reconnecting", () => {
     render(<NetworkStatusBanner />);
     act(() => useNetworkStore.getState().setSSEStatus("reconnecting"));
-    expect(screen.getByRole("status")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveClass("safe-area-top-banner");
   });
 });

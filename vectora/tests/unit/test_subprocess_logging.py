@@ -30,7 +30,7 @@ async def test_pipe_to_logger_forwards_each_line_with_prefix(caplog):
     with caplog.at_level(logging.INFO, logger="test.pipe_to_logger"):
         await pipe_to_logger(stream, logger, prefix="preview:web")
 
-    messages = [r.message for r in caplog.records]
+    messages = [r.message for r in caplog.records if r.name == logger.name]
     assert "preview:web: line one" in messages
     assert "preview:web: line two" in messages
 
@@ -60,7 +60,7 @@ async def test_pipe_to_logger_skips_blank_lines(caplog):
     with caplog.at_level(logging.INFO, logger="test.pipe_to_logger"):
         await pipe_to_logger(stream, logger, prefix="x")
 
-    messages = [r.message for r in caplog.records]
+    messages = [r.message for r in caplog.records if r.name == logger.name]
     assert len(messages) == 1
     assert "real content" in messages[0]
 
