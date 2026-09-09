@@ -79,6 +79,8 @@ def apply_remote_version(
     bindado (``llm_tools._bound_cache``) é invalidado por consequência, pois
     sua chave inclui esta versão.
     """
+    if version <= _versions.get(user_id, 0) and scope == "user":
+        return
     if version > _versions.get(user_id, 0):
         _versions[user_id] = version
 
