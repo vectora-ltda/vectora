@@ -118,12 +118,12 @@ describe("McpSection", () => {
     });
   });
 
-  it("mostra o badge 'Verificado' só para conectores curados (vectora_verified)", async () => {
+  it("mostra o estado de catálogo sem elevar curadoria a verificação", async () => {
     render(<McpSection query="" onCountChange={() => {}} />);
     await waitFor(() => {
       expect(screen.getByText("Filesystem")).toBeTruthy();
     });
-    const badges = screen.getAllByText("Verified");
+    const badges = screen.getAllByText("community_listed");
     expect(badges).toHaveLength(1);
   });
 
