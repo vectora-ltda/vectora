@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 
 from backend.workspace.skills_lock import (
@@ -35,3 +37,38 @@ def test_semver_constraints_are_strict() -> None:
     assert satisfies(Version.parse("1.2.3"), "^1.0.0")
     assert satisfies(Version.parse("1.2.3"), "~1.2.0")
     assert not satisfies(Version.parse("2.0.0"), "^1.0.0")
+
+
+def test_resolve_seleciona_maior_candidato_que_satisfaz_todas_as_constraints() -> None:
+    candidates = {
+        "app": ("1.0.0", {"base": "^1.0.0"}),
+        "base": [("1.1.0", {}), ("1.4.0", {}), ("2.0.0", {})],
+    }
+
+    assert resolve_dependencies(candidates) == ["base", "app"]
+
+
+def test_lockfile_rejeita_entrada_nula_ou_campos_desconhecidos(tmp_path) -> None:
+    path = tmp_path / "skills.lock.json"
+    path.write_text(
+        '{"format_version": 1, "skills": {"broken": null}}', encoding="utf-8"
+    )
+    with pytest.raises(ValueError):
+        read_lockfile(path)
+
+    with pytest.raises(ValueError):
+        write_lockfile(path, {"ok": {"version": "1.0.0", "unknown": True}})
+
+
+def test_escritores_concorrentes_publicam_lockfile_valido(tmp_path) -> None:
+    path = tmp_path / "skills.lock.json"
+
+    def publish(index: int) -> None:
+        write_lockfile(path, {f"skill-{index}": {"version": "1.0.0"}})
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        list(executor.map(publish, range(8)))
+
+    payload = read_lockfile(path)
+    assert payload["format_version"] == 1
+    assert isinstance(payload["skills"], dict)

@@ -36,6 +36,7 @@ from pydantic import BaseModel
 
 from backend.services import extension_trust
 from backend.vtypes.skill import Skill
+from backend.workspace import skills_lock
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +211,43 @@ def _read_skill_metadata(skill_root: Path) -> tuple[str, str]:
     if not description:
         raise ValueError("Frontmatter do SKILL.md não declara 'description'.")
     return name, description
+
+
+def _skill_lock_entry(skill: Skill) -> dict[str, object]:
+    """Converte uma skill instalada em uma entrada sem conteúdo executável."""
+    frontmatter = _parse_frontmatter(
+        (Path(skill.path) / "SKILL.md").read_text(encoding="utf-8")
+    )
+    version = frontmatter.get("version", "0.0.0").strip()
+    requirements: dict[str, str] = {}
+    raw_requirements = frontmatter.get("requires_skills", "").strip()
+    for item in raw_requirements.split(",") if raw_requirements else []:
+        dependency, separator, constraint = item.partition(":")
+        if separator and dependency.strip() and constraint.strip():
+            requirements[dependency.strip()] = constraint.strip()
+    return {
+        "version": version,
+        "source": skill.source,
+        "integrity": skill.trust.digest
+        or hashlib.sha256((Path(skill.path) / "SKILL.md").read_bytes()).hexdigest(),
+        "requires_skills": requirements,
+    }
+
+
+def _write_scope_lock(
+    user_id: str, scope: SkillScope, target: str | None, skills: list[Skill]
+) -> None:
+    """Valida e grava o lock da composição instalada do escopo."""
+    lock_path = _skills_dir(user_id, scope, target) / "skills.lock.json"
+    if lock_path.exists():
+        skills_lock.read_lockfile(lock_path)
+    entries = {skill.id: _skill_lock_entry(skill) for skill in skills}
+    candidates: dict[str, object] = {
+        skill_id: (str(entry["version"]), entry["requires_skills"])
+        for skill_id, entry in entries.items()
+    }
+    skills_lock.resolve_dependencies(candidates)
+    skills_lock.write_lockfile(lock_path, entries)
 
 
 # ---------------------------------------------------------------------------
@@ -470,6 +508,7 @@ def install_skill(
         _runtime_skills[f"{user_id}:{target}"] = skills
     else:
         _save_index(user_id, skills, scope, target)
+    _write_scope_lock(user_id, scope, target, skills)
     _bump_version(user_id)
     return skill
 
@@ -514,6 +553,7 @@ def install_skill_from_content(
     skills = [s for s in _load_index(user_id) if s.id != skill_id]
     skills.append(skill)
     _save_index(user_id, skills)
+    _write_scope_lock(user_id, "user", None, skills)
     _bump_version(user_id)
     return skill
 
@@ -539,6 +579,7 @@ def remove_skill(
         _runtime_skills[f"{user_id}:{target}"] = remaining
     else:
         _save_index(user_id, remaining, scope, target)
+    _write_scope_lock(user_id, scope, target, remaining)
     _bump_version(user_id)
     return True
 
