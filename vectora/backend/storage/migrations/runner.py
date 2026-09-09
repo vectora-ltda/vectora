@@ -50,6 +50,11 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     checksum   TEXT    NOT NULL,
     applied_at TEXT    NOT NULL
 );
+CREATE TABLE IF NOT EXISTS schema_migration_history (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    checksum   TEXT NOT NULL,
+    applied_at TEXT NOT NULL
+);
 """
 
 _ALTER_ADD_COLUMN_RE = re.compile(
@@ -104,7 +109,16 @@ class MigrationRunner:
         )
 
     async def _ensure_control_table(self) -> None:
-        await self._conn.executescript(_CONTROL_SCHEMA)
+        await self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS schema_migration_history ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, checksum TEXT NOT NULL, "
+            "applied_at TEXT NOT NULL)"
+        )
+        await self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS schema_migrations ("
+            "id INTEGER PRIMARY KEY CHECK (id = 1), checksum TEXT NOT NULL, "
+            "applied_at TEXT NOT NULL)"
+        )
         # Compat: bancos que já rodaram o sistema de migrations antigo
         # (versionado, NNNN_nome.sql) têm schema_migrations no formato
         # (version, name, applied_at, checksum) — sem coluna `id`. O CREATE
@@ -115,10 +129,34 @@ class MigrationRunner:
         cursor = await self._conn.execute("PRAGMA table_info(schema_migrations)")
         cols = {row[1] for row in await cursor.fetchall()}
         if "id" not in cols:
+            await self._conn.execute(
+                "INSERT INTO schema_migration_history (checksum, applied_at) "
+                "SELECT old.checksum, old.applied_at FROM schema_migrations old "
+                "WHERE NOT EXISTS (SELECT 1 FROM schema_migration_history h "
+                "WHERE h.checksum = old.checksum AND h.applied_at = old.applied_at)"
+            )
             await self._conn.executescript(
                 "DROP TABLE schema_migrations;" + _CONTROL_SCHEMA
             )
         await self._conn.commit()
+
+    async def _stored_readonly(self) -> dict[str, str] | None:
+        """Read the control row without creating tables or committing."""
+        cursor = await self._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'schema_migrations'"
+        )
+        if await cursor.fetchone() is None:
+            return None
+        cursor = await self._conn.execute("PRAGMA table_info(schema_migrations)")
+        cols = {row[1] for row in await cursor.fetchall()}
+        if "id" not in cols or "checksum" not in cols or "applied_at" not in cols:
+            return None
+        cursor = await self._conn.execute(
+            "SELECT checksum, applied_at FROM schema_migrations WHERE id = 1"
+        )
+        row = await cursor.fetchone()
+        return None if row is None else {"checksum": row[0], "applied_at": row[1]}
 
     async def _read_schema(self) -> tuple[str, str]:
         """Retorna ``(conteúdo, checksum)`` do schema.sql.
@@ -160,7 +198,7 @@ class MigrationRunner:
     async def status(self) -> MigrationStatus:
         """Retorna o status do schema.sql em relação ao banco."""
         _content, checksum = await self._read_schema()
-        stored = await self._stored()
+        stored = await self._stored_readonly()
         if stored is None:
             return MigrationStatus(
                 applied=False, applied_at=None, drift=False, checksum=checksum
@@ -171,6 +209,42 @@ class MigrationRunner:
             drift=stored["checksum"] != checksum,
             checksum=checksum,
         )
+
+    async def history(self) -> list[dict[str, str]]:
+        """Return the immutable checksum history for diagnostics and support."""
+        cursor = await self._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'schema_migration_history'"
+        )
+        if await cursor.fetchone() is None:
+            return []
+        cursor = await self._conn.execute("PRAGMA table_info(schema_migration_history)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        if {"id", "checksum", "applied_at"} - columns:
+            return []
+        cursor = await self._conn.execute(
+            "SELECT checksum, applied_at FROM schema_migration_history ORDER BY id"
+        )
+        rows = await cursor.fetchall()
+        return [{"checksum": row[0], "applied_at": row[1]} for row in rows]
+
+    async def plan(self) -> dict[str, Any]:
+        """Describe the pending schema change without mutating the database.
+
+        The plan is intentionally data-free: it exposes the checksum and
+        statement count so operators can review drift before running an
+        upgrade, while keeping migration SQL out of logs and CLI output.
+        """
+        content, checksum = await self._read_schema()
+        status = await self.status()
+        statements = _split_statements(content)
+        return {
+            "checksum": checksum,
+            "applied": status.applied,
+            "drift": status.drift,
+            "statement_count": len(statements),
+            "will_apply": not status.applied or status.drift,
+        }
 
     async def _existing_columns(self, table: str) -> set[str]:
         cursor = await self._conn.execute(f"PRAGMA table_info({table})")  # nosec B608 — table vem de regex sobre schema.sql versionado, não input externo
@@ -212,6 +286,10 @@ class MigrationRunner:
             "INSERT INTO schema_migrations (id, checksum, applied_at) VALUES (1, ?, ?) "
             "ON CONFLICT (id) DO UPDATE SET checksum = excluded.checksum, "
             "applied_at = excluded.applied_at",
+            (checksum, now),
+        )
+        await self._conn.execute(
+            "INSERT INTO schema_migration_history (checksum, applied_at) VALUES (?, ?)",
             (checksum, now),
         )
         await self._conn.commit()
