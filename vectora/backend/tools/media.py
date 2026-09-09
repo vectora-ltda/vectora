@@ -666,5 +666,6 @@ async def audio_transcribe(ctx: ToolContext, path: str, language: str = "") -> s
     except Exception as exc:
         logger.exception("audio_transcribe: falha", extra={"provider": provider})
         return json.dumps(
-            {"error": f"falha ao transcrever áudio: {exc}"}, ensure_ascii=False
+            {"error": "falha ao transcrever áudio; consulte os logs para detalhes"},
+            ensure_ascii=False,
         )
