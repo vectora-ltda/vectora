@@ -253,7 +253,7 @@ class TestJanelaSelecionada:
 
 def test_desktop_registry_invalidate_e_rate_limit_atomico() -> None:
     registry = DesktopWindowRegistry()
-    scope = dict(user_id="u", workspace_id="w", thread_id="t")
+    scope = {"user_id": "u", "workspace_id": "w", "thread_id": "t"}
     results = [registry.allow_action(**scope) for _ in range(35)]
     assert sum(results) == 30
     registry.invalidate("t")
