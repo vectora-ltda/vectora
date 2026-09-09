@@ -47,8 +47,7 @@ class TestOptIn:
 
         saida = json.loads(await cu.computer_use(action="screenshot", ctx=_ctx()))
 
-        assert "error" in saida
-        assert "computer_use" in saida["error"]
+        assert saida == {"status": "error", "code": "opt_in_required"}
         assert chamou["screenshot"] is False
 
     async def test_com_secao_habilitada_a_tool_executa(
@@ -133,7 +132,7 @@ class TestAcoes:
         # mouse sem o usuário ter pedido isso.
         chamadas.clear()
         sem_coords = json.loads(await cu.computer_use(action="click", ctx=_ctx()))
-        assert "error" in sem_coords
+        assert sem_coords == {"status": "error", "code": "invalid_coordinates"}
         assert chamadas == []
 
     async def test_type_text_digita_e_texto_vazio_e_recusado(
@@ -154,7 +153,7 @@ class TestAcoes:
         vazio = json.loads(
             await cu.computer_use(action="type_text", text="", ctx=_ctx())
         )
-        assert "error" in vazio
+        assert vazio == {"status": "error", "code": "text_required"}
         assert digitado == []
 
     async def test_falha_da_biblioteca_de_automacao_nunca_propaga(
@@ -173,7 +172,8 @@ class TestAcoes:
 
     async def test_acao_desconhecida_e_recusada(self):
         saida = json.loads(await cu.computer_use(action="explodir_tudo", ctx=_ctx()))
-        assert "error" in saida
+        assert saida == {"status": "error", "code": "invalid_action"}
+        assert "explodir_tudo" not in saida
 
 
 class TestAprovacaoSempreObrigatoria:
@@ -247,7 +247,7 @@ class TestJanelaSelecionada:
             await cu.computer_use(action="click", x=10, y=0, ctx=_ctx())
         )
 
-        assert result["error"]
+        assert result == {"status": "error", "code": "invalid_coordinates"}
         assert clicked == []
 
 

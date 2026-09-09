@@ -279,21 +279,10 @@ async def computer_use(
     """
     try:
         if not _computer_use_enabled(ctx.workspace_id):
-            return json.dumps(
-                {
-                    "error": (
-                        "computer_use está desligada neste workspace — "
-                        "adicione `[computer_use]\\nenabled = true` ao "
-                        "vectora.toml pra habilitar"
-                    )
-                },
-                ensure_ascii=False,
-            )
+            return json.dumps({"status": "error", "code": "opt_in_required"})
 
         if action not in _ACOES_VALIDAS:
-            return json.dumps(
-                {"error": f"ação desconhecida: {action!r}"}, ensure_ascii=False
-            )
+            return json.dumps({"status": "error", "code": "invalid_action"})
 
         selection = desktop_window_registry.selected(
             user_id=ctx.user_id, workspace_id=ctx.workspace_id, thread_id=ctx.thread_id
@@ -341,7 +330,7 @@ async def computer_use(
                 or x >= info.width
                 or y >= info.height
             ):
-                return json.dumps({"error": "click exige x e y"}, ensure_ascii=False)
+                return json.dumps({"status": "error", "code": "invalid_coordinates"})
             await asyncio.to_thread(desktop_window_registry.require_focus, selection)
             await asyncio.to_thread(
                 _click_sync,
@@ -355,9 +344,7 @@ async def computer_use(
             )
 
         if not text:
-            return json.dumps(
-                {"error": "type_text exige texto não vazio"}, ensure_ascii=False
-            )
+            return json.dumps({"status": "error", "code": "text_required"})
         if len(text.encode("utf-8")) > _MAX_TEXT_BYTES:
             return json.dumps({"status": "error", "code": "text_too_large"})
         await asyncio.to_thread(desktop_window_registry.require_focus, selection)
