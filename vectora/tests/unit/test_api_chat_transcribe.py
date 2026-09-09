@@ -24,7 +24,12 @@ def test_transcreve_audio_com_sucesso():
         audio_base64=audio_b64, mime_type="audio/webm", filename="ditado.webm"
     )
 
-    async def _fake_transcribe(data: bytes, filename: str, mime_type: str) -> str:
+    async def _fake_transcribe(
+        data: bytes,
+        filename: str,
+        mime_type: str,
+        **kwargs: str,
+    ) -> str:
         return "olá, isso é um teste"
 
     with patch("backend.llm.transcription.transcribe_audio", _fake_transcribe):
@@ -49,7 +54,12 @@ def test_falha_na_transcricao_retorna_502():
     audio_b64 = base64.b64encode(b"fake-audio-bytes").decode()
     request = TranscribeAudioRequest(audio_base64=audio_b64, mime_type="audio/webm")
 
-    async def _fake_transcribe(data: bytes, filename: str, mime_type: str) -> str:
+    async def _fake_transcribe(
+        data: bytes,
+        filename: str,
+        mime_type: str,
+        **kwargs: str,
+    ) -> str:
         raise TranscriptionError("openai_api_key não configurada")
 
     with patch("backend.llm.transcription.transcribe_audio", _fake_transcribe):
