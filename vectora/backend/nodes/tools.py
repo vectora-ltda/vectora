@@ -283,6 +283,7 @@ generate_image = _bridge("generate_image")
 text_to_speech = _bridge("text_to_speech")
 generate_video = _bridge("generate_video")
 analyze_video = _bridge("analyze_video")
+audio_transcribe = _bridge("audio_transcribe")
 probe_media = _bridge("probe_media")
 extract_frame = _bridge("extract_frame")
 extract_audio = _bridge("extract_audio")
@@ -640,6 +641,7 @@ for _t in [
     text_to_speech,
     generate_video,
     analyze_video,
+    audio_transcribe,
     # Mídia LOCAL (ffmpeg/ffprobe embutido, sem custo de API)
     probe_media,
     extract_frame,

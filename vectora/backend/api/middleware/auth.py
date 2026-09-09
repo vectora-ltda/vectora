@@ -58,6 +58,7 @@ _API_PREFIXES: tuple[str, ...] = (
     "/openapi.json",
     "/redoc",
     "/favicon",
+    "/api/updates",
 )
 
 # Rotas de API que são publicamente acessíveis (sem token).
