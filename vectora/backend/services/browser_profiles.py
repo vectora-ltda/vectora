@@ -193,9 +193,12 @@ class BrowserProfileStore:
         self,
         owner_id: str,
         profile_id: str,
-        scope_target: str | None = None,
-        scope: str | None = None,
+        scope_target: str | None,
+        scope: str,
     ) -> BrowserProfile:
+        """Resolve a profile only within its explicitly declared scope."""
+        if scope not in {"global", "workspace", "session"}:
+            raise ValueError("scope inválido")
         profiles = await self.list_profiles(owner_id, scope_target, scope)
         for profile in profiles:
             if profile.profile_id == profile_id:

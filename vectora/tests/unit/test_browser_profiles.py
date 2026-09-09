@@ -33,7 +33,7 @@ async def test_perfil_scoped_nao_vaza_para_outro_workspace(tmp_path: Path) -> No
     ]
     assert await store.list_profiles("alice", "ws-2") == []
     with pytest.raises(KeyError):
-        await store.resolve("alice", profile.profile_id, "ws-2")
+        await store.resolve("alice", profile.profile_id, "ws-2", "workspace")
 
 
 @pytest.mark.asyncio
