@@ -141,6 +141,34 @@ class TestInteractiveTerminalTools:
         )
 
     @pytest.mark.asyncio
+    async def test_usuario_diferente_nao_le_nem_escreve(self) -> None:
+        class OwnedSession:
+            user_id = "owner"
+            terminal_id = "t-owned"
+            thread_id = "thr-1"
+            workspace_id = "ws-1"
+
+            def consume_rate_limit(self):
+                return None
+
+            def read_since(self, cursor, max_bytes):
+                raise AssertionError("usuário não autorizado não deve ler")
+
+            def write_input(self, data, request_id):
+                raise AssertionError("usuário não autorizado não deve escrever")
+
+        pty_registry.add(OwnedSession())  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        ctx = ToolContext(user_id="other", thread_id="thr-1", workspace_id="ws-1")
+        assert (
+            json.loads(await read_terminal("t-owned", ctx=ctx))["code"] == "not_found"
+        )
+        assert (
+            json.loads(await write_terminal("t-owned", "x", "req", ctx=ctx))["code"]
+            == "not_found"
+        )
+        assert json.loads(await list_terminals(ctx=ctx))["terminals"] == []
+
+    @pytest.mark.asyncio
     async def test_escrita_exige_request_id_e_isolamento(self) -> None:
         pty_registry.add(_fake_session("t1", "thr-1", "ws-1"))
         assert (
