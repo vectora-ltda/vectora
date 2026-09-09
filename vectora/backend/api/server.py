@@ -658,6 +658,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
         candidates = (
             Path(__file__).resolve().parents[2] / "CHANGELOG.md",
             Path(sys.executable).resolve().parent / "CHANGELOG.md",
+            Path(sys.executable).resolve().parent / "vectora-core" / "CHANGELOG.md",
             Path.cwd() / "CHANGELOG.md",
         )
 

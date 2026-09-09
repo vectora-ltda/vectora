@@ -259,6 +259,10 @@ class TestAuthMiddlewareIntegration:
         r = auth_client.get("/auth/me")
         assert r.status_code == 401
 
+    def test_update_changelog_without_token_returns_401(self, auth_client):
+        r = auth_client.get("/api/updates/changelog")
+        assert r.status_code == 401
+
     def test_private_route_with_invalid_bearer_returns_401(self, auth_client):
         r = auth_client.get(
             "/auth/me", headers={"Authorization": "Bearer token-invalido"}
