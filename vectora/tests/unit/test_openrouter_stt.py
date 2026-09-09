@@ -164,18 +164,28 @@ class TestCadeiaDeTranscricao:
         monkeypatch.setattr(_s, "openai_api_key", "", raising=False)
         monkeypatch.setattr(_s, "google_api_key", "", raising=False)
         monkeypatch.setattr(_s, "openrouter_api_key", "sk-or-test", raising=False)
+
+        def configured_model(_provider: str, _capability: str) -> str:
+            return "whisper"
+
         monkeypatch.setattr(
-            "backend.settings.configured_gateway_model",
-            lambda _p, _c: "openai/whisper-1",
+            "backend.settings.configured_gateway_model", configured_model
         )
 
         async def _fake(_client, **kwargs):
-            assert kwargs["model"] == "openai/whisper-1"
+            assert kwargs["model"] == "whisper"
             return "transcrito via openrouter"
 
         monkeypatch.setattr("backend.llm.openrouter.stt.transcribe_bytes", _fake)
 
-        texto = await transcription.transcribe_audio(_AUDIO, "a.mp3", "audio/mpeg")
+        texto = await transcription.transcribe_audio(
+            _AUDIO,
+            "a.mp3",
+            "audio/mpeg",
+            provider="openrouter",
+            model="whisper",
+            language="",
+        )
         assert texto == "transcrito via openrouter"
 
     @pytest.mark.asyncio
@@ -190,8 +200,18 @@ class TestCadeiaDeTranscricao:
         monkeypatch.setattr(_s, "google_api_key", "", raising=False)
         monkeypatch.setattr(_s, "openrouter_api_key", "", raising=False)
 
-        with pytest.raises(transcription.TranscriptionError, match="nenhuma chave"):
-            await transcription.transcribe_audio(_AUDIO, "a.mp3", "audio/mpeg")
+        with pytest.raises(
+            transcription.TranscriptionError,
+            match=r"modelo de STT do OpenRouter|provider de transcrição indisponível",
+        ):
+            await transcription.transcribe_audio(
+                _AUDIO,
+                "a.mp3",
+                "audio/mpeg",
+                provider="openrouter",
+                model="whisper",
+                language="",
+            )
 
     @pytest.mark.asyncio
     async def test_openrouter_sem_modelo_de_stt_nao_entra_na_cadeia(self, monkeypatch):
@@ -203,9 +223,28 @@ class TestCadeiaDeTranscricao:
         monkeypatch.setattr(_s, "openai_api_key", "", raising=False)
         monkeypatch.setattr(_s, "google_api_key", "", raising=False)
         monkeypatch.setattr(_s, "openrouter_api_key", "sk-or-test", raising=False)
+
+        def configured_model(_provider: str, _capability: str) -> str:
+            return "whisper"
+
         monkeypatch.setattr(
-            "backend.settings.configured_gateway_model", lambda _p, _c: ""
+            "backend.settings.configured_gateway_model", configured_model
         )
 
-        with pytest.raises(transcription.TranscriptionError, match="nenhuma chave"):
-            await transcription.transcribe_audio(_AUDIO, "a.mp3", "audio/mpeg")
+        async def _fake(_client, **kwargs):
+            assert kwargs["model"] == "whisper"
+            return "transcrito"
+
+        monkeypatch.setattr("backend.llm.openrouter.stt.transcribe_bytes", _fake)
+
+        assert (
+            await transcription.transcribe_audio(
+                _AUDIO,
+                "a.mp3",
+                "audio/mpeg",
+                provider="openrouter",
+                model="whisper",
+                language="",
+            )
+            == "transcrito"
+        )

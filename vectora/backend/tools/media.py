@@ -235,7 +235,7 @@ async def generate_image(ctx: ToolContext, prompt: str) -> str:
     """
     provider = _active_provider(ctx)
     try:
-        from backend.settings import provider_supports
+        from backend.settings import configured_gateway_model, provider_supports
 
         if not provider_supports(provider, "image"):
             return _unsupported(
@@ -297,7 +297,7 @@ async def text_to_speech(ctx: ToolContext, text: str, voice: str = "") -> str:
     """
     provider = _active_provider(ctx)
     try:
-        from backend.settings import provider_supports
+        from backend.settings import configured_gateway_model, provider_supports
 
         if not provider_supports(provider, "tts"):
             return _unsupported(
@@ -580,4 +580,102 @@ async def analyze_video(ctx: ToolContext, path: str, question: str) -> str:
         logger.exception("analyze_video: falha", extra={"provider": provider})
         return json.dumps(
             {"error": f"falha ao analisar vídeo: {exc}"}, ensure_ascii=False
+        )
+
+
+def _read_audio_limited(path: Path, limit: int) -> bytes:
+    with path.open("rb") as audio_file:
+        return audio_file.read(limit + 1)
+
+
+def _audio_signature_matches(data: bytes, suffix: str) -> bool:
+    signatures = {
+        ".wav": data.startswith(b"RIFF") and data[8:12] == b"WAVE",
+        ".mp3": data.startswith(b"ID3")
+        or (
+            len(data) >= 2
+            and data[0] == 0xFF
+            and data[1] & 0xE0 == 0xE0
+            and data[1] & 0x06 == 0x02
+            and data[1] & 0x18 != 0x08
+        ),
+        ".m4a": len(data) >= 12 and data[4:8] == b"ftyp",
+        ".webm": data.startswith(b"\x1a\x45\xdf\xa3"),
+        ".ogg": data.startswith(b"OggS"),
+    }
+    return signatures.get(suffix, False)
+
+
+@vtool(
+    extras=ToolExtras(
+        render_hint="text",
+        category="media",
+        destructive=False,
+        icon="mic",
+    )
+)
+async def audio_transcribe(ctx: ToolContext, path: str, language: str = "") -> str:
+    """Transcreve um arquivo do workspace com o provider ativo."""
+    provider = _active_provider(ctx)
+    try:
+        from backend.settings import configured_gateway_model, provider_supports
+        from backend.tools.fs import _confine
+
+        stt_model = configured_gateway_model(provider, "stt")
+        if provider in {"openai", "openai-api"}:
+            stt_model = "whisper-1"
+        elif provider in {"google", "google-genai", "gemini"}:
+            stt_model = "gemini-2.5-flash"
+        if not stt_model or not provider_supports(provider, "stt"):
+            return _unsupported(
+                provider,
+                "transcrição remota de áudio",
+                "Troque para OpenAI/Gemini ou use transcribe_local sem enviar o áudio.",
+            )
+        resolved, error = _confine(path, ctx)
+        if resolved is None:
+            return json.dumps({"error": error}, ensure_ascii=False)
+        if resolved.suffix.lower() not in {".wav", ".mp3", ".m4a", ".webm", ".ogg"}:
+            return json.dumps({"error": "formato de áudio não suportado"})
+        max_audio_bytes = 25 * 1024 * 1024
+        data = await asyncio.to_thread(_read_audio_limited, resolved, max_audio_bytes)
+        if len(data) > max_audio_bytes:
+            return json.dumps({"error": "áudio excede o limite de 25 MB"})
+        if not _audio_signature_matches(data, resolved.suffix.lower()):
+            return json.dumps(
+                {"error": "conteúdo de áudio incompatível com a extensão"}
+            )
+        mime = {
+            ".wav": "audio/wav",
+            ".mp3": "audio/mpeg",
+            ".m4a": "audio/mp4",
+            ".webm": "audio/webm",
+            ".ogg": "audio/ogg",
+        }[resolved.suffix.lower()]
+        from backend.llm.transcription import transcribe_audio
+
+        text = await transcribe_audio(
+            data,
+            resolved.name,
+            mime,
+            provider=provider,
+            model=stt_model,
+            language=language,
+        )
+        if not text.strip():
+            return json.dumps({"error": "provider devolveu transcrição vazia"})
+        return json.dumps(
+            {
+                "text": text,
+                "provider": provider,
+                "model": stt_model,
+                "language": language,
+            },
+            ensure_ascii=False,
+        )
+    except Exception as exc:
+        logger.exception("audio_transcribe: falha", extra={"provider": provider})
+        return json.dumps(
+            {"error": "falha ao transcrever áudio; consulte os logs para detalhes"},
+            ensure_ascii=False,
         )
