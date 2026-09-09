@@ -50,7 +50,9 @@ def test_runtime_skill_install_uses_session_scoped_memory(tmp_path) -> None:
         "---\nname: Runtime\ndescription: Session only\n---\n", encoding="utf-8"
     )
 
-    installed = skills.install_skill("u1", str(source), "runtime", "run-1")
+    installed = skills.install_skill(
+        "u1", str(source), "runtime", "run-1", confirm_unverified=True
+    )
 
     assert installed.id == "runtime"
     assert skills.list_skills("u1", "runtime", "run-1")[0].id == "runtime"
