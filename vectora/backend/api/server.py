@@ -655,10 +655,18 @@ def create_app(serve_static: bool = True) -> FastAPI:
     @app.get("/api/updates/changelog")
     async def update_changelog() -> dict[str, str]:
         """Return the latest packaged release notes for desktop updates."""
-        changelog_path = Path(__file__).resolve().parents[2] / "CHANGELOG.md"
+        candidates = (
+            Path(__file__).resolve().parents[2] / "CHANGELOG.md",
+            Path(sys.executable).resolve().parent / "CHANGELOG.md",
+            Path.cwd() / "CHANGELOG.md",
+        )
 
         def read_latest() -> str:
-            if not changelog_path.is_file():
+            changelog_path = next(
+                (candidate for candidate in candidates if candidate.is_file()),
+                None,
+            )
+            if changelog_path is None:
                 return ""
             lines = changelog_path.read_text(encoding="utf-8").splitlines()
             section: list[str] = []

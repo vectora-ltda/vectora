@@ -63,14 +63,14 @@ export function UpdateBanner() {
             ? m.update_banner_ready_with_version({ v: version })
             : m.update_banner_ready())}
         {state === "error" && m.update_banner_error({ e: error })}
-        {state === "available" && changelog && (
+        {(state === "available" || state === "error") && changelog && (
           <details className="mt-1 opacity-90">
             <summary>{m.update_banner_changelog()}</summary>
             <p className="whitespace-pre-wrap mt-1">{changelog}</p>
           </details>
         )}
       </span>
-      {state === "available" && (
+      {(state === "available" || state === "error") && (
         <button
           type="button"
           onClick={download}

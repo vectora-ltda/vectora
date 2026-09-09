@@ -701,8 +701,11 @@ function setupAutoUpdater(): void {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
+  let latestStatus: UpdateStatus = { state: "not-available" };
+
   const broadcast = (status: UpdateStatus) => {
-    mainWindow?.webContents.send("vectora:update-status", status);
+    latestStatus = { ...latestStatus, ...status };
+    mainWindow?.webContents.send("vectora:update-status", latestStatus);
   };
 
   autoUpdater.on("checking-for-update", () => broadcast({ state: "checking" }));
