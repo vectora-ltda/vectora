@@ -303,6 +303,49 @@ async function createIssue(
   return id;
 }
 
+describe("POST /admin/issues/:id/approve e /sync", () => {
+  it("exige administrador nos dois endpoints", async () => {
+    const { token } = await createUser("user");
+    const approveResponse = await admin.request(
+      `/issues/${crypto.randomUUID()}/approve`,
+      authed(token, { method: "POST" }),
+      env,
+    );
+    expect(approveResponse.status).toBe(403);
+    expect(
+      (
+        await admin.request(
+          `/issues/${crypto.randomUUID()}/sync`,
+          authed(token, { method: "POST" }),
+          env,
+        )
+      ).status,
+    ).toBe(403);
+  });
+
+  it("retorna 404 para uma issue inexistente", async () => {
+    const { token } = await createUser("admin");
+    expect(
+      (
+        await admin.request(
+          `/issues/${crypto.randomUUID()}/approve`,
+          authed(token, { method: "POST" }),
+          env,
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await admin.request(
+          `/issues/${crypto.randomUUID()}/sync`,
+          authed(token, { method: "POST" }),
+          env,
+        )
+      ).status,
+    ).toBe(404);
+  });
+});
+
 describe("GET /admin/issues e GET /admin/issues/:id", () => {
   it("lista/mostra o email do reporter (nunca exposto na rota pública) e rejeita não-admin", async () => {
     const { token } = await createUser("admin");

@@ -164,6 +164,12 @@ export async function reconcileIssueComments(
     )
       .bind(issueId, ...remoteIds)
       .run();
+  } else {
+    await env.DB.prepare(
+      "UPDATE issue_comments SET deleted_at = datetime('now') WHERE issue_id = ? AND deleted_at IS NULL",
+    )
+      .bind(issueId)
+      .run();
   }
 }
 
@@ -451,6 +457,7 @@ issues.post("/github/webhook", async (c) => {
           .bind(message.slice(0, 200), deliveryId)
           .run();
         console.error("issue_github_approval_failed", { issueId, message });
+        return c.json({ error: "promotion_failed" }, 502);
       }
     } else if (approved) {
       await c.env.DB.prepare(

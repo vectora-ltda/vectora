@@ -4,6 +4,7 @@ import {
   issues,
   MAX_ISSUE_FILES,
   ISSUE_FILE_LIMITS,
+  reconcileIssueComments,
 } from "../../src/issues/routes";
 
 afterEach(() => {
@@ -244,6 +245,53 @@ describe("POST /issues/github/webhook", () => {
     }>();
     expect(detailBody.comments).toHaveLength(0);
     expect("email" in detailBody).toBe(false);
+  });
+
+  it("marca comentários ativos como removidos quando o GitHub retorna uma lista vazia", async () => {
+    const issueId = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO issues (id, title, category, description, github_repo, github_number, github_url) VALUES (?, ?, 'bug', ?, ?, ?, ?)",
+    )
+      .bind(
+        issueId,
+        "Issue sem comentários remotos",
+        "body",
+        "vectora-ltda/vectora-issues",
+        9999,
+        "https://github.com/vectora-ltda/vectora-issues/issues/9999",
+      )
+      .run();
+    await env.DB.prepare(
+      "INSERT INTO issue_comments (id, issue_id, github_comment_id, author, body, html_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    )
+      .bind(
+        crypto.randomUUID(),
+        issueId,
+        123,
+        "reporter",
+        "comentário removido",
+        "https://github.com/comment/123",
+        new Date().toISOString(),
+      )
+      .run();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("[]", { status: 200 })),
+    );
+
+    await reconcileIssueComments(
+      { ...env, GITHUB_TOKEN: "test-token" },
+      issueId,
+      "vectora-ltda/vectora-issues",
+      9999,
+    );
+
+    const comment = await env.DB.prepare(
+      "SELECT deleted_at FROM issue_comments WHERE issue_id = ? AND github_comment_id = ?",
+    )
+      .bind(issueId, 123)
+      .first<{ deleted_at: string | null }>();
+    expect(comment?.deleted_at).not.toBeNull();
   });
 });
 

@@ -106,6 +106,23 @@ handler):
   que existia no read-modify-write direto em KV) — jobs `gdpr_delete_user`,
   `update_telemetry`, `telemetry_ingest`, `rag_reindex`; DLQ
   `vectora-jobs-dlq`.
+
+### Atualização do schema de comentários do GitHub
+
+Bancos D1 que aplicaram uma versão anterior da sincronização de issues podem
+não possuir as colunas `updated_at` e `deleted_at` em `issue_comments`. Antes
+de publicar o worker com a reconciliação de comentários, verifique o schema e
+execute uma vez, no banco remoto, os comandos abaixo para cada coluna ausente:
+
+```bash
+wrangler d1 execute vectora-db --remote --command "ALTER TABLE issue_comments ADD COLUMN updated_at TEXT"
+wrangler d1 execute vectora-db --remote --command "ALTER TABLE issue_comments ADD COLUMN deleted_at TEXT"
+```
+
+O comando deve ser executado somente quando a coluna correspondente ainda não
+existir; confirme com `wrangler d1 execute vectora-db --remote --command
+\"PRAGMA table_info(issue_comments)\"` antes de aplicar.
+
 - Secrets (via `wrangler secret put`, não no `.toml`): `VECTORA_APP_SECRET`
   (secret fixo por produto, autentica `POST /register`), `GATEWAY_HMAC_SECRET`,
   `VECTORA_OAUTH_SECRET` (gateway); `RESEND_API_KEY` (email transacional);
