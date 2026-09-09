@@ -109,7 +109,16 @@ class MigrationRunner:
         )
 
     async def _ensure_control_table(self) -> None:
-        await self._conn.executescript(_CONTROL_SCHEMA)
+        await self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS schema_migration_history ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, checksum TEXT NOT NULL, "
+            "applied_at TEXT NOT NULL)"
+        )
+        await self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS schema_migrations ("
+            "id INTEGER PRIMARY KEY CHECK (id = 1), checksum TEXT NOT NULL, "
+            "applied_at TEXT NOT NULL)"
+        )
         # Compat: bancos que já rodaram o sistema de migrations antigo
         # (versionado, NNNN_nome.sql) têm schema_migrations no formato
         # (version, name, applied_at, checksum) — sem coluna `id`. O CREATE
@@ -120,10 +129,34 @@ class MigrationRunner:
         cursor = await self._conn.execute("PRAGMA table_info(schema_migrations)")
         cols = {row[1] for row in await cursor.fetchall()}
         if "id" not in cols:
+            await self._conn.execute(
+                "INSERT INTO schema_migration_history (checksum, applied_at) "
+                "SELECT old.checksum, old.applied_at FROM schema_migrations old "
+                "WHERE NOT EXISTS (SELECT 1 FROM schema_migration_history h "
+                "WHERE h.checksum = old.checksum AND h.applied_at = old.applied_at)"
+            )
             await self._conn.executescript(
                 "DROP TABLE schema_migrations;" + _CONTROL_SCHEMA
             )
         await self._conn.commit()
+
+    async def _stored_readonly(self) -> dict[str, str] | None:
+        """Read the control row without creating tables or committing."""
+        cursor = await self._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'schema_migrations'"
+        )
+        if await cursor.fetchone() is None:
+            return None
+        cursor = await self._conn.execute("PRAGMA table_info(schema_migrations)")
+        cols = {row[1] for row in await cursor.fetchall()}
+        if "id" not in cols or "checksum" not in cols or "applied_at" not in cols:
+            return None
+        cursor = await self._conn.execute(
+            "SELECT checksum, applied_at FROM schema_migrations WHERE id = 1"
+        )
+        row = await cursor.fetchone()
+        return None if row is None else {"checksum": row[0], "applied_at": row[1]}
 
     async def _read_schema(self) -> tuple[str, str]:
         """Retorna ``(conteúdo, checksum)`` do schema.sql.
@@ -165,7 +198,7 @@ class MigrationRunner:
     async def status(self) -> MigrationStatus:
         """Retorna o status do schema.sql em relação ao banco."""
         _content, checksum = await self._read_schema()
-        stored = await self._stored()
+        stored = await self._stored_readonly()
         if stored is None:
             return MigrationStatus(
                 applied=False, applied_at=None, drift=False, checksum=checksum

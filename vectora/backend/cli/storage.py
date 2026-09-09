@@ -343,7 +343,12 @@ async def _storage_migrate(
 
         elif subaction == "plan":
             plan = await runner.plan()
-            state = "pendente" if plan["will_apply"] else "atualizado"
+            if not plan["applied"]:
+                state = "pendente"
+            elif plan["drift"]:
+                state = "drift"
+            else:
+                state = "atualizado"
             console.print(
                 f"[cyan]Plano de migration:[/cyan] {state}; "
                 f"{plan['statement_count']} statements; "
