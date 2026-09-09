@@ -284,11 +284,16 @@ async def test_analyze_video_provider_sem_entrada_de_video_avisa(monkeypatch, tm
 async def test_analyze_video_responde_e_arquivo_inexistente_e_recusado(
     monkeypatch, tmp_path
 ):
+    from backend.settings import settings
+
+    monkeypatch.setattr(settings, "vectora_home", tmp_path)
+
     async def _fake(_provider, _model, path, question):
         return f"vi {Path(path).name} e você perguntou: {question}"
 
     monkeypatch.setattr(media, "_analyze_video_text", _fake)
-    arquivo = tmp_path / "v.mp4"
+    arquivo = tmp_path / "artifacts" / "t-video" / "media" / "v.mp4"
+    arquivo.parent.mkdir(parents=True)
     arquivo.write_bytes(b"conteudo")
 
     saida = json.loads(
@@ -314,12 +319,16 @@ async def test_analyze_video_responde_e_arquivo_inexistente_e_recusado(
 @pytest.mark.asyncio
 async def test_analyze_video_falha_do_sdk_vira_erro_tipado(monkeypatch, tmp_path):
     """Tool nunca propaga exceção — vira observação pro LLM."""
+    from backend.settings import settings
+
+    monkeypatch.setattr(settings, "vectora_home", tmp_path)
 
     async def _explode(*_a, **_k):
         raise RuntimeError("quota estourada")
 
     monkeypatch.setattr(media, "_analyze_video_text", _explode)
-    arquivo = tmp_path / "v.mp4"
+    arquivo = tmp_path / "artifacts" / "t-video" / "media" / "v.mp4"
+    arquivo.parent.mkdir(parents=True)
     arquivo.write_bytes(b"conteudo")
 
     saida = json.loads(

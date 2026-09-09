@@ -95,12 +95,6 @@ class TestResumeChatUsesSameNativeAgentAsStreamChat:
             )
             stack.enter_context(
                 patch(
-                    "backend.api.handlers.threads._assert_owns_thread",
-                    new=AsyncMock(),
-                )
-            )
-            stack.enter_context(
-                patch(
                     "backend.api.handlers.chat.run_conversation",
                     new=AsyncMock(return_value=LoopResult(stopped_reason="stop")),
                 )
@@ -210,6 +204,7 @@ class TestResumeChatUsesSameNativeAgentAsStreamChat:
                     new=AsyncMock(),
                 )
             )
+
             import backend.api.handlers.chat as chat_mod
 
             http_request = MagicMock()

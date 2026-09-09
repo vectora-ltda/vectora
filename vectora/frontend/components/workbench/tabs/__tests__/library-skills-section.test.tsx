@@ -111,6 +111,7 @@ describe("SkillsSection — Catálogo", () => {
 
   it("instalar chama POST /skills com o source da skill", async () => {
     mockFetch();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<SkillsSection query="" onCountChange={() => {}} />);
     await waitFor(() => screen.getByText("PDF Extract"));
 
@@ -121,7 +122,10 @@ describe("SkillsSection — Catálogo", () => {
         "/skills",
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({ source: CATALOG[0].source }),
+          body: JSON.stringify({
+            source: CATALOG[0].source,
+            confirm_unverified: true,
+          }),
         }),
       );
     });

@@ -178,6 +178,9 @@ export function GitTab(_props: { threadId: string }) {
   const invalidateDiff = useWorkbenchStore((s) => s.invalidateDiff);
   const clearPending = useWorkbenchStore((s) => s.clearPending);
   const setGitOperation = useWorkbenchStore((s) => s.setGitOperation);
+  const gitOps = useWorkbenchStore(
+    (s) => s.getGitOps?.(wsId) ?? { operation: null },
+  );
 
   const [view, setView] = useState<GitView>("changes");
   const [compareOpen, setCompareOpen] = useState(false);
@@ -300,6 +303,7 @@ export function GitTab(_props: { threadId: string }) {
         onOpenWorktrees={() => setWorktreesOpen(true)}
         onOpenPR={handleOpenPR}
         onChanged={handleChanged}
+        operation={gitOps.operation}
       />
 
       {lastCi && (
@@ -330,8 +334,59 @@ export function GitTab(_props: { threadId: string }) {
         </a>
       )}
 
-      {compareOpen ? (
-        <div className="flex-1 min-h-0">
+      <div
+        className="flex shrink-0 border-b border-border/60"
+        role="tablist"
+        aria-label={m.workbench_git_documents()}
+      >
+        <button
+          onClick={() => {
+            setCompareOpen(false);
+            setView("changes");
+          }}
+          aria-pressed={!compareOpen && view === "changes"}
+          role="tab"
+          aria-selected={!compareOpen && view === "changes"}
+          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+            !compareOpen && view === "changes"
+              ? "border-b-2 border-primary text-foreground -mb-px"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {m.workbench_diff_tab_changes()}
+        </button>
+        <button
+          onClick={() => {
+            setCompareOpen(false);
+            setView("history");
+          }}
+          aria-pressed={!compareOpen && view === "history"}
+          role="tab"
+          aria-selected={!compareOpen && view === "history"}
+          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+            !compareOpen && view === "history"
+              ? "border-b-2 border-primary text-foreground -mb-px"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {m.workbench_git_tab_history()}
+        </button>
+        <button
+          role="tab"
+          aria-selected={compareOpen}
+          aria-pressed={compareOpen}
+          onClick={() => setCompareOpen(true)}
+          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+            compareOpen
+              ? "border-b-2 border-primary text-foreground -mb-px"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          {m.workbench_git_document_compare()}
+        </button>
+      </div>
+      <div className="flex-1 min-h-0">
+        {compareOpen ? (
           <CompareView
             workspaceId={wsId}
             branches={branches?.branches ?? []}
@@ -340,43 +395,12 @@ export function GitTab(_props: { threadId: string }) {
             onChanged={handleChanged}
             onOpenPR={handleOpenPR}
           />
-        </div>
-      ) : (
-        <>
-          {/* Barra de abas: só Mudanças | Histórico */}
-          <div className="flex shrink-0 border-b border-border/60">
-            <button
-              onClick={() => setView("changes")}
-              aria-pressed={view === "changes"}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                view === "changes"
-                  ? "border-b-2 border-primary text-foreground -mb-px"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {m.workbench_diff_tab_changes()}
-            </button>
-            <button
-              onClick={() => setView("history")}
-              aria-pressed={view === "history"}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                view === "history"
-                  ? "border-b-2 border-primary text-foreground -mb-px"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {m.workbench_git_tab_history()}
-            </button>
-          </div>
-          <div className="flex-1 min-h-0">
-            {view === "changes" ? (
-              <ChangesView workspaceId={wsId} summary={summary} />
-            ) : (
-              <HistoryView workspaceId={wsId} onChanged={handleChanged} />
-            )}
-          </div>
-        </>
-      )}
+        ) : view === "changes" ? (
+          <ChangesView workspaceId={wsId} summary={summary} />
+        ) : (
+          <HistoryView workspaceId={wsId} onChanged={handleChanged} />
+        )}
+      </div>
 
       <StashModal
         workspaceId={wsId}
