@@ -387,7 +387,9 @@ async def test_install_mcp_resolves_connector_from_remote_or_official_registry(
         ),
     )
 
-    result = await install_mcp(InstallRequest(mcp_id="com.example/foo"))
+    result = await install_mcp(
+        InstallRequest(mcp_id="com.example/foo", confirm_unverified=True)
+    )
 
     assert result["status"] == "installed"
     servers = _functional_store.list_servers("local")
@@ -419,7 +421,7 @@ async def test_install_wires_into_functional_store_and_tools(
     então get_user_mcp_tools inclui as tools dele."""
     plugins = _functional_store
 
-    req = InstallRequest(mcp_id=_REGISTRY[0].id)
+    req = InstallRequest(mcp_id=_REGISTRY[0].id, confirm_unverified=True)
     result = await install_mcp(req, user_id="local")
     assert result["status"] == "installed"
 
@@ -473,7 +475,9 @@ async def test_uninstall_removes_from_functional_store(_functional_store):
     """Desinstalar remove do store funcional; remover o que não existe →
     not_found (não erro)."""
     plugins = _functional_store
-    await install_mcp(InstallRequest(mcp_id=_REGISTRY[0].id), user_id="local")
+    await install_mcp(
+        InstallRequest(mcp_id=_REGISTRY[0].id, confirm_unverified=True), user_id="local"
+    )
     assert plugins.list_servers("local")
 
     removed = await uninstall_mcp(UninstallRequest(mcp_id=_REGISTRY[0].id), "local")
@@ -523,7 +527,9 @@ async def test_install_uninstall_mcp_tratam_excecao_do_store(
         raise RuntimeError("arquivo corrompido")
 
     monkeypatch.setattr(_functional_store, "add_server", _boom_add)
-    out_install = await install_mcp(InstallRequest(mcp_id=_REGISTRY[0].id))
+    out_install = await install_mcp(
+        InstallRequest(mcp_id=_REGISTRY[0].id, confirm_unverified=True)
+    )
     assert out_install["status"] == "error"
     assert "disco cheio" in out_install["error"]
 
