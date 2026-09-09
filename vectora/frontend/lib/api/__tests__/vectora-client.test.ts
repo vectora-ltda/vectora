@@ -14,6 +14,7 @@ import {
   getThreadPins,
   setThreadPins,
   updateThread,
+  markThreadRead,
 } from "@/lib/api/vectora-client";
 
 function jsonResponse(data: unknown, status = 200) {
@@ -33,6 +34,19 @@ beforeEach(() => {
 });
 
 describe("RPCs simples", () => {
+  it("markThreadRead: faz POST com id codificado e credenciais", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ unread_count: 0 }));
+
+    await markThreadRead("thread com espaço/");
+
+    const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(String(url)).toContain(
+      "/threads/thread%20com%20espa%C3%A7o%2F/read",
+    );
+    expect(opts.method).toBe("POST");
+    expect(opts.credentials).toBe("include");
+  });
+
   it("generateTitle: POST GenerateTitle com thread_id e retorna {title}", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ title: "Plano de deploy" }));
     const r = await generateTitle("t1");

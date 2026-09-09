@@ -384,3 +384,70 @@ class TestCreateThreadRegistersOwnership:
         session = await session_store.get_session(thread.id)
         assert session is not None
         assert session["mode"] == "code"
+
+
+class TestMarkThreadRead:
+    """Garante que o cursor de leitura é isolado, monotônico e idempotente."""
+
+    async def test_cursor_isolado_por_usuario(self, session_store) -> None:
+        await session_store.create_session("thread-alice", user_id="alice")
+        await th._upsert_session("thread-alice")
+        await th._increment_message_count("thread-alice")
+        await th._increment_message_count("thread-alice")
+
+        result = await th.mark_thread_read("thread-alice", _http_request("alice"))
+
+        assert result == {"thread_id": "thread-alice", "unread_count": 0}
+        assert await th._unread_count("thread-alice", "alice") == 0
+        assert await th._unread_count("thread-alice", "bob") == 2
+
+    async def test_usuario_sem_posse_recebe_404(self, session_store) -> None:
+        await session_store.create_session("thread-alice", user_id="alice")
+        await th._upsert_session("thread-alice")
+        await th._increment_message_count("thread-alice")
+
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            await th.mark_thread_read("thread-alice", _http_request("bob"))
+
+        assert exc_info.value.status_code == 404
+
+    async def test_repetir_leitura_e_idempotente_e_novas_mensagens_voltam_a_contar(
+        self, session_store
+    ) -> None:
+        await session_store.create_session("thread-alice", user_id="alice")
+        await th._upsert_session("thread-alice")
+        await th._increment_message_count("thread-alice")
+
+        await th.mark_thread_read("thread-alice", _http_request("alice"))
+        await th.mark_thread_read("thread-alice", _http_request("alice"))
+        assert await th._unread_count("thread-alice", "alice") == 0
+
+        await th._increment_message_count("thread-alice")
+        assert await th._unread_count("thread-alice", "alice") == 1
+
+    async def test_cursor_nao_regride_em_atualizacao_concorrente(
+        self, session_store
+    ) -> None:
+        await session_store.create_session("thread-alice", user_id="alice")
+        await th._upsert_session("thread-alice")
+        for _ in range(3):
+            await th._increment_message_count("thread-alice")
+
+        request = _http_request("alice")
+        await th.mark_thread_read("thread-alice", request)
+        db = await th._get_db()
+        await db.execute(
+            "UPDATE vectora_sessions SET message_count = 2 WHERE thread_id = ?",
+            ("thread-alice",),
+        )
+        await db.commit()
+        await th.mark_thread_read("thread-alice", request)
+
+        async with db.execute(
+            "SELECT read_count FROM thread_read_cursors WHERE thread_id = ? AND user_id = ?",
+            ("thread-alice", "alice"),
+        ) as cursor:
+            row = await cursor.fetchone()
+        assert row == (3,)
