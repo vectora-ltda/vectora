@@ -335,16 +335,31 @@ export function GitTab(_props: { threadId: string }) {
       )}
 
       {compareOpen ? (
-        <div className="flex-1 min-h-0">
-          <CompareView
-            workspaceId={wsId}
-            branches={branches?.branches ?? []}
-            current={status?.branch || branches?.current || ""}
-            onBack={() => setCompareOpen(false)}
-            onChanged={handleChanged}
-            onOpenPR={handleOpenPR}
-          />
-        </div>
+        <>
+          <div
+            className="flex shrink-0 border-b border-border/60"
+            role="tablist"
+          >
+            <button
+              role="tab"
+              aria-selected
+              onClick={() => setCompareOpen(true)}
+              className="px-3 py-1.5 text-xs font-medium border-b-2 border-primary text-foreground -mb-px"
+            >
+              {m.workbench_git_document_compare()}
+            </button>
+          </div>
+          <div className="flex-1 min-h-0">
+            <CompareView
+              workspaceId={wsId}
+              branches={branches?.branches ?? []}
+              current={status?.branch || branches?.current || ""}
+              onBack={() => setCompareOpen(false)}
+              onChanged={handleChanged}
+              onOpenPR={handleOpenPR}
+            />
+          </div>
+        </>
       ) : (
         <>
           {/* Barra de abas: só Mudanças | Histórico */}

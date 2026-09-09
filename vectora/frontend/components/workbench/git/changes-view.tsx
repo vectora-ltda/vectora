@@ -275,24 +275,46 @@ export function ChangesView({
   }, [workspaceId, invalidateDiff]);
 
   const stageSelected = useCallback(async () => {
+    const eligible = new Set(
+      summary.files
+        .filter((file) => file.unstaged_change || file.untracked)
+        .map((file) => file.path),
+    );
     await Promise.all(
-      gitOps.selectedFiles.map((path) =>
-        apiGitFileAction(workspaceId, "stage", path),
-      ),
+      gitOps.selectedFiles
+        .filter((path) => eligible.has(path))
+        .map((path) => apiGitFileAction(workspaceId, "stage", path)),
     );
     clearGitSelection?.(workspaceId);
     handleRefresh();
-  }, [clearGitSelection, gitOps.selectedFiles, handleRefresh, workspaceId]);
+  }, [
+    clearGitSelection,
+    gitOps.selectedFiles,
+    handleRefresh,
+    workspaceId,
+    summary.files,
+  ]);
 
   const unstageSelected = useCallback(async () => {
+    const eligible = new Set(
+      summary.files
+        .filter((file) => file.staged_change)
+        .map((file) => file.path),
+    );
     await Promise.all(
-      gitOps.selectedFiles.map((path) =>
-        apiGitFileAction(workspaceId, "unstage", path),
-      ),
+      gitOps.selectedFiles
+        .filter((path) => eligible.has(path))
+        .map((path) => apiGitFileAction(workspaceId, "unstage", path)),
     );
     clearGitSelection?.(workspaceId);
     handleRefresh();
-  }, [clearGitSelection, gitOps.selectedFiles, handleRefresh, workspaceId]);
+  }, [
+    clearGitSelection,
+    gitOps.selectedFiles,
+    handleRefresh,
+    workspaceId,
+    summary.files,
+  ]);
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, file: DiffFile) => {
