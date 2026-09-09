@@ -20,8 +20,9 @@ afterEach(() => {
 
 describe("Header — ícone/título duplicado no desktop", () => {
   it("mostra o ícone e o título Vectora fora do desktop (browser puro)", () => {
-    render(<Header />);
+    const { container } = render(<Header />);
     expect(screen.getByText("Vectora")).toBeInTheDocument();
+    expect(container.firstElementChild).toHaveClass("safe-area-top-header");
   });
 
   it("esconde o ícone e o título quando window.vectora existe (já aparecem na TitleBar)", async () => {

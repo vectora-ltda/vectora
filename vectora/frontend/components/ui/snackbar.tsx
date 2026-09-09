@@ -4,6 +4,7 @@ import * as React from "react";
 import { X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { m } from "@/lib/paraglide/messages";
 
 interface SnackbarProps {
   message: string;
@@ -43,7 +44,7 @@ export function Snackbar({
       role="status"
       aria-live="polite"
       className={cn(
-        "pointer-events-auto fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded-md px-4 py-3 text-sm shadow-lg backdrop-blur-sm animate-in slide-in-from-bottom-5 fade-in-0",
+        "safe-area-bottom-snackbar safe-area-right-snackbar pointer-events-auto fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded-md px-4 py-3 text-sm shadow-lg backdrop-blur-sm animate-in slide-in-from-bottom-5 fade-in-0",
         variantStyles[variant],
         className,
       )}
@@ -62,7 +63,7 @@ export function Snackbar({
         <button
           type="button"
           onClick={onDismiss}
-          aria-label="Fechar"
+          aria-label={m.workbench_close()}
           className="shrink-0 rounded p-0.5 opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-current focus:ring-offset-2"
         >
           <X className="h-4 w-4" aria-hidden />
