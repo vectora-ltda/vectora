@@ -14,6 +14,7 @@ Canais:
     vectora:tools      {"user_id", "version"}  → plugins + llm_tools
     vectora:policy     {"user_id", "version"}  → tool_policy + llm_tools
     vectora:ws-active  {"user_id", "workspace_id"} → workspace_registry
+    vectora:mcp-policy {"version"} → allowlist MCP e caches
     vectora:sse        WebhookEvent serializado → SSE de background_tasks/RAG
 
 Em modo lite (MemoryKV) o publish entrega no próprio processo — inofensivo.
@@ -23,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Literal, cast
 
 from backend.persistence.kv import get_kv, kv_initialized
 
@@ -31,6 +33,7 @@ logger = logging.getLogger(__name__)
 CHANNEL_TOOLS = "vectora:tools"
 CHANNEL_POLICY = "vectora:policy"
 CHANNEL_WS_ACTIVE = "vectora:ws-active"
+CHANNEL_MCP_POLICY = "vectora:mcp-policy"
 
 
 def _parse(payload: str) -> dict:
@@ -45,11 +48,18 @@ def _on_tools_changed(payload: str) -> None:
     data = _parse(payload)
     user_id = str(data.get("user_id", ""))
     version = int(data.get("version", 0))
+    scope = cast(
+        "Literal['user', 'workspace', 'project', 'runtime']",
+        str(data.get("scope", "user")),
+    )
+    target = data.get("target")
     if not user_id:
         return
     from backend.workspace import plugins
 
-    plugins.apply_remote_version(user_id, version)
+    plugins.apply_remote_version(
+        user_id, version, scope, str(target) if target else None
+    )
 
 
 def _on_policy_changed(payload: str) -> None:
@@ -61,6 +71,21 @@ def _on_policy_changed(payload: str) -> None:
     from backend.rbac import tool_policy
 
     tool_policy.apply_remote_version(user_id, version)
+
+
+def _on_mcp_policy_changed(payload: str) -> None:
+    data = _parse(payload)
+    version = int(data.get("version", 0))
+    if version <= 0:
+        return
+    from backend.services import mcp_policy
+
+    rules = data.get("rules")
+    snapshot = rules if isinstance(rules, list) else None
+    origin = data.get("origin")
+    mcp_policy.apply_remote_version(
+        version, snapshot, origin if isinstance(origin, str) else None
+    )
 
 
 def _on_ws_active_changed(payload: str) -> None:
@@ -81,6 +106,7 @@ async def start_cache_sync() -> None:
     kv = await get_kv()
     kv.subscribe(CHANNEL_TOOLS, _on_tools_changed)
     kv.subscribe(CHANNEL_POLICY, _on_policy_changed)
+    kv.subscribe(CHANNEL_MCP_POLICY, _on_mcp_policy_changed)
     kv.subscribe(CHANNEL_WS_ACTIVE, _on_ws_active_changed)
     kv.subscribe(CHANNEL_SSE, on_remote_sse_event)
     await kv.start()

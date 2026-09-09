@@ -747,8 +747,27 @@ async def stream_chat(
         "workspace_id": workspace_id or None,
     }
     try:
+        project_root = None
+        if workspace_id:
+            from backend.workspace.workspace import workspace_registry
+
+            workspace = workspace_registry.get(workspace_id)
+            project_root = str(workspace.cwd) if workspace is not None else None
         native_agent = await agent_factory.get_native_agent(
-            user_id, chat_mode=chat_mode, workspace_id=workspace_id or None
+            user_id,
+            chat_mode=chat_mode,
+            workspace_id=workspace_id or None,
+            project_root=project_root,
+            runtime_id=thread_id,
+        )
+        from backend.services.tool_resolver import resolve_registry
+
+        effective_tool_registry = await resolve_registry(
+            user_id,
+            native_agent.tool_registry,
+            workspace_id=workspace_id or "",
+            project_root=project_root,
+            runtime_id=thread_id,
         )
         session_store = await agent_factory.get_session_store()
     except Exception as exc:
@@ -893,7 +912,7 @@ async def stream_chat(
         result = await run_conversation(
             session_store=session_store,
             chat_client=chat_client,
-            tool_registry=native_agent.tool_registry,
+            tool_registry=effective_tool_registry,
             ctx=run_ctx,
             thread_id=thread_id,
             config=loop_config,
@@ -962,10 +981,27 @@ async def resume_chat(
         )
 
     try:
+        project_root = None
+        if selector_workspace_id:
+            from backend.workspace.workspace import workspace_registry
+
+            workspace = workspace_registry.get(selector_workspace_id)
+            project_root = str(workspace.cwd) if workspace is not None else None
         native_agent = await agent_factory.get_native_agent(
             resume_user_id,
             chat_mode=selector_chat_mode,
             workspace_id=selector_workspace_id,
+            project_root=project_root,
+            runtime_id=request.thread_id,
+        )
+        from backend.services.tool_resolver import resolve_registry
+
+        effective_tool_registry = await resolve_registry(
+            resume_user_id,
+            native_agent.tool_registry,
+            workspace_id=selector_workspace_id or "",
+            project_root=project_root,
+            runtime_id=request.thread_id,
         )
         session_store = await agent_factory.get_session_store()
         approval_gate = await agent_factory.get_approval_gate()
@@ -993,7 +1029,7 @@ async def resume_chat(
         run_ctx.store = await agent_factory.get_store()
         resumed = await resume_conversation(
             session_store=session_store,
-            tool_registry=native_agent.tool_registry,
+            tool_registry=effective_tool_registry,
             ctx=run_ctx,
             thread_id=request.thread_id,
             decision=decision,
@@ -1017,7 +1053,7 @@ async def resume_chat(
         result = await run_conversation(
             session_store=session_store,
             chat_client=chat_client,
-            tool_registry=native_agent.tool_registry,
+            tool_registry=effective_tool_registry,
             ctx=run_ctx,
             thread_id=request.thread_id,
             config=loop_config,
@@ -1055,7 +1091,10 @@ async def get_tools(http_request: Request) -> GetToolsResponse:
     try:
         from backend.services.tool_resolver import resolve_tools
 
-        resolved = await resolve_tools(_user_id_from_request(http_request))
+        workspace_id = str(getattr(http_request.state, "workspace_id", "") or "")
+        resolved = await resolve_tools(
+            _user_id_from_request(http_request), workspace_id=workspace_id
+        )
     except Exception as exc:
         logger.warning("api/chat: não foi possível resolver tools: %s", exc)
         return GetToolsResponse(tools=[])
