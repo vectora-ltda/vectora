@@ -44,6 +44,7 @@ _AUDIO_MIME_BY_SUFFIX = {
     ".m4a": "audio/mp4",
     ".webm": "audio/webm",
     ".ogg": "audio/ogg",
+    ".opus": "audio/opus",
 }
 
 
@@ -115,6 +116,7 @@ def _validate_audio(data: bytes, filename: str, mime_type: str) -> None:
         ".m4a": len(data) >= 12 and data[4:8] == b"ftyp",
         ".webm": data.startswith(b"\x1a\x45\xdf\xa3"),
         ".ogg": data.startswith(b"OggS"),
+        ".opus": data.startswith(b"OggS"),
     }
     if not signature[suffix]:
         raise TranscriptionError(
