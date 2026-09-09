@@ -82,6 +82,20 @@ class TestAppendMessageEGetHistory:
         await store.set_branch_head("thread-branches", old_head)
         assert await store.get_branch_head_id("thread-branches") == old_head
 
+    async def test_rejeita_selecao_de_mensagem_intermediaria(self, store: SessionStore):
+        await store.create_session("thread-branches", user_id="alice")
+        root = await store.append_message(
+            "thread-branches", text_message(MessageRole.USER, "pergunta")
+        )
+        await store.append_message(
+            "thread-branches",
+            text_message(MessageRole.ASSISTANT, "resposta"),
+            parent_message_id=root,
+        )
+
+        with pytest.raises(ValueError, match="não pertence"):
+            await store.set_branch_head("thread-branches", root)
+
     async def test_round_trip_preserva_ordem_e_conteudo(self, store: SessionStore):
         await store.create_session("thread-1", user_id="alice")
         id1 = await store.append_message(
