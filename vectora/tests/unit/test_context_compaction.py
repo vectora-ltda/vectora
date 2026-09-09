@@ -1,4 +1,4 @@
-from backend.services.context_compaction import compact_messages
+from backend.services.context_compaction import _message_tokens, compact_messages
 from backend.vtypes.message import (
     ContentBlock,
     MessageRole,
@@ -54,3 +54,14 @@ def test_compaction_keeps_tool_call_and_results_together() -> None:
         MessageRole.USER,
     ]
     assert compacted[-2].tool_call_id == "call-1"
+
+
+def test_compaction_descarta_unidade_recente_maior_que_orcamento() -> None:
+    messages = [
+        text_message(MessageRole.USER, "histórico antigo " * 40),
+        text_message(MessageRole.USER, "mensagem recente " * 200),
+    ]
+
+    compacted = compact_messages(messages, max_tokens=20)
+
+    assert sum(_message_tokens(message) for message in compacted) <= 20

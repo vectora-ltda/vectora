@@ -74,7 +74,7 @@ def compact_messages(
         used = 0
     for unit in reversed(units):
         cost = sum(_message_tokens(message) for message in unit)
-        if used + cost > max_tokens and selected_units:
+        if used + cost > max_tokens:
             continue
         selected_units.append(unit)
         used += cost
