@@ -30,6 +30,7 @@ import subprocess  # nosec B404 — git clone controlado, sem shell=True
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import RLock
 from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
@@ -73,6 +74,7 @@ _versions: dict[str, int] = {}
 SkillScope = Literal["user", "workspace", "project", "runtime"]
 _runtime_skills: dict[str, list[Skill]] = {}
 _runtime_skill_dirs: dict[str, Path] = {}
+_mutation_lock = RLock()
 
 
 def skills_version(user_id: str) -> int:
@@ -491,7 +493,7 @@ class InstallSkillRequest(BaseModel):
     confirm_unverified: bool = False
 
 
-def install_skill(
+def _install_skill_unlocked(
     user_id: str,
     source: str,
     scope: SkillScope = "user",
@@ -678,7 +680,26 @@ def install_skill(
     return skill
 
 
-def install_skill_from_content(
+def install_skill(
+    user_id: str,
+    source: str,
+    scope: SkillScope = "user",
+    target: str | None = None,
+    *,
+    confirm_unverified: bool = False,
+) -> Skill:
+    """Instala uma skill com exclusão mútua das mutações de skills."""
+    with _mutation_lock:
+        return _install_skill_unlocked(
+            user_id,
+            source,
+            scope,
+            target,
+            confirm_unverified=confirm_unverified,
+        )
+
+
+def _install_skill_from_content_unlocked(
     user_id: str, name: str, description: str, content: str
 ) -> Skill:
     """Instala uma skill a partir de conteúdo gerado em memória pelo loop de
@@ -745,7 +766,15 @@ def install_skill_from_content(
     return skill
 
 
-def remove_skill(
+def install_skill_from_content(
+    user_id: str, name: str, description: str, content: str
+) -> Skill:
+    """Instala conteúdo gerado com exclusão mútua das mutações de skills."""
+    with _mutation_lock:
+        return _install_skill_from_content_unlocked(user_id, name, description, content)
+
+
+def _remove_skill_unlocked(
     user_id: str,
     skill_id: str,
     scope: SkillScope = "user",
@@ -790,6 +819,17 @@ def remove_skill(
             shutil.rmtree(backup, ignore_errors=True)
     _bump_version(user_id)
     return True
+
+
+def remove_skill(
+    user_id: str,
+    skill_id: str,
+    scope: SkillScope = "user",
+    target: str | None = None,
+) -> bool:
+    """Remove uma skill com exclusão mútua das mutações de skills."""
+    with _mutation_lock:
+        return _remove_skill_unlocked(user_id, skill_id, scope, target)
 
 
 def verify_skill(

@@ -371,9 +371,20 @@ def _build_skills_context(
     if not user_id or user_id == "local":
         return None
     try:
+        workspace_target = ""
+        if workspace_id:
+            from backend.workspace.workspace import workspace_registry
+
+            workspace = workspace_registry.get(workspace_id)
+            if workspace is None:
+                logger.warning(
+                    "agent_factory: workspace não encontrado: %s", workspace_id
+                )
+                return None
+            workspace_target = workspace.cwd
         paths = list_skill_paths(
             user_id,
-            workspace_id=workspace_id or "",
+            workspace_id=workspace_target,
             project_root=project_root,
             runtime_id=runtime_id,
         )
