@@ -34,6 +34,7 @@ from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
 import yaml
+import yaml.resolver
 from pydantic import BaseModel
 
 from backend.services import extension_trust
@@ -46,6 +47,24 @@ _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 _KV_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)\s*:\s*(.+?)\s*$")
 _PINNED_SOURCE_RE = re.compile(
     r"^(?P<url>[^#]+)#(?P<revision>[0-9a-f]{40}):(?P<path>.+)$"
+)
+
+
+def _strict_mapping(
+    loader: yaml.SafeLoader, node: yaml.MappingNode, deep: bool = False
+) -> dict[object, object]:
+    """Rejeita chaves YAML duplicadas antes de construir o mapa."""
+    mapping: dict[object, object] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            raise ValueError(f"chave duplicada no frontmatter: {key}")
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+yaml.SafeLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _strict_mapping
 )
 
 #: Versão por usuário — bumpada em add/remove para invalidar caches downstream
@@ -157,7 +176,22 @@ def _save_index(
         raise ValueError("índice de skills não pode ser um symlink")
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {"skills": [s.model_dump() for s in skills]}
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as temporary:
+        temporary.write(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+        temporary.flush()
+        os.fsync(temporary.fileno())
+        temporary_path = Path(temporary.name)
+    try:
+        temporary_path.replace(path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +211,16 @@ def _parse_frontmatter(text: str) -> dict[str, object]:
     loaded = yaml.safe_load(match.group(1))
     if not isinstance(loaded, dict):
         raise ValueError("frontmatter YAML inválido")
-    return {str(key): value for key, value in loaded.items() if isinstance(key, str)}
+    allowed = {"name", "description", "version", "category", "tags", "requires_skills"}
+    if any(not isinstance(key, str) or key not in allowed for key in loaded):
+        raise ValueError("campo desconhecido no frontmatter")
+    for key in ("name", "description", "version"):
+        if key not in loaded or not isinstance(loaded[key], str):
+            raise ValueError(f"{key} deve ser uma string no frontmatter")
+    requirements = loaded.get("requires_skills")
+    if isinstance(requirements, str):
+        raise ValueError("requires_skills deve ser um mapa ou lista YAML")
+    return dict(loaded)
 
 
 def _read_skill_metadata(skill_root: Path) -> tuple[str, str]:
@@ -233,12 +276,6 @@ def _skill_lock_entry(skill: Skill) -> dict[str, object]:
                 raise ValueError(f"requires_skills inválido para skill {skill.id}")
             if dependency in requirements:
                 raise ValueError(f"dependência duplicada para skill {skill.id}")
-            requirements[dependency.strip()] = constraint.strip()
-    elif isinstance(raw_requirements, str):
-        for item in raw_requirements.split(",") if raw_requirements.strip() else []:
-            dependency, separator, constraint = item.partition(":")
-            if not separator or not dependency.strip() or not constraint.strip():
-                raise ValueError(f"requires_skills inválido para skill {skill.id}")
             requirements[dependency.strip()] = constraint.strip()
     else:
         raise ValueError(f"requires_skills inválido para skill {skill.id}")

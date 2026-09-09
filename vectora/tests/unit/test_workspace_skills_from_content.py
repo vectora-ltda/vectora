@@ -43,6 +43,25 @@ def test_install_skill_from_content_empty_name_or_description_raises() -> None:
         skills.install_skill_from_content("u1", "Nome", "  ", "corpo")
 
 
+def test_frontmatter_rejeita_tipos_campos_desconhecidos_e_csv() -> None:
+    with pytest.raises(ValueError, match="name deve ser uma string"):
+        skills._parse_frontmatter(
+            "---\nname: 42\ndescription: ok\nversion: 1.0.0\n---\n"
+        )
+    with pytest.raises(ValueError, match="campo desconhecido"):
+        skills._parse_frontmatter(
+            "---\nname: n\ndescription: d\nversion: 1.0.0\nextra: x\n---\n"
+        )
+    with pytest.raises(ValueError, match="requires_skills"):
+        skills._parse_frontmatter(
+            "---\nname: n\ndescription: d\nversion: 1.0.0\nrequires_skills: base:^1.0.0\n---\n"
+        )
+    with pytest.raises(ValueError, match="duplicada"):
+        skills._parse_frontmatter(
+            "---\nname: n\nname: n2\ndescription: d\nversion: 1.0.0\n---\n"
+        )
+
+
 def test_runtime_skill_install_uses_session_scoped_memory(tmp_path) -> None:
     source = tmp_path / "runtime-skill"
     source.mkdir()
