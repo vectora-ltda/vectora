@@ -113,6 +113,12 @@ class TestResumeChatUsesSameNativeAgentAsStreamChat:
             )
             stack.enter_context(
                 patch(
+                    "backend.api.handlers.threads._assert_owns_thread",
+                    new=AsyncMock(),
+                )
+            )
+            stack.enter_context(
+                patch(
                     "backend.workspace.workspace.workspace_registry",
                     _mock_registry("ws-resume-test"),
                 )
@@ -190,6 +196,12 @@ class TestResumeChatUsesSameNativeAgentAsStreamChat:
                 patch(
                     "backend.services.agent_factory.get_store",
                     new=AsyncMock(return_value=None),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "backend.api.handlers.threads._assert_owns_thread",
+                    new=AsyncMock(),
                 )
             )
 

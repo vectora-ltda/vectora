@@ -47,6 +47,16 @@ _MIME_BY_EXT = {
     "ogg": "audio/ogg",
     "wav": "audio/wav",
 }
+_SUFFIX_BY_MIME = {
+    "audio/mp4": "m4a",
+    "audio/opus": "opus",
+}
+
+
+def _audio_suffix(mime_type: str) -> str:
+    """Return a filename suffix accepted by the shared STT validator."""
+    normalized = mime_type.lower().split(";", 1)[0]
+    return _SUFFIX_BY_MIME.get(normalized, normalized.split("/", 1)[-1])
 
 
 def _extract_video_id(url: str) -> str | None:
@@ -187,8 +197,17 @@ async def get_transcript(url: str, language: str = "") -> str:
         from backend.llm.transcription import transcribe_audio
 
         audio_bytes, mime_type = await asyncio.to_thread(_download_audio_sync, url)
-        ext = mime_type.split("/")[-1]
-        text = await transcribe_audio(audio_bytes, f"{video_id}.{ext}", mime_type)
+        ext = _audio_suffix(mime_type)
+        from backend.workspace.runtime_settings import runtime_settings
+
+        text = await transcribe_audio(
+            audio_bytes,
+            f"{video_id}.{ext}",
+            mime_type,
+            provider=runtime_settings.active_provider,
+            model=runtime_settings.active_model,
+            language="",
+        )
         return json.dumps(
             {
                 "transcript": text,

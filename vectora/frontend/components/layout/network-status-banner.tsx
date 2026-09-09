@@ -23,7 +23,7 @@ export function NetworkStatusBanner() {
       <div
         role="alert"
         aria-live="polite"
-        className="fixed top-0 inset-x-0 z-[55] flex items-center justify-center gap-2 bg-red-600/90 px-4 py-1.5 text-xs font-medium text-white shadow-md backdrop-blur-sm"
+        className="safe-area-top-banner fixed top-0 inset-x-0 z-[55] flex items-center justify-center gap-2 bg-red-600/90 px-4 py-1.5 text-xs font-medium text-white shadow-md backdrop-blur-sm"
       >
         <WifiOff className="h-3.5 w-3.5" aria-hidden />
         <span>{m.network_offline_banner()}</span>
@@ -35,7 +35,7 @@ export function NetworkStatusBanner() {
     <div
       role="status"
       aria-live="polite"
-      className="fixed top-0 inset-x-0 z-[55] flex items-center justify-center gap-2 bg-amber-500/90 px-4 py-1.5 text-xs font-medium text-amber-950 shadow-md backdrop-blur-sm"
+      className="safe-area-top-banner fixed top-0 inset-x-0 z-[55] flex items-center justify-center gap-2 bg-amber-500/90 px-4 py-1.5 text-xs font-medium text-amber-950 shadow-md backdrop-blur-sm"
     >
       <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
       <span>{m.network_reconnecting_banner()}</span>

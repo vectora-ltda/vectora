@@ -56,6 +56,11 @@ class TestIsPublicRoute:
 
         assert _is_public_route("/metrics") is False
 
+    def test_update_changelog_is_private(self):
+        from backend.api.middleware.auth import _is_public_route
+
+        assert _is_public_route("/api/updates/changelog") is False
+
     def test_sessions_background_tasks_are_private(self):
         """`/sessions` está em `_API_PREFIXES`, então rotas de tarefas em
         segundo plano (`/sessions/{thread_id}/background/*`, ver
@@ -252,6 +257,10 @@ class TestAuthMiddlewareIntegration:
 
     def test_private_route_without_token_returns_401(self, auth_client):
         r = auth_client.get("/auth/me")
+        assert r.status_code == 401
+
+    def test_update_changelog_without_token_returns_401(self, auth_client):
+        r = auth_client.get("/api/updates/changelog")
         assert r.status_code == 401
 
     def test_private_route_with_invalid_bearer_returns_401(self, auth_client):
