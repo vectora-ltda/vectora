@@ -80,6 +80,10 @@ _thread_permission_mode: dict[str, str] = {}
 #: do que o usuário de fato selecionou.
 _thread_graph_selector: dict[str, dict[str, Any]] = {}
 
+# Stable usage event for the current turn, retained across an interrupted HITL
+# run so ResumeChat can finalize it without double counting.
+_thread_usage_event_ids: dict[str, str] = {}
+
 # ---------------------------------------------------------------------------
 # F1 — Helpers de attachments multimodais
 # ---------------------------------------------------------------------------
@@ -603,6 +607,7 @@ async def stream_chat(
     recebido para continuar a conversa.
     """
     thread_id = request.thread_id or str(uuid.uuid4())
+    _thread_usage_event_ids.setdefault(thread_id, f"{thread_id}:{uuid.uuid4()}")
 
     # user_id alimenta o namespace de memória (user:<id>) — precisa bater com o
     # namespace lido por GET /memory (handlers/memory.py). Sem isso, save_memory
@@ -896,6 +901,7 @@ async def stream_chat(
 
         if (
             result.usage
+            and result.stopped_reason != "interrupted"
             and runtime_settings.get_frontend_prefs(user_id).get("weeklyInsightEnabled")
             is True
         ):
@@ -908,13 +914,16 @@ async def stream_chat(
                 await usage_insight_store.record(
                     db,
                     user_id=user_id,
-                    event_id=f"{thread_id}:completion",
-                    model=getattr(chat_client, "primary_model_id", None),
+                    event_id=_thread_usage_event_ids[thread_id],
+                    model=getattr(chat_client, "last_model_id", None)
+                    or getattr(chat_client, "primary_model_id", None),
                     input_tokens=result.usage.get("input_tokens"),
                     output_tokens=result.usage.get("output_tokens"),
                     total_tokens=result.usage.get("total_tokens"),
                     estimated_cost_cents=estimate_cost_cents(
-                        getattr(chat_client, "primary_model_id", ""), result.usage
+                        getattr(chat_client, "last_model_id", None)
+                        or getattr(chat_client, "primary_model_id", ""),
+                        result.usage,
                     ),
                     tool_names=list(result.tool_names),
                 )
@@ -922,6 +931,8 @@ async def stream_chat(
                 logger.warning(
                     "api/chat: falha ao registrar insight de uso", exc_info=True
                 )
+            else:
+                _thread_usage_event_ids.pop(thread_id, None)
         return result.stopped_reason
 
     return StreamingResponse(
@@ -1046,6 +1057,43 @@ async def resume_chat(
             should_require_approval=should_require_approval,
             approval_gate=approval_gate,
         )
+        from backend.workspace.runtime_settings import runtime_settings
+
+        if (
+            result.usage
+            and result.stopped_reason != "interrupted"
+            and runtime_settings.get_frontend_prefs(resume_user_id).get(
+                "weeklyInsightEnabled"
+            )
+            is True
+        ):
+            try:
+                from backend.api.handlers.threads import _get_db
+                from backend.scheduling.budget import estimate_cost_cents
+                from backend.services.usage_insights import usage_insight_store
+
+                db = await _get_db()
+                model_id = getattr(chat_client, "last_model_id", None) or selector_model
+                await usage_insight_store.record(
+                    db,
+                    user_id=resume_user_id,
+                    event_id=_thread_usage_event_ids.setdefault(
+                        request.thread_id, f"{request.thread_id}:{uuid.uuid4()}"
+                    ),
+                    model=model_id,
+                    input_tokens=result.usage.get("input_tokens"),
+                    output_tokens=result.usage.get("output_tokens"),
+                    total_tokens=result.usage.get("total_tokens"),
+                    estimated_cost_cents=estimate_cost_cents(model_id, result.usage),
+                    tool_names=list(result.tool_names),
+                )
+            except Exception:
+                logger.warning(
+                    "api/chat: falha ao registrar insight de uso (resume)",
+                    exc_info=True,
+                )
+            else:
+                _thread_usage_event_ids.pop(request.thread_id, None)
         return result.stopped_reason
 
     return StreamingResponse(
