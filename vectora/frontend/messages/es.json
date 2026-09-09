@@ -1066,6 +1066,8 @@
   "workbench_git_worktrees_title": "Worktrees",
   "workbench_git_back": "Volver",
   "workbench_git_ctx_stage": "Preparar",
+  "workbench_git_stage_selected": "Preparar {n} seleccionado(s)",
+  "workbench_git_unstage_selected": "Retirar {n} seleccionado(s)",
   "workbench_git_ctx_unstage": "Quitar de stage",
   "workbench_git_ctx_discard": "Descartar cambios",
   "workbench_git_ctx_stash_file": "Guardar este archivo",

@@ -43,11 +43,13 @@ function FileRow({
   file,
   onRefresh,
   onContextMenu,
+  selected,
 }: {
   workspaceId: string;
   file: DiffFile;
   onRefresh: () => void;
   onContextMenu: (e: React.MouseEvent, file: DiffFile) => void;
+  selected: boolean;
 }) {
   const open = useWorkbenchStore((s) =>
     s.getDiff(workspaceId).openFiles.includes(file.path),
@@ -59,6 +61,7 @@ function FileRow({
     (s) => s.getDiff(workspaceId).fileFetchedAt[file.path] ?? 0,
   );
   const setDiffOpenFile = useWorkbenchStore((s) => s.setDiffOpenFile);
+  const toggleSelection = useWorkbenchStore((s) => s.toggleGitFileSelection);
   const setDiffHunks = useWorkbenchStore((s) => s.setDiffHunks);
   const [discardOpen, setDiscardOpen] = useState(false);
 
@@ -113,6 +116,13 @@ function FileRow({
         onContextMenu={(e) => onContextMenu(e, file)}
       >
         <div className="flex items-center">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => toggleSelection(workspaceId, file.path)}
+            aria-label={file.path}
+            className="ml-2 accent-primary"
+          />
           <button
             onClick={() => setDiffOpenFile(workspaceId, file.path, !open)}
             className="flex-1 flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-muted/30 text-left min-w-0"
@@ -192,6 +202,7 @@ function DiffGroup({
   files,
   onRefresh,
   onContextMenu,
+  selectedFiles,
 }: {
   label: string;
   tone: string;
@@ -199,6 +210,7 @@ function DiffGroup({
   files: DiffFile[];
   onRefresh: () => void;
   onContextMenu: (e: React.MouseEvent, file: DiffFile) => void;
+  selectedFiles: string[];
 }) {
   const [open, setOpen] = useState(true);
   if (files.length === 0) return null;
@@ -224,6 +236,7 @@ function DiffGroup({
             file={f}
             onRefresh={onRefresh}
             onContextMenu={onContextMenu}
+            selected={selectedFiles.includes(f.path)}
           />
         ))}
     </div>
@@ -238,6 +251,16 @@ export function ChangesView({
   summary: DiffSummary;
 }) {
   const invalidateDiff = useWorkbenchStore((s) => s.invalidateDiff);
+  const gitOps = useWorkbenchStore(
+    (s) =>
+      s.getGitOps?.(workspaceId) ?? {
+        selectedFiles: [],
+        selectedHunks: {},
+        activeDocument: null,
+        operation: null,
+      },
+  );
+  const clearGitSelection = useWorkbenchStore((s) => s.clearGitSelection);
   const showError = useCallback((message: string) => {
     useToastStore.getState().error("Git", { description: message });
   }, []);
@@ -250,6 +273,26 @@ export function ChangesView({
   const handleRefresh = useCallback(() => {
     invalidateDiff(workspaceId);
   }, [workspaceId, invalidateDiff]);
+
+  const stageSelected = useCallback(async () => {
+    await Promise.all(
+      gitOps.selectedFiles.map((path) =>
+        apiGitFileAction(workspaceId, "stage", path),
+      ),
+    );
+    clearGitSelection?.(workspaceId);
+    handleRefresh();
+  }, [clearGitSelection, gitOps.selectedFiles, handleRefresh, workspaceId]);
+
+  const unstageSelected = useCallback(async () => {
+    await Promise.all(
+      gitOps.selectedFiles.map((path) =>
+        apiGitFileAction(workspaceId, "unstage", path),
+      ),
+    );
+    clearGitSelection?.(workspaceId);
+    handleRefresh();
+  }, [clearGitSelection, gitOps.selectedFiles, handleRefresh, workspaceId]);
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, file: DiffFile) => {
@@ -383,6 +426,7 @@ export function ChangesView({
           files={staged}
           onRefresh={handleRefresh}
           onContextMenu={handleContextMenu}
+          selectedFiles={gitOps.selectedFiles}
         />
         <DiffGroup
           label={m.workbench_diff_group_unstaged()}
@@ -391,6 +435,7 @@ export function ChangesView({
           files={unstaged}
           onRefresh={handleRefresh}
           onContextMenu={handleContextMenu}
+          selectedFiles={gitOps.selectedFiles}
         />
         {untracked.length > 0 && (
           <DiffGroup
@@ -400,10 +445,33 @@ export function ChangesView({
             files={untracked}
             onRefresh={handleRefresh}
             onContextMenu={handleContextMenu}
+            selectedFiles={gitOps.selectedFiles}
           />
         )}
       </div>
       <div className="border-t border-border/60 p-2 flex flex-col gap-1.5 bg-muted/10 shrink-0">
+        {gitOps.selectedFiles.length > 0 && (
+          <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={() => void stageSelected()}
+              className="text-[10px] px-2 py-1 rounded border border-border/60 hover:bg-muted/40"
+            >
+              {m.workbench_git_stage_selected({
+                n: gitOps.selectedFiles.length,
+              })}
+            </button>
+            <button
+              type="button"
+              onClick={() => void unstageSelected()}
+              className="text-[10px] px-2 py-1 rounded border border-border/60 hover:bg-muted/40"
+            >
+              {m.workbench_git_unstage_selected({
+                n: gitOps.selectedFiles.length,
+              })}
+            </button>
+          </div>
+        )}
         <input
           type="text"
           value={commitMsg}
