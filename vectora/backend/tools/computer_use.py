@@ -74,26 +74,58 @@ def _computer_use_enabled(workspace_id: str) -> bool:
         return False
 
 
-def _take_screenshot_sync(region: tuple[int, int, int, int] | None = None) -> bytes:
+def _native_window_handle(native: object) -> int:
+    """Obtém o HWND validado; falha fechado quando a API não existe."""
+    import platform
+
+    if platform.system() != "Windows":
+        return 0
+    handle = getattr(native, "_hWnd", getattr(native, "hwnd", None))
+    if not isinstance(handle, int) or handle <= 0:
+        raise RuntimeError("HWND nativa indisponível")
+    return handle
+
+
+def _take_screenshot_sync(
+    region: tuple[int, int, int, int] | None = None, window_handle: int | None = None
+) -> bytes:
     import io
 
-    import pyautogui
+    from PIL import ImageGrab
 
+    if window_handle is None:
+        raise RuntimeError("captura sem HWND validada")
+    image = ImageGrab.grab(bbox=region, window=window_handle)
     buffer = io.BytesIO()
-    pyautogui.screenshot(region=region).save(buffer, format="PNG")
+    image.save(buffer, format="PNG")
     return buffer.getvalue()
 
 
-def _click_sync(x: int, y: int) -> None:
-    import pyautogui
+def _click_sync(x: int, y: int, window_handle: int | None = None) -> None:
+    if window_handle is None:
+        raise RuntimeError("clique sem HWND validada")
+    import importlib
 
-    pyautogui.click(x=x, y=y)
+    win32api = importlib.import_module("win32api")
+    win32con = importlib.import_module("win32con")
+    win32gui = importlib.import_module("win32gui")
+    point = win32gui.ScreenToClient(window_handle, (x, y))
+    packed = win32api.MAKELONG(*point)
+    win32gui.PostMessage(
+        window_handle, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, packed
+    )
+    win32gui.PostMessage(window_handle, win32con.WM_LBUTTONUP, 0, packed)
 
 
-def _type_text_sync(text: str) -> None:
-    import pyautogui
+def _type_text_sync(text: str, window_handle: int | None = None) -> None:
+    if window_handle is None:
+        raise RuntimeError("entrada sem HWND validada")
+    import importlib
 
-    pyautogui.typewrite(text)
+    win32con = importlib.import_module("win32con")
+    win32gui = importlib.import_module("win32gui")
+    for char in text:
+        win32gui.PostMessage(window_handle, win32con.WM_CHAR, ord(char), 0)
 
 
 async def _audit_event(
@@ -183,7 +215,7 @@ async def select_desktop_window(window_id: str, ctx: ToolContext) -> str:
             {"status": "selected", **_window_payload(info)}, ensure_ascii=False
         )
     except Exception:
-        await _audit_event(ctx, "select_window", success=False, window_id=window_id)
+        await _audit_event(ctx, "select_window", success=False)
         return json.dumps({"status": "error", "code": "window_unavailable"})
 
 
@@ -280,8 +312,11 @@ async def computer_use(
         info = await asyncio.to_thread(desktop_window_registry.require_focus, selection)
 
         if action == "screenshot":
+            await asyncio.to_thread(desktop_window_registry.require_focus, selection)
             data = await asyncio.to_thread(
-                _take_screenshot_sync, (info.left, info.top, info.width, info.height)
+                _take_screenshot_sync,
+                (info.left, info.top, info.width, info.height),
+                _native_window_handle(selection.native),
             )
             directory = window_media_dir(ctx.thread_id)
             directory.mkdir(parents=True, exist_ok=True)
@@ -308,7 +343,12 @@ async def computer_use(
             ):
                 return json.dumps({"error": "click exige x e y"}, ensure_ascii=False)
             await asyncio.to_thread(desktop_window_registry.require_focus, selection)
-            await asyncio.to_thread(_click_sync, info.left + x, info.top + y)
+            await asyncio.to_thread(
+                _click_sync,
+                info.left + x,
+                info.top + y,
+                _native_window_handle(selection.native),
+            )
             await _audit_event(ctx, "click", success=True, window_id=info.window_id)
             return json.dumps(
                 {"status": "ok", "action": "click", "x": x, "y": y}, ensure_ascii=False
@@ -321,7 +361,9 @@ async def computer_use(
         if len(text.encode("utf-8")) > _MAX_TEXT_BYTES:
             return json.dumps({"status": "error", "code": "text_too_large"})
         await asyncio.to_thread(desktop_window_registry.require_focus, selection)
-        await asyncio.to_thread(_type_text_sync, text)
+        await asyncio.to_thread(
+            _type_text_sync, text, _native_window_handle(selection.native)
+        )
         await _audit_event(ctx, "type_text", success=True, window_id=info.window_id)
         return json.dumps({"status": "ok", "action": "type_text"}, ensure_ascii=False)
     except PermissionError:

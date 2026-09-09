@@ -24,7 +24,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from backend.services.desktop_windows import WindowInfo
+from backend.services.desktop_windows import DesktopWindowRegistry, WindowInfo
 from backend.tools import computer_use as cu
 from backend.tools.context import ToolContext
 
@@ -34,7 +34,9 @@ def _ctx(workspace_id: str = "ws1") -> ToolContext:
 
 
 class TestOptIn:
-    async def test_sem_secao_computer_use_recusa_sem_tocar_na_tela(self, monkeypatch):
+    async def test_sem_secao_computer_use_recusa_sem_tocar_na_tela(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Erro/borda: workspace sem `[computer_use]` — fail-closed, a tool
         nem chega perto do mouse/teclado."""
         chamou = {"screenshot": False}
@@ -49,7 +51,9 @@ class TestOptIn:
         assert "computer_use" in saida["error"]
         assert chamou["screenshot"] is False
 
-    async def test_com_secao_habilitada_a_tool_executa(self, monkeypatch):
+    async def test_com_secao_habilitada_a_tool_executa(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(cu, "_computer_use_enabled", lambda _workspace_id: True)
         monkeypatch.setattr(cu, "_take_screenshot_sync", lambda *_args: b"\x89PNG\r\n")
 
@@ -57,7 +61,9 @@ class TestOptIn:
 
         assert saida == {"status": "error", "code": "window_unavailable"}
 
-    def test_le_o_toml_de_verdade_via_load_workspace_config(self, tmp_path):
+    def test_le_o_toml_de_verdade_via_load_workspace_config(
+        self, tmp_path: Path
+    ) -> None:
         """A checagem real (não mockada) lê `[computer_use]` do
         `vectora.toml` do workspace — happy e ausência no mesmo teste."""
         (tmp_path / "vectora.toml").write_text(
@@ -86,7 +92,7 @@ class TestAcoes:
         monkeypatch.setattr(cu, "_computer_use_enabled", lambda _workspace_id: True)
         info = WindowInfo("window-1", "Fixture", 0, 0, 1200, 800, True)
         selection = SimpleNamespace(
-            window_id=info.window_id, native=object(), info=info
+            window_id=info.window_id, native=SimpleNamespace(_hWnd=1), info=info
         )
         monkeypatch.setattr(
             cu.desktop_window_registry, "selected", lambda **_: selection
@@ -95,7 +101,10 @@ class TestAcoes:
             cu.desktop_window_registry, "require_focus", lambda _selection: info
         )
 
-    async def test_screenshot_devolve_path_do_arquivo_gerado(self, monkeypatch):
+    async def test_screenshot_devolve_path_do_arquivo_gerado(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setattr(cu, "window_media_dir", lambda _thread_id: tmp_path)
         monkeypatch.setattr(
             cu, "_take_screenshot_sync", lambda *_args: b"\x89PNG\r\nfake"
         )
@@ -106,10 +115,12 @@ class TestAcoes:
         assert not Path(saida["path"]).is_absolute()
 
     async def test_click_exige_coordenadas_e_falha_de_biblioteca_vira_erro_tipado(
-        self, monkeypatch
-    ):
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         chamadas = []
-        monkeypatch.setattr(cu, "_click_sync", lambda x, y: chamadas.append((x, y)))
+        monkeypatch.setattr(
+            cu, "_click_sync", lambda x, y, *_args: chamadas.append((x, y))
+        )
 
         saida = json.loads(
             await cu.computer_use(action="click", x=100, y=200, ctx=_ctx())
@@ -125,9 +136,13 @@ class TestAcoes:
         assert "error" in sem_coords
         assert chamadas == []
 
-    async def test_type_text_digita_e_texto_vazio_e_recusado(self, monkeypatch):
+    async def test_type_text_digita_e_texto_vazio_e_recusado(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         digitado = []
-        monkeypatch.setattr(cu, "_type_text_sync", digitado.append)
+        monkeypatch.setattr(
+            cu, "_type_text_sync", lambda text, *_args: digitado.append(text)
+        )
 
         saida = json.loads(
             await cu.computer_use(action="type_text", text="oi", ctx=_ctx())
@@ -142,7 +157,9 @@ class TestAcoes:
         assert "error" in vazio
         assert digitado == []
 
-    async def test_falha_da_biblioteca_de_automacao_nunca_propaga(self, monkeypatch):
+    async def test_falha_da_biblioteca_de_automacao_nunca_propaga(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Regra 11: tool defensiva — exceção vira observação pro LLM, o
         grafo não cai."""
 
@@ -185,7 +202,9 @@ class TestAprovacaoSempreObrigatoria:
 
 
 class TestJanelaSelecionada:
-    async def test_listagem_e_selecao_sao_limitadas_ao_contexto(self, monkeypatch):
+    async def test_listagem_e_selecao_sao_limitadas_ao_contexto(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         info = WindowInfo("w1", "Editor", 10, 20, 800, 600, True)
         monkeypatch.setattr(cu, "_computer_use_enabled", lambda _workspace_id: True)
         monkeypatch.setattr(
@@ -207,10 +226,14 @@ class TestJanelaSelecionada:
         ]
         assert selected["status"] == "selected"
 
-    async def test_click_fora_da_janela_e_bloqueado(self, monkeypatch):
+    async def test_click_fora_da_janela_e_bloqueado(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(cu, "_computer_use_enabled", lambda _workspace_id: True)
         info = WindowInfo("w1", "Editor", 0, 0, 10, 10, True)
-        selection = SimpleNamespace(window_id="w1", native=object(), info=info)
+        selection = SimpleNamespace(
+            window_id="w1", native=SimpleNamespace(_hWnd=1), info=info
+        )
         monkeypatch.setattr(
             cu.desktop_window_registry, "selected", lambda **_: selection
         )
@@ -226,3 +249,12 @@ class TestJanelaSelecionada:
 
         assert result["error"]
         assert clicked == []
+
+
+def test_desktop_registry_invalidate_e_rate_limit_atomico() -> None:
+    registry = DesktopWindowRegistry()
+    scope = dict(user_id="u", workspace_id="w", thread_id="t")
+    results = [registry.allow_action(**scope) for _ in range(35)]
+    assert sum(results) == 30
+    registry.invalidate("t")
+    assert registry.allow_action(**scope) is True

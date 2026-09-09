@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import platform
 import re
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -55,6 +56,7 @@ class DesktopWindowRegistry:
         self._candidates: dict[tuple[str, str, str], dict[str, Any]] = {}
         self._selections: dict[tuple[str, str, str], _Selection] = {}
         self._action_times: dict[tuple[str, str, str], list[float]] = {}
+        self._action_lock = threading.Lock()
 
     @staticmethod
     def _scope(
@@ -186,17 +188,24 @@ class DesktopWindowRegistry:
         if scope is None:
             return False
         now = time.monotonic()
-        recent = [
-            timestamp
-            for timestamp in self._action_times.get(scope, [])
-            if now - timestamp < _ACTION_WINDOW_SECONDS
-        ]
-        if len(recent) >= _MAX_ACTIONS_PER_WINDOW:
+        with self._action_lock:
+            recent = [
+                timestamp
+                for timestamp in self._action_times.get(scope, [])
+                if now - timestamp < _ACTION_WINDOW_SECONDS
+            ]
+            if len(recent) >= _MAX_ACTIONS_PER_WINDOW:
+                self._action_times[scope] = recent
+                return False
+            recent.append(now)
             self._action_times[scope] = recent
-            return False
-        recent.append(now)
-        self._action_times[scope] = recent
         return True
+
+    def invalidate(self, thread_id: str) -> None:
+        """Descarta candidatos, seleção e limites da thread encerrada."""
+        for mapping in (self._candidates, self._selections, self._action_times):
+            for scope in [key for key in mapping if key[2] == thread_id]:
+                mapping.pop(scope, None)
 
     def focus(self, selection: _Selection) -> WindowInfo:
         self._inspect(selection.window_id, selection.native)
