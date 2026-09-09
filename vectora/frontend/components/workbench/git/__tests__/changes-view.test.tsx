@@ -172,6 +172,31 @@ describe("ChangesView", () => {
     );
   });
 
+  it("usa a seleção mais recente ao executar uma ação em lote", async () => {
+    const props = {
+      workspaceId: "ws1",
+      summary: summary([
+        file({ path: "staged.ts", staged_change: "M" }),
+        file({ path: "modified.ts", unstaged_change: "M" }),
+      ]),
+    };
+    const { rerender } = render(<ChangesView {...props} />);
+    mockGitOps.selectedFiles = ["staged.ts", "modified.ts"];
+    vi.spyOn(api, "apiGitFileAction").mockResolvedValue({
+      status: "ok",
+      message: "",
+    });
+    rerender(<ChangesView {...props} />);
+
+    fireEvent.click(screen.getByText(/workbench_git_stage_selected/));
+    await waitFor(() =>
+      expect(mockWorkbench.toggleGitFileSelection).toHaveBeenCalledWith(
+        "ws1",
+        "staged.ts",
+      ),
+    );
+  });
+
   it("ignora a pasta pai de um arquivo aninhado e não oferece pasta para a raiz", () => {
     vi.spyOn(api, "apiGitignoreAppend").mockResolvedValue({
       status: "ok",

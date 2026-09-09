@@ -322,6 +322,7 @@ export function ChangesView({
     },
     [
       clearGitSelection,
+      gitOps.selectedFiles,
       handleRefresh,
       showError,
       toggleGitFileSelection,
