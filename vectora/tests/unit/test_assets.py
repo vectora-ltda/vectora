@@ -16,9 +16,12 @@ def test_asset_store_returns_only_owned_non_symlink_assets(tmp_path) -> None:
         source="upload",
     )
 
-    assert store.get(asset.id, owner_id="u1", thread_id="t1") == asset
-    assert store.get(asset.id, owner_id="u2", thread_id="t1") is None
-    assert store.get(asset.id, owner_id="u1", thread_id="t2") is None
+    assert (
+        store.get(asset.id, owner_id="u1", workspace_id="w1", thread_id="t1") == asset
+    )
+    assert store.get(asset.id, owner_id="u2", workspace_id="w1", thread_id="t1") is None
+    assert store.get(asset.id, owner_id="u1", workspace_id="w2", thread_id="t1") is None
+    assert store.get(asset.id, owner_id="u1", workspace_id="w1", thread_id="t2") is None
 
 
 def test_asset_store_rejects_unknown_mime(tmp_path) -> None:

@@ -317,7 +317,7 @@ async def _transcribe_attachment(att: Attachment) -> str:
 _CHAT_ATTACHMENTS_DIRNAME = "chat-attachments"
 
 
-def _persist_image_attachment(thread_id: str, att: Attachment) -> str | None:
+def _persist_image_file(thread_id: str, att: Attachment) -> Path | None:
     """Copia o anexo de imagem pra ``~/.vectora/chat-attachments/<thread_id>/``
     e devolve a URL servível por `GET /threads/{thread_id}/attachments/{name}`.
 
@@ -335,7 +335,7 @@ def _persist_image_attachment(thread_id: str, att: Attachment) -> str | None:
         target_dir = settings.vectora_home / _CHAT_ATTACHMENTS_DIRNAME / safe_thread
         target_dir.mkdir(parents=True, exist_ok=True)
         (target_dir / filename).write_bytes(raw)
-        return f"/threads/{safe_thread}/attachments/{filename}"
+        return target_dir / filename
     except Exception:
         logger.exception(
             "chat: falha ao persistir anexo de imagem %s (thread=%s)",
@@ -345,8 +345,21 @@ def _persist_image_attachment(thread_id: str, att: Attachment) -> str | None:
         return None
 
 
+def _persist_image_attachment(thread_id: str, att: Attachment) -> str | None:
+    """Persiste a imagem legada e retorna a URL compatível do histórico."""
+    path = _persist_image_file(thread_id, att)
+    if path is None:
+        return None
+    safe_thread = thread_id.replace("/", "").replace("\\", "").replace("..", "")
+    return f"/threads/{safe_thread}/attachments/{path.name}"
+
+
 async def _build_user_vmessage(
-    content: str, attachments: list[Attachment], thread_id: str
+    content: str,
+    attachments: list[Attachment],
+    thread_id: str,
+    user_id: str = "local",
+    workspace_id: str = "",
 ) -> VMessage:
     """Constrói VMessage com suporte a conteúdo multimodal.
 
@@ -387,12 +400,28 @@ async def _build_user_vmessage(
             except Exception:
                 pass
 
-            _persist_image_attachment(thread_id, att)
+            persisted = _persist_image_file(thread_id, att)
+            asset_id = None
+            if persisted is not None:
+                try:
+                    from backend.services.assets import asset_store
+
+                    asset_id = asset_store.create(
+                        path=persisted,
+                        owner_id=user_id,
+                        workspace_id=workspace_id,
+                        thread_id=thread_id,
+                        mime_type=att.mime_type,
+                        source="chat_attachment",
+                    ).id
+                except Exception:
+                    logger.exception("chat: falha ao registrar asset multimodal")
 
             blocks.append(
                 ContentBlock(
                     kind="image_url",
                     image_url=f"data:{att.mime_type};base64,{att.base64_data}",
+                    asset_id=asset_id,
                 )
             )
         elif att.kind == AttachmentKind.AUDIO:
@@ -829,7 +858,11 @@ async def stream_chat(
     }
 
     user_vmsg = await _build_user_vmessage(
-        request.content, request.attachments, thread_id
+        request.content,
+        request.attachments,
+        thread_id,
+        user_id=user_id,
+        workspace_id=workspace_id or "",
     )
 
     # Planning mode: injeta instrução de planejamento no VMessage

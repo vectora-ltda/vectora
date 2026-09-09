@@ -2,13 +2,28 @@
 
 from __future__ import annotations
 
+import importlib
 import json
+import tempfile
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Protocol, cast
 from uuid import uuid4
 
 from backend.settings import settings
+
+
+class _Fcntl(Protocol):
+    LOCK_EX: int
+
+    def flock(self, file_descriptor: int, operation: int) -> None: ...
+
+
+try:
+    _fcntl: _Fcntl | None = cast("_Fcntl", importlib.import_module("fcntl"))
+except ImportError:  # pragma: no cover - Windows
+    _fcntl = None
 
 ALLOWED_MIME = {"image/png", "image/jpeg", "audio/mpeg", "video/mp4"}
 MAX_ASSET_BYTES = 100 * 1024 * 1024
@@ -33,6 +48,7 @@ class AssetStore:
     def __init__(self, root: Path | None = None) -> None:
         self.root = root or settings.vectora_home / "assets"
         self.index = self.root / "index.json"
+        self._lock = self.root / "index.lock"
 
     def create(
         self,
@@ -61,16 +77,33 @@ class AssetStore:
             datetime.now(UTC).isoformat(),
         )
         self.root.mkdir(parents=True, exist_ok=True)
-        records = self._read()
-        records[item.id] = asdict(item)
-        self.index.write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
+        self.root.mkdir(parents=True, exist_ok=True)
+        with self._lock.open("a+b") as lock:
+            if _fcntl is not None:
+                _fcntl.flock(lock.fileno(), _fcntl.LOCK_EX)
+            records = self._read()
+            records[item.id] = asdict(item)
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=self.root, delete=False
+            ) as temporary:
+                temporary.write(json.dumps(records, ensure_ascii=False))
+                temporary_path = Path(temporary.name)
+            temporary_path.replace(self.index)
         return item
 
-    def get(self, asset_id: str, *, owner_id: str, thread_id: str = "") -> Asset | None:
+    def get(
+        self,
+        asset_id: str,
+        *,
+        owner_id: str,
+        workspace_id: str,
+        thread_id: str = "",
+    ) -> Asset | None:
         raw = self._read().get(asset_id)
         if (
             not raw
             or raw.get("owner_id") != owner_id
+            or raw.get("workspace_id") != workspace_id
             or (thread_id and raw.get("thread_id") != thread_id)
         ):
             return None
