@@ -249,16 +249,24 @@ export async function promoteIssue(
         await completePromotionEffect(env, issueId, "backlink", operationToken);
       }
     }
-    await withPromotionLease(env, issueId, operationToken, () =>
-      updateIssue(
-        env,
-        issue.github_repo as string,
-        issue.github_number as number,
-        {
-          state: "closed",
-        },
-      ),
+    const closeClaim = await claimPromotionEffect(
+      env,
+      issueId,
+      "close",
+      operationToken,
     );
+    if (closeClaim === "active") throw new Error("promotion_in_progress");
+    if (closeClaim === "acquired") {
+      await withPromotionLease(env, issueId, operationToken, () =>
+        updateIssue(
+          env,
+          issue.github_repo as string,
+          issue.github_number as number,
+          { state: "closed" },
+        ),
+      );
+      await completePromotionEffect(env, issueId, "close", operationToken);
+    }
   }
   await env.DB.prepare(
     "UPDATE issues SET github_sync_state = 'promoted', github_sync_error = NULL WHERE id = ? AND github_sync_error = ?",

@@ -84,11 +84,13 @@ async function request<T>(
   headers.set("Authorization", `Bearer ${accessToken}`);
   if (init.body !== undefined) headers.set("Content-Type", "application/json");
 
+  const method = (init.method ?? "GET").toUpperCase();
+  const canRetry = retryTransient && (method === "GET" || method === "PATCH");
   let response: Response | undefined;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     response = await fetch(`${API}/${path}`, { ...init, headers });
     if (
-      !retryTransient ||
+      !canRetry ||
       ![429, 500, 502, 503, 504].includes(response.status) ||
       attempt === 2
     )
