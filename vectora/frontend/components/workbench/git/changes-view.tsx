@@ -261,6 +261,9 @@ export function ChangesView({
       },
   );
   const clearGitSelection = useWorkbenchStore((s) => s.clearGitSelection);
+  const toggleGitFileSelection = useWorkbenchStore(
+    (s) => s.toggleGitFileSelection,
+  );
   const showError = useCallback((message: string) => {
     useToastStore.getState().error("Git", { description: message });
   }, []);
@@ -274,47 +277,51 @@ export function ChangesView({
     invalidateDiff(workspaceId);
   }, [workspaceId, invalidateDiff]);
 
-  const stageSelected = useCallback(async () => {
-    const eligible = new Set(
-      summary.files
+  const eligibleBatchPaths = useMemo(() => {
+    const files = new Map(summary.files.map((file) => [file.path, file]));
+    const selected = gitOps.selectedFiles.flatMap((path) => {
+      const file = files.get(path);
+      return file ? [file] : [];
+    });
+    return {
+      stage: selected
         .filter((file) => file.unstaged_change || file.untracked)
         .map((file) => file.path),
-    );
-    await Promise.all(
-      gitOps.selectedFiles
-        .filter((path) => eligible.has(path))
-        .map((path) => apiGitFileAction(workspaceId, "stage", path)),
-    );
-    clearGitSelection?.(workspaceId);
-    handleRefresh();
-  }, [
-    clearGitSelection,
-    gitOps.selectedFiles,
-    handleRefresh,
-    workspaceId,
-    summary.files,
-  ]);
-
-  const unstageSelected = useCallback(async () => {
-    const eligible = new Set(
-      summary.files
+      unstage: selected
         .filter((file) => file.staged_change)
         .map((file) => file.path),
-    );
-    await Promise.all(
-      gitOps.selectedFiles
-        .filter((path) => eligible.has(path))
-        .map((path) => apiGitFileAction(workspaceId, "unstage", path)),
-    );
-    clearGitSelection?.(workspaceId);
-    handleRefresh();
-  }, [
-    clearGitSelection,
-    gitOps.selectedFiles,
-    handleRefresh,
-    workspaceId,
-    summary.files,
-  ]);
+    };
+  }, [gitOps.selectedFiles, summary.files]);
+
+  const applyBatch = useCallback(
+    async (action: "stage" | "unstage", paths: string[]): Promise<void> => {
+      const results = await Promise.all(
+        paths.map(async (path) => ({
+          path,
+          result: await apiGitFileAction(workspaceId, action, path),
+        })),
+      );
+      const failed = results.filter(({ result }) => result.status === "error");
+      if (failed.length > 0) {
+        showError(
+          failed
+            .map(({ result }) => result.message)
+            .filter(Boolean)
+            .join("; "),
+        );
+      }
+      clearGitSelection?.(workspaceId);
+      failed.forEach(({ path }) => toggleGitFileSelection?.(workspaceId, path));
+      handleRefresh();
+    },
+    [
+      clearGitSelection,
+      handleRefresh,
+      showError,
+      toggleGitFileSelection,
+      workspaceId,
+    ],
+  );
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, file: DiffFile) => {
@@ -472,28 +479,38 @@ export function ChangesView({
         )}
       </div>
       <div className="border-t border-border/60 p-2 flex flex-col gap-1.5 bg-muted/10 shrink-0">
-        {gitOps.selectedFiles.length > 0 && (
-          <div className="flex gap-1">
-            <button
-              type="button"
-              onClick={() => void stageSelected()}
-              className="text-[10px] px-2 py-1 rounded border border-border/60 hover:bg-muted/40"
-            >
-              {m.workbench_git_stage_selected({
-                n: gitOps.selectedFiles.length,
-              })}
-            </button>
-            <button
-              type="button"
-              onClick={() => void unstageSelected()}
-              className="text-[10px] px-2 py-1 rounded border border-border/60 hover:bg-muted/40"
-            >
-              {m.workbench_git_unstage_selected({
-                n: gitOps.selectedFiles.length,
-              })}
-            </button>
-          </div>
-        )}
+        {gitOps.selectedFiles.length > 0 &&
+          (eligibleBatchPaths.stage.length > 0 ||
+            eligibleBatchPaths.unstage.length > 0) && (
+            <div className="flex gap-1">
+              {eligibleBatchPaths.stage.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    void applyBatch("stage", eligibleBatchPaths.stage)
+                  }
+                  className="text-[10px] px-2 py-1 rounded border border-border/60 hover:bg-muted/40"
+                >
+                  {m.workbench_git_stage_selected({
+                    n: eligibleBatchPaths.stage.length,
+                  })}
+                </button>
+              )}
+              {eligibleBatchPaths.unstage.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    void applyBatch("unstage", eligibleBatchPaths.unstage)
+                  }
+                  className="text-[10px] px-2 py-1 rounded border border-border/60 hover:bg-muted/40"
+                >
+                  {m.workbench_git_unstage_selected({
+                    n: eligibleBatchPaths.unstage.length,
+                  })}
+                </button>
+              )}
+            </div>
+          )}
         <input
           type="text"
           value={commitMsg}

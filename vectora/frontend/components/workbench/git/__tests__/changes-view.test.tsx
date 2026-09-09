@@ -32,11 +32,21 @@ const mockDiffState = {
   fileFetchedAt: {} as Record<string, number>,
 };
 
+const mockGitOps = {
+  selectedFiles: [] as string[],
+  selectedHunks: {},
+  activeDocument: null,
+  operation: null,
+};
+
 const mockWorkbench = {
   getDiff: (_id: string) => mockDiffState,
+  getGitOps: (_id: string) => mockGitOps,
   setDiffOpenFile: vi.fn(),
   setDiffHunks: vi.fn(),
   invalidateDiff: vi.fn(),
+  clearGitSelection: vi.fn(),
+  toggleGitFileSelection: vi.fn(),
 };
 
 vi.mock("@/lib/stores/workbench-store", () => ({
@@ -55,6 +65,8 @@ afterEach(() => {
   mockDiffState.openFiles = [];
   mockDiffState.hunksByFile = {};
   mockDiffState.fileFetchedAt = {};
+  mockGitOps.selectedFiles = [];
+  vi.clearAllMocks();
 });
 
 function file(overrides: Partial<DiffFile>): DiffFile {
@@ -80,6 +92,61 @@ function summary(files: DiffFile[]): DiffSummary {
 }
 
 describe("ChangesView", () => {
+  it("filtra a seleção mista e mostra contagens elegíveis por ação", async () => {
+    mockGitOps.selectedFiles = ["staged.ts", "modified.ts", "new.ts"];
+    const spy = vi
+      .spyOn(api, "apiGitFileAction")
+      .mockResolvedValue({ status: "ok", message: "" });
+    render(
+      <ChangesView
+        workspaceId="ws1"
+        summary={summary([
+          file({ path: "staged.ts", staged_change: "M" }),
+          file({ path: "modified.ts", unstaged_change: "M" }),
+          file({ path: "new.ts", untracked: true }),
+        ])}
+      />,
+    );
+
+    fireEvent.click(screen.getByText(/workbench_git_stage_selected/));
+    await waitFor(() =>
+      expect(spy.mock.calls).toEqual([
+        ["ws1", "stage", "modified.ts"],
+        ["ws1", "stage", "new.ts"],
+      ]),
+    );
+    expect(
+      screen.getByText(/workbench_git_unstage_selected/),
+    ).toBeInTheDocument();
+  });
+
+  it("mantém somente caminhos que falharam e exibe erro em lote", async () => {
+    mockGitOps.selectedFiles = ["ok.ts", "failed.ts"];
+    const spy = vi
+      .spyOn(api, "apiGitFileAction")
+      .mockImplementation(async (_ws, _action, path) =>
+        path === "failed.ts"
+          ? { status: "error", message: "falhou" }
+          : { status: "ok", message: "" },
+      );
+    render(
+      <ChangesView
+        workspaceId="ws1"
+        summary={summary([
+          file({ path: "ok.ts", unstaged_change: "M" }),
+          file({ path: "failed.ts", unstaged_change: "M" }),
+        ])}
+      />,
+    );
+
+    fireEvent.click(screen.getByText(/workbench_git_stage_selected/));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+    expect(mockWorkbench.toggleGitFileSelection).toHaveBeenCalledWith(
+      "ws1",
+      "failed.ts",
+    );
+  });
+
   it("ignora a pasta pai de um arquivo aninhado e não oferece pasta para a raiz", () => {
     vi.spyOn(api, "apiGitignoreAppend").mockResolvedValue({
       status: "ok",
