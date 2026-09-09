@@ -80,7 +80,9 @@ def _on_mcp_policy_changed(payload: str) -> None:
         return
     from backend.services import mcp_policy
 
-    mcp_policy.apply_remote_version(version)
+    rules = data.get("rules")
+    snapshot = rules if isinstance(rules, list) else None
+    mcp_policy.apply_remote_version(version, snapshot)
 
 
 def _on_ws_active_changed(payload: str) -> None:

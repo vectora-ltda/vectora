@@ -87,23 +87,54 @@ def _save() -> None:
 
 
 def _publish_change() -> None:
-    """Notifica outras réplicas para recarregarem a allowlist MCP."""
+    """Publica a versão e o snapshot validado para as demais réplicas."""
     import json as _json
 
     from backend.persistence.kv import publish_soon
 
-    publish_soon("vectora:mcp-policy", _json.dumps({"version": _version}))
+    publish_soon(
+        "vectora:mcp-policy",
+        _json.dumps(
+            {
+                "version": _version,
+                "rules": [rule.model_dump(mode="json") for rule in _rules.values()],
+            }
+        ),
+    )
 
 
-def apply_remote_version(version: int) -> None:
-    """Descarta a policy local após uma alteração recebida de outra réplica."""
+def apply_remote_version(
+    version: int, rules: list[dict[str, object]] | None = None
+) -> None:
+    """Aplica um snapshot remoto antes de invalidar os caches dependentes."""
     global _loaded, _loaded_mtime_ns, _policy_error, _version
     if version <= _version and _loaded:
         return
-    _loaded = False
-    _loaded_mtime_ns = None
-    _policy_error = False
-    _version = max(_version, version)
+    if rules is not None:
+        try:
+            remote_rules = [McpPolicyRule.model_validate(item) for item in rules]
+            _rules.clear()
+            _rules.update(
+                {(rule.scope, rule.workspace_id): rule for rule in remote_rules}
+            )
+            _policy_error = False
+            _loaded = True
+            try:
+                _loaded_mtime_ns = _policy_file().stat().st_mtime_ns
+            except FileNotFoundError:
+                _loaded_mtime_ns = None
+            _version = version
+        except Exception:
+            _rules.clear()
+            _policy_error = True
+            _loaded = True
+            _loaded_mtime_ns = None
+            _version = version
+    else:
+        _loaded = False
+        _loaded_mtime_ns = None
+        _policy_error = False
+        _version = max(_version, version)
     from backend.workspace import plugins
 
     plugins.invalidate_mcp_cache()
