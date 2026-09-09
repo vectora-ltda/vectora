@@ -178,8 +178,8 @@ class PostgresSessionStore:
             )
             new_id = await conn.fetchval(
                 "INSERT INTO vectora_native_messages (thread_id, parent_message_id, role, "
-                "content_json, tool_calls_json, tool_call_id, name, is_branch_head, "
-                "created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, $8) "
+                "content_json, tool_calls_json, tool_call_id, name, turn_id, "
+                "is_branch_head, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, $9) "
                 "RETURNING id",
                 thread_id,
                 parent_message_id,
