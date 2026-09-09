@@ -96,11 +96,7 @@ def satisfies(version: Version, constraint: str) -> bool:
 def resolve_dependencies(
     candidates: Mapping[str, object],
 ) -> list[str]:
-    """Resolve uma versão determinística por skill e rejeita conflitos/ciclos."""
-    resolved: list[str] = []
-    visiting: list[str] = []
-    selected: dict[str, tuple[str, dict[str, str]]] = {}
-    constraints: dict[str, list[tuple[str, str]]] = {}
+    """Resolve por busca com retrocesso até atingir um ponto fixo."""
 
     def options(skill_id: str) -> list[tuple[Version, tuple[str, dict[str, str]]]]:
         raw = candidates.get(skill_id)
@@ -119,45 +115,77 @@ def resolve_dependencies(
             reverse=True,
         )
 
-    def choose(skill_id: str) -> tuple[str, dict[str, str]]:
-        if skill_id in selected:
-            version = Version.parse(selected[skill_id][0])
-            if all(
-                satisfies(version, constraint)
+    def search(
+        selected: dict[str, tuple[str, dict[str, str]]],
+        constraints: dict[str, list[tuple[str, str]]],
+        order: list[str],
+    ) -> tuple[list[str], dict[str, tuple[str, dict[str, str]]]] | None:
+        pending = sorted(
+            skill_id
+            for skill_id in (set(candidates) | set(constraints))
+            if skill_id not in selected
+            or not all(
+                satisfies(Version.parse(selected[skill_id][0]), constraint)
                 for _, constraint in constraints.get(skill_id, [])
-            ):
-                return selected[skill_id]
-            selected.pop(skill_id)
+            )
+        )
+        if not pending:
+            return order, selected
+        skill_id = pending[0]
         required = constraints.get(skill_id, [])
-        for version, candidate in options(skill_id):
-            if all(satisfies(version, constraint) for _, constraint in required):
-                selected[skill_id] = candidate
-                return candidate
+        for _version, candidate in options(skill_id):
+            version, requirements = candidate
+            if not all(
+                satisfies(Version.parse(version), constraint)
+                for _, constraint in required
+            ):
+                continue
+            next_selected = dict(selected)
+            next_selected[skill_id] = candidate
+            next_constraints = {key: list(value) for key, value in constraints.items()}
+            cycle = False
+            for dependency, constraint in sorted(requirements.items()):
+                if dependency == skill_id:
+                    cycle = True
+                    break
+                next_constraints.setdefault(dependency, []).append(
+                    (skill_id, constraint)
+                )
+            if cycle:
+                continue
+            result = search(next_selected, next_constraints, [*order, skill_id])
+            if result is not None:
+                return result
         details = ", ".join(
             f"{source}: {constraint}" for source, constraint in required
         )
-        raise ValueError(f"versão incompatível: {skill_id} ({details})")
+        if details:
+            raise ValueError(f"versão incompatível: {skill_id} ({details})")
+        return None
 
-    def visit(skill_id: str) -> None:
-        if skill_id in visiting:
-            cycle = " -> ".join([*visiting, skill_id])
-            raise ValueError(f"ciclo de skills: {cycle}")
-        if skill_id in resolved:
+    result = search({}, {}, [])
+    if result is None:
+        raise ValueError("dependências de skills incompatíveis")
+    _order, selected = result
+    ordered: list[str] = []
+    visiting: set[str] = set()
+
+    def emit(skill_id: str) -> None:
+        if skill_id in ordered:
             return
-        version, requirements = choose(skill_id)
-        Version.parse(version)
-        visiting.append(skill_id)
-        for dependency, constraint in sorted(requirements.items()):
-            constraints.setdefault(dependency, []).append((skill_id, constraint))
-            choose(dependency)
-            visit(dependency)
-        visiting.pop()
-        if skill_id not in resolved:
-            resolved.append(skill_id)
+        if skill_id in visiting:
+            raise ValueError(f"ciclo de skills: {skill_id}")
+        visiting.add(skill_id)
+        for dependency in sorted(selected[skill_id][1]):
+            if dependency not in selected:
+                raise ValueError(f"dependência ausente: {dependency}")
+            emit(dependency)
+        visiting.remove(skill_id)
+        ordered.append(skill_id)
 
-    for skill_id in sorted(candidates):
-        visit(skill_id)
-    return resolved
+    for skill_id in sorted(selected):
+        emit(skill_id)
+    return ordered
 
 
 def write_lockfile(path: Path, entries: dict[str, dict[str, object]]) -> None:

@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
+import yaml
 from pydantic import BaseModel
 
 from backend.services import extension_trust
@@ -78,14 +79,10 @@ def _skills_dir(
     if scope == "workspace":
         if not target:
             raise ValueError("target obrigatório para escopo workspace")
-        return (
-            Path.home()
-            / ".vectora"
-            / "skills"
-            / "workspaces"
-            / _slugify(user_id)
-            / _slugify(target)
-        )
+        workspace = Path(target).expanduser().resolve()
+        if not workspace.is_dir() or workspace.is_symlink():
+            raise ValueError("workspace deve ser um diretório autorizado")
+        return workspace / ".vectora" / "skills"
     if scope == "project":
         if not target:
             raise ValueError("target obrigatório para escopo project")
@@ -168,7 +165,7 @@ def _save_index(
 # ---------------------------------------------------------------------------
 
 
-def _parse_frontmatter(text: str) -> dict[str, str]:
+def _parse_frontmatter(text: str) -> dict[str, object]:
     """Lê o frontmatter YAML do SKILL.md.
 
     Implementa apenas o subset ``key: value`` por linha (suficiente para
@@ -177,19 +174,10 @@ def _parse_frontmatter(text: str) -> dict[str, str]:
     match = _FRONTMATTER_RE.match(text)
     if not match:
         return {}
-    out: dict[str, str] = {}
-    for raw_line in match.group(1).splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        kv = _KV_RE.match(line)
-        if not kv:
-            continue
-        key, value = kv.group(1), kv.group(2).strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
-            value = value[1:-1]
-        out[key] = value
-    return out
+    loaded = yaml.safe_load(match.group(1))
+    if not isinstance(loaded, dict):
+        raise ValueError("frontmatter YAML inválido")
+    return {str(key): value for key, value in loaded.items() if isinstance(key, str)}
 
 
 def _read_skill_metadata(skill_root: Path) -> tuple[str, str]:
@@ -205,8 +193,8 @@ def _read_skill_metadata(skill_root: Path) -> tuple[str, str]:
     except Exception as exc:
         raise ValueError(f"Falha ao ler SKILL.md: {exc}") from exc
     fm = _parse_frontmatter(text)
-    name = fm.get("name", "").strip()
-    description = fm.get("description", "").strip()
+    name = str(fm.get("name", "")).strip()
+    description = str(fm.get("description", "")).strip()
     if not name:
         raise ValueError("Frontmatter do SKILL.md não declara 'name'.")
     if not description:
@@ -219,16 +207,41 @@ def _skill_lock_entry(skill: Skill) -> dict[str, object]:
     frontmatter = _parse_frontmatter(
         (Path(skill.path) / "SKILL.md").read_text(encoding="utf-8")
     )
-    version = frontmatter.get("version", "").strip()
+    version = str(frontmatter.get("version", "")).strip()
     if not version:
         raise ValueError(f"frontmatter sem version para skill {skill.id}")
     requirements: dict[str, str] = {}
-    raw_requirements = frontmatter.get("requires_skills", "").strip()
-    for item in raw_requirements.split(",") if raw_requirements else []:
-        dependency, separator, constraint = item.partition(":")
-        if not separator or not dependency.strip() or not constraint.strip():
-            raise ValueError(f"requires_skills inválido para skill {skill.id}")
-        requirements[dependency.strip()] = constraint.strip()
+    raw_requirements = frontmatter.get("requires_skills", {})
+    if raw_requirements is None:
+        raw_requirements = {}
+    if isinstance(raw_requirements, dict):
+        for dependency, constraint in raw_requirements.items():
+            if not isinstance(dependency, str) or not isinstance(constraint, str):
+                raise ValueError(f"requires_skills inválido para skill {skill.id}")
+            requirements[dependency.strip()] = constraint.strip()
+    elif isinstance(raw_requirements, list):
+        for item in raw_requirements:
+            if not isinstance(item, dict) or set(item) - {
+                "id",
+                "version",
+                "constraint",
+            }:
+                raise ValueError(f"requires_skills inválido para skill {skill.id}")
+            dependency = item.get("id")
+            constraint = item.get("version", item.get("constraint"))
+            if not isinstance(dependency, str) or not isinstance(constraint, str):
+                raise ValueError(f"requires_skills inválido para skill {skill.id}")
+            if dependency in requirements:
+                raise ValueError(f"dependência duplicada para skill {skill.id}")
+            requirements[dependency.strip()] = constraint.strip()
+    elif isinstance(raw_requirements, str):
+        for item in raw_requirements.split(",") if raw_requirements.strip() else []:
+            dependency, separator, constraint = item.partition(":")
+            if not separator or not dependency.strip() or not constraint.strip():
+                raise ValueError(f"requires_skills inválido para skill {skill.id}")
+            requirements[dependency.strip()] = constraint.strip()
+    else:
+        raise ValueError(f"requires_skills inválido para skill {skill.id}")
     source = skill.source
     parsed = urlsplit(source)
     if parsed.username or parsed.password:
@@ -244,7 +257,8 @@ def _skill_lock_entry(skill: Skill) -> dict[str, object]:
     return {
         "version": version,
         "source": source,
-        "revision": skill.trust.digest
+        "revision": skill.revision
+        or skill.trust.digest
         or hashlib.sha256((Path(skill.path) / "SKILL.md").read_bytes()).hexdigest(),
         "integrity": skill.trust.digest
         or hashlib.sha256((Path(skill.path) / "SKILL.md").read_bytes()).hexdigest(),
@@ -265,6 +279,16 @@ def _write_scope_lock(
         for skill_id, entry in entries.items()
     }
     skills_lock.resolve_dependencies(candidates)
+    selected_versions = {
+        skill_id: str(entry["version"]) for skill_id, entry in entries.items()
+    }
+    for entry in entries.values():
+        requirements = entry["requires_skills"]
+        if isinstance(requirements, dict):
+            entry["requires_skills"] = {
+                dependency: selected_versions.get(dependency, constraint)
+                for dependency, constraint in requirements.items()
+            }
     skills_lock.write_lockfile(lock_path, entries)
 
 
@@ -361,7 +385,7 @@ def list_wellknown_catalog(directory: Path | None = None) -> list[dict]:
         except Exception as exc:
             logger.debug("skills: entrada well-known ignorada (%s): %s", child, exc)
             continue
-        tags_raw = fm.get("tags", "")
+        tags_raw = str(fm.get("tags", ""))
         tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
         entries.append(
             {
@@ -427,6 +451,7 @@ def install_skill(
     # mover para o slug final (que só conhecemos após ler o SKILL.md).
     staging = base / ".staging"
     trust = extension_trust.unsigned_record(source)
+    installed_revision: str | None = None
     if staging.exists():
         shutil.rmtree(staging, ignore_errors=True)
 
@@ -477,6 +502,16 @@ def install_skill(
                 except subprocess.CalledProcessError as exc:
                     stderr = exc.stderr.decode("utf-8", errors="replace")
                     raise ValueError(f"git checkout falhou: {stderr}") from exc
+            try:
+                revision_result = subprocess.run(  # noqa: S603  # nosec B603
+                    [git_exe, "-C", str(staging), "rev-parse", "HEAD"],
+                    check=True,
+                    capture_output=True,
+                    timeout=30,
+                )
+                installed_revision = revision_result.stdout.decode("ascii").strip()
+            except (subprocess.CalledProcessError, UnicodeDecodeError) as exc:
+                raise ValueError("não foi possível determinar a revisão Git") from exc
             source_root = staging / subpath if subpath else staging
             if not source_root.is_dir() or source_root.is_symlink():
                 raise ValueError("subdiretório da fonte Git não é válido")
@@ -514,6 +549,20 @@ def install_skill(
             raise ValueError(
                 f"Skill '{skill_id}' já instalada — remova antes de reinstalar."
             )
+        candidate = Skill(
+            id=skill_id,
+            name=name,
+            description=description,
+            source=source,
+            path=str(staging),
+            installed_at=datetime.now(UTC).isoformat(),
+            installed_by=user_id,
+            trust=trust,
+            trust_confirmed=confirm_unverified,
+            revision=installed_revision,
+        )
+        current = [s for s in _load_index(user_id, scope, target) if s.id != skill_id]
+        _validate_scope_lock([*current, candidate])
         shutil.move(str(staging), str(target_dir))
     finally:
         if staging.exists():
@@ -529,6 +578,7 @@ def install_skill(
         installed_by=user_id,
         trust=trust,
         trust_confirmed=confirm_unverified,
+        revision=installed_revision,
     )
     skills = [s for s in _load_index(user_id, scope, target) if s.id != skill_id]
     skills.append(skill)
@@ -566,23 +616,29 @@ def install_skill_from_content(
             f"Skill '{skill_id}' já instalada — remova antes de reinstalar."
         )
 
-    target.mkdir(parents=True)
+    staging = base / ".staging-learning"
+    if staging.exists():
+        shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir(parents=True)
     skill_md = (
         f'---\nname: "{name}"\ndescription: "{description}"\nversion: "1.0.0"\n'
         f"---\n\n{content}\n"
     )
-    (target / "SKILL.md").write_text(skill_md, encoding="utf-8")
+    (staging / "SKILL.md").write_text(skill_md, encoding="utf-8")
 
     skill = Skill(
         id=skill_id,
         name=name,
         description=description,
         source="learning-loop",
-        path=str(target),
+        path=str(staging),
         installed_at=datetime.now(UTC).isoformat(),
         installed_by=user_id,
     )
     skills = [s for s in _load_index(user_id) if s.id != skill_id]
+    _validate_scope_lock([*skills, skill])
+    staging.rename(target)
+    skill = skill.model_copy(update={"path": str(target)})
     skills.append(skill)
     _save_index(user_id, skills)
     _write_scope_lock(user_id, "user", None, skills)
@@ -604,9 +660,10 @@ def remove_skill(
     p = Path(entry.path)
     if p.is_symlink():
         return False
+    remaining = [s for s in skills if s.id != skill_id]
+    _validate_scope_lock(remaining)
     if p.is_dir():
         shutil.rmtree(p, ignore_errors=True)
-    remaining = [s for s in skills if s.id != skill_id]
     if scope == "runtime":
         _runtime_skills[f"{user_id}:{target}"] = remaining
     else:
