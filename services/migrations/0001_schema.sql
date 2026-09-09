@@ -203,6 +203,19 @@ CREATE TABLE IF NOT EXISTS issue_comments (
 CREATE INDEX IF NOT EXISTS idx_issue_comments_issue
   ON issue_comments(issue_id, created_at ASC);
 
+-- Efeitos externos de uma promoção têm uma guarda própria. O lease da
+-- promoção pode ser renovado enquanto uma chamada ao GitHub está em voo;
+-- esta tabela também impede que um reconciliador concorrente inicie o mesmo
+-- backlink durante essa janela.
+CREATE TABLE IF NOT EXISTS issue_promotion_effects (
+  issue_id       TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+  effect         TEXT NOT NULL CHECK (effect IN ('backlink', 'close')),
+  operation_token TEXT NOT NULL,
+  started_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  completed_at   TEXT,
+  PRIMARY KEY (issue_id, effect)
+);
+
 CREATE TABLE IF NOT EXISTS github_webhook_deliveries (
   delivery_id TEXT PRIMARY KEY,
   state TEXT NOT NULL CHECK (state IN ('processing', 'done', 'failed')),

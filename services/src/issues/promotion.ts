@@ -9,6 +9,12 @@ import {
   updateIssue,
 } from "./github";
 
+const PROMOTION_LEASE_MINUTES = 10;
+const PROMOTION_LEASE_HEARTBEAT_MS = 30_000;
+const PROMOTION_EFFECT_STALE_MINUTES = 15;
+
+type PromotionEffect = "backlink" | "close";
+
 export interface PromotionResult {
   url: string;
   number: number;
@@ -21,11 +27,99 @@ async function renewPromotionLease(
   operationToken: string,
 ): Promise<void> {
   const renewed = await env.DB.prepare(
-    "UPDATE issues SET approved_at = datetime('now') WHERE id = ? AND github_sync_state = 'promotion_pending' AND github_sync_error = ?",
+    `UPDATE issues SET approved_at = datetime('now')
+     WHERE id = ? AND github_sync_state = 'promotion_pending'
+     AND github_sync_error = ?`,
   )
     .bind(issueId, operationToken)
     .run();
   if (renewed.meta.changes === 0) throw new Error("promotion_lost");
+}
+
+/** Executa uma chamada externa mantendo o lease renovado durante a espera. */
+async function withPromotionLease<T>(
+  env: Env,
+  issueId: string,
+  operationToken: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  await renewPromotionLease(env, issueId, operationToken);
+  let leaseError: Error | undefined;
+  const heartbeat = setInterval(() => {
+    void renewPromotionLease(env, issueId, operationToken).catch(
+      (error: unknown) => {
+        leaseError =
+          error instanceof Error ? error : new Error("promotion_lost");
+      },
+    );
+  }, PROMOTION_LEASE_HEARTBEAT_MS);
+  try {
+    const result = await operation();
+    if (leaseError) throw leaseError;
+    await renewPromotionLease(env, issueId, operationToken);
+    return result;
+  } finally {
+    clearInterval(heartbeat);
+  }
+}
+
+type PromotionEffectClaim = "acquired" | "completed" | "active";
+
+/** Reserva um efeito externo para impedir duplicação entre reconciliadores. */
+async function claimPromotionEffect(
+  env: Env,
+  issueId: string,
+  effect: PromotionEffect,
+  operationToken: string,
+): Promise<PromotionEffectClaim> {
+  const inserted = await env.DB.prepare(
+    `INSERT OR IGNORE INTO issue_promotion_effects
+      (issue_id, effect, operation_token)
+     VALUES (?, ?, ?)`,
+  )
+    .bind(issueId, effect, operationToken)
+    .run();
+  if (inserted.meta.changes > 0) return "acquired";
+
+  const current = await env.DB.prepare(
+    "SELECT operation_token, completed_at, started_at FROM issue_promotion_effects WHERE issue_id = ? AND effect = ?",
+  )
+    .bind(issueId, effect)
+    .first<{
+      operation_token: string;
+      completed_at: string | null;
+      started_at: string;
+    }>();
+  if (!current) return "active";
+  if (current.completed_at) return "completed";
+  const reclaimed = await env.DB.prepare(
+    `UPDATE issue_promotion_effects
+     SET operation_token = ?, started_at = datetime('now')
+     WHERE issue_id = ? AND effect = ? AND completed_at IS NULL
+       AND started_at <= datetime('now', ?)`,
+  )
+    .bind(
+      operationToken,
+      issueId,
+      effect,
+      `-${PROMOTION_EFFECT_STALE_MINUTES} minutes`,
+    )
+    .run();
+  return reclaimed.meta.changes > 0 ? "acquired" : "active";
+}
+
+async function completePromotionEffect(
+  env: Env,
+  issueId: string,
+  effect: PromotionEffect,
+  operationToken: string,
+): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE issue_promotion_effects SET completed_at = datetime('now')
+     WHERE issue_id = ? AND effect = ? AND operation_token = ?`,
+  )
+    .bind(issueId, effect, operationToken)
+    .run();
 }
 
 /** Promove uma issue da Company para o repositório privado principal da Vectora. */
@@ -97,9 +191,13 @@ export async function promoteIssue(
   let created =
     issue.core_number && issue.core_url
       ? { number: issue.core_number, html_url: issue.core_url }
-      : await findIssueByMarker(env, targetRepo, marker);
+      : await withPromotionLease(env, issueId, operationToken, () =>
+          findIssueByMarker(env, targetRepo, marker),
+        );
   if (!created) {
-    created = await createIssue(env, targetRepo, issue.title, body);
+    created = await withPromotionLease(env, issueId, operationToken, () =>
+      createIssue(env, targetRepo, issue.title, body),
+    );
   }
   const persisted = await env.DB.prepare(
     "UPDATE issues SET core_repo = ?, core_number = ?, core_url = ?, approved_at = COALESCE(approved_at, datetime('now')), approved_by = COALESCE(approved_by, ?), github_sync_state = 'promotion_pending', github_sync_error = ? WHERE id = ? AND github_sync_error = ?",
@@ -119,26 +217,48 @@ export async function promoteIssue(
 
   if (issue.github_repo && issue.github_number) {
     const backlinkMarker = `vectora-company-promotion:${issue.id}`;
-    await renewPromotionLease(env, issueId, operationToken);
-    const existingBacklink = await findCommentByMarker(
+    const existingBacklink = await withPromotionLease(
       env,
-      issue.github_repo,
-      issue.github_number,
-      backlinkMarker,
+      issueId,
+      operationToken,
+      () =>
+        findCommentByMarker(
+          env,
+          issue.github_repo as string,
+          issue.github_number as number,
+          backlinkMarker,
+        ),
     );
     if (!existingBacklink) {
-      await renewPromotionLease(env, issueId, operationToken);
-      await addComment(
+      const claim = await claimPromotionEffect(
         env,
-        issue.github_repo,
-        issue.github_number,
-        `<!-- ${backlinkMarker} -->\nAprovada pela Company e promovida ao repositório principal: ${created.html_url}`,
+        issueId,
+        "backlink",
+        operationToken,
       );
+      if (claim === "active") throw new Error("promotion_in_progress");
+      if (claim === "acquired") {
+        await withPromotionLease(env, issueId, operationToken, () =>
+          addComment(
+            env,
+            issue.github_repo as string,
+            issue.github_number as number,
+            `<!-- ${backlinkMarker} -->\nAprovada pela Company e promovida ao repositório principal: ${created.html_url}`,
+          ),
+        );
+        await completePromotionEffect(env, issueId, "backlink", operationToken);
+      }
     }
-    await renewPromotionLease(env, issueId, operationToken);
-    await updateIssue(env, issue.github_repo, issue.github_number, {
-      state: "closed",
-    });
+    await withPromotionLease(env, issueId, operationToken, () =>
+      updateIssue(
+        env,
+        issue.github_repo as string,
+        issue.github_number as number,
+        {
+          state: "closed",
+        },
+      ),
+    );
   }
   await env.DB.prepare(
     "UPDATE issues SET github_sync_state = 'promoted', github_sync_error = NULL WHERE id = ? AND github_sync_error = ?",
@@ -164,23 +284,30 @@ export async function reconcilePendingPromotions(env: Env): Promise<void> {
     "SELECT id, approved_by, core_number, github_sync_state FROM issues " +
       "WHERE github_sync_state IN ('promotion_pending', 'approval_error') " +
       "AND approved_by IS NOT NULL " +
-      "AND (github_sync_state = 'approval_error' OR approved_at IS NULL OR approved_at <= datetime('now', '-5 minutes')) " +
+      "AND (github_sync_state = 'approval_error' OR approved_at IS NULL OR approved_at <= datetime('now', ?)) " +
       "LIMIT 25",
-  ).all<{
-    id: string;
-    approved_by: string;
-    core_number: number | null;
-    github_sync_state: string;
-  }>();
+  )
+    .bind(`-${PROMOTION_LEASE_MINUTES} minutes`)
+    .all<{
+      id: string;
+      approved_by: string;
+      core_number: number | null;
+      github_sync_state: string;
+    }>();
   for (const issue of results) {
     try {
       const claimToken = crypto.randomUUID();
       const claimed = await env.DB.prepare(
         "UPDATE issues SET github_sync_state = 'promotion_failed', github_sync_error = ? " +
           "WHERE id = ? AND github_sync_state = ? " +
-          "AND (github_sync_state = 'approval_error' OR approved_at IS NULL OR approved_at <= datetime('now', '-5 minutes'))",
+          "AND (github_sync_state = 'approval_error' OR approved_at IS NULL OR approved_at <= datetime('now', ?))",
       )
-        .bind(claimToken, issue.id, issue.github_sync_state)
+        .bind(
+          claimToken,
+          issue.id,
+          issue.github_sync_state,
+          `-${PROMOTION_LEASE_MINUTES} minutes`,
+        )
         .run();
       if (claimed.meta.changes === 0) continue;
       await promoteIssue(env, issue.id, issue.approved_by, claimToken);

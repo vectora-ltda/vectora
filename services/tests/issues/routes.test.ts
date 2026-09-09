@@ -457,11 +457,10 @@ describe("POST /issues/github/webhook", () => {
       )
       .run();
 
-    let releaseFirstComment!: (response: Response) => void;
-    const firstComment = new Promise<Response>((resolve) => {
-      releaseFirstComment = resolve;
+    let releaseFirstPost!: (response: Response) => void;
+    const firstPost = new Promise<Response>((resolve) => {
+      releaseFirstPost = resolve;
     });
-    let commentReads = 0;
     let commentPosts = 0;
     let issueCloses = 0;
     vi.stubGlobal(
@@ -472,8 +471,7 @@ describe("POST /issues/github/webhook", () => {
           return new Response('{"items":[]}');
         }
         if (url.includes("/comments") && (init?.method ?? "GET") === "GET") {
-          commentReads += 1;
-          return commentReads === 1 ? firstComment : new Response("[]");
+          return new Response("[]");
         }
         if (url.endsWith("/issues") && init?.method === "POST") {
           return new Response(
@@ -486,6 +484,7 @@ describe("POST /issues/github/webhook", () => {
         }
         if (url.includes("/comments") && init?.method === "POST") {
           commentPosts += 1;
+          if (commentPosts === 1) return firstPost;
           return new Response(
             JSON.stringify({
               id: 1234,
@@ -508,10 +507,10 @@ describe("POST /issues/github/webhook", () => {
       issueId,
       "admin",
     );
-    for (let attempt = 0; attempt < 100 && commentReads === 0; attempt += 1) {
+    for (let attempt = 0; attempt < 100 && commentPosts === 0; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 1));
     }
-    expect(commentReads).toBe(1);
+    expect(commentPosts).toBe(1);
 
     await env.DB.prepare(
       "UPDATE issues SET approved_at = datetime('now', '-1 hour') WHERE id = ?",
@@ -519,12 +518,22 @@ describe("POST /issues/github/webhook", () => {
       .bind(issueId)
       .run();
     await reconcilePendingPromotions({ ...env, GITHUB_TOKEN: "test-token" });
-    releaseFirstComment(new Response("[]"));
+    releaseFirstPost(
+      new Response(
+        JSON.stringify({
+          id: 1234,
+          body: "backlink",
+          html_url: "https://github.com/comment/1234",
+          created_at: new Date().toISOString(),
+        }),
+        { status: 201 },
+      ),
+    );
     const oldResult = await Promise.allSettled([oldPromotion]);
 
     expect(oldResult[0]?.status).toBe("rejected");
     expect(commentPosts).toBe(1);
-    expect(issueCloses).toBe(1);
+    expect(issueCloses).toBe(0);
   });
 
   it("marca comentários ativos como removidos quando o GitHub retorna uma lista vazia", async () => {
