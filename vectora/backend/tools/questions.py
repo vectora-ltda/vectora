@@ -26,8 +26,14 @@ async def ask_structured_question(
     if not prompt.strip() or not (1 <= len(normalized_options) <= 20):
         return json.dumps({"status": "error", "error": "prompt e opções inválidos"})
     key = idempotency_key.strip() or ctx.tool_call_id or prompt.strip()
+    effective_timeout = max(1.0, min(timeout_seconds, 3600.0))
     question = await structured_question_store.create(
-        ctx.thread_id, prompt.strip(), normalized_options, allow_free_text, key
+        ctx.thread_id,
+        prompt.strip(),
+        normalized_options,
+        allow_free_text,
+        key,
+        effective_timeout,
     )
     sink = ctx._extra.get("event_sink")
     if sink is not None and question.status == "pending":
@@ -41,9 +47,7 @@ async def ask_structured_question(
                 expires_at=question.expires_at,
             )
         )
-    answer = await structured_question_store.wait(
-        question, max(1.0, min(timeout_seconds, 3600.0))
-    )
+    answer = await structured_question_store.wait(question, effective_timeout)
     if answer is None:
         return json.dumps({"status": "timeout", "question_id": question.question_id})
     if answer == "":

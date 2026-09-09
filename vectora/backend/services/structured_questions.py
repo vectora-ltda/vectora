@@ -114,6 +114,7 @@ class StructuredQuestionStore:
         options: list[str],
         allow_free_text: bool,
         idempotency_key: str,
+        timeout_s: float = 300.0,
     ) -> StructuredQuestion:
         async with self._lock:
             existing_id = self._keys.get((thread_id, idempotency_key))
@@ -128,7 +129,8 @@ class StructuredQuestionStore:
                 idempotency_key=idempotency_key,
             )
             question.expires_at = (
-                datetime.fromisoformat(question.created_at) + timedelta(hours=1)
+                datetime.fromisoformat(question.created_at)
+                + timedelta(seconds=timeout_s)
             ).isoformat()
             self._questions[question.question_id] = question
             self._keys[(thread_id, idempotency_key)] = question.question_id
@@ -147,29 +149,31 @@ class StructuredQuestionStore:
     async def answer(
         self, question_id: str, thread_id: str, value: str
     ) -> StructuredQuestion:
-        question = await self.get(question_id, thread_id)
-        if question is None:
-            raise KeyError("pergunta não encontrada")
-        if question.status != "pending":
+        async with self._lock:
+            question = self._questions.get(question_id)
+            if question is None or question.thread_id != thread_id:
+                raise KeyError("pergunta não encontrada")
+            if question.status != "pending":
+                return question
+            if value not in question.options and not question.allow_free_text:
+                raise ValueError("resposta não pertence às opções permitidas")
+            question.answer = value
+            question.status = "answered"
+            question.event.set()
+            await self._save()
             return question
-        if value not in question.options and not question.allow_free_text:
-            raise ValueError("resposta não pertence às opções permitidas")
-        question.answer = value
-        question.status = "answered"
-        question.event.set()
-        await self._save()
-        return question
 
     async def cancel(self, question_id: str, thread_id: str) -> StructuredQuestion:
-        question = await self.get(question_id, thread_id)
-        if question is None:
-            raise KeyError("pergunta não encontrada")
-        if question.status == "pending":
-            question.cancelled = True
-            question.status = "cancelled"
-        question.event.set()
-        await self._save()
-        return question
+        async with self._lock:
+            question = self._questions.get(question_id)
+            if question is None or question.thread_id != thread_id:
+                raise KeyError("pergunta não encontrada")
+            if question.status == "pending":
+                question.cancelled = True
+                question.status = "cancelled"
+                question.event.set()
+                await self._save()
+            return question
 
     async def wait(self, question: StructuredQuestion, timeout_s: float) -> str | None:
         try:

@@ -1107,7 +1107,7 @@ async def answer_structured_question(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return StructuredQuestionResponse(
         question_id=question.question_id,
-        status="cancelled" if question.cancelled else "answered",
+        status=question.status,
         answer=question.answer,
     )
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -35,6 +36,27 @@ async def test_rejeita_opcao_fora_do_contrato() -> None:
     question = await store.create("thread", "Escolha", ["a"], False, "invalid")
     with pytest.raises(ValueError):
         await store.answer(question.question_id, "thread", "c")
+
+
+@pytest.mark.asyncio
+async def test_prazo_persistido_corresponde_ao_timeout_da_pergunta() -> None:
+    store = StructuredQuestionStore()
+    before = datetime.now(UTC)
+    question = await store.create("thread", "Escolha", ["a"], False, "prazo", 7.0)
+    expires_at = datetime.fromisoformat(question.expires_at)
+    assert 6.0 <= (expires_at - before).total_seconds() <= 8.0
+
+
+@pytest.mark.asyncio
+async def test_resposta_e_cancelamento_concorrentes_tem_uma_transicao() -> None:
+    store = StructuredQuestionStore()
+    question = await store.create("thread", "Escolha", ["a"], False, "corrente")
+    answered, cancelled = await asyncio.gather(
+        store.answer(question.question_id, "thread", "a"),
+        store.cancel(question.question_id, "thread"),
+    )
+    assert answered.status == cancelled.status
+    assert answered.status in {"answered", "cancelled"}
 
 
 @pytest.mark.asyncio
