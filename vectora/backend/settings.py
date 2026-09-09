@@ -1105,7 +1105,7 @@ AVAILABLE_MODELS: dict[str, list[str]] = {
     "anthropic": [
         # Geração mais recente
         "claude-fable-5",
-        # Claude 4 — geração atual
+        # Modelos principais atualmente suportados
         "claude-opus-4-7",
         "claude-sonnet-4-6",
         "claude-haiku-4-5",
@@ -1177,6 +1177,11 @@ def provider_capability_state(provider: str, capability: str) -> CapabilityState
     Gateway providers are ``UNKNOWN`` at provider level because their model,
     rather than the gateway itself, declares capabilities.
     """
+    # Ollama has no native remote audio-transcription adapter yet. Keep the
+    # capability fail-closed instead of advertising a configured model that
+    # ``transcribe_audio`` cannot execute.
+    if provider == "ollama" and capability == "stt":
+        return CapabilityState.UNSUPPORTED
     if provider in _GATEWAY_PROVIDERS:
         return (
             CapabilityState.SUPPORTED
@@ -1243,7 +1248,7 @@ TOOL_CALLING_INCOMPATIBLE_MODELS: set[str] = {"cohere:command-a-plus-05-2026"}
 
 # Fontes públicas das janelas de contexto:
 #   Gemini: https://ai.google.dev/gemini-api/docs/models
-#   Claude: https://platform.claude.com/docs/en/about-claude/models/overview
+#   Documentação pública da janela de contexto do provedor
 #   OpenAI: https://developers.openai.com/api/docs/models/all
 #   Cohere: https://docs.cohere.com/docs/{command-a-plus,command-r7b}
 MODEL_CONTEXT_WINDOWS: dict[str, int] = {
@@ -1268,7 +1273,7 @@ MODEL_CONTEXT_WINDOWS: dict[str, int] = {
     "gpt-4.1": 1_000_000,
     "o3": 200_000,
     "o4-mini": 200_000,
-    # Anthropic — Claude Fable 5 e família Claude 4, todos 200k
+    # Modelos de contexto fixo com 200k tokens
     "claude-fable-5": 200_000,
     "claude-opus-4-7": 200_000,
     "claude-sonnet-4-6": 200_000,
