@@ -16,6 +16,8 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request
 
+from backend.api.handlers.workspaces import require_workspace_access
+from backend.services import extension_trust, mcp_policy
 from backend.workspace.plugins import (
     McpServer,
     add_server,
@@ -36,10 +38,45 @@ def _user_id(request: Request) -> str:
     return "local"
 
 
+def _authorized_workspace(request: Request) -> str | None:
+    """Validate a client-supplied workspace before using it in policy checks."""
+    workspace_id = request.query_params.get("workspace_id")
+    if workspace_id:
+        require_workspace_access(workspace_id, request)
+    return workspace_id
+
+
+async def _audit_policy_block(
+    request: Request, *, action: str, mcp_id: str, workspace_id: str | None
+) -> None:
+    """Audita bloqueios sem incluir URL, comando, argumentos ou segredos."""
+    try:
+        from backend.rbac.auth import get_db_for_audit, write_audit
+
+        db = await get_db_for_audit()
+        await write_audit(
+            db,
+            _user_id(request),
+            f"mcp.{action}",
+            success=False,
+            metadata={"mcp_id": mcp_id, "scope": workspace_id or "instance"},
+            target_type="mcp",
+        )
+    except Exception:
+        logger.debug(
+            "plugins: auditoria de bloqueio indisponível", extra={"action": action}
+        )
+
+
 @router.get("")
 async def list_plugins(request: Request) -> dict:
     """Lista os servidores MCP do usuário autenticado."""
-    servers = list_servers(_user_id(request))
+    workspace_id = _authorized_workspace(request)
+    servers = [
+        server
+        for server in list_servers(_user_id(request))
+        if mcp_policy.evaluate(server.name, workspace_id).allowed
+    ]
     return {"servers": [s.model_dump() for s in servers], "total": len(servers)}
 
 
@@ -57,6 +94,25 @@ async def add_plugin(request: Request, body: McpServer) -> dict:
     if body.transport in {"sse", "http"} and not body.url.strip():
         raise HTTPException(status_code=400, detail="sse/http exige 'url'.")
 
+    workspace_id = _authorized_workspace(request)
+    if not mcp_policy.evaluate(body.name, workspace_id).allowed:
+        await _audit_policy_block(
+            request, action="configure", mcp_id=body.name, workspace_id=workspace_id
+        )
+        raise HTTPException(status_code=403, detail="Servidor bloqueado pela política.")
+    # Trust is derived from installed material. Never accept publisher, digest,
+    # signature, or verification fields supplied by a manual client payload.
+    source = body.url if body.transport in {"sse", "http"} else body.command
+    body = body.model_copy(
+        update={
+            "trust": extension_trust.unsigned_record(source),
+            "trust_confirmed": body.trust_confirmed,
+        }
+    )
+    try:
+        extension_trust.validate_record(body.trust, confirmed=body.trust_confirmed)
+    except PermissionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     saved = add_server(_user_id(request), body)
     return {"status": "ok", "server": saved.model_dump()}
 
@@ -73,7 +129,17 @@ async def delete_plugin(request: Request, name: str) -> dict:
 @router.post("/{name}/verify")
 async def verify_plugin(request: Request, name: str) -> dict:
     """Health-check: conecta ao servidor e lista suas tools."""
+    workspace_id = _authorized_workspace(request)
     server = next((s for s in list_servers(_user_id(request)) if s.name == name), None)
     if server is None:
         raise HTTPException(status_code=404, detail="Servidor não encontrado.")
+    if not mcp_policy.evaluate(server.name, workspace_id).allowed:
+        await _audit_policy_block(
+            request, action="verify", mcp_id=server.name, workspace_id=workspace_id
+        )
+        raise HTTPException(status_code=403, detail="Servidor bloqueado pela política.")
+    try:
+        extension_trust.validate_record(server.trust, confirmed=server.trust_confirmed)
+    except PermissionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return await health_check(server)

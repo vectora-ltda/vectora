@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState } from "react";
+import { memo, useRef, useState } from "react";
 import { Pin, Trash2 } from "lucide-react";
 import type { Thread } from "@/lib/hooks/threads";
 import { queryClient } from "../../src/router";
@@ -10,6 +10,12 @@ import { THREAD_FETCH_LIMIT } from "@/lib/constants/features";
 import { m } from "@/lib/paraglide/messages";
 import { useStreamingStore } from "@/lib/stores/streaming-store";
 import { useContextMenu } from "@/components/workbench/git/git-context-menu";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
 
 interface ThreadItemProps {
   thread: Thread;
@@ -35,6 +41,42 @@ export const ThreadItem = memo(function ThreadItem({
   const menu = useContextMenu();
   const [isEditing, setIsEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState(title);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suppressClick = useRef(false);
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
+
+  const cancelLongPress = () => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressTimer.current = null;
+  };
+  const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (event.touches.length !== 1 || isEditing) return;
+    const target = event.target as HTMLElement;
+    if (target.closest("button, input, [role=button]")) return;
+    touchStart.current = {
+      x: event.touches[0].clientX ?? 0,
+      y: event.touches[0].clientY,
+    };
+    longPressTimer.current = setTimeout(() => {
+      suppressClick.current = true;
+      setActionsOpen(true);
+    }, 500);
+  };
+  const handleTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
+    const initial = touchStart.current;
+    if (!initial || event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    const distance = Math.hypot(
+      (touch.clientX ?? 0) - initial.x,
+      touch.clientY - initial.y,
+    );
+    if (distance > 10) cancelLongPress();
+  };
+  const handleTouchEnd = () => {
+    touchStart.current = null;
+    cancelLongPress();
+  };
 
   const handleMouseEnter = () => {
     void queryClient.prefetchQuery({
@@ -118,7 +160,17 @@ export const ThreadItem = memo(function ThreadItem({
           ? "bg-muted/60 text-foreground"
           : "text-muted-foreground hover:bg-muted/30 hover:text-foreground"
       }`}
-      onClick={() => onSelect(thread.thread_id)}
+      onClick={() => {
+        if (suppressClick.current) {
+          suppressClick.current = false;
+          return;
+        }
+        onSelect(thread.thread_id);
+      }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
       onMouseEnter={handleMouseEnter}
       onContextMenu={handleContextMenu}
     >
@@ -144,6 +196,48 @@ export const ThreadItem = memo(function ThreadItem({
         <Trash2 className="w-3 h-3 text-muted-foreground hover:text-destructive" />
       </button>
       {menu.element}
+      <Sheet open={actionsOpen} onOpenChange={setActionsOpen}>
+        <SheetContent side="bottom" className="safe-area-bottom p-4">
+          <SheetTitle className="text-sm">{title}</SheetTitle>
+          <SheetDescription className="sr-only">
+            {m.sidebar_ctx_rename()}
+          </SheetDescription>
+          <div className="grid gap-2">
+            <button
+              type="button"
+              className="rounded-md p-3 text-left hover:bg-muted"
+              onClick={() => {
+                startEditing();
+                setActionsOpen(false);
+              }}
+            >
+              {m.sidebar_ctx_rename()}
+            </button>
+            <button
+              type="button"
+              className="rounded-md p-3 text-left hover:bg-muted"
+              onClick={() => {
+                onTogglePin(thread.thread_id, !thread.pinned);
+                setActionsOpen(false);
+              }}
+            >
+              {thread.pinned ? m.sidebar_ctx_unpin() : m.sidebar_ctx_pin()}
+            </button>
+            <button
+              type="button"
+              className="rounded-md p-3 text-left text-destructive hover:bg-destructive/10"
+              onClick={() => {
+                onDelete(thread.thread_id, {
+                  stopPropagation() {},
+                } as React.MouseEvent);
+                setActionsOpen(false);
+              }}
+            >
+              {m.sidebar_ctx_delete()}
+            </button>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 });
