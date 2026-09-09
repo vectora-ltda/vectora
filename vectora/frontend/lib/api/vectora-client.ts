@@ -167,6 +167,26 @@ export interface Thread {
   pinned?: boolean;
 }
 
+export interface ConversationBranch {
+  head_message_id: number;
+  created_at: string;
+  active: boolean;
+  message_count: number;
+}
+
+export interface ConversationBranchesResponse {
+  branches: ConversationBranch[];
+  active_head_message_id: number | null;
+}
+
+export interface ConversationBranchComparison {
+  active_head_message_id: number | null;
+  selected_head_message_id: number;
+  common_message_ids: number[];
+  active_divergent_message_ids: number[];
+  selected_divergent_message_ids: number[];
+}
+
 /** Anexo persistido de uma mensagem do histórico — `url`, quando presente,
  * aponta pra `GET /threads/{id}/attachments/{filename}` (sobrevive a
  * restart do backend, diferente do base64 que só existe durante o turno
@@ -403,6 +423,45 @@ export const getHistory = (
   if (!thread_id.trim()) return Promise.resolve({ messages: [] });
   return postRpc("/vectora.chat.v1.ThreadService/GetHistory", { thread_id });
 };
+
+const branchUrl = (threadId: string, suffix = "") =>
+  `/threads/${encodeURIComponent(threadId)}/branches${suffix}`;
+
+export const listConversationBranches = (
+  threadId: string,
+  limit = 100,
+): Promise<ConversationBranchesResponse> =>
+  fetch(`${branchUrl(threadId)}?limit=${limit}`, {
+    credentials: "include",
+  }).then(async (response) => {
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json() as Promise<ConversationBranchesResponse>;
+  });
+
+export const compareConversationBranch = (
+  threadId: string,
+  headMessageId: number,
+): Promise<ConversationBranchComparison> =>
+  fetch(branchUrl(threadId, `/${headMessageId}/compare`), {
+    credentials: "include",
+  }).then(async (response) => {
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json() as Promise<ConversationBranchComparison>;
+  });
+
+export const selectConversationBranch = (
+  threadId: string,
+  headMessageId: number,
+): Promise<ConversationBranchesResponse> =>
+  fetch(branchUrl(threadId, "/select"), {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ head_message_id: headMessageId }),
+  }).then(async (response) => {
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json() as Promise<ConversationBranchesResponse>;
+  });
 
 export interface PagedHistoryResponse {
   messages: HistoryMessage[];
