@@ -42,7 +42,7 @@ export default function Header({ session }: { session: SessionUser | null }) {
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-md">
       {/*
-        Container relativo: permite que a nav use `absolute left-1/2 -translate-x-1/2`
+        Container relativo: permite que a nav use `absolute start-1/2 -translate-x-1/2`
         para ficar de fato centrada na viewport, independente do que está nos lados.
         Desktop: max-w-[1124px] conforme Figma.
       */}
@@ -52,7 +52,7 @@ export default function Header({ session }: { session: SessionUser | null }) {
 
         {/* ── Nav desktop (absolutamente centralizada) ── */}
         <nav
-          className="absolute left-1/2 hidden -translate-x-1/2 items-center gap-6 text-sm md:flex"
+          className="absolute start-1/2 hidden -translate-x-1/2 items-center gap-6 text-sm md:flex"
           aria-label="Navegação principal"
         >
           <a
@@ -100,7 +100,7 @@ export default function Header({ session }: { session: SessionUser | null }) {
             {localeOpen && (
               <div
                 role="listbox"
-                className="absolute left-1/2 top-[calc(100%+6px)] z-50 w-fit min-w-[3.25rem] -translate-x-1/2 overflow-hidden rounded-2xl border border-border bg-card shadow-[0px_4px_12px_rgba(0,0,0,0.3)]"
+                className="absolute start-1/2 top-[calc(100%+6px)] z-50 w-fit min-w-[3.25rem] -translate-x-1/2 overflow-hidden rounded-2xl border border-border bg-card shadow-[0px_4px_12px_rgba(0,0,0,0.3)]"
               >
                 {locales.map((l) => (
                   <button

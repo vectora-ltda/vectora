@@ -19,7 +19,7 @@ export default function PageHeader({
   children,
 }: PageHeaderProps) {
   const alignment =
-    align === "center" ? "items-center text-center" : "items-start text-left";
+    align === "center" ? "items-center text-center" : "items-start text-start";
   return (
     <div className={`flex flex-col gap-3 ${alignment}`}>
       <h1 className="text-2xl font-semibold leading-tight tracking-[-0.5px] text-foreground sm:text-3xl">

@@ -16,7 +16,7 @@ import Footer from "#/components/shared/Footer";
 import CookieConsent from "#/components/shared/CookieConsent";
 import appCss from "../styles.css?url";
 import type { QueryClient } from "@tanstack/react-query";
-import { directionForLocale } from "../lib/direction";
+import { applyDocumentDirection, directionForLocale } from "../lib/direction";
 
 interface MyRouterContext {
   queryClient: QueryClient;
@@ -26,8 +26,7 @@ export const Route = createRootRouteWithContext<MyRouterContext>()({
   beforeLoad: async () => {
     if (typeof document !== "undefined") {
       const locale = getLocale();
-      document.documentElement.setAttribute("lang", locale);
-      document.documentElement.setAttribute("dir", directionForLocale(locale));
+      applyDocumentDirection(locale);
     }
     const session = await getSession();
     return { session };
