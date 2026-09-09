@@ -1,6 +1,6 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useRef, useState } from "react";
 import type { Thread } from "@/lib/hooks/threads";
 import { m } from "@/lib/paraglide/messages";
 import { ThreadListSkeleton } from "./thread-list-skeleton";
@@ -23,6 +23,7 @@ interface ThreadListProps {
   onRenameThread: (threadId: string, title: string) => void;
   onTogglePinThread: (threadId: string, pinned: boolean) => void;
   onToggleWorkspace: (workspaceId: string) => void;
+  onRefresh?: () => Promise<unknown>;
 }
 
 export const ThreadList = memo(function ThreadList({
@@ -40,12 +41,64 @@ export const ThreadList = memo(function ThreadList({
   onRenameThread,
   onTogglePinThread,
   onToggleWorkspace,
+  onRefresh,
 }: ThreadListProps) {
+  const [pullDistance, setPullDistance] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshingRef = useRef(false);
+  const startY = useRef<number | null>(null);
+  const navRef = useRef<HTMLElement>(null);
+  const onTouchStart = (event: React.TouchEvent<HTMLElement>) => {
+    if (event.touches.length === 1 && navRef.current?.scrollTop === 0) {
+      startY.current = event.touches[0].clientY;
+    }
+  };
+  const onTouchMove = (event: React.TouchEvent<HTMLElement>) => {
+    if (startY.current === null || event.touches.length !== 1) return;
+    const distance = event.touches[0].clientY - startY.current;
+    if (distance > 0) setPullDistance(Math.min(distance, 80));
+    else startY.current = null;
+  };
+  const onTouchEnd = async () => {
+    const shouldRefresh =
+      pullDistance >= 56 && !refreshingRef.current && onRefresh;
+    startY.current = null;
+    setPullDistance(0);
+    if (!shouldRefresh) return;
+    refreshingRef.current = true;
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      refreshingRef.current = false;
+      setRefreshing(false);
+    }
+  };
+  const onTouchCancel = () => {
+    startY.current = null;
+    setPullDistance(0);
+  };
   const { today, yesterday, last7Days, older } = grouped;
 
   return (
     <>
-      <nav className="flex-1 overflow-y-auto py-2 bg-gradient-to-b from-sidebar-accent/5 via-transparent to-sidebar-accent/10 custom-scrollbar">
+      <nav
+        ref={navRef}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchCancel}
+        aria-busy={refreshing}
+        className="flex-1 overflow-y-auto py-2 bg-gradient-to-b from-sidebar-accent/5 via-transparent to-sidebar-accent/10 custom-scrollbar"
+      >
+        {(pullDistance > 0 || refreshing) && (
+          <div
+            className="text-center text-[11px] text-muted-foreground"
+            role="status"
+          >
+            {refreshing ? m.sidebar_refreshing() : m.sidebar_pull_to_refresh()}
+          </div>
+        )}
         {isLoading ? (
           <ThreadListSkeleton />
         ) : searchQuery && filteredThreads.length === 0 ? (
