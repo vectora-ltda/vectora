@@ -11,6 +11,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
+from slowapi.util import get_remote_address
 
 from backend.api.middleware.rate_limit import limiter
 from backend.settings import settings
@@ -37,8 +38,17 @@ def _user_id(request: Request) -> str:
     return str(user.id)
 
 
+def _feedback_rate_key(request: Request) -> str:
+    """Limita por usuário autenticado e isola usuários atrás do mesmo NAT."""
+    user = getattr(request.state, "user", None)
+    user_id = getattr(user, "id", None)
+    if user_id:
+        return f"user:{user_id}"
+    return f"ip:{get_remote_address(request)}"
+
+
 @router.post("", response_model=FeedbackResponse)
-@limiter.limit("5/minute")
+@limiter.limit("5/minute", key_func=_feedback_rate_key)
 async def submit_feedback(request: Request, body: FeedbackRequest) -> FeedbackResponse:
     """Recebe feedback mínimo e grava somente metadados permitidos."""
     user_id = _user_id(request)

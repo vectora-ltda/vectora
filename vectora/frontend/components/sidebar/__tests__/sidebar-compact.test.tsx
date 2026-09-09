@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it, afterEach, vi } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { ThreadGroup } from "../thread-group";
 import { WorkspaceGroup } from "../workspace-group";
 import { SidebarFooter } from "../sidebar-footer";
@@ -27,6 +27,15 @@ vi.mock("@/lib/paraglide/messages", () => ({
     sidebar_documentation: () => "Documentação",
     sidebar_documentation_caption: () => "Saiba mais",
     sidebar_feedback: () => "Feedback",
+    feedback_title: () => "Enviar feedback",
+    feedback_bug: () => "Bug",
+    feedback_suggestion: () => "Sugestão",
+    feedback_cancel: () => "Cancelar",
+    feedback_send: () => "Enviar",
+    feedback_required: () => "Descreva o problema",
+    feedback_sent: () => "Enviado",
+    feedback_rate_limited: () => "Limite atingido",
+    feedback_error: () => "Erro",
     sidebar_docs: () => "Docs",
     sidebar_report_issue: () => "Reportar problema",
     sidebar_workspace_collapse: () => "Recolher",
@@ -48,6 +57,7 @@ vi.mock("../../src/router", () => ({
 vi.mock("@/lib/api/vectora-client", () => ({
   getHistory: vi.fn(),
   listThreads: vi.fn(),
+  submitFeedback: vi.fn().mockResolvedValue({ id: "feedback-1" }),
 }));
 vi.mock("@/lib/queries/threads", () => ({
   threadsQueryKey: (limit = 100) => ["threads", limit],
@@ -270,5 +280,21 @@ describe("SidebarFooter — ícones inline sem labels", () => {
     const { container } = render(<SidebarFooter />);
     const footer = container.firstElementChild as HTMLElement;
     expect(footer.className).toContain("pt-1.5");
+  });
+
+  it("mantém o foco dentro do diálogo de feedback", () => {
+    render(<SidebarFooter />);
+    fireEvent.click(screen.getByTitle("Feedback"));
+    const dialog = screen.getByRole("dialog");
+    const controls = Array.from(
+      dialog.querySelectorAll<HTMLElement>("select, textarea, button"),
+    );
+    controls[controls.length - 1].focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(controls[0]);
+
+    controls[0].focus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(controls[controls.length - 1]);
   });
 });
