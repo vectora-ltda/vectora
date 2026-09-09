@@ -164,7 +164,7 @@ export async function reconcilePendingPromotions(env: Env): Promise<void> {
       const claimToken = crypto.randomUUID();
       const claimed = await env.DB.prepare(
         "UPDATE issues SET github_sync_state = 'promotion_failed', github_sync_error = ? " +
-          "WHERE id = ? AND core_number IS NULL AND github_sync_state = ?",
+          "WHERE id = ? AND github_sync_state = ?",
       )
         .bind(claimToken, issue.id, issue.github_sync_state)
         .run();
