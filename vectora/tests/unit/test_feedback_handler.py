@@ -4,9 +4,17 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 from starlette.requests import Request
 
 from backend.api.handlers.feedback import FeedbackRequest, submit_feedback
+
+
+def test_feedback_rejeita_campos_desconhecidos() -> None:
+    with pytest.raises(ValidationError):
+        FeedbackRequest.model_validate(
+            {"kind": "bug", "description": "falha", "inesperado": "valor"}
+        )
 
 
 @pytest.mark.asyncio

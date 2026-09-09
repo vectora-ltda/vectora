@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from slowapi.util import get_remote_address
 
 from backend.api.middleware.rate_limit import limiter
@@ -20,6 +20,8 @@ router = APIRouter(prefix="/feedback", tags=["feedback"])
 
 
 class FeedbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     kind: Literal["bug", "suggestion"]
     description: str = Field(min_length=1, max_length=5000)
     include_context: bool = False
