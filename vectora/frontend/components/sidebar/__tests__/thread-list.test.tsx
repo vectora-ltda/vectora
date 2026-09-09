@@ -84,6 +84,15 @@ describe("ThreadList pull-to-refresh", () => {
     expect(refresh).not.toHaveBeenCalled();
   });
 
+  it("não atualiza quando o gesto começa fora do topo da lista", () => {
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    const { container } = renderList(refresh);
+    const nav = container.querySelector("nav")!;
+    Object.defineProperty(nav, "scrollTop", { value: 24, configurable: true });
+    pull(nav, 70);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
   it("impede refresh concorrente e mantém indicador durante a promise", async () => {
     let resolveRefresh!: () => void;
     const refresh = vi.fn(
