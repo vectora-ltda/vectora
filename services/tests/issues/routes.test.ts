@@ -291,6 +291,50 @@ describe("POST /issues/github/webhook", () => {
     expect(requests.some((request) => request.startsWith("POST "))).toBe(true);
   });
 
+  it("retoma promoção após persistir o mapeamento core sem recriar a issue", async () => {
+    const issueId = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO issues (id, title, category, description, github_repo, github_number, github_url, core_repo, core_number, core_url, github_sync_state, approved_by) VALUES (?, 'bug core', 'bug', 'descrição', ?, 77, ?, ?, 4321, ?, 'promotion_pending', 'admin')",
+    )
+      .bind(
+        issueId,
+        "vectora-ltda/vectora-issues",
+        "https://github.com/vectora-ltda/vectora-issues/issues/77",
+        "vectora-ltda/vectora",
+        "https://github.com/vectora-ltda/vectora/issues/4321",
+      )
+      .run();
+    const requests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        requests.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.includes("comments")) {
+          return new Response("[]", { status: 200 });
+        }
+        return new Response("{}", { status: 200 });
+      }),
+    );
+
+    await reconcilePendingPromotions({
+      ...env,
+      GITHUB_TOKEN: "test-token",
+    });
+
+    const row = await env.DB.prepare(
+      "SELECT core_number, github_sync_state FROM issues WHERE id = ?",
+    )
+      .bind(issueId)
+      .first<{ core_number: number | null; github_sync_state: string }>();
+    expect(row).toEqual({ core_number: 4321, github_sync_state: "promoted" });
+    expect(
+      requests.some(
+        (request) => request.startsWith("POST ") && /\/issues$/.test(request),
+      ),
+    ).toBe(false);
+  });
+
   it("marca comentários ativos como removidos quando o GitHub retorna uma lista vazia", async () => {
     const issueId = crypto.randomUUID();
     await env.DB.prepare(
