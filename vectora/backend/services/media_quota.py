@@ -54,18 +54,22 @@ class MediaQuota:
         return datetime.now(UTC).strftime("%Y-%m")
 
     async def reserve(
-        self, *, user_id: str, tier: str, operation: str, idempotency_key: str
+        self, *, user_id: str, operation: str, idempotency_key: str
     ) -> QuotaReservation | None:
         return await asyncio.to_thread(
-            self._reserve, user_id, tier, operation, idempotency_key
+            self._reserve, user_id, operation, idempotency_key
         )
 
     def _reserve(
-        self, user_id: str, tier: str, operation: str, idempotency_key: str
+        self, user_id: str, operation: str, idempotency_key: str
     ) -> QuotaReservation | None:
+        from backend.rbac.subscription import get_current_tier
+
         units = UNIT_COSTS.get(operation, 0)
+        tier = get_current_tier()
         period = self.period()
         with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
             existing = db.execute(
                 "SELECT user_id, period, operation, units, state FROM media_quota_reservations WHERE id = ?",
                 (idempotency_key,),
@@ -74,22 +78,23 @@ class MediaQuota:
                 return QuotaReservation(
                     idempotency_key, existing[0], existing[1], existing[2], existing[3]
                 )
-            used = db.execute(
-                "SELECT used_units FROM media_quota_usage WHERE user_id = ? AND period = ?",
-                (user_id, period),
-            ).fetchone()
-            if (used[0] if used else 0) + units > MONTHLY_LIMITS.get(
-                tier, MONTHLY_LIMITS["free"]
-            ):
-                return None
             db.execute(
                 "INSERT OR IGNORE INTO media_quota_usage(user_id, period, used_units) VALUES (?, ?, 0)",
                 (user_id, period),
             )
-            db.execute(
-                "UPDATE media_quota_usage SET used_units = used_units + ? WHERE user_id = ? AND period = ?",
-                (units, user_id, period),
+            updated = db.execute(
+                "UPDATE media_quota_usage SET used_units = used_units + ? "
+                "WHERE user_id = ? AND period = ? AND used_units + ? <= ?",
+                (
+                    units,
+                    user_id,
+                    period,
+                    units,
+                    MONTHLY_LIMITS.get(tier, MONTHLY_LIMITS["free"]),
+                ),
             )
+            if updated.rowcount != 1:
+                return None
             db.execute(
                 "INSERT INTO media_quota_reservations(id, user_id, period, operation, units, state, created_at) VALUES (?, ?, ?, ?, ?, 'reserved', ?)",
                 (
@@ -113,10 +118,13 @@ class MediaQuota:
                 (state, reservation_id),
             )
 
-    async def summary(self, user_id: str, tier: str) -> dict[str, int | str]:
-        return await asyncio.to_thread(self._summary, user_id, tier)
+    async def summary(self, user_id: str) -> dict[str, int | str]:
+        return await asyncio.to_thread(self._summary, user_id)
 
-    def _summary(self, user_id: str, tier: str) -> dict[str, int | str]:
+    def _summary(self, user_id: str) -> dict[str, int | str]:
+        from backend.rbac.subscription import get_current_tier
+
+        tier = get_current_tier()
         period = self.period()
         with self._connect() as db:
             row = db.execute(
