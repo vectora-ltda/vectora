@@ -202,7 +202,7 @@ class TestCadeiaDeTranscricao:
 
         with pytest.raises(
             transcription.TranscriptionError,
-            match="modelo de STT do OpenRouter|provider de transcrição indisponível",
+            match=r"modelo de STT do OpenRouter|provider de transcrição indisponível",
         ):
             await transcription.transcribe_audio(
                 _AUDIO,
