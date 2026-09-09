@@ -72,6 +72,24 @@ def _media_dir(session_id: str) -> Path:
     return settings.vectora_home / "artifacts" / (session_id or "sem-sessao") / "media"
 
 
+def _validated_video_path(ctx: ToolContext, path: str) -> Path | None:
+    """Resolve video input inside the current session media directory only."""
+    if not ctx.thread_id:
+        return None
+    root = _media_dir(ctx.thread_id).resolve()
+    candidate = Path(path).expanduser()
+    if candidate.is_symlink():
+        return None
+    try:
+        resolved = candidate.resolve()
+        resolved.relative_to(root)
+    except (OSError, ValueError):
+        return None
+    if resolved.is_symlink() or not resolved.is_file():
+        return None
+    return resolved
+
+
 def _media_url(session_id: str, path: Path) -> str:
     """URL relativa e servível (`GET /artifacts/{session_id}/media/
     {filename}`, `api/handlers/artifacts.py::get_media_artifact`) pro
@@ -564,15 +582,19 @@ async def analyze_video(ctx: ToolContext, path: str, question: str) -> str:
                 "Troque para um modelo Gemini — os outros providers leem "
                 "imagem, mas não vídeo.",
             )
-        if not Path(path).is_file():
+        safe_path = _validated_video_path(ctx, path)
+        if safe_path is None:
             return json.dumps(
-                {"error": f"arquivo não encontrado: {path}"}, ensure_ascii=False
+                {
+                    "error": "vídeo deve estar na mídia da sessão atual e não pode ser symlink"
+                },
+                ensure_ascii=False,
             )
         if not question.strip():
             return json.dumps({"error": "pergunta vazia — diga o que quer saber"})
 
         model = _active_model(ctx)
-        resposta = await _analyze_video_text(provider, model, path, question)
+        resposta = await _analyze_video_text(provider, model, str(safe_path), question)
         if not resposta.strip():
             return json.dumps({"error": "provider devolveu resposta vazia"})
         return json.dumps({"answer": resposta}, ensure_ascii=False)

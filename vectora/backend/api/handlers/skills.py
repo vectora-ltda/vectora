@@ -19,11 +19,13 @@ memory_library.py::post_publish`.
 from __future__ import annotations
 
 import logging
+from typing import Literal, TypedDict
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from backend.services import registry_client
+from backend.services.importers import preview_skill_config
 from backend.services.registry_client import RegistryClientError
 from backend.workspace.skills import (
     InstallSkillRequest,
@@ -46,6 +48,51 @@ class PublishSkillRequest(BaseModel):
     tags: list[str] = []
 
 
+class ImportPreviewRequest(BaseModel):
+    payload: object
+
+
+class SkillsListResponse(TypedDict):
+    skills: list[dict[str, object]]
+    total: int
+
+
+class SkillResponse(TypedDict):
+    status: str
+    skill: dict[str, object]
+
+
+class RemovalResponse(TypedDict):
+    status: str
+    id: str
+
+
+def _authorized_target(
+    request: Request,
+    scope: str,
+    target: str | None,
+    workspace_id: str | None,
+) -> str | None:
+    """Resolve project/workspace paths only through an authorized workspace."""
+    if scope == "user":
+        return None
+    from backend.api.handlers.workspaces import require_workspace_access
+
+    ws_id = workspace_id or target
+    if not ws_id:
+        raise HTTPException(
+            status_code=400, detail="workspace_id obrigatório para escopo não-usuário"
+        )
+    ws = require_workspace_access(ws_id, request)
+    if ws is None:
+        raise HTTPException(status_code=404, detail="Workspace não encontrado.")
+    if scope == "project":
+        return str(ws.cwd)
+    if scope == "workspace":
+        return ws_id
+    return target or getattr(request.state, "thread_id", None) or ws_id
+
+
 def _user_id(request: Request) -> str:
     user = getattr(request.state, "user", None)
     if user is not None and getattr(user, "id", None):
@@ -54,9 +101,15 @@ def _user_id(request: Request) -> str:
 
 
 @router.get("")
-async def list_user_skills(request: Request) -> dict:
+async def list_user_skills(
+    request: Request,
+    scope: Literal["user", "workspace", "project", "runtime"] = "user",
+    target: str | None = None,
+    workspace_id: str | None = None,
+) -> SkillsListResponse:
     """Lista as skills instaladas para o usuário autenticado."""
-    skills = list_skills(_user_id(request))
+    target = _authorized_target(request, scope, target, workspace_id)
+    skills = list_skills(_user_id(request), scope, target)
     return {"skills": [s.model_dump() for s in skills], "total": len(skills)}
 
 
@@ -92,6 +145,10 @@ async def get_skills_catalog(
     catálogo já cacheado por `registry_client` — não refazem a requisição
     remota a cada busca."""
     entries = await registry_client.fetch_catalog("skills")
+    enterprise = await registry_client.fetch_enterprise_catalog("skills")
+    by_id = {str(entry.get("id")): entry for entry in enterprise if entry.get("id")}
+    by_id.update({str(entry.get("id")): entry for entry in entries if entry.get("id")})
+    entries = list(by_id.values())
     filtered = [
         e for e in entries if _matches_skill_query(e, q=q, category=category, tags=tags)
     ]
@@ -99,28 +156,51 @@ async def get_skills_catalog(
 
 
 @router.post("")
-async def install_user_skill(request: Request, body: InstallSkillRequest) -> dict:
+async def install_user_skill(
+    request: Request, body: InstallSkillRequest
+) -> SkillResponse:
     """Instala uma skill (git URL ou path local)."""
     try:
-        skill = install_skill(_user_id(request), body.source)
+        target = _authorized_target(request, body.scope, body.target, body.workspace_id)
+        skill = install_skill(
+            _user_id(request),
+            body.source,
+            body.scope,
+            target,
+            confirm_unverified=body.confirm_unverified,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"status": "ok", "skill": skill.model_dump()}
 
 
 @router.delete("/{skill_id}")
-async def delete_user_skill(request: Request, skill_id: str) -> dict:
+async def delete_user_skill(
+    request: Request,
+    skill_id: str,
+    scope: Literal["user", "workspace", "project", "runtime"] = "user",
+    target: str | None = None,
+    workspace_id: str | None = None,
+) -> RemovalResponse:
     """Remove uma skill instalada."""
-    removed = remove_skill(_user_id(request), skill_id)
+    target = _authorized_target(request, scope, target, workspace_id)
+    removed = remove_skill(_user_id(request), skill_id, scope, target)
     if not removed:
         raise HTTPException(status_code=404, detail="Skill não encontrada.")
     return {"status": "removed", "id": skill_id}
 
 
 @router.post("/{skill_id}/verify")
-async def verify_user_skill(request: Request, skill_id: str) -> dict:
+async def verify_user_skill(
+    request: Request,
+    skill_id: str,
+    scope: Literal["user", "workspace", "project", "runtime"] = "user",
+    target: str | None = None,
+    workspace_id: str | None = None,
+) -> dict:
     """Revalida o SKILL.md da skill (útil após edição manual no disco)."""
-    return verify_skill(_user_id(request), skill_id)
+    target = _authorized_target(request, scope, target, workspace_id)
+    return verify_skill(_user_id(request), skill_id, scope, target)
 
 
 @router.post("/publish")
@@ -147,3 +227,9 @@ async def publish_user_skill(req: PublishSkillRequest) -> dict:
     except RegistryClientError as exc:
         return {"status": "error", "error": str(exc)}
     return {"status": "published", "skill_id": remote_id}
+
+
+@router.post("/import/preview")
+async def preview_skill_import(req: ImportPreviewRequest) -> dict:
+    """Return a non-executing preview of supported skill metadata."""
+    return preview_skill_config(req.payload)
