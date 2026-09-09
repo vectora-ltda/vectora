@@ -19,13 +19,18 @@ Tool nativa (`@vtool`) — chamada como função async direta com
 from __future__ import annotations
 
 import json
+import sys
 import types
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from backend.services.desktop_windows import DesktopWindowRegistry, WindowInfo
+from backend.services.desktop_windows import (
+    DesktopWindowRegistry,
+    WindowInfo,
+    _Selection,
+)
 from backend.tools import computer_use as cu
 from backend.tools.context import ToolContext
 
@@ -219,6 +224,26 @@ class TestApisWindowsSimuladas:
         with pytest.raises(RuntimeError, match="HWND"):
             cu._native_window_handle(types.SimpleNamespace(_hWnd=0))
 
+    def test_captura_passes_a_hwnd_validada_ao_imagegrab(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        chamadas: list[dict[str, object]] = []
+
+        class FakeImage:
+            def save(self, buffer: object, *, format: str) -> None:
+                assert format == "PNG"
+
+        image_grab = types.SimpleNamespace(
+            grab=lambda **kwargs: chamadas.append(kwargs) or FakeImage()
+        )
+        monkeypatch.setitem(
+            sys.modules, "PIL", types.SimpleNamespace(ImageGrab=image_grab)
+        )
+
+        cu._take_screenshot_sync((1, 2, 3, 4), 99)
+
+        assert chamadas == [{"bbox": (1, 2, 3, 4), "window": 99}]
+
 
 class TestAprovacaoSempreObrigatoria:
     def test_computer_use_pausa_mesmo_em_bypass(self):
@@ -294,6 +319,42 @@ class TestJanelaSelecionada:
         assert result == {"status": "error", "code": "invalid_coordinates"}
         assert clicked == []
 
+    async def test_perda_de_foco_bloqueia_entrada_e_audita_sem_dados_externos(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(cu, "_computer_use_enabled", lambda _workspace_id: True)
+        info = WindowInfo("w1", "Editor", 0, 0, 100, 100, True)
+        selection = SimpleNamespace(
+            window_id=info.window_id, native=SimpleNamespace(_hWnd=1), info=info
+        )
+        monkeypatch.setattr(
+            cu.desktop_window_registry, "selected", lambda **_: selection
+        )
+        monkeypatch.setattr(
+            cu.desktop_window_registry, "allow_action", lambda **_: True
+        )
+        auditorias: list[dict[str, object]] = []
+        monkeypatch.setattr(
+            cu.desktop_window_registry,
+            "require_focus",
+            lambda _selection: (_ for _ in ()).throw(PermissionError("foco perdido")),
+        )
+
+        async def _capture_audit(*args: object, **kwargs: object) -> None:
+            del args
+            auditorias.append(kwargs)
+
+        monkeypatch.setattr(cu, "_audit_event", _capture_audit)
+        entrada: list[tuple[object, ...]] = []
+        monkeypatch.setattr(cu, "_click_sync", lambda *args: entrada.append(args))
+
+        result = json.loads(await cu.computer_use(action="click", x=2, y=3, ctx=_ctx()))
+
+        assert result == {"status": "error", "code": "focus_lost"}
+        assert entrada == []
+        assert len(auditorias) == 1
+        assert "window_id" not in auditorias[0]
+
 
 def test_desktop_registry_invalidate_e_rate_limit_atomico() -> None:
     registry = DesktopWindowRegistry()
@@ -302,3 +363,18 @@ def test_desktop_registry_invalidate_e_rate_limit_atomico() -> None:
     assert sum(results) == 30
     registry.invalidate("t")
     assert registry.allow_action(**scope) is True
+
+
+def test_desktop_registry_expira_selecao_e_isola_contextos() -> None:
+    registry = DesktopWindowRegistry()
+    registry._selections[("u1", "w1", "t1")] = _Selection(
+        "w1", SimpleNamespace(), WindowInfo("w1", "Editor", 0, 0, 1, 1, True), 0.0
+    )
+    registry._selections[("u2", "w1", "t1")] = _Selection(
+        "w2", SimpleNamespace(), WindowInfo("w2", "Editor", 0, 0, 1, 1, True), 0.0
+    )
+
+    with pytest.raises(LookupError, match="expirada"):
+        registry.selected(user_id="u1", workspace_id="w1", thread_id="t1")
+    assert ("u1", "w1", "t1") not in registry._selections
+    assert ("u2", "w1", "t1") in registry._selections
