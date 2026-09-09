@@ -246,12 +246,12 @@ describe("WorkspaceGroup — layout compacto", () => {
 });
 
 describe("SidebarFooter — ícones inline sem labels", () => {
-  it("renderiza dois links com title (docs e feedback)", () => {
+  it("renderiza os controles de documentação e feedback com title", () => {
     render(<SidebarFooter />);
-    const links = document.querySelectorAll("a[title]");
-    expect(links).toHaveLength(2);
-    expect(links[0].getAttribute("title")).toBe("Documentação");
-    expect(links[1].getAttribute("title")).toBe("Feedback");
+    const controls = document.querySelectorAll("[title]");
+    expect(controls).toHaveLength(2);
+    expect(controls[0].getAttribute("title")).toBe("Documentação");
+    expect(controls[1].getAttribute("title")).toBe("Feedback");
   });
 
   it("não renderiza texto de label visível inline", () => {
