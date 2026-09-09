@@ -786,10 +786,7 @@ function registerIpc(): void {
   });
   ipcMain.on("vectora:download-update", () => {
     void autoUpdater.downloadUpdate().catch((error: unknown) => {
-      mainWindow?.webContents.send("vectora:update-status", {
-        state: "error",
-        message: String(error),
-      } satisfies UpdateStatus);
+      console.warn("[updater] downloadUpdate falhou", error);
     });
   });
 
