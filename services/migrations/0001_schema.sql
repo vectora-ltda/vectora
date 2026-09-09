@@ -170,8 +170,36 @@ CREATE TABLE IF NOT EXISTS issues (
   response     TEXT,
   responded_at TEXT,
   archived_at  TEXT,
+  github_repo TEXT,
+  github_number INTEGER,
+  github_url TEXT,
+  github_sync_state TEXT NOT NULL DEFAULT 'pending',
+  github_sync_error TEXT,
+  core_repo TEXT,
+  core_number INTEGER,
+  core_url TEXT,
+  approved_at TEXT,
+  approved_by TEXT,
   created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_issues_github_identity
+  ON issues(github_repo, github_number)
+  WHERE github_repo IS NOT NULL AND github_number IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS issue_comments (
+  id TEXT PRIMARY KEY,
+  issue_id TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+  github_comment_id INTEGER NOT NULL,
+  author TEXT NOT NULL,
+  body TEXT NOT NULL,
+  html_url TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE(issue_id, github_comment_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_issue_comments_issue
+  ON issue_comments(issue_id, created_at ASC);
 
 -- Biblioteca de bancos RAG pré-indexados (catálogo só-leitura; artefatos
 -- de verdade vivem em storage externo, não Cloudflare). status:
@@ -385,6 +413,7 @@ CREATE TABLE IF NOT EXISTS gha_bot_review_jobs (
   status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'done', 'failed')),
   review_text     TEXT,
   error           TEXT,
+  callback_secret_hash TEXT,
   created_at      TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );

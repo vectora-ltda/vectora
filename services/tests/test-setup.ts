@@ -2,10 +2,6 @@ import { env } from "cloudflare:test";
 import { beforeAll } from "vitest";
 // @ts-expect-error — Vite `?raw` import, resolvido em build/test time (esbuild).
 import schemaSql from "../migrations/0001_schema.sql?raw";
-// @ts-expect-error — Vite `?raw` import, resolvido em build/test time.
-import callbackSecretMigrationSql from "../migrations/0002_callback_secret_hash.sql?raw";
-// @ts-expect-error — Vite `?raw` import, resolvido em build/test time.
-import githubIssueSyncMigrationSql from "../migrations/0003_github_issue_sync.sql?raw";
 
 // Guarda de rede hermética. O `queueConsumers: ["vectora-email"]` do
 // vitest.config faz o miniflare ENTREGAR de verdade os emails enfileirados
@@ -64,6 +60,4 @@ async function applyMigration(sql: string): Promise<void> {
 
 beforeAll(async () => {
   await applyMigration(schemaSql as string);
-  await applyMigration(callbackSecretMigrationSql as string);
-  await applyMigration(githubIssueSyncMigrationSql as string);
 });
