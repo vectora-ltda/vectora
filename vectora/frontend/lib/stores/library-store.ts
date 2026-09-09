@@ -37,6 +37,10 @@ export interface CatalogSkill {
   vectora_verified?: boolean;
   verified?: boolean;
   catalog_source?: string;
+  trust_state?: MCPConnector["trust_state"];
+  trust_reason?: string;
+  publisher?: string;
+  signature_status?: string;
 }
 
 /**

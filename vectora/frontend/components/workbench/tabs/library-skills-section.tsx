@@ -196,15 +196,42 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
   const [busy, setBusy] = useState(false);
   const [installed, setInstalled] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const trustState =
+    skill.trust_state ??
+    (skillTrustLevel(skill) === "builtin"
+      ? "vectora_verified"
+      : skillTrustLevel(skill) === "verified"
+        ? "publisher_signed"
+        : "community_listed");
+  const invalid = trustState === "invalid";
+  const requiresConfirmation = [
+    "community_listed",
+    "unsigned",
+    "verification_unavailable",
+  ].includes(trustState);
 
   const handleInstall = async () => {
+    if (invalid) {
+      setError("Esta skill foi rejeitada pela verificação de integridade.");
+      return;
+    }
+    if (
+      requiresConfirmation &&
+      !window.confirm(
+        `Esta skill não possui verificação criptográfica${skill.trust_reason ? ` (${skill.trust_reason})` : ""}. Deseja instalar?`,
+      )
+    )
+      return;
     setBusy(true);
     setError(null);
     try {
       const res = await fetch("/skills", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: skill.source }),
+        body: JSON.stringify({
+          source: skill.source,
+          confirm_unverified: requiresConfirmation,
+        }),
       });
       if (!res.ok) {
         setError(m.library_skills_catalog_error_install());
@@ -251,7 +278,7 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
           size="sm"
           className="h-7 text-xs shrink-0"
           onClick={handleInstall}
-          disabled={busy || installed}
+          disabled={busy || installed || invalid}
         >
           {busy ? (
             <Loader2 className="w-3 h-3 animate-spin" />
@@ -263,6 +290,11 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
           )}
         </Button>
       </div>
+      {skill.trust_reason && (
+        <p className="text-xs text-muted-foreground" role="status">
+          {skill.trust_reason}
+        </p>
+      )}
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );

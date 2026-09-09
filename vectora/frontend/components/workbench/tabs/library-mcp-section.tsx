@@ -108,9 +108,14 @@ function ConfigureDialog({
         connector.env_vars.map((key) => saveEnvVar(key, values[key].trim())),
       );
       const requiresConfirmation = [
+        "community_listed",
         "unsigned",
         "verification_unavailable",
       ].includes(connector.trust_state ?? "");
+      if (connector.trust_state === "invalid") {
+        setError("Este MCP foi rejeitado pela verificação de integridade.");
+        return;
+      }
       if (
         requiresConfirmation &&
         !window.confirm(
@@ -202,9 +207,14 @@ function ConnectorCard({
     setError(null);
     try {
       const requiresConfirmation = [
+        "community_listed",
         "unsigned",
         "verification_unavailable",
       ].includes(connector.trust_state ?? "");
+      if (connector.trust_state === "invalid") {
+        setError("Este MCP foi rejeitado pela verificação de integridade.");
+        return;
+      }
       if (
         requiresConfirmation &&
         !window.confirm(
