@@ -50,9 +50,10 @@ describe("WindowDock", () => {
       { id: "w1", title: "aberta.ts", minimized: false },
       { id: "w2", title: "minimizada.ts", minimized: true },
     ];
-    render(<WindowDock />);
+    const { container } = render(<WindowDock />);
     expect(screen.getByText("minimizada.ts")).toBeInTheDocument();
     expect(screen.queryByText("aberta.ts")).not.toBeInTheDocument();
+    expect(container.firstElementChild).toHaveClass("safe-area-bottom-dock");
   });
 
   it("clicar numa janela minimizada chama restore com o id correto", () => {

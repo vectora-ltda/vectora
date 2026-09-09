@@ -3,6 +3,7 @@
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { XIcon } from "lucide-react";
+import { m } from "@/lib/paraglide/messages";
 
 import { cn } from "@/lib/utils";
 
@@ -30,12 +31,12 @@ function SheetOverlay({
 type SheetSide = "left" | "right" | "top" | "bottom";
 
 const sideClasses: Record<SheetSide, string> = {
-  left: "inset-y-0 left-0 h-full data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left",
+  left: "safe-offset-left inset-y-0 left-0 h-full data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left",
   right:
-    "inset-y-0 right-0 h-full data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right",
-  top: "inset-x-0 top-0 w-full data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top",
+    "safe-offset-right inset-y-0 right-0 h-full data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right",
+  top: "safe-offset-top inset-x-0 top-0 w-full data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top",
   bottom:
-    "inset-x-0 bottom-0 w-full data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
+    "safe-offset-bottom inset-x-0 bottom-0 w-full data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
 };
 
 function SheetContent({
@@ -68,7 +69,7 @@ function SheetContent({
             className="ring-offset-background absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:outline-hidden disabled:pointer-events-none"
           >
             <XIcon className="size-4" />
-            <span className="sr-only">Fechar</span>
+            <span className="sr-only">{m.workbench_close()}</span>
           </DialogPrimitive.Close>
         )}
       </DialogPrimitive.Content>
@@ -112,4 +113,4 @@ function SheetDescription({
   );
 }
 
-export { Sheet, SheetContent };
+export { Sheet, SheetContent, SheetDescription, SheetTitle };
