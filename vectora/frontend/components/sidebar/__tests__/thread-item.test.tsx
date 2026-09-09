@@ -15,6 +15,7 @@ import {
 } from "@testing-library/react";
 import type { Thread } from "@/lib/hooks/threads";
 import { ThreadItem } from "../thread-item";
+import { queryClient } from "../../../src/router";
 
 vi.mock("@/lib/stores/streaming-store", () => ({
   useStreamingStore: () => false,
@@ -50,7 +51,10 @@ vi.mock("@/lib/paraglide/messages", () => ({
 }));
 
 afterEach(cleanup);
-beforeEach(() => vi.useFakeTimers());
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.useFakeTimers();
+});
 afterEach(() => vi.useRealTimers());
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
@@ -101,6 +105,23 @@ describe("ThreadItem — menu de contexto", () => {
     expect(
       screen.queryByRole("menuitem", { name: "Fixar" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("limpa o contador da thread ativa após confirmar a leitura", async () => {
+    const { markThreadRead } = await import("@/lib/api/vectora-client");
+    render(
+      <ThreadItem
+        thread={makeThread({ unread_count: 2 })}
+        isActive
+        onSelect={vi.fn()}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    await act(async () => undefined);
+    expect(markThreadRead).toHaveBeenCalledWith("t1");
+    expect(queryClient.setQueryData).toHaveBeenCalled();
   });
 
   it("clicar em 'Fixar' chama onTogglePin com o novo estado", () => {

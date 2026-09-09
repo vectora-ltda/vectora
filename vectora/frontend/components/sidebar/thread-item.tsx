@@ -52,9 +52,25 @@ export const ThreadItem = memo(function ThreadItem({
 
   useEffect(() => {
     if (!isActive || !thread.unread_count) return;
-    void markThreadRead(thread.thread_id).catch(() => {
-      void queryClient.invalidateQueries({ queryKey: threadsQueryKey() });
-    });
+    void markThreadRead(thread.thread_id)
+      .then(() => {
+        queryClient.setQueryData<{
+          threads: { id: string; unread_count?: number }[];
+        }>(threadsQueryKey(), (data) =>
+          data
+            ? {
+                threads: data.threads.map((item) =>
+                  item.id === thread.thread_id
+                    ? { ...item, unread_count: 0 }
+                    : item,
+                ),
+              }
+            : data,
+        );
+      })
+      .catch(() => {
+        void queryClient.invalidateQueries({ queryKey: threadsQueryKey() });
+      });
   }, [isActive, thread.thread_id, thread.unread_count]);
 
   const cancelLongPress = () => {
