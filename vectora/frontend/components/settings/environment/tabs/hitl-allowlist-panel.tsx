@@ -11,7 +11,12 @@ import { m } from "@/lib/paraglide/messages";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 
 interface AllowlistResponse {
-  allowlist?: string[];
+  allowlist?: AllowlistItem[];
+}
+
+interface AllowlistItem {
+  id: string;
+  label: string;
 }
 
 /**
@@ -23,10 +28,13 @@ export function HitlAllowlistPanel() {
   const activeId = useWorkspacesStore((state) => state.active_id);
   const workspaceId = activeId ?? workspaces[0]?.id ?? "";
   const [selectedWorkspace, setSelectedWorkspace] = useState(workspaceId);
-  const [rules, setRules] = useState<string[]>([]);
+  const [rules, setRules] = useState<AllowlistItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pendingRevoke, setPendingRevoke] = useState<string | null>(null);
+  const [pendingRevoke, setPendingRevoke] = useState<{
+    workspaceId: string;
+    ruleId: string;
+  } | null>(null);
   const [revoking, setRevoking] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -69,7 +77,7 @@ export function HitlAllowlistPanel() {
   );
 
   async function revokeRule(): Promise<void> {
-    if (!pendingRevoke || !selectedWorkspace) return;
+    if (!pendingRevoke) return;
     setRevoking(true);
     setError(null);
     try {
@@ -78,13 +86,20 @@ export function HitlAllowlistPanel() {
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          workspace_id: selectedWorkspace,
-          signature: pendingRevoke,
+          workspace_id: pendingRevoke.workspaceId,
+          rule_id: pendingRevoke.ruleId,
         }),
       });
       if (!response.ok) throw new Error("revoke");
-      const data = (await response.json()) as AllowlistResponse;
-      setRules(Array.isArray(data.allowlist) ? data.allowlist : []);
+      const reload = await fetch(
+        `/smart-approval/allowlist?workspace_id=${encodeURIComponent(pendingRevoke.workspaceId)}`,
+        { credentials: "include" },
+      );
+      if (!reload.ok) throw new Error("revoke");
+      const data = (await reload.json()) as AllowlistResponse;
+      if (pendingRevoke.workspaceId === selectedWorkspace) {
+        setRules(Array.isArray(data.allowlist) ? data.allowlist : []);
+      }
       setNotice(m.hitl_allowlist_revoked());
       setPendingRevoke(null);
     } catch {
@@ -143,20 +158,25 @@ export function HitlAllowlistPanel() {
         <div className="rounded-lg border bg-card/50 divide-y divide-border/60">
           {rules.map((rule) => (
             <div
-              key={rule}
+              key={rule.id}
               className="flex items-center justify-between gap-3 px-3 py-2"
             >
               <span
                 className="truncate text-xs font-mono"
                 title={m.hitl_allowlist_title()}
               >
-                {rule.length > 48 ? `${rule.slice(0, 45)}…` : rule}
+                {rule.label}
               </span>
               <Button
                 size="sm"
                 variant="outline"
                 className="h-7 shrink-0 text-xs"
-                onClick={() => setPendingRevoke(rule)}
+                onClick={() =>
+                  setPendingRevoke({
+                    workspaceId: selectedWorkspace,
+                    ruleId: rule.id,
+                  })
+                }
               >
                 {m.hitl_allowlist_revoke()}
               </Button>

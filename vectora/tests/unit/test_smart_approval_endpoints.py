@@ -53,7 +53,7 @@ async def test_add_e_remove_via_endpoint():
 
     removida = await remove_smart_approval_allowlist(
         SmartApprovalAllowlistRemoveRequest(
-            workspace_id="ws1", signature=resposta.allowlist[0]
+            workspace_id="ws1", rule_id=resposta.allowlist[0].id
         ),
         _fake_request(),
     )
@@ -68,7 +68,26 @@ async def test_get_workspace_desconhecido_no_modo_local_usa_store():
 
     add_to_allowlist("ws-local", "terminal", {"command": "git status"})
     resposta = await get_smart_approval_allowlist("ws-local", _fake_request())
-    assert resposta.allowlist == ["terminal:git status"]
+    assert resposta.allowlist[0].label == "Regra 1"
+    assert resposta.allowlist[0].id
+
+
+@pytest.mark.asyncio
+async def test_regra_longa_usa_id_opaco_e_pode_ser_revogada():
+    from backend.services.smart_approval import add_to_allowlist
+
+    comando = "x" * 200
+    add_to_allowlist("ws-long", "terminal", {"command": comando})
+    resposta = await get_smart_approval_allowlist("ws-long", _fake_request())
+    item = resposta.allowlist[0]
+    assert len(item.id) == 64
+    assert comando not in item.model_dump_json()
+
+    removida = await remove_smart_approval_allowlist(
+        SmartApprovalAllowlistRemoveRequest(workspace_id="ws-long", rule_id=item.id),
+        _fake_request(),
+    )
+    assert removida.allowlist == []
 
 
 @pytest.mark.asyncio

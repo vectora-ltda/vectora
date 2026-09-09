@@ -22,6 +22,8 @@ pré-aprovação, HITL normal), regra 11 do CLAUDE.md.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -70,6 +72,11 @@ def _signature(tool_name: str, args: dict) -> str:
     return tool_name
 
 
+def allowlist_id(signature: str) -> str:
+    """Identificador opaco e estável de uma regra, sem expor seu conteúdo."""
+    return hashlib.sha256(signature.encode("utf-8")).hexdigest()
+
+
 def get_allowlist(workspace_id: str) -> list[str]:
     """Assinaturas pré-aprovadas do workspace. Workspace desconhecido/vazio
     devolve lista vazia, nunca lança."""
@@ -99,6 +106,21 @@ def remove_from_allowlist(workspace_id: str, signature: str) -> list[str]:
     current = [s for s in get_allowlist(workspace_id) if s != signature]
     _runtime_settings().set(_allowlist_key(workspace_id), current)
     return current
+
+
+def remove_from_allowlist_by_id(workspace_id: str, rule_id: str) -> list[str]:
+    """Revoga uma regra usando apenas seu identificador opaco."""
+    signature = next(
+        (
+            candidate
+            for candidate in get_allowlist(workspace_id)
+            if hmac.compare_digest(allowlist_id(candidate), rule_id)
+        ),
+        None,
+    )
+    if signature is None:
+        return get_allowlist(workspace_id)
+    return remove_from_allowlist(workspace_id, signature)
 
 
 def is_allowlisted(workspace_id: str, tool_name: str, args: dict) -> bool:
@@ -150,8 +172,10 @@ async def evaluate_command(
 
 __all__ = [
     "add_to_allowlist",
+    "allowlist_id",
     "evaluate_command",
     "get_allowlist",
     "is_allowlisted",
     "remove_from_allowlist",
+    "remove_from_allowlist_by_id",
 ]
