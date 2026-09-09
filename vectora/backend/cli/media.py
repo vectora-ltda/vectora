@@ -5,20 +5,34 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from typing import Any
+from typing import Protocol
 
 from backend.services.media_adapter import invoke_media, media_specs
 from backend.tools.context import ToolContext
 
 
-def _result(status: str, data: Any = None, error: str | None = None) -> dict[str, Any]:
-    value: dict[str, Any] = {"schema_version": "1", "status": status, "data": data}
+class MediaArgs(Protocol):
+    action: str
+    output: str
+    model: str | None
+    thread_id: str
+    prompt: str
+    text: str
+    voice: str
+    path: str
+    question: str
+
+
+def _result(
+    status: str, data: object = None, error: str | None = None
+) -> dict[str, object]:
+    value: dict[str, object] = {"schema_version": "1", "status": status, "data": data}
     if error is not None:
         value["error"] = error
     return value
 
 
-def _print(value: dict[str, Any], output: str) -> int:
+def _print(value: dict[str, object], output: str) -> int:
     if output == "json":
         print(json.dumps(value, ensure_ascii=False, sort_keys=True))
     elif value["status"] == "error":
@@ -28,7 +42,24 @@ def _print(value: dict[str, Any], output: str) -> int:
     return 0 if value["status"] == "ok" else 1
 
 
-def run_media(args: Any) -> None:
+def _invocation_result(value: object) -> tuple[str, object, str | None]:
+    """Normalize native tool output so JSON error envelopes fail the CLI."""
+    if isinstance(value, dict):
+        error = value.get("error")
+        return ("error", value, str(error)) if error else ("ok", value, None)
+    text = str(value)
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return (
+            ("error", text, text) if text.startswith("Error:") else ("ok", text, None)
+        )
+    if isinstance(parsed, dict) and parsed.get("error"):
+        return ("error", parsed, str(parsed["error"]))
+    return ("ok", parsed, None)
+
+
+def run_media(args: MediaArgs) -> None:
     """List or invoke a media tool with a trusted execution context."""
     if args.action == "list":
         data = [
@@ -51,13 +82,12 @@ def run_media(args: Any) -> None:
         # deve fornecer uma sessão confiável para usos multiusuário; até lá,
         # operações CLI usam explicitamente o principal local.
         user_id="local",
-        model=args.model,
+        model=args.model or "",
         thread_id=args.thread_id,
     )
-    value = asyncio.run(invoke_media(name, arguments, context))
-    status = "error" if value.startswith("Error:") else "ok"
-    raise SystemExit(
-        _print(
-            _result(status, value, value if status == "error" else None), args.output
-        )
-    )
+    try:
+        value = asyncio.run(invoke_media(name, arguments, context))
+        status, data, error = _invocation_result(value)
+    except Exception as exc:
+        status, data, error = "error", None, str(exc)
+    raise SystemExit(_print(_result(status, data, error), args.output))
