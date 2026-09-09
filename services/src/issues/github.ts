@@ -41,12 +41,12 @@ export class GitHubIssueError extends Error {
   }
 }
 
-/** Return the configured public intake repository. */
+/** Retorna o repositório público de entrada configurado. */
 export function intakeRepo(env: Env): string {
   return env.GITHUB_ISSUES_REPO?.trim() || DEFAULT_INTAKE_REPO;
 }
 
-/** Return the configured core repository. */
+/** Retorna o repositório principal configurado. */
 export function coreRepo(env: Env): string {
   return env.GITHUB_CORE_REPO?.trim() || DEFAULT_CORE_REPO;
 }
@@ -116,7 +116,7 @@ async function request<T>(
   return payload as T;
 }
 
-/** Create an issue without retrying an ambiguous POST. */
+/** Cria uma issue sem repetir um POST cujo resultado seja ambíguo. */
 export async function createIssue(
   env: Env,
   repo: string,
@@ -135,7 +135,7 @@ export async function createIssue(
   );
 }
 
-/** Find an issue by the immutable Company marker embedded in its body. */
+/** Encontra uma issue pelo marcador imutável da Company no corpo. */
 export async function findIssueByMarker(
   env: Env,
   repo: string,
@@ -149,7 +149,7 @@ export async function findIssueByMarker(
   return result.items?.[0] ?? null;
 }
 
-/** Update an existing GitHub issue. */
+/** Atualiza uma issue existente no GitHub. */
 export async function updateIssue(
   env: Env,
   repo: string,
@@ -162,7 +162,7 @@ export async function updateIssue(
   });
 }
 
-/** Add a public comment to a GitHub issue. */
+/** Adiciona um comentário público a uma issue do GitHub. */
 export async function addComment(
   env: Env,
   repo: string,
@@ -179,7 +179,7 @@ export async function addComment(
   );
 }
 
-/** List all comments used by reconciliation. */
+/** Lista todos os comentários usados pela reconciliação. */
 export async function listComments(
   env: Env,
   repo: string,

@@ -14,7 +14,7 @@ export interface PromotionResult {
   alreadyPromoted?: boolean;
 }
 
-/** Promote one Company issue into the private/core Vectora repository. */
+/** Promove uma issue da Company para o repositório privado principal da Vectora. */
 export async function promoteIssue(
   env: Env,
   issueId: string,
@@ -88,7 +88,7 @@ export async function promoteIssue(
   return { url: created.html_url, number: created.number };
 }
 
-/** Check whether a GitHub actor may approve intake issues automatically. */
+/** Verifica se um ator do GitHub pode aprovar issues de entrada automaticamente. */
 export function githubApprovalAllowed(env: Env, login: string): boolean {
   const configured = env.GITHUB_ISSUES_APPROVERS?.split(",")
     .map((value) => value.trim().toLowerCase())

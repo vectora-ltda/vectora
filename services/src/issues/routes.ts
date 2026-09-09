@@ -53,7 +53,7 @@ function githubBody(
   ].join("\n");
 }
 
-/** Publish or reconcile a Company issue in the public intake repository. */
+/** Publica ou reconcilia uma issue da Company no repositório público. */
 export async function syncCreatedIssue(
   env: Env,
   issueId: string,
@@ -105,7 +105,7 @@ export async function syncCreatedIssue(
   }
 }
 
-/** Reconcile comments from GitHub so missed webhook deliveries are recoverable. */
+/** Reconcilia comentários para recuperar entregas de webhook perdidas. */
 export async function reconcileIssueComments(
   env: Env,
   issueId: string,
