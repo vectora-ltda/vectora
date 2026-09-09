@@ -5,11 +5,14 @@ import { verifyTurnstile } from "../lib/turnstile";
 import { SUPPORT_EMAIL, waitlistJoinedHtml } from "../lib/email";
 import { enqueueEmail } from "../lib/queue";
 import {
+  addComment,
   createIssue,
+  findCommentByMarker,
   findIssueByMarker,
   intakeRepo,
   listComments,
   type GitHubIssue,
+  updateIssue,
 } from "./github";
 import { githubApprovalAllowed, promoteIssue } from "./promotion";
 
@@ -53,6 +56,46 @@ function githubBody(
   ].join("\n");
 }
 
+async function responseMarker(
+  issueId: string,
+  response: string,
+): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(response),
+  );
+  const suffix = Array.from(new Uint8Array(digest), (value) =>
+    value.toString(16).padStart(2, "0"),
+  )
+    .join("")
+    .slice(0, 24);
+  return `vectora-company-response:${issueId}:${suffix}`;
+}
+
+/** Publica uma resposta de forma idempotente e conclui a issue pública. */
+export async function syncIssueResponse(
+  env: Env,
+  issueId: string,
+  repo: string,
+  number: number,
+  response: string,
+  resolve: boolean,
+): Promise<void> {
+  const marker = await responseMarker(issueId, response);
+  const existing = await findCommentByMarker(env, repo, number, marker);
+  if (!existing) {
+    await addComment(env, repo, number, `<!-- ${marker} -->\n${response}`);
+  }
+  if (resolve) {
+    await updateIssue(env, repo, number, { state: "closed" });
+  }
+  await env.DB.prepare(
+    "UPDATE issues SET github_sync_state = 'synced', github_sync_error = NULL WHERE id = ?",
+  )
+    .bind(issueId)
+    .run();
+}
+
 /** Publica ou reconcilia uma issue da Company no repositório público. */
 export async function syncCreatedIssue(
   env: Env,
@@ -63,21 +106,50 @@ export async function syncCreatedIssue(
 ): Promise<void> {
   if (!env.GITHUB_ISSUES_TOKEN && !env.GITHUB_TOKEN) return;
   const existing = await env.DB.prepare(
-    "SELECT github_repo, github_number, github_url FROM issues WHERE id = ?",
+    "SELECT github_repo, github_number, github_url, github_sync_state, response, status FROM issues WHERE id = ?",
   )
     .bind(issueId)
     .first<{
       github_repo: string | null;
       github_number: number | null;
       github_url: string | null;
+      github_sync_state: string;
+      response: string | null;
+      status: string;
     }>();
   if (existing?.github_repo && existing.github_number && existing.github_url) {
-    await reconcileIssueComments(
-      env,
-      issueId,
-      existing.github_repo,
-      existing.github_number,
-    );
+    try {
+      await reconcileIssueComments(
+        env,
+        issueId,
+        existing.github_repo,
+        existing.github_number,
+      );
+      if (
+        existing.response &&
+        ["response_pending", "response_error"].includes(
+          existing.github_sync_state,
+        )
+      ) {
+        await syncIssueResponse(
+          env,
+          issueId,
+          existing.github_repo,
+          existing.github_number,
+          existing.response,
+          existing.status === "resolved",
+        );
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "github_sync_failed";
+      await env.DB.prepare(
+        "UPDATE issues SET github_sync_state = 'response_pending', github_sync_error = ? WHERE id = ?",
+      )
+        .bind(message.slice(0, 200), issueId)
+        .run();
+      console.error("issue_github_reconcile_failed", { issueId, message });
+    }
     return;
   }
   try {
@@ -170,6 +242,36 @@ export async function reconcileIssueComments(
     )
       .bind(issueId)
       .run();
+  }
+}
+
+/** Retoma respostas públicas persistidas após falhas transitórias do GitHub. */
+export async function reconcilePendingIssueResponses(env: Env): Promise<void> {
+  const { results } = await env.DB.prepare(
+    "SELECT id, response, status, github_repo, github_number FROM issues WHERE github_sync_state = 'response_pending' AND response IS NOT NULL AND github_repo IS NOT NULL AND github_number IS NOT NULL ORDER BY responded_at ASC LIMIT 25",
+  ).all<{
+    id: string;
+    response: string;
+    status: string;
+    github_repo: string;
+    github_number: number;
+  }>();
+  for (const issue of results) {
+    try {
+      await syncIssueResponse(
+        env,
+        issue.id,
+        issue.github_repo,
+        issue.github_number,
+        issue.response,
+        issue.status === "resolved",
+      );
+    } catch (error) {
+      console.error("issue_github_response_retry_failed", {
+        issueId: issue.id,
+        message: error instanceof Error ? error.message : "github_sync_failed",
+      });
+    }
   }
 }
 

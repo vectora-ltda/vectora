@@ -13,8 +13,7 @@ import { grantSubscription } from "../billing/routes";
 import { giftReceivedHtml, issueResponseHtml } from "../lib/email";
 import { enqueueEmail } from "../lib/queue";
 import { promoteIssue } from "../issues/promotion";
-import { syncCreatedIssue } from "../issues/routes";
-import { addComment, updateIssue } from "../issues/github";
+import { syncCreatedIssue, syncIssueResponse } from "../issues/routes";
 
 export const admin = new Hono<{ Bindings: Env }>();
 
@@ -341,6 +340,9 @@ admin.post("/issues/:id/sync", async (c) => {
       description: string | null;
     }>();
   if (!issue) return c.json({ error: "not_found" }, 404);
+  if (!c.env.GITHUB_ISSUES_TOKEN && !c.env.GITHUB_TOKEN) {
+    return c.json({ error: "github_not_configured" }, 503);
+  }
   await syncCreatedIssue(
     c.env,
     issue.id,
@@ -409,29 +411,34 @@ admin.post("/issues/:id/respond", async (c) => {
 
   const newStatus = body.resolve ? "resolved" : "open";
   await c.env.DB.prepare(
-    "UPDATE issues SET response = ?, responded_at = datetime('now'), status = ? WHERE id = ?",
+    "UPDATE issues SET response = ?, responded_at = datetime('now'), status = ?, github_sync_state = CASE WHEN github_repo IS NOT NULL AND github_number IS NOT NULL THEN 'response_pending' ELSE github_sync_state END, github_sync_error = NULL WHERE id = ?",
   )
     .bind(body.response, newStatus, id)
     .run();
 
   if (issue.github_repo && issue.github_number) {
     try {
-      await addComment(
+      await syncIssueResponse(
         c.env,
+        id,
         issue.github_repo,
         issue.github_number,
         body.response,
+        Boolean(body.resolve),
       );
-      if (body.resolve) {
-        await updateIssue(c.env, issue.github_repo, issue.github_number, {
-          state: "closed",
-        });
-      }
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "github_sync_failed";
+      await c.env.DB.prepare(
+        "UPDATE issues SET github_sync_state = 'response_pending', github_sync_error = ? WHERE id = ?",
+      )
+        .bind(message.slice(0, 200), id)
+        .run();
       console.error("issue_github_response_sync_failed", {
         id,
-        message: error instanceof Error ? error.message : "github_sync_failed",
+        message,
       });
+      return c.json({ error: "github_sync_pending" }, 502);
     }
   }
 

@@ -186,8 +186,25 @@ export async function listComments(
   repo: string,
   number: number,
 ): Promise<GitHubComment[]> {
-  return request<GitHubComment[]>(
-    env,
-    `${repoPath(repo)}/issues/${number}/comments?per_page=100`,
-  );
+  const all: GitHubComment[] = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const batch = await request<GitHubComment[]>(
+      env,
+      `${repoPath(repo)}/issues/${number}/comments?per_page=100&page=${page}`,
+    );
+    all.push(...batch);
+    if (batch.length < 100) break;
+  }
+  return all;
+}
+
+/** Encontra um comentário idempotente pelo marcador persistido no corpo. */
+export async function findCommentByMarker(
+  env: Env,
+  repo: string,
+  number: number,
+  marker: string,
+): Promise<GitHubComment | null> {
+  const comments = await listComments(env, repo, number);
+  return comments.find((comment) => comment.body.includes(marker)) ?? null;
 }

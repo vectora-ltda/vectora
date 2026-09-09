@@ -901,6 +901,70 @@ def _check_vercel_link(folder: str, expected_project: str) -> None:
         raise SystemExit(1)
 
 
+def _upgrade_d1_schema(log) -> None:
+    """Adiciona colunas novas sem quebrar bancos D1 já existentes."""
+    columns: tuple[tuple[str, str, str], ...] = (
+        ("gha_bot_config", "self_hosted_enabled", "INTEGER NOT NULL DEFAULT 0"),
+        ("issues", "github_repo", "TEXT"),
+        ("issues", "github_number", "INTEGER"),
+        ("issues", "github_url", "TEXT"),
+        ("issues", "github_sync_state", "TEXT NOT NULL DEFAULT 'pending'"),
+        ("issues", "github_sync_error", "TEXT"),
+        ("issues", "core_repo", "TEXT"),
+        ("issues", "core_number", "INTEGER"),
+        ("issues", "core_url", "TEXT"),
+        ("issues", "approved_at", "TEXT"),
+        ("issues", "approved_by", "TEXT"),
+        ("issue_comments", "updated_at", "TEXT"),
+        ("issue_comments", "deleted_at", "TEXT"),
+        ("gha_bot_review_jobs", "callback_secret_hash", "TEXT"),
+    )
+    tables = {table for table, _, _ in columns}
+    existing: dict[str, set[str]] = {}
+    for table in tables:
+        result = subprocess.run(
+            [
+                WRANGLER,
+                "d1",
+                "execute",
+                "vectora-db",
+                "--remote",
+                "--command",
+                f"PRAGMA table_info({table})",
+                "--json",
+            ],
+            cwd=SERVICES,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+        if result.returncode != 0:
+            raise SystemExit(
+                f"[scons prod] não foi possível consultar o schema D1: {table}"
+            )
+        existing[table] = set(
+            re.findall(r'"name"\s*:\s*"([^"]+)"', result.stdout)
+        )
+    for table, column, definition in columns:
+        if column in existing[table]:
+            continue
+        _run(
+            [
+                WRANGLER,
+                "d1",
+                "execute",
+                "vectora-db",
+                "--remote",
+                "--command",
+                f"ALTER TABLE {table} ADD COLUMN {column} {definition}",
+            ],
+            log=log,
+            cwd=SERVICES,
+        )
+
+
 def _action_prod(target, source, env):
     # Preflights ANTES de publicar qualquer coisa: credencial Cloudflare válida
     # e cada pasta linkada ao projeto Vercel certo — senão o deploy vai pro
@@ -946,6 +1010,7 @@ def _action_prod(target, source, env):
             log=log,
             cwd=SERVICES,
         )
+        _upgrade_d1_schema(log)
         _run(
             [
                 WRANGLER,

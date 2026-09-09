@@ -3,6 +3,7 @@ import {
   addComment,
   coreRepo,
   createIssue,
+  findCommentByMarker,
   findIssueByMarker,
   intakeRepo,
   updateIssue,
@@ -21,7 +22,7 @@ export async function promoteIssue(
   approvedBy: string,
 ): Promise<PromotionResult> {
   const issue = await env.DB.prepare(
-    "SELECT id, title, description, github_repo, github_number, github_url, core_number, core_url FROM issues WHERE id = ?",
+    "SELECT id, title, description, github_repo, github_number, github_url, core_repo, core_number, core_url, github_sync_state FROM issues WHERE id = ?",
   )
     .bind(issueId)
     .first<{
@@ -33,9 +34,15 @@ export async function promoteIssue(
       github_url: string | null;
       core_number: number | null;
       core_url: string | null;
+      core_repo: string | null;
+      github_sync_state: string;
     }>();
   if (!issue) throw new Error("issue_not_found");
-  if (issue.core_number && issue.core_url) {
+  if (
+    issue.core_number &&
+    issue.core_url &&
+    issue.github_sync_state === "promoted"
+  ) {
     return {
       url: issue.core_url,
       number: issue.core_number,
@@ -55,36 +62,54 @@ export async function promoteIssue(
     "",
     issue.description ?? "Sem descrição adicional.",
   ].join("\n");
-  const targetRepo = coreRepo(env);
+  const targetRepo = issue.core_repo ?? coreRepo(env);
   const marker = `vectora-company-issue:${issue.id}`;
-  const existingRemote = await findIssueByMarker(env, targetRepo, marker);
-  const claimed = await env.DB.prepare(
-    "UPDATE issues SET github_sync_state = 'promotion_pending', github_sync_error = NULL WHERE id = ? AND core_number IS NULL AND github_sync_state != 'promotion_pending'",
-  )
-    .bind(issueId)
-    .run();
-  if (claimed.meta.changes === 0 && !existingRemote) {
-    throw new Error("promotion_in_progress");
+  let created =
+    issue.core_number && issue.core_url
+      ? { number: issue.core_number, html_url: issue.core_url }
+      : await findIssueByMarker(env, targetRepo, marker);
+  if (!created) {
+    const claimed = await env.DB.prepare(
+      "UPDATE issues SET github_sync_state = 'promotion_pending', github_sync_error = NULL WHERE id = ? AND core_number IS NULL AND github_sync_state != 'promotion_pending'",
+    )
+      .bind(issueId)
+      .run();
+    if (claimed.meta.changes === 0) {
+      throw new Error("promotion_in_progress");
+    }
+    created = await createIssue(env, targetRepo, issue.title, body);
   }
-  const created =
-    existingRemote ?? (await createIssue(env, targetRepo, issue.title, body));
   await env.DB.prepare(
-    "UPDATE issues SET core_repo = ?, core_number = ?, core_url = ?, approved_at = datetime('now'), approved_by = ?, github_sync_state = 'promoted', github_sync_error = NULL WHERE id = ? AND core_number IS NULL",
+    "UPDATE issues SET core_repo = ?, core_number = ?, core_url = ?, approved_at = COALESCE(approved_at, datetime('now')), approved_by = COALESCE(approved_by, ?), github_sync_state = 'promotion_pending', github_sync_error = NULL WHERE id = ?",
   )
     .bind(targetRepo, created.number, created.html_url, approvedBy, issueId)
     .run();
 
   if (issue.github_repo && issue.github_number) {
-    await addComment(
+    const backlinkMarker = `vectora-company-promotion:${issue.id}`;
+    const existingBacklink = await findCommentByMarker(
       env,
       issue.github_repo,
       issue.github_number,
-      `Aprovada pela Company e promovida ao repositório principal: ${created.html_url}`,
+      backlinkMarker,
     );
+    if (!existingBacklink) {
+      await addComment(
+        env,
+        issue.github_repo,
+        issue.github_number,
+        `<!-- ${backlinkMarker} -->\nAprovada pela Company e promovida ao repositório principal: ${created.html_url}`,
+      );
+    }
     await updateIssue(env, issue.github_repo, issue.github_number, {
       state: "closed",
     });
   }
+  await env.DB.prepare(
+    "UPDATE issues SET github_sync_state = 'promoted', github_sync_error = NULL WHERE id = ?",
+  )
+    .bind(issueId)
+    .run();
   return { url: created.html_url, number: created.number };
 }
 
@@ -96,4 +121,21 @@ export function githubApprovalAllowed(env: Env, login: string): boolean {
   return Boolean(
     configured?.length && configured.includes(login.trim().toLowerCase()),
   );
+}
+
+/** Retoma promoções que criaram a issue principal mas ainda não fecharam a pública. */
+export async function reconcilePendingPromotions(env: Env): Promise<void> {
+  const { results } = await env.DB.prepare(
+    "SELECT id, approved_by FROM issues WHERE github_sync_state = 'promotion_pending' AND core_number IS NOT NULL AND approved_by IS NOT NULL LIMIT 25",
+  ).all<{ id: string; approved_by: string }>();
+  for (const issue of results) {
+    try {
+      await promoteIssue(env, issue.id, issue.approved_by);
+    } catch (error) {
+      console.error("issue_github_promotion_retry_failed", {
+        issueId: issue.id,
+        message: error instanceof Error ? error.message : "promotion_failed",
+      });
+    }
+  }
 }

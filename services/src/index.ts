@@ -33,10 +33,11 @@ import { gdpr, enqueueExpiredUserDeletions } from "./gdpr/routes";
 import { expireGiftSubscriptions } from "./billing/routes";
 import { apiKeys } from "./api-keys/routes";
 import { ghaBot } from "./gha-bot/routes";
-import { issues } from "./issues/routes";
+import { issues, reconcilePendingIssueResponses } from "./issues/routes";
 import { ragLibrary } from "./rag-library/routes";
 import { registry } from "./registry/routes";
 import { runDiscovery } from "./registry/discovery";
+import { reconcilePendingPromotions } from "./issues/promotion";
 import { telemetry } from "./telemetry/routes";
 import { handleQueue } from "./queue-consumer";
 import type { Env } from "./gateway/types";
@@ -113,6 +114,8 @@ export default {
     ctx.waitUntil(enqueueExpiredUserDeletions(env).then(() => undefined));
     ctx.waitUntil(expireGiftSubscriptions(env.DB).then(() => undefined));
     ctx.waitUntil(runDiscovery(env));
+    ctx.waitUntil(reconcilePendingIssueResponses(env));
+    ctx.waitUntil(reconcilePendingPromotions(env));
   },
 
   async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
