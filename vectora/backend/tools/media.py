@@ -583,6 +583,11 @@ async def analyze_video(ctx: ToolContext, path: str, question: str) -> str:
         )
 
 
+def _read_audio_limited(path: Path, limit: int) -> bytes:
+    with path.open("rb") as audio_file:
+        return audio_file.read(limit + 1)
+
+
 @vtool(
     extras=ToolExtras(
         render_hint="text",
@@ -609,8 +614,9 @@ async def audio_transcribe(ctx: ToolContext, path: str, language: str = "") -> s
             return json.dumps({"error": error}, ensure_ascii=False)
         if resolved.suffix.lower() not in {".wav", ".mp3", ".m4a", ".webm", ".ogg"}:
             return json.dumps({"error": "formato de áudio não suportado"})
-        data = await asyncio.to_thread(resolved.read_bytes)
-        if len(data) > 25 * 1024 * 1024:
+        max_audio_bytes = 25 * 1024 * 1024
+        data = await asyncio.to_thread(_read_audio_limited, resolved, max_audio_bytes)
+        if len(data) > max_audio_bytes:
             return json.dumps({"error": "áudio excede o limite de 25 MB"})
         mime = {
             ".wav": "audio/wav",
@@ -621,7 +627,14 @@ async def audio_transcribe(ctx: ToolContext, path: str, language: str = "") -> s
         }[resolved.suffix.lower()]
         from backend.llm.transcription import transcribe_audio
 
-        text = await transcribe_audio(data, resolved.name, mime)
+        text = await transcribe_audio(
+            data,
+            resolved.name,
+            mime,
+            provider=provider,
+            model=_active_model(ctx),
+            language=language,
+        )
         if not text.strip():
             return json.dumps({"error": "provider devolveu transcrição vazia"})
         return json.dumps(

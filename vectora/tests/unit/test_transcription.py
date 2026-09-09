@@ -28,7 +28,14 @@ class TestTranscribeAudio:
                 "backend.llm.transcription.httpx.AsyncClient", return_value=mock_client
             ),
         ):
-            text = await transcribe_audio(b"audio-bytes", "memo.mp3", "audio/mpeg")
+            text = await transcribe_audio(
+                b"audio-bytes",
+                "memo.mp3",
+                "audio/mpeg",
+                provider="openai",
+                model="whisper-1",
+                language="",
+            )
 
         assert text == "olá mundo"
         mock_client.post.assert_awaited_once()
@@ -42,7 +49,14 @@ class TestTranscribeAudio:
             patch("backend.llm.transcription.settings.google_api_key", None),
         ):
             with pytest.raises(TranscriptionError, match="openai_api_key"):
-                await transcribe_audio(b"audio-bytes", "memo.mp3", "audio/mpeg")
+                await transcribe_audio(
+                    b"audio-bytes",
+                    "memo.mp3",
+                    "audio/mpeg",
+                    provider="openai",
+                    model="whisper-1",
+                    language="",
+                )
 
     @pytest.mark.asyncio
     async def test_raises_transcription_error_on_http_failure(self) -> None:
@@ -58,7 +72,14 @@ class TestTranscribeAudio:
             ),
         ):
             with pytest.raises(TranscriptionError):
-                await transcribe_audio(b"audio-bytes", "memo.mp3", "audio/mpeg")
+                await transcribe_audio(
+                    b"audio-bytes",
+                    "memo.mp3",
+                    "audio/mpeg",
+                    provider="openai",
+                    model="whisper-1",
+                    language="",
+                )
 
 
 class TestTranscribeAudioGeminiFallback:
@@ -80,7 +101,14 @@ class TestTranscribeAudioGeminiFallback:
             ),
             patch("google.genai.Client", return_value=fake_client) as mock_cls,
         ):
-            text = await transcribe_audio(b"audio-bytes", "ditado.webm", "audio/webm")
+            text = await transcribe_audio(
+                b"audio-bytes",
+                "ditado.webm",
+                "audio/webm",
+                provider="google-genai",
+                model="whisper-1",
+                language="",
+            )
 
         assert text == "transcrição via gemini"
         mock_cls.assert_called_once_with(api_key="google-test-key")
@@ -102,7 +130,14 @@ class TestTranscribeAudioGeminiFallback:
             patch("google.genai.Client", return_value=fake_client),
         ):
             with pytest.raises(TranscriptionError):
-                await transcribe_audio(b"audio-bytes", "ditado.webm", "audio/webm")
+                await transcribe_audio(
+                    b"audio-bytes",
+                    "ditado.webm",
+                    "audio/webm",
+                    provider="google-genai",
+                    model="whisper-1",
+                    language="",
+                )
 
     @pytest.mark.asyncio
     async def test_gemini_503_retenta_e_recupera(self) -> None:
@@ -129,7 +164,14 @@ class TestTranscribeAudioGeminiFallback:
             patch("google.genai.Client", return_value=fake_client),
             patch("backend.llm.transcription.asyncio.sleep", AsyncMock()),
         ):
-            text = await transcribe_audio(b"audio-bytes", "ditado.webm", "audio/webm")
+            text = await transcribe_audio(
+                b"audio-bytes",
+                "ditado.webm",
+                "audio/webm",
+                provider="google-genai",
+                model="whisper-1",
+                language="",
+            )
 
         assert text == "recuperou na segunda tentativa"
         assert fake_models.generate_content.await_count == 2
@@ -154,7 +196,14 @@ class TestTranscribeAudioGeminiFallback:
             patch("backend.llm.transcription.asyncio.sleep", AsyncMock()) as mock_sleep,
         ):
             with pytest.raises(TranscriptionError):
-                await transcribe_audio(b"audio-bytes", "ditado.webm", "audio/webm")
+                await transcribe_audio(
+                    b"audio-bytes",
+                    "ditado.webm",
+                    "audio/webm",
+                    provider="google-genai",
+                    model="whisper-1",
+                    language="",
+                )
 
         assert fake_models.generate_content.await_count == 3
         assert mock_sleep.await_count == 2
@@ -183,7 +232,14 @@ class TestTranscribeAudioGeminiFallback:
             ),
             patch("google.genai.Client") as mock_gemini_cls,
         ):
-            text = await transcribe_audio(b"audio-bytes", "memo.mp3", "audio/mpeg")
+            text = await transcribe_audio(
+                b"audio-bytes",
+                "memo.mp3",
+                "audio/mpeg",
+                provider="openai",
+                model="whisper-1",
+                language="",
+            )
 
         assert text == "via whisper"
         mock_gemini_cls.assert_not_called()

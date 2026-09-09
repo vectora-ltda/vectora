@@ -175,7 +175,14 @@ class TestCadeiaDeTranscricao:
 
         monkeypatch.setattr("backend.llm.openrouter.stt.transcribe_bytes", _fake)
 
-        texto = await transcription.transcribe_audio(_AUDIO, "a.mp3", "audio/mpeg")
+        texto = await transcription.transcribe_audio(
+            _AUDIO,
+            "a.mp3",
+            "audio/mpeg",
+            provider="openrouter",
+            model="whisper",
+            language="",
+        )
         assert texto == "transcrito via openrouter"
 
     @pytest.mark.asyncio
@@ -191,7 +198,14 @@ class TestCadeiaDeTranscricao:
         monkeypatch.setattr(_s, "openrouter_api_key", "", raising=False)
 
         with pytest.raises(transcription.TranscriptionError, match="nenhuma chave"):
-            await transcription.transcribe_audio(_AUDIO, "a.mp3", "audio/mpeg")
+            await transcription.transcribe_audio(
+                _AUDIO,
+                "a.mp3",
+                "audio/mpeg",
+                provider="openrouter",
+                model="whisper",
+                language="",
+            )
 
     @pytest.mark.asyncio
     async def test_openrouter_sem_modelo_de_stt_nao_entra_na_cadeia(self, monkeypatch):
@@ -208,4 +222,11 @@ class TestCadeiaDeTranscricao:
         )
 
         with pytest.raises(transcription.TranscriptionError, match="nenhuma chave"):
-            await transcription.transcribe_audio(_AUDIO, "a.mp3", "audio/mpeg")
+            await transcription.transcribe_audio(
+                _AUDIO,
+                "a.mp3",
+                "audio/mpeg",
+                provider="openrouter",
+                model="whisper",
+                language="",
+            )

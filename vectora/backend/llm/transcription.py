@@ -42,7 +42,15 @@ class TranscriptionError(Exception):
     """Falha ao transcrever um áudio — sem chave configurada ou erro da API."""
 
 
-async def transcribe_audio(data: bytes, filename: str, mime_type: str) -> str:
+async def transcribe_audio(
+    data: bytes,
+    filename: str,
+    mime_type: str,
+    *,
+    provider: str,
+    model: str,
+    language: str,
+) -> str:
     """Transcreve `data` (bytes de áudio) via OpenAI Whisper ou Gemini.
 
     Args:
@@ -57,15 +65,17 @@ async def transcribe_audio(data: bytes, filename: str, mime_type: str) -> str:
         TranscriptionError: Sem chave configurada (nem OpenAI nem Google) ou
             erro da API.
     """
-    if settings.openai_api_key:
+    if not provider or not model:
+        raise TranscriptionError("provider e modelo são obrigatórios")
+    provider_key = provider.lower().replace("_", "-")
+    if provider_key in {"openai", "openai-api"} and settings.openai_api_key:
         return await _transcribe_openai(data, filename, mime_type)
-    if settings.google_api_key:
+    if provider_key in {"google", "google-genai", "gemini"} and settings.google_api_key:
         return await _transcribe_gemini(data, mime_type)
-    if settings.openrouter_api_key and _openrouter_stt_model():
-        return await _transcribe_openrouter(data, filename, mime_type)
+    if provider_key == "openrouter" and settings.openrouter_api_key:
+        return await _transcribe_openrouter(data, filename, mime_type, model)
     raise TranscriptionError(
-        "nenhuma chave de transcrição configurada (openai_api_key, "
-        "google_api_key, ou openrouter_api_key com modelo de STT escolhido)"
+        f"provider de transcrição indisponível: {provider} (verifique openai_api_key, google_api_key ou openrouter_api_key)"
     )
 
 
@@ -80,7 +90,9 @@ def _openrouter_stt_model() -> str:
     return configured_gateway_model("openrouter", "stt")
 
 
-async def _transcribe_openrouter(data: bytes, filename: str, mime_type: str) -> str:
+async def _transcribe_openrouter(
+    data: bytes, filename: str, mime_type: str, model: str
+) -> str:
     from backend.llm.openrouter.client import OpenRouterClient, OpenRouterError
     from backend.llm.openrouter.stt import transcribe_bytes
 
@@ -88,7 +100,7 @@ async def _transcribe_openrouter(data: bytes, filename: str, mime_type: str) -> 
     try:
         return await transcribe_bytes(
             client,
-            model=_openrouter_stt_model(),
+            model=model,
             data=data,
             filename=filename,
             mime_type=mime_type,

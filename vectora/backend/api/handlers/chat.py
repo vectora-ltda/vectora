@@ -292,7 +292,16 @@ async def _transcribe_attachment(att: Attachment) -> str:
         return f"\n[Áudio: {att.name} — não foi possível decodificar o arquivo]"
 
     try:
-        transcript = await transcribe_audio(audio_bytes, att.name, att.mime_type)
+        from backend.workspace.runtime_settings import runtime_settings
+
+        transcript = await transcribe_audio(
+            audio_bytes,
+            att.name,
+            att.mime_type,
+            provider=runtime_settings.active_provider,
+            model=runtime_settings.active_model,
+            language="",
+        )
     except TranscriptionError:
         logger.exception("chat: falha ao transcrever áudio %s", att.name)
         return f"\n[Áudio: {att.name} — falha ao transcrever]"
@@ -1095,7 +1104,16 @@ async def transcribe_audio_endpoint(
         raise HTTPException(status_code=422, detail="áudio em base64 inválido") from exc
 
     try:
-        text = await transcribe_audio(audio_bytes, request.filename, request.mime_type)
+        from backend.workspace.runtime_settings import runtime_settings
+
+        text = await transcribe_audio(
+            audio_bytes,
+            request.filename,
+            request.mime_type,
+            provider=runtime_settings.active_provider,
+            model=runtime_settings.active_model,
+            language="",
+        )
     except TranscriptionError as exc:
         logger.exception("chat: falha ao transcrever ditado de voz")
         raise HTTPException(status_code=502, detail=str(exc)) from exc
