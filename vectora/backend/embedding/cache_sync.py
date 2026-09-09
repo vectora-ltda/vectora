@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Literal, cast
 
 from backend.persistence.kv import get_kv, kv_initialized
 
@@ -45,11 +46,18 @@ def _on_tools_changed(payload: str) -> None:
     data = _parse(payload)
     user_id = str(data.get("user_id", ""))
     version = int(data.get("version", 0))
+    scope = cast(
+        "Literal['user', 'workspace', 'project', 'runtime']",
+        str(data.get("scope", "user")),
+    )
+    target = data.get("target")
     if not user_id:
         return
     from backend.workspace import plugins
 
-    plugins.apply_remote_version(user_id, version)
+    plugins.apply_remote_version(
+        user_id, version, scope, str(target) if target else None
+    )
 
 
 def _on_policy_changed(payload: str) -> None:

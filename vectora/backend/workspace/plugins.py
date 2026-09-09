@@ -45,7 +45,9 @@ def tools_version(user_id: str) -> int:
     return _versions.get(user_id, 0)
 
 
-def _bump_version(user_id: str) -> None:
+def _bump_version(
+    user_id: str, scope: McpScope = "user", target: str | None = None
+) -> None:
     _versions[user_id] = _versions.get(user_id, 0) + 1
     # Avisa as demais réplicas — no modo lite é um no-op local.
     import json
@@ -54,11 +56,23 @@ def _bump_version(user_id: str) -> None:
 
     publish_soon(
         "vectora:tools",
-        json.dumps({"user_id": user_id, "version": _versions[user_id]}),
+        json.dumps(
+            {
+                "user_id": user_id,
+                "version": _versions[user_id],
+                "scope": scope,
+                "target": target,
+            }
+        ),
     )
 
 
-def apply_remote_version(user_id: str, version: int) -> None:
+def apply_remote_version(
+    user_id: str,
+    version: int,
+    scope: McpScope = "user",
+    target: str | None = None,
+) -> None:
     """Aplica um bump de versão vindo de outra réplica (via cache_sync).
 
     Avança a versão local e descarta o cache de tools do usuário — o LLM
@@ -68,7 +82,17 @@ def apply_remote_version(user_id: str, version: int) -> None:
     if version <= _versions.get(user_id, 0):
         return
     _versions[user_id] = version
-    for cache_key in [key for key in _mcp_tools_cache if key[0] == user_id]:
+
+    def affected(key: tuple) -> bool:
+        if key[0] == user_id:
+            return True
+        if scope == "project" and target and len(key) > 3 and key[3] == target:
+            return True
+        return bool(
+            scope == "workspace" and target and len(key) > 2 and key[2] == target
+        )
+
+    for cache_key in [key for key in _mcp_tools_cache if affected(key)]:
         _mcp_tools_cache.pop(cache_key, None)
 
 
@@ -187,12 +211,12 @@ def add_server(
         ]
         servers.append(server)
         _runtime_servers[key] = servers
-        _bump_version(user_id)
+        _bump_version(user_id, scope, target)
         return server
     servers = [s for s in list_servers(user_id, scope, target) if s.name != server.name]
     servers.append(server)
     _save(user_id, servers, scope, target)
-    _bump_version(user_id)
+    _bump_version(user_id, scope, target)
     return server
 
 
@@ -214,7 +238,7 @@ def remove_server(
         _runtime_servers[key] = remaining
     else:
         _save(user_id, remaining, scope, target)
-    _bump_version(user_id)
+    _bump_version(user_id, scope, target)
     return True
 
 
