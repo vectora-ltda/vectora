@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { BookOpen, Flag } from "lucide-react";
 import { m } from "@/lib/paraglide/messages";
 import { useSettingsStore } from "@/lib/stores/settings-store";
@@ -14,9 +14,28 @@ export const SidebarFooter = memo(function SidebarFooter() {
   const [kind, setKind] = useState<"bug" | "suggestion">("bug");
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLFormElement>(null);
   const sidebarWidth = useSettingsStore((s) => s.sidebarWidth);
   const hydrated = useHydrated();
   const showLabel = hydrated && sidebarWidth >= LABEL_THRESHOLD;
+
+  useEffect(() => {
+    if (!open) return;
+    dialogRef.current
+      ?.querySelector<HTMLElement>("select, textarea, button")
+      ?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) triggerRef.current?.focus();
+  }, [open]);
 
   return (
     <div className="bg-gradient-to-t from-sidebar-accent/10 via-sidebar-accent/5 to-transparent pt-1.5 pb-0">
@@ -35,6 +54,7 @@ export const SidebarFooter = memo(function SidebarFooter() {
         </a>
         <button
           type="button"
+          ref={triggerRef}
           onClick={() => setOpen(true)}
           title={m.sidebar_feedback()}
           className="flex-1 min-w-0 flex items-center gap-1.5 px-2 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/20 transition-colors duration-150"
@@ -46,12 +66,20 @@ export const SidebarFooter = memo(function SidebarFooter() {
         </button>
       </div>
       {open && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4">
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4"
+          role="presentation"
+        >
           <form
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="feedback-dialog-title"
             className="w-full max-w-md space-y-3 rounded-lg bg-background p-5 shadow-xl"
             onSubmit={async (event) => {
               event.preventDefault();
               if (!description.trim()) return setStatus(m.feedback_required());
+              setIsSubmitting(true);
               try {
                 await submitFeedback({
                   kind,
@@ -70,10 +98,14 @@ export const SidebarFooter = memo(function SidebarFooter() {
                     ? m.feedback_rate_limited()
                     : m.feedback_error(),
                 );
+              } finally {
+                setIsSubmitting(false);
               }
             }}
           >
-            <h2 className="text-sm font-semibold">{m.feedback_title()}</h2>
+            <h2 id="feedback-dialog-title" className="text-sm font-semibold">
+              {m.feedback_title()}
+            </h2>
             <select
               className="w-full rounded border bg-background p-2"
               value={kind}
@@ -104,6 +136,8 @@ export const SidebarFooter = memo(function SidebarFooter() {
               </button>
               <button
                 type="submit"
+                disabled={isSubmitting}
+                aria-busy={isSubmitting}
                 className="rounded bg-primary px-3 py-1 text-sm text-primary-foreground"
               >
                 {m.feedback_send()}
