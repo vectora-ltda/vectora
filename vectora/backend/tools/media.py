@@ -235,7 +235,7 @@ async def generate_image(ctx: ToolContext, prompt: str) -> str:
     """
     provider = _active_provider(ctx)
     try:
-        from backend.settings import provider_supports
+        from backend.settings import configured_gateway_model, provider_supports
 
         if not provider_supports(provider, "image"):
             return _unsupported(
@@ -297,7 +297,7 @@ async def text_to_speech(ctx: ToolContext, text: str, voice: str = "") -> str:
     """
     provider = _active_provider(ctx)
     try:
-        from backend.settings import provider_supports
+        from backend.settings import configured_gateway_model, provider_supports
 
         if not provider_supports(provider, "tts"):
             return _unsupported(
@@ -588,6 +588,18 @@ def _read_audio_limited(path: Path, limit: int) -> bytes:
         return audio_file.read(limit + 1)
 
 
+def _audio_signature_matches(data: bytes, suffix: str) -> bool:
+    signatures = {
+        ".wav": data.startswith(b"RIFF") and data[8:12] == b"WAVE",
+        ".mp3": data.startswith(b"ID3")
+        or data[:2] in {b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"},
+        ".m4a": len(data) >= 12 and data[4:8] == b"ftyp",
+        ".webm": data.startswith(b"\x1a\x45\xdf\xa3"),
+        ".ogg": data.startswith(b"OggS"),
+    }
+    return signatures.get(suffix, False)
+
+
 @vtool(
     extras=ToolExtras(
         render_hint="text",
@@ -600,10 +612,11 @@ async def audio_transcribe(ctx: ToolContext, path: str, language: str = "") -> s
     """Transcreve um arquivo do workspace com o provider ativo."""
     provider = _active_provider(ctx)
     try:
-        from backend.settings import provider_supports
+        from backend.settings import configured_gateway_model, provider_supports
         from backend.tools.fs import _confine
 
-        if not provider_supports(provider, "stt"):
+        stt_model = configured_gateway_model(provider, "stt") or _active_model(ctx)
+        if not stt_model or not provider_supports(provider, "stt"):
             return _unsupported(
                 provider,
                 "transcrição remota de áudio",
@@ -618,6 +631,10 @@ async def audio_transcribe(ctx: ToolContext, path: str, language: str = "") -> s
         data = await asyncio.to_thread(_read_audio_limited, resolved, max_audio_bytes)
         if len(data) > max_audio_bytes:
             return json.dumps({"error": "áudio excede o limite de 25 MB"})
+        if not _audio_signature_matches(data, resolved.suffix.lower()):
+            return json.dumps(
+                {"error": "conteúdo de áudio incompatível com a extensão"}
+            )
         mime = {
             ".wav": "audio/wav",
             ".mp3": "audio/mpeg",
@@ -632,7 +649,7 @@ async def audio_transcribe(ctx: ToolContext, path: str, language: str = "") -> s
             resolved.name,
             mime,
             provider=provider,
-            model=_active_model(ctx),
+            model=stt_model,
             language=language,
         )
         if not text.strip():
@@ -641,7 +658,7 @@ async def audio_transcribe(ctx: ToolContext, path: str, language: str = "") -> s
             {
                 "text": text,
                 "provider": provider,
-                "model": _active_model(ctx),
+                "model": stt_model,
                 "language": language,
             },
             ensure_ascii=False,
