@@ -69,6 +69,7 @@ import {
 import { useGlobalShortcuts } from "@/lib/hooks/use-global-shortcuts";
 import { buildOptimisticThread } from "./-thread-cache-helpers";
 import { disposeBrowserThread } from "@/lib/browser-session-store";
+import { useToastStore } from "@/lib/stores/toast-store";
 export const Route = createFileRoute("/session/$threadId")({
   // Só a lista de threads (sidebar) bloqueia a navegação — o histórico da
   // thread ativa é prefetch em background (ver comentário abaixo). O
@@ -594,7 +595,10 @@ function SessionPage() {
         isLoading={isLoading}
         isNewSession={isNewSession}
         onRefreshThreads={async () => {
-          await refetchThreads();
+          const result = await refetchThreads();
+          if (result.isError || result.error) {
+            useToastStore.getState().error(m.threads_error_list());
+          }
         }}
       />
     ),

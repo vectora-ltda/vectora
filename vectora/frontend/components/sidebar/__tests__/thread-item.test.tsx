@@ -248,4 +248,22 @@ describe("ThreadItem — menu de contexto", () => {
     fireEvent.click(row!);
     expect(onSelect).toHaveBeenCalledWith("t1");
   });
+
+  it("tolera pequeno movimento sem cancelar long-press", () => {
+    render(
+      <ThreadItem
+        thread={makeThread()}
+        isActive={false}
+        onSelect={vi.fn()}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    const row = screen.getByText("Conversa T1").parentElement?.parentElement;
+    fireEvent.touchStart(row!, { touches: [{ clientX: 10, clientY: 100 }] });
+    fireEvent.touchMove(row!, { touches: [{ clientX: 14, clientY: 103 }] });
+    act(() => vi.advanceTimersByTime(500));
+    expect(screen.getAllByText("Renomear").length).toBeGreaterThan(1);
+  });
 });

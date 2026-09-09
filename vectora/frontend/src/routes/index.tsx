@@ -45,7 +45,11 @@ export const Route = createFileRoute("/")({
 function HomeScreen() {
   const navigate = useNavigate();
   const userId = useAuthStore((s) => s.user?.id);
-  const { data: threads = [], isLoading } = useThreadsQuery(userId);
+  const {
+    data: threads = [],
+    isLoading,
+    refetch: refetchThreads,
+  } = useThreadsQuery(userId);
   const deleteThread = useDeleteThread();
   const setChatMode = useSettingsStore((s) => s.setChatMode);
   const sidebarWidth = useSettingsStore((s) => s.sidebarWidth);
@@ -127,6 +131,9 @@ function HomeScreen() {
             onNewChat={handleNewChat}
             isLoading={isLoading}
             isNewSession={false}
+            onRefreshThreads={async () => {
+              await refetchThreads();
+            }}
           />
         </div>
         {/* Mobile: a sidebar de verdade some (hidden md:flex acima) — sem
@@ -151,6 +158,9 @@ function HomeScreen() {
               }}
               isLoading={isLoading}
               isNewSession={false}
+              onRefreshThreads={async () => {
+                await refetchThreads();
+              }}
             />
           </SheetContent>
         </Sheet>

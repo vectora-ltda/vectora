@@ -44,6 +44,7 @@ export const ThreadItem = memo(function ThreadItem({
   const [actionsOpen, setActionsOpen] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressClick = useRef(false);
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
 
   const cancelLongPress = () => {
     if (longPressTimer.current) clearTimeout(longPressTimer.current);
@@ -53,13 +54,29 @@ export const ThreadItem = memo(function ThreadItem({
     if (event.touches.length !== 1 || isEditing) return;
     const target = event.target as HTMLElement;
     if (target.closest("button, input, [role=button]")) return;
+    touchStart.current = {
+      x: event.touches[0].clientX ?? 0,
+      y: event.touches[0].clientY,
+    };
     longPressTimer.current = setTimeout(() => {
       suppressClick.current = true;
       setActionsOpen(true);
     }, 500);
   };
-  const handleTouchMove = () => cancelLongPress();
-  const handleTouchEnd = () => cancelLongPress();
+  const handleTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
+    const initial = touchStart.current;
+    if (!initial || event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    const distance = Math.hypot(
+      (touch.clientX ?? 0) - initial.x,
+      touch.clientY - initial.y,
+    );
+    if (distance > 10) cancelLongPress();
+  };
+  const handleTouchEnd = () => {
+    touchStart.current = null;
+    cancelLongPress();
+  };
 
   const handleMouseEnter = () => {
     void queryClient.prefetchQuery({

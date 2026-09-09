@@ -45,6 +45,7 @@ export const ThreadList = memo(function ThreadList({
 }: ThreadListProps) {
   const [pullDistance, setPullDistance] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const refreshingRef = useRef(false);
   const startY = useRef<number | null>(null);
   const navRef = useRef<HTMLElement>(null);
   const onTouchStart = (event: React.TouchEvent<HTMLElement>) => {
@@ -59,16 +60,23 @@ export const ThreadList = memo(function ThreadList({
     else startY.current = null;
   };
   const onTouchEnd = async () => {
-    const shouldRefresh = pullDistance >= 56 && !refreshing && onRefresh;
+    const shouldRefresh =
+      pullDistance >= 56 && !refreshingRef.current && onRefresh;
     startY.current = null;
     setPullDistance(0);
     if (!shouldRefresh) return;
+    refreshingRef.current = true;
     setRefreshing(true);
     try {
       await onRefresh();
     } finally {
+      refreshingRef.current = false;
       setRefreshing(false);
     }
+  };
+  const onTouchCancel = () => {
+    startY.current = null;
+    setPullDistance(0);
   };
   const { today, yesterday, last7Days, older } = grouped;
 
@@ -79,11 +87,11 @@ export const ThreadList = memo(function ThreadList({
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
-        onTouchCancel={onTouchEnd}
+        onTouchCancel={onTouchCancel}
         aria-busy={refreshing}
         className="flex-1 overflow-y-auto py-2 bg-gradient-to-b from-sidebar-accent/5 via-transparent to-sidebar-accent/10 custom-scrollbar"
       >
-        {pullDistance > 0 && (
+        {(pullDistance > 0 || refreshing) && (
           <div
             className="text-center text-[11px] text-muted-foreground"
             role="status"
