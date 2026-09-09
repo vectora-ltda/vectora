@@ -4,9 +4,12 @@ type SpeechState = "idle" | "speaking" | "paused";
 let activeCancel: (() => void) | null = null;
 let activeOwner: symbol | null = null;
 
+const FENCED_CODE_RE =
+  /(?:^|\n)[\t ]*(`{3,}|~{3,})[^\n]*\r?\n[\s\S]*?(?:\r?\n[\t ]*\1[\t ]*(?=\r?\n|$)|$)/g;
+
 export function spokenMessageText(content: string): string {
   return content
-    .replace(/(?:```|~~~)[\s\S]*?(?:```|~~~|$)/g, " ")
+    .replace(FENCED_CODE_RE, " ")
     .replace(/`[^`]*`/g, " ")
     .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")

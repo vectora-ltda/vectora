@@ -41,6 +41,12 @@ describe("useSpeechSynthesis", () => {
     );
   });
 
+  it("removes fences longer than three delimiters without leaking code", () => {
+    expect(
+      spokenMessageText('Antes\n````ts\nconst template = "```"\n````\nDepois'),
+    ).toBe("Antes Depois");
+  });
+
   it("supports start, pause, resume and stop", () => {
     const { result } = renderHook(() => useSpeechSynthesis("Olá", "thread-1"));
 
