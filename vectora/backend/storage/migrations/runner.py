@@ -212,7 +212,16 @@ class MigrationRunner:
 
     async def history(self) -> list[dict[str, str]]:
         """Return the immutable checksum history for diagnostics and support."""
-        await self._ensure_control_table()
+        cursor = await self._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'schema_migration_history'"
+        )
+        if await cursor.fetchone() is None:
+            return []
+        cursor = await self._conn.execute("PRAGMA table_info(schema_migration_history)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        if {"checksum", "applied_at"} - columns:
+            return []
         cursor = await self._conn.execute(
             "SELECT checksum, applied_at FROM schema_migration_history ORDER BY id"
         )

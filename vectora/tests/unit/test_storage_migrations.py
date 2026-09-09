@@ -251,6 +251,18 @@ class TestMigrationRunner:
         assert await cur.fetchone() is None
 
     @pytest.mark.asyncio
+    async def test_history_diagnostica_sem_mutar_banco_vazio(self, runner_conn):
+        """history() é somente leitura quando não há tabelas de controle."""
+        from backend.storage.migrations.runner import MigrationRunner
+
+        runner = MigrationRunner(runner_conn)
+        assert await runner.history() == []
+        cur = await runner_conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        )
+        assert await cur.fetchall() == []
+
+    @pytest.mark.asyncio
     async def test_alter_add_column_skips_existing_column(self, runner_conn):
         """ALTER TABLE ... ADD COLUMN não falha quando a coluna já existe."""
         from backend.storage.migrations.runner import MigrationRunner
