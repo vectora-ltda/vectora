@@ -164,13 +164,9 @@ class TestCadeiaDeTranscricao:
         monkeypatch.setattr(_s, "openai_api_key", "", raising=False)
         monkeypatch.setattr(_s, "google_api_key", "", raising=False)
         monkeypatch.setattr(_s, "openrouter_api_key", "sk-or-test", raising=False)
-        monkeypatch.setattr(
-            "backend.settings.configured_gateway_model",
-            lambda _p, _c: "openai/whisper-1",
-        )
 
         async def _fake(_client, **kwargs):
-            assert kwargs["model"] == "openai/whisper-1"
+            assert kwargs["model"] == "whisper"
             return "transcrito via openrouter"
 
         monkeypatch.setattr("backend.llm.openrouter.stt.transcribe_bytes", _fake)
@@ -197,7 +193,10 @@ class TestCadeiaDeTranscricao:
         monkeypatch.setattr(_s, "google_api_key", "", raising=False)
         monkeypatch.setattr(_s, "openrouter_api_key", "", raising=False)
 
-        with pytest.raises(transcription.TranscriptionError, match="nenhuma chave"):
+        with pytest.raises(
+            transcription.TranscriptionError,
+            match="provider de transcrição indisponível",
+        ):
             await transcription.transcribe_audio(
                 _AUDIO,
                 "a.mp3",
@@ -217,11 +216,14 @@ class TestCadeiaDeTranscricao:
         monkeypatch.setattr(_s, "openai_api_key", "", raising=False)
         monkeypatch.setattr(_s, "google_api_key", "", raising=False)
         monkeypatch.setattr(_s, "openrouter_api_key", "sk-or-test", raising=False)
-        monkeypatch.setattr(
-            "backend.settings.configured_gateway_model", lambda _p, _c: ""
-        )
 
-        with pytest.raises(transcription.TranscriptionError, match="nenhuma chave"):
+        async def _fake(_client, **kwargs):
+            assert kwargs["model"] == "whisper"
+            return "transcrito"
+
+        monkeypatch.setattr("backend.llm.openrouter.stt.transcribe_bytes", _fake)
+
+        assert (
             await transcription.transcribe_audio(
                 _AUDIO,
                 "a.mp3",
@@ -230,3 +232,5 @@ class TestCadeiaDeTranscricao:
                 model="whisper",
                 language="",
             )
+            == "transcrito"
+        )

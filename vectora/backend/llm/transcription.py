@@ -69,11 +69,11 @@ async def transcribe_audio(
         raise TranscriptionError("provider e modelo são obrigatórios")
     provider_key = provider.lower().replace("_", "-")
     if provider_key in {"openai", "openai-api"} and settings.openai_api_key:
-        return await _transcribe_openai(data, filename, mime_type)
+        return await _transcribe_openai(data, filename, mime_type, model, language)
     if provider_key in {"google", "google-genai", "gemini"} and settings.google_api_key:
-        return await _transcribe_gemini(data, mime_type)
+        return await _transcribe_gemini(data, mime_type, model, language)
     if provider_key == "openrouter" and settings.openrouter_api_key:
-        return await _transcribe_openrouter(data, filename, mime_type, model)
+        return await _transcribe_openrouter(data, filename, mime_type, model, language)
     raise TranscriptionError(
         f"provider de transcrição indisponível: {provider} (verifique openai_api_key, google_api_key ou openrouter_api_key)"
     )
@@ -91,7 +91,7 @@ def _openrouter_stt_model() -> str:
 
 
 async def _transcribe_openrouter(
-    data: bytes, filename: str, mime_type: str, model: str
+    data: bytes, filename: str, mime_type: str, model: str, language: str
 ) -> str:
     from backend.llm.openrouter.client import OpenRouterClient, OpenRouterError
     from backend.llm.openrouter.stt import transcribe_bytes
@@ -104,6 +104,7 @@ async def _transcribe_openrouter(
             data=data,
             filename=filename,
             mime_type=mime_type,
+            language=language or None,
         )
     except OpenRouterError as exc:
         logger.exception("transcribe_audio: falha na transcrição via OpenRouter")
@@ -112,14 +113,16 @@ async def _transcribe_openrouter(
         await client.aclose()
 
 
-async def _transcribe_openai(data: bytes, filename: str, mime_type: str) -> str:
+async def _transcribe_openai(
+    data: bytes, filename: str, mime_type: str, model: str, language: str
+) -> str:
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
             response = await client.post(
                 _OPENAI_TRANSCRIPTION_URL,
                 headers={"Authorization": f"Bearer {settings.openai_api_key}"},
                 files={"file": (filename, data, mime_type)},
-                data={"model": _OPENAI_TRANSCRIPTION_MODEL},
+                data={"model": model, **({"language": language} if language else {})},
             )
         response.raise_for_status()
     except httpx.HTTPError as exc:
@@ -129,7 +132,9 @@ async def _transcribe_openai(data: bytes, filename: str, mime_type: str) -> str:
     return str(response.json().get("text", "")).strip()
 
 
-async def _transcribe_gemini(data: bytes, mime_type: str) -> str:
+async def _transcribe_gemini(
+    data: bytes, mime_type: str, model: str, language: str
+) -> str:
     from google import genai
     from google.genai import types
     from google.genai.errors import ServerError
@@ -140,9 +145,10 @@ async def _transcribe_gemini(data: bytes, mime_type: str) -> str:
     for attempt in range(1, _GEMINI_MAX_ATTEMPTS + 1):
         try:
             response = await client.aio.models.generate_content(
-                model=_GEMINI_TRANSCRIPTION_MODEL,
+                model=model,
                 contents=[
                     _GEMINI_TRANSCRIPTION_PROMPT,
+                    f"Idioma: {language}" if language else "",
                     types.Part.from_bytes(data=data, mime_type=mime_type),
                 ],
             )
