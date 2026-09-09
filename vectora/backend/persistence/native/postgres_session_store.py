@@ -176,6 +176,15 @@ class PostgresSessionStore:
                 "SELECT 1 FROM vectora_native_sessions WHERE thread_id = $1 FOR UPDATE",
                 thread_id,
             )
+            if turn_id is not None:
+                existing_id = await conn.fetchval(
+                    "SELECT id FROM vectora_native_messages "
+                    "WHERE thread_id = $1 AND turn_id = $2",
+                    thread_id,
+                    turn_id,
+                )
+                if existing_id is not None:
+                    return int(existing_id)
             new_id = await conn.fetchval(
                 "INSERT INTO vectora_native_messages (thread_id, parent_message_id, role, "
                 "content_json, tool_calls_json, tool_call_id, name, turn_id, "
