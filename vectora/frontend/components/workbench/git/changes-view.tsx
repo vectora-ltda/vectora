@@ -310,8 +310,14 @@ export function ChangesView({
             .join("; "),
         );
       }
+      const failedPaths = new Set(failed.map(({ path }) => path));
+      const remainingSelection = gitOps.selectedFiles.filter(
+        (path) => !paths.includes(path) || failedPaths.has(path),
+      );
       clearGitSelection?.(workspaceId);
-      failed.forEach(({ path }) => toggleGitFileSelection?.(workspaceId, path));
+      remainingSelection.forEach((path) =>
+        toggleGitFileSelection?.(workspaceId, path),
+      );
       handleRefresh();
     },
     [
