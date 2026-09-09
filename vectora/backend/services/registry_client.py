@@ -37,6 +37,17 @@ def _registry_url() -> str:
     return os.getenv("VECTORA_REGISTRY_URL", DEFAULT_REGISTRY_URL).strip()
 
 
+def _enterprise_registry_url() -> str:
+    """Optional company registry; blank means the feature is disabled."""
+    return os.getenv("VECTORA_ENTERPRISE_REGISTRY_URL", "").strip().rstrip("/")
+
+
+def _valid_registry_url(url: str) -> bool:
+    return url.startswith("https://") or (
+        url.startswith("http://") and os.getenv("VECTORA_ENV") == "development"
+    )
+
+
 def _cache_path(kind: RegistryKind) -> Path:
     return CACHE_DIR / f"{kind}.json"
 
@@ -91,6 +102,27 @@ async def fetch_catalog(kind: RegistryKind) -> list[dict]:
         if cache is not None and _cache_is_fresh(cache, CACHE_TTL_OFFLINE):
             logger.info("registry_client: usando cache offline de %s", kind)
             return list(cache.get("entries", []))
+        return []
+
+
+async def fetch_enterprise_catalog(kind: Literal["mcp", "skills"]) -> list[dict]:
+    """Fetch an optional enterprise catalog without affecting base sources."""
+    base = _enterprise_registry_url()
+    if not base or not _valid_registry_url(base):
+        return []
+    try:
+        timeout = httpx.Timeout(HTTP_TIMEOUT)
+        limits = httpx.Limits(max_connections=4, max_keepalive_connections=2)
+        async with httpx.AsyncClient(
+            timeout=timeout, limits=limits, follow_redirects=False
+        ) as client:
+            response = await client.get(f"{base}/{kind}")
+            response.raise_for_status()
+            payload = response.json()
+        entries = payload.get("entries", [])
+        return [entry for entry in entries if isinstance(entry, dict)]
+    except Exception as exc:
+        logger.warning("registry_client: enterprise catalog unavailable (%s)", exc)
         return []
 
 

@@ -287,12 +287,21 @@ async def _transcribe_attachment(att: Attachment) -> str:
     from backend.llm.transcription import TranscriptionError, transcribe_audio
 
     try:
-        audio_bytes = base64.b64decode(att.base64_data)
+        audio_bytes = base64.b64decode(att.base64_data, validate=True)
     except Exception:
         return f"\n[Áudio: {att.name} — não foi possível decodificar o arquivo]"
 
     try:
-        transcript = await transcribe_audio(audio_bytes, att.name, att.mime_type)
+        from backend.workspace.runtime_settings import runtime_settings
+
+        transcript = await transcribe_audio(
+            audio_bytes,
+            att.name,
+            att.mime_type,
+            provider=runtime_settings.active_provider,
+            model=runtime_settings.active_model,
+            language="",
+        )
     except TranscriptionError:
         logger.exception("chat: falha ao transcrever áudio %s", att.name)
         return f"\n[Áudio: {att.name} — falha ao transcrever]"
@@ -738,8 +747,27 @@ async def stream_chat(
         "workspace_id": workspace_id or None,
     }
     try:
+        project_root = None
+        if workspace_id:
+            from backend.workspace.workspace import workspace_registry
+
+            workspace = workspace_registry.get(workspace_id)
+            project_root = str(workspace.cwd) if workspace is not None else None
         native_agent = await agent_factory.get_native_agent(
-            user_id, chat_mode=chat_mode, workspace_id=workspace_id or None
+            user_id,
+            chat_mode=chat_mode,
+            workspace_id=workspace_id or None,
+            project_root=project_root,
+            runtime_id=thread_id,
+        )
+        from backend.services.tool_resolver import resolve_registry
+
+        effective_tool_registry = await resolve_registry(
+            user_id,
+            native_agent.tool_registry,
+            workspace_id=workspace_id or "",
+            project_root=project_root,
+            runtime_id=thread_id,
         )
         session_store = await agent_factory.get_session_store()
     except Exception as exc:
@@ -884,7 +912,7 @@ async def stream_chat(
         result = await run_conversation(
             session_store=session_store,
             chat_client=chat_client,
-            tool_registry=native_agent.tool_registry,
+            tool_registry=effective_tool_registry,
             ctx=run_ctx,
             thread_id=thread_id,
             config=loop_config,
@@ -953,10 +981,27 @@ async def resume_chat(
         )
 
     try:
+        project_root = None
+        if selector_workspace_id:
+            from backend.workspace.workspace import workspace_registry
+
+            workspace = workspace_registry.get(selector_workspace_id)
+            project_root = str(workspace.cwd) if workspace is not None else None
         native_agent = await agent_factory.get_native_agent(
             resume_user_id,
             chat_mode=selector_chat_mode,
             workspace_id=selector_workspace_id,
+            project_root=project_root,
+            runtime_id=request.thread_id,
+        )
+        from backend.services.tool_resolver import resolve_registry
+
+        effective_tool_registry = await resolve_registry(
+            resume_user_id,
+            native_agent.tool_registry,
+            workspace_id=selector_workspace_id or "",
+            project_root=project_root,
+            runtime_id=request.thread_id,
         )
         session_store = await agent_factory.get_session_store()
         approval_gate = await agent_factory.get_approval_gate()
@@ -984,7 +1029,7 @@ async def resume_chat(
         run_ctx.store = await agent_factory.get_store()
         resumed = await resume_conversation(
             session_store=session_store,
-            tool_registry=native_agent.tool_registry,
+            tool_registry=effective_tool_registry,
             ctx=run_ctx,
             thread_id=request.thread_id,
             decision=decision,
@@ -1008,7 +1053,7 @@ async def resume_chat(
         result = await run_conversation(
             session_store=session_store,
             chat_client=chat_client,
-            tool_registry=native_agent.tool_registry,
+            tool_registry=effective_tool_registry,
             ctx=run_ctx,
             thread_id=request.thread_id,
             config=loop_config,
@@ -1046,7 +1091,10 @@ async def get_tools(http_request: Request) -> GetToolsResponse:
     try:
         from backend.services.tool_resolver import resolve_tools
 
-        resolved = await resolve_tools(_user_id_from_request(http_request))
+        workspace_id = str(getattr(http_request.state, "workspace_id", "") or "")
+        resolved = await resolve_tools(
+            _user_id_from_request(http_request), workspace_id=workspace_id
+        )
     except Exception as exc:
         logger.warning("api/chat: não foi possível resolver tools: %s", exc)
         return GetToolsResponse(tools=[])
@@ -1087,15 +1135,28 @@ async def transcribe_audio_endpoint(
     disponível — caso do Electron/Chromium, que não embarca a chave de voz
     proprietária do Google que o Chrome tem.
     """
+    from backend.api.schemas import _ATTACHMENT_MAX_SIZE_AUDIO_BYTES, _max_base64_length
     from backend.llm.transcription import TranscriptionError, transcribe_audio
 
+    if len(request.audio_base64) > _max_base64_length(_ATTACHMENT_MAX_SIZE_AUDIO_BYTES):
+        raise HTTPException(status_code=413, detail="áudio excede o limite de 25MB")
+
     try:
-        audio_bytes = base64.b64decode(request.audio_base64)
+        audio_bytes = base64.b64decode(request.audio_base64, validate=True)
     except Exception as exc:
         raise HTTPException(status_code=422, detail="áudio em base64 inválido") from exc
 
     try:
-        text = await transcribe_audio(audio_bytes, request.filename, request.mime_type)
+        from backend.workspace.runtime_settings import runtime_settings
+
+        text = await transcribe_audio(
+            audio_bytes,
+            request.filename,
+            request.mime_type,
+            provider=runtime_settings.active_provider,
+            model=runtime_settings.active_model,
+            language="",
+        )
     except TranscriptionError as exc:
         logger.exception("chat: falha ao transcrever ditado de voz")
         raise HTTPException(status_code=502, detail=str(exc)) from exc
