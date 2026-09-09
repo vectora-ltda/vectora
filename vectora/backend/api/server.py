@@ -652,6 +652,28 @@ def create_app(serve_static: bool = True) -> FastAPI:
     async def health() -> dict:
         return {"status": "ok", "version": __version__}
 
+    @app.get("/api/updates/changelog")
+    async def update_changelog() -> dict[str, str]:
+        """Return the latest packaged release notes for desktop updates."""
+        changelog_path = Path(__file__).resolve().parents[2] / "CHANGELOG.md"
+
+        def read_latest() -> str:
+            if not changelog_path.is_file():
+                return ""
+            lines = changelog_path.read_text(encoding="utf-8").splitlines()
+            section: list[str] = []
+            started = False
+            for line in lines:
+                if line.startswith("## "):
+                    if started:
+                        break
+                    started = True
+                if started:
+                    section.append(line)
+            return "\n".join(section).strip()
+
+        return {"version": __version__, "notes": await asyncio.to_thread(read_latest)}
+
     @app.get("/metrics")
     async def metrics() -> list:
         try:

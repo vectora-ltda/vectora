@@ -74,6 +74,7 @@ interface UpdateStatus {
     | "not-available";
   message?: string;
   progress?: number;
+  changelog?: string;
 }
 
 // O `name` do package.json é "vectora-desktop" (identificador do pacote npm,
@@ -705,9 +706,15 @@ function setupAutoUpdater(): void {
   };
 
   autoUpdater.on("checking-for-update", () => broadcast({ state: "checking" }));
-  autoUpdater.on("update-available", (info) =>
-    broadcast({ state: "available", message: info.version }),
-  );
+  autoUpdater.on("update-available", (info) => {
+    const notes = Array.isArray(info.releaseNotes)
+      ? info.releaseNotes
+          .map((note) => note.note)
+          .filter(Boolean)
+          .join("\n")
+      : (info.releaseNotes ?? "");
+    broadcast({ state: "available", message: info.version, changelog: notes });
+  });
   autoUpdater.on("update-not-available", () =>
     broadcast({ state: "not-available" }),
   );

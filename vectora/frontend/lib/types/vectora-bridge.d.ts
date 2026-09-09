@@ -14,6 +14,7 @@ export interface VectoraUpdateStatus {
     | "not-available";
   message?: string;
   progress?: number;
+  changelog?: string;
 }
 
 export interface VectoraViewBounds {

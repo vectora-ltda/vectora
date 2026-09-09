@@ -36,6 +36,7 @@ export interface VectoraDesktopBridge {
         | "not-available";
       message?: string;
       progress?: number;
+      changelog?: string;
     }) => void,
   ) => () => void;
   /** Aplica update baixado e reinicia. */

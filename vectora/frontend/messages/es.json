@@ -313,6 +313,8 @@
   "update_banner_available": "Nueva versión {v} disponible.",
   "update_banner_downloading": "Descargando actualización ({p}%).",
   "update_banner_download": "Descargar ahora",
+  "update_banner_changelog": "Ver notas de la versión",
+  "update_banner_error": "Error de actualización: {e}",
   "titlebar_back": "Atrás",
   "titlebar_reload": "Recargar",
   "titlebar_minimize": "Minimizar",

@@ -13,10 +13,12 @@ import { m } from "@/lib/paraglide/messages";
 
 export function UpdateBanner() {
   const [state, setState] = useState<
-    "available" | "downloading" | "downloaded"
+    "available" | "downloading" | "downloaded" | "error"
   >();
   const [version, setVersion] = useState<string>("");
   const [progress, setProgress] = useState(0);
+  const [error, setError] = useState("");
+  const [changelog, setChangelog] = useState("");
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.vectora?.onUpdateStatus) {
@@ -25,12 +27,18 @@ export function UpdateBanner() {
     const unsubscribe = window.vectora.onUpdateStatus((status) => {
       if (status.state === "available") {
         setState("available");
+        setError("");
+        setChangelog(status.changelog ?? "");
         setProgress(0);
         if (status.message) setVersion(status.message);
       } else if (status.state === "downloading") {
         setState("downloading");
         setProgress(status.progress ?? 0);
       } else if (status.state === "downloaded") setState("downloaded");
+      else if (status.state === "error") {
+        setState("error");
+        setError(status.message ?? "");
+      }
     });
     return unsubscribe;
   }, []);
@@ -54,6 +62,13 @@ export function UpdateBanner() {
           (version
             ? m.update_banner_ready_with_version({ v: version })
             : m.update_banner_ready())}
+        {state === "error" && m.update_banner_error({ e: error })}
+        {state === "available" && changelog && (
+          <details className="mt-1 opacity-90">
+            <summary>{m.update_banner_changelog()}</summary>
+            <p className="whitespace-pre-wrap mt-1">{changelog}</p>
+          </details>
+        )}
       </span>
       {state === "available" && (
         <button
