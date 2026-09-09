@@ -176,6 +176,7 @@ export async function addComment(
       method: "POST",
       body: JSON.stringify({ body }),
     },
+    false,
   );
 }
 

@@ -84,6 +84,31 @@ export async function syncCreatedIssue(
     const repo = intakeRepo(env);
     const marker = `vectora-company-issue:${issueId}`;
     const body = githubBody(category, description, issueId);
+    const claimed = await env.DB.prepare(
+      "UPDATE issues SET github_sync_state = 'sync_pending', github_sync_error = NULL WHERE id = ? AND github_number IS NULL AND github_sync_state != 'sync_pending'",
+    )
+      .bind(issueId)
+      .run();
+    if (claimed.meta.changes === 0) {
+      const current = await env.DB.prepare(
+        "SELECT github_repo, github_number, github_url FROM issues WHERE id = ?",
+      )
+        .bind(issueId)
+        .first<{
+          github_repo: string | null;
+          github_number: number | null;
+          github_url: string | null;
+        }>();
+      if (current?.github_repo && current.github_number && current.github_url) {
+        await reconcileIssueComments(
+          env,
+          issueId,
+          current.github_repo,
+          current.github_number,
+        );
+      }
+      return;
+    }
     const existingRemote = await findIssueByMarker(env, repo, marker);
     const created =
       existingRemote ?? (await createIssue(env, repo, title, body));
