@@ -34,6 +34,8 @@ export interface ChatConfig {
   permission_mode?: string;
   /** R4 — low|medium|high|max (vazio = default do modelo) */
   reasoning_effort?: string;
+  context_max_tokens?: number;
+  context_compaction_enabled?: boolean;
   /** Fork de checkpoint (editar mensagem / regenerar resposta) — checkpoint_id
    * pai da mensagem alvo (ver HistoryMessage.checkpoint_id). Resumir a
    * partir dele faz o histórico ramificar dali; o histórico original
@@ -67,6 +69,8 @@ export interface ResumeChatRequest {
   thread_id: string;
   interrupt_id: string;
   decision: "approve" | "reject" | `edit:${string}`;
+  context_max_tokens?: number;
+  context_compaction_enabled?: boolean;
 }
 
 /** Evento discriminado pelo campo `type` */

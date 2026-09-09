@@ -895,7 +895,11 @@ async def stream_chat(
         run_ctx = ctx_from_config(config)
         run_ctx.store = await agent_factory.get_store()
         approval_gate = await agent_factory.get_approval_gate()
-        loop_config = LoopConfig(max_iterations=request.config.recursion_limit or 50)
+        loop_config = LoopConfig(
+            max_iterations=request.config.recursion_limit or 50,
+            context_max_tokens=request.config.context_max_tokens,
+            context_compaction_enabled=request.config.context_compaction_enabled,
+        )
         if native_agent.subagent_catalog:
             # `delegate_to_subagent` (backend/tools/subagent_delegate.py) lê
             # essas dependências via ctx._extra — nunca aparecem no schema
@@ -1040,7 +1044,11 @@ async def resume_chat(
         if not resumed:
             return "noop"
         chat_client = FallbackChatClient(primary_model_id=selector_model)
-        loop_config = LoopConfig(max_iterations=50)
+        loop_config = LoopConfig(
+            max_iterations=50,
+            context_max_tokens=request.context_max_tokens,
+            context_compaction_enabled=request.context_compaction_enabled,
+        )
         if native_agent.subagent_catalog:
             run_ctx._extra["subagent_deps"] = SubagentDeps(
                 catalog=native_agent.subagent_catalog,

@@ -37,6 +37,8 @@ class ChatConfig(BaseModel):
     custom_system_prompt: str = ""  # instrução personalizada por usuário
     permission_mode: str = "ask"  # ask|accept_edits|plan|auto|bypass
     reasoning_effort: str = ""  # low|medium|high|max (vazio = default do modelo)
+    context_max_tokens: int | None = Field(default=None, ge=1)
+    context_compaction_enabled: bool = True
     # Idioma preferido do usuário (BCP-47 ou código curto: pt, en, es). Quando
     # vazio, o agente segue a heurística "adapte ao idioma da conversa".
     language: str = ""
@@ -233,6 +235,8 @@ class ResumeChatRequest(BaseModel):
     thread_id: str
     interrupt_id: str
     decision: str  # "approve" | "reject" | "edit:<args_json>"
+    context_max_tokens: int | None = Field(default=None, ge=1)
+    context_compaction_enabled: bool = True
 
 
 class TranscribeAudioRequest(BaseModel):

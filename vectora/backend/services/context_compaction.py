@@ -22,7 +22,7 @@ def _marker(removed: int) -> VMessage:
         content=[
             ContentBlock(
                 kind="text",
-                text=f"[Context compacted deterministically: {removed} older messages omitted.]",
+                text="[Context compacted]",
             )
         ],
     )
@@ -69,18 +69,21 @@ def compact_messages(
     units = _conversation_units(non_system)
     selected_units: list[list[VMessage]] = []
     used = sum(_message_tokens(message) for message in systems)
+    if used > max_tokens:
+        systems = []
+        used = 0
     for unit in reversed(units):
         cost = sum(_message_tokens(message) for message in unit)
         if used + cost > max_tokens and selected_units:
             continue
         selected_units.append(unit)
         used += cost
-        if used >= max_tokens:
-            break
     selected = [message for unit in reversed(selected_units) for message in unit]
     omitted = len(non_system) - len(selected)
     result = [*systems]
     if omitted > 0:
-        result.append(_marker(omitted))
+        marker = _marker(omitted)
+        if used + _message_tokens(marker) <= max_tokens:
+            result.append(marker)
     result.extend(selected)
     return result
