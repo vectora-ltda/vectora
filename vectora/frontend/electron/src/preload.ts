@@ -36,6 +36,7 @@ export interface VectoraDesktopBridge {
         | "not-available";
       message?: string;
       progress?: number;
+      changelog?: string;
     }) => void,
   ) => () => void;
   /** Aplica update baixado e reinicia. */
@@ -61,6 +62,7 @@ export interface VectoraDesktopBridge {
     bytes: number;
     sha256: string;
   }) => Promise<void>;
+  downloadUpdate: () => void;
   /** Origem `ws://127.0.0.1:{porta}` do backend — necessária porque o
    * renderer carrega de `vectora-app://`, scheme custom contra o qual uma
    * URL relativa de WebSocket não resolve pra `ws://` (só HTTP/fetch passa
@@ -157,6 +159,7 @@ const bridge: VectoraDesktopBridge = {
   listUpdateBackups: () => ipcRenderer.invoke("vectora:list-update-backups"),
   restoreUpdateBackup: (backup) =>
     ipcRenderer.invoke("vectora:restore-update-backup", backup),
+  downloadUpdate: () => ipcRenderer.send("vectora:download-update"),
   getBackendWsOrigin: () => ipcRenderer.invoke("vectora:get-backend-ws-origin"),
   windowControls: {
     minimize: () => ipcRenderer.send("vectora:window-minimize"),

@@ -79,6 +79,7 @@ interface UpdateStatus {
     | "not-available";
   message?: string;
   progress?: number;
+  changelog?: string;
 }
 
 // O `name` do package.json é "vectora-desktop" (identificador do pacote npm,
@@ -705,13 +706,22 @@ function setupAutoUpdater(): void {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
+  let latestStatus: UpdateStatus = { state: "not-available" };
+
   const broadcast = (status: UpdateStatus) => {
-    mainWindow?.webContents.send("vectora:update-status", status);
+    latestStatus = { ...latestStatus, ...status };
+    mainWindow?.webContents.send("vectora:update-status", latestStatus);
   };
 
   autoUpdater.on("checking-for-update", () => broadcast({ state: "checking" }));
   autoUpdater.on("update-available", (info) => {
-    broadcast({ state: "available", message: info.version });
+    const notes = Array.isArray(info.releaseNotes)
+      ? info.releaseNotes
+          .map((note) => note.note)
+          .filter(Boolean)
+          .join("\n")
+      : (info.releaseNotes ?? "");
+    broadcast({ state: "available", message: info.version, changelog: notes });
     void createRotatingUpdateBackup(
       app.getPath("userData"),
       path.join(app.getPath("userData"), "update-backups"),
@@ -804,6 +814,11 @@ function registerIpc(): void {
       path.join(app.getPath("userData"), "update-backups"),
     ),
   );
+  ipcMain.on("vectora:download-update", () => {
+    void autoUpdater.downloadUpdate().catch((error: unknown) => {
+      console.warn("[updater] downloadUpdate falhou", error);
+    });
+  });
 
   // Controles da titlebar customizada (frame: false — ver createWindow()).
   ipcMain.on("vectora:window-minimize", () => mainWindow?.minimize());
