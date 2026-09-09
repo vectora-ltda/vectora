@@ -37,7 +37,8 @@ _version = 0
 _loaded = False
 _policy_error = False
 _loaded_mtime_ns: int | None = None
-_origin = uuid.uuid4().hex
+_replica_id = uuid.uuid4().hex
+_state_origin = _replica_id
 
 
 def _policy_file() -> Path:
@@ -45,7 +46,13 @@ def _policy_file() -> Path:
 
 
 def _load() -> None:
-    global _loaded, _version, _policy_error, _loaded_mtime_ns, _origin
+    global \
+        _loaded, \
+        _version, \
+        _policy_error, \
+        _loaded_mtime_ns, \
+        _state_origin, \
+        _replica_id
     path = _policy_file()
     try:
         mtime_ns = path.stat().st_mtime_ns
@@ -60,7 +67,8 @@ def _load() -> None:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
         _version = int(raw.get("version", 0))
-        _origin = str(raw.get("origin", _origin))
+        _state_origin = str(raw.get("origin", _state_origin))
+        _replica_id = str(raw.get("replica_id", _replica_id))
         for item in raw.get("rules", []):
             rule = McpPolicyRule.model_validate(item)
             key = (rule.scope, rule.workspace_id)
@@ -82,7 +90,8 @@ def _save() -> None:
         json.dumps(
             {
                 "version": _version,
-                "origin": _origin,
+                "origin": _state_origin,
+                "replica_id": _replica_id,
                 "rules": [r.model_dump() for r in _rules.values()],
             },
             indent=2,
@@ -104,7 +113,8 @@ def _publish_change() -> None:
         _json.dumps(
             {
                 "version": _version,
-                "origin": _origin,
+                "origin": _state_origin,
+                "replica_id": _replica_id,
                 "rules": [rule.model_dump(mode="json") for rule in _rules.values()],
             }
         ),
@@ -117,9 +127,9 @@ def apply_remote_version(
     origin: str | None = None,
 ) -> None:
     """Aplica um snapshot remoto antes de invalidar os caches dependentes."""
-    global _loaded, _loaded_mtime_ns, _policy_error, _version, _origin
+    global _loaded, _loaded_mtime_ns, _policy_error, _version, _state_origin
     if _loaded and (
-        version < _version or (version == _version and (origin or "") <= _origin)
+        version < _version or (version == _version and (origin or "") <= _state_origin)
     ):
         return
     if rules is not None:
@@ -131,13 +141,14 @@ def apply_remote_version(
             )
             _policy_error = False
             _loaded = True
+            _version = version
+            if origin:
+                _state_origin = origin
+            _save()
             try:
                 _loaded_mtime_ns = _policy_file().stat().st_mtime_ns
             except FileNotFoundError:
                 _loaded_mtime_ns = None
-            _version = version
-            if origin:
-                _origin = origin
         except Exception:
             _rules.clear()
             _policy_error = True
@@ -171,7 +182,7 @@ def set_rule(
     workspace_id: str | None = None,
     updated_by: str = "",
 ) -> McpPolicyRule:
-    global _version
+    global _version, _state_origin
     _load()
     if scope == "workspace" and not workspace_id:
         raise ValueError("workspace_id obrigatório para regra de workspace")
@@ -179,6 +190,7 @@ def set_rule(
         workspace_id = None
     normalized = sorted({name.strip() for name in allowlist if name.strip()})
     _version += 1
+    _state_origin = _replica_id
     rule = McpPolicyRule(
         scope=scope,
         workspace_id=workspace_id,
@@ -193,13 +205,14 @@ def set_rule(
 
 
 def remove_rule(scope: McpPolicyScope, *, workspace_id: str | None = None) -> bool:
-    global _version
+    global _version, _state_origin
     _load()
     key = (scope, workspace_id if scope == "workspace" else None)
     if key not in _rules:
         return False
     del _rules[key]
     _version += 1
+    _state_origin = _replica_id
     _save()
     _publish_change()
     return True
@@ -233,13 +246,20 @@ def require_allowed(server_id: str, workspace_id: str | None = None) -> None:
 
 
 def _reset_for_tests() -> None:
-    global _loaded, _version, _policy_error, _loaded_mtime_ns, _origin
+    global \
+        _loaded, \
+        _version, \
+        _policy_error, \
+        _loaded_mtime_ns, \
+        _replica_id, \
+        _state_origin
     _rules.clear()
     _version = 0
     _loaded = False
     _policy_error = False
     _loaded_mtime_ns = None
-    _origin = uuid.uuid4().hex
+    _replica_id = uuid.uuid4().hex
+    _state_origin = _replica_id
 
 
 __all__ = [
