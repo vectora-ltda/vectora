@@ -297,4 +297,11 @@ describe("SidebarFooter — ícones inline sem labels", () => {
     fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
     expect(document.activeElement).toBe(controls[controls.length - 1]);
   });
+
+  it("associa nomes acessíveis aos campos de feedback", () => {
+    render(<SidebarFooter />);
+    fireEvent.click(screen.getByTitle("Feedback"));
+    expect(screen.getByRole("combobox")).toHaveAttribute("id", "feedback-kind");
+    expect(screen.getByLabelText("Descreva o problema")).toBeInTheDocument();
+  });
 });

@@ -124,7 +124,11 @@ export const SidebarFooter = memo(function SidebarFooter() {
             <h2 id="feedback-dialog-title" className="text-sm font-semibold">
               {m.feedback_title()}
             </h2>
+            <label htmlFor="feedback-kind" className="sr-only">
+              {m.feedback_title()}
+            </label>
             <select
+              id="feedback-kind"
               className="w-full rounded border bg-background p-2"
               value={kind}
               onChange={(event) =>
@@ -134,7 +138,11 @@ export const SidebarFooter = memo(function SidebarFooter() {
               <option value="bug">{m.feedback_bug()}</option>
               <option value="suggestion">{m.feedback_suggestion()}</option>
             </select>
+            <label htmlFor="feedback-description" className="sr-only">
+              {m.feedback_required()}
+            </label>
             <textarea
+              id="feedback-description"
               className="min-h-28 w-full rounded border bg-background p-2"
               required
               maxLength={5000}
