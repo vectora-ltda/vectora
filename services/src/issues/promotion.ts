@@ -20,9 +20,10 @@ export async function promoteIssue(
   env: Env,
   issueId: string,
   approvedBy: string,
+  claimToken?: string,
 ): Promise<PromotionResult> {
   const issue = await env.DB.prepare(
-    "SELECT id, title, description, github_repo, github_number, github_url, core_repo, core_number, core_url, github_sync_state FROM issues WHERE id = ?",
+    "SELECT id, title, description, github_repo, github_number, github_url, core_repo, core_number, core_url, github_sync_state, github_sync_error FROM issues WHERE id = ?",
   )
     .bind(issueId)
     .first<{
@@ -36,6 +37,7 @@ export async function promoteIssue(
       core_url: string | null;
       core_repo: string | null;
       github_sync_state: string;
+      github_sync_error: string | null;
     }>();
   if (!issue) throw new Error("issue_not_found");
   if (
@@ -72,7 +74,10 @@ export async function promoteIssue(
     // Uma promoção pendente pertence a outra execução. O reconciliador libera
     // a reserva com uma atualização condicional antes de tentar novamente;
     // nunca a libere aqui usando um snapshot possivelmente antigo.
-    if (issue.github_sync_state === "promotion_pending") {
+    if (
+      issue.github_sync_state === "promotion_pending" &&
+      issue.github_sync_error !== claimToken
+    ) {
       const recovered = await findIssueByMarker(env, targetRepo, marker);
       if (recovered) {
         created = recovered;
@@ -81,11 +86,17 @@ export async function promoteIssue(
       }
     }
     if (!created) {
-      const claimed = await env.DB.prepare(
-        "UPDATE issues SET github_sync_state = 'promotion_pending', github_sync_error = NULL, approved_at = COALESCE(approved_at, datetime('now')), approved_by = COALESCE(approved_by, ?) WHERE id = ? AND core_number IS NULL AND github_sync_state != 'promotion_pending'",
-      )
-        .bind(approvedBy, issueId)
-        .run();
+      const claimed = claimToken
+        ? await env.DB.prepare(
+            "UPDATE issues SET github_sync_state = 'promotion_pending', github_sync_error = NULL, approved_at = COALESCE(approved_at, datetime('now')), approved_by = COALESCE(approved_by, ?) WHERE id = ? AND core_number IS NULL AND github_sync_error = ?",
+          )
+            .bind(approvedBy, issueId, claimToken)
+            .run()
+        : await env.DB.prepare(
+            "UPDATE issues SET github_sync_state = 'promotion_pending', github_sync_error = NULL, approved_at = COALESCE(approved_at, datetime('now')), approved_by = COALESCE(approved_by, ?) WHERE id = ? AND core_number IS NULL AND github_sync_state != 'promotion_pending'",
+          )
+            .bind(approvedBy, issueId)
+            .run();
       if (claimed.meta.changes === 0) {
         throw new Error("promotion_in_progress");
       }
@@ -139,18 +150,26 @@ export function githubApprovalAllowed(env: Env, login: string): boolean {
 /** Retoma promoções que criaram a issue principal mas ainda não fecharam a pública. */
 export async function reconcilePendingPromotions(env: Env): Promise<void> {
   const { results } = await env.DB.prepare(
-    "SELECT id, approved_by FROM issues WHERE github_sync_state IN ('promotion_pending', 'approval_error') AND approved_by IS NOT NULL LIMIT 25",
-  ).all<{ id: string; approved_by: string }>();
+    "SELECT id, approved_by, core_number, github_sync_state FROM issues " +
+      "WHERE github_sync_state IN ('promotion_pending', 'approval_error') " +
+      "AND approved_by IS NOT NULL LIMIT 25",
+  ).all<{
+    id: string;
+    approved_by: string;
+    core_number: number | null;
+    github_sync_state: string;
+  }>();
   for (const issue of results) {
     try {
-      // Só uma réplica pode liberar a reserva. A condição evita que uma
-      // tentativa concorrente sobrescreva uma promoção já em andamento.
-      await env.DB.prepare(
-        "UPDATE issues SET github_sync_state = 'promotion_failed', github_sync_error = NULL WHERE id = ? AND core_number IS NULL AND github_sync_state IN ('promotion_pending', 'approval_error')",
+      const claimToken = crypto.randomUUID();
+      const claimed = await env.DB.prepare(
+        "UPDATE issues SET github_sync_state = 'promotion_failed', github_sync_error = ? " +
+          "WHERE id = ? AND core_number IS NULL AND github_sync_state = ?",
       )
-        .bind(issue.id)
+        .bind(claimToken, issue.id, issue.github_sync_state)
         .run();
-      await promoteIssue(env, issue.id, issue.approved_by);
+      if (claimed.meta.changes === 0) continue;
+      await promoteIssue(env, issue.id, issue.approved_by, claimToken);
     } catch (error) {
       console.error("issue_github_promotion_retry_failed", {
         issueId: issue.id,
