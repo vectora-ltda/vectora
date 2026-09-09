@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Protocol, cast
+from typing import Literal, Protocol, cast
 
 from backend.settings import settings
 
@@ -46,13 +46,16 @@ except ImportError:  # pragma: no cover - usado em sistemas POSIX
 class BrowserProfile:
     profile_id: str
     owner_id: str
-    scope: str
+    scope: BrowserScope
     name: str
     locale: str = ""
     scope_target: str | None = None
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     retention_days: int = 30
     expires_at: str | None = None
+
+
+BrowserScope = Literal["global", "workspace", "session"]
 
 
 class BrowserProfileStore:
@@ -130,7 +133,7 @@ class BrowserProfileStore:
         self,
         owner_id: str,
         scope_target: str | None = None,
-        scope: str | None = None,
+        scope: BrowserScope | None = None,
     ) -> list[BrowserProfile]:
         async with self._lock:
 
@@ -155,7 +158,7 @@ class BrowserProfileStore:
         self,
         owner_id: str,
         name: str,
-        scope: str = "workspace",
+        scope: BrowserScope = "workspace",
         locale: str = "",
         scope_target: str | None = None,
         retention_days: int = 30,
@@ -194,7 +197,7 @@ class BrowserProfileStore:
         owner_id: str,
         profile_id: str,
         scope_target: str | None,
-        scope: str,
+        scope: BrowserScope,
     ) -> BrowserProfile:
         """Resolve a profile only within its explicitly declared scope."""
         if scope not in {"global", "workspace", "session"}:

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import cast
 
 import pytest
 
-from backend.services.browser_profiles import BrowserProfileStore
+from backend.services.browser_profiles import BrowserProfileStore, BrowserScope
 
 
 @pytest.mark.asyncio
@@ -19,7 +20,7 @@ async def test_perfis_isolam_proprietarios_e_validam_escopo(tmp_path: Path) -> N
     ]
     assert await store.list_profiles("bob") == []
     with pytest.raises(ValueError):
-        await store.create("alice", "Inválido", scope="other")
+        await store.create("alice", "Inválido", scope=cast("BrowserScope", "other"))
     with pytest.raises(KeyError):
         await store.delete("bob", profile.profile_id)
 
@@ -47,6 +48,10 @@ async def test_resolve_exige_o_tipo_de_escopo(tmp_path: Path) -> None:
     assert (
         await store.resolve("alice", profile.profile_id, "thread-1", "session")
     ) == profile
+    with pytest.raises(ValueError, match="scope inválido"):
+        await store.resolve(
+            "alice", profile.profile_id, "thread-1", cast("BrowserScope", None)
+        )
 
 
 @pytest.mark.asyncio
