@@ -5,6 +5,10 @@ description: >-
   em todos os jobs do runner.yml.
 
 inputs:
+  uv-version:
+    description: "Versão do uv fixada para evitar descoberta dependente do diretório/rede."
+    required: false
+    default: "0.12.1"
   python-version:
     description: "Versão do Python (deve casar com requires-python / Nuitka)."
     required: true
@@ -32,6 +36,7 @@ runs:
     - name: Install uv (cache nativo keyed em uv.lock)
       uses: astral-sh/setup-uv@v7
       with:
+        version: ${{ inputs.uv-version }}
         enable-cache: true
         cache-dependency-glob: "${{ inputs.working-directory }}/uv.lock"
 

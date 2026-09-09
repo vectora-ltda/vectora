@@ -14,6 +14,11 @@
 
 /* ── Tema escuro (padrão) — "Dark" (baseado em miguelsolorio.min-theme, adaptado) ── */
 :root {
+  /* Safe-area tokens: use these semantic classes on viewport-edge UI. */
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
   --background: #1f1f1f;
   --foreground: #d4d4d4;
 
@@ -86,6 +91,53 @@
   --scrollbar-thumb-hover: var(--foreground);
 
   color-scheme: dark;
+}
+
+/* One responsibility per edge: consumers add the matching class instead of
+   repeating env(safe-area-inset-*) expressions throughout the component tree. */
+.safe-area-top {
+  padding-top: var(--safe-area-top);
+}
+.safe-area-right {
+  padding-right: var(--safe-area-right);
+}
+.safe-area-bottom {
+  padding-bottom: var(--safe-area-bottom);
+}
+.safe-area-left {
+  padding-left: var(--safe-area-left);
+}
+
+/* Edge components keep their design-system padding and add the inset. */
+.safe-area-top-banner {
+  padding-top: calc(var(--safe-area-top) + 0.375rem);
+}
+.safe-area-top-header {
+  min-height: calc(4rem + var(--safe-area-top));
+  padding-top: var(--safe-area-top);
+}
+.safe-area-bottom-snackbar {
+  padding-bottom: calc(var(--safe-area-bottom) + 0.75rem);
+}
+.safe-area-right-snackbar {
+  padding-right: calc(var(--safe-area-right) + 1rem);
+}
+.safe-area-bottom-dock {
+  padding-bottom: calc(var(--safe-area-bottom) + 0.25rem);
+}
+
+/* Sheets preserve consumer padding and stop at the protected viewport edge. */
+.safe-offset-left {
+  left: var(--safe-area-left);
+}
+.safe-offset-right {
+  right: var(--safe-area-right);
+}
+.safe-offset-top {
+  top: var(--safe-area-top);
+}
+.safe-offset-bottom {
+  bottom: var(--safe-area-bottom);
 }
 
 /* ── Tema claro — "Light" (baseado em miguelsolorio.min-theme, adaptado) ─────── */

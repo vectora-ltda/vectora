@@ -103,7 +103,9 @@ async def test_install_learned_skill_calls_workspace_skills(monkeypatch, tmp_pat
     from backend.workspace import skills as skills_module
 
     monkeypatch.setattr(
-        skills_module, "_skills_dir", lambda user_id: tmp_path / user_id
+        skills_module,
+        "_skills_dir",
+        lambda user_id, scope="user", target=None: tmp_path / user_id,
     )
     skills_module._versions.clear()
 
@@ -127,7 +129,9 @@ async def test_install_learned_skill_duplicate_returns_error_not_exception(
     from backend.workspace import skills as skills_module
 
     monkeypatch.setattr(
-        skills_module, "_skills_dir", lambda user_id: tmp_path / user_id
+        skills_module,
+        "_skills_dir",
+        lambda user_id, scope="user", target=None: tmp_path / user_id,
     )
     skills_module._versions.clear()
     skills_module.install_skill_from_content("u1", "Dup", "d", "c")
@@ -154,7 +158,9 @@ async def test_install_learned_skill_mirrors_artifact_and_resolves_pending(
     from backend.workspace import skills as skills_module
 
     monkeypatch.setattr(
-        skills_module, "_skills_dir", lambda user_id: tmp_path / user_id
+        skills_module,
+        "_skills_dir",
+        lambda user_id, scope="user", target=None: tmp_path / user_id,
     )
     skills_module._versions.clear()
 

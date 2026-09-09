@@ -78,6 +78,17 @@ class TestFormatTranscript:
 
 @pytest.mark.asyncio
 class TestGetTranscript:
+    @pytest.mark.parametrize(
+        ("mime_type", "expected_suffix"),
+        [("audio/mp4", "m4a"), ("audio/opus", "opus"), ("audio/webm", "webm")],
+    )
+    async def test_fallback_preserva_extensao_aceita_pelo_stt(
+        self, mime_type: str, expected_suffix: str
+    ) -> None:
+        import backend.tools.youtube as mod
+
+        assert mod._audio_suffix(mime_type) == expected_suffix
+
     async def test_url_invalida_devolve_erro_sem_tocar_em_rede(self):
         result = json.loads(await get_transcript(url="https://example.com/x"))
         assert "error" in result
