@@ -673,6 +673,14 @@ async def _assert_owns_thread(thread_id: str, http_request: Request | None) -> N
         raise HTTPException(status_code=404, detail=f"Thread {thread_id!r} not found")
 
 
+async def _require_existing_thread(thread_id: str, request: Request) -> None:
+    """Exige posse e registro existente para os endpoints de branches."""
+    await _assert_owns_thread(thread_id, request)
+    store = await _get_session_store()
+    if await store.get_session(thread_id) is None:
+        raise HTTPException(status_code=404, detail="Thread não encontrada")
+
+
 @router.post("/vectora.chat.v1.ThreadService/GetThread")
 async def get_thread(
     request: GetThreadRequest,
@@ -1092,7 +1100,7 @@ async def list_conversation_branches(
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
 ) -> ConversationBranchesResponse:
     """Lista as folhas da conversa sem restaurar o workspace."""
-    await _assert_owns_thread(thread_id, request)
+    await _require_existing_thread(thread_id, request)
     try:
         store = await _get_session_store()
         branches = await store.list_branch_heads(thread_id, limit=limit)
@@ -1113,7 +1121,7 @@ async def compare_conversation_branch(
     thread_id: str, head_message_id: int, request: Request
 ) -> ConversationBranchComparison:
     """Compara uma ponta com a branch ativa da thread."""
-    await _assert_owns_thread(thread_id, request)
+    await _require_existing_thread(thread_id, request)
     try:
         store = await _get_session_store()
         result = await store.compare_branches(thread_id, head_message_id)
@@ -1133,7 +1141,7 @@ async def select_conversation_branch(
     thread_id: str, body: SelectConversationBranchRequest, request: Request
 ) -> ConversationBranchesResponse:
     """Seleciona explicitamente uma branch sem restaurar arquivos do workspace."""
-    await _assert_owns_thread(thread_id, request)
+    await _require_existing_thread(thread_id, request)
     try:
         store = await _get_session_store()
         await store.set_branch_head(thread_id, body.head_message_id)

@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_messages_thread ON messages(thread_id, id);
+CREATE INDEX IF NOT EXISTS ix_messages_thread_parent ON messages(thread_id, parent_message_id);
 CREATE TABLE IF NOT EXISTS pending_approvals (
     thread_id TEXT PRIMARY KEY REFERENCES sessions(thread_id),
     interrupt_id TEXT NOT NULL,
@@ -321,7 +322,9 @@ class SessionStore:
         await self.setup()
         async with self._pool.acquire() as conn:
             cur = await conn.execute(
-                "SELECT 1 FROM messages WHERE thread_id = ? AND id = ?",
+                "SELECT 1 FROM messages m WHERE m.thread_id = ? AND m.id = ? "
+                "AND NOT EXISTS (SELECT 1 FROM messages d "
+                "WHERE d.thread_id = m.thread_id AND d.parent_message_id = m.id)",
                 (thread_id, message_id),
             )
             if await cur.fetchone() is None:
@@ -335,6 +338,10 @@ class SessionStore:
                 await conn.execute(
                     "UPDATE messages SET is_branch_head = 1 WHERE thread_id = ? AND id = ?",
                     (thread_id, message_id),
+                )
+                await conn.execute(
+                    "UPDATE sessions SET updated_at = ? WHERE thread_id = ?",
+                    (datetime.now(UTC).isoformat(), thread_id),
                 )
                 await conn.commit()
             except Exception:
@@ -402,13 +409,17 @@ class SessionStore:
             if left != right:
                 break
             common += 1
-        return {
+        result = {
             "active_head_message_id": active_head,
             "selected_head_message_id": selected_head_id,
             "common_message_ids": active_ids[:common],
             "active_divergent_message_ids": active_ids[common:],
             "selected_divergent_message_ids": selected_ids[common:],
         }
+        max_items = 2000
+        if len(active_ids) + len(selected_ids) > max_items:
+            raise ValueError("comparação de branches excede o limite permitido")
+        return result
 
     async def get_session(
         self, thread_id: str, *, user_id: str | None = None

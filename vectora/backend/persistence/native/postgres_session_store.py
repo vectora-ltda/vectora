@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS vectora_native_messages (
 );
 CREATE INDEX IF NOT EXISTS ix_vectora_native_messages_thread
     ON vectora_native_messages(thread_id, id);
+CREATE INDEX IF NOT EXISTS ix_vectora_native_messages_thread_parent
+    ON vectora_native_messages(thread_id, parent_message_id);
 CREATE TABLE IF NOT EXISTS vectora_native_pending_approvals (
     thread_id TEXT PRIMARY KEY REFERENCES vectora_native_sessions(thread_id),
     interrupt_id TEXT NOT NULL,
@@ -306,7 +308,9 @@ class PostgresSessionStore:
         await self.setup()
         async with self._pool.acquire() as conn, conn.transaction():
             exists = await conn.fetchval(
-                "SELECT 1 FROM vectora_native_messages WHERE thread_id = $1 AND id = $2",
+                "SELECT 1 FROM vectora_native_messages m WHERE m.thread_id = $1 AND m.id = $2 "
+                "AND NOT EXISTS (SELECT 1 FROM vectora_native_messages d "
+                "WHERE d.thread_id = m.thread_id AND d.parent_message_id = m.id)",
                 thread_id,
                 message_id,
             )
@@ -323,6 +327,10 @@ class PostgresSessionStore:
                 "WHERE thread_id = $1 AND id = $2",
                 thread_id,
                 message_id,
+            )
+            await conn.execute(
+                "UPDATE vectora_native_sessions SET updated_at = NOW() WHERE thread_id = $1",
+                thread_id,
             )
 
     async def list_branch_heads(
@@ -382,13 +390,17 @@ class PostgresSessionStore:
             if left != right:
                 break
             common += 1
-        return {
+        result = {
             "active_head_message_id": active_head,
             "selected_head_message_id": selected_head_id,
             "common_message_ids": active_ids[:common],
             "active_divergent_message_ids": active_ids[common:],
             "selected_divergent_message_ids": selected_ids[common:],
         }
+        max_items = 2000
+        if len(active_ids) + len(selected_ids) > max_items:
+            raise ValueError("comparação de branches excede o limite permitido")
+        return result
 
     async def get_pending_approval(self, thread_id: str) -> dict[str, Any] | None:
         await self.setup()
