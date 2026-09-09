@@ -19,6 +19,7 @@ Tool nativa (`@vtool`) — chamada como função async direta com
 from __future__ import annotations
 
 import json
+import types
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -174,6 +175,49 @@ class TestAcoes:
         saida = json.loads(await cu.computer_use(action="explodir_tudo", ctx=_ctx()))
         assert saida == {"status": "error", "code": "invalid_action"}
         assert "explodir_tudo" not in saida
+
+
+class TestApisWindowsSimuladas:
+    def test_clique_converte_coordenadas_e_publica_na_hwnd_validada(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls: list[tuple[object, ...]] = []
+        win32api = types.SimpleNamespace(MAKELONG=lambda x, y: (x, y))
+        win32con = types.SimpleNamespace(WM_LBUTTONDOWN=1, WM_LBUTTONUP=2, MK_LBUTTON=4)
+        win32gui = types.SimpleNamespace(
+            ScreenToClient=lambda hwnd, point: (point[0] - 10, point[1] - 20),
+            PostMessage=lambda *args: calls.append(args),
+        )
+        modules = {
+            "win32api": win32api,
+            "win32con": win32con,
+            "win32gui": win32gui,
+        }
+        monkeypatch.setattr("importlib.import_module", lambda name: modules[name])
+
+        cu._click_sync(110, 220, 99)
+
+        assert calls == [(99, 1, 4, (100, 200)), (99, 2, 0, (100, 200))]
+
+    def test_texto_publica_cada_caractere_somente_na_hwnd(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls: list[tuple[object, ...]] = []
+        win32con = types.SimpleNamespace(WM_CHAR=3)
+        win32gui = types.SimpleNamespace(PostMessage=lambda *args: calls.append(args))
+        monkeypatch.setattr(
+            "importlib.import_module",
+            lambda name: {"win32con": win32con, "win32gui": win32gui}[name],
+        )
+
+        cu._type_text_sync("oi", 99)
+
+        assert calls == [(99, 3, ord("o"), 0), (99, 3, ord("i"), 0)]
+
+    def test_hwnd_invalida_falha_fechado(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("platform.system", lambda: "Windows")
+        with pytest.raises(RuntimeError, match="HWND"):
+            cu._native_window_handle(types.SimpleNamespace(_hWnd=0))
 
 
 class TestAprovacaoSempreObrigatoria:
