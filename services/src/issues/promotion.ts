@@ -66,47 +66,40 @@ export async function promoteIssue(
   ].join("\n");
   const targetRepo = issue.core_repo ?? coreRepo(env);
   const marker = `vectora-company-issue:${issue.id}`;
+  const operationToken = claimToken ?? crypto.randomUUID();
+  const claimed = claimToken
+    ? await env.DB.prepare(
+        "UPDATE issues SET github_sync_state = 'promotion_pending' WHERE id = ? AND github_sync_state = 'promotion_failed' AND github_sync_error = ?",
+      )
+        .bind(issueId, claimToken)
+        .run()
+    : await env.DB.prepare(
+        "UPDATE issues SET github_sync_state = 'promotion_pending', github_sync_error = ?, approved_at = COALESCE(approved_at, datetime('now')), approved_by = COALESCE(approved_by, ?) WHERE id = ? AND github_sync_state NOT IN ('promotion_pending', 'promoted')",
+      )
+        .bind(operationToken, approvedBy, issueId)
+        .run();
+  if (claimed.meta.changes === 0) {
+    throw new Error("promotion_in_progress");
+  }
   let created =
     issue.core_number && issue.core_url
       ? { number: issue.core_number, html_url: issue.core_url }
       : await findIssueByMarker(env, targetRepo, marker);
   if (!created) {
-    // Uma promoção pendente pertence a outra execução. O reconciliador libera
-    // a reserva com uma atualização condicional antes de tentar novamente;
-    // nunca a libere aqui usando um snapshot possivelmente antigo.
-    if (
-      issue.github_sync_state === "promotion_pending" &&
-      issue.github_sync_error !== claimToken
-    ) {
-      const recovered = await findIssueByMarker(env, targetRepo, marker);
-      if (recovered) {
-        created = recovered;
-      } else {
-        throw new Error("promotion_in_progress");
-      }
-    }
-    if (!created) {
-      const claimed = claimToken
-        ? await env.DB.prepare(
-            "UPDATE issues SET github_sync_state = 'promotion_pending', github_sync_error = NULL, approved_at = COALESCE(approved_at, datetime('now')), approved_by = COALESCE(approved_by, ?) WHERE id = ? AND core_number IS NULL AND github_sync_error = ?",
-          )
-            .bind(approvedBy, issueId, claimToken)
-            .run()
-        : await env.DB.prepare(
-            "UPDATE issues SET github_sync_state = 'promotion_pending', github_sync_error = NULL, approved_at = COALESCE(approved_at, datetime('now')), approved_by = COALESCE(approved_by, ?) WHERE id = ? AND core_number IS NULL AND github_sync_state != 'promotion_pending'",
-          )
-            .bind(approvedBy, issueId)
-            .run();
-      if (claimed.meta.changes === 0) {
-        throw new Error("promotion_in_progress");
-      }
-      created = await createIssue(env, targetRepo, issue.title, body);
-    }
+    created = await createIssue(env, targetRepo, issue.title, body);
   }
   await env.DB.prepare(
-    "UPDATE issues SET core_repo = ?, core_number = ?, core_url = ?, approved_at = COALESCE(approved_at, datetime('now')), approved_by = COALESCE(approved_by, ?), github_sync_state = 'promotion_pending', github_sync_error = NULL WHERE id = ?",
+    "UPDATE issues SET core_repo = ?, core_number = ?, core_url = ?, approved_at = COALESCE(approved_at, datetime('now')), approved_by = COALESCE(approved_by, ?), github_sync_state = 'promotion_pending', github_sync_error = ? WHERE id = ? AND github_sync_error = ?",
   )
-    .bind(targetRepo, created.number, created.html_url, approvedBy, issueId)
+    .bind(
+      targetRepo,
+      created.number,
+      created.html_url,
+      approvedBy,
+      operationToken,
+      issueId,
+      operationToken,
+    )
     .run();
 
   if (issue.github_repo && issue.github_number) {
@@ -130,9 +123,9 @@ export async function promoteIssue(
     });
   }
   await env.DB.prepare(
-    "UPDATE issues SET github_sync_state = 'promoted', github_sync_error = NULL WHERE id = ?",
+    "UPDATE issues SET github_sync_state = 'promoted', github_sync_error = NULL WHERE id = ? AND github_sync_error = ?",
   )
-    .bind(issueId)
+    .bind(issueId, operationToken)
     .run();
   return { url: created.html_url, number: created.number };
 }

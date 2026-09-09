@@ -6,7 +6,10 @@ import {
   ISSUE_FILE_LIMITS,
   reconcileIssueComments,
 } from "../../src/issues/routes";
-import { reconcilePendingPromotions } from "../../src/issues/promotion";
+import {
+  promoteIssue,
+  reconcilePendingPromotions,
+} from "../../src/issues/promotion";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -155,6 +158,39 @@ describe("POST /issues", () => {
 });
 
 describe("POST /issues/github/webhook", () => {
+  it("preserva uma promoção pendente durante eventos comuns da issue", async () => {
+    const issueId = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO issues (id, title, category, description, github_repo, github_number, github_url, github_sync_state, approved_by) VALUES (?, 'promoção', 'bug', 'body', ?, ?, ?, 'promotion_pending', 'admin')",
+    )
+      .bind(
+        issueId,
+        "vectora-ltda/vectora-issues",
+        9880,
+        "https://github.com/vectora-ltda/vectora-issues/issues/9880",
+      )
+      .run();
+    const payload = {
+      action: "edited",
+      repository: { full_name: "vectora-ltda/vectora-issues" },
+      issue: {
+        number: 9880,
+        title: "Promoção editada",
+        body: "body atualizado",
+        state: "open",
+        html_url: "https://github.com/vectora-ltda/vectora-issues/issues/9880",
+      },
+    };
+    expect((await signedWebhook(payload, "delivery-9880")).status).toBe(200);
+    const row = await env.DB.prepare(
+      "SELECT github_sync_state FROM issues WHERE id = ?",
+    )
+      .bind(issueId)
+      .first<{ github_sync_state: string }>();
+    expect(row?.github_sync_state).toBe("promotion_pending");
+    await env.DB.prepare("DELETE FROM issues WHERE id = ?").bind(issueId).run();
+  });
+
   it("rejects missing signatures and ignores replayed deliveries", async () => {
     const missing = await issues.request(
       "/github/webhook",
@@ -333,6 +369,55 @@ describe("POST /issues/github/webhook", () => {
         (request) => request.startsWith("POST ") && /\/issues$/.test(request),
       ),
     ).toBe(false);
+  });
+
+  it("mantém uma única reserva durante promoções concorrentes", async () => {
+    const issueId = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO issues (id, title, category, description, github_repo, github_number, github_url, github_sync_state, approved_by) VALUES (?, 'concorrente', 'bug', 'descrição', ?, 9881, ?, 'approval_pending', 'admin')",
+    )
+      .bind(
+        issueId,
+        "vectora-ltda/vectora-issues",
+        "https://github.com/vectora-ltda/vectora-issues/issues/9881",
+      )
+      .run();
+    const requests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        requests.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.includes("search/issues")) return new Response('{"items":[]}');
+        if (url.includes("comments")) return new Response("[]");
+        if (init?.method === "POST") {
+          return new Response(
+            JSON.stringify({
+              number: 9882,
+              html_url: "https://github.com/vectora-ltda/vectora/issues/9882",
+            }),
+            { status: 201 },
+          );
+        }
+        return new Response("{}", { status: 200 });
+      }),
+    );
+    const results = await Promise.allSettled([
+      promoteIssue({ ...env, GITHUB_TOKEN: "test-token" }, issueId, "admin"),
+      promoteIssue({ ...env, GITHUB_TOKEN: "test-token" }, issueId, "admin"),
+    ]);
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      results.filter((result) => result.status === "rejected"),
+    ).toHaveLength(1);
+    expect(
+      requests.filter(
+        (request) =>
+          request.startsWith("POST ") && request.includes("/comments"),
+      ),
+    ).toHaveLength(1);
   });
 
   it("marca comentários ativos como removidos quando o GitHub retorna uma lista vazia", async () => {

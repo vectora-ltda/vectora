@@ -526,7 +526,7 @@ issues.post("/github/webhook", async (c) => {
       (label) => label.name === "approved-for-core",
     );
     await c.env.DB.prepare(
-      "UPDATE issues SET title = ?, description = ?, status = ?, github_url = ?, github_sync_state = 'synced', github_sync_error = NULL WHERE id = ?",
+      "UPDATE issues SET title = ?, description = ?, status = ?, github_url = ?, github_sync_state = CASE WHEN github_sync_state IN ('promotion_pending', 'promotion_failed', 'approval_error', 'promoted') THEN github_sync_state ELSE 'synced' END, github_sync_error = CASE WHEN github_sync_state IN ('promotion_pending', 'promotion_failed', 'approval_error', 'promoted') THEN github_sync_error ELSE NULL END WHERE id = ?",
     )
       .bind(
         issue.title,
@@ -563,7 +563,7 @@ issues.post("/github/webhook", async (c) => {
       }
     } else if (approved) {
       await c.env.DB.prepare(
-        "UPDATE issues SET github_sync_state = 'approval_pending' WHERE id = ? AND core_number IS NULL",
+        "UPDATE issues SET github_sync_state = 'approval_pending' WHERE id = ? AND core_number IS NULL AND github_sync_state NOT IN ('promotion_pending', 'promotion_failed', 'approval_error', 'promoted')",
       )
         .bind(issueId)
         .run();
