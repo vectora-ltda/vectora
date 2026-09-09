@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,7 +18,7 @@ class Version:
     patch: int
 
     @classmethod
-    def parse(cls, value: str) -> "Version":
+    def parse(cls, value: str) -> Version:
         match = _SEMVER.fullmatch(value.strip())
         if not match:
             raise ValueError(f"versão SemVer inválida: {value}")
@@ -32,7 +33,13 @@ def satisfies(version: Version, constraint: str) -> bool:
     value = constraint.strip()
     if value.startswith("^"):
         base = Version.parse(value[1:])
-        return version >= base and version.major == base.major
+        if base.major > 0:
+            upper = Version(base.major + 1, 0, 0)
+        elif base.minor > 0:
+            upper = Version(0, base.minor + 1, 0)
+        else:
+            upper = Version(0, 0, base.patch + 1)
+        return base <= version < upper
     if value.startswith("~"):
         base = Version.parse(value[1:])
         return (
@@ -87,12 +94,19 @@ def write_lockfile(path: Path, entries: dict[str, dict[str, object]]) -> None:
         "format_version": 1,
         "skills": {key: entries[key] for key in sorted(entries)},
     }
-    temporary = path.with_suffix(f"{path.suffix}.tmp")
-    temporary.write_text(
-        json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
+    with tempfile.NamedTemporaryFile(
+        mode="w",
         encoding="utf-8",
-    )
-    temporary.replace(path)
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as temporary:
+        temporary.write(
+            json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+        )
+        temporary_path = Path(temporary.name)
+    temporary_path.replace(path)
 
 
 def read_lockfile(path: Path) -> dict[str, object]:
