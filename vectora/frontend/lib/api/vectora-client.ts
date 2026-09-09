@@ -542,14 +542,10 @@ export async function getTools(): Promise<GetToolsResponse> {
 }
 
 export async function markThreadRead(threadId: string): Promise<void> {
-  const response = await fetch(
-    `${VECTORA_API_URL}/threads/${encodeURIComponent(threadId)}/read`,
-    {
-      method: "POST",
-      credentials: "include",
-    },
+  await postRpc<{ thread_id: string; unread_count: number }>(
+    `/threads/${encodeURIComponent(threadId)}/read`,
+    {},
   );
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
 }
 
 // ============================================================================
