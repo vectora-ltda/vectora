@@ -12,6 +12,7 @@
 import { memo, useMemo, useEffect, useRef, useState, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Message } from "@/lib/types";
+import { m } from "@/lib/paraglide/messages";
 import { MessageItem } from "./message-item";
 import { MessageSkeletons } from "./message-skeleton";
 import { ArrowDown } from "lucide-react";
