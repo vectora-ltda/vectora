@@ -797,7 +797,16 @@ async def aget_thread_messages(
         if not text:
             continue
         role = "human" if msg.role == MessageRole.USER else "assistant"
-        out.append((role, text, str(msg_id), []))
+        attachments = [
+            {
+                "kind": "image",
+                "url": f"/threads/{thread_id}/assets/{block.asset_id}",
+                "asset_id": block.asset_id,
+            }
+            for block in msg.content
+            if block.kind == "image_url" and block.asset_id
+        ]
+        out.append((role, text, str(msg_id), attachments))
     return out
 
 

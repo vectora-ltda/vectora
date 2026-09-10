@@ -26,11 +26,22 @@ try:
     _fcntl: _Fcntl | None = cast("_Fcntl", importlib.import_module("fcntl"))
 except ImportError:  # pragma: no cover - Windows
     _fcntl = None
+try:
+    _msvcrt = importlib.import_module("msvcrt")
+except ImportError:  # pragma: no cover - Unix
+    _msvcrt = None
 
 _PROCESS_LOCKS: dict[Path, Lock] = {}
 _PROCESS_LOCKS_GUARD = Lock()
 
-ALLOWED_MIME = {"image/png", "image/jpeg", "audio/mpeg", "video/mp4"}
+ALLOWED_MIME = {
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "audio/mpeg",
+    "video/mp4",
+}
 MAX_ASSET_BYTES = 100 * 1024 * 1024
 
 
@@ -69,6 +80,7 @@ class AssetStore:
         mime_type: str,
         source: str,
     ) -> Asset:
+        mime_type = "image/jpeg" if mime_type == "image/jpg" else mime_type
         if mime_type not in ALLOWED_MIME or not path.is_file() or path.is_symlink():
             raise ValueError("asset inválido")
         size = path.stat().st_size
@@ -89,6 +101,13 @@ class AssetStore:
         with self._process_lock(), self._lock.open("a+b") as lock:
             if _fcntl is not None:
                 _fcntl.flock(lock.fileno(), _fcntl.LOCK_EX)
+            elif _msvcrt is not None:
+                lock.seek(0)
+                lock.write(b"0")
+                lock.flush()
+                _msvcrt.locking(lock.fileno(), _msvcrt.LK_LOCK, 1)
+            else:
+                raise RuntimeError("lock interprocesso de assets indisponível")
             records = self._read()
             records[item.id] = asdict(item)
             with tempfile.NamedTemporaryFile(
@@ -102,6 +121,7 @@ class AssetStore:
                 temporary_path.replace(self.index)
             finally:
                 temporary_path.unlink(missing_ok=True)
+            # O fechamento do descritor libera o lock no Windows.
         return item
 
     def get(
