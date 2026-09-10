@@ -47,7 +47,7 @@ export default function CookieConsent() {
     <div
       role="dialog"
       aria-label={m.cookie_title()}
-      className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-card/95 backdrop-blur-sm"
+      className="fixed bottom-0 start-0 end-0 z-50 border-t border-border bg-card/95 backdrop-blur-sm"
     >
       <div className="mx-auto flex max-w-[1024px] flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-8 sm:px-6">
         <p className="text-sm text-muted-foreground">

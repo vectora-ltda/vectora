@@ -42,8 +42,9 @@ export default function Header({ session }: { session: SessionUser | null }) {
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-md">
       {/*
-        Container relativo: permite que a nav use `absolute left-1/2 -translate-x-1/2`
-        para ficar de fato centrada na viewport, independente do que está nos lados.
+        Container relativo: a navegação usa coordenadas físicas para manter a
+        centralização geométrica em qualquer direção textual. `left-1/2` com
+        `-translate-x-1/2` é intencional aqui: `start-1/2` desloca o centro em RTL.
         Desktop: max-w-[1124px] conforme Figma.
       */}
       <div className="relative mx-auto flex h-[62px] max-w-[1124px] items-center justify-between px-4 sm:px-6">
