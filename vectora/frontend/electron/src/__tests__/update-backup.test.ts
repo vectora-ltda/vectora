@@ -97,4 +97,31 @@ describe("update backups", () => {
       readFile(path.join(userData, "settings.json"), "utf8"),
     ).resolves.toBe("safe");
   });
+
+  it("serializa restaurações concorrentes sem deixar estado intermediário", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "vectora-update-"));
+    const userData = path.join(root, "user-data");
+    const backups = path.join(root, "backups");
+    await mkdir(userData, { recursive: true });
+    await writeFile(path.join(userData, "settings.json"), "first");
+    const first = await createRotatingUpdateBackup(userData, backups, "0.1.0");
+    await writeFile(path.join(userData, "settings.json"), "second");
+    const second = await createRotatingUpdateBackup(userData, backups, "0.1.1");
+    await writeFile(path.join(userData, "settings.json"), "current");
+
+    await Promise.all([
+      restoreUpdateBackup(first, userData, backups),
+      restoreUpdateBackup(second, userData, backups),
+    ]);
+
+    await expect(
+      readFile(path.join(userData, "settings.json"), "utf8"),
+    ).resolves.toMatch(/^(first|second)$/);
+    const leftovers = (await readdir(root)).filter(
+      (name) =>
+        name.startsWith("user-data.restore-") ||
+        name.startsWith("user-data.rollback-"),
+    );
+    expect(leftovers).toEqual([]);
+  });
 });

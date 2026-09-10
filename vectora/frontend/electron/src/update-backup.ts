@@ -167,7 +167,7 @@ export async function listUpdateBackups(
   return entries.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export async function restoreUpdateBackup(
+async function restoreUpdateBackupUnlocked(
   entry: UpdateBackupEntry,
   userData: string,
   backupRoot?: string,
@@ -256,4 +256,15 @@ export async function restoreUpdateBackup(
       .rm(rollback, { recursive: true, force: true })
       .catch(() => undefined);
   }
+}
+
+/** Serializa restaurações com snapshots para manter `userData` consistente. */
+export function restoreUpdateBackup(
+  entry: UpdateBackupEntry,
+  userData: string,
+  backupRoot?: string,
+): Promise<void> {
+  return withSnapshotLock(() =>
+    restoreUpdateBackupUnlocked(entry, userData, backupRoot),
+  );
 }
