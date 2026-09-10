@@ -147,6 +147,46 @@ async def test_endpoints_rejeitam_workspace_nao_autorizado(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_endpoints_rejeitam_workspace_de_outro_usuario(monkeypatch):
+    from fastapi import HTTPException
+
+    from backend.services.smart_approval import add_to_allowlist, get_allowlist
+
+    add_to_allowlist("ws-outro", "terminal", {"command": "git status"})
+    antes = get_allowlist("ws-outro")
+    monkeypatch.setattr(
+        "backend.api.handlers.workspaces.require_workspace_access",
+        lambda _workspace_id, _request: (_ for _ in ()).throw(
+            HTTPException(status_code=403, detail="Sem acesso")
+        ),
+    )
+    request = _authenticated_request("outro-usuario")
+
+    with pytest.raises(HTTPException) as get_error:
+        await get_smart_approval_allowlist("ws-outro", request)
+    assert get_error.value.status_code == 403
+
+    with pytest.raises(HTTPException) as add_error:
+        await add_smart_approval_allowlist(
+            SmartApprovalAllowlistRequest(
+                workspace_id="ws-outro", tool_name="terminal", args={"command": "pwd"}
+            ),
+            request,
+        )
+    assert add_error.value.status_code == 403
+
+    with pytest.raises(HTTPException) as remove_error:
+        await remove_smart_approval_allowlist(
+            SmartApprovalAllowlistRemoveRequest(
+                workspace_id="ws-outro", rule_id="rule"
+            ),
+            request,
+        )
+    assert remove_error.value.status_code == 403
+    assert get_allowlist("ws-outro") == antes
+
+
+@pytest.mark.asyncio
 async def test_mutacoes_concorrentes_preservam_todas_as_regras():
     from backend.services.smart_approval import add_to_allowlist, get_allowlist
 
