@@ -1525,5 +1525,6 @@
   "about_panel_version_label": "Versión",
   "about_panel_mode_label": "Modo",
   "about_panel_mode_desktop": "Escritorio (Electron)",
-  "about_panel_mode_web": "Web"
+  "about_panel_mode_web": "Web",
+  "chat_branch_compare": "Comparar"
 }

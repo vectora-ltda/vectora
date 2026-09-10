@@ -377,6 +377,10 @@ class PostgresSessionStore:
         thread ficaria sem nenhuma ponta ativa (histórico "sumiria")."""
         await self.setup()
         async with self._pool.acquire() as conn, conn.transaction():
+            await conn.fetchval(
+                "SELECT 1 FROM vectora_native_sessions WHERE thread_id = $1 FOR UPDATE",
+                thread_id,
+            )
             if allow_internal:
                 query = (
                     "SELECT 1 FROM vectora_native_messages "
@@ -446,6 +450,17 @@ class PostgresSessionStore:
         self, thread_id: str, selected_head_id: int
     ) -> dict[str, Any]:
         """Compara a ponta ativa com outra ponta da mesma thread."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            is_leaf = await conn.fetchval(
+                "SELECT 1 FROM vectora_native_messages m WHERE m.thread_id = $1 "
+                "AND m.id = $2 AND NOT EXISTS (SELECT 1 FROM vectora_native_messages d "
+                "WHERE d.thread_id = m.thread_id AND d.parent_message_id = m.id)",
+                thread_id,
+                selected_head_id,
+            )
+        if is_leaf is None:
+            raise ValueError(f"mensagem {selected_head_id} não é uma ponta")
         selected = await self.get_history_with_ids(
             thread_id, up_to_message_id=selected_head_id
         )

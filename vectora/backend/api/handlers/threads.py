@@ -1169,9 +1169,24 @@ async def list_conversation_branches(
     try:
         store = await _get_session_store()
         branches = await store.list_branch_heads(thread_id, limit=limit)
+        active_id = await store.get_branch_head_id(thread_id)
+        if active_id is not None and not any(
+            item["head_message_id"] == active_id for item in branches
+        ):
+            history = await store.get_history_with_ids(
+                thread_id, up_to_message_id=active_id
+            )
+            branches.append(
+                {
+                    "head_message_id": active_id,
+                    "created_at": "",
+                    "active": True,
+                    "message_count": len(history),
+                }
+            )
         return ConversationBranchesResponse(
             branches=[ConversationBranch.model_validate(item) for item in branches],
-            active_head_message_id=await store.get_branch_head_id(thread_id),
+            active_head_message_id=active_id,
         )
     except Exception as exc:
         logger.exception("api/threads: erro ao listar branches")

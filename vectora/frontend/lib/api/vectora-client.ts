@@ -506,9 +506,19 @@ async function branchRequest<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
-    throw new Error(`branches falhou (${response.status}): ${detail}`);
+    throw new BranchRequestError(response.status, detail);
   }
   return (await response.json()) as T;
+}
+
+export class BranchRequestError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly detail: string,
+  ) {
+    super(`branches falhou (${status}): ${detail}`);
+    this.name = "BranchRequestError";
+  }
 }
 
 export const listConversationBranches = (

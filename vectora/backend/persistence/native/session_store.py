@@ -458,6 +458,16 @@ class SessionStore:
         self, thread_id: str, selected_head_id: int
     ) -> dict[str, Any]:
         """Compara a ponta ativa com outra ponta da mesma thread."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT 1 FROM messages m WHERE m.thread_id = ? AND m.id = ? "
+                "AND NOT EXISTS (SELECT 1 FROM messages d WHERE d.thread_id = m.thread_id "
+                "AND d.parent_message_id = m.id)",
+                (thread_id, selected_head_id),
+            )
+            if await cur.fetchone() is None:
+                raise ValueError(f"mensagem {selected_head_id} não é uma ponta")
         selected = await self.get_history_with_ids(
             thread_id, up_to_message_id=selected_head_id
         )

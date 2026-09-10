@@ -18,6 +18,7 @@ import { MessageSkeletons } from "./message-skeleton";
 import { ArrowDown } from "lucide-react";
 import {
   listConversationBranches,
+  compareConversationBranch,
   selectConversationBranch,
   type ConversationBranch,
 } from "@/lib/api/vectora-client";
@@ -91,6 +92,7 @@ interface MessageListProps {
 function ConversationBranchBar({ threadId }: { threadId?: string }) {
   const [branches, setBranches] = useState<ConversationBranch[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
+  const [comparison, setComparison] = useState<string | null>(null);
 
   useEffect(() => {
     if (!threadId) return;
@@ -124,7 +126,9 @@ function ConversationBranchBar({ threadId }: { threadId?: string }) {
               .then(() => {
                 setSelected(branch.head_message_id);
                 window.dispatchEvent(
-                  new CustomEvent("vectora:branch-selected"),
+                  new CustomEvent("vectora:branch-selected", {
+                    detail: { threadId },
+                  }),
                 );
               })
               .catch(() => undefined);
@@ -135,6 +139,24 @@ function ConversationBranchBar({ threadId }: { threadId?: string }) {
             : m.chat_branch_point({ id: branch.head_message_id })}
         </button>
       ))}
+      {selected !== null && (
+        <button
+          type="button"
+          className="rounded border px-2 py-1 hover:bg-accent"
+          onClick={() => {
+            void compareConversationBranch(threadId, selected)
+              .then((result) =>
+                setComparison(
+                  `${result.active_divergent_message_ids.length}/${result.selected_divergent_message_ids.length}`,
+                ),
+              )
+              .catch(() => setComparison("erro"));
+          }}
+        >
+          {m.chat_branch_compare()}
+        </button>
+      )}
+      {comparison && <span role="status">{comparison}</span>}
     </div>
   );
 }
