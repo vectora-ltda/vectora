@@ -37,6 +37,7 @@ import { autoUpdater } from "electron-updater";
 import * as http from "http";
 import * as os from "os";
 import * as path from "path";
+import { randomUUID } from "crypto";
 import { Readable } from "stream";
 // tree-kill ships its own types — no @types/tree-kill needed.
 import treeKill = require("tree-kill");
@@ -49,6 +50,7 @@ import {
   IpcPipeParser,
   pingBackendHttp,
   fetchBackendJson,
+  postBackendJson,
   waitForBackendReady,
   killBackendTree,
   resolveExternalBackendConnection,
@@ -92,6 +94,9 @@ let tray: Tray | null = null;
 let pendingDeepLink: string | null = null;
 let updateReady = false;
 let browserViewManager: BrowserViewManager | null = null;
+const desktopBridgeToken =
+  process.env.VECTORA_DESKTOP_BRIDGE_TOKEN ?? randomUUID();
+let selectedBackupPath: string | null = null;
 
 /**
  * Browser real da aba Browser do workbench (não a SPA) — cada view é um
@@ -378,6 +383,7 @@ async function startBackend(): Promise<void> {
     ...process.env,
     VECTORA_PORT: String(backendPort),
     VECTORA_DESKTOP: "1",
+    VECTORA_DESKTOP_BRIDGE_TOKEN: desktopBridgeToken,
     ...(natsBin ? { VECTORA_NATS_BINARY: natsBin } : {}),
   };
   const exePath = backendPath(process.env, process.platform, _resourcesPath());
@@ -775,6 +781,40 @@ function registerIpc(): void {
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0];
   });
+  ipcMain.handle("vectora:backup-pick-and-inspect", async () => {
+    const opts: Electron.OpenDialogOptions = {
+      properties: ["openFile"],
+      filters: [{ name: "Backup Vectora", extensions: ["zip", "gz"] }],
+    };
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, opts)
+      : await dialog.showOpenDialog(opts);
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const archivePath = result.filePaths[0];
+    const preview = await postBackendJson(
+      backendTransport(),
+      "/storage/backup/inspect",
+      { archive_path: archivePath },
+      { "x-vectora-desktop-bridge": desktopBridgeToken },
+    );
+    if (!preview) return null;
+    selectedBackupPath = archivePath;
+    return preview;
+  });
+  ipcMain.handle(
+    "vectora:backup-restore",
+    async (_event, categories: string[]) => {
+      if (!selectedBackupPath) return null;
+      const result = await postBackendJson(
+        backendTransport(),
+        "/storage/backup/restore",
+        { archive_path: selectedBackupPath, categories, confirmed: true },
+        { "x-vectora-desktop-bridge": desktopBridgeToken },
+      );
+      selectedBackupPath = null;
+      return result;
+    },
+  );
   ipcMain.on("vectora:deep-link-ack", (_event, url: string) => {
     console.log(`[deep-link] renderer ack: ${url}`);
   });

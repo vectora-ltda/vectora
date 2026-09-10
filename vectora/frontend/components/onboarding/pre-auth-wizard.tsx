@@ -33,6 +33,8 @@ import {
   Moon,
   Sun,
   Laptop,
+  Database,
+  Upload,
 } from "lucide-react";
 import { m } from "@/lib/paraglide/messages";
 import { mDyn } from "@/lib/i18n-dyn";
@@ -62,7 +64,13 @@ import {
   StepIndicator,
 } from "./setup-wizard";
 
-type Step = "identity" | "mode" | "vps-token" | "continuation";
+type Step = "identity" | "mode" | "vps-token" | "restore" | "continuation";
+
+type BackupPreview = {
+  categories: Record<string, number>;
+  size_bytes: number;
+  storage_mode: string;
+};
 
 const VPS_FEATURE_LABELS = [
   m.onboarding_pre_vps_feature_1,
@@ -139,6 +147,13 @@ export function PreAuthWizard({
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
   const [settingUpLocal, setSettingUpLocal] = useState(false);
+  const [backupPreview, setBackupPreview] = useState<BackupPreview | null>(
+    null,
+  );
+  const [backupSelection, setBackupSelection] = useState<string[]>([]);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupError, setBackupError] = useState(false);
+  const [backupImported, setBackupImported] = useState(false);
 
   // Auto-preenche o username a partir do nome enquanto não houver edição
   // manual — mesmo padrão do /auth/signup real. Comparação durante o render
@@ -231,11 +246,35 @@ export function PreAuthWizard({
         return;
       }
       setSettingUpLocal(false);
-      setStep("continuation");
-      setContinuationIndex(0);
+      const preview = await window.vectora?.backupPickAndInspect?.();
+      if (preview?.compatible && preview.storage_mode === "lite") {
+        setBackupPreview(preview);
+        setBackupSelection(Object.keys(preview.categories));
+        setStep("restore");
+      } else {
+        setStep("continuation");
+        setContinuationIndex(0);
+      }
     } catch {
       setNameError(m.onboarding_pre_setup_error());
       setSettingUpLocal(false);
+    }
+  }
+
+  async function handleBackupRestore(): Promise<void> {
+    setBackupBusy(true);
+    setBackupError(false);
+    try {
+      const result = await window.vectora?.backupRestore?.(backupSelection);
+      if (!result) {
+        setBackupError(true);
+        return;
+      }
+      setBackupImported(true);
+    } catch {
+      setBackupError(true);
+    } finally {
+      setBackupBusy(false);
     }
   }
 
@@ -295,12 +334,17 @@ export function PreAuthWizard({
         <div className="w-full max-w-sm space-y-4">
           <div className="flex flex-col items-center gap-2">
             <div className="flex items-center gap-2.5">
-              <img src="/vectora.svg" alt="Vectora" width={36} height={36} />
+              <img
+                src="/vectora.svg"
+                alt={m.onboarding_brand_name()}
+                width={36}
+                height={36}
+              />
               <h1
                 className="text-2xl font-semibold tracking-tight text-foreground"
                 style={{ fontFamily: "var(--font-aeonik-mono)" }}
               >
-                Vectora
+                {m.onboarding_brand_name()}
               </h1>
             </div>
             <p className="text-sm font-medium text-foreground text-center">
@@ -344,17 +388,112 @@ export function PreAuthWizard({
     );
   }
 
+  if (step === "restore" && backupPreview) {
+    const labels: Record<string, () => string> = {
+      workspaces: m.onboarding_backup_category_workspaces,
+      threads: m.onboarding_backup_category_threads,
+      memories: m.onboarding_backup_category_memories,
+    };
+    return (
+      <div className="min-h-full flex items-center justify-center bg-background px-4">
+        <div className="w-full max-w-sm space-y-5">
+          <div className="flex flex-col items-center gap-2 text-center">
+            <Upload className="h-8 w-8 text-primary" aria-hidden="true" />
+            <h1 className="text-xl font-semibold text-foreground">
+              {m.onboarding_backup_title()}
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {m.onboarding_backup_body()}
+            </p>
+          </div>
+          <div
+            className="space-y-2"
+            role="group"
+            aria-label={m.onboarding_backup_title()}
+          >
+            {Object.entries(backupPreview.categories)
+              .filter(([category]) => category !== "database")
+              .map(([category, count]) => (
+                <label
+                  key={category}
+                  className="flex items-center gap-3 rounded-md border border-border p-3 text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    checked={backupSelection.includes(category)}
+                    onChange={(event) =>
+                      setBackupSelection((current) =>
+                        event.target.checked
+                          ? [...current, category]
+                          : current.filter((item) => item !== category),
+                      )
+                    }
+                  />
+                  <Database
+                    className="h-4 w-4 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                  <span className="flex-1">
+                    {labels[category]?.() ?? category}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {m.onboarding_backup_count({ n: count })}
+                  </span>
+                </label>
+              ))}
+          </div>
+          {backupError && (
+            <p role="alert" className="text-xs text-destructive">
+              {m.onboarding_backup_error()}
+            </p>
+          )}
+          {backupImported && (
+            <p role="status" className="text-xs text-green-600">
+              {m.onboarding_backup_success()}
+            </p>
+          )}
+          <div className="flex justify-between gap-2">
+            <button
+              type="button"
+              className="text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                setStep("continuation");
+                setContinuationIndex(0);
+              }}
+              disabled={backupBusy}
+            >
+              {m.onboarding_backup_skip()}
+            </button>
+            <button
+              type="button"
+              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+              onClick={() => void handleBackupRestore()}
+              disabled={backupBusy || backupImported}
+            >
+              {m.onboarding_backup_import()}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-full flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm space-y-6">
         <div className="flex flex-col items-center gap-2">
           <div className="flex items-center gap-2.5">
-            <img src="/vectora.svg" alt="Vectora" width={36} height={36} />
+            <img
+              src="/vectora.svg"
+              alt={m.onboarding_brand_name()}
+              width={36}
+              height={36}
+            />
             <h1
               className="text-2xl font-semibold tracking-tight text-foreground"
               style={{ fontFamily: "var(--font-aeonik-mono)" }}
             >
-              Vectora
+              {m.onboarding_brand_name()}
             </h1>
           </div>
         </div>

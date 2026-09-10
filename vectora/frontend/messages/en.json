@@ -1519,5 +1519,16 @@
   "about_panel_version_label": "Version",
   "about_panel_mode_label": "Mode",
   "about_panel_mode_desktop": "Desktop (Electron)",
-  "about_panel_mode_web": "Web"
+  "about_panel_mode_web": "Web",
+  "onboarding_brand_name": "Vectora",
+  "onboarding_backup_title": "A local backup was found",
+  "onboarding_backup_body": "Choose the data to import. The original backup stays on this device.",
+  "onboarding_backup_category_workspaces": "Workspaces",
+  "onboarding_backup_category_threads": "Threads and messages",
+  "onboarding_backup_category_memories": "Memories",
+  "onboarding_backup_import": "Import selected",
+  "onboarding_backup_skip": "Continue without importing",
+  "onboarding_backup_success": "Data imported successfully.",
+  "onboarding_backup_error": "This backup could not be imported.",
+  "onboarding_backup_count": "{n} items"
 }
