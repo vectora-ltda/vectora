@@ -97,6 +97,17 @@ let tray: Tray | null = null;
 let pendingDeepLink: string | null = null;
 let updateReady = false;
 let browserViewManager: BrowserViewManager | null = null;
+let pendingBackupPromise: Promise<void> | null = null;
+
+function pendingUpdatePath(): string {
+  return path.join(app.getPath("userData"), "pending-update.json");
+}
+
+async function clearPendingUpdate(): Promise<void> {
+  await fs.promises
+    .rm(pendingUpdatePath(), { force: true })
+    .catch(() => undefined);
+}
 
 /**
  * Browser real da aba Browser do workbench (não a SPA) — cada view é um
@@ -721,12 +732,19 @@ function setupAutoUpdater(): void {
           .filter(Boolean)
           .join("\n")
       : (info.releaseNotes ?? "");
-    broadcast({ state: "available", message: info.version, changelog: notes });
-    void createRotatingUpdateBackup(
+    pendingBackupPromise = createRotatingUpdateBackup(
       app.getPath("userData"),
       path.join(app.getPath("userData"), "update-backups"),
       app.getVersion(),
-    )
+    ).then(async (backup) => {
+      await fs.promises.writeFile(
+        pendingUpdatePath(),
+        JSON.stringify({ version: info.version, backupId: backup.id }, null, 2),
+        { mode: 0o600 },
+      );
+    });
+    broadcast({ state: "available", message: info.version, changelog: notes });
+    void pendingBackupPromise
       .then(() => autoUpdater.downloadUpdate())
       .catch((error: unknown) => {
         broadcast({
@@ -815,9 +833,14 @@ function registerIpc(): void {
     ),
   );
   ipcMain.on("vectora:download-update", () => {
-    void autoUpdater.downloadUpdate().catch((error: unknown) => {
-      console.warn("[updater] downloadUpdate falhou", error);
-    });
+    void (
+      pendingBackupPromise ??
+      Promise.reject(new Error("backup da atualização não foi preparado"))
+    )
+      .then(() => autoUpdater.downloadUpdate())
+      .catch((error: unknown) => {
+        console.warn("[updater] downloadUpdate falhou", error);
+      });
   });
 
   // Controles da titlebar customizada (frame: false — ver createWindow()).
@@ -960,6 +983,7 @@ app.whenReady().then(async () => {
     await killStaleBackend();
     await startBackend();
     await waitForBackend();
+    await clearPendingUpdate();
     createWindow();
     createTray();
     setupAutoUpdater();

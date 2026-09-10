@@ -1,17 +1,17 @@
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-
-export interface UpdateBackupEntry {
-  id: string;
-  createdAt: string;
-  appVersion: string;
-  path: string;
-  bytes: number;
-  sha256: string;
-}
+import type {
+  UpdateBackupEntry,
+  UpdateBackupFile,
+} from "../../lib/types/update-backup.js";
+export type {
+  UpdateBackupEntry,
+  UpdateBackupFile,
+} from "../../lib/types/update-backup.js";
 
 const MANIFEST = "manifest.json";
+const MAX_FILE_BYTES = 256 * 1024 * 1024;
 const EXCLUDED = new Set([
   "Cache",
   "Code Cache",
@@ -20,18 +20,67 @@ const EXCLUDED = new Set([
   "tokens",
   "secrets",
 ]);
+let snapshotQueue: Promise<void> = Promise.resolve();
+
+function isExcluded(relativePath: string): boolean {
+  return relativePath
+    .split(path.sep)
+    .some((component) => EXCLUDED.has(component));
+}
+
+function digestTree(files: readonly UpdateBackupFile[]): string {
+  const hash = createHash("sha256");
+  for (const file of [...files].sort((a, b) => a.path.localeCompare(b.path))) {
+    hash.update(`${file.path}\0${file.bytes}\0${file.sha256}\n`);
+  }
+  return hash.digest("hex");
+}
+
+async function collectFiles(root: string, current = root): Promise<string[]> {
+  const result: string[] = [];
+  for (const name of await fs.readdir(current)) {
+    const relative = path.relative(root, path.join(current, name));
+    if (isExcluded(relative) || name.endsWith(".lock")) continue;
+    const source = path.join(current, name);
+    const stat = await fs.lstat(source);
+    if (stat.isSymbolicLink()) throw new Error("userData contém symlink");
+    if (stat.isDirectory()) result.push(...(await collectFiles(root, source)));
+    else if (stat.isFile() && stat.size <= MAX_FILE_BYTES)
+      result.push(relative);
+  }
+  return result;
+}
 
 async function copySafe(
   source: string,
   destination: string,
-): Promise<{ bytes: number; hash: string }> {
+): Promise<UpdateBackupFile> {
+  const stat = await fs.lstat(source);
+  if (!stat.isFile() || stat.isSymbolicLink())
+    throw new Error("entrada não regular");
+  if (stat.size > MAX_FILE_BYTES) throw new Error("arquivo excede o limite");
   const data = await fs.readFile(source);
   await fs.mkdir(path.dirname(destination), { recursive: true });
   await fs.writeFile(destination, data, { mode: 0o600 });
   return {
+    path: "",
     bytes: data.byteLength,
-    hash: createHash("sha256").update(data).digest("hex"),
+    sha256: createHash("sha256").update(data).digest("hex"),
   };
+}
+
+async function withSnapshotLock<T>(operation: () => Promise<T>): Promise<T> {
+  const previous = snapshotQueue;
+  let release!: () => void;
+  snapshotQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
 }
 
 export async function createRotatingUpdateBackup(
@@ -40,45 +89,55 @@ export async function createRotatingUpdateBackup(
   appVersion: string,
   maxBackups = 5,
 ): Promise<UpdateBackupEntry> {
-  const id = `${new Date().toISOString().replace(/[:.]/g, "-")}-${appVersion}`;
-  const destination = path.join(backupRoot, id);
-  await fs.mkdir(destination, { recursive: true });
-  const files: string[] = [];
-  for (const name of await fs.readdir(userData)) {
-    if (EXCLUDED.has(name) || name.endsWith(".lock")) continue;
-    const source = path.join(userData, name);
-    const stat = await fs.stat(source);
-    if (stat.isFile() && stat.size <= 256 * 1024 * 1024) {
-      files.push(name);
-      await copySafe(source, path.join(destination, name));
-    }
-  }
-  const manifest: UpdateBackupEntry = {
-    id,
-    createdAt: new Date().toISOString(),
-    appVersion,
-    path: destination,
-    bytes: (
+  return withSnapshotLock(async () => {
+    const id = `${new Date().toISOString().replace(/[:.]/g, "-")}-${appVersion}`;
+    const temporary = path.join(backupRoot, `.tmp-${id}-${process.pid}`);
+    const destination = path.join(backupRoot, id);
+    await fs.mkdir(temporary, { recursive: true });
+    try {
+      const files: UpdateBackupFile[] = [];
+      for (const relative of await collectFiles(userData)) {
+        const copied = await copySafe(
+          path.join(userData, relative),
+          path.join(temporary, relative),
+        );
+        files.push({ ...copied, path: relative });
+      }
+      const manifest: UpdateBackupEntry = {
+        id,
+        createdAt: new Date().toISOString(),
+        appVersion,
+        path: destination,
+        bytes: files.reduce((sum, file) => sum + file.bytes, 0),
+        sha256: digestTree(files),
+        files,
+      };
+      await fs.writeFile(
+        path.join(temporary, MANIFEST),
+        JSON.stringify(manifest, null, 2),
+        { mode: 0o600 },
+      );
+      await fs.rename(temporary, destination);
+      const entries = (await fs.readdir(backupRoot))
+        .filter((entry) => !entry.startsWith(".tmp-"))
+        .sort()
+        .reverse();
       await Promise.all(
-        files.map((name) => fs.stat(path.join(destination, name))),
-      )
-    ).reduce((sum, item) => sum + item.size, 0),
-    sha256: createHash("sha256").update(files.join("\n")).digest("hex"),
-  };
-  await fs.writeFile(
-    path.join(destination, MANIFEST),
-    JSON.stringify(manifest, null, 2),
-    { mode: 0o600 },
-  );
-  const entries = (await fs.readdir(backupRoot)).sort().reverse();
-  await Promise.all(
-    entries
-      .slice(maxBackups)
-      .map((entry) =>
-        fs.rm(path.join(backupRoot, entry), { recursive: true, force: true }),
-      ),
-  );
-  return manifest;
+        entries.slice(maxBackups).map((entry) =>
+          fs.rm(path.join(backupRoot, entry), {
+            recursive: true,
+            force: true,
+          }),
+        ),
+      );
+      return manifest;
+    } catch (error) {
+      await fs
+        .rm(temporary, { recursive: true, force: true })
+        .catch(() => undefined);
+      throw error;
+    }
+  });
 }
 
 export async function listUpdateBackups(
@@ -87,13 +146,13 @@ export async function listUpdateBackups(
   const entries: UpdateBackupEntry[] = [];
   for (const name of await fs.readdir(backupRoot).catch(() => [])) {
     try {
-      const raw = await fs.readFile(
-        path.join(backupRoot, name, MANIFEST),
-        "utf8",
-      );
-      entries.push(JSON.parse(raw) as UpdateBackupEntry);
+      const entry = JSON.parse(
+        await fs.readFile(path.join(backupRoot, name, MANIFEST), "utf8"),
+      ) as UpdateBackupEntry;
+      if (entry.files?.length && digestTree(entry.files) === entry.sha256)
+        entries.push(entry);
     } catch {
-      // Ignore incomplete backup directories left by an interrupted copy.
+      /* diretório temporário ou snapshot incompleto */
     }
   }
   return entries.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -105,31 +164,57 @@ export async function restoreUpdateBackup(
   backupRoot?: string,
 ): Promise<void> {
   const resolvedPath = path.resolve(entry.path);
-  if (
-    backupRoot &&
-    !resolvedPath.startsWith(`${path.resolve(backupRoot)}${path.sep}`)
-  ) {
-    throw new Error("Backup fora da área permitida");
+  if (backupRoot) {
+    const rootReal = await fs.realpath(backupRoot);
+    const snapshotReal = await fs.realpath(resolvedPath);
+    if (
+      !snapshotReal.startsWith(`${rootReal}${path.sep}`) ||
+      snapshotReal === rootReal
+    )
+      throw new Error("Backup fora da área permitida");
+    if ((await fs.lstat(resolvedPath)).isSymbolicLink())
+      throw new Error("Snapshot não pode ser symlink");
   }
   const manifest = JSON.parse(
     await fs.readFile(path.join(resolvedPath, MANIFEST), "utf8"),
   ) as UpdateBackupEntry;
   if (
     manifest.id !== entry.id ||
-    path.dirname(path.resolve(manifest.path)) !== path.dirname(resolvedPath)
+    manifest.sha256 !== digestTree(manifest.files ?? []) ||
+    !manifest.files?.length
   )
     throw new Error("Backup inválido");
+  for (const file of manifest.files) {
+    const source = path.join(resolvedPath, file.path);
+    const relative = path.relative(resolvedPath, source);
+    if (
+      !relative ||
+      relative.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relative) ||
+      isExcluded(relative)
+    )
+      throw new Error("Backup contém caminho inválido");
+    const stat = await fs.lstat(source);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size !== file.bytes)
+      throw new Error("Backup contém arquivo inválido");
+    if (
+      createHash("sha256")
+        .update(await fs.readFile(source))
+        .digest("hex") !== file.sha256
+    )
+      throw new Error("Integridade do backup inválida");
+  }
   const rollback = `${userData}.rollback-${Date.now()}`;
-  await fs
-    .cp(userData, rollback, { recursive: true, errorOnExist: false })
-    .catch(() => undefined);
+  await fs.cp(userData, rollback, { recursive: true, errorOnExist: false });
   try {
-    for (const name of await fs.readdir(resolvedPath)) {
-      if (name === MANIFEST || EXCLUDED.has(name)) continue;
-      const source = path.join(resolvedPath, name);
-      const stat = await fs.lstat(source);
-      if (!stat.isFile()) throw new Error("Backup contém entrada não regular");
-      await fs.copyFile(source, path.join(userData, name));
+    for (const file of manifest.files) {
+      await fs.mkdir(path.dirname(path.join(userData, file.path)), {
+        recursive: true,
+      });
+      await fs.copyFile(
+        path.join(resolvedPath, file.path),
+        path.join(userData, file.path),
+      );
     }
   } catch (error) {
     await fs.rm(userData, { recursive: true, force: true });
