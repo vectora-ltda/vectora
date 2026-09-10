@@ -3,8 +3,11 @@ learning loop diretamente a partir de conteúdo em memória (sem git/path)."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from backend.vtypes.skill import Skill
 from backend.workspace import skills
 
 
@@ -60,6 +63,29 @@ def test_frontmatter_rejeita_tipos_campos_desconhecidos_e_csv() -> None:
         skills._parse_frontmatter(
             "---\nname: n\nname: n2\ndescription: d\nversion: 1.0.0\n---\n"
         )
+
+
+def test_lock_entry_rejeita_dependencias_com_ids_normalizados_duplicados(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "skill"
+    root.mkdir()
+    (root / "SKILL.md").write_text(
+        "---\nname: n\ndescription: d\nversion: 1.0.0\n"
+        "requires_skills:\n  base: '^1.0.0'\n  ' base ': '^2.0.0'\n---\n",
+        encoding="utf-8",
+    )
+    skill = Skill(
+        id="n",
+        name="n",
+        description="d",
+        source="local",
+        path=str(root),
+        installed_at="2026-01-01T00:00:00+00:00",
+        installed_by="u1",
+    )
+    with pytest.raises(ValueError, match="dependência duplicada"):
+        skills._skill_lock_entry(skill)
 
 
 def test_runtime_skill_install_uses_session_scoped_memory(tmp_path) -> None:

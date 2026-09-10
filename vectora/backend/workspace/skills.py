@@ -263,7 +263,10 @@ def _skill_lock_entry(skill: Skill) -> dict[str, object]:
         for dependency, constraint in raw_requirements.items():
             if not isinstance(dependency, str) or not isinstance(constraint, str):
                 raise ValueError(f"requires_skills inválido para skill {skill.id}")
-            requirements[dependency.strip()] = constraint.strip()
+            normalized_dependency = dependency.strip()
+            if normalized_dependency in requirements:
+                raise ValueError(f"dependência duplicada para skill {skill.id}")
+            requirements[normalized_dependency] = constraint.strip()
     elif isinstance(raw_requirements, list):
         for item in raw_requirements:
             if not isinstance(item, dict) or set(item) - {
@@ -369,7 +372,12 @@ def _restore_file(path: Path, snapshot: bytes | None) -> None:
 
 def _validate_scope_lock(skills: list[Skill]) -> None:
     """Valida uma composição antes de persistir índice ou lockfile."""
-    entries = {skill.id: _skill_lock_entry(skill) for skill in skills}
+    entries: dict[str, dict[str, object]] = {}
+    for skill in skills:
+        skill_id = skill.id.strip()
+        if not skill_id or skill_id in entries:
+            raise ValueError(f"ids de skills duplicados após normalização: {skill.id}")
+        entries[skill_id] = _skill_lock_entry(skill)
     candidates: dict[str, object] = {
         skill_id: (str(entry["version"]), entry["requires_skills"])
         for skill_id, entry in entries.items()
