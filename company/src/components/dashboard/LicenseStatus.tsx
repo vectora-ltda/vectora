@@ -190,16 +190,16 @@ export function LicenseHistory() {
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border bg-card/50">
-            <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
+            <th className="px-4 py-3 text-start text-xs font-medium text-muted-foreground">
               {m.license_col_date()}
             </th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
+            <th className="px-4 py-3 text-start text-xs font-medium text-muted-foreground">
               {m.license_col_version()}
             </th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
+            <th className="px-4 py-3 text-start text-xs font-medium text-muted-foreground">
               {m.license_col_result()}
             </th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground">
+            <th className="px-4 py-3 text-start text-xs font-medium text-muted-foreground">
               {m.license_col_ip()}
             </th>
           </tr>

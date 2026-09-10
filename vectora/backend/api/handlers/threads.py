@@ -54,6 +54,17 @@ from backend.api.schemas import (
     UpdateThreadRequest,
 )
 
+type ThreadRow = (
+    tuple[str, str | None, str, str, int, str | None]
+    | tuple[str, str | None, str, str, int, str | None, str | None, int | None]
+)
+from backend.persistence.thread_activity import (
+    get_remote_activity,
+    record_activity,
+    revoke_device_activity,
+)
+from backend.rbac.device_id import validate_device_id
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -132,6 +143,19 @@ async def _ensure_schema(db: Any) -> None:
             deleted_at TEXT NOT NULL
         )
     """)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS vectora_thread_activity (
+            user_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            thread_id TEXT NOT NULL,
+            last_active_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, device_id, thread_id)
+        )
+    """)
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_thread_activity_user_thread "
+        "ON vectora_thread_activity(user_id, thread_id)"
+    )
     from backend.services.usage_insights import usage_insight_store
 
     await usage_insight_store.ensure_schema(db)
@@ -248,16 +272,28 @@ def _normalize_mode(mode: str | None) -> str:
     return "code"
 
 
-def _row_to_thread(row: tuple) -> Thread:
+def _row_to_thread(row: ThreadRow, remote_activity: str | None = None) -> Thread:
     """Converte uma linha da tabela vectora_sessions em Thread.
 
     A linha traz até 8 colunas (``mode`` e ``pinned`` de 1ª classe nas duas
     últimas posições). Ambas têm fallback pra ``None``/``0`` quando a SELECT
     de origem não as inclui (compatibilidade com chamadas mais antigas).
     """
-    thread_id, _, created_at, last_activity, _, extra_json = row[:6]
-    mode_col = row[6] if len(row) > 6 else None
-    pinned_col = row[7] if len(row) > 7 else 0
+    if len(row) == 6:
+        thread_id, _, created_at, last_activity, _, extra_json = row
+        mode_col = None
+        pinned_col = 0
+    else:
+        (
+            thread_id,
+            _,
+            created_at,
+            last_activity,
+            _,
+            extra_json,
+            mode_col,
+            pinned_col,
+        ) = row
     title = ""
     workspace_id = ""
     try:
@@ -275,6 +311,9 @@ def _row_to_thread(row: tuple) -> Thread:
         workspace_id=workspace_id,
         mode=mode,
         pinned=bool(pinned_col),
+        remote_activity=(
+            {"last_active_at": remote_activity} if remote_activity is not None else None
+        ),
     )
 
 
@@ -666,6 +705,11 @@ async def _assert_owns_thread(thread_id: str, http_request: Request | None) -> N
     threads de outro usuário."""
     if http_request is None:
         return
+    # O modo local não possui uma identidade multiusuário para autorizar.
+    # Preservar a compatibilidade desse modo evita tratar sessões legadas ou
+    # fixtures locais como pertencentes a outro usuário virtual.
+    if getattr(http_request.state, "user", None) is None:
+        return
     session_store = await _get_session_store()
     session = await session_store.get_session(thread_id)
     if session is None:
@@ -692,6 +736,10 @@ async def get_thread(
             status_code=404, detail=f"Thread {request.thread_id!r} not found"
         )
     await _assert_owns_thread(request.thread_id, http_request)
+    if http_request is not None:
+        device_id = validate_device_id(getattr(http_request.state, "device_id", None))
+        if device_id:
+            await record_activity(_user_id(http_request), device_id, request.thread_id)
     return _row_to_thread(row)
 
 
@@ -750,8 +798,20 @@ async def list_threads(
             [r[0] for r in rows], user_id
         )
         rows = [r for r in rows if r[0] not in foreign_ids]
+        remote: dict[str, str] = {}
+        device_id = validate_device_id(getattr(http_request.state, "device_id", None))
+        if device_id and rows:
+            remote = await get_remote_activity(
+                user_id,
+                [str(row[0]) for row in rows],
+                device_id,
+            )
+    else:
+        remote = {}
 
-    return ListThreadsResponse(threads=[_row_to_thread(r) for r in rows])
+    return ListThreadsResponse(
+        threads=[_row_to_thread(r, remote.get(str(r[0]))) for r in rows]
+    )
 
 
 async def cleanup_empty_threads(max_age_hours: float = 1.0) -> int:
@@ -1528,6 +1588,18 @@ class ActivityResponse(BaseModel):
     files_touched: list[str]
     tool_call_counts: dict[str, int]
     turn_count: int
+
+
+@router.post("/threads/device/revoke")
+async def revoke_current_device(request: Request) -> dict[str, bool]:
+    """Revoke this installation's activity identifier and its records."""
+    device_id = validate_device_id(getattr(request.state, "device_id", None))
+    if not device_id:
+        raise HTTPException(
+            status_code=400, detail="Identificador de dispositivo inválido"
+        )
+    await revoke_device_activity(_user_id(request), device_id)
+    return {"revoked": True}
 
 
 @router.get("/threads/{thread_id}/activity", response_model=ActivityResponse)
