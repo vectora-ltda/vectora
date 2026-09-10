@@ -17,6 +17,7 @@ from backend.api.middleware.rate_limit import limiter
 from backend.settings import settings
 
 router = APIRouter(prefix="/feedback", tags=["feedback"])
+type FeedbackContextKey = Literal["app_version", "platform", "route"]
 
 
 class FeedbackRequest(BaseModel):
@@ -25,7 +26,7 @@ class FeedbackRequest(BaseModel):
     kind: Literal["bug", "suggestion"]
     description: str = Field(min_length=1, max_length=5000)
     include_context: bool = False
-    context: dict[str, str] = Field(default_factory=dict)
+    context: dict[FeedbackContextKey, str] = Field(default_factory=dict)
 
 
 class FeedbackResponse(BaseModel):

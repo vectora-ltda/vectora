@@ -42,10 +42,21 @@ async def test_feedback_filtra_contexto_e_associa_usuario(
             kind="bug",
             description="falha",
             include_context=True,
-            context={"route": "/chat", "token": "secret"},
+            context={"route": "/chat"},
         ),
     )
     record = json.loads((tmp_path / "feedback.jsonl").read_text(encoding="utf-8"))
     assert response.id == record["id"]
     assert record["user_id"] == "alice"
     assert record["context"] == {"route": "/chat"}
+
+
+def test_feedback_rejeita_chave_de_contexto_desconhecida() -> None:
+    with pytest.raises(ValidationError):
+        FeedbackRequest.model_validate(
+            {
+                "kind": "bug",
+                "description": "falha",
+                "context": {"token": "secret"},
+            }
+        )
