@@ -118,6 +118,7 @@ async def _reserve_media(
         units=estimate.units,
     )
     if reservation is None:
+        quota_summary = await media_quota.summary(ctx.user_id)
         telemetry.record_media_quota(
             "blocked",
             operation=operation,
@@ -127,7 +128,14 @@ async def _reserve_media(
             idempotency_key=idempotency_key,
         )
         return None, json.dumps(
-            {"error": "quota mensal de mídia esgotada", "operation": operation},
+            {
+                "error": "quota mensal de mídia esgotada",
+                "operation": operation,
+                "remaining": int(quota_summary.get("remaining", 0)),
+                "limit": int(quota_summary.get("limit", 0)),
+                "period": str(quota_summary.get("period", "")),
+                "next_step": "aguarde a renovação do período ou atualize seu plano",
+            },
             ensure_ascii=False,
         )
     if reservation.state in {"finalized", "unknown"}:
