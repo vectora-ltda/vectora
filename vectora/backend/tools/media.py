@@ -83,9 +83,9 @@ async def _reserve_media(
         new_idempotency_key,
     )
 
-    stable_call_id = ctx.tool_call_id or (
-        f"thread:{ctx.thread_id}:{operation}" if ctx.thread_id else ""
-    )
+    # Contextos legados sem ID recebem uma chave efêmera; nunca usamos a
+    # thread como identidade de cobrança entre chamadas independentes.
+    stable_call_id = ctx.tool_call_id or uuid4().hex
     try:
         idempotency_key = new_idempotency_key(stable_call_id, operation)
     except ValueError:
