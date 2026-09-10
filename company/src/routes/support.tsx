@@ -97,7 +97,7 @@ function SupportPage() {
       <div className="mb-8 mt-10">
         <Link
           to="/issues"
-          className="flex w-full items-center justify-between rounded-xl border border-primary/40 bg-primary/10 px-5 py-4 text-left transition-all hover:border-primary/60 hover:bg-primary/15"
+          className="flex w-full items-center justify-between rounded-xl border border-primary/40 bg-primary/10 px-5 py-4 text-start transition-all hover:border-primary/60 hover:bg-primary/15"
         >
           <div className="flex items-center gap-3">
             <div className="rounded-lg bg-primary/20 p-2">
@@ -112,7 +112,7 @@ function SupportPage() {
               </p>
             </div>
           </div>
-          <span className="ml-4 shrink-0 text-primary">→</span>
+          <span className="ms-4 shrink-0 text-primary">→</span>
         </Link>
       </div>
 
