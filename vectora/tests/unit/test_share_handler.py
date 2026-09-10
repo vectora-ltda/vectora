@@ -40,10 +40,8 @@ class TestShareCreate:
             "/threads/share",
             json={"thread_id": "test-thread-abc", "ttl_hours": 1},
         )
-        # pode ser 200 (ok) ou 500 se o grafo não estiver disponível —
-        # neste contexto de teste sem banco, esperamos qualquer resposta
-        # que não seja 404/405 (rota existe)
-        assert resp.status_code != 404
+        # A criação exige uma sessão existente para validar a posse.
+        assert resp.status_code == 404
         assert resp.status_code != 405
 
     def test_create_share_response_schema(self, client):
