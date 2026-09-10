@@ -1498,7 +1498,9 @@ async def rewind_thread(
             from backend.services import agent_factory
 
             store = await agent_factory.get_session_store()
-            await store.set_branch_head(thread_id, int(body.message_checkpoint_id))
+            await store.set_branch_head(
+                thread_id, int(body.message_checkpoint_id), allow_internal=True
+            )
         except Exception:
             logger.exception(
                 "rewind_thread: falha ao truncar histórico da conversa "

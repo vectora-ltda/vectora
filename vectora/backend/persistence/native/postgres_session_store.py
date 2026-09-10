@@ -368,20 +368,28 @@ class PostgresSessionStore:
             raise RuntimeError(f"cadeia excedeu {_CHAIN_DEPTH_CAP} elos")
         return [(int(row["id"]), _row_to_message(row)) for row in rows]
 
-    async def set_branch_head(self, thread_id: str, message_id: int) -> None:
+    async def set_branch_head(
+        self, thread_id: str, message_id: int, *, allow_internal: bool = False
+    ) -> None:
         """Marca `message_id` como a ponta ativa da thread.
 
         `message_id` precisa pertencer a `thread_id`; caso contrário a
         thread ficaria sem nenhuma ponta ativa (histórico "sumiria")."""
         await self.setup()
         async with self._pool.acquire() as conn, conn.transaction():
-            exists = await conn.fetchval(
-                "SELECT 1 FROM vectora_native_messages m WHERE m.thread_id = $1 AND m.id = $2 "
-                "AND NOT EXISTS (SELECT 1 FROM vectora_native_messages d "
-                "WHERE d.thread_id = m.thread_id AND d.parent_message_id = m.id)",
-                thread_id,
-                message_id,
-            )
+            if allow_internal:
+                query = (
+                    "SELECT 1 FROM vectora_native_messages "
+                    "WHERE thread_id = $1 AND id = $2"
+                )
+            else:
+                query = (
+                    "SELECT 1 FROM vectora_native_messages m "
+                    "WHERE m.thread_id = $1 AND m.id = $2 "
+                    "AND NOT EXISTS (SELECT 1 FROM vectora_native_messages d "
+                    "WHERE d.thread_id = m.thread_id AND d.parent_message_id = m.id)"
+                )
+            exists = await conn.fetchval(query, thread_id, message_id)
             if exists is None:
                 erro = f"mensagem {message_id} não pertence à thread '{thread_id}'"
                 raise ValueError(erro)

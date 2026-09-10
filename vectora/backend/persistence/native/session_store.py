@@ -377,7 +377,9 @@ class SessionStore:
 
         return [(row[0], _row_to_message(row)) for row in cadeia]
 
-    async def set_branch_head(self, thread_id: str, message_id: int) -> None:
+    async def set_branch_head(
+        self, thread_id: str, message_id: int, *, allow_internal: bool = False
+    ) -> None:
         """Marca `message_id` como a ponta ativa da thread — fork explícito
         (editar mensagem/regenerar) sem apagar nenhuma mensagem existente.
 
@@ -385,12 +387,15 @@ class SessionStore:
         thread ficaria sem nenhuma ponta ativa (histórico "sumiria")."""
         await self.setup()
         async with self._pool.acquire() as conn:
-            cur = await conn.execute(
-                "SELECT 1 FROM messages m WHERE m.thread_id = ? AND m.id = ? "
-                "AND NOT EXISTS (SELECT 1 FROM messages d "
-                "WHERE d.thread_id = m.thread_id AND d.parent_message_id = m.id)",
-                (thread_id, message_id),
-            )
+            if allow_internal:
+                query = "SELECT 1 FROM messages WHERE thread_id = ? AND id = ?"
+            else:
+                query = (
+                    "SELECT 1 FROM messages m WHERE m.thread_id = ? AND m.id = ? "
+                    "AND NOT EXISTS (SELECT 1 FROM messages d "
+                    "WHERE d.thread_id = m.thread_id AND d.parent_message_id = m.id)"
+                )
+            cur = await conn.execute(query, (thread_id, message_id))
             if await cur.fetchone() is None:
                 erro = f"mensagem {message_id} não pertence à thread '{thread_id}'"
                 raise ValueError(erro)
