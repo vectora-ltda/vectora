@@ -77,3 +77,21 @@ CREATE TABLE IF NOT EXISTS tool_usage_events (
 );
 CREATE INDEX IF NOT EXISTS idx_tool_usage_user_time_name
     ON tool_usage_events(user_id, created_at, tool_name);
+-- Agregados técnicos semanais, sem conteúdo de conversas.
+CREATE TABLE IF NOT EXISTS usage_insight_events (
+    id BIGSERIAL PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    occurred_at TIMESTAMPTZ NOT NULL,
+    model TEXT,
+    input_tokens BIGINT,
+    output_tokens BIGINT,
+    total_tokens BIGINT,
+    estimated_cost_cents DOUBLE PRECISION,
+    tool_names JSONB NOT NULL DEFAULT '[]'
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_insight_event_id
+    ON usage_insight_events(user_id, event_id);
+CREATE INDEX IF NOT EXISTS idx_usage_insight_user_time
+    ON usage_insight_events(user_id, occurred_at);

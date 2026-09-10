@@ -21,6 +21,7 @@ from backend.vtypes.message import ContentBlock, MessageRole, VMessage
 
 if TYPE_CHECKING:
     from backend.engine.guardrails import TurnBudget
+    from backend.engine.stream_events import EventSink
     from backend.tools.context import ToolContext
     from backend.tools.registry import ToolRegistry
     from backend.vtypes.message import ToolCall
@@ -62,6 +63,7 @@ async def _run_one(
     tool_registry: ToolRegistry,
     ctx: ToolContext,
     turn_budget: TurnBudget | None,
+    on_event: EventSink | None,
 ) -> VMessage:
     """Executa uma chamada do lote com contexto correlacionado à própria tool."""
     spec = tool_registry.get(tool_call.name)
@@ -92,7 +94,12 @@ async def _run_one(
         # O contexto é por chamada para que uma delegação paralela mantenha
         # sua correlação própria sem sobrescrever a de outra tool.
         texto = await spec.ainvoke(
-            tool_call.args, replace(ctx, tool_call_id=tool_call.id)
+            tool_call.args,
+            replace(
+                ctx,
+                tool_call_id=tool_call.id,
+                _extra={**ctx._extra, "event_sink": on_event},
+            ),
         )
         texto = _apply_post_execute(texto)
         is_error = texto.startswith("Error:")
@@ -116,6 +123,7 @@ async def execute_tool_batch(
     tool_registry: ToolRegistry,
     ctx: ToolContext,
     turn_budget: TurnBudget | None = None,
+    on_event: EventSink | None = None,
 ) -> list[VMessage]:
     """Executa todas as `tool_calls` do turno, na ordem em que aparecem no
     resultado — paralelo se nenhuma é destrutiva, sequencial (mas ainda
@@ -134,7 +142,11 @@ async def execute_tool_batch(
     if algum_destrutivo:
         return [
             await _run_one(
-                tc, tool_registry=tool_registry, ctx=ctx, turn_budget=turn_budget
+                tc,
+                tool_registry=tool_registry,
+                ctx=ctx,
+                turn_budget=turn_budget,
+                on_event=on_event,
             )
             for tc in tool_calls
         ]
@@ -143,7 +155,11 @@ async def execute_tool_batch(
         await asyncio.gather(
             *(
                 _run_one(
-                    tc, tool_registry=tool_registry, ctx=ctx, turn_budget=turn_budget
+                    tc,
+                    tool_registry=tool_registry,
+                    ctx=ctx,
+                    turn_budget=turn_budget,
+                    on_event=on_event,
                 )
                 for tc in tool_calls
             )
