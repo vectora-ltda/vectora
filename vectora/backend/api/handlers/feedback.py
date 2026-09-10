@@ -40,11 +40,11 @@ def _safe_context(body: FeedbackRequest) -> dict[str, str]:
     for key, value in body.context.items():
         if not body.include_context:
             continue
-        if key == "route" and value in {"/chat", "/settings", "/workbench"}:
-            values[key] = value
-        elif key == "app_version" and re.fullmatch(r"[0-9A-Za-z._-]{1,32}", value):
-            values[key] = value
-        elif key == "platform" and re.fullmatch(r"[A-Za-z0-9._ -]{1,32}", value):
+        if (
+            (key == "route" and value in {"/chat", "/settings", "/workbench"})
+            or (key == "app_version" and re.fullmatch(r"[0-9A-Za-z._-]{1,32}", value))
+            or (key == "platform" and re.fullmatch(r"[A-Za-z0-9._ -]{1,32}", value))
+        ):
             values[key] = value
     return values
 
