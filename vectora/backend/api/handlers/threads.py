@@ -45,6 +45,7 @@ from backend.api.schemas import (
     ListThreadsRequest,
     ListThreadsResponse,
     PagedHistoryResponse,
+    RemoteActivity,
     SetThreadPinsRequest,
     StructuredQuestionAnswerRequest,
     StructuredQuestionResponse,
@@ -53,6 +54,8 @@ from backend.api.schemas import (
     TodoItem,
     UpdateThreadRequest,
 )
+from backend.persistence.thread_activity import get_remote_activity
+from backend.rbac.device_id import validate_device_id
 
 logger = logging.getLogger(__name__)
 
@@ -708,6 +711,10 @@ async def _assert_owns_thread(thread_id: str, http_request: Request | None) -> N
     threads de outro usuário."""
     if http_request is None:
         return
+    # Requisições sem usuário autenticado pertencem ao launcher local confiável.
+    # A checagem de posse é aplicada somente quando há um principal autenticado.
+    if getattr(http_request.state, "user", None) is None:
+        return
     session_store = await _get_session_store()
     session = await session_store.get_session(thread_id)
     if session is None:
@@ -798,10 +805,22 @@ async def list_threads(
         rows = [r for r in rows if r[0] not in foreign_ids]
 
     user_id = _user_id(http_request) if http_request is not None else "local"
+    current_device_id = (
+        validate_device_id(getattr(http_request.state, "device_id", None))
+        if http_request is not None
+        else None
+    )
+    remote_activity = (
+        await get_remote_activity(user_id, [r[0] for r in rows], current_device_id)
+        if current_device_id
+        else {}
+    )
     threads = []
     for row in rows:
         thread = _row_to_thread(row)
         thread.unread_count = await _unread_count(thread.id, user_id)
+        if activity := remote_activity.get(thread.id):
+            thread.remote_activity = RemoteActivity(last_active_at=activity)
         threads.append(thread)
     return ListThreadsResponse(threads=threads)
 
