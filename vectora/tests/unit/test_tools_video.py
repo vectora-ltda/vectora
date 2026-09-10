@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -26,7 +27,9 @@ from backend.tools.context import ToolContext
 
 
 def _ctx(model: str) -> ToolContext:
-    return ToolContext(model=model, thread_id="t-video")
+    return ToolContext(
+        model=model, thread_id="t-video", user_id=f"test-video-{uuid4().hex}"
+    )
 
 
 # ---------------------------------------------------------------------------
