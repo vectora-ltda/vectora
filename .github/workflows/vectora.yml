@@ -152,6 +152,20 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     needs: build_verification
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: vectora
+          POSTGRES_PASSWORD: vectora
+          POSTGRES_DB: vectora_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vectora -d vectora_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-uv
@@ -196,6 +210,7 @@ jobs:
         env:
           LANCE_IO_THREADS: "1"
           LANCE_CPU_THREADS: "1"
+          VECTORA_TEST_POSTGRES_DSN: postgresql://vectora:vectora@localhost:5432/vectora_test
         run: |
           echo "nproc: $(nproc)"
           uv run pytest tests/unit/ -v -m "not live and not real_lancedb" &
