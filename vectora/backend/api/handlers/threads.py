@@ -46,6 +46,8 @@ from backend.api.schemas import (
     ListThreadsResponse,
     PagedHistoryResponse,
     SetThreadPinsRequest,
+    StructuredQuestionAnswerRequest,
+    StructuredQuestionResponse,
     Thread,
     ThreadPinsResponse,
     TodoItem,
@@ -154,6 +156,9 @@ async def _ensure_schema(db: Any) -> None:
         "CREATE INDEX IF NOT EXISTS idx_thread_activity_user_thread "
         "ON vectora_thread_activity(user_id, thread_id)"
     )
+    from backend.services.usage_insights import usage_insight_store
+
+    await usage_insight_store.ensure_schema(db)
     await db.commit()
 
 
@@ -1133,6 +1138,41 @@ async def get_history(request: GetHistoryRequest) -> GetHistoryResponse:
     except Exception as exc:
         logger.exception("api/threads: erro ao carregar histórico")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/threads/{thread_id}/structured-questions/answer",
+    response_model=StructuredQuestionResponse,
+)
+async def answer_structured_question(
+    thread_id: str, body: StructuredQuestionAnswerRequest, request: Request
+) -> StructuredQuestionResponse:
+    """Responde ou cancela uma pergunta pendente de forma idempotente."""
+    await _assert_owns_thread(thread_id, request)
+    from backend.services.structured_questions import structured_question_store
+
+    try:
+        if body.cancel:
+            question = await structured_question_store.cancel(
+                body.question_id, thread_id
+            )
+        elif body.answer is not None:
+            question = await structured_question_store.answer(
+                body.question_id, thread_id, body.answer
+            )
+        else:
+            raise HTTPException(
+                status_code=400, detail="answer ou cancel é obrigatório"
+            )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Pergunta não encontrada") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return StructuredQuestionResponse(
+        question_id=question.question_id,
+        status=question.status,
+        answer=question.answer,
+    )
 
 
 # ---------------------------------------------------------------------------
