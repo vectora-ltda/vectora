@@ -106,3 +106,48 @@ async def test_tier_indisponivel_bloqueia_reserva_de_usuario_autenticado(
         )
         is None
     )
+
+
+@pytest.mark.asyncio
+async def test_summary_postgres_usa_tier_do_store_de_entitlements(
+    tmp_path, monkeypatch
+) -> None:
+    quota = _quota(tmp_path / "quota.sqlite3")
+
+    async def fake_pool() -> _FakePool:
+        return _FakePool({"used_units": 99})
+
+    monkeypatch.setattr(quota, "_postgres_pool", fake_pool)
+    monkeypatch.setattr(quota, "_current_tier", lambda _user_id: "pro")
+
+    result = await quota._summary_postgres("u1")
+
+    assert result["limit"] == 100
+    assert result["remaining"] == 1
+
+
+class _FakeConnection:
+    def __init__(self, row: dict[str, int]) -> None:
+        self.row = row
+
+    async def fetchrow(self, _query: str, *_args: object) -> dict[str, int]:
+        return self.row
+
+
+class _FakeAcquire:
+    def __init__(self, connection: _FakeConnection) -> None:
+        self.connection = connection
+
+    async def __aenter__(self) -> _FakeConnection:
+        return self.connection
+
+    async def __aexit__(self, *_args: object) -> None:
+        return None
+
+
+class _FakePool:
+    def __init__(self, row: dict[str, int]) -> None:
+        self.connection = _FakeConnection(row)
+
+    def acquire(self) -> _FakeAcquire:
+        return _FakeAcquire(self.connection)

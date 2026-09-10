@@ -67,14 +67,21 @@ class MediaQuota:
 
         return await get_pg_pool()
 
-    async def _postgres_tier(self, connection: Any, user_id: str) -> str | None:
-        row = await connection.fetchrow(
-            "SELECT tier FROM vectora_user_entitlements WHERE user_id = $1", user_id
-        )
-        if row is None:
-            return "free"
-        tier = row["tier"]
-        return tier if tier in {"free", "pro"} else None
+    @staticmethod
+    def _current_tier(user_id: str) -> str | None:
+        """Resolve o entitlement no store autoritativo local.
+
+        O Postgres mantém somente o estado operacional da quota. Entitlements
+        continuam no SQLite, portanto nunca consultamos uma tabela paralela
+        de usuários durante uma reserva gerenciada.
+        """
+        from backend.rbac.subscription import get_current_tier
+
+        try:
+            tier = get_current_tier(user_id)
+        except TypeError:
+            tier = get_current_tier() if user_id == "local" else None
+        return tier if tier in MONTHLY_LIMITS else None
 
     def _connect(self) -> sqlite3.Connection:
         self.database.parent.mkdir(parents=True, exist_ok=True)
@@ -106,12 +113,16 @@ class MediaQuota:
         self, user_id: str, operation: str, idempotency_key: str, units: int | None
     ) -> QuotaReservation | None:
         estimate_units = UNIT_COSTS.get(operation, 0) if units is None else units
+        tier = self._current_tier(user_id)
+        if tier is None:
+            logger.info(
+                "media_quota.blocked",
+                extra={"operation": operation, "reason": "entitlement_unavailable"},
+            )
+            return None
         pool = await self._postgres_pool()
         async with pool.acquire() as connection:
             async with connection.transaction():
-                tier = await self._postgres_tier(connection, user_id)
-                if tier is None:
-                    return None
                 period = self.period()
                 existing = await connection.fetchrow(
                     "SELECT user_id, period, operation, units, state "
@@ -378,12 +389,12 @@ class MediaQuota:
         return await asyncio.to_thread(self._summary, user_id)
 
     async def _summary_postgres(self, user_id: str) -> dict[str, int | str]:
-        pool = await self._postgres_pool()
+        tier = self._current_tier(user_id)
         period = self.period()
+        if tier is None:
+            return {"period": period, "used": 0, "limit": 0, "remaining": 0}
+        pool = await self._postgres_pool()
         async with pool.acquire() as connection:
-            tier = await self._postgres_tier(connection, user_id)
-            if tier is None:
-                return {"period": period, "used": 0, "limit": 0, "remaining": 0}
             row = await connection.fetchrow(
                 "SELECT used_units FROM media_quota_usage WHERE user_id = $1 AND period = $2",
                 user_id,
