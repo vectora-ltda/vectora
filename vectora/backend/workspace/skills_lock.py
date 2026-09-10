@@ -247,13 +247,19 @@ def validate_lock_entries(entries: dict[str, dict[str, object]]) -> None:
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{field} inválido para skill {skill_id}")
         requirements = entry.get("requires_skills", {})
-        if not isinstance(requirements, dict) or any(
-            not isinstance(dep, str)
-            or not isinstance(constraint, str)
-            or not constraint.strip()
-            for dep, constraint in requirements.items()
-        ):
+        if not isinstance(requirements, dict):
             raise ValueError(f"dependências inválidas para skill {skill_id}")
+        for dep, constraint in requirements.items():
+            if not isinstance(dep, str) or not dep.strip():
+                raise ValueError(f"dependências inválidas para skill {skill_id}")
+            if not isinstance(constraint, str) or not constraint.strip():
+                raise ValueError(f"dependências inválidas para skill {skill_id}")
+            try:
+                Version.parse(constraint)
+            except ValueError as exc:
+                raise ValueError(
+                    f"dependência não resolvida para skill {skill_id}"
+                ) from exc
 
 
 def read_lockfile(path: Path) -> dict[str, object]:

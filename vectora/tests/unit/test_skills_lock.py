@@ -83,6 +83,15 @@ def test_lockfile_rejeita_entrada_nula_ou_campos_desconhecidos(tmp_path) -> None
     with pytest.raises(ValueError):
         write_lockfile(path, {"ok": {"version": "1.0.0", "unknown": True}})
 
+    path.write_text(
+        '{"format_version": 1, "skills": {"ok": {'
+        '"version": "1.0.0", "source": "local", "revision": "r1", '
+        '"integrity": "a", "requires_skills": {"   ": "1.0.0"}}}}',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="dependências inválidas"):
+        read_lockfile(path)
+
 
 def test_escritores_concorrentes_publicam_lockfile_valido(tmp_path) -> None:
     path = tmp_path / "skills.lock.json"
