@@ -100,8 +100,31 @@ _ARGS_PREVIEW_MAX_CHARS = 80
 _ARGS_PREVIEW_SEMANTIC_KEYS = ("path", "file_path", "query", "command", "url", "name")
 
 
-def _sanitize_tool_call(tc: ToolCall) -> ToolCall:
-    """Remove terminal input from persisted assistant messages."""
+def _sanitize_tool_call(tc: ToolCall, ctx: ToolContext) -> ToolCall:
+    """Remove payloads sensíveis das chamadas persistidas no histórico."""
+    if tc.name in {"generate_image", "text_to_speech", "generate_video"}:
+        from backend.services.media_quota import (
+            media_estimate_record,
+            new_idempotency_key,
+        )
+
+        provider, _, model = ctx.model.partition(":")
+        estimate = media_estimate_record(tc.name, provider=provider, model=model)
+        try:
+            idempotency_key = new_idempotency_key(tc.id or uuid4().hex, tc.name)
+        except ValueError:
+            idempotency_key = None
+        args = {
+            "operation": estimate.operation,
+            "provider": estimate.provider,
+            "model": estimate.model,
+            "estimate_version": estimate.version,
+            "billable_unit": estimate.billable_unit,
+            "currency": estimate.currency,
+            "estimated_units": estimate.units,
+            "idempotency_key": idempotency_key,
+        }
+        return replace(tc, args=args)
     if tc.name != "write_terminal" or "input_data" not in tc.args:
         return tc
     args = dict(tc.args)
@@ -251,7 +274,7 @@ async def run_conversation(
         tool_calls = _resolve_tool_calls(tool_call_chunks_por_indice)
         observed_tools.update(tc.name for tc in tool_calls if tc.name)
 
-        tool_calls_for_history = [_sanitize_tool_call(tc) for tc in tool_calls]
+        tool_calls_for_history = [_sanitize_tool_call(tc, ctx) for tc in tool_calls]
         assistant_msg = VMessage(
             role=MessageRole.ASSISTANT,
             content=[ContentBlock(kind="text", text=texto_final)]
