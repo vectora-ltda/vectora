@@ -231,6 +231,8 @@ close_terminal = _bridge("close_terminal")
 list_desktop_windows = _bridge("list_desktop_windows")
 select_desktop_window = _bridge("select_desktop_window")
 focus_desktop_window = _bridge("focus_desktop_window")
+read_terminal = _bridge("read_terminal")
+write_terminal = _bridge("write_terminal")
 gmail_list = _bridge("gmail_list")
 gmail_read = _bridge("gmail_read")
 slack_send = _bridge("slack_send")
@@ -327,6 +329,8 @@ FS_TOOLS: list[ToolSpec] = [
     list_desktop_windows,
     select_desktop_window,
     focus_desktop_window,
+    read_terminal,
+    write_terminal,
 ]
 
 #: Ferramentas de browser: navegação livre + automação + dev server
@@ -516,6 +520,8 @@ for _t in [
     list_desktop_windows,
     select_desktop_window,
     focus_desktop_window,
+    read_terminal,
+    write_terminal,
     browser_navigate,
     browser_screenshot,
     browser_click,
