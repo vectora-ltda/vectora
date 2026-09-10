@@ -1138,6 +1138,7 @@
   "resize_chat": "Redimensionar chat",
   "toast_notifications": "Notificações",
   "chat_copy": "Copiar",
+  "chat_rag_sources": "{count} fonte(s)",
   "chat_rag_sources_one": "1 fonte",
   "chat_rag_sources_plural": "{count} fontes",
   "chat_rag_label": "RAG",
