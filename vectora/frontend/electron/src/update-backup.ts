@@ -165,8 +165,14 @@ export async function restoreUpdateBackup(
 ): Promise<void> {
   const resolvedPath = path.resolve(entry.path);
   if (backupRoot) {
-    const rootReal = await fs.realpath(backupRoot);
-    const snapshotReal = await fs.realpath(resolvedPath);
+    let rootReal: string;
+    let snapshotReal: string;
+    try {
+      rootReal = await fs.realpath(backupRoot);
+      snapshotReal = await fs.realpath(resolvedPath);
+    } catch {
+      throw new Error("Backup fora da área permitida");
+    }
     if (
       !snapshotReal.startsWith(`${rootReal}${path.sep}`) ||
       snapshotReal === rootReal
