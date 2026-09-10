@@ -1723,11 +1723,68 @@ class SmartApprovalAllowlistRequest(BaseModel):
 
 class SmartApprovalAllowlistRemoveRequest(BaseModel):
     workspace_id: str
-    signature: str
+    rule_id: str
+
+
+class SmartApprovalAllowlistItem(BaseModel):
+    id: str
+    label: str
 
 
 class SmartApprovalAllowlistResponse(BaseModel):
-    allowlist: list[str]
+    allowlist: list[SmartApprovalAllowlistItem]
+
+
+def _allowlist_items(workspace_id: str) -> list[SmartApprovalAllowlistItem]:
+    from backend.services.smart_approval import allowlist_id, get_allowlist
+
+    return [
+        SmartApprovalAllowlistItem(id=allowlist_id(rule), label=f"Regra {index + 1}")
+        for index, rule in enumerate(get_allowlist(workspace_id))
+    ]
+
+
+async def _audit_allowlist_change(
+    request: Request,
+    *,
+    action: str,
+    workspace_id: str,
+    rule_id: str,
+) -> None:
+    """Registra a mutação sem persistir comando, argumentos ou assinatura."""
+    try:
+        from backend.rbac.auth import get_db_for_audit, write_audit
+
+        db = await get_db_for_audit()
+        await write_audit(
+            db,
+            _user_id(request),
+            f"smart_approval.{action}",
+            success=True,
+            metadata={"workspace_id": workspace_id, "rule_id": rule_id},
+            target_type="smart_approval_allowlist",
+        )
+    except Exception:
+        logger.debug(
+            "smart approval: auditoria indisponível",
+            extra={"action": action},
+        )
+
+
+@router.get("/smart-approval/allowlist")
+async def get_smart_approval_allowlist(
+    workspace_id: str, request: Request
+) -> SmartApprovalAllowlistResponse:
+    """Lista regras persistentes sem expor comandos completos ao cliente."""
+    _user_id(request)
+    from backend.api.handlers.workspaces import require_workspace_access
+
+    if (
+        getattr(request.state, "user", None) is not None
+        and require_workspace_access(workspace_id, request) is None
+    ):
+        raise HTTPException(status_code=404, detail="Workspace não encontrado")
+    return SmartApprovalAllowlistResponse(allowlist=_allowlist_items(workspace_id))
 
 
 @router.post("/smart-approval/allowlist")
@@ -1738,13 +1795,30 @@ async def add_smart_approval_allowlist(
     próxima ocorrência do mesmo comando chegar já marcada como reconhecida
     (ver `backend/services/smart_approval.py`)."""
     _user_id(request)
-    from backend.services.smart_approval import add_to_allowlist
+    from backend.api.handlers.workspaces import require_workspace_access
+
+    if (
+        getattr(request.state, "user", None) is not None
+        and require_workspace_access(body.workspace_id, request) is None
+    ):
+        raise HTTPException(status_code=404, detail="Workspace não encontrado")
+    from backend.services.smart_approval import add_to_allowlist, rule_id
 
     try:
-        allowlist = add_to_allowlist(body.workspace_id, body.tool_name, body.args)
+        add_to_allowlist(body.workspace_id, body.tool_name, body.args)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return SmartApprovalAllowlistResponse(allowlist=allowlist)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503, detail="Não foi possível persistir a allowlist"
+        ) from exc
+    await _audit_allowlist_change(
+        request,
+        action="add",
+        workspace_id=body.workspace_id,
+        rule_id=rule_id(body.tool_name, body.args),
+    )
+    return SmartApprovalAllowlistResponse(allowlist=_allowlist_items(body.workspace_id))
 
 
 @router.delete("/smart-approval/allowlist")
@@ -1754,7 +1828,25 @@ async def remove_smart_approval_allowlist(
     """Revoga uma assinatura — a próxima ocorrência volta a exigir aprovação
     normal, sem o atalho visual."""
     _user_id(request)
-    from backend.services.smart_approval import remove_from_allowlist
+    from backend.api.handlers.workspaces import require_workspace_access
 
-    allowlist = remove_from_allowlist(body.workspace_id, body.signature)
-    return SmartApprovalAllowlistResponse(allowlist=allowlist)
+    if (
+        getattr(request.state, "user", None) is not None
+        and require_workspace_access(body.workspace_id, request) is None
+    ):
+        raise HTTPException(status_code=404, detail="Workspace não encontrado")
+    from backend.services.smart_approval import remove_from_allowlist_by_id
+
+    try:
+        remove_from_allowlist_by_id(body.workspace_id, body.rule_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503, detail="Não foi possível persistir a allowlist"
+        ) from exc
+    await _audit_allowlist_change(
+        request,
+        action="remove",
+        workspace_id=body.workspace_id,
+        rule_id=body.rule_id,
+    )
+    return SmartApprovalAllowlistResponse(allowlist=_allowlist_items(body.workspace_id))
