@@ -75,4 +75,16 @@ describe("AuthLayout", () => {
       "/",
     );
   });
+
+  it("posiciona o link de retorno com insets lógicos", () => {
+    render(
+      <AuthLayout heading="Entrar">
+        <div />
+      </AuthLayout>,
+    );
+    expect(screen.getByRole("link", { name: "nav_back" })).toHaveClass(
+      "start-4",
+      "sm:start-6",
+    );
+  });
 });

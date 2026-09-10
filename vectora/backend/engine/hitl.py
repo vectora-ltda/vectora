@@ -30,6 +30,7 @@ REQUIRE_APPROVAL: frozenset[str] = frozenset(
     {
         "terminal",
         "terminal_tool",
+        "write_terminal",
         "file_write",
         "file_write_tool",
         "file_edit",
@@ -165,6 +166,7 @@ class ApprovalGate:
     def __init__(self, session_store: SessionStore) -> None:
         self._session_store = session_store
         self._events: dict[str, Any] = {}
+        self._ephemeral_args: dict[str, dict[str, Any]] = {}
 
     async def request_approval(
         self,
@@ -181,18 +183,29 @@ class ApprovalGate:
     ) -> None:
         import asyncio
 
+        safe_args = dict(args)
+        if tool_name == "write_terminal":
+            raw_input = str(safe_args.pop("input_data", ""))
+            safe_args["input_preview"] = "<redacted>"
+            safe_args["input_length"] = len(raw_input.encode("utf-8"))
+            self._ephemeral_args[interrupt_id] = dict(args)
         await self._session_store.put_pending_approval(
             thread_id,
             interrupt_id=interrupt_id,
             tool_name=tool_name,
             tool_call_id=tool_call_id,
-            args=args,
+            args=safe_args,
             reasoning=reasoning,
             options=options,
             priority=priority,
             expires_at=expires_at,
         )
         self._events[thread_id] = asyncio.Event()
+
+    def ephemeral_args(self, interrupt_id: str) -> dict[str, Any] | None:
+        """Return raw approval arguments only while the process is alive."""
+        args = self._ephemeral_args.get(interrupt_id)
+        return dict(args) if args is not None else None
 
     async def wait_for_resume(self, thread_id: str, *, timeout_s: float) -> bool:
         """Espera o fast-path local (mesmo processo resolve o resume) até
@@ -215,6 +228,9 @@ class ApprovalGate:
         """Libera o fast-path local e limpa a aprovação pendente
         persistida — chamado depois que a decisão (approve/reject/edit) já
         foi processada e o resultado já foi persistido no histórico."""
+        pending = await self._session_store.get_pending_approval(thread_id)
+        if pending is not None:
+            self._ephemeral_args.pop(pending["interrupt_id"], None)
         await self._session_store.clear_pending_approval(thread_id)
         event = self._events.pop(thread_id, None)
         if event is not None:

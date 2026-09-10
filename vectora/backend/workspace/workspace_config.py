@@ -194,9 +194,14 @@ def _ensure_gitignore_entry(root: Path) -> None:
     if not gitignore.is_file():
         return
     content = gitignore.read_text(encoding="utf-8")
-    if any(
-        line.strip().rstrip("/") == WORKSPACE_LOCAL_DIR for line in content.splitlines()
-    ):
+    lines = [line.strip() for line in content.splitlines()]
+    if f"!{WORKSPACE_LOCAL_DIR}/skills.lock.json" in lines:
         return
     sep = "" if content.endswith("\n") or not content else "\n"
-    gitignore.write_text(f"{content}{sep}{WORKSPACE_LOCAL_DIR}/\n", encoding="utf-8")
+    has_root_rule = any(line.rstrip("/") == WORKSPACE_LOCAL_DIR for line in lines)
+    rules = (
+        f"!{WORKSPACE_LOCAL_DIR}/skills.lock.json\n"
+        if has_root_rule
+        else f"{WORKSPACE_LOCAL_DIR}/\n!{WORKSPACE_LOCAL_DIR}/skills.lock.json\n"
+    )
+    gitignore.write_text(f"{content}{sep}{rules}", encoding="utf-8")

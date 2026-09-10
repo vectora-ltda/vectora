@@ -56,6 +56,19 @@ CREATE INDEX IF NOT EXISTS idx_artifacts_thread  ON vectora_checkpoint_artifacts
 CREATE INDEX IF NOT EXISTS idx_shares_thread     ON shared_threads(thread_id);
 CREATE INDEX IF NOT EXISTS idx_shares_expires    ON shared_threads(expires_at);
 
+-- Atividade pseudônima por usuário, dispositivo e thread. Não contém
+-- conteúdo de conversa nem identificadores pessoais.
+CREATE TABLE IF NOT EXISTS vectora_thread_activity (
+    user_id        TEXT NOT NULL,
+    device_id      TEXT NOT NULL,
+    thread_id      TEXT NOT NULL,
+    last_active_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, device_id, thread_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_thread_activity_user_thread
+    ON vectora_thread_activity(user_id, thread_id);
+
 -- Fila de embedding assíncrono — usada pelo PostgresQueueDB em STORAGE_MODE=complete.
 CREATE TABLE IF NOT EXISTS vectora_embedding_queue (
     id           BIGSERIAL    PRIMARY KEY,
