@@ -1,10 +1,17 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it, afterEach, vi } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import {
+  render,
+  screen,
+  cleanup,
+  fireEvent,
+  act,
+} from "@testing-library/react";
 import { ThreadGroup } from "../thread-group";
 import { WorkspaceGroup } from "../workspace-group";
 import { SidebarFooter } from "../sidebar-footer";
+import { submitFeedback } from "@/lib/api/vectora-client";
 import type { Thread } from "@/lib/hooks/threads";
 import type { WorkspaceInfo } from "@/lib/stores/workspaces-store";
 
@@ -74,7 +81,11 @@ vi.mock("@/lib/monaco/setup", () => ({
   languageFromPath: () => "plaintext",
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.mocked(submitFeedback).mockReset();
+  vi.mocked(submitFeedback).mockResolvedValue({ id: "feedback-1" });
+});
 
 function makeThread(id: string): Thread {
   return {
@@ -322,5 +333,30 @@ describe("SidebarFooter — ícones inline sem labels", () => {
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Descreva o problema");
     expect(screen.getByRole("alert")).toHaveAttribute("aria-live", "assertive");
+  });
+
+  it("ignora submits concorrentes antes da primeira resposta", async () => {
+    let resolveSubmit!: (value: { id: string }) => void;
+    const pending = new Promise<{ id: string }>((resolve) => {
+      resolveSubmit = resolve;
+    });
+    vi.mocked(submitFeedback).mockReturnValueOnce(pending);
+
+    render(<SidebarFooter />);
+    fireEvent.click(screen.getByTitle("Feedback"));
+    fireEvent.change(screen.getByLabelText("Descreva o problema"), {
+      target: { value: "um feedback" },
+    });
+    const dialog = screen.getByRole("dialog");
+    act(() => {
+      fireEvent.submit(dialog);
+      fireEvent.submit(dialog);
+    });
+
+    expect(submitFeedback).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolveSubmit({ id: "feedback-1" });
+      await pending;
+    });
   });
 });

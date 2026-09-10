@@ -16,6 +16,7 @@ export const SidebarFooter = memo(function SidebarFooter() {
   const [status, setStatus] = useState("");
   const [statusType, setStatusType] = useState<"status" | "alert">("status");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLFormElement>(null);
   const sidebarWidth = useSettingsStore((s) => s.sidebarWidth);
@@ -97,10 +98,12 @@ export const SidebarFooter = memo(function SidebarFooter() {
             className="w-full max-w-md space-y-3 rounded-lg bg-background p-5 shadow-xl"
             onSubmit={async (event) => {
               event.preventDefault();
+              if (submittingRef.current) return;
               if (!description.trim()) {
                 setStatusType("alert");
                 return setStatus(m.feedback_required());
               }
+              submittingRef.current = true;
               setIsSubmitting(true);
               try {
                 await submitFeedback({
@@ -123,6 +126,7 @@ export const SidebarFooter = memo(function SidebarFooter() {
                     : m.feedback_error(),
                 );
               } finally {
+                submittingRef.current = false;
                 setIsSubmitting(false);
               }
             }}
