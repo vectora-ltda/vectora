@@ -33,6 +33,8 @@
   "sidebar_ctx_pin": "Fixar",
   "sidebar_ctx_unpin": "Desafixar",
   "sidebar_ctx_delete": "Apagar",
+  "sidebar_ctx_resume": "Abrir neste dispositivo",
+  "sidebar_remote_activity_tooltip": "Ativa em outro dispositivo {time}",
   "sidebar_rename_placeholder": "Nome da sessão",
   "sidebar_pull_to_refresh": "Puxe para atualizar",
   "sidebar_refreshing": "Atualizando…",

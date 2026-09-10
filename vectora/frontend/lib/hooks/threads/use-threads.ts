@@ -32,4 +32,5 @@ export interface Thread {
   mode?: string;
   /** Sessão fixada — aparece no topo da lista da sidebar. */
   pinned?: boolean;
+  remote_activity?: { last_active_at: string } | null;
 }

@@ -29,6 +29,13 @@ vi.mock("@/lib/paraglide/messages", () => ({
   },
 }));
 
+vi.mock("@/lib/paraglide/messages", () => ({
+  m: {
+    message_list_aria: () => "Messages",
+    scroll_back_to_bottom: () => "Back to bottom",
+  },
+}));
+
 vi.mock("../message-item", () => ({
   MessageItem: ({ message }: { message: Message }) => (
     <div data-testid="message-item">{message.content}</div>

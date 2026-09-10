@@ -89,7 +89,7 @@ def _authorized_target(
     if scope == "project":
         return str(ws.cwd)
     if scope == "workspace":
-        return ws_id
+        return str(ws.cwd)
     return target or getattr(request.state, "thread_id", None) or ws_id
 
 

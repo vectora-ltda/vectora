@@ -106,3 +106,48 @@ def test_unsubscribe_de_fila_desconhecida_nao_quebra() -> None:
 async def test_sem_subscribers_read_loop_nao_quebra() -> None:
     session = _make_session([b"a"])
     await session._read_loop()  # não deve levantar mesmo sem consumidores
+
+
+@pytest.mark.asyncio
+async def test_leitura_incremental_preserva_broadcast_e_sinaliza_continuacao() -> None:
+    session = _make_session([b"abc", b"def"])
+    subscriber = session.subscribe()
+    await session._read_loop()
+
+    first = session.read_since(None, max_bytes=4)
+    assert first["data"] == b"abcd"
+    assert first["has_more"] is True
+    second = session.read_since(first["cursor"], max_bytes=4)
+    assert second["data"] == b"ef"
+    assert second["truncated"] is False
+    assert await _drain(subscriber) == [b"abc", b"def"]
+
+
+@pytest.mark.asyncio
+async def test_cursor_antigo_indica_truncamento() -> None:
+    session = _make_session([b"x" * (64 * 1024), b"y"])
+    await session._read_loop()
+
+    result = session.read_since(0, max_bytes=64 * 1024)
+    assert result["truncated"] is True
+    assert result["data"].endswith(b"y")
+
+
+def test_write_input_eh_idempotente_e_observa_falha() -> None:
+    class Proc:
+        def isalive(self) -> bool:
+            return True
+
+        def write(self, _data: bytes) -> None:
+            return None
+
+    session = PtySession("term-1", "ws-1", "t1", Proc())
+    assert session.write_input(b"ok", "req-1")["status"] == "accepted"
+    assert session.write_input(b"ok", "req-1")["status"] == "duplicate"
+
+    class Broken(Proc):
+        def write(self, _data: bytes) -> None:
+            raise OSError("closed")
+
+    broken = PtySession("term-2", "ws-1", "t1", Broken())
+    assert broken.write_input(b"x", "req-2")["code"] == "write_failed"
