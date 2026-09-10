@@ -153,6 +153,15 @@ def should_require_approval(
     já aceita opcionalmente em `should_require_approval`."""
     if _is_self_kanban_update(ctx, tool_name, args):
         return False
+    if tool_name in {"generate_image", "text_to_speech", "generate_video"}:
+        # O limiar é definido pelo backend autenticado no contexto. Ausência
+        # do campo mantém o comportamento seguro: toda operação pede revisão.
+        threshold = getattr(ctx, "_extra", {}).get("media_approval_threshold")
+        if isinstance(threshold, (int, float)):
+            from backend.services.media_quota import media_estimate
+
+            if media_estimate(tool_name) <= threshold:
+                return False
     if tool_name in _JAILED_BYPASS_TOOLS and _workspace_is_jailed(ctx.workspace_id):
         return False
     mode = ctx.permission_mode or "ask"

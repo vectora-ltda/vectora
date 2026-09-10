@@ -57,3 +57,36 @@ async def test_reservas_concorrentes_nao_ultrapassam_o_limite(tmp_path) -> None:
 
     assert sum(result is not None for result in results) == 10
     assert (await quota.summary("u1"))["used"] == 10
+
+
+@pytest.mark.asyncio
+async def test_retry_de_reserva_falha_reusa_a_mesma_debitacao(tmp_path) -> None:
+    quota = MediaQuota(tmp_path / "quota.sqlite3")
+    first = await quota.reserve(
+        user_id="u1", operation="generate_image", idempotency_key="retry-1"
+    )
+    assert first is not None
+    await quota.finalize(first, state="failed")
+
+    retry = await quota.reserve(
+        user_id="u1", operation="generate_image", idempotency_key="retry-1"
+    )
+    assert retry == first
+    assert (await quota.summary("u1"))["used"] == 1
+
+
+@pytest.mark.asyncio
+async def test_tier_indisponivel_bloqueia_reserva_de_usuario_autenticado(
+    tmp_path, monkeypatch
+) -> None:
+    quota = MediaQuota(tmp_path / "quota.sqlite3")
+    monkeypatch.setattr(
+        "backend.rbac.subscription.get_current_tier",
+        lambda _user_id: None,
+    )
+    assert (
+        await quota.reserve(
+            user_id="u1", operation="generate_image", idempotency_key="fail-closed"
+        )
+        is None
+    )

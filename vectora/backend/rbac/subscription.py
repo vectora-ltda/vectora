@@ -23,7 +23,7 @@ from backend.services.license import LicenseTier, read_cached_status
 UPGRADE_URL = "https://vectora.company/pricing"
 
 
-def get_current_tier() -> LicenseTier:
+def get_current_tier(user_id: str | None = None) -> LicenseTier:
     """Tier atual da instalação. Sem cache (nunca validou) → `free`.
 
     ``VECTORA_LICENSE_BYPASS=1`` força `pro` direto (dev/CI) — mesmo escape

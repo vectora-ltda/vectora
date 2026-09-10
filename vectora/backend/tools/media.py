@@ -30,7 +30,7 @@ from backend.tools.registry import ToolExtras, vtool
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from backend.services.media_quota import QuotaReservation
+    from backend.services.media_quota import QuotaReservation, QuotaState
 
 
 def _session_id(ctx: ToolContext) -> str:
@@ -69,7 +69,14 @@ def _active_model(ctx: ToolContext) -> str:
 async def _reserve_media(
     ctx: ToolContext, operation: str
 ) -> tuple[QuotaReservation | None, str | None]:
-    """Reserva quota autenticada antes de tocar um provider gerenciado."""
+    """Reserva quota antes de tocar um provider gerenciado.
+
+    Credenciais BYOK são marcadas pelo contexto autenticado do backend; elas
+    não consomem a quota interna. O texto do prompt e argumentos da tool nunca
+    podem escolher essa origem.
+    """
+    if getattr(ctx, "_extra", {}).get("media_billing_source") == "byok":
+        return None, None
     from backend.services.media_quota import media_quota, new_idempotency_key
 
     reservation = await media_quota.reserve(
@@ -85,7 +92,9 @@ async def _reserve_media(
     return reservation, None
 
 
-async def _finalize_media(reservation: QuotaReservation | None, state: str) -> None:
+async def _finalize_media(
+    reservation: QuotaReservation | None, state: QuotaState
+) -> None:
     if reservation is None:
         return
     from backend.services.media_quota import media_quota
