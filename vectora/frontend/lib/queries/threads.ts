@@ -55,6 +55,7 @@ function toSidebarThread(t: VectoraThread, userId: string): Thread {
     mode: t.mode ?? "code",
     pinned: t.pinned ?? false,
     unread_count: t.unread_count ?? 0,
+    remote_activity: t.remote_activity ?? null,
   };
 }
 
