@@ -39,8 +39,21 @@ vi.mock("@/lib/paraglide/messages", () => ({
     sidebar_ctx_pin: () => "Fixar",
     sidebar_ctx_unpin: () => "Desafixar",
     sidebar_ctx_delete: () => "Apagar",
+    sidebar_ctx_resume: () => "Abrir neste dispositivo",
+    sidebar_remote_activity_tooltip: ({ time }: { time: string }) =>
+      `Ativa em outro dispositivo ${time}`,
     sidebar_rename_placeholder: () => "Nome da sessão",
     sidebar_delete_thread: () => "Excluir conversa",
+    time_just_now: () => "agora",
+    time_minutes_ago: ({ n }: { n: number }) => `${n} min atrás`,
+    time_hour_ago: () => "há 1 hora",
+    time_hours_ago: ({ n }: { n: number }) => `há ${n} horas`,
+    time_yesterday: () => "ontem",
+    time_days_ago: ({ n }: { n: number }) => `há ${n} dias`,
+    time_week_ago: () => "há 1 semana",
+    time_weeks_ago: ({ n }: { n: number }) => `há ${n} semanas`,
+    time_month_ago: () => "há 1 mês",
+    time_months_ago: ({ n }: { n: number }) => `há ${n} meses`,
   },
 }));
 
@@ -96,6 +109,33 @@ describe("ThreadItem — menu de contexto", () => {
     expect(
       screen.queryByRole("menuitem", { name: "Fixar" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("mostra atividade remota e permite reabrir a thread", () => {
+    const onSelect = vi.fn();
+    render(
+      <ThreadItem
+        thread={makeThread({
+          remote_activity: {
+            last_active_at: new Date(Date.now() - 120_000).toISOString(),
+          },
+        })}
+        isActive={false}
+        onSelect={onSelect}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByLabelText(/Ativa em outro dispositivo/),
+    ).toBeInTheDocument();
+    fireEvent.contextMenu(screen.getByText("Conversa T1"));
+    fireEvent.click(
+      screen.getByRole("menuitem", { name: "Abrir neste dispositivo" }),
+    );
+    expect(onSelect).toHaveBeenCalledWith("t1");
   });
 
   it("clicar em 'Fixar' chama onTogglePin com o novo estado", () => {

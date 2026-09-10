@@ -333,6 +333,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             cleanup_empty_threads,
             reconcile_vectora_sessions,
         )
+        from backend.persistence.thread_activity import prune as prune_thread_activity
 
         async def _reconcile_safe() -> None:
             # Isolada do cleanup: se SessionStore não estiver disponível
@@ -350,6 +351,12 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             except Exception as exc:
                 logger.warning("api/server: falha ao limpar threads vazias: %s", exc)
 
+        async def _activity_cleanup_safe() -> None:
+            try:
+                await prune_thread_activity()
+            except Exception as exc:
+                logger.warning("api/server: falha ao limpar atividade remota: %s", exc)
+
         async def _thread_cleanup_loop() -> None:
             # Reconcilia ANTES de limpar: uma thread real com message_count
             # zerado por alguma falha (upsert perdido) e mais velha que o
@@ -361,10 +368,12 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             # antes do 1º envio) ficavam visíveis por até 1h a cada restart.
             await _reconcile_safe()
             await _cleanup_safe()
+            await _activity_cleanup_safe()
             while True:
                 await asyncio.sleep(3600)
                 await _reconcile_safe()
                 await _cleanup_safe()
+                await _activity_cleanup_safe()
 
         thread_cleanup_task = asyncio.create_task(_thread_cleanup_loop())
     except Exception as exc:

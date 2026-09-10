@@ -58,7 +58,7 @@ export default function FeaturesAccordion({ items }: FeaturesAccordionProps) {
                       e.currentTarget.click();
                     }
                   }}
-                  className="group flex w-full cursor-pointer items-start gap-3 px-5 py-4 text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary data-[state=open]:text-primary"
+                  className="group flex w-full cursor-pointer items-start gap-3 px-5 py-4 text-start transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary data-[state=open]:text-primary"
                 >
                   <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
                     <Icon className="h-4 w-4 text-primary" />
@@ -86,7 +86,7 @@ export default function FeaturesAccordion({ items }: FeaturesAccordionProps) {
               </Accordion.Trigger>
             </Accordion.Header>
             <Accordion.Content className="overflow-hidden data-[state=closed]:animate-[slideUp_0.2s_ease] data-[state=open]:animate-[slideDown_0.2s_ease]">
-              <div className="border-t border-border px-5 py-4 pl-[3.75rem] text-sm text-muted-foreground leading-relaxed">
+              <div className="border-t border-border px-5 py-4 ps-[3.75rem] text-sm text-muted-foreground leading-relaxed">
                 {item.description}
               </div>
             </Accordion.Content>

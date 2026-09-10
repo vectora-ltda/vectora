@@ -41,7 +41,7 @@ beforeEach(() => {
 describe("CookieConsent", () => {
   it("aparece quando o consentimento ainda não foi decidido", () => {
     render(<CookieConsent />);
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toHaveClass("start-0", "end-0");
   });
 
   it("não aparece quando o consentimento já foi salvo (edge — visita recorrente)", () => {
