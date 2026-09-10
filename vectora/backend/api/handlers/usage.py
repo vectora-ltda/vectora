@@ -192,6 +192,15 @@ async def get_provider_usage() -> dict[str, Any]:
     return {"providers": await collect_provider_usage()}
 
 
+@router.get("/media")
+async def get_media_quota(request: Request) -> dict[str, int | str]:
+    """Retorna a quota mensal de mídia do usuário autenticado."""
+    from backend.api.handlers.threads import _user_id
+    from backend.services.media_quota import media_quota
+
+    return await media_quota.summary(_user_id(request))
+
+
 @router.get("/insights/weekly")
 async def get_weekly_insight(
     request: Request, weeks: Annotated[int, Query()] = 1

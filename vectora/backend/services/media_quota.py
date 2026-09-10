@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, cast
-from uuid import uuid4
 
 from backend.settings import settings
 
@@ -24,6 +23,7 @@ class QuotaReservation:
     period: str
     operation: str
     units: int
+    state: QuotaState = "reserved"
 
 
 class MediaQuota:
@@ -85,13 +85,18 @@ class MediaQuota:
                 if existing[0] != user_id or existing[2] != operation:
                     return None
                 if existing[4] in {"failed", "cancelled"}:
+                    retry_period = period
+                    db.execute(
+                        "INSERT OR IGNORE INTO media_quota_usage(user_id, period, used_units) VALUES (?, ?, 0)",
+                        (user_id, retry_period),
+                    )
                     updated = db.execute(
                         "UPDATE media_quota_usage SET used_units = used_units + ? "
                         "WHERE user_id = ? AND period = ? AND used_units + ? <= ?",
                         (
                             existing[3],
                             user_id,
-                            existing[1],
+                            retry_period,
                             existing[3],
                             MONTHLY_LIMITS.get(tier, MONTHLY_LIMITS["free"]),
                         ),
@@ -99,8 +104,15 @@ class MediaQuota:
                     if updated.rowcount != 1:
                         return None
                     db.execute(
-                        "UPDATE media_quota_reservations SET state = 'reserved' WHERE id = ?",
-                        (idempotency_key,),
+                        "UPDATE media_quota_reservations SET state = 'reserved', period = ? WHERE id = ?",
+                        (retry_period, idempotency_key),
+                    )
+                    existing = (
+                        existing[0],
+                        retry_period,
+                        existing[2],
+                        existing[3],
+                        "reserved",
                     )
                 return QuotaReservation(
                     idempotency_key, existing[0], existing[1], existing[2], existing[3]
@@ -142,17 +154,18 @@ class MediaQuota:
 
     def _finalize(self, reservation_id: str, state: QuotaState) -> None:
         with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT user_id, period, units, state FROM media_quota_reservations WHERE id = ?",
                 (reservation_id,),
             ).fetchone()
             if row is None or row[3] != "reserved":
                 return
-            db.execute(
+            updated = db.execute(
                 "UPDATE media_quota_reservations SET state = ? WHERE id = ? AND state = 'reserved'",
                 (state, reservation_id),
             )
-            if state in {"failed", "cancelled"}:
+            if updated.rowcount == 1 and state in {"failed", "cancelled"}:
                 db.execute(
                     "UPDATE media_quota_usage SET used_units = MAX(0, used_units - ?) "
                     "WHERE user_id = ? AND period = ?",
@@ -196,4 +209,7 @@ def media_estimate(operation: str) -> int:
 
 
 def new_idempotency_key(ctx_call_id: str, operation: str) -> str:
-    return ctx_call_id or f"{operation}:{uuid4().hex}"
+    key = ctx_call_id.strip()
+    if not key:
+        raise ValueError(f"identidade estável ausente para {operation}")
+    return key

@@ -139,6 +139,10 @@ def _mode_should_interrupt(mode: str, tool_name: str, history: list[VMessage]) -
     if mode == "accept_edits":
         return tool_name not in _ACCEPT_EDITS_AUTO
     if mode == "plan":
+        # Cada operação de mídia acima do limite precisa de sua própria
+        # aprovação; um resultado anterior nunca autoriza outra cobrança.
+        if tool_name in {"generate_image", "text_to_speech", "generate_video"}:
+            return True
         return not _plan_mode_ja_passou_neste_turno(history)
     return True  # "ask" ou desconhecido → mais restritivo
 

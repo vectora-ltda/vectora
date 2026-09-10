@@ -79,14 +79,35 @@ async def _reserve_media(
         return None, None
     from backend.services.media_quota import media_quota, new_idempotency_key
 
+    stable_call_id = ctx.tool_call_id or (
+        f"thread:{ctx.thread_id}:{operation}" if ctx.thread_id else ""
+    )
+    try:
+        idempotency_key = new_idempotency_key(stable_call_id, operation)
+    except ValueError:
+        return None, json.dumps(
+            {
+                "error": "identidade estável ausente para operação gerenciada",
+                "operation": operation,
+            },
+            ensure_ascii=False,
+        )
     reservation = await media_quota.reserve(
         user_id=ctx.user_id,
         operation=operation,
-        idempotency_key=new_idempotency_key(ctx.tool_call_id, operation),
+        idempotency_key=idempotency_key,
     )
     if reservation is None:
         return None, json.dumps(
             {"error": "quota mensal de mídia esgotada", "operation": operation},
+            ensure_ascii=False,
+        )
+    if reservation.state in {"finalized", "unknown"}:
+        return None, json.dumps(
+            {
+                "error": "operação já concluída ou em estado incerto; não será repetida",
+                "operation": operation,
+            },
             ensure_ascii=False,
         )
     return reservation, None
@@ -311,7 +332,7 @@ async def generate_image(ctx: ToolContext, prompt: str) -> str:
 
         data = await asyncio.to_thread(_generate_image_bytes, provider, prompt)
         if not data:
-            await _finalize_media(reservation, "failed")
+            await _finalize_media(reservation, "unknown")
             return json.dumps({"error": "provider devolveu imagem vazia"})
         session_id = _session_id(ctx)
         path = await asyncio.to_thread(_persist, session_id, data, ".png")
@@ -327,7 +348,7 @@ async def generate_image(ctx: ToolContext, prompt: str) -> str:
             ensure_ascii=False,
         )
     except Exception as exc:
-        await _finalize_media(reservation, "failed")
+        await _finalize_media(reservation, "unknown")
         logger.exception("generate_image: falha", extra={"provider": provider})
         return json.dumps(
             {"error": f"falha ao gerar imagem: {exc}"}, ensure_ascii=False
@@ -381,7 +402,7 @@ async def text_to_speech(ctx: ToolContext, text: str, voice: str = "") -> str:
 
         data = await asyncio.to_thread(_synthesize_speech_bytes, provider, text, voice)
         if not data:
-            await _finalize_media(reservation, "failed")
+            await _finalize_media(reservation, "unknown")
             return json.dumps({"error": "provider devolveu áudio vazio"})
         session_id = _session_id(ctx)
         path = await asyncio.to_thread(_persist, session_id, data, ".mp3")
@@ -399,7 +420,7 @@ async def text_to_speech(ctx: ToolContext, text: str, voice: str = "") -> str:
             ensure_ascii=False,
         )
     except Exception as exc:
-        await _finalize_media(reservation, "failed")
+        await _finalize_media(reservation, "unknown")
         logger.exception("text_to_speech: falha", extra={"provider": provider})
         return json.dumps({"error": f"falha ao gerar áudio: {exc}"}, ensure_ascii=False)
 
