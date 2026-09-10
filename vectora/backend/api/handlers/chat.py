@@ -1041,9 +1041,6 @@ async def resume_chat(
 
     await _assert_owns_thread(request.thread_id, http_request)
     resume_user_id = _user_id_from_request(http_request)
-    from backend.api.handlers.threads import _assert_owns_thread
-
-    await _assert_owns_thread(request.thread_id, http_request)
     from backend.rbac.device_id import validate_device_id
 
     resume_device_id = validate_device_id(
