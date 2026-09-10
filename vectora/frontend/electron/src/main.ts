@@ -64,6 +64,11 @@ import {
   fetchMarketplaceThemes,
   searchMarketplaceThemes,
 } from "./vscode-marketplace.js";
+import {
+  createRotatingUpdateBackup,
+  listUpdateBackups,
+  restoreUpdateBackup,
+} from "./update-backup.js";
 
 interface UpdateStatus {
   state:
@@ -93,6 +98,50 @@ let tray: Tray | null = null;
 let pendingDeepLink: string | null = null;
 let updateReady = false;
 let browserViewManager: BrowserViewManager | null = null;
+let pendingBackupPromise: Promise<void> | null = null;
+let updateDownloadPromise: Promise<void> | null = null;
+
+function startUpdateDownload(): Promise<void> {
+  if (updateDownloadPromise) return updateDownloadPromise;
+  if (!pendingBackupPromise) {
+    return Promise.reject(new Error("backup da atualização não foi preparado"));
+  }
+  updateDownloadPromise = pendingBackupPromise.then(async () => {
+    await autoUpdater.downloadUpdate();
+  });
+  return updateDownloadPromise;
+}
+
+function pendingUpdatePath(): string {
+  return path.join(app.getPath("userData"), "pending-update.json");
+}
+
+async function clearPendingUpdate(): Promise<void> {
+  await fs.promises
+    .rm(pendingUpdatePath(), { force: true })
+    .catch(() => undefined);
+}
+
+async function rollbackPendingUpdate(): Promise<boolean> {
+  try {
+    const marker = JSON.parse(
+      await fs.promises.readFile(pendingUpdatePath(), "utf8"),
+    ) as { backupId?: string };
+    if (!marker.backupId) return false;
+    const userData = app.getPath("userData");
+    const backupRoot = path.join(userData, "update-backups");
+    const backup = (await listUpdateBackups(backupRoot)).find(
+      (entry) => entry.id === marker.backupId,
+    );
+    if (!backup) return false;
+    await restoreUpdateBackup(backup, userData, backupRoot);
+    await clearPendingUpdate();
+    return true;
+  } catch (error) {
+    console.error("[updater] rollback automático falhou", error);
+    return false;
+  }
+}
 
 /**
  * Browser real da aba Browser do workbench (não a SPA) — cada view é um
@@ -448,6 +497,11 @@ async function restartBackend(): Promise<void> {
       createWindow();
     }
   } catch (err) {
+    if (await rollbackPendingUpdate()) {
+      app.relaunch();
+      app.exit(0);
+      return;
+    }
     dialog.showErrorBox(
       "Vectora",
       `Falha ao reiniciar backend: ${(err as Error).message}`,
@@ -717,7 +771,25 @@ function setupAutoUpdater(): void {
           .filter(Boolean)
           .join("\n")
       : (info.releaseNotes ?? "");
+    updateDownloadPromise = null;
+    pendingBackupPromise = createRotatingUpdateBackup(
+      app.getPath("userData"),
+      path.join(app.getPath("userData"), "update-backups"),
+      app.getVersion(),
+    ).then(async (backup) => {
+      await fs.promises.writeFile(
+        pendingUpdatePath(),
+        JSON.stringify({ version: info.version, backupId: backup.id }, null, 2),
+        { mode: 0o600 },
+      );
+    });
     broadcast({ state: "available", message: info.version, changelog: notes });
+    void startUpdateDownload().catch((error: unknown) => {
+      broadcast({
+        state: "error",
+        message: `Backup local falhou: ${String(error)}`,
+      });
+    });
   });
   autoUpdater.on("update-not-available", () =>
     broadcast({ state: "not-available" }),
@@ -812,8 +884,18 @@ function registerIpc(): void {
   ipcMain.on("vectora:check-for-update", () => {
     void safeCheckForUpdates();
   });
+  ipcMain.handle("vectora:list-update-backups", () =>
+    listUpdateBackups(path.join(app.getPath("userData"), "update-backups")),
+  );
+  ipcMain.handle("vectora:restore-update-backup", (_event, backup: unknown) =>
+    restoreUpdateBackup(
+      backup as Parameters<typeof restoreUpdateBackup>[0],
+      app.getPath("userData"),
+      path.join(app.getPath("userData"), "update-backups"),
+    ),
+  );
   ipcMain.on("vectora:download-update", () => {
-    void autoUpdater.downloadUpdate().catch((error: unknown) => {
+    void startUpdateDownload().catch((error: unknown) => {
       console.warn("[updater] downloadUpdate falhou", error);
     });
   });
@@ -958,6 +1040,7 @@ app.whenReady().then(async () => {
     await killStaleBackend();
     await startBackend();
     await waitForBackend();
+    await clearPendingUpdate();
     createWindow();
     createTray();
     setupAutoUpdater();
@@ -965,6 +1048,11 @@ app.whenReady().then(async () => {
       scheduleAutoUpdateChecks();
     }
   } catch (err) {
+    if (await rollbackPendingUpdate()) {
+      app.relaunch();
+      app.exit(0);
+      return;
+    }
     dialog.showErrorBox(
       "Vectora",
       `Falha ao iniciar: ${(err as Error).message}`,

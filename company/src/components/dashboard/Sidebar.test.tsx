@@ -69,8 +69,9 @@ afterEach(() => {
 
 describe("Sidebar", () => {
   it("não mostra o link Admin para usuário comum", () => {
-    render(<Sidebar />);
+    const { container } = render(<Sidebar />);
     expect(screen.queryByText("nav_admin")).not.toBeInTheDocument();
+    expect(container.querySelector("aside")).toHaveClass("border-s");
   });
 
   it("mostra o link Admin quando role=admin", () => {

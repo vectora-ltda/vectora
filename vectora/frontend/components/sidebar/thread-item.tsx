@@ -10,6 +10,7 @@ import { THREAD_FETCH_LIMIT } from "@/lib/constants/features";
 import { m } from "@/lib/paraglide/messages";
 import { useStreamingStore } from "@/lib/stores/streaming-store";
 import { useContextMenu } from "@/components/workbench/git/git-context-menu";
+import { getRelativeTime } from "@/components/sidebar/sidebar-utils";
 import {
   Sheet,
   SheetContent,
@@ -38,6 +39,9 @@ export const ThreadItem = memo(function ThreadItem({
   const isStreaming = useStreamingStore((s) =>
     Boolean(s.streaming[thread.thread_id]),
   );
+  const remoteActivity = thread.remote_activity?.last_active_at
+    ? getRelativeTime(new Date(thread.remote_activity.last_active_at))
+    : null;
   const menu = useContextMenu();
   const [isEditing, setIsEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState(title);
@@ -110,6 +114,14 @@ export const ThreadItem = memo(function ThreadItem({
 
   const handleContextMenu = (e: React.MouseEvent) => {
     menu.open(e, [
+      ...(remoteActivity
+        ? [
+            {
+              label: m.sidebar_ctx_resume(),
+              onSelect: () => onSelect(thread.thread_id),
+            },
+          ]
+        : []),
       { label: m.sidebar_ctx_rename(), onSelect: startEditing },
       {
         label: thread.pinned ? m.sidebar_ctx_unpin() : m.sidebar_ctx_pin(),
@@ -182,6 +194,20 @@ export const ThreadItem = memo(function ThreadItem({
         )}
         {thread.pinned && (
           <Pin className="shrink-0 w-3 h-3 text-muted-foreground/70 fill-current" />
+        )}
+        {remoteActivity && (
+          <button
+            type="button"
+            className="shrink-0 w-3 h-3 rounded-full bg-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+            title={m.sidebar_remote_activity_tooltip({ time: remoteActivity })}
+            aria-label={m.sidebar_remote_activity_tooltip({
+              time: remoteActivity,
+            })}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect(thread.thread_id);
+            }}
+          />
         )}
         <span className="truncate text-[12px] leading-5">{title}</span>
       </div>

@@ -135,12 +135,13 @@ describe("LicenseHistory", () => {
         checked_at: "2026-01-01T00:00:00.000Z",
       },
     ]);
-    renderWithClient(<LicenseHistory />);
+    const { container } = renderWithClient(<LicenseHistory />);
 
     await waitFor(() =>
       expect(screen.getByText("203.0.*.*")).toBeInTheDocument(),
     );
     expect(screen.getByText("1.2.3")).toBeInTheDocument();
+    expect(container.querySelector("th")).toHaveClass("text-start");
   });
 
   it("mostra '—' quando o IP é null (edge)", async () => {

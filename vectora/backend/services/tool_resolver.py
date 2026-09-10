@@ -22,6 +22,19 @@ from backend.workspace.skills import list_skill_paths
 logger = logging.getLogger(__name__)
 
 
+def _workspace_skill_root(workspace_id: str) -> str:
+    """Converte o ID público do workspace no diretório autorizado."""
+    if not workspace_id:
+        return ""
+    from backend.workspace.workspace import workspace_registry
+
+    workspace = workspace_registry.get(workspace_id)
+    if workspace is None:
+        logger.warning("tool_resolver: workspace não encontrado: %s", workspace_id)
+        return ""
+    return workspace.cwd
+
+
 async def resolve_tools(
     user_id: str | None,
     *,
@@ -53,7 +66,7 @@ async def resolve_tools(
     # this keeps the toolset and prompt context on one precedence contract.
     list_skill_paths(
         user_id,
-        workspace_id=workspace_id,
+        workspace_id=_workspace_skill_root(workspace_id),
         project_root=project_root,
         runtime_id=runtime_id,
     )

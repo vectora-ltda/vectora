@@ -30,6 +30,6 @@ describe("PageHeader", () => {
 
   it("usa alinhamento à esquerda quando align='left' (edge)", () => {
     const { container } = render(<PageHeader title="Preços" align="left" />);
-    expect(container.firstChild).toHaveClass("items-start", "text-left");
+    expect(container.firstChild).toHaveClass("items-start", "text-start");
   });
 });
