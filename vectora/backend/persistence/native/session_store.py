@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS messages (
     tool_call_id TEXT,
     name TEXT,
     is_error INTEGER NOT NULL DEFAULT 0,
+    turn_id TEXT,
     is_branch_head INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL
 );
@@ -133,6 +134,13 @@ class SessionStore:
             return
         async with self._pool.acquire() as conn:
             await conn.executescript(_SETUP_SQL)
+            columns = await conn.execute_fetchall("PRAGMA table_info(messages)")
+            if not any(str(column[1]) == "turn_id" for column in columns):
+                await conn.execute("ALTER TABLE messages ADD COLUMN turn_id TEXT")
+            await conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_messages_thread_turn "
+                "ON messages(thread_id, turn_id) WHERE turn_id IS NOT NULL"
+            )
             await conn.commit()
         self._is_setup = True
 
@@ -171,7 +179,12 @@ class SessionStore:
                 raise
 
     async def append_message(
-        self, thread_id: str, msg: VMessage, *, parent_message_id: int | None = None
+        self,
+        thread_id: str,
+        msg: VMessage,
+        *,
+        parent_message_id: int | None = None,
+        turn_id: str | None = None,
     ) -> int:
         """Persiste `msg` e devolve o `id` gerado. A mensagem nova vira a
         ponta ativa da branch (`is_branch_head`); se `parent_message_id`
@@ -185,10 +198,18 @@ class SessionStore:
         )
         async with self._pool.acquire() as conn:
             try:
+                if turn_id is not None:
+                    cur_existing = await conn.execute(
+                        "SELECT id FROM messages WHERE thread_id = ? AND turn_id = ?",
+                        (thread_id, turn_id),
+                    )
+                    existing = await cur_existing.fetchone()
+                    if existing is not None:
+                        return int(existing[0])
                 cur = await conn.execute(
                     "INSERT INTO messages (thread_id, parent_message_id, role, "
                     "content_json, tool_calls_json, tool_call_id, name, is_error, "
-                    "is_branch_head, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
+                    "turn_id, is_branch_head, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
                     (
                         thread_id,
                         parent_message_id,
@@ -198,6 +219,7 @@ class SessionStore:
                         tool_call_id,
                         name,
                         is_error,
+                        turn_id,
                         agora,
                     ),
                 )
@@ -219,6 +241,19 @@ class SessionStore:
                 await conn.rollback()
                 raise
         return int(new_id)
+
+    async def get_message_id_by_turn_id(
+        self, thread_id: str, turn_id: str
+    ) -> int | None:
+        """Returns the persisted message for an idempotent turn."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT id FROM messages WHERE thread_id = ? AND turn_id = ?",
+                (thread_id, turn_id),
+            )
+            row = await cur.fetchone()
+        return int(row[0]) if row is not None else None
 
     async def get_branch_head_id(self, thread_id: str) -> int | None:
         """`id` da mensagem que é a ponta ativa da branch, ou `None` se a
