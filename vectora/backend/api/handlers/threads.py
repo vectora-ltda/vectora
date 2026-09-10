@@ -25,7 +25,7 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated, Any, cast
+from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
@@ -1570,7 +1570,7 @@ async def get_thread_history_paginated(
 async def get_thread_attachment(
     thread_id: str,
     filename: str,
-    request: Request = cast(Request, None),
+    request: Request | None = None,
 ) -> FileResponse:
     """Serve um anexo de imagem persistido por `_persist_image_attachment`
     (`chat.py`) — `attachments[].url` no histórico aponta pra cá. Sanitiza
