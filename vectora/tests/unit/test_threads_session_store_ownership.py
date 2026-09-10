@@ -13,6 +13,8 @@ vazam uma thread registrada em `SessionStore` sob outro usuário.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import aiosqlite
@@ -41,7 +43,7 @@ def _http_request(user_id: str | None, device_id: str | None = None) -> MagicMoc
 
 
 @pytest.fixture
-async def checkpoints_db():
+async def checkpoints_db() -> AsyncIterator[aiosqlite.Connection]:
     db = await aiosqlite.connect(":memory:")
     await th._ensure_schema(db)
     try:
@@ -51,7 +53,7 @@ async def checkpoints_db():
 
 
 @pytest.fixture
-async def session_store(tmp_path):
+async def session_store(tmp_path: Path) -> AsyncIterator[SessionStore]:
     pool = AsyncConnectionPool(str(tmp_path / "sessions.db"), min_size=1, max_size=2)
     await pool.open()
     store = SessionStore(pool)
@@ -63,14 +65,18 @@ async def session_store(tmp_path):
 
 
 @pytest.fixture(autouse=True)
-def _wire_stores(monkeypatch, checkpoints_db, session_store):
+def _wire_stores(
+    monkeypatch: pytest.MonkeyPatch,
+    checkpoints_db: aiosqlite.Connection,
+    session_store: SessionStore,
+) -> None:
     """Redireciona `_get_db()`/`_get_session_store()` de `threads.py` pros
     bancos de teste isolados, sem tocar nos singletons globais."""
 
-    async def _fake_get_db():
+    async def _fake_get_db() -> aiosqlite.Connection:
         return checkpoints_db
 
-    async def _fake_get_session_store():
+    async def _fake_get_session_store() -> SessionStore:
         return session_store
 
     monkeypatch.setattr(th, "_get_db", _fake_get_db)
@@ -82,8 +88,8 @@ class TestListThreadsReflectsSessionStore:
     aparecem em ListThreads pro dono, e nunca pro usuário errado."""
 
     async def test_thread_criada_via_session_store_aparece_para_o_dono(
-        self, session_store, checkpoints_db
-    ):
+        self, session_store: SessionStore, checkpoints_db: aiosqlite.Connection
+    ) -> None:
         await session_store.create_session("thread-alice", user_id="alice", mode="code")
         await th._upsert_session("thread-alice", title="Conversa da Alice")
         await th._increment_message_count("thread-alice")
@@ -122,7 +128,9 @@ class TestListThreadsReflectsSessionStore:
             == "2026-09-08T12:00:00+00:00"
         )
 
-    async def test_thread_de_outro_usuario_nao_vaza_na_listagem(self, session_store):
+    async def test_thread_de_outro_usuario_nao_vaza_na_listagem(
+        self, session_store: SessionStore
+    ) -> None:
         """Erro/borda: uma thread registrada em SessionStore sob `bob` nunca
         aparece na listagem de `alice`, mesmo estando em `vectora_sessions`
         (cache de UI compartilhado)."""
@@ -136,7 +144,9 @@ class TestListThreadsReflectsSessionStore:
 
         assert result.threads == []
 
-    async def test_thread_legada_sem_registro_no_session_store_ainda_aparece(self):
+    async def test_thread_legada_sem_registro_no_session_store_ainda_aparece(
+        self,
+    ) -> None:
         """Compatibilidade: threads criadas antes da posse ser rastreada em
         `SessionStore` (nenhum registro lá) continuam visíveis — ausência de
         registro não é o mesmo que pertencer a outra pessoa."""
@@ -218,7 +228,9 @@ class TestOwnershipEnforcement:
     de outro usuário nem revelam se a thread não existe vs. pertence a
     outra pessoa — 404 nos dois casos."""
 
-    async def test_get_thread_de_outro_usuario_404(self, session_store):
+    async def test_get_thread_de_outro_usuario_404(
+        self, session_store: SessionStore
+    ) -> None:
         await session_store.create_session("thread-bob", user_id="bob")
         await th._upsert_session("thread-bob")
 
@@ -230,7 +242,9 @@ class TestOwnershipEnforcement:
             )
         assert exc_info.value.status_code == 404
 
-    async def test_get_thread_do_proprio_dono_retorna_200(self, session_store):
+    async def test_get_thread_do_proprio_dono_retorna_200(
+        self, session_store: SessionStore
+    ) -> None:
         await session_store.create_session("thread-alice", user_id="alice")
         await th._upsert_session("thread-alice", title="Minha thread")
 
@@ -241,7 +255,9 @@ class TestOwnershipEnforcement:
         assert thread.id == "thread-alice"
         assert thread.title == "Minha thread"
 
-    async def test_get_thread_sem_http_request_pula_checagem(self, session_store):
+    async def test_get_thread_sem_http_request_pula_checagem(
+        self, session_store: SessionStore
+    ) -> None:
         """Chamadores internos (GetHistory, GenerateTitle, histórico
         paginado) invocam `get_thread` sem `http_request` — comportamento
         preexistente preservado."""
@@ -253,8 +269,8 @@ class TestOwnershipEnforcement:
         assert thread.id == "thread-bob"
 
     async def test_update_thread_de_outro_usuario_404_e_nao_persiste(
-        self, session_store, checkpoints_db
-    ):
+        self, session_store: SessionStore, checkpoints_db: aiosqlite.Connection
+    ) -> None:
         await session_store.create_session("thread-bob", user_id="bob")
         await th._upsert_session("thread-bob", title="Original")
 
@@ -270,7 +286,9 @@ class TestOwnershipEnforcement:
         thread = await th.get_thread(GetThreadRequest(thread_id="thread-bob"))
         assert thread.title == "Original"
 
-    async def test_delete_thread_de_outro_usuario_404_e_nao_apaga(self, session_store):
+    async def test_delete_thread_de_outro_usuario_404_e_nao_apaga(
+        self, session_store: SessionStore
+    ) -> None:
         await session_store.create_session("thread-bob", user_id="bob")
         await th._upsert_session("thread-bob")
 
@@ -285,7 +303,9 @@ class TestOwnershipEnforcement:
         thread = await th.get_thread(GetThreadRequest(thread_id="thread-bob"))
         assert thread.id == "thread-bob"
 
-    async def test_delete_thread_do_proprio_dono_remove(self, session_store):
+    async def test_delete_thread_do_proprio_dono_remove(
+        self, session_store: SessionStore
+    ) -> None:
         await session_store.create_session("thread-alice", user_id="alice")
         await th._upsert_session("thread-alice")
 
@@ -339,7 +359,9 @@ class TestUpsertSessionRegistersOwnership:
     entre as duas tabelas pra callers (ex.: `background_tasks.py`) que ainda
     não têm a posse registrada quando chamam `_upsert_session`."""
 
-    async def test_upsert_com_user_id_cria_sessao_no_session_store(self, session_store):
+    async def test_upsert_com_user_id_cria_sessao_no_session_store(
+        self, session_store: SessionStore
+    ) -> None:
         assert await session_store.get_session("thread-nova") is None
 
         await th._upsert_session(
@@ -350,7 +372,9 @@ class TestUpsertSessionRegistersOwnership:
         assert session is not None
         assert session["user_id"] == "alice"
 
-    async def test_upsert_sem_user_id_nao_mexe_no_session_store(self, session_store):
+    async def test_upsert_sem_user_id_nao_mexe_no_session_store(
+        self, session_store: SessionStore
+    ) -> None:
         """Par de erro: chamadores que já registraram a posse por conta
         própria (ex.: `stream_chat`, via `session_store.create_session`
         direto) não devem disparar uma segunda escrita ao omitir `user_id`."""
@@ -359,8 +383,8 @@ class TestUpsertSessionRegistersOwnership:
         assert await session_store.get_session("thread-sem-user") is None
 
     async def test_upsert_idempotente_nao_sobrescreve_dono_existente(
-        self, session_store
-    ):
+        self, session_store: SessionStore
+    ) -> None:
         await session_store.create_session("thread-1", user_id="alice")
 
         await th._upsert_session("thread-1", user_id="bob")
@@ -371,7 +395,9 @@ class TestUpsertSessionRegistersOwnership:
 
 
 class TestCreateThreadRegistersOwnership:
-    async def test_create_thread_registra_posse_no_session_store(self, session_store):
+    async def test_create_thread_registra_posse_no_session_store(
+        self, session_store: SessionStore
+    ) -> None:
         from backend.api.schemas import CreateThreadRequest
 
         thread = await th.create_thread(
@@ -383,8 +409,8 @@ class TestCreateThreadRegistersOwnership:
         assert session["user_id"] == "alice"
 
     async def test_create_thread_usa_mode_explicito_quando_informado(
-        self, session_store
-    ):
+        self, session_store: SessionStore
+    ) -> None:
         """Regressão: sem `mode` explícito no request, o endpoint gravava
         "code" fixo mesmo pra uma conversa criada em modo Chat — o campo
         precisa ser respeitado quando o caller informa."""
@@ -398,7 +424,9 @@ class TestCreateThreadRegistersOwnership:
         assert session is not None
         assert session["mode"] == "chat"
 
-    async def test_create_thread_sem_mode_mantem_default_code(self, session_store):
+    async def test_create_thread_sem_mode_mantem_default_code(
+        self, session_store: SessionStore
+    ) -> None:
         """Erro/borda: `mode` ausente/vazio preserva o comportamento
         histórico do endpoint (default "code"), sem quebrar callers
         existentes que nunca informaram o campo."""
