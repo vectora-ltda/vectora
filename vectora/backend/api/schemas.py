@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import uuid
 from enum import StrEnum
 from typing import Any, Literal
 
@@ -226,6 +227,7 @@ class Attachment(BaseModel):
 
 class StreamChatRequest(BaseModel):
     thread_id: str = ""  # vazio → cria nova thread
+    turn_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     content: str
     config: ChatConfig = Field(default_factory=ChatConfig)
     attachments: list[Attachment] = Field(default_factory=list)
@@ -234,6 +236,7 @@ class StreamChatRequest(BaseModel):
 class ResumeChatRequest(BaseModel):
     thread_id: str
     interrupt_id: str
+    turn_id: str | None = None
     decision: str  # "approve" | "reject" | "edit:<args_json>"
     context_max_tokens: int | None = Field(default=None, ge=1)
     context_compaction_enabled: bool = True
@@ -401,6 +404,17 @@ class HITLEvent(BaseModel):
     pre_approved: bool = False
 
 
+class StructuredQuestionEvent(BaseModel):
+    """Pergunta aguardando uma resposta explícita do usuário no stream."""
+
+    question_id: str
+    thread_id: str
+    prompt: str
+    options: list[str]
+    allow_free_text: bool
+    expires_at: str = ""
+
+
 class RagCitation(BaseModel):
     index: int
     source: str
@@ -520,6 +534,7 @@ StreamChatEventPayload = (
     | NodeEvent
     | UIMetricsEvent
     | HITLEvent
+    | StructuredQuestionEvent
     | SubagentOutputEvent
     | RagCitationEvent
     | ErrorEvent
@@ -540,6 +555,7 @@ _TYPE_MAP: dict[type, str] = {
     NodeEvent: "node",
     UIMetricsEvent: "ui_metrics",
     HITLEvent: "hitl",
+    StructuredQuestionEvent: "structured_question",
     SubagentOutputEvent: "subagent_output",
     RagCitationEvent: "rag_citations",
     ErrorEvent: "error",
@@ -605,6 +621,18 @@ class PagedHistoryResponse(BaseModel):
     messages: list[HistoryMessage]
     has_more: bool
     total_count: int
+
+
+class StructuredQuestionAnswerRequest(BaseModel):
+    question_id: str
+    answer: str | None = None
+    cancel: bool = False
+
+
+class StructuredQuestionResponse(BaseModel):
+    question_id: str
+    status: str
+    answer: str | None = None
 
 
 # ---------------------------------------------------------------------------

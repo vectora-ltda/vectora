@@ -21,6 +21,7 @@ from backend.engine.stream_events import (
     ModelSwitched,
     NodeStatus,
     RagCitations,
+    StructuredQuestionRequested,
     SubagentOutput,
     TerminalLine,
     ThreadStarted,
@@ -102,6 +103,15 @@ def _to_payload(event: EngineEvent) -> schemas.StreamChatEventPayload:  # noqa: 
             affected_paths=event.affected_paths,
             diff_preview=event.diff_preview,
             pre_approved=event.pre_approved,
+        )
+    if isinstance(event, StructuredQuestionRequested):
+        return schemas.StructuredQuestionEvent(
+            question_id=event.question_id,
+            thread_id=event.thread_id,
+            prompt=event.prompt,
+            options=event.options,
+            allow_free_text=event.allow_free_text,
+            expires_at=event.expires_at,
         )
     if isinstance(event, WorkbenchInvalidate):
         return schemas.WorkbenchInvalidateEvent(
