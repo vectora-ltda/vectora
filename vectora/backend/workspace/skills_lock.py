@@ -233,9 +233,14 @@ def write_lockfile(path: Path, entries: dict[str, dict[str, object]]) -> None:
 def validate_lock_entries(entries: dict[str, dict[str, object]]) -> None:
     """Valida entradas sem executar conteúdo das skills."""
     allowed = {"version", "source", "revision", "integrity", "requires_skills"}
+    normalized_ids: dict[str, str] = {}
     for skill_id, entry in entries.items():
         if not isinstance(skill_id, str) or not skill_id.strip():
             raise ValueError("id de skill inválido no lockfile")
+        normalized_id = skill_id.strip()
+        if normalized_id in normalized_ids:
+            raise ValueError("ids de skill duplicados no lockfile")
+        normalized_ids[normalized_id] = skill_id
         if not isinstance(entry, dict) or set(entry) - allowed:
             raise ValueError("entrada de skill inválida no lockfile")
         version = entry.get("version")
@@ -260,6 +265,22 @@ def validate_lock_entries(entries: dict[str, dict[str, object]]) -> None:
                 raise ValueError(
                     f"dependência não resolvida para skill {skill_id}"
                 ) from exc
+    for skill_id, entry in entries.items():
+        requirements = entry.get("requires_skills", {})
+        assert isinstance(requirements, dict)
+        for dependency, constraint in requirements.items():
+            normalized_dependency = dependency.strip()
+            dependency_entry = entries.get(
+                normalized_ids.get(normalized_dependency, "")
+            )
+            if (
+                dependency_entry is None
+                or dependency_entry.get("version") != constraint.strip()
+            ):
+                raise ValueError(
+                    f"dependência não fechada para skill {skill_id}: "
+                    f"{normalized_dependency}"
+                )
 
 
 def read_lockfile(path: Path) -> dict[str, object]:

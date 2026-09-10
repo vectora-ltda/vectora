@@ -92,6 +92,26 @@ def test_lockfile_rejeita_entrada_nula_ou_campos_desconhecidos(tmp_path) -> None
     with pytest.raises(ValueError, match="dependências inválidas"):
         read_lockfile(path)
 
+    base = {
+        "version": "1.0.0",
+        "source": "local",
+        "revision": "r1",
+        "integrity": "a",
+    }
+    with pytest.raises(ValueError, match="dependência não fechada"):
+        write_lockfile(
+            path,
+            {"app": {**base, "requires_skills": {"base": "1.0.0"}}},
+        )
+    with pytest.raises(ValueError, match="dependência não fechada"):
+        write_lockfile(
+            path,
+            {
+                "app": {**base, "requires_skills": {"base": "1.0.0"}},
+                "base": {**base, "version": "2.0.0"},
+            },
+        )
+
 
 def test_escritores_concorrentes_publicam_lockfile_valido(tmp_path) -> None:
     path = tmp_path / "skills.lock.json"
