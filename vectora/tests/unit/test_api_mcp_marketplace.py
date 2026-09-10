@@ -565,7 +565,7 @@ async def test_install_mcp_audita_negacao_da_allowlist(
     request = SimpleNamespace(state=SimpleNamespace(user=None), query_params={})
 
     result = await install_mcp(
-        InstallRequest(mcp_id=_REGISTRY[0].id), request=cast(Request, request)
+        InstallRequest(mcp_id=_REGISTRY[0].id), request=cast("Request", request)
     )
 
     assert result["status"] == "error"

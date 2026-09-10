@@ -20,7 +20,7 @@ export default function FaqAccordion({ items }: FaqAccordionProps) {
           className="rounded-lg border border-border bg-card overflow-hidden"
         >
           <Accordion.Header>
-            <Accordion.Trigger className="group flex w-full items-center justify-between px-5 py-4 text-left text-sm font-medium text-foreground transition-colors hover:text-primary data-[state=open]:text-primary">
+            <Accordion.Trigger className="group flex w-full items-center justify-between px-5 py-4 text-start text-sm font-medium text-foreground transition-colors hover:text-primary data-[state=open]:text-primary">
               <span>{item.question}</span>
               <ChevronDown
                 size={16}
