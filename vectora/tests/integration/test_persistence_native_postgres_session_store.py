@@ -91,6 +91,32 @@ class TestAppendMessageEGetHistory:
 
     @pytest.mark.asyncio
     @pytest.mark.storage
+    async def test_turn_id_persistido_e_idempotente(self, pg_pool):
+        store = PostgresSessionStore(pg_pool)
+        thread_id = _thread_id()
+        await store.create_session(thread_id, user_id="alice")
+
+        first = await store.append_message(
+            thread_id,
+            text_message(MessageRole.USER, "retry seguro"),
+            turn_id="turn-persistido",
+        )
+        second = await store.append_message(
+            thread_id,
+            text_message(MessageRole.USER, "não duplicar"),
+            turn_id="turn-persistido",
+        )
+
+        assert second == first
+        assert (
+            await store.get_message_id_by_turn_id(thread_id, "turn-persistido") == first
+        )
+        async with pg_pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT turn_id FROM vectora_native_messages WHERE id = $1", first
+            )
+        assert row["turn_id"] == "turn-persistido"
+
     async def test_thread_sem_mensagem_devolve_lista_vazia(self, pg_pool):
         store = PostgresSessionStore(pg_pool)
         thread_id = _thread_id()
