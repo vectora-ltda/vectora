@@ -252,7 +252,9 @@ def _skill_lock_entry(skill: Skill) -> dict[str, object]:
     frontmatter = _parse_frontmatter(
         (Path(skill.path) / "SKILL.md").read_text(encoding="utf-8")
     )
-    version = str(frontmatter.get("version", "")).strip()
+    version = frontmatter.get("version", "")
+    if not isinstance(version, str):
+        raise ValueError(f"frontmatter sem version para skill {skill.id}")
     if not version:
         raise ValueError(f"frontmatter sem version para skill {skill.id}")
     requirements: dict[str, str] = {}
@@ -268,7 +270,7 @@ def _skill_lock_entry(skill: Skill) -> dict[str, object]:
                 raise ValueError(f"requires_skills inválido para skill {skill.id}")
             if normalized_dependency in requirements:
                 raise ValueError(f"dependência duplicada para skill {skill.id}")
-            requirements[normalized_dependency] = constraint.strip()
+            requirements[normalized_dependency] = constraint
     elif isinstance(raw_requirements, list):
         for item in raw_requirements:
             if not isinstance(item, dict) or set(item) - {
@@ -286,7 +288,7 @@ def _skill_lock_entry(skill: Skill) -> dict[str, object]:
                 raise ValueError(f"requires_skills inválido para skill {skill.id}")
             if normalized_dependency in requirements:
                 raise ValueError(f"dependência duplicada para skill {skill.id}")
-            requirements[normalized_dependency] = constraint.strip()
+            requirements[normalized_dependency] = constraint
     else:
         raise ValueError(f"requires_skills inválido para skill {skill.id}")
     source = skill.source

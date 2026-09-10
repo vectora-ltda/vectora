@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from backend.vtypes.skill import Skill
-from backend.workspace import skills
+from backend.workspace import skills, skills_lock
 
 
 @pytest.fixture(autouse=True)
@@ -116,6 +116,47 @@ def test_lock_entry_rejeita_dependencia_vazia_apos_normalizacao(
 
     with pytest.raises(ValueError, match="requires_skills inválido"):
         skills._skill_lock_entry(skill)
+
+
+@pytest.mark.parametrize(
+    ("version", "constraint"),
+    [
+        ('" 1.0.0"', None),
+        ('"1.0.0 "', None),
+        ('"1.0.0"', '"^ 1.0.0"'),
+        ('"1.0.0"', '"~ 1.0.0"'),
+    ],
+)
+def test_lock_entry_rejeita_espacos_em_versoes_e_constraints(
+    tmp_path: Path, version: str, constraint: str | None
+) -> None:
+    root = tmp_path / "skill"
+    root.mkdir()
+    requirement = f"requires_skills:\n  base: {constraint}\n" if constraint else ""
+    (root / "SKILL.md").write_text(
+        f"---\nname: n\ndescription: d\nversion: {version}\n{requirement}---\n",
+        encoding="utf-8",
+    )
+    skill = Skill(
+        id="n",
+        name="n",
+        description="d",
+        source="local",
+        path=str(root),
+        installed_at="2026-01-01T00:00:00+00:00",
+        installed_by="u1",
+    )
+
+    entry = skills._skill_lock_entry(skill)
+    with pytest.raises(ValueError):
+        skills_lock.resolve_dependencies(
+            {
+                "n": (
+                    str(entry["version"]),
+                    entry["requires_skills"],
+                )
+            }
+        )
 
 
 def test_runtime_skill_install_uses_session_scoped_memory(tmp_path) -> None:
