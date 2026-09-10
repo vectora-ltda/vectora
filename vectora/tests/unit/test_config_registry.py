@@ -89,15 +89,15 @@ class TestSettingField:
     def test_get_set_value_delegam_para_adapter(
         self: TestSettingField, clean_registry: None
     ) -> None:
-        calls: list[tuple[str, object]] = []
+        calls: list[tuple[str, object, object | None]] = []
 
         class _RecordingAdapter:
             def get(self, key: str) -> object:
-                calls.append(("get", key))
+                calls.append(("get", key, None))
                 return "value"
 
             def set(self, key: str, value: object) -> None:
-                calls.append(("set", value))
+                calls.append(("set", key, value))
 
         adapter = _RecordingAdapter()
         setting_field(
@@ -109,7 +109,10 @@ class TestSettingField:
         )
         set_value("delegated", "value")
         assert get_value("delegated") == "value"
-        assert calls == [("set", "value"), ("get", "delegated")]
+        assert calls == [
+            ("set", "delegated", "value"),
+            ("get", "delegated", None),
+        ]
         with pytest.raises(KeyError):
             get_value("missing")
 
