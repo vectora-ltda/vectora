@@ -125,6 +125,21 @@ describe("ThreadItem — menu de contexto", () => {
     expect(queryClient.setQueryData).toHaveBeenCalled();
   });
 
+  it("expõe o contador de mensagens não lidas com rótulo localizado", () => {
+    render(
+      <ThreadItem
+        thread={makeThread({ unread_count: 3 })}
+        isActive={false}
+        onSelect={vi.fn()}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText("3 mensagens não lidas")).toBeInTheDocument();
+  });
+
   it("zera somente a thread correta no updater do cache", async () => {
     render(
       <ThreadItem
