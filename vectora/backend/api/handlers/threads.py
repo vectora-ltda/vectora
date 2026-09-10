@@ -1636,6 +1636,9 @@ async def thread_pending_interrupt(
             args_json=json.dumps(pending["args"]),
             interrupt_id=pending["interrupt_id"],
             pre_approved=pre_approved,
+            options=pending.get("options", []),
+            priority=int(pending.get("priority", 0)),
+            expires_at=pending.get("expires_at"),
         )
     )
 
