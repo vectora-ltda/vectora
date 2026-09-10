@@ -99,6 +99,7 @@ class TestAgenerate:
         resultado = await cliente.agenerate([text_message(MessageRole.USER, "oi")])
 
         assert resultado.text() == "do fallback"
+        assert cliente.last_model_id == "anthropic:claude-sonnet"
         assert trocas == [("openai:gpt-4o", "anthropic:claude-sonnet")]
 
     async def test_erro_nao_recuperavel_no_primario_propaga_sem_fallback(
