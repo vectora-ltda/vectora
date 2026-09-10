@@ -61,7 +61,8 @@ def test_ensure_workspace_files_does_not_duplicate_gitignore_entry(tmp_path):
     ensure_workspace_files(tmp_path, name="meu-projeto")
 
     content = (tmp_path / ".gitignore").read_text(encoding="utf-8")
-    assert content.count(".vectora/") == 1
+    assert content.splitlines().count(".vectora/") == 1
+    assert "!.vectora/skills.lock.json" in content.splitlines()
 
 
 def test_load_workspace_config_returns_none_when_missing(tmp_path):
