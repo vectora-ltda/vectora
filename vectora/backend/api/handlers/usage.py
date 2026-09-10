@@ -17,9 +17,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query, Request
 
 logger = logging.getLogger(__name__)
 
@@ -190,3 +190,38 @@ async def collect_provider_usage() -> list[dict[str, Any]]:
 async def get_provider_usage() -> dict[str, Any]:
     """Consumo por provider — alimenta o medidor da appbar."""
     return {"providers": await collect_provider_usage()}
+
+
+@router.get("/insights/weekly")
+async def get_weekly_insight(
+    request: Request, weeks: Annotated[int, Query()] = 1
+) -> dict[str, Any]:
+    """Retorna somente agregados técnicos da conta autenticada."""
+    from backend.api.handlers.threads import _user_id
+    from backend.services.usage_insights import get_usage_database, usage_insight_store
+    from backend.workspace.runtime_settings import runtime_settings
+
+    if weeks not in {1, 2, 4}:
+        raise HTTPException(status_code=422, detail="weeks deve ser 1, 2 ou 4")
+    start, end = usage_insight_store.window_bounds(weeks)
+    user_id = _user_id(request)
+    if (
+        runtime_settings.get_frontend_prefs(user_id).get("weeklyInsightEnabled")
+        is not True
+    ):
+        return {
+            "window_weeks": weeks,
+            "window_start": start.isoformat(),
+            "window_end": end.isoformat(),
+            "event_count": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "estimated_cost_cents": None,
+            "unknown_cost_events": 0,
+            "most_used_model": None,
+            "tools": [],
+        }
+
+    db = await get_usage_database()
+    return await usage_insight_store.aggregate(db, user_id=user_id, weeks=weeks)

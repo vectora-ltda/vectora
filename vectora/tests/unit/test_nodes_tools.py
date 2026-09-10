@@ -90,7 +90,6 @@ def test_all_tools_count():
     nomes = sorted(t.name for t in ALL_TOOLS)
     assert len(ALL_TOOLS) == 175, f"tools registradas: {nomes}"
 
-
 def test_all_tools_sem_nome_duplicado():
     # Erro/borda: nome repetido faz a segunda registrar por cima da primeira
     # no bind_tools — a tool some sem a contagem mudar.

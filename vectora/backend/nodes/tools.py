@@ -79,6 +79,7 @@ from backend.tools import (
 from backend.tools import (
     planning as _planning_module,
 )
+from backend.tools import questions as _questions_module
 from backend.tools import (
     rag as _rag_module,
 )
@@ -292,6 +293,7 @@ extract_frame = _bridge("extract_frame")
 extract_audio = _bridge("extract_audio")
 transcribe_local = _bridge("transcribe_local")
 write_todos = _bridge("write_todos")
+ask_structured_question = _bridge("ask_structured_question")
 
 # ---------------------------------------------------------------------------
 # Grupos semânticos (referência — não são usados diretamente pelos agentes)
@@ -445,6 +447,7 @@ NATIVE_TOOLS: list[ToolSpec] = [
     json_query,
     jwt_decode,
     http_request,
+    ask_structured_question,
 ]
 
 #: Ferramentas git e GitHub CLI
@@ -675,6 +678,7 @@ for _t in [
     http_request,
     # Planejamento (checklist de progresso, todo agente)
     write_todos,
+    ask_structured_question,
 ]:
     _all[_t.name] = _t
 
