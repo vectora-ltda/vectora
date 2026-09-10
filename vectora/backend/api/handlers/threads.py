@@ -1647,6 +1647,33 @@ def _allowlist_items(workspace_id: str) -> list[SmartApprovalAllowlistItem]:
     ]
 
 
+async def _audit_allowlist_change(
+    request: Request,
+    *,
+    action: str,
+    workspace_id: str,
+    rule_id: str,
+) -> None:
+    """Registra a mutação sem persistir comando, argumentos ou assinatura."""
+    try:
+        from backend.rbac.auth import get_db_for_audit, write_audit
+
+        db = await get_db_for_audit()
+        await write_audit(
+            db,
+            _user_id(request),
+            f"smart_approval.{action}",
+            success=True,
+            metadata={"workspace_id": workspace_id, "rule_id": rule_id},
+            target_type="smart_approval_allowlist",
+        )
+    except Exception:
+        logger.debug(
+            "smart approval: auditoria indisponível",
+            extra={"action": action},
+        )
+
+
 @router.get("/smart-approval/allowlist")
 async def get_smart_approval_allowlist(
     workspace_id: str, request: Request
@@ -1678,12 +1705,18 @@ async def add_smart_approval_allowlist(
         and require_workspace_access(body.workspace_id, request) is None
     ):
         raise HTTPException(status_code=404, detail="Workspace não encontrado")
-    from backend.services.smart_approval import add_to_allowlist
+    from backend.services.smart_approval import add_to_allowlist, rule_id
 
     try:
         add_to_allowlist(body.workspace_id, body.tool_name, body.args)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await _audit_allowlist_change(
+        request,
+        action="add",
+        workspace_id=body.workspace_id,
+        rule_id=rule_id(body.tool_name, body.args),
+    )
     return SmartApprovalAllowlistResponse(allowlist=_allowlist_items(body.workspace_id))
 
 
@@ -1704,4 +1737,10 @@ async def remove_smart_approval_allowlist(
     from backend.services.smart_approval import remove_from_allowlist_by_id
 
     remove_from_allowlist_by_id(body.workspace_id, body.rule_id)
+    await _audit_allowlist_change(
+        request,
+        action="remove",
+        workspace_id=body.workspace_id,
+        rule_id=body.rule_id,
+    )
     return SmartApprovalAllowlistResponse(allowlist=_allowlist_items(body.workspace_id))

@@ -29,6 +29,7 @@ import logging
 import os
 import sqlite3
 import threading
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -182,6 +183,18 @@ class RuntimeSettings:
         with self._lock:
             self._data[key] = value
             self._persist(key, value)
+
+    def update_list(
+        self, key: str, update: Callable[[list[object]], list[object]]
+    ) -> list[object]:
+        """Atualiza uma lista sob o mesmo lock da leitura e da persistência."""
+        with self._lock:
+            raw = self._data.get(key, [])
+            current = list(raw) if isinstance(raw, list) else []
+            updated = update(current)
+            self._data[key] = updated
+            self._persist(key, updated)
+            return list(updated)
 
     # ─── Properties tipadas ───────────────────────────────────────────────────
 

@@ -1446,6 +1446,7 @@
   "hitl_pre_approved_badge": "recognized by evaluator",
   "hitl_always_allow": "Always allow",
   "hitl_always_allow_added": "Added to this workspace's allowlist",
+  "hitl_always_allow_error": "Could not update the workspace allowlist",
   "kanban_action_unblock": "Unblock",
   "kanban_action_cancel": "Cancel",
   "kanban_new_task": "+ New task",
