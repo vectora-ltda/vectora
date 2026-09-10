@@ -267,7 +267,8 @@ def validate_lock_entries(entries: dict[str, dict[str, object]]) -> None:
                 ) from exc
     for skill_id, entry in entries.items():
         requirements = entry.get("requires_skills", {})
-        assert isinstance(requirements, dict)
+        if not isinstance(requirements, dict):
+            raise ValueError(f"dependências inválidas para skill {skill_id}")
         for dependency, constraint in requirements.items():
             normalized_dependency = dependency.strip()
             dependency_entry = entries.get(
