@@ -14,6 +14,7 @@ import {
   getThreadPins,
   setThreadPins,
   updateThread,
+  submitFeedback,
 } from "@/lib/api/vectora-client";
 
 function jsonResponse(data: unknown, status = 200) {
@@ -126,6 +127,43 @@ describe("auth no postRpc", () => {
   it("erro não-401 lança com o status", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ detail: "boom" }, 500));
     await expect(listThreads()).rejects.toThrow(/500/);
+  });
+});
+
+describe("feedback", () => {
+  const input = {
+    kind: "bug" as const,
+    description: "Falha ao salvar",
+    include_context: true,
+    context: { route: "/chat", platform: "desktop" },
+  };
+
+  it("envia POST autenticado e retorna o id", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ id: "fb-1" }));
+
+    await expect(submitFeedback(input)).resolves.toEqual({ id: "fb-1" });
+    const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(String(url)).toContain("/feedback");
+    expect(opts.method).toBe("POST");
+    expect(opts.credentials).toBe("include");
+    expect(JSON.parse(opts.body as string)).toEqual(input);
+  });
+
+  it("converte HTTP 429 em rate_limited", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: "limite" }, 429));
+
+    await expect(submitFeedback(input)).rejects.toThrow("rate_limited");
+  });
+
+  it("atualiza a sessão e retenta uma vez após 401", async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({}, 401))
+      .mockResolvedValueOnce(jsonResponse({}, 200))
+      .mockResolvedValueOnce(jsonResponse({ id: "fb-2" }));
+
+    await expect(submitFeedback(input)).resolves.toEqual({ id: "fb-2" });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[1][0])).toContain("/auth/refresh");
   });
 });
 
