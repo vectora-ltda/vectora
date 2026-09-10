@@ -4,6 +4,8 @@
  * declarações divergentes em componentes diferentes.
  */
 
+import type { UpdateBackupEntry } from "./update-backup";
+
 export interface VectoraUpdateStatus {
   state:
     | "checking"
@@ -75,6 +77,8 @@ export interface VectoraDesktopBridge {
   /** Dispara uma checagem manual de atualização — independente do toggle
    * de auto-update (que só gate os timers automáticos, ver main.ts). */
   checkForUpdate?: () => void;
+  listUpdateBackups?: () => Promise<ReadonlyArray<UpdateBackupEntry>>;
+  restoreUpdateBackup?: (backup: UpdateBackupEntry) => Promise<void>;
   downloadUpdate?: () => void;
   /** Origem `ws://127.0.0.1:{porta}` do backend — necessária porque o
    * renderer carrega de `vectora-app://`, scheme custom contra o qual uma

@@ -33,6 +33,8 @@
   "sidebar_ctx_pin": "Pin",
   "sidebar_ctx_unpin": "Unpin",
   "sidebar_ctx_delete": "Delete",
+  "sidebar_ctx_resume": "Open on this device",
+  "sidebar_remote_activity_tooltip": "Active on another device {time}",
   "sidebar_rename_placeholder": "Session name",
   "sidebar_pull_to_refresh": "Pull to refresh",
   "sidebar_refreshing": "Refreshing…",

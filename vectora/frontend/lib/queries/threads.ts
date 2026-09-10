@@ -54,6 +54,7 @@ function toSidebarThread(t: VectoraThread, userId: string): Thread {
     // _normalize_mode. A sidebar separa os pools por este campo.
     mode: t.mode ?? "code",
     pinned: t.pinned ?? false,
+    remote_activity: t.remote_activity ?? null,
   };
 }
 

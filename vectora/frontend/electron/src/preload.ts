@@ -10,6 +10,7 @@
 
 import { contextBridge, ipcRenderer } from "electron";
 import type { BrowserViewEvent, ViewBounds } from "./browser-view-manager.js";
+import type { UpdateBackupEntry } from "../../lib/types/update-backup.js";
 
 export interface VectoraDesktopBridge {
   /** "win32" | "darwin" | "linux" — útil para shortcuts e UI condicional. */
@@ -62,6 +63,8 @@ export interface VectoraDesktopBridge {
   /** Dispara uma checagem manual de atualização — independente do toggle
    * de auto-update (que só gate os timers automáticos, ver main.ts). */
   checkForUpdate: () => void;
+  listUpdateBackups: () => Promise<ReadonlyArray<UpdateBackupEntry>>;
+  restoreUpdateBackup: (backup: UpdateBackupEntry) => Promise<void>;
   downloadUpdate: () => void;
   /** Origem `ws://127.0.0.1:{porta}` do backend — necessária porque o
    * renderer carrega de `vectora-app://`, scheme custom contra o qual uma
@@ -160,6 +163,9 @@ const bridge: VectoraDesktopBridge = {
   },
   quitAndInstallUpdate: () => ipcRenderer.send("vectora:quit-and-install"),
   checkForUpdate: () => ipcRenderer.send("vectora:check-for-update"),
+  listUpdateBackups: () => ipcRenderer.invoke("vectora:list-update-backups"),
+  restoreUpdateBackup: (backup) =>
+    ipcRenderer.invoke("vectora:restore-update-backup", backup),
   downloadUpdate: () => ipcRenderer.send("vectora:download-update"),
   getBackendWsOrigin: () => ipcRenderer.invoke("vectora:get-backend-ws-origin"),
   windowControls: {

@@ -8,7 +8,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { streamChat } from "@/lib/api/vectora-client";
+import {
+  resumeChat,
+  revokeCurrentDevice,
+  streamChat,
+} from "@/lib/api/vectora-client";
 
 const fetchMock = vi.fn();
 
@@ -102,5 +106,66 @@ describe("readSSEStream (via streamChat) — evento final sem \\n\\n terminador"
     );
 
     expect(events).toEqual([{ type: "token", content: "x" }]);
+  });
+});
+
+describe("resumeChat device activity", () => {
+  it("envia o identificador opaco do dispositivo no stream de retomada", async () => {
+    window.localStorage.setItem(
+      "vectora-device-id",
+      "vdev_12345678-1234-1234-1234-123456789abc",
+    );
+    fetchMock.mockResolvedValueOnce(
+      okResponse(makeControlledStream(['data: {"type":"done"}\n\n'])),
+    );
+
+    await collect(
+      resumeChat({ thread_id: "t1", interrupt_id: "i1", decision: "approve" }),
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("ResumeChat"),
+      expect.objectContaining({
+        headers: {
+          "Content-Type": "application/json",
+          "X-Vectora-Device-Id": "vdev_12345678-1234-1234-1234-123456789abc",
+        },
+      }),
+    );
+  });
+});
+
+describe("revokeCurrentDevice", () => {
+  it("envia o device id, remove a atividade remota e gira o id local", async () => {
+    window.localStorage.setItem(
+      "vectora-device-id",
+      "vdev_12345678-1234-1234-1234-123456789abc",
+    );
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 204 });
+
+    await revokeCurrentDevice();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/threads/device/revoke",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+          "X-Vectora-Device-Id": "vdev_12345678-1234-1234-1234-123456789abc",
+        },
+      }),
+    );
+    expect(window.localStorage.getItem("vectora-device-id")).toBeNull();
+  });
+
+  it("preserva o device id quando a revogação falha", async () => {
+    const deviceId = "vdev_12345678-1234-1234-1234-123456789abc";
+    window.localStorage.setItem("vectora-device-id", deviceId);
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 500 });
+
+    await expect(revokeCurrentDevice()).rejects.toThrow("HTTP 500");
+
+    expect(window.localStorage.getItem("vectora-device-id")).toBe(deviceId);
   });
 });
