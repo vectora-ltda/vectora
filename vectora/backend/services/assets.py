@@ -22,12 +22,20 @@ class _Fcntl(Protocol):
     def flock(self, file_descriptor: int, operation: int) -> None: ...
 
 
+class _Msvcrt(Protocol):
+    LK_LOCK: int
+
+    def locking(
+        self, file_descriptor: int, mode: int, number_of_bytes: int
+    ) -> None: ...
+
+
 try:
     _fcntl: _Fcntl | None = cast("_Fcntl", importlib.import_module("fcntl"))
 except ImportError:  # pragma: no cover - Windows
     _fcntl = None
 try:
-    _msvcrt = importlib.import_module("msvcrt")
+    _msvcrt: _Msvcrt | None = cast("_Msvcrt", importlib.import_module("msvcrt"))
 except ImportError:  # pragma: no cover - Unix
     _msvcrt = None
 
