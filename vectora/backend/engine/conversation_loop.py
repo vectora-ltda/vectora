@@ -86,6 +86,10 @@ class LoopResult:
     stopped_reason: str
     """`"stop"` | `"max_iterations"` | `"interrupted"` | `"loop_cap_exceeded"`."""
     final_message: VMessage | None = None
+    usage: dict[str, int] | None = None
+    usage_models: tuple[str, ...] = ()
+    usage_records: tuple[tuple[str | None, dict[str, int]], ...] = ()
+    tool_names: tuple[str, ...] = ()
 
 
 async def _noop_event(_event: object) -> None:
@@ -183,6 +187,10 @@ async def run_conversation(
     assinaturas_anteriores: frozenset[tuple[str, str]] | None = None
     repeticoes_seguidas = 0
     turn_budget = TurnBudget(config=config.loop_caps)
+    last_usage: dict[str, int] | None = None
+    usage_models: set[str] = set()
+    usage_records: list[tuple[str | None, dict[str, int]]] = []
+    observed_tools: set[str] = set()
 
     for _iteracao in range(config.max_iterations):
         historico = await session_store.get_history(thread_id)
@@ -190,12 +198,15 @@ async def run_conversation(
         partes_texto: list[str] = []
         tool_call_chunks_por_indice: dict[int, dict[str, Any]] = {}
 
+        stream_usage: dict[str, int] | None = None
         async for chunk in chat_client.astream(
             historico,
             tools=tools,
             temperature=config.temperature,
             max_tokens=config.max_tokens,
         ):
+            if chunk.usage:
+                stream_usage = dict(chunk.usage)
             if chunk.delta_text:
                 partes_texto.append(chunk.delta_text)
                 await emit(MessageChunk(content=chunk.delta_text))
@@ -214,8 +225,20 @@ async def run_conversation(
             # `VMessageChunk.usage` diretamente do stream do chat client,
             # não via `on_event`.
 
+        if stream_usage is not None:
+            if last_usage is None:
+                last_usage = {}
+            for key, value in stream_usage.items():
+                last_usage[key] = last_usage.get(key, 0) + value
+        model_id = getattr(chat_client, "last_model_id", None)
+        if model_id:
+            usage_models.add(str(model_id))
+        if stream_usage is not None:
+            usage_records.append((str(model_id) if model_id else None, stream_usage))
+
         texto_final = "".join(partes_texto)
         tool_calls = _resolve_tool_calls(tool_call_chunks_por_indice)
+        observed_tools.update(tc.name for tc in tool_calls if tc.name)
 
         assistant_msg = VMessage(
             role=MessageRole.ASSISTANT,
@@ -231,7 +254,14 @@ async def run_conversation(
         await emit(MessageBreak())
 
         if not tool_calls:
-            return LoopResult(stopped_reason="stop", final_message=assistant_msg)
+            return LoopResult(
+                stopped_reason="stop",
+                final_message=assistant_msg,
+                usage=last_usage,
+                usage_models=tuple(sorted(usage_models)),
+                usage_records=tuple(usage_records),
+                tool_names=tuple(sorted(observed_tools)),
+            )
 
         assinaturas_atual = frozenset(_call_signature(tc) for tc in tool_calls)
         if assinaturas_atual == assinaturas_anteriores:
@@ -306,7 +336,12 @@ async def run_conversation(
                     )
                 )
                 return LoopResult(
-                    stopped_reason="interrupted", final_message=assistant_msg
+                    stopped_reason="interrupted",
+                    final_message=assistant_msg,
+                    usage=last_usage,
+                    usage_models=tuple(sorted(usage_models)),
+                    usage_records=tuple(usage_records),
+                    tool_names=tuple(sorted(observed_tools)),
                 )
 
         tool_started_at: dict[str, float] = {}
@@ -335,7 +370,11 @@ async def run_conversation(
             )
 
         resultados = await execute_tool_batch(
-            tool_calls, tool_registry=tool_registry, ctx=ctx, turn_budget=turn_budget
+            tool_calls,
+            tool_registry=tool_registry,
+            ctx=ctx,
+            turn_budget=turn_budget,
+            on_event=on_event,
         )
         for resultado in resultados:
             parent_id = await session_store.append_message(
@@ -386,7 +425,12 @@ async def run_conversation(
                 )
             )
             return LoopResult(
-                stopped_reason="loop_cap_exceeded", final_message=assistant_msg
+                stopped_reason="loop_cap_exceeded",
+                final_message=assistant_msg,
+                usage=last_usage,
+                usage_models=tuple(sorted(usage_models)),
+                usage_records=tuple(usage_records),
+                tool_names=tuple(sorted(observed_tools)),
             )
 
     await emit(
@@ -395,11 +439,21 @@ async def run_conversation(
             message=f"Limite de {config.max_iterations} iterações atingido.",
         )
     )
-    return LoopResult(stopped_reason="max_iterations")
+    return LoopResult(
+        stopped_reason="max_iterations",
+        usage=last_usage,
+        usage_models=tuple(sorted(usage_models)),
+        usage_records=tuple(usage_records),
+        tool_names=tuple(sorted(observed_tools)),
+    )
 
 
 async def _execute_single_call(
-    tool_call: ToolCall, *, tool_registry: ToolRegistry, ctx: ToolContext
+    tool_call: ToolCall,
+    *,
+    tool_registry: ToolRegistry,
+    ctx: ToolContext,
+    on_event: EventSink | None = None,
 ) -> VMessage:
     """Mesma lógica de execução de ``tool_batch._run_one``, sem
     ``TurnBudget`` (o teto de volume é do turno que gerou o lote original,
@@ -414,7 +468,12 @@ async def _execute_single_call(
         # que eventos de duas tools executadas em lote compartilhem o mesmo
         # ID e permite que delegações internas atualizem o card correto.
         texto = await spec.ainvoke(
-            tool_call.args, replace(ctx, tool_call_id=tool_call.id)
+            tool_call.args,
+            replace(
+                ctx,
+                tool_call_id=tool_call.id,
+                _extra={**ctx._extra, "event_sink": on_event},
+            ),
         )
         is_error = texto.startswith("Error:")
     return VMessage(
@@ -504,7 +563,10 @@ async def resume_conversation(
             if decision in {"edit", "option"} and edited_args is not None:
                 args = edited_args
             resultado = await _execute_single_call(
-                replace(tc, args=args), tool_registry=tool_registry, ctx=ctx
+                replace(tc, args=args),
+                tool_registry=tool_registry,
+                ctx=ctx,
+                on_event=on_event,
             )
 
         parent_id = await session_store.append_message(

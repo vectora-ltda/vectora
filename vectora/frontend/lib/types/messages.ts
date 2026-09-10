@@ -81,4 +81,13 @@ export interface Message {
     priority?: number;
     expiresAt?: string | null;
   };
+  /** Pergunta estruturada aguardando uma resposta do usuário. */
+  structuredQuestionPending?: {
+    questionId: string;
+    threadId: string;
+    prompt: string;
+    options: string[];
+    allowFreeText: boolean;
+    expiresAt?: string;
+  };
 }

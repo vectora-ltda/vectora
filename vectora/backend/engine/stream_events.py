@@ -118,6 +118,18 @@ class HitlRequested:
 
 
 @dataclass(frozen=True, slots=True)
+class StructuredQuestionRequested:
+    """Pergunta estruturada que o cliente deve responder antes do timeout."""
+
+    question_id: str
+    thread_id: str
+    prompt: str
+    options: list[str]
+    allow_free_text: bool
+    expires_at: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class WorkbenchInvalidate:
     tabs: list[str]
     tool_name: str = ""
@@ -173,6 +185,7 @@ EngineEvent = (
     | NodeStatus
     | RagCitations
     | HitlRequested
+    | StructuredQuestionRequested
     | WorkbenchInvalidate
     | TodosUpdated
     | ModelSwitched
