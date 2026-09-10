@@ -133,6 +133,7 @@ def resolve_dependencies(
             return order, selected
         skill_id = pending[0]
         required = constraints.get(skill_id, [])
+        last_error: ValueError | None = None
         for _version, candidate in options(skill_id):
             version, requirements = candidate
             if not all(
@@ -153,7 +154,13 @@ def resolve_dependencies(
                 )
             if cycle:
                 continue
-            result = search(next_selected, next_constraints, [*order, skill_id])
+            try:
+                result = search(next_selected, next_constraints, [*order, skill_id])
+            except ValueError as exc:
+                # Esta versão pode tornar uma dependência incompatível; tente
+                # o próximo candidato antes de falhar a resolução inteira.
+                last_error = exc
+                continue
             if result is not None:
                 return result
         details = ", ".join(
@@ -161,6 +168,8 @@ def resolve_dependencies(
         )
         if details:
             raise ValueError(f"versão incompatível: {skill_id} ({details})")
+        if last_error is not None:
+            raise last_error
         return None
 
     result = search({}, {}, [])

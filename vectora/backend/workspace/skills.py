@@ -276,9 +276,10 @@ def _skill_lock_entry(skill: Skill) -> dict[str, object]:
             constraint = item.get("version", item.get("constraint"))
             if not isinstance(dependency, str) or not isinstance(constraint, str):
                 raise ValueError(f"requires_skills inválido para skill {skill.id}")
-            if dependency in requirements:
+            normalized_dependency = dependency.strip()
+            if normalized_dependency in requirements:
                 raise ValueError(f"dependência duplicada para skill {skill.id}")
-            requirements[dependency.strip()] = constraint.strip()
+            requirements[normalized_dependency] = constraint.strip()
     else:
         raise ValueError(f"requires_skills inválido para skill {skill.id}")
     source = skill.source
@@ -315,7 +316,12 @@ def _write_scope_lock(
     lock_path = _scope_lock_path(user_id, scope, target)
     if lock_path.exists():
         skills_lock.read_lockfile(lock_path)
-    entries = {skill.id: _skill_lock_entry(skill) for skill in skills}
+    entries: dict[str, dict[str, object]] = {}
+    for skill in skills:
+        skill_id = skill.id.strip()
+        if not skill_id or skill_id in entries:
+            raise ValueError(f"ids de skills duplicados após normalização: {skill.id}")
+        entries[skill_id] = _skill_lock_entry(skill)
     candidates: dict[str, object] = {
         skill_id: (str(entry["version"]), entry["requires_skills"])
         for skill_id, entry in entries.items()
