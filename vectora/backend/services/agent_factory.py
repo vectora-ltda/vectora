@@ -851,6 +851,9 @@ async def aget_thread_pending_interrupt(
         "tool_name": pending["tool_name"],
         "args": pending["args"],
         "interrupt_id": pending["interrupt_id"],
+        "options": pending["options"],
+        "priority": pending["priority"],
+        "expires_at": pending["expires_at"],
     }
 
 
