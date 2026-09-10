@@ -58,7 +58,10 @@ def _tier_from_store(user_id: str) -> LicenseTier | None:
 
 def get_current_tier(user_id: str | None = None) -> LicenseTier | None:
     """Resolve o tier do usuário autenticado, com isolamento por identidade."""
-    if os.getenv("VECTORA_LICENSE_BYPASS", "").strip() == "1" and user_id == "local":
+    if os.getenv("VECTORA_LICENSE_BYPASS", "").strip() == "1" and user_id in {
+        None,
+        "local",
+    }:
         return "pro"
     if user_id in {None, "local"}:
         info = read_cached_status()
