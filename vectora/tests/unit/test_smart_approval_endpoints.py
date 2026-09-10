@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from typing import cast
 
 import pytest
-from fastapi import Request
+from fastapi import HTTPException, Request
 
 from backend.api.handlers.threads import (
     SmartApprovalAllowlistRemoveRequest,
@@ -16,6 +16,7 @@ from backend.api.handlers.threads import (
     get_smart_approval_allowlist,
     remove_smart_approval_allowlist,
 )
+from backend.vtypes.workspace import Workspace
 
 
 class _FakeRequestImpl:
@@ -147,17 +148,23 @@ async def test_endpoints_rejeitam_workspace_nao_autorizado(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_endpoints_rejeitam_workspace_de_outro_usuario(monkeypatch):
-    from fastapi import HTTPException
-
+async def test_endpoints_rejeitam_workspace_de_outro_usuario(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from backend.services.smart_approval import add_to_allowlist, get_allowlist
+    from backend.workspace.workspace import workspace_registry
 
     add_to_allowlist("ws-outro", "terminal", {"command": "git status"})
     antes = get_allowlist("ws-outro")
-    monkeypatch.setattr(
-        "backend.api.handlers.workspaces.require_workspace_access",
-        lambda _workspace_id, _request: (_ for _ in ()).throw(
-            HTTPException(status_code=403, detail="Sem acesso")
+    monkeypatch.setitem(
+        workspace_registry._workspaces,
+        "ws-outro",
+        Workspace(
+            id="ws-outro",
+            name="Workspace privado",
+            cwd="/tmp/vectora-ws-outro",
+            created_at="2026-09-10T00:00:00+00:00",
+            owner_id="owner-1",
         ),
     )
     request = _authenticated_request("outro-usuario")
@@ -205,7 +212,7 @@ async def test_mutacoes_concorrentes_preservam_todas_as_regras():
 
 @pytest.mark.asyncio
 async def test_auditoria_de_mutacao_nao_expoe_assinatura(monkeypatch):
-    import backend.rbac.auth as auth
+    from backend.rbac import auth
 
     monkeypatch.setattr(
         "backend.api.handlers.workspaces.require_workspace_access",
