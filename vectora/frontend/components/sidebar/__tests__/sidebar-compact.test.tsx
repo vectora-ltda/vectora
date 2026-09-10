@@ -315,4 +315,12 @@ describe("SidebarFooter — ícones inline sem labels", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("Enviado");
     expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite");
   });
+
+  it("anuncia descrição vazia como alerta acessível", () => {
+    render(<SidebarFooter />);
+    fireEvent.click(screen.getByTitle("Feedback"));
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Descreva o problema");
+    expect(screen.getByRole("alert")).toHaveAttribute("aria-live", "assertive");
+  });
 });

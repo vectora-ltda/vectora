@@ -150,7 +150,6 @@ export const SidebarFooter = memo(function SidebarFooter() {
             <textarea
               id="feedback-description"
               className="min-h-28 w-full rounded border bg-background p-2"
-              required
               maxLength={5000}
               value={description}
               onChange={(event) => setDescription(event.target.value)}
