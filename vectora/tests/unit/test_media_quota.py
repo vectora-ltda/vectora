@@ -1,4 +1,5 @@
 import asyncio
+import os
 import sqlite3
 from pathlib import Path
 
@@ -145,6 +146,71 @@ async def test_summary_postgres_usa_tier_do_store_de_entitlements(
 
     assert result["limit"] == 100
     assert result["remaining"] == 1
+
+
+@pytest.mark.asyncio
+async def test_reservas_postgres_concorrentes_mesma_chave_sao_idempotentes(
+    monkeypatch,
+) -> None:
+    """Concorrência PostgreSQL deve produzir uma reserva e um único débito."""
+    dsn = os.getenv("VECTORA_TEST_POSTGRES_DSN")
+    if not dsn:
+        pytest.skip("VECTORA_TEST_POSTGRES_DSN não configurado")
+    import asyncpg
+
+    pool = await asyncpg.create_pool(dsn)
+    quota = MediaQuota()
+    user_id = f"postgres-idempotency-{os.urandom(8).hex()}"
+    key = f"postgres-call-{os.urandom(8).hex()}"
+    try:
+        async with pool.acquire() as connection:
+            await connection.execute(
+                "CREATE TABLE IF NOT EXISTS media_quota_usage ("
+                "user_id TEXT NOT NULL, period TEXT NOT NULL, used_units INTEGER NOT NULL DEFAULT 0, "
+                "PRIMARY KEY (user_id, period))"
+            )
+            await connection.execute(
+                "CREATE TABLE IF NOT EXISTS media_quota_reservations ("
+                "id TEXT PRIMARY KEY, user_id TEXT NOT NULL, period TEXT NOT NULL, operation TEXT NOT NULL, "
+                "units INTEGER NOT NULL, state TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), "
+                "UNIQUE (user_id, period, id))"
+            )
+        monkeypatch.setattr(quota, "_postgres_enabled", lambda: True)
+        monkeypatch.setattr(quota, "_current_tier", lambda _user_id: "pro")
+        monkeypatch.setattr(quota, "_postgres_pool", lambda: pool)
+
+        results = await asyncio.gather(
+            *(
+                quota.reserve(
+                    user_id=user_id,
+                    operation="generate_image",
+                    idempotency_key=key,
+                )
+                for _ in range(2)
+            )
+        )
+
+        assert results[0] is not None
+        assert results[0] == results[1]
+        async with pool.acquire() as connection:
+            usage = await connection.fetchval(
+                "SELECT used_units FROM media_quota_usage WHERE user_id = $1",
+                user_id,
+            )
+            reservations = await connection.fetchval(
+                "SELECT COUNT(*) FROM media_quota_reservations WHERE id = $1", key
+            )
+        assert usage == 1
+        assert reservations == 1
+    finally:
+        async with pool.acquire() as connection:
+            await connection.execute(
+                "DELETE FROM media_quota_reservations WHERE id = $1", key
+            )
+            await connection.execute(
+                "DELETE FROM media_quota_usage WHERE user_id = $1", user_id
+            )
+        await pool.close()
 
 
 class _FakeConnection:

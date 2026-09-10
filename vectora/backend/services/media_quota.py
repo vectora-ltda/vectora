@@ -124,12 +124,30 @@ class MediaQuota:
         async with pool.acquire() as connection:
             async with connection.transaction():
                 period = self.period()
-                existing = await connection.fetchrow(
-                    "SELECT user_id, period, operation, units, state "
-                    "FROM media_quota_reservations WHERE id = $1 FOR UPDATE",
+                # A chave idempotente é o primeiro recurso serializado. O
+                # índice PRIMARY KEY faz concorrentes com a mesma chave
+                # esperarem pela primeira transação, evitando que ambas
+                # debitem a quota antes de descobrir o conflito.
+                inserted = await connection.fetchrow(
+                    "INSERT INTO media_quota_reservations "
+                    "(id, user_id, period, operation, units, state) "
+                    "VALUES ($1, $2, $3, $4, $5, 'reserved') "
+                    "ON CONFLICT (id) DO NOTHING "
+                    "RETURNING id",
                     idempotency_key,
+                    user_id,
+                    period,
+                    operation,
+                    estimate_units,
                 )
-                if existing:
+                existing = None
+                if inserted is None:
+                    existing = await connection.fetchrow(
+                        "SELECT user_id, period, operation, units, state "
+                        "FROM media_quota_reservations WHERE id = $1 FOR UPDATE",
+                        idempotency_key,
+                    )
+                if existing is not None:
                     if (
                         existing["user_id"] != user_id
                         or existing["operation"] != operation
@@ -189,16 +207,13 @@ class MediaQuota:
                     MONTHLY_LIMITS.get(tier, MONTHLY_LIMITS["free"]),
                 )
                 if not updated.endswith("1"):
+                    await connection.execute(
+                        "DELETE FROM media_quota_reservations WHERE id = $1",
+                        idempotency_key,
+                    )
                     return None
-                await connection.execute(
-                    "INSERT INTO media_quota_reservations "
-                    "(id,user_id,period,operation,units,state) VALUES ($1,$2,$3,$4,$5,'reserved')",
-                    idempotency_key,
-                    user_id,
-                    period,
-                    operation,
-                    estimate_units,
-                )
+                # A reserva foi inserida acima; só o débito ainda precisa ser
+                # confirmado nesta mesma transação.
         return QuotaReservation(
             idempotency_key, user_id, period, operation, estimate_units
         )
