@@ -154,7 +154,7 @@ export function HitlAllowlistPanel() {
           {m.hitl_allowlist_empty()}
         </p>
       )}
-      {!loading && !error && rules.length > 0 && (
+      {!loading && rules.length > 0 && (
         <div className="rounded-lg border bg-card/50 divide-y divide-border/60">
           {rules.map((rule) => (
             <div

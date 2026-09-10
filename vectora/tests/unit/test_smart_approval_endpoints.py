@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
 from typing import cast
 
 import pytest
@@ -20,11 +22,18 @@ class _FakeRequestImpl:
     class _State:
         user = None
 
-    state = _State()
+    def __init__(self) -> None:
+        self.state = self._State()
 
 
 def _fake_request() -> Request:
     return cast("Request", _FakeRequestImpl())
+
+
+def _authenticated_request(user_id: str = "user-1") -> Request:
+    request = _FakeRequestImpl()
+    request.state.user = SimpleNamespace(id=user_id)
+    return cast("Request", request)
 
 
 @pytest.fixture(autouse=True)
@@ -104,3 +113,90 @@ async def test_workspace_vazio_vira_400_nao_500():
             _fake_request(),
         )
     assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_endpoints_rejeitam_workspace_nao_autorizado(monkeypatch):
+    from fastapi import HTTPException
+
+    monkeypatch.setattr(
+        "backend.api.handlers.workspaces.require_workspace_access",
+        lambda _workspace_id, _request: None,
+    )
+    request = _authenticated_request()
+
+    with pytest.raises(HTTPException) as get_error:
+        await get_smart_approval_allowlist("privado", request)
+    assert get_error.value.status_code == 404
+
+    with pytest.raises(HTTPException) as add_error:
+        await add_smart_approval_allowlist(
+            SmartApprovalAllowlistRequest(
+                workspace_id="privado", tool_name="terminal", args={}
+            ),
+            request,
+        )
+    assert add_error.value.status_code == 404
+
+    with pytest.raises(HTTPException) as remove_error:
+        await remove_smart_approval_allowlist(
+            SmartApprovalAllowlistRemoveRequest(workspace_id="privado", rule_id="rule"),
+            request,
+        )
+    assert remove_error.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_mutacoes_concorrentes_preservam_todas_as_regras():
+    from backend.services.smart_approval import add_to_allowlist, get_allowlist
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(
+            executor.map(
+                lambda index: add_to_allowlist(
+                    "ws-concorrente", "terminal", {"command": f"cmd-{index}"}
+                ),
+                range(8),
+            )
+        )
+
+    assert len(get_allowlist("ws-concorrente")) == 8
+
+
+@pytest.mark.asyncio
+async def test_auditoria_de_mutacao_nao_expoe_assinatura(monkeypatch):
+    import backend.rbac.auth as auth
+
+    monkeypatch.setattr(
+        "backend.api.handlers.workspaces.require_workspace_access",
+        lambda _workspace_id, _request: SimpleNamespace(id="workspace"),
+    )
+    eventos: list[dict[str, object]] = []
+
+    async def fake_db():
+        return object()
+
+    async def fake_audit(_db, _user_id, action, **kwargs):
+        eventos.append({"action": action, **kwargs})
+
+    monkeypatch.setattr(auth, "get_db_for_audit", fake_db)
+    monkeypatch.setattr(auth, "write_audit", fake_audit)
+    request = _authenticated_request("auditor-1")
+    resposta = await add_smart_approval_allowlist(
+        SmartApprovalAllowlistRequest(
+            workspace_id="ws-audit", tool_name="terminal", args={"command": "pwd"}
+        ),
+        request,
+    )
+    await remove_smart_approval_allowlist(
+        SmartApprovalAllowlistRemoveRequest(
+            workspace_id="ws-audit", rule_id=resposta.allowlist[0].id
+        ),
+        request,
+    )
+
+    assert [event["action"] for event in eventos] == [
+        "smart_approval.add",
+        "smart_approval.remove",
+    ]
+    assert all("signature" not in event for event in eventos)
