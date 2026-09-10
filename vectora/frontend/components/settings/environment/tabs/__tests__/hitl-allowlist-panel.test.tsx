@@ -11,6 +11,7 @@ import {
 
 import { m } from "@/lib/paraglide/messages";
 import { HitlAllowlistPanel } from "../hitl-allowlist-panel";
+import { HITLPanel } from "@/components/chat/features/hitl-panel";
 
 vi.mock("@/lib/paraglide/messages", () => ({
   m: {
@@ -27,6 +28,15 @@ vi.mock("@/lib/paraglide/messages", () => ({
     hitl_allowlist_cancel: () => "Cancelar",
     hitl_allowlist_revoked: () => "Revogada",
     hitl_allowlist_revoke_error: () => "Erro ao revogar",
+    hitl_title: () => "Aprovação",
+    hitl_show_args: () => "Mostrar argumentos",
+    hitl_hide_args: () => "Ocultar argumentos",
+    hitl_approve: () => "Aprovar",
+    hitl_edit: () => "Editar",
+    hitl_reject: () => "Rejeitar",
+    hitl_always_allow: () => "Sempre permitir",
+    hitl_always_allow_added: () => "Adicionado",
+    hitl_always_allow_error: () => "Não foi possível salvar",
   },
 }));
 
@@ -86,5 +96,29 @@ describe("HitlAllowlistPanel", () => {
       expect(screen.getByText(m.hitl_allowlist_revoke_error())).toBeTruthy(),
     );
     expect(document.body.textContent).toContain("Regra 1");
+  });
+
+  it("mantém Sempre permitir disponível quando o POST falha", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValue({ ok: false, status: 500 } as Response);
+    render(
+      <HITLPanel
+        messageId="message-1"
+        threadId="thread-1"
+        pending={{
+          toolName: "terminal",
+          argsJson: '{"command":"pwd"}',
+          interruptId: "interrupt-1",
+          workspaceId: "ws-1",
+        }}
+        onDecision={vi.fn()}
+      />,
+    );
+
+    const allowButton = screen.getByRole("button", { name: "Sempre permitir" });
+    fireEvent.click(allowButton);
+    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+    expect(allowButton).not.toBeDisabled();
   });
 });
