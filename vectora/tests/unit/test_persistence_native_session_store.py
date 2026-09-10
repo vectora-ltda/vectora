@@ -3,6 +3,8 @@ Fixture com pool real sobre `tmp_path`, sem mock."""
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from backend.persistence.native.session_store import SessionStore
@@ -324,6 +326,60 @@ class TestSetBranchHead:
 
 
 class TestPendingApprovals:
+    async def test_round_trip_preserva_opcoes_prioridade_e_expiracao(
+        self, store: SessionStore
+    ):
+        await store.create_session("thread-structured", user_id="alice")
+        await store.put_pending_approval(
+            "thread-structured",
+            interrupt_id="int-structured",
+            tool_name="terminal",
+            tool_call_id="call-structured",
+            args={"command": "git status"},
+            options=[{"label": "Executar", "value": "run"}],
+            priority=80,
+            expires_at="2999-01-01T00:00:00+00:00",
+        )
+
+        pending = await store.get_pending_approval("thread-structured")
+        assert pending is not None
+        assert pending["options"] == [{"label": "Executar", "value": "run"}]
+        assert pending["priority"] == 80
+        assert pending["expires_at"] == "2999-01-01T00:00:00+00:00"
+
+    async def test_aprovacao_expirada_e_removida_ao_ser_lida(self, store: SessionStore):
+        await store.create_session("thread-expired", user_id="alice")
+        await store.put_pending_approval(
+            "thread-expired",
+            interrupt_id="int-expired",
+            tool_name="terminal",
+            tool_call_id="call-expired",
+            args={},
+            expires_at="2000-01-01T00:00:00+00:00",
+        )
+
+        assert await store.get_pending_approval("thread-expired") is None
+
+    async def test_claim_pending_approval_e_atomico_para_duas_retomas(
+        self, store: SessionStore
+    ) -> None:
+        """Somente uma retomada concorrente pode reivindicar o interrupt."""
+        await store.create_session("thread-claim", user_id="alice")
+        await store.put_pending_approval(
+            "thread-claim",
+            interrupt_id="intr-claim",
+            tool_name="terminal",
+            tool_call_id="call-claim",
+            args={"command": "echo ok"},
+        )
+
+        claimed = await asyncio.gather(
+            store.claim_pending_approval("thread-claim", interrupt_id="intr-claim"),
+            store.claim_pending_approval("thread-claim", interrupt_id="intr-claim"),
+        )
+
+        assert sum(item is not None for item in claimed) == 1
+
     async def test_round_trip_put_get_clear(self, store: SessionStore):
         await store.create_session("thread-1", user_id="alice")
         await store.put_pending_approval(
