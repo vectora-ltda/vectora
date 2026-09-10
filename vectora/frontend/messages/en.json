@@ -33,8 +33,6 @@
   "sidebar_ctx_pin": "Pin",
   "sidebar_ctx_unpin": "Unpin",
   "sidebar_ctx_delete": "Delete",
-  "sidebar_ctx_resume": "Open on this device",
-  "sidebar_remote_activity_tooltip": "Active on another device {time}",
   "sidebar_rename_placeholder": "Session name",
   "sidebar_pull_to_refresh": "Pull to refresh",
   "sidebar_refreshing": "Refreshing…",
@@ -111,6 +109,7 @@
   "message_click_edit": "Click to edit and rerun from here",
   "message_subagent_outputs": "Subagent Outputs ({n})",
   "message_list_aria": "Messages",
+  "unread_messages_count": "{n} unread messages",
   "thinking_direct": "Direct response",
   "thinking_delegate": "Delegating to agent",
   "thinking_web_search": "Web search",
@@ -1521,5 +1520,7 @@
   "about_panel_version_label": "Version",
   "about_panel_mode_label": "Mode",
   "about_panel_mode_desktop": "Desktop (Electron)",
-  "about_panel_mode_web": "Web"
+  "about_panel_mode_web": "Web",
+  "sidebar_ctx_resume": "Open on this device",
+  "sidebar_remote_activity_tooltip": "Active on another device {time}"
 }

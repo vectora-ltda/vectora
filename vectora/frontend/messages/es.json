@@ -33,8 +33,6 @@
   "sidebar_ctx_pin": "Fijar",
   "sidebar_ctx_unpin": "Desfijar",
   "sidebar_ctx_delete": "Eliminar",
-  "sidebar_ctx_resume": "Abrir en este dispositivo",
-  "sidebar_remote_activity_tooltip": "Activa en otro dispositivo {time}",
   "sidebar_rename_placeholder": "Nombre de la sesión",
   "sidebar_pull_to_refresh": "Desliza para actualizar",
   "sidebar_refreshing": "Actualizando…",
@@ -111,6 +109,7 @@
   "message_click_edit": "Clic para editar y volver a ejecutar",
   "message_subagent_outputs": "Salidas del subagente ({n})",
   "message_list_aria": "Mensajes",
+  "unread_messages_count": "{n} mensajes sin leer",
   "thinking_direct": "Respuesta directa",
   "thinking_delegate": "Delegando al agente",
   "thinking_web_search": "Búsqueda web",
@@ -1521,5 +1520,7 @@
   "about_panel_version_label": "Versión",
   "about_panel_mode_label": "Modo",
   "about_panel_mode_desktop": "Escritorio (Electron)",
-  "about_panel_mode_web": "Web"
+  "about_panel_mode_web": "Web",
+  "sidebar_ctx_resume": "Abrir en este dispositivo",
+  "sidebar_remote_activity_tooltip": "Activo en otro dispositivo {time}"
 }
