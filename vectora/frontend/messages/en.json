@@ -108,6 +108,7 @@
   "message_waiting_output": "Waiting for output...",
   "message_click_edit": "Click to edit and rerun from here",
   "message_subagent_outputs": "Subagent Outputs ({n})",
+  "message_list_aria": "Messages",
   "thinking_direct": "Direct response",
   "thinking_delegate": "Delegating to agent",
   "thinking_web_search": "Web search",
