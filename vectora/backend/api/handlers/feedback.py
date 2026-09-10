@@ -21,7 +21,7 @@ type FeedbackContextKey = Literal["app_version", "platform", "route"]
 
 
 class FeedbackRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     kind: Literal["bug", "suggestion"]
     description: str = Field(min_length=1, max_length=5000)

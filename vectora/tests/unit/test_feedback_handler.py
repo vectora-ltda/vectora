@@ -17,6 +17,11 @@ def test_feedback_rejeita_campos_desconhecidos() -> None:
         )
 
 
+def test_feedback_rejeita_descricao_apenas_com_espacos() -> None:
+    with pytest.raises(ValidationError):
+        FeedbackRequest.model_validate({"kind": "bug", "description": "   "})
+
+
 @pytest.mark.asyncio
 async def test_feedback_filtra_contexto_e_associa_usuario(
     tmp_path, monkeypatch
