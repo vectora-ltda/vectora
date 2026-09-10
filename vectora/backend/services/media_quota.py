@@ -8,7 +8,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from backend.settings import settings
 
@@ -17,6 +17,19 @@ logger = logging.getLogger(__name__)
 MONTHLY_LIMITS = {"free": 10, "pro": 100}
 UNIT_COSTS = {"generate_image": 1, "text_to_speech": 1, "generate_video": 10}
 QuotaState = Literal["reserved", "finalized", "failed", "unknown", "cancelled"]
+
+
+@dataclass(frozen=True)
+class MediaEstimate:
+    """Estimativa versionada compartilhada pelo HITL e pela reserva."""
+
+    operation: str
+    provider: str
+    model: str
+    version: str
+    billable_unit: str
+    currency: str
+    units: int
 
 
 @dataclass(frozen=True)
@@ -35,6 +48,34 @@ class MediaQuota:
     def __init__(self, database: Path | None = None) -> None:
         self.database = cast("Path", database or settings.db_file)
 
+    @staticmethod
+    def _postgres_enabled() -> bool:
+        """Indica se o storage completo deve usar Postgres para quota."""
+        try:
+            from backend.services.license import get_effective_storage_mode
+
+            return get_effective_storage_mode() == "complete" and bool(
+                settings.postgres_dsn
+            )
+        except Exception:
+            return False
+
+    async def _postgres_pool(
+        self,
+    ) -> Any:  # asyncpg é dependência opcional do modo completo
+        from backend.storage.factory import get_pg_pool
+
+        return await get_pg_pool()
+
+    async def _postgres_tier(self, connection: Any, user_id: str) -> str | None:
+        row = await connection.fetchrow(
+            "SELECT tier FROM vectora_user_entitlements WHERE user_id = $1", user_id
+        )
+        if row is None:
+            return "free"
+        tier = row["tier"]
+        return tier if tier in {"free", "pro"} else None
+
     def _connect(self) -> sqlite3.Connection:
         self.database.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(self.database)
@@ -46,18 +87,90 @@ class MediaQuota:
         return datetime.now(UTC).strftime("%Y-%m")
 
     async def reserve(
-        self, *, user_id: str, operation: str, idempotency_key: str
+        self,
+        *,
+        user_id: str,
+        operation: str,
+        idempotency_key: str,
+        units: int | None = None,
     ) -> QuotaReservation | None:
+        if self._postgres_enabled():
+            return await self._reserve_postgres(
+                user_id, operation, idempotency_key, units
+            )
         return await asyncio.to_thread(
-            self._reserve, user_id, operation, idempotency_key
+            self._reserve, user_id, operation, idempotency_key, units
+        )
+
+    async def _reserve_postgres(
+        self, user_id: str, operation: str, idempotency_key: str, units: int | None
+    ) -> QuotaReservation | None:
+        estimate_units = UNIT_COSTS.get(operation, 0) if units is None else units
+        pool = await self._postgres_pool()
+        async with pool.acquire() as connection:
+            async with connection.transaction():
+                tier = await self._postgres_tier(connection, user_id)
+                if tier is None:
+                    return None
+                period = self.period()
+                existing = await connection.fetchrow(
+                    "SELECT user_id, period, operation, units, state "
+                    "FROM media_quota_reservations WHERE id = $1 FOR UPDATE",
+                    idempotency_key,
+                )
+                if existing:
+                    if (
+                        existing["user_id"] != user_id
+                        or existing["operation"] != operation
+                    ):
+                        return None
+                    return QuotaReservation(
+                        idempotency_key,
+                        existing["user_id"],
+                        existing["period"],
+                        existing["operation"],
+                        existing["units"],
+                        existing["state"],
+                    )
+                await connection.execute(
+                    "INSERT INTO media_quota_usage(user_id, period, used_units) "
+                    "VALUES ($1, $2, 0) ON CONFLICT (user_id, period) DO NOTHING",
+                    user_id,
+                    period,
+                )
+                updated = await connection.execute(
+                    "UPDATE media_quota_usage SET used_units = used_units + $1 "
+                    "WHERE user_id = $2 AND period = $3 AND used_units + $1 <= $4",
+                    estimate_units,
+                    user_id,
+                    period,
+                    MONTHLY_LIMITS.get(tier, MONTHLY_LIMITS["free"]),
+                )
+                if not updated.endswith("1"):
+                    return None
+                await connection.execute(
+                    "INSERT INTO media_quota_reservations "
+                    "(id,user_id,period,operation,units,state) VALUES ($1,$2,$3,$4,$5,'reserved')",
+                    idempotency_key,
+                    user_id,
+                    period,
+                    operation,
+                    estimate_units,
+                )
+        return QuotaReservation(
+            idempotency_key, user_id, period, operation, estimate_units
         )
 
     def _reserve(
-        self, user_id: str, operation: str, idempotency_key: str
+        self,
+        user_id: str,
+        operation: str,
+        idempotency_key: str,
+        units: int | None = None,
     ) -> QuotaReservation | None:
         from backend.rbac.subscription import get_current_tier
 
-        units = UNIT_COSTS.get(operation, 0)
+        units = UNIT_COSTS.get(operation, 0) if units is None else units
         logger.info(
             "media_quota.estimate",
             extra={
@@ -176,7 +289,35 @@ class MediaQuota:
     async def finalize(
         self, reservation: QuotaReservation, *, state: QuotaState
     ) -> None:
-        await asyncio.to_thread(self._finalize, reservation.id, state)
+        if self._postgres_enabled():
+            await self._finalize_postgres(reservation.id, state)
+        else:
+            await asyncio.to_thread(self._finalize, reservation.id, state)
+
+    async def _finalize_postgres(self, reservation_id: str, state: QuotaState) -> None:
+        pool = await self._postgres_pool()
+        async with pool.acquire() as connection:
+            async with connection.transaction():
+                row = await connection.fetchrow(
+                    "SELECT user_id, period, units FROM media_quota_reservations "
+                    "WHERE id = $1 AND state = 'reserved' FOR UPDATE",
+                    reservation_id,
+                )
+                if row is None:
+                    return
+                await connection.execute(
+                    "UPDATE media_quota_reservations SET state = $1 WHERE id = $2",
+                    state,
+                    reservation_id,
+                )
+                if state in {"failed", "cancelled"}:
+                    await connection.execute(
+                        "UPDATE media_quota_usage SET used_units = GREATEST(0, used_units - $1) "
+                        "WHERE user_id = $2 AND period = $3",
+                        row["units"],
+                        row["user_id"],
+                        row["period"],
+                    )
 
     def _finalize(self, reservation_id: str, state: QuotaState) -> None:
         with self._connect() as db:
@@ -201,7 +342,30 @@ class MediaQuota:
                 )
 
     async def summary(self, user_id: str) -> dict[str, int | str]:
+        if self._postgres_enabled():
+            return await self._summary_postgres(user_id)
         return await asyncio.to_thread(self._summary, user_id)
+
+    async def _summary_postgres(self, user_id: str) -> dict[str, int | str]:
+        pool = await self._postgres_pool()
+        period = self.period()
+        async with pool.acquire() as connection:
+            tier = await self._postgres_tier(connection, user_id)
+            if tier is None:
+                return {"period": period, "used": 0, "limit": 0, "remaining": 0}
+            row = await connection.fetchrow(
+                "SELECT used_units FROM media_quota_usage WHERE user_id = $1 AND period = $2",
+                user_id,
+                period,
+            )
+        limit = MONTHLY_LIMITS.get(tier, MONTHLY_LIMITS["free"])
+        used = int(row["used_units"]) if row else 0
+        return {
+            "period": period,
+            "used": used,
+            "limit": limit,
+            "remaining": max(0, limit - used),
+        }
 
     def _summary(self, user_id: str) -> dict[str, int | str]:
         from backend.rbac.subscription import get_current_tier
@@ -241,9 +405,28 @@ class MediaQuota:
 media_quota = MediaQuota()
 
 
-def media_estimate(operation: str) -> int:
-    """Return the deterministic quota unit estimate for an operation."""
-    return UNIT_COSTS.get(operation, 0)
+def media_estimate_record(
+    operation: str, *, provider: str = "", model: str = ""
+) -> MediaEstimate:
+    """Retorna a estimativa canônica usada antes e durante a execução.
+
+    A versão e a unidade fazem parte do contrato para que mudanças de preço
+    não alterem silenciosamente uma aprovação já apresentada ao usuário.
+    """
+    return MediaEstimate(
+        operation=operation,
+        provider=provider,
+        model=model,
+        version="v1",
+        billable_unit="quota_unit",
+        currency="quota_units",
+        units=UNIT_COSTS.get(operation, 0),
+    )
+
+
+def media_estimate(operation: str, *, provider: str = "", model: str = "") -> int:
+    """Retorna as unidades da estimativa canônica de uma operação."""
+    return media_estimate_record(operation, provider=provider, model=model).units
 
 
 def new_idempotency_key(ctx_call_id: str, operation: str) -> str:

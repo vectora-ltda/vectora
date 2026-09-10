@@ -163,9 +163,11 @@ def should_require_approval(
         # do campo mantém o comportamento seguro: toda operação pede revisão.
         threshold = getattr(ctx, "_extra", {}).get("media_approval_threshold")
         if isinstance(threshold, (int, float)):
-            from backend.services.media_quota import media_estimate
+            from backend.services.media_quota import media_estimate_record
 
-            if media_estimate(tool_name) <= threshold:
+            provider, _, model = ctx.model.partition(":")
+            estimate = media_estimate_record(tool_name, provider=provider, model=model)
+            if estimate.units <= threshold:
                 return False
     if tool_name in _JAILED_BYPASS_TOOLS and _workspace_is_jailed(ctx.workspace_id):
         return False

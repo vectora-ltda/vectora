@@ -77,7 +77,11 @@ async def _reserve_media(
     """
     if getattr(ctx, "_extra", {}).get("media_billing_source") == "byok":
         return None, None
-    from backend.services.media_quota import media_quota, new_idempotency_key
+    from backend.services.media_quota import (
+        media_estimate_record,
+        media_quota,
+        new_idempotency_key,
+    )
 
     stable_call_id = ctx.tool_call_id or (
         f"thread:{ctx.thread_id}:{operation}" if ctx.thread_id else ""
@@ -92,10 +96,14 @@ async def _reserve_media(
             },
             ensure_ascii=False,
         )
+    provider = _active_provider(ctx)
+    model = _active_model(ctx)
+    estimate = media_estimate_record(operation, provider=provider, model=model)
     reservation = await media_quota.reserve(
         user_id=ctx.user_id,
         operation=operation,
         idempotency_key=idempotency_key,
+        units=estimate.units,
     )
     if reservation is None:
         return None, json.dumps(
