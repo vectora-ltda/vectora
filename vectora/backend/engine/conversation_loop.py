@@ -311,6 +311,26 @@ async def run_conversation(
                     approval_args["input_preview"] = "<redacted>"
                     approval_args["input_length"] = len(raw_input.encode("utf-8"))
                 args_json = json.dumps(approval_args, ensure_ascii=False)
+                raw_options = pendente.args.get("options", [])
+                options = (
+                    [
+                        {
+                            "label": str(item.get("label") or item["value"]),
+                            "value": str(item["value"]),
+                        }
+                        for item in raw_options
+                        if isinstance(item, dict) and item.get("value")
+                    ]
+                    if isinstance(raw_options, list)
+                    else []
+                )
+                try:
+                    priority = max(
+                        0, min(100, int(pendente.args.get("approval_priority", 0)))
+                    )
+                except (TypeError, ValueError):
+                    priority = 0
+                expires_at = pendente.args.get("approval_expires_at")
                 if approval_gate is not None:
                     await approval_gate.request_approval(
                         thread_id,
@@ -318,12 +338,18 @@ async def run_conversation(
                         tool_name=pendente.name,
                         tool_call_id=pendente.id,
                         args=pendente.args,
+                        options=options,
+                        priority=priority,
+                        expires_at=str(expires_at) if expires_at else None,
                     )
                 await emit(
                     HitlRequested(
                         tool_name=pendente.name,
                         args_json=args_json,
                         interrupt_id=interrupt_id,
+                        options=options,
+                        priority=priority,
+                        expires_at=str(expires_at) if expires_at else None,
                     )
                 )
                 return LoopResult(
@@ -484,6 +510,8 @@ async def resume_conversation(
     thread_id: str,
     decision: str,
     edited_args: dict[str, Any] | None = None,
+    decided_by: str | None = None,
+    interrupt_id: str | None = None,
     approval_gate: ApprovalGate | None = None,
     on_event: EventSink | None = None,
 ) -> bool:
@@ -505,7 +533,19 @@ async def resume_conversation(
     cliente. ``True`` quando o lote foi executado e a pendência resolvida.
     """
     emit = on_event or _noop_event
-    pending = await session_store.get_pending_approval(thread_id)
+    requested_interrupt_id = interrupt_id
+    if requested_interrupt_id is None:
+        snapshot = await session_store.get_pending_approval(thread_id)
+        if snapshot is None:
+            return False
+        requested_interrupt_id = str(snapshot["interrupt_id"])
+    claim_pending = getattr(session_store, "claim_pending_approval", None)
+    if claim_pending is None:
+        pending = await session_store.get_pending_approval(thread_id)
+        if pending is None or pending["interrupt_id"] != requested_interrupt_id:
+            return False
+    else:
+        pending = await claim_pending(thread_id, interrupt_id=requested_interrupt_id)
     if pending is None:
         return False
 
@@ -547,7 +587,7 @@ async def resume_conversation(
             args = tc.args
             if tc.id == flagged_id and ephemeral_args is not None:
                 args = ephemeral_args
-            if decision == "edit" and edited_args is not None:
+            if decision in {"edit", "option"} and edited_args is not None:
                 args = edited_args
             resultado = await _execute_single_call(
                 replace(tc, args=args),
@@ -574,8 +614,23 @@ async def resume_conversation(
                 )
             )
 
+    record_decision = getattr(session_store, "record_approval_decision", None)
+    if record_decision is not None:
+        await record_decision(
+            thread_id,
+            interrupt_id=str(pending["interrupt_id"]),
+            tool_name=str(pending["tool_name"]),
+            decision=decision,
+            selection=(edited_args or {}).get("selection")
+            if decision == "option"
+            else None,
+            decided_by=decided_by,
+            options=list(pending.get("options", [])),
+            priority=int(pending.get("priority", 0)),
+            expires_at=pending.get("expires_at"),
+        )
     if approval_gate is not None:
         await approval_gate.resolve(thread_id)
-    else:
+    elif claim_pending is None:
         await session_store.clear_pending_approval(thread_id)
     return True

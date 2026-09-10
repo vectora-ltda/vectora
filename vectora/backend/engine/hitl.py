@@ -177,6 +177,9 @@ class ApprovalGate:
         tool_call_id: str,
         args: dict[str, Any],
         reasoning: str | None = None,
+        options: list[dict[str, str]] | None = None,
+        priority: int = 0,
+        expires_at: str | None = None,
     ) -> None:
         import asyncio
 
@@ -193,6 +196,9 @@ class ApprovalGate:
             tool_call_id=tool_call_id,
             args=safe_args,
             reasoning=reasoning,
+            options=options,
+            priority=priority,
+            expires_at=expires_at,
         )
         self._events[thread_id] = asyncio.Event()
 

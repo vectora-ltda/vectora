@@ -77,6 +77,9 @@ export interface Message {
     affectedPaths?: string[];
     /** Modo de permissão ativo (default/yolo/…). */
     permissionMode?: string;
+    options?: Array<{ label: string; value: string }>;
+    priority?: number;
+    expiresAt?: string | null;
   };
   /** Pergunta estruturada aguardando uma resposta do usuário. */
   structuredQuestionPending?: {
