@@ -216,6 +216,7 @@ class ApprovalGate:
             safe_args["input_length"] = len(raw_input.encode("utf-8"))
             self._ephemeral_args[interrupt_id] = dict(args)
         elif tool_name in {"generate_image", "text_to_speech", "generate_video"}:
+            self._ephemeral_args[interrupt_id] = dict(args)
             safe_args = dict(approval_metadata or {})
         logger.info(
             "hitl.request",

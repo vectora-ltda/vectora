@@ -595,7 +595,17 @@ async def resume_conversation(
         if approval_gate is not None
         else None
     )
-    if ephemeral_args is None and pending["tool_name"] == "write_terminal":
+    media_tool = pending["tool_name"] in {
+        "generate_image",
+        "text_to_speech",
+        "generate_video",
+    }
+    if ephemeral_args is None and (
+        pending["tool_name"] == "write_terminal"
+        or (media_tool and decision != "reject")
+    ):
+        # Conteúdo de mídia não é recuperável com segurança após restart:
+        # encerra a pendência sem executar o provider nem persistir o payload.
         await session_store.clear_pending_approval(thread_id)
         return False
 
@@ -658,6 +668,19 @@ async def resume_conversation(
             options=list(pending.get("options", [])),
             priority=int(pending.get("priority", 0)),
             expires_at=pending.get("expires_at"),
+        )
+    if media_tool:
+        from backend.persistence.telemetry import telemetry
+
+        persisted_args = pending.get("args", {})
+        telemetry.record_media_quota(
+            "hitl_decision",
+            operation=str(persisted_args.get("operation", pending["tool_name"])),
+            provider=str(persisted_args.get("provider", "")),
+            model=str(persisted_args.get("model", "")),
+            units=persisted_args.get("estimated_units"),
+            idempotency_key=persisted_args.get("idempotency_key"),
+            result=decision,
         )
     if approval_gate is not None:
         await approval_gate.resolve(thread_id)
