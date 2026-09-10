@@ -109,6 +109,7 @@
   "message_click_edit": "Clic para editar y volver a ejecutar",
   "message_subagent_outputs": "Salidas del subagente ({n})",
   "message_list_aria": "Mensajes",
+  "unread_messages_count": "{n} mensajes sin leer",
   "thinking_direct": "Respuesta directa",
   "thinking_delegate": "Delegando al agente",
   "thinking_web_search": "Búsqueda web",

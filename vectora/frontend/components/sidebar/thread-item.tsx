@@ -236,7 +236,7 @@ export const ThreadItem = memo(function ThreadItem({
         {thread.unread_count && thread.unread_count > 0 ? (
           <span
             className="shrink-0 rounded-full bg-primary px-1.5 text-[10px] leading-4 text-primary-foreground"
-            aria-label={`${thread.unread_count} mensagens não lidas`}
+            aria-label={m.unread_messages_count({ n: thread.unread_count })}
           >
             {thread.unread_count > 99 ? "99+" : thread.unread_count}
           </span>
