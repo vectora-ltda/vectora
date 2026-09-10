@@ -77,7 +77,11 @@ export const SidebarFooter = memo(function SidebarFooter() {
         <button
           type="button"
           ref={triggerRef}
-          onClick={() => setOpen(true)}
+          onClick={() => {
+            setStatus("");
+            setStatusType("status");
+            setOpen(true);
+          }}
           title={m.sidebar_feedback()}
           className="flex-1 min-w-0 flex items-center gap-1.5 px-2 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/20 transition-colors duration-150"
         >

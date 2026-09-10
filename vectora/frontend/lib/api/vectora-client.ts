@@ -617,11 +617,13 @@ export async function getTools(): Promise<GetToolsResponse> {
   return res.json();
 }
 
+export type FeedbackContextKey = "route" | "app_version" | "platform";
+
 export interface FeedbackInput {
   kind: "bug" | "suggestion";
   description: string;
   include_context?: boolean;
-  context?: Record<string, string>;
+  context?: Partial<Record<FeedbackContextKey, string>>;
 }
 
 export async function submitFeedback(
