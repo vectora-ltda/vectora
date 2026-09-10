@@ -236,6 +236,7 @@ class FallbackChatClient:
     ) -> None:
         self.primary_model_id = primary_model_id
         self.on_model_switch = on_model_switch
+        self.last_model_id: str | None = None
 
     async def _candidate_ids(self, messages: list[VMessage]) -> list[str]:
         candidatos = await _candidates(
@@ -259,6 +260,7 @@ class FallbackChatClient:
         last_exc: BaseException | None = None
         for i, mid in enumerate(candidatos):
             try:
+                self.last_model_id = mid
                 client = load_chat_client(mid)
                 return await client.agenerate(
                     messages,
@@ -294,6 +296,7 @@ class FallbackChatClient:
         for i, mid in enumerate(candidatos):
             streamed = False
             try:
+                self.last_model_id = mid
                 client = load_chat_client(mid)
                 async for chunk in client.astream(
                     messages,

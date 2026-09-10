@@ -78,4 +78,13 @@ export interface Message {
     /** Modo de permissão ativo (default/yolo/…). */
     permissionMode?: string;
   };
+  /** Pergunta estruturada aguardando uma resposta do usuário. */
+  structuredQuestionPending?: {
+    questionId: string;
+    threadId: string;
+    prompt: string;
+    options: string[];
+    allowFreeText: boolean;
+    expiresAt?: string;
+  };
 }
