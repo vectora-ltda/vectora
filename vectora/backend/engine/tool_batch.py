@@ -37,6 +37,11 @@ _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 
+def _is_tool_error(text: str) -> bool:
+    """Reconhece prefixos de erro emitidos pelas tools localizadas."""
+    return text.lstrip().lower().startswith(("error:", "erro:"))
+
+
 def _redact_secrets(texto: str) -> str:
     for pattern in _SECRET_PATTERNS:
         texto = pattern.sub("[REDACTED]", texto)
@@ -102,7 +107,7 @@ async def _run_one(
             ),
         )
         texto = _apply_post_execute(texto)
-        is_error = texto.startswith("Error:")
+        is_error = _is_tool_error(texto)
         from backend.services.tool_usage import record_tool_usage
 
         await record_tool_usage(

@@ -90,6 +90,25 @@ class TestDespachoParaleloSequencial:
         assert resultados[0].is_error is True
         assert "não encontrada" in resultados[0].text()
 
+    async def test_falha_localizada_de_tool_mcp_vira_erro_tipado(self, ctx):
+        """Mensagens MCP em português devem persistir como erro."""
+
+        @vtool(extras=ToolExtras(destructive=False))
+        async def mcp_bloqueada(ctx: ToolContext) -> str:
+            return "Erro: servidor MCP bloqueado pela política."
+
+        registry = ToolRegistry()
+        spec = TOOL_REGISTRY.get("mcp_bloqueada")
+        assert spec is not None
+        registry.register(spec)
+        resultados = await execute_tool_batch(
+            [ToolCall(id="c1", name="mcp_bloqueada", args={})],
+            tool_registry=registry,
+            ctx=ctx,
+        )
+
+        assert resultados[0].is_error is True
+
 
 class TestTurnBudget:
     async def test_chamada_alem_do_teto_vira_erro_sem_executar(self, ctx):
