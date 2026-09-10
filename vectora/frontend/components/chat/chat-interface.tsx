@@ -1263,6 +1263,26 @@ export function ChatInterface({
       if (pastedText.length > LARGE_PASTE_THRESHOLD) {
         e.preventDefault();
         const detected = classifySmartPaste(pastedText);
+        const structured = detected.kind === "json" || detected.kind === "yaml";
+        if (structured) {
+          const choice = window
+            .prompt(
+              "Conteúdo JSON/YAML grande: digite anexar, colar ou cancelar.",
+              "anexar",
+            )
+            ?.trim()
+            .toLowerCase();
+          if (choice === "cancelar" || !choice) return;
+          if (choice === "colar") {
+            const target = e.currentTarget;
+            const start = target.selectionStart;
+            const end = target.selectionEnd;
+            target.setRangeText(pastedText, start, end, "end");
+            target.dispatchEvent(new Event("input", { bubbles: true }));
+            return;
+          }
+          if (choice !== "anexar") return;
+        }
         const suffix =
           detected.kind === "text" || detected.kind === "url"
             ? "txt"
