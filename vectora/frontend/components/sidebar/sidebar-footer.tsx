@@ -17,6 +17,7 @@ export const SidebarFooter = memo(function SidebarFooter() {
   const [statusType, setStatusType] = useState<"status" | "alert">("status");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submittingRef = useRef(false);
+  const wasOpenRef = useRef(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLFormElement>(null);
   const sidebarWidth = useSettingsStore((s) => s.sidebarWidth);
@@ -54,7 +55,8 @@ export const SidebarFooter = memo(function SidebarFooter() {
   }, [open]);
 
   useEffect(() => {
-    if (!open) triggerRef.current?.focus();
+    if (wasOpenRef.current && !open) triggerRef.current?.focus();
+    wasOpenRef.current = open;
   }, [open]);
 
   return (
