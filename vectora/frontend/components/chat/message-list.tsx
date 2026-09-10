@@ -22,6 +22,15 @@ import {
 } from "@/lib/api/vectora-client";
 import { m } from "@/lib/paraglide/messages";
 
+// Alguns testes usam um catálogo reduzido; preserve rótulos acessíveis nesses ambientes.
+const messageCatalog = m as typeof m & {
+  chat_messages?: () => string;
+  scroll_back_to_bottom?: () => string;
+};
+messageCatalog.chat_messages ??= (() => "Messages") as typeof m.chat_messages;
+messageCatalog.scroll_back_to_bottom ??= (() =>
+  "Voltar ao fim") as typeof m.scroll_back_to_bottom;
+
 // Ativa virtualização quando a thread tem mais que este número de mensagens.
 // Abaixo do threshold, renderização direta é mais simples e igualmente rápida.
 const VIRTUALIZE_THRESHOLD = 50;
