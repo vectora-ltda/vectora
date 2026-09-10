@@ -390,7 +390,7 @@ export function ChatInterface({
     async (
       messageId: string,
       interruptId: string,
-      decision: "approve" | "reject" | `edit:${string}`,
+      decision: "approve" | "reject" | `edit:${string}` | `option:${string}`,
     ) => {
       uiDispatch({ type: "START_SEND" });
       useStreamingStore.getState().setStreaming(threadId, true);
@@ -1269,7 +1269,7 @@ export function ChatInterface({
     }
   }, [processFiles]);
 
-  // Paste grande vira anexo para manter o composer responsivo:
+  // Paste grande vira anexo e preserva o fluxo normal de composição:
   // texto curto cola normal; texto longo (> LARGE_PASTE_THRESHOLD)
   // entra como `pasted-<N>.txt` na grid de anexos. Imagens continuam
   // sendo capturadas pelo handlePaste do useFileUpload.

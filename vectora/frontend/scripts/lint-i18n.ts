@@ -12,6 +12,8 @@ export interface I18nViolation {
   file: string;
 }
 
+type ChangedLines = Map<string, Set<number>>;
+
 const TEXT_ATTRIBUTES = new Set(["alt", "aria-label", "placeholder", "title"]);
 const IGNORED_PARTS = new Set([
   "e2e",
@@ -27,6 +29,26 @@ const IGNORED_PARTS = new Set([
   "public",
 ]);
 const execFileAsync = promisify(execFile);
+
+function changedLinesFromDiff(diff: string): ChangedLines {
+  const result: ChangedLines = new Map();
+  let file: string | undefined;
+  for (const line of diff.split(/\r?\n/)) {
+    if (line.startsWith("+++ b/")) {
+      file = line.slice(6);
+      result.set(file, new Set());
+      continue;
+    }
+    const match = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+    if (!match || !file) continue;
+    const start = Number(match[1]);
+    const count = Number(match[2] ?? "1");
+    const lines = result.get(file) ?? new Set<number>();
+    for (let offset = 0; offset < count; offset += 1) lines.add(start + offset);
+    result.set(file, lines);
+  }
+  return result;
+}
 
 export function isIgnoredPath(filePath: string): boolean {
   const normalized = filePath.replaceAll("\\", "/");
@@ -189,9 +211,10 @@ export async function filesUnder(root: string): Promise<string[]> {
 /** Runs the command-line checker and reports violations to stderr. */
 export async function runCli(args = process.argv.slice(2)): Promise<number> {
   const root = resolve(process.cwd());
+  const repoRoot = resolve(root, "..", "..");
   let paths: string[];
+  let changedLines: ChangedLines | undefined;
   if (args.includes("--changed")) {
-    const repoRoot = resolve(root, "..", "..");
     let stdout: string;
     const baseRef = process.env.GITHUB_BASE_REF;
     const diffRef =
@@ -210,13 +233,18 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
       ],
       { cwd: repoRoot },
     ));
+    const diff = await execFileAsync(
+      "git",
+      ["diff", "--unified=0", diffRef, "--", "vectora/frontend"],
+      { cwd: repoRoot },
+    );
+    changedLines = changedLinesFromDiff(diff.stdout);
     paths = stdout
       .split(/\r?\n/)
       .filter((path) => /\.(ts|tsx)$/.test(path) && !isIgnoredPath(path))
       .map((path) => resolve(repoRoot, path));
   } else {
     const fileArgs = args.filter((arg) => arg !== "--changed" && arg !== "--");
-    const repoRoot = resolve(root, "..", "..");
     paths =
       fileArgs.length > 0
         ? fileArgs
@@ -232,7 +260,13 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
   for (const path of paths) {
     const source = await readFile(path, "utf8");
     const displayPath = relative(process.cwd(), path) || path;
-    violations.push(...lintSource(source, displayPath));
+    const fileViolations = lintSource(source, displayPath);
+    const changed = changedLines?.get(relative(repoRoot, path));
+    violations.push(
+      ...(changed
+        ? fileViolations.filter((violation) => changed.has(violation.line))
+        : fileViolations),
+    );
   }
   for (const violation of violations) {
     console.error(
