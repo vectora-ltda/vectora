@@ -18,6 +18,18 @@ from backend.settings import settings
 
 router = APIRouter(prefix="/feedback", tags=["feedback"])
 type FeedbackContextKey = Literal["app_version", "platform", "route"]
+KNOWN_PLATFORMS = frozenset(
+    {
+        "Linux x86_64",
+        "MacIntel",
+        "MacPPC",
+        "Win32",
+        "Win64",
+        "iPhone",
+        "iPad",
+        "Android",
+    }
+)
 
 
 class FeedbackRequest(BaseModel):
@@ -43,7 +55,7 @@ def _safe_context(body: FeedbackRequest) -> dict[str, str]:
         if (
             (key == "route" and value in {"/chat", "/settings", "/workbench"})
             or (key == "app_version" and re.fullmatch(r"[0-9A-Za-z._-]{1,32}", value))
-            or (key == "platform" and re.fullmatch(r"[A-Za-z0-9._ -]{1,32}", value))
+            or (key == "platform" and value in KNOWN_PLATFORMS)
         ):
             values[key] = value
     return values

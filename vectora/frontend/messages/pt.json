@@ -1530,5 +1530,6 @@
   "about_panel_version_label": "Versão",
   "about_panel_mode_label": "Modo",
   "about_panel_mode_desktop": "Desktop (Electron)",
-  "about_panel_mode_web": "Web"
+  "about_panel_mode_web": "Web",
+  "feedback_include_context": "Incluir contexto técnico"
 }

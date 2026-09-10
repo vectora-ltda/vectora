@@ -13,6 +13,7 @@ export const SidebarFooter = memo(function SidebarFooter() {
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<"bug" | "suggestion">("bug");
   const [description, setDescription] = useState("");
+  const [includeContext, setIncludeContext] = useState(false);
   const [status, setStatus] = useState("");
   const [statusType, setStatusType] = useState<"status" | "alert">("status");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -115,11 +116,13 @@ export const SidebarFooter = memo(function SidebarFooter() {
                 await submitFeedback({
                   kind,
                   description,
-                  include_context: true,
-                  context: {
-                    route: window.location.pathname,
-                    platform: navigator.platform,
-                  },
+                  include_context: includeContext,
+                  ...(includeContext && {
+                    context: {
+                      route: window.location.pathname,
+                      platform: navigator.platform,
+                    },
+                  }),
                 });
                 setStatusType("status");
                 setStatus(m.feedback_sent());
@@ -164,6 +167,14 @@ export const SidebarFooter = memo(function SidebarFooter() {
               value={description}
               onChange={(event) => setDescription(event.target.value)}
             />
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={includeContext}
+                onChange={(event) => setIncludeContext(event.target.checked)}
+              />
+              {m.feedback_include_context()}
+            </label>
             {status && (
               <p
                 role={statusType}

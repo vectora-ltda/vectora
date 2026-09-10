@@ -43,6 +43,7 @@ vi.mock("@/lib/paraglide/messages", () => ({
     feedback_sent: () => "Enviado",
     feedback_rate_limited: () => "Limite atingido",
     feedback_error: () => "Erro",
+    feedback_include_context: () => "Incluir contexto técnico",
     sidebar_docs: () => "Docs",
     sidebar_report_issue: () => "Reportar problema",
     sidebar_workspace_collapse: () => "Recolher",
@@ -325,6 +326,38 @@ describe("SidebarFooter — ícones inline sem labels", () => {
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Enviado");
     expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite");
+  });
+
+  it("não inclui contexto técnico por padrão", async () => {
+    render(<SidebarFooter />);
+    fireEvent.click(screen.getByTitle("Feedback"));
+    fireEvent.change(screen.getByLabelText("Descreva o problema"), {
+      target: { value: "sem contexto" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    await screen.findByRole("status");
+    expect(submitFeedback).toHaveBeenCalledWith({
+      kind: "bug",
+      description: "sem contexto",
+      include_context: false,
+    });
+  });
+
+  it("inclui contexto técnico quando o usuário habilita a opção", async () => {
+    render(<SidebarFooter />);
+    fireEvent.click(screen.getByTitle("Feedback"));
+    fireEvent.change(screen.getByLabelText("Descreva o problema"), {
+      target: { value: "com contexto" },
+    });
+    fireEvent.click(screen.getByLabelText("Incluir contexto técnico"));
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    await screen.findByRole("status");
+    expect(submitFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include_context: true,
+        context: expect.objectContaining({ route: expect.any(String) }),
+      }),
+    );
   });
 
   it("anuncia descrição vazia como alerta acessível", () => {

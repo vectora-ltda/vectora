@@ -28,7 +28,7 @@ def test_feedback_rejeita_descricao_apenas_com_espacos() -> None:
 
 @pytest.mark.asyncio
 async def test_feedback_filtra_contexto_e_associa_usuario(
-    tmp_path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("backend.api.handlers.feedback.settings.vectora_home", tmp_path)
     request = Request(
@@ -78,10 +78,9 @@ def test_feedback_descarta_valor_de_contexto_nao_tecnico() -> None:
         kind="bug",
         description="falha",
         include_context=True,
-        context={"route": "/chat"},
+        context={"route": "/chat", "platform": "segredo da conversa"},
     )
-    body.context["route"] = "segredo da conversa"
-    assert _safe_context(body) == {}
+    assert _safe_context(body) == {"route": "/chat"}
 
 
 def test_feedback_http_isola_rate_limit_por_usuario(
