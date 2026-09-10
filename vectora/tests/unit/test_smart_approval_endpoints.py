@@ -117,6 +117,57 @@ async def test_workspace_vazio_vira_400_nao_500():
 
 
 @pytest.mark.asyncio
+async def test_adicao_retorna_503_quando_persistencia_falha(
+    _runtime_settings_isolado, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Não confirma a adição quando o banco rejeita a gravação."""
+    from backend.services import smart_approval
+
+    monkeypatch.setattr(
+        _runtime_settings_isolado,
+        "_persist",
+        lambda *_args: (_ for _ in ()).throw(OSError("disco")),
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await add_smart_approval_allowlist(
+            SmartApprovalAllowlistRequest(
+                workspace_id="ws-falha", tool_name="terminal", args={}
+            ),
+            _fake_request(),
+        )
+    assert exc_info.value.status_code == 503
+    assert smart_approval.get_allowlist("ws-falha") == []
+
+
+@pytest.mark.asyncio
+async def test_revogacao_retorna_503_quando_persistencia_falha(
+    _runtime_settings_isolado, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Não confirma a revogação quando o banco rejeita a gravação."""
+    from backend.services.smart_approval import add_to_allowlist, get_allowlist
+
+    add_to_allowlist("ws-falha-remove", "terminal", {"command": "pwd"})
+    antes = get_allowlist("ws-falha-remove")
+    from backend.services.smart_approval import allowlist_id
+
+    rule_id = allowlist_id(antes[0])
+    monkeypatch.setattr(
+        _runtime_settings_isolado,
+        "_persist",
+        lambda *_args: (_ for _ in ()).throw(OSError("disco")),
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await remove_smart_approval_allowlist(
+            SmartApprovalAllowlistRemoveRequest(
+                workspace_id="ws-falha-remove", rule_id=rule_id
+            ),
+            _fake_request(),
+        )
+    assert exc_info.value.status_code == 503
+    assert get_allowlist("ws-falha-remove") == antes
+
+
+@pytest.mark.asyncio
 async def test_endpoints_rejeitam_workspace_nao_autorizado(monkeypatch):
     from fastapi import HTTPException
 

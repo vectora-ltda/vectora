@@ -1783,6 +1783,10 @@ async def add_smart_approval_allowlist(
         add_to_allowlist(body.workspace_id, body.tool_name, body.args)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503, detail="Não foi possível persistir a allowlist"
+        ) from exc
     await _audit_allowlist_change(
         request,
         action="add",
@@ -1808,7 +1812,12 @@ async def remove_smart_approval_allowlist(
         raise HTTPException(status_code=404, detail="Workspace não encontrado")
     from backend.services.smart_approval import remove_from_allowlist_by_id
 
-    remove_from_allowlist_by_id(body.workspace_id, body.rule_id)
+    try:
+        remove_from_allowlist_by_id(body.workspace_id, body.rule_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503, detail="Não foi possível persistir a allowlist"
+        ) from exc
     await _audit_allowlist_change(
         request,
         action="remove",
