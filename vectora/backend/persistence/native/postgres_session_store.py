@@ -53,8 +53,26 @@ CREATE TABLE IF NOT EXISTS vectora_native_pending_approvals (
     tool_call_id TEXT NOT NULL,
     args_json TEXT NOT NULL,
     reasoning TEXT,
+    options_json TEXT NOT NULL DEFAULT '[]',
+    priority INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS vectora_native_approval_decisions (
+    id BIGSERIAL PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    interrupt_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    selection TEXT,
+    decided_by TEXT,
+    decided_at TEXT NOT NULL,
+    options_json TEXT NOT NULL DEFAULT '[]',
+    priority INTEGER NOT NULL DEFAULT 0,
+    expires_at TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_vectora_native_approval_decisions_thread
+    ON vectora_native_approval_decisions(thread_id, decided_at);
 """
 
 
@@ -116,6 +134,21 @@ class PostgresSessionStore:
             return
         async with self._pool.acquire() as conn:
             await conn.execute(_SETUP_SQL)
+            for statement in (
+                (
+                    "ALTER TABLE vectora_native_pending_approvals "
+                    "ADD COLUMN IF NOT EXISTS options_json TEXT NOT NULL DEFAULT '[]'"
+                ),
+                (
+                    "ALTER TABLE vectora_native_pending_approvals "
+                    "ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0"
+                ),
+                (
+                    "ALTER TABLE vectora_native_pending_approvals "
+                    "ADD COLUMN IF NOT EXISTS expires_at TEXT"
+                ),
+            ):
+                await conn.execute(statement)
             await conn.execute(
                 "ALTER TABLE vectora_native_messages ADD COLUMN IF NOT EXISTS turn_id TEXT"
             )
@@ -328,11 +361,14 @@ class PostgresSessionStore:
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT interrupt_id, tool_name, tool_call_id, args_json, "
-                "reasoning, created_at FROM vectora_native_pending_approvals "
+                "reasoning, options_json, priority, expires_at, created_at FROM vectora_native_pending_approvals "
                 "WHERE thread_id = $1",
                 thread_id,
             )
         if row is None:
+            return None
+        if row["expires_at"] and row["expires_at"] <= _now():
+            await self.clear_pending_approval(thread_id)
             return None
         return {
             "interrupt_id": row["interrupt_id"],
@@ -340,6 +376,37 @@ class PostgresSessionStore:
             "tool_call_id": row["tool_call_id"],
             "args": json.loads(row["args_json"]),
             "reasoning": row["reasoning"],
+            "options": json.loads(row["options_json"] or "[]"),
+            "priority": int(row["priority"]),
+            "expires_at": row["expires_at"],
+            "created_at": row["created_at"],
+        }
+
+    async def claim_pending_approval(
+        self, thread_id: str, *, interrupt_id: str
+    ) -> dict[str, Any] | None:
+        """Atomically consume a matching pending approval for one resumer."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "DELETE FROM vectora_native_pending_approvals "
+                "WHERE thread_id = $1 AND interrupt_id = $2 "
+                "RETURNING interrupt_id, tool_name, tool_call_id, args_json, reasoning, "
+                "options_json, priority, expires_at, created_at",
+                thread_id,
+                interrupt_id,
+            )
+        if row is None or (row["expires_at"] and row["expires_at"] <= _now()):
+            return None
+        return {
+            "interrupt_id": row["interrupt_id"],
+            "tool_name": row["tool_name"],
+            "tool_call_id": row["tool_call_id"],
+            "args": json.loads(row["args_json"]),
+            "reasoning": row["reasoning"],
+            "options": json.loads(row["options_json"] or "[]"),
+            "priority": int(row["priority"]),
+            "expires_at": row["expires_at"],
             "created_at": row["created_at"],
         }
 
@@ -352,19 +419,25 @@ class PostgresSessionStore:
         tool_call_id: str,
         args: dict[str, Any],
         reasoning: str | None = None,
+        options: list[dict[str, str]] | None = None,
+        priority: int = 0,
+        expires_at: str | None = None,
     ) -> None:
         await self.setup()
         async with self._pool.acquire() as conn:
             await conn.execute(
                 "INSERT INTO vectora_native_pending_approvals (thread_id, interrupt_id, "
-                "tool_name, tool_call_id, args_json, reasoning, created_at) "
-                "VALUES ($1, $2, $3, $4, $5, $6, $7) "
+                "tool_name, tool_call_id, args_json, reasoning, options_json, priority, expires_at, created_at) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) "
                 "ON CONFLICT (thread_id) DO UPDATE SET "
                 "interrupt_id = EXCLUDED.interrupt_id, "
                 "tool_name = EXCLUDED.tool_name, "
                 "tool_call_id = EXCLUDED.tool_call_id, "
                 "args_json = EXCLUDED.args_json, "
                 "reasoning = EXCLUDED.reasoning, "
+                "options_json = EXCLUDED.options_json, "
+                "priority = EXCLUDED.priority, "
+                "expires_at = EXCLUDED.expires_at, "
                 "created_at = EXCLUDED.created_at",
                 thread_id,
                 interrupt_id,
@@ -372,6 +445,9 @@ class PostgresSessionStore:
                 tool_call_id,
                 json.dumps(args, ensure_ascii=False),
                 reasoning,
+                json.dumps(options or [], ensure_ascii=False),
+                priority,
+                expires_at,
                 _now(),
             )
 
@@ -381,4 +457,37 @@ class PostgresSessionStore:
             await conn.execute(
                 "DELETE FROM vectora_native_pending_approvals WHERE thread_id = $1",
                 thread_id,
+            )
+
+    async def record_approval_decision(
+        self,
+        thread_id: str,
+        *,
+        interrupt_id: str,
+        tool_name: str,
+        decision: str,
+        selection: str | None,
+        decided_by: str | None,
+        options: list[dict[str, str]],
+        priority: int,
+        expires_at: str | None,
+    ) -> None:
+        """Persist the final HITL decision before clearing its pending state."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO vectora_native_approval_decisions "
+                "(thread_id, interrupt_id, tool_name, decision, selection, decided_by, "
+                "decided_at, options_json, priority, expires_at) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                thread_id,
+                interrupt_id,
+                tool_name,
+                decision,
+                selection,
+                decided_by,
+                _now(),
+                json.dumps(options, ensure_ascii=False),
+                priority,
+                expires_at,
             )
