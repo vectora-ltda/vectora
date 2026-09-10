@@ -47,6 +47,8 @@ REQUIRE_APPROVAL: frozenset[str] = frozenset(
         "web_map",
         "ha_call_service",
         "computer_use",
+        "select_desktop_window",
+        "focus_desktop_window",
         "kanban_create",
         "kanban_update_status",
         "apply_memory_consolidation",
@@ -73,7 +75,9 @@ _JAILED_BYPASS_TOOLS: frozenset[str] = frozenset(
 )
 
 #: `computer_use` nunca tem "desfazer" — pausa sempre, mesmo em bypass/auto.
-_ALWAYS_INTERRUPT: frozenset[str] = frozenset({"computer_use"})
+_ALWAYS_INTERRUPT: frozenset[str] = frozenset(
+    {"computer_use", "select_desktop_window", "focus_desktop_window"}
+)
 
 
 def _workspace_is_jailed(workspace_id: str) -> bool:
