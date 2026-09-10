@@ -28,3 +28,4 @@ class Skill(BaseModel):
     installed_by: str = Field(description="user_id que instalou.")
     trust: TrustRecord = Field(default_factory=TrustRecord)
     trust_confirmed: bool = False
+    revision: str | None = None

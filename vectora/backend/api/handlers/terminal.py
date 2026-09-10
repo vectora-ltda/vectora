@@ -132,6 +132,16 @@ async def terminal_ws(ws: WebSocket) -> None:
         return
 
     session = pty_registry.get(terminal_id)
+    if session is not None and (
+        getattr(session, "user_id", "local") != str(getattr(user, "id", "local"))
+        or session.thread_id != thread_id
+        or session.workspace_id != workspace_id
+    ):
+        await ws.send_text(
+            json.dumps({"type": "error", "message": "acesso negado ao terminal"})
+        )
+        await ws.close(code=1008)
+        return
     if session is None or not session.is_alive():
         try:
             from pathlib import Path
@@ -143,6 +153,7 @@ async def terminal_ws(ws: WebSocket) -> None:
                 terminal_id=terminal_id,
                 workspace_id=workspace_id,
                 thread_id=thread_id,
+                user_id=str(getattr(user, "id", "local")),
                 cwd=workspace.cwd,
                 policy=policy,
             )
@@ -219,15 +230,26 @@ async def terminal_ws(ws: WebSocket) -> None:
 
 class CloseBody(BaseModel):
     terminal_id: str
+    thread_id: str
+    workspace_id: str
+
+
+def _request_user_id(request: Request) -> str:
+    user = getattr(request.state, "user", None)
+    user_id = str(getattr(user, "id", "") or "")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Autenticação necessária.")
+    return user_id
 
 
 @router.get("/list")
-async def list_terminals(request: Request, thread_id: str = "") -> dict:
+async def list_terminals(request: Request, thread_id: str, workspace_id: str) -> dict:
     """Lista os terminais ativos da sessão (do usuário autenticado)."""
-    sessions = (
-        pty_registry.list_for_thread(thread_id)
-        if thread_id
-        else list(pty_registry._sessions.values())
+    user_id = _request_user_id(request)
+    if not thread_id or not workspace_id:
+        raise HTTPException(status_code=404, detail="Contexto não encontrado.")
+    sessions = pty_registry.list_for_context(
+        user_id=user_id, thread_id=thread_id, workspace_id=workspace_id
     )
     return {
         "terminals": [
@@ -243,7 +265,17 @@ async def list_terminals(request: Request, thread_id: str = "") -> dict:
 
 
 @router.post("/close")
-async def close_terminal(body: CloseBody) -> dict:
-    if not pty_registry.close(body.terminal_id):
+async def close_terminal(body: CloseBody, request: Request) -> dict:
+    user_id = _request_user_id(request)
+    if (
+        pty_registry.resolve_for_context(
+            body.terminal_id,
+            user_id=user_id,
+            thread_id=body.thread_id,
+            workspace_id=body.workspace_id,
+        )
+        is None
+    ):
         raise HTTPException(status_code=404, detail="Terminal não encontrado.")
+    pty_registry.close(body.terminal_id)
     return {"status": "closed", "terminal_id": body.terminal_id}
