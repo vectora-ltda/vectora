@@ -31,7 +31,7 @@ class Version:
 
     @classmethod
     def parse(cls, value: str) -> Version:
-        match = _SEMVER.fullmatch(value.strip())
+        match = _SEMVER.fullmatch(value)
         if not match:
             raise ValueError(f"versão SemVer inválida: {value}")
         major, minor, patch, prerelease, _build = match.groups()
@@ -73,7 +73,7 @@ class Version:
 
 def satisfies(version: Version, constraint: str) -> bool:
     """Support exact versions and common caret/tilde ranges."""
-    value = constraint.strip()
+    value = constraint
     if value.startswith("^"):
         base = Version.parse(value[1:])
         if base.major > 0:

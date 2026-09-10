@@ -47,6 +47,19 @@ def test_semver_constraints_are_strict() -> None:
     assert Version.parse("1.0.0+build.7") == Version.parse("1.0.0")
 
 
+@pytest.mark.parametrize(
+    "value",
+    [" 1.0.0", "1.0.0 ", "^ 1.0.0", "~ 1.0.0"],
+)
+def test_semver_rejeita_espacos_fora_da_gramatica(value: str) -> None:
+    if value[0] in "^~":
+        with pytest.raises(ValueError):
+            satisfies(Version.parse("1.0.0"), value)
+    else:
+        with pytest.raises(ValueError):
+            Version.parse(value)
+
+
 def test_resolve_seleciona_maior_candidato_que_satisfaz_todas_as_constraints() -> None:
     candidates = {
         "app": ("1.0.0", {"base": "^1.0.0"}),
