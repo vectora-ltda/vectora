@@ -34,4 +34,5 @@ export interface Thread {
   pinned?: boolean;
   /** Mensagens recebidas desde a última leitura confirmada. */
   unread_count?: number;
+  remote_activity?: { last_active_at: string } | null;
 }

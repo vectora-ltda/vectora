@@ -16,6 +16,10 @@ class _FakeTool:
         self.name = name
 
 
+class _FakeWorkspace:
+    cwd = "C:/workspaces/demo"
+
+
 @pytest.fixture
 def fake_all_tools(monkeypatch):
     tools = [_FakeTool("file_read"), _FakeTool("terminal"), _FakeTool("grep")]
@@ -78,3 +82,30 @@ async def test_mcp_failure_degrades_to_builtins(fake_all_tools, monkeypatch):
     # Falha de MCP não derruba a resolução — retorna só os built-ins.
     result = await tool_resolver.resolve_tools("u1")
     assert [t.name for t in result] == ["file_read", "terminal", "grep"]
+
+
+@pytest.mark.asyncio
+async def test_workspace_skill_resolution_usa_diretorio_autorizado(
+    fake_all_tools, monkeypatch
+):
+    monkeypatch.setattr("backend.rbac.tool_policy.is_allowed", lambda uid, name: True)
+
+    async def _no_mcp(_uid: str, **_kwargs: object) -> list[_FakeTool]:
+        return []
+
+    captured: dict[str, object] = {}
+
+    def _list_paths(_uid: str, **kwargs: object) -> list[object]:
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(tool_resolver, "get_user_mcp_tools", _no_mcp)
+    monkeypatch.setattr(tool_resolver, "list_skill_paths", _list_paths)
+    monkeypatch.setattr(
+        "backend.workspace.workspace.workspace_registry.get",
+        lambda workspace_id: _FakeWorkspace() if workspace_id == "ws-public" else None,
+    )
+
+    await tool_resolver.resolve_tools("u1", workspace_id="ws-public")
+
+    assert captured["workspace_id"] == "C:/workspaces/demo"

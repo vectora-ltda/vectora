@@ -13,6 +13,7 @@
 
 import { VECTORA_API_URL } from "@/lib/constants/api";
 import { saveReturnTo } from "@/lib/utils/return-to";
+import { getDeviceId, resetDeviceId } from "@/lib/device-id";
 
 // ============================================================================
 // Types — espelham os schemas do src/api/schemas.py
@@ -211,6 +212,7 @@ export interface Thread {
   /** Sessão fixada — aparece no topo da lista da sidebar. */
   pinned?: boolean;
   unread_count?: number;
+  remote_activity?: { last_active_at: string } | null;
 }
 
 /** Anexo persistido de uma mensagem do histórico — `url`, quando presente,
@@ -540,6 +542,20 @@ export async function getThreadActivity(
 // ============================================================================
 // Stack hint — detects project type for contextual suggestions
 // ============================================================================
+
+export async function revokeCurrentDevice(): Promise<void> {
+  const deviceId = getDeviceId();
+  const res = await fetch("/threads/device/revoke", {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      ...(deviceId ? { "X-Vectora-Device-Id": deviceId } : {}),
+    },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  resetDeviceId();
+}
 
 export async function getStackHint(
   workspaceId: string,

@@ -100,6 +100,17 @@ _ARGS_PREVIEW_MAX_CHARS = 80
 _ARGS_PREVIEW_SEMANTIC_KEYS = ("path", "file_path", "query", "command", "url", "name")
 
 
+def _sanitize_tool_call(tc: ToolCall) -> ToolCall:
+    """Remove terminal input from persisted assistant messages."""
+    if tc.name != "write_terminal" or "input_data" not in tc.args:
+        return tc
+    args = dict(tc.args)
+    raw = str(args.pop("input_data", ""))
+    args["input_preview"] = "<redacted>"
+    args["input_length"] = len(raw.encode("utf-8"))
+    return replace(tc, args=args)
+
+
 def _args_preview(args: dict[str, Any]) -> str:
     """Preview curto (≤80 chars) dos args de uma tool call, pra exibir na
     linha de status do agente (AgentStatusLine) enquanto a tool roda —
@@ -240,12 +251,13 @@ async def run_conversation(
         tool_calls = _resolve_tool_calls(tool_call_chunks_por_indice)
         observed_tools.update(tc.name for tc in tool_calls if tc.name)
 
+        tool_calls_for_history = [_sanitize_tool_call(tc) for tc in tool_calls]
         assistant_msg = VMessage(
             role=MessageRole.ASSISTANT,
             content=[ContentBlock(kind="text", text=texto_final)]
             if texto_final
             else [],
-            tool_calls=tool_calls,
+            tool_calls=tool_calls_for_history,
             finish_reason="tool_calls" if tool_calls else "stop",
         )
         parent_id = await session_store.append_message(
@@ -293,7 +305,12 @@ async def run_conversation(
             )
             if pendente is not None:
                 interrupt_id = str(uuid4())
-                args_json = json.dumps(pendente.args, ensure_ascii=False)
+                approval_args = dict(pendente.args)
+                if pendente.name == "write_terminal":
+                    raw_input = str(approval_args.pop("input_data", ""))
+                    approval_args["input_preview"] = "<redacted>"
+                    approval_args["input_length"] = len(raw_input.encode("utf-8"))
+                args_json = json.dumps(approval_args, ensure_ascii=False)
                 raw_options = pendente.args.get("options", [])
                 options = (
                     [
@@ -543,6 +560,14 @@ async def resume_conversation(
         None,
     )
     tool_calls = ultimo_assistant.tool_calls if ultimo_assistant is not None else []
+    ephemeral_args = (
+        approval_gate.ephemeral_args(pending["interrupt_id"])
+        if approval_gate is not None
+        else None
+    )
+    if ephemeral_args is None and pending["tool_name"] == "write_terminal":
+        await session_store.clear_pending_approval(thread_id)
+        return False
 
     parent_id = await session_store.get_branch_head_id(thread_id)
     for tc in tool_calls:
@@ -560,6 +585,8 @@ async def resume_conversation(
             )
         else:
             args = tc.args
+            if tc.id == flagged_id and ephemeral_args is not None:
+                args = ephemeral_args
             if decision in {"edit", "option"} and edited_args is not None:
                 args = edited_args
             resultado = await _execute_single_call(

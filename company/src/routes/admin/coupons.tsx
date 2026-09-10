@@ -142,7 +142,7 @@ function AdminCouponsPage() {
                 ].map((h) => (
                   <th
                     key={h}
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground"
+                    className="px-4 py-3 text-start text-xs font-medium text-muted-foreground"
                   >
                     {h}
                   </th>

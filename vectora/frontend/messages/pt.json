@@ -1520,5 +1520,7 @@
   "about_panel_version_label": "Versão",
   "about_panel_mode_label": "Modo",
   "about_panel_mode_desktop": "Desktop (Electron)",
-  "about_panel_mode_web": "Web"
+  "about_panel_mode_web": "Web",
+  "sidebar_ctx_resume": "Abrir neste dispositivo",
+  "sidebar_remote_activity_tooltip": "Ativa em outro dispositivo {time}"
 }

@@ -15,6 +15,9 @@ import contextlib
 import logging
 import os
 import platform
+import threading
+import time
+from collections import deque
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -76,10 +79,12 @@ class PtySession:
         workspace_id: str,
         thread_id: str,
         proc: Any,
+        user_id: str = "local",
     ) -> None:
         self.terminal_id = terminal_id
         self.workspace_id = workspace_id
         self.thread_id = thread_id
+        self.user_id = user_id
         self._proc = proc
         # Fan-out: cada WS que abre este terminal ganha sua própria fila via
         # subscribe() — o read-loop faz broadcast do mesmo chunk pra todas as
@@ -90,6 +95,12 @@ class PtySession:
         # reconecta (reload de página, troca de aba) receba o scroll-back
         # acumulado antes de passar a receber broadcast ao vivo.
         self._scrollback = bytearray()
+        self._scrollback_start = 0
+        self._next_cursor = 0
+        self._input_ids: deque[str] = deque(maxlen=128)
+        self._input_lock = threading.Lock()
+        self._rate_lock = threading.Lock()
+        self._rate_events: deque[float] = deque()
         self._closed = False
         self._read_task: asyncio.Task | None = None
 
@@ -103,6 +114,7 @@ class PtySession:
         workspace_id: str,
         thread_id: str,
         cwd: str,
+        user_id: str = "local",
         env: dict[str, str] | None = None,
         cols: int = 80,
         rows: int = 24,
@@ -160,6 +172,7 @@ class PtySession:
             terminal_id=terminal_id,
             workspace_id=workspace_id,
             thread_id=thread_id,
+            user_id=user_id,
             proc=proc,
         )
         session._read_task = asyncio.create_task(
@@ -205,9 +218,11 @@ class PtySession:
     async def _broadcast(self, data: bytes | None) -> None:
         if data is not None:
             self._scrollback.extend(data)
+            self._next_cursor += len(data)
             overflow = len(self._scrollback) - self.SCROLLBACK_MAX_BYTES
             if overflow > 0:
                 del self._scrollback[:overflow]
+                self._scrollback_start = self._next_cursor - len(self._scrollback)
         for q in self._subscribers:
             with contextlib.suppress(asyncio.QueueFull):
                 q.put_nowait(data)
@@ -233,17 +248,82 @@ class PtySession:
         with contextlib.suppress(ValueError):
             self._subscribers.remove(q)
 
-    def write(self, data: bytes) -> None:
+    def read_since(self, cursor: int | None, max_bytes: int = 8192) -> dict[str, Any]:
+        """Lê uma janela não consumidora do scrollback usando cursor absoluto.
+
+        O cursor é a quantidade total de bytes emitidos pela sessão. Como o
+        scrollback é limitado, um cursor antigo pode ficar fora da janela;
+        nesse caso ``truncated`` informa ao consumidor que houve perda do
+        prefixo, sem alterar o fluxo de broadcast para os WebSockets.
+        """
+        limit = int(max_bytes)
+        if limit < 1:
+            raise ValueError("max_bytes deve ser positivo")
+        limit = min(limit, self.SCROLLBACK_MAX_BYTES)
+        requested = self._scrollback_start if cursor is None else int(cursor)
+        if requested < 0 or requested > self._next_cursor:
+            raise ValueError("cursor inválido")
+        truncated = requested < self._scrollback_start
+        start = max(requested, self._scrollback_start)
+        offset = start - self._scrollback_start
+        chunk = bytes(self._scrollback[offset : offset + limit])
+        next_cursor = start + len(chunk)
+        return {
+            "data": chunk,
+            "cursor": next_cursor,
+            "alive": self.is_alive() and not self._closed,
+            "truncated": truncated,
+            "has_more": next_cursor < self._next_cursor,
+        }
+
+    def consume_rate_limit(
+        self, *, limit: int = 60, window_s: float = 10.0
+    ) -> float | None:
+        """Registra uma operação e informa os segundos restantes quando excedida."""
+        now = time.monotonic()
+        with self._rate_lock:
+            while self._rate_events and now - self._rate_events[0] >= window_s:
+                self._rate_events.popleft()
+            if len(self._rate_events) >= limit:
+                return max(0.1, window_s - (now - self._rate_events[0]))
+            self._rate_events.append(now)
+        return None
+
+    def write(self, data: bytes) -> bool:
         if self._closed:
-            return
+            return False
         try:
             if _IS_WINDOWS:
                 # pywinpty espera str
                 self._proc.write(data.decode("utf-8", errors="replace"))
             else:
                 self._proc.write(data)
+            return True
         except Exception:
             logger.debug("pty_session: write falhou %s", self.terminal_id)
+            return False
+
+    def write_input(self, data: bytes, request_id: str) -> dict[str, Any]:
+        """Escreve uma entrada idempotente e devolve estado observável."""
+        if not request_id:
+            return {"status": "error", "code": "request_id_required"}
+        with self._input_lock:
+            if request_id in self._input_ids:
+                return {"status": "duplicate", "terminal_id": self.terminal_id}
+            if not self.is_alive() or self._closed:
+                return {
+                    "status": "error",
+                    "code": "closed",
+                    "terminal_id": self.terminal_id,
+                }
+            if not self.write(data):
+                return {
+                    "status": "error",
+                    "code": "write_failed",
+                    "terminal_id": self.terminal_id,
+                }
+            self._input_ids.append(request_id)
+            return {"status": "accepted", "terminal_id": self.terminal_id}
 
     def resize(self, cols: int, rows: int) -> None:
         try:

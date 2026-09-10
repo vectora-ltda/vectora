@@ -16,6 +16,7 @@ import Footer from "#/components/shared/Footer";
 import CookieConsent from "#/components/shared/CookieConsent";
 import appCss from "../styles.css?url";
 import type { QueryClient } from "@tanstack/react-query";
+import { applyDocumentDirection, directionForLocale } from "../lib/direction";
 
 interface MyRouterContext {
   queryClient: QueryClient;
@@ -24,7 +25,8 @@ interface MyRouterContext {
 export const Route = createRootRouteWithContext<MyRouterContext>()({
   beforeLoad: async () => {
     if (typeof document !== "undefined") {
-      document.documentElement.setAttribute("lang", getLocale());
+      const locale = getLocale();
+      applyDocumentDirection(locale);
     }
     const session = await getSession();
     return { session };
@@ -113,7 +115,11 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   return (
     // suppressHydrationWarning: a classe do tema (dark/light) é aplicada por
     // script inline antes da hidratação e nunca bate com o HTML do SSR.
-    <html lang={getLocale()} suppressHydrationWarning>
+    <html
+      lang={getLocale()}
+      dir={directionForLocale(getLocale())}
+      suppressHydrationWarning
+    >
       <head>
         <HeadContent />
       </head>
