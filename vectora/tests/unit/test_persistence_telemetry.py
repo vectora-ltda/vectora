@@ -55,6 +55,26 @@ def captured() -> Generator[_ListHandler]:
 
 
 class TestRecordToolCall:
+    def test_record_media_quota_descarta_payload_sensivel(
+        self, captured: _ListHandler
+    ) -> None:
+        VectoraTelemetry().record_media_quota(
+            "hitl_decision",
+            operation="generate_image",
+            provider="openai",
+            model="gpt-image-1",
+            units=1,
+            prompt="segredo",
+            api_key="chave",
+            path="C:/segredo.png",
+        )
+
+        record = captured.records[0]
+        assert _field(record, "telemetry_event") == "media_quota.hitl_decision"
+        assert not hasattr(record, "prompt")
+        assert not hasattr(record, "api_key")
+        assert not hasattr(record, "path")
+
     async def test_success_and_error_events_never_raise(
         self, captured: _ListHandler
     ) -> None:
