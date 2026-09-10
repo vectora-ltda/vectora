@@ -61,7 +61,7 @@ async def test_add_e_remove_via_endpoint():
 
 
 @pytest.mark.asyncio
-async def test_get_workspace_desconhecido_no_modo_local_usa_store():
+async def test_get_workspace_desconhecido_no_modo_local_usa_store() -> None:
     """O launcher local não tem registry de workspaces, mas ainda deve
     conseguir listar regras persistidas como os endpoints POST/DELETE."""
     from backend.services.smart_approval import add_to_allowlist
