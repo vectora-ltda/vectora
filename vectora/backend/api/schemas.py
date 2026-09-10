@@ -398,6 +398,9 @@ class HITLEvent(BaseModel):
     #: nunca decide sozinha, só marca a sugestão como reconhecida. O HITL
     #: pausa igual; o humano confirma com um clique a menos.
     pre_approved: bool = False
+    options: list[dict[str, str]] = []
+    priority: int = 0
+    expires_at: str | None = None
 
 
 class StructuredQuestionEvent(BaseModel):
