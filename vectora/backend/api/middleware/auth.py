@@ -104,9 +104,7 @@ def _is_public_route(path: str, method: str = "GET") -> bool:
         return True
     # Rotas de API marcadas explicitamente como públicas (ex.: viewer de share)
     if any(path.startswith(p) for p in _EXTRA_PUBLIC_PREFIXES):
-        if path.startswith("/threads/share/") and method.upper() != "GET":
-            return False
-        return True
+        return not (path.startswith("/threads/share/") and method.upper() != "GET")
     # Arquivos estáticos (extensão presente) são sempre públicos
     last_segment = path.rsplit("/", maxsplit=1)[-1]
     if "." in last_segment:
