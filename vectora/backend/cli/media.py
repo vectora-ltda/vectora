@@ -6,6 +6,7 @@ import asyncio
 import json
 import sys
 from typing import Protocol
+from uuid import uuid4
 
 from backend.services.media_adapter import invoke_media, media_specs
 from backend.tools.context import ToolContext
@@ -84,6 +85,7 @@ def run_media(args: MediaArgs) -> None:
         user_id="local",
         model=args.model or "",
         thread_id=args.thread_id,
+        tool_call_id=uuid4().hex,
     )
     try:
         value = asyncio.run(invoke_media(name, arguments, context))

@@ -154,12 +154,16 @@ export function UsagePopover({ tokensUsed, modelId }: UsagePopoverProps) {
       .catch(() => {
         // Sem consumo remoto o popover ainda mostra a janela de contexto.
       });
-    void fetch("/usage/media", { credentials: "include" })
+    setMediaQuota(null);
+    void fetch("/usage/media", { credentials: "include", cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (!cancelado && data) setMediaQuota(data as MediaQuota);
+        else if (!cancelado) setMediaQuota(null);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!cancelado) setMediaQuota(null);
+      });
     return () => {
       cancelado = true;
     };

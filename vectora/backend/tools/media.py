@@ -347,6 +347,9 @@ async def generate_image(ctx: ToolContext, prompt: str) -> str:
             },
             ensure_ascii=False,
         )
+    except asyncio.CancelledError:
+        await _finalize_media(reservation, "unknown")
+        raise
     except Exception as exc:
         await _finalize_media(reservation, "unknown")
         logger.exception("generate_image: falha", extra={"provider": provider})
@@ -419,6 +422,9 @@ async def text_to_speech(ctx: ToolContext, text: str, voice: str = "") -> str:
             },
             ensure_ascii=False,
         )
+    except asyncio.CancelledError:
+        await _finalize_media(reservation, "unknown")
+        raise
     except Exception as exc:
         await _finalize_media(reservation, "unknown")
         logger.exception("text_to_speech: falha", extra={"provider": provider})
@@ -627,6 +633,9 @@ async def generate_video(ctx: ToolContext, prompt: str) -> str:
             },
             ensure_ascii=False,
         )
+    except asyncio.CancelledError:
+        await _finalize_media(reservation, "unknown")
+        raise
     except Exception as exc:
         await _finalize_media(reservation, "unknown")
         logger.exception("generate_video: falha", extra={"provider": provider})

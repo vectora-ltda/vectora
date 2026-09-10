@@ -170,7 +170,12 @@ def should_require_approval(
     if tool_name in _JAILED_BYPASS_TOOLS and _workspace_is_jailed(ctx.workspace_id):
         return False
     mode = ctx.permission_mode or "ask"
-    return _mode_should_interrupt(mode, tool_name, history)
+    decision = _mode_should_interrupt(mode, tool_name, history)
+    logger.info(
+        "hitl.decision",
+        extra={"tool_name": tool_name, "decision": decision, "mode": mode},
+    )
+    return decision
 
 
 class ApprovalGate:
@@ -207,6 +212,14 @@ class ApprovalGate:
             safe_args["input_preview"] = "<redacted>"
             safe_args["input_length"] = len(raw_input.encode("utf-8"))
             self._ephemeral_args[interrupt_id] = dict(args)
+        logger.info(
+            "hitl.request",
+            extra={
+                "tool_name": tool_name,
+                "priority": priority,
+                "has_options": bool(options),
+            },
+        )
         await self._session_store.put_pending_approval(
             thread_id,
             interrupt_id=interrupt_id,

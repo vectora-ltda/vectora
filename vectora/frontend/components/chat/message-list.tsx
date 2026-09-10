@@ -4,7 +4,7 @@
  * M1: Virtualização com @tanstack/react-virtual quando messages.length > 50.
  *     Abaixo do threshold, renderização direta (melhor para threads curtas).
  * M3: Auto-scroll inteligente — cancela ao detectar scroll manual para cima,
- *     mostra botão "Voltar ao fim" quando o usuário afastou o foco do bottom.
+ *     mostra botão "Back to bottom" quando o usuário afastou o foco do bottom.
  * M4: Exibe MessageSkeletons durante isLoadingThread.
  * M5: Passa onRetry para cada MessageItem (botão de retry em erros).
  */
@@ -25,7 +25,7 @@ const messageCatalog = m as typeof m & {
 messageCatalog.message_list_aria ??= (() =>
   "Messages") as typeof m.message_list_aria;
 messageCatalog.scroll_back_to_bottom ??= (() =>
-  "Voltar ao fim") as typeof m.scroll_back_to_bottom;
+  "Back to bottom") as typeof m.scroll_back_to_bottom;
 
 // Ativa virtualização quando a thread tem mais que este número de mensagens.
 // Abaixo do threshold, renderização direta é mais simples e igualmente rápida.
@@ -109,7 +109,7 @@ export const MessageList = memo(function MessageList({
   // Scroll container
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Estado do botão "Voltar ao fim" (M3)
+  // Estado do botão "Back to bottom" (M3)
   const [showScrollButton, setShowScrollButton] = useState(false);
 
   // M3b — enquanto o scroll de troca de thread ainda está convergindo
@@ -352,12 +352,12 @@ export const MessageList = memo(function MessageList({
     }
 
     lastScrollTopRef.current = currentScrollTop;
-    // M3 — mostra botão "Voltar ao fim"
+    // M3 — mostra botão "Back to bottom"
     setShowScrollButton(!atBottom);
     shouldAutoScrollRef.current = atBottom;
   }, [isAtBottom, cancelAutoScroll]);
 
-  // M3 — Botão "Voltar ao fim"
+  // M3 — Botão "Back to bottom"
   const scrollToBottom = useCallback(() => {
     if (!scrollRef.current) return;
     isProgrammaticScrollRef.current = true;
@@ -554,7 +554,7 @@ export const MessageList = memo(function MessageList({
         )}
       </div>
 
-      {/* M3 — Botão "Voltar ao fim" */}
+      {/* M3 — Botão "Back to bottom" */}
       {showScrollButton && !isLoadingThread && !isScrollSettling && (
         <button
           onClick={scrollToBottom}

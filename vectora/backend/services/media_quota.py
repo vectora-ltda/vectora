@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -10,6 +11,8 @@ from pathlib import Path
 from typing import Literal, cast
 
 from backend.settings import settings
+
+logger = logging.getLogger(__name__)
 
 MONTHLY_LIMITS = {"free": 10, "pro": 100}
 UNIT_COSTS = {"generate_image": 1, "text_to_speech": 1, "generate_video": 10}
@@ -55,11 +58,24 @@ class MediaQuota:
         from backend.rbac.subscription import get_current_tier
 
         units = UNIT_COSTS.get(operation, 0)
+        logger.info(
+            "media_quota.estimate",
+            extra={
+                "operation": operation,
+                "units": units,
+                "estimate_version": "v1",
+                "currency": "quota_units",
+            },
+        )
         try:
             tier = get_current_tier(user_id)
         except TypeError:
             tier = get_current_tier() if user_id == "local" else None
         if tier is None:
+            logger.info(
+                "media_quota.blocked",
+                extra={"operation": operation, "reason": "entitlement_unavailable"},
+            )
             return None
         period = self.period()
         with self._connect() as db:
@@ -70,6 +86,13 @@ class MediaQuota:
             ).fetchone()
             if existing:
                 if existing[0] != user_id or existing[2] != operation:
+                    logger.info(
+                        "media_quota.blocked",
+                        extra={
+                            "operation": operation,
+                            "reason": "idempotency_conflict",
+                        },
+                    )
                     return None
                 if existing[4] in {"failed", "cancelled"}:
                     retry_period = period
@@ -89,6 +112,10 @@ class MediaQuota:
                         ),
                     )
                     if updated.rowcount != 1:
+                        logger.info(
+                            "media_quota.blocked",
+                            extra={"operation": operation, "reason": "limit_exceeded"},
+                        )
                         return None
                     db.execute(
                         "UPDATE media_quota_reservations SET state = 'reserved', period = ? WHERE id = ?",
@@ -102,7 +129,12 @@ class MediaQuota:
                         "reserved",
                     )
                 return QuotaReservation(
-                    idempotency_key, existing[0], existing[1], existing[2], existing[3]
+                    idempotency_key,
+                    existing[0],
+                    existing[1],
+                    existing[2],
+                    existing[3],
+                    cast("QuotaState", existing[4]),
                 )
             db.execute(
                 "INSERT OR IGNORE INTO media_quota_usage(user_id, period, used_units) VALUES (?, ?, 0)",
@@ -120,6 +152,10 @@ class MediaQuota:
                 ),
             )
             if updated.rowcount != 1:
+                logger.info(
+                    "media_quota.blocked",
+                    extra={"operation": operation, "reason": "limit_exceeded"},
+                )
                 return None
             db.execute(
                 "INSERT INTO media_quota_reservations(id, user_id, period, operation, units, state, created_at) VALUES (?, ?, ?, ?, ?, 'reserved', ?)",
@@ -132,6 +168,9 @@ class MediaQuota:
                     datetime.now(UTC).isoformat(),
                 ),
             )
+        logger.info(
+            "media_quota.reserved", extra={"operation": operation, "units": units}
+        )
         return QuotaReservation(idempotency_key, user_id, period, operation, units)
 
     async def finalize(
@@ -152,6 +191,8 @@ class MediaQuota:
                 "UPDATE media_quota_reservations SET state = ? WHERE id = ? AND state = 'reserved'",
                 (state, reservation_id),
             )
+            if updated.rowcount == 1:
+                logger.info("media_quota.finalized", extra={"state": state})
             if updated.rowcount == 1 and state in {"failed", "cancelled"}:
                 db.execute(
                     "UPDATE media_quota_usage SET used_units = MAX(0, used_units - ?) "
@@ -179,12 +220,22 @@ class MediaQuota:
             ).fetchone()
         limit = MONTHLY_LIMITS.get(tier, MONTHLY_LIMITS["free"])
         used = int(row[0]) if row else 0
-        return {
+        result = {
             "period": period,
             "used": used,
             "limit": limit,
             "remaining": max(0, limit - used),
         }
+        logger.info(
+            "media_quota.summary",
+            extra={
+                "period": period,
+                "used": used,
+                "limit": limit,
+                "remaining": result["remaining"],
+            },
+        )
+        return result
 
 
 media_quota = MediaQuota()
