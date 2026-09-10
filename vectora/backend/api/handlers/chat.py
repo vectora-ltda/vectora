@@ -80,6 +80,10 @@ _thread_permission_mode: dict[str, str] = {}
 #: do que o usuário de fato selecionou.
 _thread_graph_selector: dict[str, dict[str, Any]] = {}
 
+# Stable usage event for the current turn, retained across an interrupted HITL
+# run so ResumeChat can finalize it without double counting.
+_thread_usage_event_ids: dict[str, str] = {}
+
 # ---------------------------------------------------------------------------
 # F1 — Helpers de attachments multimodais
 # ---------------------------------------------------------------------------
@@ -630,6 +634,12 @@ def _apply_persisted_model_preference(config: ChatConfig, user_id: str) -> None:
         config.model = preference
 
 
+async def _idempotent_turn_stream(thread_id: str) -> AsyncGenerator[str]:
+    """Confirma um turno já persistido sem executar o agente novamente."""
+    yield encode_event(ThreadEvent(thread_id=thread_id))
+    yield encode_event(DoneEvent(thread_id=thread_id))
+
+
 @router.post("/vectora.chat.v1.ChatService/StreamChat")
 async def stream_chat(
     request: StreamChatRequest, http_request: Request
@@ -921,7 +931,19 @@ async def stream_chat(
         parent_id = await session_store.append_message(
             thread_id, text_message(MessageRole.SYSTEM, native_agent.system_prompt)
         )
-    await session_store.append_message(thread_id, user_msg, parent_message_id=parent_id)
+    existing_message_id = await session_store.get_message_id_by_turn_id(
+        thread_id, request.turn_id
+    )
+    if existing_message_id is not None:
+        return StreamingResponse(
+            _idempotent_turn_stream(thread_id),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+    user_message_id = await session_store.append_message(
+        thread_id, user_msg, parent_message_id=parent_id, turn_id=request.turn_id
+    )
+    _thread_usage_event_ids[thread_id] = request.turn_id
 
     async def run(on_event: EventSink) -> str:
         chat_client = FallbackChatClient(primary_model_id=configurable.get("model", ""))
@@ -953,6 +975,52 @@ async def stream_chat(
             should_require_approval=should_require_approval,
             approval_gate=approval_gate,
         )
+        from backend.workspace.runtime_settings import runtime_settings
+
+        if (
+            result.usage
+            and result.stopped_reason == "stop"
+            and runtime_settings.get_frontend_prefs(user_id).get("weeklyInsightEnabled")
+            is True
+        ):
+            try:
+                from backend.scheduling.budget import estimate_cost_cents
+                from backend.services.usage_insights import (
+                    get_usage_database,
+                    usage_insight_store,
+                )
+
+                db = await get_usage_database()
+                records = result.usage_records or (
+                    (
+                        result.usage_models[0]
+                        if len(result.usage_models) == 1
+                        else None,
+                        result.usage,
+                    ),
+                )
+                for index, (model_id, usage) in enumerate(records):
+                    await usage_insight_store.record(
+                        db,
+                        user_id=user_id,
+                        event_id=f"{_thread_usage_event_ids[thread_id]}:call:{index}",
+                        model=model_id,
+                        input_tokens=usage.get("input_tokens"),
+                        output_tokens=usage.get("output_tokens"),
+                        total_tokens=usage.get("total_tokens"),
+                        estimated_cost_cents=(
+                            estimate_cost_cents(model_id, usage)
+                            if model_id is not None
+                            else None
+                        ),
+                        tool_names=list(result.tool_names) if index == 0 else [],
+                    )
+            except Exception:
+                logger.warning(
+                    "api/chat: falha ao registrar insight de uso", exc_info=True
+                )
+            else:
+                _thread_usage_event_ids.pop(thread_id, None)
         return result.stopped_reason
 
     return StreamingResponse(
@@ -987,6 +1055,9 @@ async def resume_chat(
     - ``"reject"`` — cancela; o agente recebe feedback de rejeição
     - ``"edit:<args_json>"`` — executa com args modificados
     """
+    from backend.api.handlers.threads import _assert_owns_thread
+
+    await _assert_owns_thread(request.thread_id, http_request)
     resume_user_id = _user_id_from_request(http_request)
     permission_mode = _thread_permission_mode.get(request.thread_id, "ask")
     selector = _thread_graph_selector.get(request.thread_id, {})
@@ -1038,6 +1109,15 @@ async def resume_chat(
         )
         session_store = await agent_factory.get_session_store()
         approval_gate = await agent_factory.get_approval_gate()
+        pending_for_event = await session_store.get_pending_approval(request.thread_id)
+        if isinstance(pending_for_event, dict) and pending_for_event.get(
+            "interrupt_id"
+        ):
+            _thread_usage_event_ids.setdefault(
+                request.thread_id,
+                request.turn_id
+                or f"{request.thread_id}:interrupt:{pending_for_event['interrupt_id']}",
+            )
     except Exception as exc:
         logger.exception("api/chat: erro ao inicializar o motor nativo (resume)")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -1094,6 +1174,59 @@ async def resume_chat(
             should_require_approval=should_require_approval,
             approval_gate=approval_gate,
         )
+        from backend.workspace.runtime_settings import runtime_settings
+
+        if (
+            result.usage
+            and result.stopped_reason == "stop"
+            and runtime_settings.get_frontend_prefs(resume_user_id).get(
+                "weeklyInsightEnabled"
+            )
+            is True
+        ):
+            try:
+                from backend.scheduling.budget import estimate_cost_cents
+                from backend.services.usage_insights import (
+                    get_usage_database,
+                    usage_insight_store,
+                )
+
+                db = await get_usage_database()
+                model_base = _thread_usage_event_ids.setdefault(
+                    request.thread_id,
+                    request.turn_id or f"{request.thread_id}:{uuid.uuid4()}",
+                )
+                records = result.usage_records or (
+                    (
+                        result.usage_models[0]
+                        if len(result.usage_models) == 1
+                        else None,
+                        result.usage,
+                    ),
+                )
+                for index, (model_id, usage) in enumerate(records):
+                    await usage_insight_store.record(
+                        db,
+                        user_id=resume_user_id,
+                        event_id=f"{model_base}:call:{index}",
+                        model=model_id,
+                        input_tokens=usage.get("input_tokens"),
+                        output_tokens=usage.get("output_tokens"),
+                        total_tokens=usage.get("total_tokens"),
+                        estimated_cost_cents=(
+                            estimate_cost_cents(model_id, usage)
+                            if model_id is not None
+                            else None
+                        ),
+                        tool_names=list(result.tool_names) if index == 0 else [],
+                    )
+            except Exception:
+                logger.warning(
+                    "api/chat: falha ao registrar insight de uso (resume)",
+                    exc_info=True,
+                )
+            else:
+                _thread_usage_event_ids.pop(request.thread_id, None)
         return result.stopped_reason
 
     return StreamingResponse(

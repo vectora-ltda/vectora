@@ -975,10 +975,8 @@ async def get_api_keys(request: Request) -> dict:
 async def patch_api_keys(request: Request, body: PatchApiKeysBody) -> dict:
     """Salva API keys em ~/.vectora/.env e atualiza os.environ em runtime."""
     require_admin(_get_user(request))
-    from backend.config.registry import get_field
-    from backend.services.env_keys import default_env_file
+    from backend.config.registry import set_value
 
-    env = _env_file()
     updated: list[str] = []
     mapping = {
         "GOOGLE_API_KEY": body.google_api_key,
@@ -998,14 +996,11 @@ async def patch_api_keys(request: Request, body: PatchApiKeysBody) -> dict:
                 "",
             )
         )
-        if registry_key:
-            field = get_field(registry_key)
-            if field is not None:
-                field.set(value)
-        else:
-            from backend.services.env_keys import apply_llm_env_key
-
-            apply_llm_env_key(env, env_var, value)
+        if registry_key is None:
+            raise HTTPException(
+                status_code=400, detail=f"Chave não registrada: {env_var}"
+            )
+        set_value(registry_key, value)
         updated.append(env_var)
     logger.info(
         "admin: api-keys atualizadas por user_id=%s: %s", _get_user(request).id, updated

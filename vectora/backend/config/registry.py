@@ -94,6 +94,22 @@ def get_field(key: str) -> SettingField | None:
     return _REGISTRY.get(key)
 
 
+def get_value(key: str) -> object:
+    """Read a registered value through its declared adapter."""
+    field = get_field(key)
+    if field is None:
+        raise KeyError(f"setting não registrado: {key}")
+    return field.get()
+
+
+def set_value(key: str, value: object) -> None:
+    """Write a registered value through its declared adapter."""
+    field = get_field(key)
+    if field is None:
+        raise KeyError(f"setting não registrado: {key}")
+    field.set(value)
+
+
 def fields_for_category(category: str) -> list[SettingField]:
     return [f for f in _REGISTRY.values() if f.category == category]
 
