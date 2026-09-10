@@ -20,6 +20,7 @@ from backend.engine.hitl import ApprovalGate
 from backend.engine.stream_events import (
     EngineEvent,
     ErrorSignal,
+    EventSink,
     HitlRequested,
     MessageBreak,
     MessageChunk,
@@ -564,6 +565,7 @@ class TestEmissaoDeEventos:
             *,
             tool_registry: ToolRegistry,
             ctx: ToolContext,
+            on_event: EventSink | None = None,
         ) -> VMessage:
             chamadas.append(dict(tool_call.args))
             return VMessage(
