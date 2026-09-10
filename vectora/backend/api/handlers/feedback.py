@@ -7,7 +7,6 @@ import json
 import re
 import uuid
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
