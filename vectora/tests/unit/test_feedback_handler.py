@@ -104,23 +104,23 @@ def test_feedback_http_isola_rate_limit_por_usuario(
     monkeypatch.setattr("backend.api.handlers.feedback.settings.vectora_home", tmp_path)
     client = TestClient(create_app(serve_static=False), raise_server_exceptions=False)
     payload = {"kind": "bug", "description": "falha"}
+    alice = f"alice-{tmp_path.name}"
+    bob = f"bob-{tmp_path.name}"
 
     for _ in range(5):
         assert (
             client.post(
-                "/feedback", json=payload, headers={"x-test-user": "alice"}
+                "/feedback", json=payload, headers={"x-test-user": alice}
             ).status_code
             == 200
         )
     assert (
         client.post(
-            "/feedback", json=payload, headers={"x-test-user": "alice"}
+            "/feedback", json=payload, headers={"x-test-user": alice}
         ).status_code
         == 429
     )
     assert (
-        client.post(
-            "/feedback", json=payload, headers={"x-test-user": "bob"}
-        ).status_code
+        client.post("/feedback", json=payload, headers={"x-test-user": bob}).status_code
         == 200
     )
