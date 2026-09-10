@@ -47,6 +47,7 @@ vi.mock("@/lib/paraglide/messages", () => ({
     sidebar_ctx_delete: () => "Apagar",
     sidebar_rename_placeholder: () => "Nome da sessão",
     sidebar_delete_thread: () => "Excluir conversa",
+    unread_messages_count: ({ n }: { n: number }) => `${n} mensagens não lidas`,
   },
 }));
 
