@@ -341,6 +341,7 @@ async def run_conversation(
                 }:
                     from backend.services.media_quota import (
                         media_estimate_record,
+                        media_quota,
                         new_idempotency_key,
                     )
 
@@ -348,6 +349,8 @@ async def run_conversation(
                     estimate = media_estimate_record(
                         pendente.name, provider=provider, model=model
                     )
+                    quota_summary = await media_quota.summary(ctx.user_id)
+                    remaining = int(quota_summary.get("remaining", 0))
                     approval_metadata = {
                         "operation": estimate.operation,
                         "provider": estimate.provider,
@@ -359,7 +362,10 @@ async def run_conversation(
                         "idempotency_key": new_idempotency_key(
                             pendente.id, pendente.name
                         ),
-                        "balance_after_reservation": None,
+                        # A reserva acontece somente após a aprovação. Este valor
+                        # representa o saldo projetado e permite à UI mostrar o
+                        # impacto sem expor argumentos sensíveis.
+                        "balance_after_reservation": max(0, remaining - estimate.units),
                     }
                     approval_args = dict(approval_metadata)
                 args_json = json.dumps(approval_args, ensure_ascii=False)
