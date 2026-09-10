@@ -214,6 +214,9 @@ class TestAgetThreadPendingInterruptNativePrimeiro:
             "tool_name": "file_write",
             "args": {"path": "a.py"},
             "interrupt_id": "intr-1",
+            "options": [],
+            "priority": 0,
+            "expires_at": None,
         }
 
     async def test_sem_pendencia_nativa_devolve_none(self, session_store: SessionStore):
