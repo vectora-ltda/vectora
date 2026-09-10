@@ -92,6 +92,27 @@ async def test_retry_de_reserva_falha_reusa_a_mesma_debitacao(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_reserva_finalizada_preserva_estado_e_nao_reautoriza_operacao(
+    tmp_path,
+) -> None:
+    """Uma chave já finalizada não volta ao estado reservado em novo pedido."""
+    quota = _quota(tmp_path / "quota.sqlite3")
+    first = await quota.reserve(
+        user_id="u1", operation="generate_image", idempotency_key="finalized-1"
+    )
+    assert first is not None
+    await quota.finalize(first, state="finalized")
+
+    repeated = await quota.reserve(
+        user_id="u1", operation="generate_image", idempotency_key="finalized-1"
+    )
+
+    assert repeated is not None
+    assert repeated.state == "finalized"
+    assert (await quota.summary("u1"))["used"] == 1
+
+
+@pytest.mark.asyncio
 async def test_tier_indisponivel_bloqueia_reserva_de_usuario_autenticado(
     tmp_path, monkeypatch
 ) -> None:
