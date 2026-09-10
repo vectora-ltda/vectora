@@ -15,6 +15,12 @@ import type { Message } from "@/lib/types";
 import { MessageItem } from "./message-item";
 import { MessageSkeletons } from "./message-skeleton";
 import { ArrowDown } from "lucide-react";
+import {
+  listConversationBranches,
+  selectConversationBranch,
+  type ConversationBranch,
+} from "@/lib/api/vectora-client";
+import { m } from "@/lib/paraglide/messages";
 
 // Ativa virtualização quando a thread tem mais que este número de mensagens.
 // Abaixo do threshold, renderização direta é mais simples e igualmente rápida.
@@ -71,6 +77,57 @@ interface MessageListProps {
   workspaceId?: string;
   /** IDE sidebar: passa para MessageItem ocultar avatar e compactar. */
   compact?: boolean;
+}
+
+function ConversationBranchBar({ threadId }: { threadId?: string }) {
+  const [branches, setBranches] = useState<ConversationBranch[]>([]);
+  const [selected, setSelected] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!threadId) return;
+    let active = true;
+    void listConversationBranches(threadId)
+      .then((result) => {
+        if (!active) return;
+        setBranches(result.branches);
+        setSelected(result.active_head_message_id);
+      })
+      .catch(() => {
+        if (active) setBranches([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [threadId]);
+
+  if (!threadId || branches.length < 2) return null;
+  return (
+    <div className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background/95 px-4 py-2 text-xs backdrop-blur">
+      <span className="text-muted-foreground">{m.chat_branch_label()}:</span>
+      {branches.map((branch) => (
+        <button
+          key={branch.head_message_id}
+          type="button"
+          aria-pressed={selected === branch.head_message_id}
+          className="rounded border px-2 py-1 hover:bg-accent"
+          onClick={() => {
+            void selectConversationBranch(threadId, branch.head_message_id)
+              .then(() => {
+                setSelected(branch.head_message_id);
+                window.dispatchEvent(
+                  new CustomEvent("vectora:branch-selected"),
+                );
+              })
+              .catch(() => undefined);
+          }}
+        >
+          {branch.active
+            ? m.chat_branch_current()
+            : m.chat_branch_point({ id: branch.head_message_id })}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 export const MessageList = memo(function MessageList({
@@ -452,13 +509,14 @@ export const MessageList = memo(function MessageList({
         onScroll={handleScroll}
         aria-live="polite"
         aria-busy={isLoadingThread}
-        aria-label="Messages"
+        aria-label={m.chat_messages()}
         style={{
           willChange: "scroll-position",
           contain: "layout style paint",
           WebkitOverflowScrolling: "touch",
         }}
       >
+        <ConversationBranchBar threadId={threadId} />
         {/* M4 — Skeletons de carregamento */}
         {isLoadingThread ? (
           <MessageSkeletons />
@@ -551,7 +609,7 @@ export const MessageList = memo(function MessageList({
           // mensagens (que já é `relative`, ver acima), não ao viewport —
           // evita sobrepor a nav rail do workbench quando ele está aberto.
           className="scroll-button absolute bottom-32 right-4 sm:right-8 p-3 rounded-full shadow-lg hover:scale-110 active:scale-95 transition-transform z-50 bg-primary text-primary-foreground"
-          aria-label="Voltar ao fim"
+          aria-label={m.scroll_back_to_bottom()}
         >
           <ArrowDown className="w-5 h-5" />
         </button>

@@ -476,40 +476,51 @@ export const getHistory = (
 const branchUrl = (threadId: string, suffix = "") =>
   `/threads/${encodeURIComponent(threadId)}/branches${suffix}`;
 
+async function branchRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const request = () =>
+    fetch(`${VECTORA_API_URL}${path}`, {
+      ...init,
+      credentials: "include",
+    });
+  let response = await request();
+  if (response.status === 401) {
+    if (!(await tryRefreshToken())) {
+      redirectToLogin();
+      throw new Error("sessão expirada");
+    }
+    response = await request();
+  }
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`branches falhou (${response.status}): ${detail}`);
+  }
+  return (await response.json()) as T;
+}
+
 export const listConversationBranches = (
   threadId: string,
   limit = 100,
 ): Promise<ConversationBranchesResponse> =>
-  fetch(`${branchUrl(threadId)}?limit=${limit}`, {
-    credentials: "include",
-  }).then(async (response) => {
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.json() as Promise<ConversationBranchesResponse>;
-  });
+  branchRequest<ConversationBranchesResponse>(
+    `${branchUrl(threadId)}?limit=${limit}`,
+  );
 
 export const compareConversationBranch = (
   threadId: string,
   headMessageId: number,
 ): Promise<ConversationBranchComparison> =>
-  fetch(branchUrl(threadId, `/${headMessageId}/compare`), {
-    credentials: "include",
-  }).then(async (response) => {
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.json() as Promise<ConversationBranchComparison>;
-  });
+  branchRequest<ConversationBranchComparison>(
+    branchUrl(threadId, `/${headMessageId}/compare`),
+  );
 
 export const selectConversationBranch = (
   threadId: string,
   headMessageId: number,
 ): Promise<ConversationBranchesResponse> =>
-  fetch(branchUrl(threadId, "/select"), {
+  branchRequest<ConversationBranchesResponse>(branchUrl(threadId, "/select"), {
     method: "POST",
-    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ head_message_id: headMessageId }),
-  }).then(async (response) => {
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.json() as Promise<ConversationBranchesResponse>;
   });
 
 export interface PagedHistoryResponse {
