@@ -26,6 +26,13 @@ interface ProviderUsage {
   error: string | null;
 }
 
+interface MediaQuota {
+  period: string;
+  used: number;
+  limit: number;
+  remaining: number;
+}
+
 function formatAmount(value: number, unit: string): string {
   return unit === "usd"
     ? `$${value.toFixed(2)}`
@@ -132,6 +139,7 @@ export function UsagePopover({ tokensUsed, modelId }: UsagePopoverProps) {
   const pct = contextWindow > 0 ? (tokensUsed / contextWindow) * 100 : 0;
   const [open, setOpen] = useState(false);
   const [providers, setProviders] = useState<ProviderUsage[]>([]);
+  const [mediaQuota, setMediaQuota] = useState<MediaQuota | null>(null);
 
   // Só busca ao abrir: o consumo dos providers é dado remoto, e o backend
   // cacheia — não faz sentido consultar a cada render do composer.
@@ -146,6 +154,12 @@ export function UsagePopover({ tokensUsed, modelId }: UsagePopoverProps) {
       .catch(() => {
         // Sem consumo remoto o popover ainda mostra a janela de contexto.
       });
+    void fetch("/usage/media", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelado && data) setMediaQuota(data as MediaQuota);
+      })
+      .catch(() => undefined);
     return () => {
       cancelado = true;
     };
@@ -199,6 +213,29 @@ export function UsagePopover({ tokensUsed, modelId }: UsagePopoverProps) {
             </div>
             <UsageBar pct={pct} />
             <p className="text-[11px] text-muted-foreground pt-1">{modelId}</p>
+
+            {mediaQuota && (
+              <div className="space-y-1 pt-2 mt-1 border-t border-border/60">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">
+                    {m.meter_media_quota()}
+                  </span>
+                  <span className="font-mono text-foreground/90">
+                    {mediaQuota.used} / {mediaQuota.limit}
+                  </span>
+                </div>
+                <UsageBar
+                  pct={
+                    mediaQuota.limit > 0
+                      ? (mediaQuota.used / mediaQuota.limit) * 100
+                      : 0
+                  }
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  {m.meter_media_remaining({ count: mediaQuota.remaining })}
+                </p>
+              </div>
+            )}
 
             {providers.length > 0 && (
               <div className="space-y-2 pt-2 mt-1 border-t border-border/60">

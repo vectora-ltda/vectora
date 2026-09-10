@@ -118,6 +118,8 @@
   "thinking_coding": "Writing code",
   "tool_executing": "executing…",
   "scroll_back_to_bottom": "Back to bottom",
+  "meter_media_quota": "Monthly media quota",
+  "meter_media_remaining": "{count} units remaining",
   "settings_chat_tooltip": "Settings",
   "settings_chat_tools_section": "Tools",
   "settings_chat_show_tool_calls": "Show tool calls in chat",
