@@ -23,7 +23,7 @@ def _quota(path: Path) -> MediaQuota:
 
 
 @pytest.mark.asyncio
-async def test_reserve_is_idempotent_and_summary_is_durable(tmp_path) -> None:
+async def test_reserve_is_idempotent_and_summary_is_durable(tmp_path: Path) -> None:
     quota = _quota(tmp_path / "quota.sqlite3")
 
     first = await quota.reserve(
@@ -38,7 +38,7 @@ async def test_reserve_is_idempotent_and_summary_is_durable(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_reserve_rejects_when_monthly_limit_is_exceeded(tmp_path) -> None:
+async def test_reserve_rejects_when_monthly_limit_is_exceeded(tmp_path: Path) -> None:
     quota = _quota(tmp_path / "quota.sqlite3")
     for index in range(10):
         assert await quota.reserve(
@@ -58,7 +58,7 @@ async def test_reserve_rejects_when_monthly_limit_is_exceeded(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_reservas_concorrentes_nao_ultrapassam_o_limite(tmp_path) -> None:
+async def test_reservas_concorrentes_nao_ultrapassam_o_limite(tmp_path: Path) -> None:
     quota = _quota(tmp_path / "quota.sqlite3")
 
     results = await asyncio.gather(
@@ -77,7 +77,7 @@ async def test_reservas_concorrentes_nao_ultrapassam_o_limite(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_retry_de_reserva_falha_reusa_a_mesma_debitacao(tmp_path) -> None:
+async def test_retry_de_reserva_falha_reusa_a_mesma_debitacao(tmp_path: Path) -> None:
     quota = _quota(tmp_path / "quota.sqlite3")
     first = await quota.reserve(
         user_id="u1", operation="generate_image", idempotency_key="retry-1"
@@ -115,7 +115,7 @@ async def test_reserva_finalizada_preserva_estado_e_nao_reautoriza_operacao(
 
 @pytest.mark.asyncio
 async def test_tier_indisponivel_bloqueia_reserva_de_usuario_autenticado(
-    tmp_path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     quota = _quota(tmp_path / "quota.sqlite3")
     monkeypatch.setattr(
@@ -150,7 +150,7 @@ async def test_summary_postgres_usa_tier_do_store_de_entitlements(
 
 @pytest.mark.asyncio
 async def test_reservas_postgres_concorrentes_mesma_chave_sao_idempotentes(
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Concorrência PostgreSQL deve produzir uma reserva e um único débito."""
     dsn = os.getenv("VECTORA_TEST_POSTGRES_DSN")

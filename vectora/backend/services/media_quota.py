@@ -90,6 +90,28 @@ class MediaQuota:
         return connection
 
     @staticmethod
+    def _record_transition(
+        *,
+        operation: str,
+        units: int,
+        previous_state: str | None,
+        new_state: str,
+    ) -> None:
+        """Registra uma transição somente depois de a transação confirmar."""
+        try:
+            from backend.persistence.telemetry import telemetry
+
+            telemetry.record_media_quota(
+                "transition",
+                operation=operation,
+                units=units,
+                previous_state=previous_state,
+                new_state=new_state,
+            )
+        except Exception:
+            logger.debug("media_quota: falha ao registrar transição", exc_info=True)
+
+    @staticmethod
     def period() -> str:
         return datetime.now(UTC).strftime("%Y-%m")
 
@@ -214,6 +236,12 @@ class MediaQuota:
                     return None
                 # A reserva foi inserida acima; só o débito ainda precisa ser
                 # confirmado nesta mesma transação.
+        self._record_transition(
+            operation=operation,
+            units=estimate_units,
+            previous_state=None,
+            new_state="reserved",
+        )
         return QuotaReservation(
             idempotency_key, user_id, period, operation, estimate_units
         )
@@ -265,6 +293,7 @@ class MediaQuota:
                     )
                     return None
                 if existing[4] in {"failed", "cancelled"}:
+                    previous_state = existing[4]
                     retry_period = period
                     db.execute(
                         "INSERT OR IGNORE INTO media_quota_usage(user_id, period, used_units) VALUES (?, ?, 0)",
@@ -298,7 +327,10 @@ class MediaQuota:
                         existing[3],
                         "reserved",
                     )
-                return QuotaReservation(
+                    transition = (existing[2], existing[3], previous_state)
+                else:
+                    transition = None
+                result = QuotaReservation(
                     idempotency_key,
                     existing[0],
                     existing[1],
@@ -306,6 +338,15 @@ class MediaQuota:
                     existing[3],
                     cast("QuotaState", existing[4]),
                 )
+                if transition is not None:
+                    db.commit()
+                    self._record_transition(
+                        operation=transition[0],
+                        units=transition[1],
+                        previous_state=transition[2],
+                        new_state="reserved",
+                    )
+                return result
             db.execute(
                 "INSERT OR IGNORE INTO media_quota_usage(user_id, period, used_units) VALUES (?, ?, 0)",
                 (user_id, period),
@@ -338,6 +379,12 @@ class MediaQuota:
                     datetime.now(UTC).isoformat(),
                 ),
             )
+        self._record_transition(
+            operation=operation,
+            units=units,
+            previous_state=None,
+            new_state="reserved",
+        )
         logger.info(
             "media_quota.reserved", extra={"operation": operation, "units": units}
         )
@@ -353,10 +400,11 @@ class MediaQuota:
 
     async def _finalize_postgres(self, reservation_id: str, state: QuotaState) -> None:
         pool = await self._postgres_pool()
+        transition: tuple[str, int] | None = None
         async with pool.acquire() as connection:
             async with connection.transaction():
                 row = await connection.fetchrow(
-                    "SELECT user_id, period, units FROM media_quota_reservations "
+                    "SELECT user_id, period, operation, units FROM media_quota_reservations "
                     "WHERE id = $1 AND state = 'reserved' FOR UPDATE",
                     reservation_id,
                 )
@@ -375,27 +423,42 @@ class MediaQuota:
                         row["user_id"],
                         row["period"],
                     )
+                transition = (row["operation"], int(row["units"]))
+        if transition is not None:
+            self._record_transition(
+                operation=transition[0],
+                units=transition[1],
+                previous_state="reserved",
+                new_state=state,
+            )
 
     def _finalize(self, reservation_id: str, state: QuotaState) -> None:
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
-                "SELECT user_id, period, units, state FROM media_quota_reservations WHERE id = ?",
+                "SELECT user_id, period, operation, units, state FROM media_quota_reservations WHERE id = ?",
                 (reservation_id,),
             ).fetchone()
-            if row is None or row[3] != "reserved":
+            if row is None or row[4] != "reserved":
                 return
             updated = db.execute(
                 "UPDATE media_quota_reservations SET state = ? WHERE id = ? AND state = 'reserved'",
                 (state, reservation_id),
             )
             if updated.rowcount == 1:
+                db.commit()
+                self._record_transition(
+                    operation=row[2],
+                    units=row[3],
+                    previous_state="reserved",
+                    new_state=state,
+                )
                 logger.info("media_quota.finalized", extra={"state": state})
             if updated.rowcount == 1 and state in {"failed", "cancelled"}:
                 db.execute(
                     "UPDATE media_quota_usage SET used_units = MAX(0, used_units - ?) "
                     "WHERE user_id = ? AND period = ?",
-                    (row[2], row[0], row[1]),
+                    (row[3], row[0], row[1]),
                 )
 
     async def summary(self, user_id: str) -> dict[str, int | str]:
