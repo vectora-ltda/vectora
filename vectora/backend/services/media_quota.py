@@ -102,7 +102,7 @@ class MediaQuota:
             self._reserve, user_id, operation, idempotency_key, units
         )
 
-    async def _reserve_postgres(
+    async def _reserve_postgres(  # noqa: PLR0911
         self, user_id: str, operation: str, idempotency_key: str, units: int | None
     ) -> QuotaReservation | None:
         estimate_units = UNIT_COSTS.get(operation, 0) if units is None else units
@@ -124,6 +124,37 @@ class MediaQuota:
                         or existing["operation"] != operation
                     ):
                         return None
+                    if existing["state"] in {"failed", "cancelled"}:
+                        await connection.execute(
+                            "INSERT INTO media_quota_usage(user_id, period, used_units) "
+                            "VALUES ($1, $2, 0) ON CONFLICT (user_id, period) DO NOTHING",
+                            user_id,
+                            period,
+                        )
+                        updated = await connection.execute(
+                            "UPDATE media_quota_usage SET used_units = used_units + $1 "
+                            "WHERE user_id = $2 AND period = $3 AND used_units + $1 <= $4",
+                            existing["units"],
+                            user_id,
+                            period,
+                            MONTHLY_LIMITS.get(tier, MONTHLY_LIMITS["free"]),
+                        )
+                        if not updated.endswith("1"):
+                            return None
+                        await connection.execute(
+                            "UPDATE media_quota_reservations SET state = 'reserved', period = $1 "
+                            "WHERE id = $2",
+                            period,
+                            idempotency_key,
+                        )
+                        return QuotaReservation(
+                            idempotency_key,
+                            user_id,
+                            period,
+                            operation,
+                            existing["units"],
+                            "reserved",
+                        )
                     return QuotaReservation(
                         idempotency_key,
                         existing["user_id"],

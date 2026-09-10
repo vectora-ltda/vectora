@@ -44,6 +44,16 @@ _RECORD_FIELDS = (
     "error_type",
     "error_message",
     "source",
+    "operation",
+    "provider",
+    "model",
+    "estimate_version",
+    "billable_unit",
+    "currency",
+    "units",
+    "state",
+    "result",
+    "idempotency_key",
 )
 
 
@@ -203,6 +213,30 @@ class VectoraTelemetry:
             **extra,
         }
         self._emit(logging.ERROR, "unhandled_error", **fields)
+
+    def record_media_quota(self, event: str, **fields: Any) -> None:
+        """Emite um evento de quota sem aceitar conteúdo de mídia.
+
+        O contrato limita os campos a identificadores e valores agregados;
+        prompts, textos, caminhos e payloads de provider são descartados.
+        """
+        allowed = {
+            "operation",
+            "provider",
+            "model",
+            "estimate_version",
+            "billable_unit",
+            "currency",
+            "units",
+            "state",
+            "result",
+            "idempotency_key",
+        }
+        self._emit(
+            logging.INFO,
+            f"media_quota.{event}",
+            **{key: value for key, value in fields.items() if key in allowed},
+        )
 
 
 #: Instância singleton — importar diretamente:

@@ -205,6 +205,7 @@ class ApprovalGate:
         options: list[dict[str, str]] | None = None,
         priority: int = 0,
         expires_at: str | None = None,
+        approval_metadata: dict[str, Any] | None = None,
     ) -> None:
         import asyncio
 
@@ -214,6 +215,8 @@ class ApprovalGate:
             safe_args["input_preview"] = "<redacted>"
             safe_args["input_length"] = len(raw_input.encode("utf-8"))
             self._ephemeral_args[interrupt_id] = dict(args)
+        elif tool_name in {"generate_image", "text_to_speech", "generate_video"}:
+            safe_args = dict(approval_metadata or {})
         logger.info(
             "hitl.request",
             extra={
@@ -222,6 +225,18 @@ class ApprovalGate:
                 "has_options": bool(options),
             },
         )
+        if tool_name in {"generate_image", "text_to_speech", "generate_video"}:
+            from backend.persistence.telemetry import telemetry
+
+            telemetry.record_media_quota(
+                "hitl_requested",
+                operation=str((approval_metadata or {}).get("operation", tool_name)),
+                provider=str((approval_metadata or {}).get("provider", "")),
+                model=str((approval_metadata or {}).get("model", "")),
+                units=(approval_metadata or {}).get("estimated_units"),
+                idempotency_key=(approval_metadata or {}).get("idempotency_key"),
+                result="pending",
+            )
         await self._session_store.put_pending_approval(
             thread_id,
             interrupt_id=interrupt_id,

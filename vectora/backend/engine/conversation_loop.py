@@ -306,10 +306,39 @@ async def run_conversation(
             if pendente is not None:
                 interrupt_id = str(uuid4())
                 approval_args = dict(pendente.args)
+                approval_metadata: dict[str, Any] | None = None
                 if pendente.name == "write_terminal":
                     raw_input = str(approval_args.pop("input_data", ""))
                     approval_args["input_preview"] = "<redacted>"
                     approval_args["input_length"] = len(raw_input.encode("utf-8"))
+                elif pendente.name in {
+                    "generate_image",
+                    "text_to_speech",
+                    "generate_video",
+                }:
+                    from backend.services.media_quota import (
+                        media_estimate_record,
+                        new_idempotency_key,
+                    )
+
+                    provider, _, model = ctx.model.partition(":")
+                    estimate = media_estimate_record(
+                        pendente.name, provider=provider, model=model
+                    )
+                    approval_metadata = {
+                        "operation": estimate.operation,
+                        "provider": estimate.provider,
+                        "model": estimate.model,
+                        "estimate_version": estimate.version,
+                        "billable_unit": estimate.billable_unit,
+                        "currency": estimate.currency,
+                        "estimated_units": estimate.units,
+                        "idempotency_key": new_idempotency_key(
+                            pendente.id, pendente.name
+                        ),
+                        "balance_after_reservation": None,
+                    }
+                    approval_args = dict(approval_metadata)
                 args_json = json.dumps(approval_args, ensure_ascii=False)
                 raw_options = pendente.args.get("options", [])
                 options = (
@@ -341,6 +370,7 @@ async def run_conversation(
                         options=options,
                         priority=priority,
                         expires_at=str(expires_at) if expires_at else None,
+                        approval_metadata=approval_metadata,
                     )
                 await emit(
                     HitlRequested(

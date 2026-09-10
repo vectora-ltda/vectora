@@ -77,6 +77,7 @@ async def _reserve_media(
     """
     if getattr(ctx, "_extra", {}).get("media_billing_source") == "byok":
         return None, None
+    from backend.persistence.telemetry import telemetry
     from backend.services.media_quota import (
         media_estimate_record,
         media_quota,
@@ -99,6 +100,17 @@ async def _reserve_media(
     provider = _active_provider(ctx)
     model = _active_model(ctx)
     estimate = media_estimate_record(operation, provider=provider, model=model)
+    telemetry.record_media_quota(
+        "estimate",
+        operation=estimate.operation,
+        provider=estimate.provider,
+        model=estimate.model,
+        estimate_version=estimate.version,
+        billable_unit=estimate.billable_unit,
+        currency=estimate.currency,
+        units=estimate.units,
+        idempotency_key=idempotency_key,
+    )
     reservation = await media_quota.reserve(
         user_id=ctx.user_id,
         operation=operation,
@@ -106,6 +118,14 @@ async def _reserve_media(
         units=estimate.units,
     )
     if reservation is None:
+        telemetry.record_media_quota(
+            "blocked",
+            operation=operation,
+            provider=provider,
+            model=model,
+            result="quota_exceeded",
+            idempotency_key=idempotency_key,
+        )
         return None, json.dumps(
             {"error": "quota mensal de mídia esgotada", "operation": operation},
             ensure_ascii=False,
@@ -118,6 +138,15 @@ async def _reserve_media(
             },
             ensure_ascii=False,
         )
+    telemetry.record_media_quota(
+        "reserved",
+        operation=operation,
+        provider=provider,
+        model=model,
+        units=reservation.units,
+        state=reservation.state,
+        idempotency_key=idempotency_key,
+    )
     return reservation, None
 
 
@@ -126,9 +155,17 @@ async def _finalize_media(
 ) -> None:
     if reservation is None:
         return
+    from backend.persistence.telemetry import telemetry
     from backend.services.media_quota import media_quota
 
     await media_quota.finalize(reservation, state=state)
+    telemetry.record_media_quota(
+        "finalized",
+        operation=reservation.operation,
+        units=reservation.units,
+        state=state,
+        idempotency_key=reservation.id,
+    )
 
 
 def _media_dir(session_id: str) -> Path:
