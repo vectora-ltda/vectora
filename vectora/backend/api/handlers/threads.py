@@ -27,7 +27,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -45,6 +45,7 @@ from backend.api.schemas import (
     ListThreadsRequest,
     ListThreadsResponse,
     PagedHistoryResponse,
+    RemoteActivity,
     SetThreadPinsRequest,
     StructuredQuestionAnswerRequest,
     StructuredQuestionResponse,
@@ -53,16 +54,7 @@ from backend.api.schemas import (
     TodoItem,
     UpdateThreadRequest,
 )
-
-type ThreadRow = (
-    tuple[str, str | None, str, str, int, str | None]
-    | tuple[str, str | None, str, str, int, str | None, str | None, int | None]
-)
-from backend.persistence.thread_activity import (
-    get_remote_activity,
-    record_activity,
-    revoke_device_activity,
-)
+from backend.persistence.thread_activity import get_remote_activity
 from backend.rbac.device_id import validate_device_id
 
 logger = logging.getLogger(__name__)
@@ -76,6 +68,27 @@ def _user_id(request: Request) -> str:
     if user is not None and getattr(user, "id", None):
         return str(user.id)
     return "local"
+
+
+@router.post("/threads/device/revoke")
+async def revoke_current_device(
+    request: Request,
+    device_id: Annotated[str | None, Header(alias="X-Vectora-Device-Id")] = None,
+) -> dict[str, bool]:
+    """Revoga a atividade remota associada ao dispositivo autenticado."""
+    user = getattr(request.state, "user", None)
+    if user is None or not getattr(user, "id", None):
+        raise HTTPException(status_code=401, detail="Autenticação necessária")
+    from backend.persistence.thread_activity import revoke_device_activity
+    from backend.rbac.device_id import validate_device_id
+
+    validated = validate_device_id(device_id)
+    if validated is None:
+        raise HTTPException(
+            status_code=400, detail="Identificador de dispositivo inválido"
+        )
+    await revoke_device_activity(_user_id(request), validated)
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------
@@ -144,18 +157,13 @@ async def _ensure_schema(db: Any) -> None:
         )
     """)
     await db.execute("""
-        CREATE TABLE IF NOT EXISTS vectora_thread_activity (
-            user_id TEXT NOT NULL,
-            device_id TEXT NOT NULL,
+        CREATE TABLE IF NOT EXISTS thread_read_cursors (
             thread_id TEXT NOT NULL,
-            last_active_at TEXT NOT NULL,
-            PRIMARY KEY (user_id, device_id, thread_id)
+            user_id TEXT NOT NULL,
+            read_count INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (thread_id, user_id)
         )
     """)
-    await db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_thread_activity_user_thread "
-        "ON vectora_thread_activity(user_id, thread_id)"
-    )
     from backend.services.usage_insights import usage_insight_store
 
     await usage_insight_store.ensure_schema(db)
@@ -272,28 +280,17 @@ def _normalize_mode(mode: str | None) -> str:
     return "code"
 
 
-def _row_to_thread(row: ThreadRow, remote_activity: str | None = None) -> Thread:
+def _row_to_thread(row: tuple) -> Thread:
     """Converte uma linha da tabela vectora_sessions em Thread.
 
     A linha traz até 8 colunas (``mode`` e ``pinned`` de 1ª classe nas duas
     últimas posições). Ambas têm fallback pra ``None``/``0`` quando a SELECT
     de origem não as inclui (compatibilidade com chamadas mais antigas).
     """
-    if len(row) == 6:
-        thread_id, _, created_at, last_activity, _, extra_json = row
-        mode_col = None
-        pinned_col = 0
-    else:
-        (
-            thread_id,
-            _,
-            created_at,
-            last_activity,
-            _,
-            extra_json,
-            mode_col,
-            pinned_col,
-        ) = row
+    thread_id, _, created_at, last_activity, _, extra_json = row[:6]
+    mode_col = row[6] if len(row) > 6 else None
+    pinned_col = row[7] if len(row) > 7 else 0
+    unread_col = row[8] if len(row) > 8 else 0
     title = ""
     workspace_id = ""
     try:
@@ -311,10 +308,19 @@ def _row_to_thread(row: ThreadRow, remote_activity: str | None = None) -> Thread
         workspace_id=workspace_id,
         mode=mode,
         pinned=bool(pinned_col),
-        remote_activity=(
-            {"last_active_at": remote_activity} if remote_activity is not None else None
-        ),
+        unread_count=max(0, int(unread_col or 0)),
     )
+
+
+async def _unread_count(thread_id: str, user_id: str) -> int:
+    db = await _get_db()
+    async with db.execute(
+        "SELECT message_count - COALESCE((SELECT read_count FROM thread_read_cursors "
+        "WHERE thread_id = ? AND user_id = ?), 0) FROM vectora_sessions WHERE thread_id = ?",
+        (thread_id, user_id, thread_id),
+    ) as cur:
+        row = await cur.fetchone()
+    return max(0, int(row[0])) if row else 0
 
 
 # ---------------------------------------------------------------------------
@@ -705,9 +711,8 @@ async def _assert_owns_thread(thread_id: str, http_request: Request | None) -> N
     threads de outro usuário."""
     if http_request is None:
         return
-    # O modo local não possui uma identidade multiusuário para autorizar.
-    # Preservar a compatibilidade desse modo evita tratar sessões legadas ou
-    # fixtures locais como pertencentes a outro usuário virtual.
+    # Requisições sem usuário autenticado pertencem ao launcher local confiável.
+    # A checagem de posse é aplicada somente quando há um principal autenticado.
     if getattr(http_request.state, "user", None) is None:
         return
     session_store = await _get_session_store()
@@ -736,11 +741,11 @@ async def get_thread(
             status_code=404, detail=f"Thread {request.thread_id!r} not found"
         )
     await _assert_owns_thread(request.thread_id, http_request)
-    if http_request is not None:
-        device_id = validate_device_id(getattr(http_request.state, "device_id", None))
-        if device_id:
-            await record_activity(_user_id(http_request), device_id, request.thread_id)
-    return _row_to_thread(row)
+    thread = _row_to_thread(row)
+    thread.unread_count = await _unread_count(
+        thread.id, _user_id(http_request) if http_request is not None else "local"
+    )
+    return thread
 
 
 # ---------------------------------------------------------------------------
@@ -798,20 +803,52 @@ async def list_threads(
             [r[0] for r in rows], user_id
         )
         rows = [r for r in rows if r[0] not in foreign_ids]
-        remote: dict[str, str] = {}
-        device_id = validate_device_id(getattr(http_request.state, "device_id", None))
-        if device_id and rows:
-            remote = await get_remote_activity(
-                user_id,
-                [str(row[0]) for row in rows],
-                device_id,
-            )
-    else:
-        remote = {}
 
-    return ListThreadsResponse(
-        threads=[_row_to_thread(r, remote.get(str(r[0]))) for r in rows]
+    user_id = _user_id(http_request) if http_request is not None else "local"
+    current_device_id = (
+        validate_device_id(getattr(http_request.state, "device_id", None))
+        if http_request is not None
+        else None
     )
+    remote_activity = (
+        await get_remote_activity(user_id, [r[0] for r in rows], current_device_id)
+        if current_device_id
+        else {}
+    )
+    threads = []
+    for row in rows:
+        thread = _row_to_thread(row)
+        thread.unread_count = await _unread_count(thread.id, user_id)
+        if activity := remote_activity.get(thread.id):
+            thread.remote_activity = RemoteActivity(last_active_at=activity)
+        threads.append(thread)
+    return ListThreadsResponse(threads=threads)
+
+
+class MarkThreadReadRequest(BaseModel):
+    thread_id: str
+
+
+@router.post("/threads/{thread_id}/read")
+async def mark_thread_read(thread_id: str, request: Request) -> dict[str, int | str]:
+    """Confirma a leitura da thread de modo idempotente e por usuário."""
+    await _assert_owns_thread(thread_id, request)
+    user_id = _user_id(request)
+    db = await _get_db()
+    async with db.execute(
+        "SELECT message_count FROM vectora_sessions WHERE thread_id = ?", (thread_id,)
+    ) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Thread não encontrada")
+    await db.execute(
+        "INSERT INTO thread_read_cursors(thread_id, user_id, read_count) VALUES (?, ?, ?) "
+        "ON CONFLICT(thread_id, user_id) DO UPDATE SET read_count = "
+        "MAX(thread_read_cursors.read_count, excluded.read_count)",
+        (thread_id, user_id, int(row[0])),
+    )
+    await db.commit()
+    return {"thread_id": thread_id, "unread_count": 0}
 
 
 async def cleanup_empty_threads(max_age_hours: float = 1.0) -> int:
@@ -1046,6 +1083,9 @@ async def delete_thread(
     # recria em `vectora_sessions`, ressuscitando uma conversa apagada.
     session_store = await _get_session_store()
     await session_store.delete_session(request.thread_id)
+    from backend.services.desktop_windows import desktop_window_registry
+
+    desktop_window_registry.invalidate(request.thread_id)
     return {}
 
 
@@ -1627,18 +1667,6 @@ class ActivityResponse(BaseModel):
     turn_count: int
 
 
-@router.post("/threads/device/revoke")
-async def revoke_current_device(request: Request) -> dict[str, bool]:
-    """Revoke this installation's activity identifier and its records."""
-    device_id = validate_device_id(getattr(request.state, "device_id", None))
-    if not device_id:
-        raise HTTPException(
-            status_code=400, detail="Identificador de dispositivo inválido"
-        )
-    await revoke_device_activity(_user_id(request), device_id)
-    return {"revoked": True}
-
-
 @router.get("/threads/{thread_id}/activity", response_model=ActivityResponse)
 async def thread_activity(thread_id: str) -> ActivityResponse:
     """Retorna um resumo da atividade da thread: arquivos modificados e
@@ -1735,11 +1763,68 @@ class SmartApprovalAllowlistRequest(BaseModel):
 
 class SmartApprovalAllowlistRemoveRequest(BaseModel):
     workspace_id: str
-    signature: str
+    rule_id: str
+
+
+class SmartApprovalAllowlistItem(BaseModel):
+    id: str
+    label: str
 
 
 class SmartApprovalAllowlistResponse(BaseModel):
-    allowlist: list[str]
+    allowlist: list[SmartApprovalAllowlistItem]
+
+
+def _allowlist_items(workspace_id: str) -> list[SmartApprovalAllowlistItem]:
+    from backend.services.smart_approval import allowlist_id, get_allowlist
+
+    return [
+        SmartApprovalAllowlistItem(id=allowlist_id(rule), label=f"Regra {index + 1}")
+        for index, rule in enumerate(get_allowlist(workspace_id))
+    ]
+
+
+async def _audit_allowlist_change(
+    request: Request,
+    *,
+    action: str,
+    workspace_id: str,
+    rule_id: str,
+) -> None:
+    """Registra a mutação sem persistir comando, argumentos ou assinatura."""
+    try:
+        from backend.rbac.auth import get_db_for_audit, write_audit
+
+        db = await get_db_for_audit()
+        await write_audit(
+            db,
+            _user_id(request),
+            f"smart_approval.{action}",
+            success=True,
+            metadata={"workspace_id": workspace_id, "rule_id": rule_id},
+            target_type="smart_approval_allowlist",
+        )
+    except Exception:
+        logger.debug(
+            "smart approval: auditoria indisponível",
+            extra={"action": action},
+        )
+
+
+@router.get("/smart-approval/allowlist")
+async def get_smart_approval_allowlist(
+    workspace_id: str, request: Request
+) -> SmartApprovalAllowlistResponse:
+    """Lista regras persistentes sem expor comandos completos ao cliente."""
+    _user_id(request)
+    from backend.api.handlers.workspaces import require_workspace_access
+
+    if (
+        getattr(request.state, "user", None) is not None
+        and require_workspace_access(workspace_id, request) is None
+    ):
+        raise HTTPException(status_code=404, detail="Workspace não encontrado")
+    return SmartApprovalAllowlistResponse(allowlist=_allowlist_items(workspace_id))
 
 
 @router.post("/smart-approval/allowlist")
@@ -1750,13 +1835,30 @@ async def add_smart_approval_allowlist(
     próxima ocorrência do mesmo comando chegar já marcada como reconhecida
     (ver `backend/services/smart_approval.py`)."""
     _user_id(request)
-    from backend.services.smart_approval import add_to_allowlist
+    from backend.api.handlers.workspaces import require_workspace_access
+
+    if (
+        getattr(request.state, "user", None) is not None
+        and require_workspace_access(body.workspace_id, request) is None
+    ):
+        raise HTTPException(status_code=404, detail="Workspace não encontrado")
+    from backend.services.smart_approval import add_to_allowlist, rule_id
 
     try:
-        allowlist = add_to_allowlist(body.workspace_id, body.tool_name, body.args)
+        add_to_allowlist(body.workspace_id, body.tool_name, body.args)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return SmartApprovalAllowlistResponse(allowlist=allowlist)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503, detail="Não foi possível persistir a allowlist"
+        ) from exc
+    await _audit_allowlist_change(
+        request,
+        action="add",
+        workspace_id=body.workspace_id,
+        rule_id=rule_id(body.tool_name, body.args),
+    )
+    return SmartApprovalAllowlistResponse(allowlist=_allowlist_items(body.workspace_id))
 
 
 @router.delete("/smart-approval/allowlist")
@@ -1766,7 +1868,25 @@ async def remove_smart_approval_allowlist(
     """Revoga uma assinatura — a próxima ocorrência volta a exigir aprovação
     normal, sem o atalho visual."""
     _user_id(request)
-    from backend.services.smart_approval import remove_from_allowlist
+    from backend.api.handlers.workspaces import require_workspace_access
 
-    allowlist = remove_from_allowlist(body.workspace_id, body.signature)
-    return SmartApprovalAllowlistResponse(allowlist=allowlist)
+    if (
+        getattr(request.state, "user", None) is not None
+        and require_workspace_access(body.workspace_id, request) is None
+    ):
+        raise HTTPException(status_code=404, detail="Workspace não encontrado")
+    from backend.services.smart_approval import remove_from_allowlist_by_id
+
+    try:
+        remove_from_allowlist_by_id(body.workspace_id, body.rule_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503, detail="Não foi possível persistir a allowlist"
+        ) from exc
+    await _audit_allowlist_change(
+        request,
+        action="remove",
+        workspace_id=body.workspace_id,
+        rule_id=body.rule_id,
+    )
+    return SmartApprovalAllowlistResponse(allowlist=_allowlist_items(body.workspace_id))

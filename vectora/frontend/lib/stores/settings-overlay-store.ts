@@ -29,6 +29,7 @@ export type SettingsCategoryId =
   | "plugins"
   | "skills"
   | "tool_policy"
+  | "hitl_allowlist"
   | "admin_users"
   | "admin_tools"
   | "admin_saferoots"

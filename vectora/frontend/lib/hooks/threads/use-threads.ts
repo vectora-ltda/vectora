@@ -32,5 +32,7 @@ export interface Thread {
   mode?: string;
   /** Sessão fixada — aparece no topo da lista da sidebar. */
   pinned?: boolean;
+  /** Mensagens recebidas desde a última leitura confirmada. */
+  unread_count?: number;
   remote_activity?: { last_active_at: string } | null;
 }

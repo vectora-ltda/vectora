@@ -22,6 +22,8 @@ pré-aprovação, HITL normal), regra 11 do CLAUDE.md.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -70,6 +72,16 @@ def _signature(tool_name: str, args: dict) -> str:
     return tool_name
 
 
+def allowlist_id(signature: str) -> str:
+    """Identificador opaco e estável de uma regra, sem expor seu conteúdo."""
+    return hashlib.sha256(signature.encode("utf-8")).hexdigest()
+
+
+def rule_id(tool_name: str, args: dict) -> str:
+    """Retorna o identificador opaco da regra derivada dos argumentos."""
+    return allowlist_id(_signature(tool_name, args))
+
+
 def get_allowlist(workspace_id: str) -> list[str]:
     """Assinaturas pré-aprovadas do workspace. Workspace desconhecido/vazio
     devolve lista vazia, nunca lança."""
@@ -85,20 +97,54 @@ def add_to_allowlist(workspace_id: str, tool_name: str, args: dict) -> list[str]
         msg = "workspace_id vazio — allowlist é sempre por workspace"
         raise ValueError(msg)
     sig = _signature(tool_name, args)
-    current = get_allowlist(workspace_id)
-    if sig not in current:
-        current = [*current, sig]
-        _runtime_settings().set(_allowlist_key(workspace_id), current)
-    return current
+
+    def append_once(current: list[object]) -> list[object]:
+        if sig not in current:
+            current.append(sig)
+        return current
+
+    return [
+        str(item)
+        for item in _runtime_settings().update_list(
+            _allowlist_key(workspace_id), append_once
+        )
+    ]
 
 
 def remove_from_allowlist(workspace_id: str, signature: str) -> list[str]:
     """Revoga uma assinatura — volta a exigir aprovação normal."""
     if not workspace_id:
         return []
-    current = [s for s in get_allowlist(workspace_id) if s != signature]
-    _runtime_settings().set(_allowlist_key(workspace_id), current)
-    return current
+
+    def remove_matching(current: list[object]) -> list[object]:
+        return [item for item in current if str(item) != signature]
+
+    return [
+        str(item)
+        for item in _runtime_settings().update_list(
+            _allowlist_key(workspace_id), remove_matching
+        )
+    ]
+
+
+def remove_from_allowlist_by_id(workspace_id: str, rule_id: str) -> list[str]:
+    """Revoga uma regra usando apenas seu identificador opaco."""
+    if not workspace_id:
+        return []
+
+    def remove_matching_id(current: list[object]) -> list[object]:
+        return [
+            item
+            for item in current
+            if not hmac.compare_digest(allowlist_id(str(item)), rule_id)
+        ]
+
+    return [
+        str(item)
+        for item in _runtime_settings().update_list(
+            _allowlist_key(workspace_id), remove_matching_id
+        )
+    ]
 
 
 def is_allowlisted(workspace_id: str, tool_name: str, args: dict) -> bool:
@@ -150,8 +196,11 @@ async def evaluate_command(
 
 __all__ = [
     "add_to_allowlist",
+    "allowlist_id",
+    "rule_id",
     "evaluate_command",
     "get_allowlist",
     "is_allowlisted",
     "remove_from_allowlist",
+    "remove_from_allowlist_by_id",
 ]

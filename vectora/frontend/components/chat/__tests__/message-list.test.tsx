@@ -22,6 +22,12 @@ import {
 } from "@testing-library/react";
 import { MessageList } from "../message-list";
 import type { Message } from "@/lib/types";
+vi.mock("@/lib/paraglide/messages", () => ({
+  m: {
+    message_list_aria: () => "Messages",
+    scroll_back_to_bottom: () => "Back to bottom",
+  },
+}));
 
 vi.mock("@/lib/paraglide/messages", () => ({
   m: {

@@ -38,7 +38,7 @@ async function addToSmartApprovalAllowlist(
   } catch {
     // args inválido não impede marcar a tool inteira como sempre permitida.
   }
-  await fetch("/smart-approval/allowlist", {
+  const response = await fetch("/smart-approval/allowlist", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
@@ -48,6 +48,9 @@ async function addToSmartApprovalAllowlist(
       args,
     }),
   });
+  if (!response.ok) {
+    throw new Error(`allowlist request failed: ${response.status}`);
+  }
 }
 
 // ===========================================================================
@@ -172,17 +175,23 @@ export function HITLPanel({ messageId, pending, onDecision }: HITLPanelProps) {
   const [editError, setEditError] = useState<string | null>(null);
   const [decided, setDecided] = useState(false);
   const [allowlisted, setAllowlisted] = useState(false);
+  const [allowlistError, setAllowlistError] = useState(false);
 
   if (decided) return null;
 
-  const handleAlwaysAllow = () => {
+  const handleAlwaysAllow = async () => {
     if (!pending.workspaceId) return;
-    setAllowlisted(true);
-    void addToSmartApprovalAllowlist(
-      pending.workspaceId,
-      pending.toolName,
-      pending.argsJson,
-    );
+    setAllowlistError(false);
+    try {
+      await addToSmartApprovalAllowlist(
+        pending.workspaceId,
+        pending.toolName,
+        pending.argsJson,
+      );
+      setAllowlisted(true);
+    } catch {
+      setAllowlistError(true);
+    }
   };
 
   const handleApprove = () => {
@@ -357,17 +366,24 @@ export function HITLPanel({ messageId, pending, onDecision }: HITLPanelProps) {
                 {m.hitl_reject()}
               </Button>
               {pending.workspaceId && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={allowlisted}
-                  className="h-7 px-3 text-xs text-muted-foreground ml-auto"
-                  onClick={handleAlwaysAllow}
-                >
-                  {allowlisted
-                    ? m.hitl_always_allow_added()
-                    : m.hitl_always_allow()}
-                </Button>
+                <>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={allowlisted}
+                    className="h-7 px-3 text-xs text-muted-foreground ml-auto"
+                    onClick={() => void handleAlwaysAllow()}
+                  >
+                    {allowlisted
+                      ? m.hitl_always_allow_added()
+                      : m.hitl_always_allow()}
+                  </Button>
+                  {allowlistError && (
+                    <span role="alert" className="text-xs text-red-400">
+                      {m.hitl_always_allow_error()}
+                    </span>
+                  )}
+                </>
               )}
             </>
           ) : (
