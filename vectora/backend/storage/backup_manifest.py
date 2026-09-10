@@ -14,7 +14,7 @@ import os
 import sqlite3
 import tempfile
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +40,7 @@ class BackupPreview:
     categories: dict[str, int]
     compatible: bool
     storage_mode: str = "lite"
+    results: dict[str, dict[str, object]] = field(default_factory=dict)
 
 
 def _digest(data: bytes) -> str:
@@ -59,6 +60,19 @@ def _sessions_path(database: Path) -> Path:
     return database.parent / "sessions.db"
 
 
+_SENSITIVE_TABLES = {
+    "users",
+    "refresh_tokens",
+    "secrets",
+    "vectora_secrets",
+    "keyring",
+    "sessions",
+    "auth_sessions",
+    "oauth_tokens",
+    "cookies",
+}
+
+
 def _sqlite_snapshot(database: Path) -> bytes:
     """Cria snapshot consistente, incluindo WAL, quando o arquivo é SQLite."""
     try:
@@ -72,6 +86,25 @@ def _sqlite_snapshot(database: Path) -> bytes:
             finally:
                 target.close()
                 source.close()
+            # O snapshot nunca transporta credenciais, tokens ou cofres. A
+            # cópia é sanitizada antes de ser materializada no arquivo ZIP.
+            connection = sqlite3.connect(temporary)
+            try:
+                tables = connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+                for (table,) in tables:
+                    normalized = str(table).lower()
+                    if normalized in _SENSITIVE_TABLES or any(
+                        marker in normalized
+                        for marker in ("token", "secret", "cookie", "keyring", "auth")
+                    ):
+                        connection.execute(
+                            f'DROP TABLE IF EXISTS "{str(table).replace(chr(34), chr(34) * 2)}"'
+                        )
+                connection.commit()
+            finally:
+                connection.close()
             return temporary.read_bytes()
         finally:
             temporary.unlink(missing_ok=True)
@@ -329,8 +362,42 @@ def restore_backup(
                 targets[category]: archive.read(declared[category][0]["path"])
                 for category in selected
             }
+        # Validação do SQLite ocorre no staging, antes de tocar no banco ativo.
+        staged_temp: dict[Path, Path] = {}
         for path, data in staged.items():
-            _atomic_write(path, data)
+            if path.suffix == ".db":
+                with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as handle:
+                    handle.write(data)
+                    staged_temp[path] = Path(handle.name)
+                check = sqlite3.connect(staged_temp[path])
+                try:
+                    if check.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                        raise ValueError("banco restaurado inválido")
+                finally:
+                    check.close()
+        for path, data in staged.items():
+            if path.name == "workspaces.json":
+                parsed = json.loads(data)
+                records = (
+                    parsed
+                    if isinstance(parsed, list)
+                    else parsed.get("workspaces", [])
+                    if isinstance(parsed, dict)
+                    else []
+                )
+                if not isinstance(records, list):
+                    raise ValueError("índice de workspaces inválido")
+                safe_records = [
+                    item
+                    for item in records
+                    if isinstance(item, dict)
+                    and isinstance(item.get("path"), str)
+                    and Path(item["path"]).expanduser().exists()
+                ]
+                staged_data = json.dumps(safe_records, ensure_ascii=False).encode()
+            else:
+                staged_data = data
+            _atomic_write(path, staged_data)
     except Exception:
         for path, previous in snapshots.items():
             if previous is None:
@@ -338,4 +405,18 @@ def restore_backup(
             else:
                 _atomic_write(path, previous)
         raise
-    return preview
+    results: dict[str, dict[str, object]] = {
+        category: {"status": "imported", "count": preview.categories.get(category, 0)}
+        for category in selected
+    }
+    for category in set(preview.categories) - selected:
+        results[category] = {"status": "skipped", "count": preview.categories[category]}
+    return BackupPreview(
+        preview.version,
+        preview.app_version,
+        preview.size_bytes,
+        preview.categories,
+        preview.compatible,
+        preview.storage_mode,
+        results,
+    )

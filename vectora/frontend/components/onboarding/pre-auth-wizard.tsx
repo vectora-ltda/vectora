@@ -70,6 +70,7 @@ type BackupPreview = {
   categories: Record<string, number>;
   size_bytes: number;
   storage_mode: string;
+  results?: Record<string, { status: string; count: number }>;
 };
 
 const VPS_FEATURE_LABELS = [
@@ -154,6 +155,7 @@ export function PreAuthWizard({
   const [backupBusy, setBackupBusy] = useState(false);
   const [backupError, setBackupError] = useState(false);
   const [backupImported, setBackupImported] = useState(false);
+  const [backupResult, setBackupResult] = useState<BackupPreview | null>(null);
 
   // Auto-preenche o username a partir do nome enquanto não houver edição
   // manual — mesmo padrão do /auth/signup real. Comparação durante o render
@@ -270,6 +272,7 @@ export function PreAuthWizard({
         setBackupError(true);
         return;
       }
+      setBackupResult(result);
       setBackupImported(true);
     } catch {
       setBackupError(true);
@@ -448,9 +451,16 @@ export function PreAuthWizard({
             </p>
           )}
           {backupImported && (
-            <p role="status" className="text-xs text-green-600">
-              {m.onboarding_backup_success()}
-            </p>
+            <div role="status" className="space-y-1 text-xs text-green-600">
+              <p>{m.onboarding_backup_success()}</p>
+              {Object.entries(backupResult?.results ?? {}).map(
+                ([category, item]) => (
+                  <p key={category}>
+                    {category}: {item.status} ({item.count})
+                  </p>
+                ),
+              )}
+            </div>
           )}
           <div className="flex justify-between gap-2">
             <button

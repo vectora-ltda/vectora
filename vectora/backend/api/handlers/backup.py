@@ -48,6 +48,7 @@ def _preview_payload(preview: BackupPreview) -> dict[str, object]:
         "categories": preview.categories,
         "compatible": preview.compatible,
         "storage_mode": preview.storage_mode,
+        "results": preview.results,
     }
 
 

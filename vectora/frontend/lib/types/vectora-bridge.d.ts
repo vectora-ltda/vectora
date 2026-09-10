@@ -142,6 +142,7 @@ export interface VectoraBackupPreview {
   categories: Record<string, number>;
   compatible: boolean;
   storage_mode: string;
+  results?: Record<string, { status: string; count: number }>;
 }
 
 declare global {
