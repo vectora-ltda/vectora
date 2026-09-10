@@ -157,6 +157,12 @@ class RuntimeSettings:
             logger.debug("runtime_settings: salvo %r em %s", key, self._path)
         except Exception:
             logger.exception("runtime_settings: erro ao salvar %r", key)
+            try:
+                self._conn.rollback()
+            except Exception:
+                logger.exception(
+                    "runtime_settings: falha ao desfazer transação %r", key
+                )
             raise
 
     def reload(self) -> None:
