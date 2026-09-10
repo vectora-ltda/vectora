@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -34,6 +35,21 @@ class FeedbackResponse(BaseModel):
     status: Literal["received"] = "received"
 
 
+def _safe_context(body: FeedbackRequest) -> dict[str, str]:
+    """Mantém somente metadados técnicos com formatos previsíveis."""
+    values: dict[str, str] = {}
+    for key, value in body.context.items():
+        if not body.include_context:
+            continue
+        if key == "route" and value in {"/chat", "/settings", "/workbench"}:
+            values[key] = value
+        elif key == "app_version" and re.fullmatch(r"[0-9A-Za-z._-]{1,32}", value):
+            values[key] = value
+        elif key == "platform" and re.fullmatch(r"[A-Za-z0-9._ -]{1,32}", value):
+            values[key] = value
+    return values
+
+
 def _user_id(request: Request) -> str:
     user = getattr(request.state, "user", None)
     if user is None or not getattr(user, "id", None):
@@ -55,11 +71,7 @@ def _feedback_rate_key(request: Request) -> str:
 async def submit_feedback(request: Request, body: FeedbackRequest) -> FeedbackResponse:
     """Recebe feedback mínimo e grava somente metadados permitidos."""
     user_id = _user_id(request)
-    safe_context = {
-        key: value[:200]
-        for key, value in body.context.items()
-        if body.include_context and key in {"app_version", "platform", "route"}
-    }
+    safe_context = _safe_context(body)
     record = {
         "id": str(uuid.uuid4()),
         "user_id": user_id,

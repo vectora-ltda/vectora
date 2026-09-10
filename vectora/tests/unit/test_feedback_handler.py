@@ -60,3 +60,16 @@ def test_feedback_rejeita_chave_de_contexto_desconhecida() -> None:
                 "context": {"token": "secret"},
             }
         )
+
+
+def test_feedback_descarta_valor_de_contexto_nao_tecnico() -> None:
+    from backend.api.handlers.feedback import _safe_context
+
+    body = FeedbackRequest(
+        kind="bug",
+        description="falha",
+        include_context=True,
+        context={"route": "/chat"},
+    )
+    body.context["route"] = "segredo da conversa"
+    assert _safe_context(body) == {}
