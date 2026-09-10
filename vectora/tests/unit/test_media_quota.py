@@ -177,7 +177,11 @@ async def test_reservas_postgres_concorrentes_mesma_chave_sao_idempotentes(
             )
         monkeypatch.setattr(quota, "_postgres_enabled", lambda: True)
         monkeypatch.setattr(quota, "_current_tier", lambda _user_id: "pro")
-        monkeypatch.setattr(quota, "_postgres_pool", lambda: pool)
+
+        async def fake_postgres_pool():
+            return pool
+
+        monkeypatch.setattr(quota, "_postgres_pool", fake_postgres_pool)
 
         results = await asyncio.gather(
             *(
