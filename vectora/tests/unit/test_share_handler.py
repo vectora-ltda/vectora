@@ -13,6 +13,8 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.api.handlers.share import _sanitize_shared_text
+
 
 @pytest.fixture(scope="module")
 def client():
@@ -32,6 +34,14 @@ class TestShareGetNotFound:
         resp = client.get("/threads/share/token-invalido-xyz")
         body = resp.json()
         assert "detail" in body
+
+    def test_sanitizes_bearer_and_named_secrets(self):
+        value = "Authorization: Bearer abc def token=xyz password: p@ss"
+        sanitized = _sanitize_shared_text(value)
+        assert "abc def" not in sanitized
+        assert "xyz" not in sanitized
+        assert "p@ss" not in sanitized
+        assert "authorization: [redacted]" in sanitized.lower()
 
 
 class TestShareCreate:

@@ -32,13 +32,15 @@ from backend.api.schemas import (
 logger = logging.getLogger(__name__)
 _SECRET_TEXT = re.compile(
     r"(?i)(api[_ -]?key|token|secret|password)\s*[:=]\s*[^\s,;]+|"
-    r"authorization\s*[:=]\s*bearer\s+[^\s,;]+"
+    r"(authorization)\s*[:=]\s*bearer\s+[^\s,;]+"
 )
 
 
 def _sanitize_shared_text(value: str) -> str:
     """Remove credential-shaped values before exposing a public snapshot."""
-    return _SECRET_TEXT.sub(r"\1: [redacted]", value)
+    return _SECRET_TEXT.sub(
+        lambda match: f"{match.group(1) or match.group(2)}: [redacted]", value
+    )
 
 
 router = APIRouter(prefix="/threads", tags=["share"])
@@ -152,7 +154,7 @@ async def get_shared_thread(token: str) -> SharedThread:
     if row is None:
         raise HTTPException(status_code=404, detail="Share token not found")
 
-    thread_id, created_at, expires_at, permission = row
+    thread_id, created_at, expires_at, _permission = row
 
     now = datetime.now(UTC).isoformat()
     if expires_at < now:
