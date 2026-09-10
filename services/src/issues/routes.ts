@@ -558,6 +558,12 @@ issues.post("/github/webhook", async (c) => {
         try {
           await promoteIssue(c.env, issueId, payload.sender.login);
         } catch (error) {
+          if (
+            error instanceof Error &&
+            error.message === "promotion_in_progress"
+          ) {
+            return;
+          }
           const message =
             error instanceof Error ? error.message : "promotion_failed";
           if (message === "promotion_in_progress") {
