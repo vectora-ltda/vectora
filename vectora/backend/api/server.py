@@ -40,6 +40,7 @@ from backend.api.handlers.agent_profiles import router as agent_profiles_router
 from backend.api.handlers.artifacts import router as artifacts_router
 from backend.api.handlers.auth import router as auth_router
 from backend.api.handlers.background import router as background_router
+from backend.api.handlers.backup import router as backup_router
 from backend.api.handlers.boards import router as boards_router
 from backend.api.handlers.chat import router as chat_router
 from backend.api.handlers.connect import router as connect_router
@@ -607,6 +608,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
     app.include_router(gateway_router)
     app.include_router(webhooks_router)
     app.include_router(admin_router)
+    app.include_router(backup_router)
     app.include_router(usage_router)
     app.include_router(workspace_router)
     app.include_router(workspace_view_router)

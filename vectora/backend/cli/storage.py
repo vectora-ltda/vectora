@@ -251,7 +251,13 @@ def _save_qdrant_to_settings(url: str, api_key: str) -> None:
 
 
 async def _storage_backup(console: Console, db_path: str, output: str | None) -> None:
-    """``vectora storage backup`` — exporta um arquivo manifestado."""
+    """``vectora storage backup`` — preserva o formato legado por padrão.
+
+    O formato manifestado é opt-in com extensão ``.vbackup.zip``; o restore
+    aceita ambos os formatos para não quebrar instalações existentes.
+    """
+    import gzip
+    import shutil
     from datetime import UTC, datetime
     from pathlib import Path as _Path
 
@@ -262,11 +268,16 @@ async def _storage_backup(console: Console, db_path: str, output: str | None) ->
 
     if not output:
         ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
-        output = str(src.with_suffix(f".backup.{ts}.vbackup.zip"))
-    from backend.storage.backup_manifest import create_backup
+        output = str(src.with_suffix(f".backup.{ts}.db.gz"))
+    if output.endswith(".db.gz"):
+        with src.open("rb") as source, gzip.open(output, "wb") as destination:
+            shutil.copyfileobj(source, destination)
+        size_mb = _Path(output).stat().st_size / 1024 / 1024
+    else:
+        from backend.storage.backup_manifest import create_backup
 
-    preview = create_backup(src, output)
-    size_mb = preview.size_bytes / 1024 / 1024
+        preview = create_backup(src, output)
+        size_mb = preview.size_bytes / 1024 / 1024
     console.print(f"[green]✓ Backup criado:[/green] {output} ({size_mb:.2f} MiB)")
 
 
