@@ -14,6 +14,7 @@ export const SidebarFooter = memo(function SidebarFooter() {
   const [kind, setKind] = useState<"bug" | "suggestion">("bug");
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState("");
+  const [statusType, setStatusType] = useState<"status" | "alert">("status");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLFormElement>(null);
@@ -96,7 +97,10 @@ export const SidebarFooter = memo(function SidebarFooter() {
             className="w-full max-w-md space-y-3 rounded-lg bg-background p-5 shadow-xl"
             onSubmit={async (event) => {
               event.preventDefault();
-              if (!description.trim()) return setStatus(m.feedback_required());
+              if (!description.trim()) {
+                setStatusType("alert");
+                return setStatus(m.feedback_required());
+              }
               setIsSubmitting(true);
               try {
                 await submitFeedback({
@@ -108,9 +112,11 @@ export const SidebarFooter = memo(function SidebarFooter() {
                     platform: navigator.platform,
                   },
                 });
+                setStatusType("status");
                 setStatus(m.feedback_sent());
                 setDescription("");
               } catch (error) {
+                setStatusType("alert");
                 setStatus(
                   error instanceof Error && error.message === "rate_limited"
                     ? m.feedback_rate_limited()
@@ -150,7 +156,13 @@ export const SidebarFooter = memo(function SidebarFooter() {
               onChange={(event) => setDescription(event.target.value)}
             />
             {status && (
-              <p className="text-xs text-muted-foreground">{status}</p>
+              <p
+                role={statusType}
+                aria-live={statusType === "alert" ? "assertive" : "polite"}
+                className="text-xs text-muted-foreground"
+              >
+                {status}
+              </p>
             )}
             <div className="flex justify-end gap-2">
               <button

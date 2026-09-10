@@ -304,4 +304,15 @@ describe("SidebarFooter — ícones inline sem labels", () => {
     expect(screen.getByRole("combobox")).toHaveAttribute("id", "feedback-kind");
     expect(screen.getByLabelText("Descreva o problema")).toBeInTheDocument();
   });
+
+  it("anuncia sucesso do feedback para leitores de tela", async () => {
+    render(<SidebarFooter />);
+    fireEvent.click(screen.getByTitle("Feedback"));
+    fireEvent.change(screen.getByLabelText("Descreva o problema"), {
+      target: { value: "um feedback" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Enviado");
+    expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite");
+  });
 });
