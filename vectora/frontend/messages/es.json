@@ -108,6 +108,7 @@
   "message_waiting_output": "Esperando salida...",
   "message_click_edit": "Clic para editar y volver a ejecutar",
   "message_subagent_outputs": "Salidas del subagente ({n})",
+  "message_list_aria": "Mensajes",
   "thinking_direct": "Respuesta directa",
   "thinking_delegate": "Delegando al agente",
   "thinking_web_search": "Búsqueda web",
