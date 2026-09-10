@@ -108,8 +108,13 @@ def _sqlite_snapshot(database: Path) -> bytes:
             return temporary.read_bytes()
         finally:
             temporary.unlink(missing_ok=True)
-    except (sqlite3.DatabaseError, OSError):
-        return database.read_bytes()
+    except (sqlite3.DatabaseError, OSError) as exc:
+        # Fixtures legados e bancos externos podem ser blobs opacos; eles não
+        # têm tabelas SQLite capazes de transportar credenciais.
+        raw = database.read_bytes()
+        if not raw.startswith(b"SQLite format 3\x00"):
+            return raw
+        raise ValueError("não foi possível criar snapshot SQLite sanitizado") from exc
 
 
 def _count_category(category: str, data: bytes) -> int:  # noqa: PLR0911
@@ -373,8 +378,16 @@ def restore_backup(
                 try:
                     if check.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                         raise ValueError("banco restaurado inválido")
+                    schema_path = (
+                        Path(__file__).parent / "migrations" / "sqlite" / "schema.sql"
+                    )
+                    if schema_path.is_file():
+                        check.executescript(schema_path.read_text(encoding="utf-8"))
+                        check.commit()
                 finally:
                     check.close()
+                    staged_temp[path].unlink(missing_ok=True)
+        skipped_counts: dict[str, int] = {}
         for path, data in staged.items():
             if path.name == "workspaces.json":
                 parsed = json.loads(data)
@@ -387,13 +400,20 @@ def restore_backup(
                 )
                 if not isinstance(records, list):
                     raise ValueError("índice de workspaces inválido")
+                skipped_counts["workspaces"] = 0
                 safe_records = [
-                    item
+                    {
+                        **item,
+                        "trusted": False,
+                        "trusted_at": None,
+                        "trusted_by": None,
+                    }
                     for item in records
                     if isinstance(item, dict)
                     and isinstance(item.get("path"), str)
                     and Path(item["path"]).expanduser().exists()
                 ]
+                skipped_counts["workspaces"] = len(records) - len(safe_records)
                 staged_data = json.dumps(safe_records, ensure_ascii=False).encode()
             else:
                 staged_data = data
@@ -406,7 +426,12 @@ def restore_backup(
                 _atomic_write(path, previous)
         raise
     results: dict[str, dict[str, object]] = {
-        category: {"status": "imported", "count": preview.categories.get(category, 0)}
+        category: {
+            "status": "imported",
+            "count": preview.categories.get(category, 0)
+            - skipped_counts.get(category, 0),
+            "skipped": skipped_counts.get(category, 0),
+        }
         for category in selected
     }
     for category in set(preview.categories) - selected:
