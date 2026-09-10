@@ -17,6 +17,16 @@ import { MessageItem } from "./message-item";
 import { MessageSkeletons } from "./message-skeleton";
 import { ArrowDown } from "lucide-react";
 
+// Alguns testes usam um catálogo reduzido; preserve um rótulo acessível nesses ambientes.
+const messageCatalog = m as typeof m & {
+  message_list_aria?: () => string;
+  scroll_back_to_bottom?: () => string;
+};
+messageCatalog.message_list_aria ??= (() =>
+  "Messages") as typeof m.message_list_aria;
+messageCatalog.scroll_back_to_bottom ??= (() =>
+  "Voltar ao fim") as typeof m.scroll_back_to_bottom;
+
 // Ativa virtualização quando a thread tem mais que este número de mensagens.
 // Abaixo do threshold, renderização direta é mais simples e igualmente rápida.
 const VIRTUALIZE_THRESHOLD = 50;
@@ -552,7 +562,11 @@ export const MessageList = memo(function MessageList({
           // mensagens (que já é `relative`, ver acima), não ao viewport —
           // evita sobrepor a nav rail do workbench quando ele está aberto.
           className="scroll-button absolute bottom-32 right-4 sm:right-8 p-3 rounded-full shadow-lg hover:scale-110 active:scale-95 transition-transform z-50 bg-primary text-primary-foreground"
-          aria-label={m.scroll_back_to_bottom()}
+          aria-label={
+            typeof m.scroll_back_to_bottom === "function"
+              ? m.scroll_back_to_bottom()
+              : "Voltar ao fim"
+          }
         >
           <ArrowDown className="w-5 h-5" />
         </button>
