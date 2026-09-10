@@ -76,7 +76,7 @@ export default function Sidebar() {
   return (
     <>
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex lg:flex-col w-56 shrink-0 border-r border-border bg-background min-h-screen py-6">
+      <aside className="hidden lg:flex lg:flex-col w-56 shrink-0 border-s border-border bg-background min-h-screen py-6">
         <div className="mb-8 flex items-center justify-between px-5">
           <Logo size="sm" />
           <ThemeToggle />

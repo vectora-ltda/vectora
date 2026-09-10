@@ -12,6 +12,7 @@
 import { memo, useMemo, useEffect, useRef, useState, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Message } from "@/lib/types";
+import { m } from "@/lib/paraglide/messages";
 import { MessageItem } from "./message-item";
 import { MessageSkeletons } from "./message-skeleton";
 import { ArrowDown } from "lucide-react";
@@ -20,7 +21,6 @@ import {
   selectConversationBranch,
   type ConversationBranch,
 } from "@/lib/api/vectora-client";
-import { m } from "@/lib/paraglide/messages";
 
 // Alguns testes usam um catálogo reduzido; preserve rótulos acessíveis nesses ambientes.
 const messageCatalog = m as typeof m & {
@@ -518,7 +518,7 @@ export const MessageList = memo(function MessageList({
         onScroll={handleScroll}
         aria-live="polite"
         aria-busy={isLoadingThread}
-        aria-label={m.chat_messages()}
+        aria-label={m.message_list_aria()}
         style={{
           willChange: "scroll-position",
           contain: "layout style paint",

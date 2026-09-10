@@ -13,6 +13,7 @@
 
 import { VECTORA_API_URL } from "@/lib/constants/api";
 import { saveReturnTo } from "@/lib/utils/return-to";
+import { getDeviceId, resetDeviceId } from "@/lib/device-id";
 
 // ============================================================================
 // Types — espelham os schemas do src/api/schemas.py
@@ -210,6 +211,7 @@ export interface Thread {
   mode?: string;
   /** Sessão fixada — aparece no topo da lista da sidebar. */
   pinned?: boolean;
+  remote_activity?: { last_active_at: string } | null;
 }
 
 export interface ConversationBranch {
@@ -286,7 +288,10 @@ async function tryRefreshToken(): Promise<boolean> {
   try {
     const res = await fetch("/auth/refresh", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(getDeviceId() ? { "X-Vectora-Device-Id": getDeviceId()! } : {}),
+      },
       credentials: "include",
       body: JSON.stringify({}),
     });
@@ -335,7 +340,10 @@ export async function* streamChat(
   const doFetch = () =>
     fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(getDeviceId() ? { "X-Vectora-Device-Id": getDeviceId()! } : {}),
+      },
       credentials: "include",
       body: JSON.stringify(requestWithTurn),
       signal,
@@ -373,7 +381,10 @@ export async function* resumeChat(
   const doFetch = () =>
     fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(getDeviceId() ? { "X-Vectora-Device-Id": getDeviceId()! } : {}),
+      },
       credentials: "include",
       body: JSON.stringify(request),
       signal,
@@ -409,7 +420,10 @@ async function postRpc<T>(
 ): Promise<T> {
   const response = await fetch(`${VECTORA_API_URL}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(getDeviceId() ? { "X-Vectora-Device-Id": getDeviceId()! } : {}),
+    },
     credentials: "include",
     body: JSON.stringify(body),
   });
@@ -604,6 +618,20 @@ export async function getThreadActivity(
   if (!res.ok)
     return { files_touched: [], tool_call_counts: {}, turn_count: 0 };
   return res.json() as Promise<ThreadActivity>;
+}
+
+export async function revokeCurrentDevice(): Promise<void> {
+  const deviceId = getDeviceId();
+  const res = await fetch("/threads/device/revoke", {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      ...(deviceId ? { "X-Vectora-Device-Id": deviceId } : {}),
+    },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  resetDeviceId();
 }
 
 // ============================================================================
