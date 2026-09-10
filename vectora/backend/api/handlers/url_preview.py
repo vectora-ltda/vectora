@@ -90,6 +90,9 @@ async def preview_url(
                     "Accept": "text/html,application/xhtml+xml",
                     "Host": parsed.hostname + (f":{port}" if port else ""),
                 },
+                # O socket conecta ao IP validado, mas o TLS usa o hostname
+                # original para SNI e validação do certificado.
+                extensions={"sni_hostname": parsed.hostname},
             ) as response:
                 if 300 <= response.status_code < 400:
                     raise HTTPException(
