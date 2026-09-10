@@ -6,7 +6,7 @@ import json
 import re
 import tomllib
 from pathlib import Path
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 from backend.version import __version__
 
@@ -16,7 +16,7 @@ _MONOREPO_ROOT = Path(__file__).resolve().parents[3]
 class _ExtraFile(TypedDict):
     type: str
     path: str
-    jsonpath: str
+    jsonpath: NotRequired[str]
 
 
 # Chaves com hífen ("release-type", "extra-files", ...) não são
@@ -87,6 +87,12 @@ def test_release_please_config_sincroniza_todos_os_arquivos_de_versao() -> None:
     )
     extra_files: list[_ExtraFile] = config["packages"]["."].get("extra-files", [])
     paths: set[str] = {entry["path"] for entry in extra_files}
+    uv_entry = next(
+        entry for entry in extra_files if entry["path"] == "vectora/uv.lock"
+    )
+    assert uv_entry.get("type") == "generic"
+    lock_text = (_MONOREPO_ROOT / "vectora" / "uv.lock").read_text(encoding="utf-8")
+    assert "# x-release-please-version" in lock_text
     assert paths == {
         "vectora/pyproject.toml",
         "vectora/frontend/package.json",
