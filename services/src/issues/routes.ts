@@ -440,13 +440,24 @@ issues.post("/github/webhook", async (c) => {
     return c.json({ error: "invalid_signature" }, 401);
   }
 
+  const attemptToken = crypto.randomUUID();
+  const leaseUntil = new Date(Date.now() + 5 * 60 * 1000)
+    .toISOString()
+    .slice(0, 19)
+    .replace("T", " ");
   const delivery = await c.env.DB.prepare(
-    `INSERT INTO github_webhook_deliveries (delivery_id, state)
-     VALUES (?, 'processing')
-     ON CONFLICT(delivery_id) DO UPDATE SET state = 'processing', error = NULL
-     WHERE github_webhook_deliveries.state = 'failed'`,
+    `INSERT INTO github_webhook_deliveries
+       (delivery_id, state, attempt_token, lease_until)
+     VALUES (?, 'processing', ?, ?)
+     ON CONFLICT(delivery_id) DO UPDATE SET
+       state = 'processing', error = NULL, attempt_token = excluded.attempt_token,
+       lease_until = excluded.lease_until, updated_at = datetime('now')
+     WHERE github_webhook_deliveries.state = 'failed'
+        OR (github_webhook_deliveries.state = 'processing'
+            AND (github_webhook_deliveries.lease_until IS NULL
+                 OR github_webhook_deliveries.lease_until <= datetime('now')))`,
   )
-    .bind(deliveryId)
+    .bind(deliveryId, attemptToken, leaseUntil)
     .run();
   if (delivery.meta.changes === 0) return c.json({ ok: true, duplicate: true });
 
@@ -468,9 +479,9 @@ issues.post("/github/webhook", async (c) => {
     payload = JSON.parse(new TextDecoder().decode(body)) as typeof payload;
   } catch {
     await c.env.DB.prepare(
-      "UPDATE github_webhook_deliveries SET state = 'failed', error = ? WHERE delivery_id = ?",
+      "UPDATE github_webhook_deliveries SET state = 'failed', error = ?, updated_at = datetime('now') WHERE delivery_id = ? AND state = 'processing' AND attempt_token = ?",
     )
-      .bind("invalid_json", deliveryId)
+      .bind("invalid_json", deliveryId, attemptToken)
       .run();
     return c.json({ error: "invalid_json" }, 400);
   }
@@ -479,9 +490,9 @@ issues.post("/github/webhook", async (c) => {
     const issue = payload.issue;
     if (repo !== intakeRepo(c.env) || !issue?.number) {
       await c.env.DB.prepare(
-        "UPDATE github_webhook_deliveries SET state = 'done' WHERE delivery_id = ?",
+        "UPDATE github_webhook_deliveries SET state = 'done', updated_at = datetime('now') WHERE delivery_id = ? AND state = 'processing' AND attempt_token = ?",
       )
-        .bind(deliveryId)
+        .bind(deliveryId, attemptToken)
         .run();
       return c.json({ ok: true, ignored: true });
     }
@@ -511,9 +522,9 @@ issues.post("/github/webhook", async (c) => {
     }
     if (!issueId) {
       await c.env.DB.prepare(
-        "UPDATE github_webhook_deliveries SET state = 'done' WHERE delivery_id = ?",
+        "UPDATE github_webhook_deliveries SET state = 'done', updated_at = datetime('now') WHERE delivery_id = ? AND state = 'processing' AND attempt_token = ?",
       )
-        .bind(deliveryId)
+        .bind(deliveryId, attemptToken)
         .run();
       return c.json({ ok: true, ignored: true });
     }
@@ -551,9 +562,9 @@ issues.post("/github/webhook", async (c) => {
             error instanceof Error ? error.message : "promotion_failed";
           if (message === "promotion_in_progress") {
             await c.env.DB.prepare(
-              "UPDATE github_webhook_deliveries SET state = 'done' WHERE delivery_id = ?",
+              "UPDATE github_webhook_deliveries SET state = 'done', updated_at = datetime('now') WHERE delivery_id = ? AND state = 'processing' AND attempt_token = ?",
             )
-              .bind(deliveryId)
+              .bind(deliveryId, attemptToken)
               .run();
             return c.json({ ok: true, promotion: "in_progress" }, 202);
           }
@@ -563,9 +574,9 @@ issues.post("/github/webhook", async (c) => {
             .bind(message.slice(0, 200), payload.sender.login, issueId)
             .run();
           await c.env.DB.prepare(
-            "UPDATE github_webhook_deliveries SET state = 'failed', error = ? WHERE delivery_id = ?",
+            "UPDATE github_webhook_deliveries SET state = 'failed', error = ?, updated_at = datetime('now') WHERE delivery_id = ? AND state = 'processing' AND attempt_token = ?",
           )
-            .bind(message.slice(0, 200), deliveryId)
+            .bind(message.slice(0, 200), deliveryId, attemptToken)
             .run();
           console.error("issue_github_approval_failed", { issueId, message });
           return c.json({ error: "promotion_failed" }, 502);
@@ -601,18 +612,18 @@ issues.post("/github/webhook", async (c) => {
         .run();
     }
     await c.env.DB.prepare(
-      "UPDATE github_webhook_deliveries SET state = 'done', updated_at = datetime('now') WHERE delivery_id = ? AND state = 'processing'",
+      "UPDATE github_webhook_deliveries SET state = 'done', updated_at = datetime('now') WHERE delivery_id = ? AND state = 'processing' AND attempt_token = ?",
     )
-      .bind(deliveryId)
+      .bind(deliveryId, attemptToken)
       .run();
     return c.json({ ok: true });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "webhook_processing_failed";
     await c.env.DB.prepare(
-      "UPDATE github_webhook_deliveries SET state = 'failed', error = ?, updated_at = datetime('now') WHERE delivery_id = ? AND state = 'processing'",
+      "UPDATE github_webhook_deliveries SET state = 'failed', error = ?, updated_at = datetime('now') WHERE delivery_id = ? AND state = 'processing' AND attempt_token = ?",
     )
-      .bind(message.slice(0, 200), deliveryId)
+      .bind(message.slice(0, 200), deliveryId, attemptToken)
       .run();
     console.error("github_webhook_processing_failed", { deliveryId, message });
     return c.json({ error: "webhook_processing_failed" }, 500);

@@ -249,6 +249,48 @@ describe("POST /issues/github/webhook", () => {
     );
   });
 
+  it("recupera lease expirado e rejeita conclusao de tentativa antiga", async () => {
+    const delivery = `delivery-expired-${crypto.randomUUID()}`;
+    const oldToken = "old-attempt-token";
+    await env.DB.prepare(
+      "INSERT INTO github_webhook_deliveries (delivery_id, state, attempt_token, lease_until) VALUES (?, 'processing', ?, ?)",
+    )
+      .bind(delivery, oldToken, "2000-01-01 00:00:00")
+      .run();
+    const payload = {
+      action: "opened",
+      repository: { full_name: "vectora-ltda/vectora-issues" },
+      issue: {
+        number: 9878,
+        title: "Entrega recuperada",
+        body: "body",
+        state: "open",
+        html_url: "https://github.com/vectora-ltda/vectora-issues/issues/9878",
+      },
+    };
+    expect((await signedWebhook(payload, delivery)).status).toBe(200);
+    const row = await env.DB.prepare(
+      "SELECT state, attempt_token FROM github_webhook_deliveries WHERE delivery_id = ?",
+    )
+      .bind(delivery)
+      .first<{ state: string; attempt_token: string }>();
+    expect(row?.state).toBe("done");
+    expect(row?.attempt_token).not.toBe(oldToken);
+
+    const late = await env.DB.prepare(
+      "UPDATE github_webhook_deliveries SET state = 'failed' WHERE delivery_id = ? AND state = 'processing' AND attempt_token = ?",
+    )
+      .bind(delivery, oldToken)
+      .run();
+    expect(late.meta.changes).toBe(0);
+    await env.DB.prepare("DELETE FROM issues WHERE github_number = 9878").run();
+    await env.DB.prepare(
+      "DELETE FROM github_webhook_deliveries WHERE delivery_id = ?",
+    )
+      .bind(delivery)
+      .run();
+  });
+
   it("mirrors edited and deleted comments without exposing reporter email", async () => {
     const base = {
       repository: { full_name: "vectora-ltda/vectora-issues" },

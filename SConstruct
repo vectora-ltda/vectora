@@ -917,6 +917,8 @@ def _upgrade_d1_schema(log) -> None:
         ("issues", "approved_by", "TEXT"),
         ("issue_comments", "updated_at", "TEXT"),
         ("issue_comments", "deleted_at", "TEXT"),
+        ("github_webhook_deliveries", "attempt_token", "TEXT"),
+        ("github_webhook_deliveries", "lease_until", "TEXT"),
         ("gha_bot_review_jobs", "callback_secret_hash", "TEXT"),
     )
     tables = {table for table, _, _ in columns}

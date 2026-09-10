@@ -767,6 +767,8 @@ jobs:
           ensure_column issues approved_by "TEXT"
           ensure_column issue_comments updated_at "TEXT"
           ensure_column issue_comments deleted_at "TEXT"
+          ensure_column github_webhook_deliveries attempt_token "TEXT"
+          ensure_column github_webhook_deliveries lease_until "TEXT"
           ensure_column gha_bot_review_jobs callback_secret_hash "TEXT"
       - name: Apply tracked migrations (D1)
         id: apply_d1_migrations

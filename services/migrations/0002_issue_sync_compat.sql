@@ -45,6 +45,11 @@ CREATE TABLE IF NOT EXISTS github_webhook_deliveries (
   delivery_id TEXT PRIMARY KEY,
   state TEXT NOT NULL CHECK (state IN ('processing', 'done', 'failed')),
   error TEXT,
+  attempt_token TEXT,
+  lease_until TEXT,
   received_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Bancos que já receberam a tabela antes do controle de lease precisam destas
+-- colunas adicionadas pelo upgrade operacional antes do Worker ser publicado.
