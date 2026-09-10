@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS vectora_native_messages (
     tool_calls_json TEXT,
     tool_call_id TEXT,
     name TEXT,
+    turn_id TEXT,
     is_branch_head BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TEXT NOT NULL
 );
@@ -115,6 +116,12 @@ class PostgresSessionStore:
             return
         async with self._pool.acquire() as conn:
             await conn.execute(_SETUP_SQL)
+            await conn.execute(
+                "ALTER TABLE vectora_native_messages ADD COLUMN IF NOT EXISTS turn_id TEXT"
+            )
+            await conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_vectora_native_messages_thread_turn ON vectora_native_messages(thread_id, turn_id) WHERE turn_id IS NOT NULL"
+            )
         self._is_setup = True
 
     async def create_session(
@@ -146,7 +153,12 @@ class PostgresSessionStore:
             )
 
     async def append_message(
-        self, thread_id: str, msg: VMessage, *, parent_message_id: int | None = None
+        self,
+        thread_id: str,
+        msg: VMessage,
+        *,
+        parent_message_id: int | None = None,
+        turn_id: str | None = None,
     ) -> int:
         """Persiste `msg` e devolve o `id` gerado — mesmo invariante de fork
         de `SessionStore.append_message` (a mensagem nova vira a ponta ativa
@@ -164,10 +176,19 @@ class PostgresSessionStore:
                 "SELECT 1 FROM vectora_native_sessions WHERE thread_id = $1 FOR UPDATE",
                 thread_id,
             )
+            if turn_id is not None:
+                existing_id = await conn.fetchval(
+                    "SELECT id FROM vectora_native_messages "
+                    "WHERE thread_id = $1 AND turn_id = $2",
+                    thread_id,
+                    turn_id,
+                )
+                if existing_id is not None:
+                    return int(existing_id)
             new_id = await conn.fetchval(
                 "INSERT INTO vectora_native_messages (thread_id, parent_message_id, role, "
-                "content_json, tool_calls_json, tool_call_id, name, is_branch_head, "
-                "created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, $8) "
+                "content_json, tool_calls_json, tool_call_id, name, turn_id, "
+                "is_branch_head, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, $9) "
                 "RETURNING id",
                 thread_id,
                 parent_message_id,
@@ -176,6 +197,7 @@ class PostgresSessionStore:
                 tool_calls_json,
                 tool_call_id,
                 name,
+                turn_id,
                 agora,
             )
             await conn.execute(
@@ -190,6 +212,19 @@ class PostgresSessionStore:
                 thread_id,
             )
         return int(new_id)
+
+    async def get_message_id_by_turn_id(
+        self, thread_id: str, turn_id: str
+    ) -> int | None:
+        """Returns the persisted message for an idempotent turn."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT id FROM vectora_native_messages WHERE thread_id = $1 AND turn_id = $2",
+                thread_id,
+                turn_id,
+            )
+        return int(row["id"]) if row is not None else None
 
     async def get_branch_head_id(self, thread_id: str) -> int | None:
         """`id` da ponta ativa da branch, ou `None` se a thread ainda não
