@@ -4,32 +4,44 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import Any
 from uuid import uuid4
 
 from backend.settings import settings
+from backend.storage.sqlite.pool import AsyncConnectionPool
 
 logger = logging.getLogger(__name__)
 
+_sqlite_pools: dict[str, AsyncConnectionPool] = {}
 
-async def _sqlite() -> Any:
-    import aiosqlite
 
-    conn = await aiosqlite.connect(
-        settings.db_dsn or str(settings.vectora_home / "data" / "backend.db")
-    )
-    await conn.execute(
-        """CREATE TABLE IF NOT EXISTS tool_usage_events (
+async def _sqlite() -> AsyncConnectionPool:
+    """Retorna o pool SQLite compartilhado para o banco de uso atual.
+
+    O pool aplica WAL e ``busy_timeout`` em todas as conexões, evitando que
+    gravações paralelas do lote de tools sejam descartadas por ``SQLITE_BUSY``.
+    O cache é indexado pelo caminho para manter testes e bancos configuráveis
+    isolados no mesmo processo.
+    """
+    path = settings.db_dsn or str(settings.vectora_home / "data" / "backend.db")
+    pool = _sqlite_pools.get(path)
+    if pool is None:
+        pool = AsyncConnectionPool(path, min_size=1, max_size=4)
+        await pool.open()
+        _sqlite_pools[path] = pool
+
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """CREATE TABLE IF NOT EXISTS tool_usage_events (
             id TEXT PRIMARY KEY, user_id TEXT NOT NULL, tool_name TEXT NOT NULL,
             status TEXT NOT NULL, created_at TEXT NOT NULL
-        )"""
-    )
-    await conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_tool_usage_user_time_name "
-        "ON tool_usage_events(user_id, created_at, tool_name)"
-    )
-    await conn.commit()
-    return conn
+            )"""
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tool_usage_user_time_name "
+            "ON tool_usage_events(user_id, created_at, tool_name)"
+        )
+        await conn.commit()
+    return pool
 
 
 async def record_tool_usage(user_id: str, tool_name: str, status: str) -> None:
@@ -53,16 +65,14 @@ async def record_tool_usage(user_id: str, tool_name: str, status: str) -> None:
                     now,
                 )
             return
-        conn = await _sqlite()
-        try:
+        pool = await _sqlite()
+        async with pool.acquire() as conn:
             await conn.execute(
                 "INSERT INTO tool_usage_events "
                 "(id,user_id,tool_name,status,created_at) VALUES (?,?,?,?,?)",
                 (str(uuid4()), user_id or "local", tool_name, status, now),
             )
             await conn.commit()
-        finally:
-            await conn.close()
     except Exception:
         logger.exception(
             "tool_usage: falha ao registrar execução", extra={"tool": tool_name}
@@ -89,8 +99,8 @@ async def aggregate_last_7d(
                     cutoff,
                 )
             return {str(row["tool_name"]): int(row["count"]) for row in rows}
-        conn = await _sqlite()
-        try:
+        pool = await _sqlite()
+        async with pool.acquire() as conn:
             cursor = await conn.execute(
                 "SELECT tool_name, COUNT(*) AS count FROM tool_usage_events "
                 "WHERE user_id=? AND created_at >= ? GROUP BY tool_name",
@@ -98,8 +108,6 @@ async def aggregate_last_7d(
             )
             rows = await cursor.fetchall()
             return {str(row[0]): int(row[1]) for row in rows}
-        finally:
-            await conn.close()
     except Exception:
         logger.exception(
             "tool_usage: falha ao agregar execução", extra={"user_id": user_id}
