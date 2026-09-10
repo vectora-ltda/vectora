@@ -154,6 +154,30 @@ describe("ThreadItem — menu de contexto", () => {
     ]);
   });
 
+  it("invalida o cache quando confirmar a leitura falha", async () => {
+    const { markThreadRead } = await import("@/lib/api/vectora-client");
+    vi.mocked(markThreadRead).mockRejectedValueOnce(new Error("offline"));
+    render(
+      <ThreadItem
+        thread={makeThread({ unread_count: 2 })}
+        isActive
+        onSelect={vi.fn()}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["threads", 100],
+    });
+  });
+
   it("clicar em 'Fixar' chama onTogglePin com o novo estado", () => {
     const onTogglePin = vi.fn();
     render(
