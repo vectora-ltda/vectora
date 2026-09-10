@@ -19,6 +19,7 @@ const EXCLUDED = new Set([
   "logs",
   "tokens",
   "secrets",
+  "update-backups",
 ]);
 let snapshotQueue: Promise<void> = Promise.resolve();
 
@@ -146,8 +147,16 @@ export async function listUpdateBackups(
   const entries: UpdateBackupEntry[] = [];
   for (const name of await fs.readdir(backupRoot).catch(() => [])) {
     try {
+      const candidate = path.join(backupRoot, name);
+      const stat = await fs.lstat(candidate);
+      if (
+        !stat.isDirectory() ||
+        stat.isSymbolicLink() ||
+        name.startsWith(".tmp-")
+      )
+        continue;
       const entry = JSON.parse(
-        await fs.readFile(path.join(backupRoot, name, MANIFEST), "utf8"),
+        await fs.readFile(path.join(candidate, MANIFEST), "utf8"),
       ) as UpdateBackupEntry;
       if (entry.files?.length && digestTree(entry.files) === entry.sha256)
         entries.push(entry);
@@ -168,6 +177,12 @@ export async function restoreUpdateBackup(
     let rootReal: string;
     let snapshotReal: string;
     try {
+      const rootStat = await fs.lstat(backupRoot);
+      const snapshotStat = await fs.lstat(resolvedPath);
+      if (!rootStat.isDirectory() || rootStat.isSymbolicLink())
+        throw new Error("Backup fora da área permitida");
+      if (!snapshotStat.isDirectory() || snapshotStat.isSymbolicLink())
+        throw new Error("Snapshot não pode ser symlink");
       rootReal = await fs.realpath(backupRoot);
       snapshotReal = await fs.realpath(resolvedPath);
     } catch {
@@ -178,8 +193,6 @@ export async function restoreUpdateBackup(
       snapshotReal === rootReal
     )
       throw new Error("Backup fora da área permitida");
-    if ((await fs.lstat(resolvedPath)).isSymbolicLink())
-      throw new Error("Snapshot não pode ser symlink");
   }
   const manifest = JSON.parse(
     await fs.readFile(path.join(resolvedPath, MANIFEST), "utf8"),
@@ -210,23 +223,35 @@ export async function restoreUpdateBackup(
     )
       throw new Error("Integridade do backup inválida");
   }
+  const restoreRoot = `${userData}.restore-${Date.now()}`;
   const rollback = `${userData}.rollback-${Date.now()}`;
+  await fs.rm(restoreRoot, { recursive: true, force: true });
+  await fs.mkdir(restoreRoot, { recursive: true });
+  for (const file of manifest.files) {
+    const destination = path.join(restoreRoot, file.path);
+    await fs.mkdir(path.dirname(destination), { recursive: true });
+    await fs.copyFile(path.join(resolvedPath, file.path), destination);
+  }
   await fs.cp(userData, rollback, { recursive: true, errorOnExist: false });
   try {
+    const backupDirectory = path.basename(path.resolve(backupRoot ?? ""));
+    for (const name of await fs.readdir(userData)) {
+      if (backupRoot && name === backupDirectory) continue;
+      await fs.rm(path.join(userData, name), { recursive: true, force: true });
+    }
     for (const file of manifest.files) {
-      await fs.mkdir(path.dirname(path.join(userData, file.path)), {
-        recursive: true,
-      });
-      await fs.copyFile(
-        path.join(resolvedPath, file.path),
-        path.join(userData, file.path),
-      );
+      const destination = path.join(userData, file.path);
+      await fs.mkdir(path.dirname(destination), { recursive: true });
+      await fs.copyFile(path.join(restoreRoot, file.path), destination);
     }
   } catch (error) {
     await fs.rm(userData, { recursive: true, force: true });
     await fs.cp(rollback, userData, { recursive: true });
     throw error;
   } finally {
+    await fs
+      .rm(restoreRoot, { recursive: true, force: true })
+      .catch(() => undefined);
     await fs
       .rm(rollback, { recursive: true, force: true })
       .catch(() => undefined);

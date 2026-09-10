@@ -109,6 +109,27 @@ async function clearPendingUpdate(): Promise<void> {
     .catch(() => undefined);
 }
 
+async function rollbackPendingUpdate(): Promise<boolean> {
+  try {
+    const marker = JSON.parse(
+      await fs.promises.readFile(pendingUpdatePath(), "utf8"),
+    ) as { backupId?: string };
+    if (!marker.backupId) return false;
+    const userData = app.getPath("userData");
+    const backupRoot = path.join(userData, "update-backups");
+    const backup = (await listUpdateBackups(backupRoot)).find(
+      (entry) => entry.id === marker.backupId,
+    );
+    if (!backup) return false;
+    await restoreUpdateBackup(backup, userData, backupRoot);
+    await clearPendingUpdate();
+    return true;
+  } catch (error) {
+    console.error("[updater] rollback automático falhou", error);
+    return false;
+  }
+}
+
 /**
  * Browser real da aba Browser do workbench (não a SPA) — cada view é um
  * `WebContentsView`, contexto de navegação de nível superior, imune a
@@ -463,6 +484,11 @@ async function restartBackend(): Promise<void> {
       createWindow();
     }
   } catch (err) {
+    if (await rollbackPendingUpdate()) {
+      app.relaunch();
+      app.exit(0);
+      return;
+    }
     dialog.showErrorBox(
       "Vectora",
       `Falha ao reiniciar backend: ${(err as Error).message}`,
@@ -991,6 +1017,11 @@ app.whenReady().then(async () => {
       scheduleAutoUpdateChecks();
     }
   } catch (err) {
+    if (await rollbackPendingUpdate()) {
+      app.relaunch();
+      app.exit(0);
+      return;
+    }
     dialog.showErrorBox(
       "Vectora",
       `Falha ao iniciar: ${(err as Error).message}`,
