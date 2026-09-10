@@ -29,6 +29,7 @@ import logging
 import os
 import sqlite3
 import threading
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -154,8 +155,15 @@ class RuntimeSettings:
             )
             self._conn.commit()
             logger.debug("runtime_settings: salvo %r em %s", key, self._path)
-        except Exception as e:
-            logger.warning("runtime_settings: erro ao salvar %r (%s)", key, e)
+        except Exception:
+            logger.exception("runtime_settings: erro ao salvar %r", key)
+            try:
+                self._conn.rollback()
+            except Exception:
+                logger.exception(
+                    "runtime_settings: falha ao desfazer transação %r", key
+                )
+            raise
 
     def reload(self) -> None:
         """Recarrega do SQLite (útil após mudanças externas)."""
@@ -180,8 +188,36 @@ class RuntimeSettings:
     def set(self, key: str, value: object) -> None:
         """Persiste um valor de forma thread-safe (SQLite + cache em memória)."""
         with self._lock:
+            previous = self._data.get(key)
             self._data[key] = value
-            self._persist(key, value)
+            try:
+                self._persist(key, value)
+            except Exception:
+                if previous is None:
+                    self._data.pop(key, None)
+                else:
+                    self._data[key] = previous
+                raise
+
+    def update_list(
+        self, key: str, update: Callable[[list[object]], list[object]]
+    ) -> list[object]:
+        """Atualiza uma lista sob o mesmo lock da leitura e da persistência."""
+        with self._lock:
+            raw = self._data.get(key, [])
+            current = list(raw) if isinstance(raw, list) else []
+            updated = update(current)
+            previous = self._data.get(key)
+            self._data[key] = updated
+            try:
+                self._persist(key, updated)
+            except Exception:
+                if previous is None:
+                    self._data.pop(key, None)
+                else:
+                    self._data[key] = previous
+                raise
+            return list(updated)
 
     # ─── Properties tipadas ───────────────────────────────────────────────────
 

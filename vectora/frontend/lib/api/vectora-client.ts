@@ -211,6 +211,7 @@ export interface Thread {
   mode?: string;
   /** Sessão fixada — aparece no topo da lista da sidebar. */
   pinned?: boolean;
+  unread_count?: number;
   remote_activity?: { last_active_at: string } | null;
 }
 
@@ -268,10 +269,7 @@ async function tryRefreshToken(): Promise<boolean> {
   try {
     const res = await fetch("/auth/refresh", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(getDeviceId() ? { "X-Vectora-Device-Id": getDeviceId()! } : {}),
-      },
+      headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify({}),
     });
@@ -317,17 +315,19 @@ export async function* streamChat(
     turn_id: request.turn_id ?? crypto.randomUUID(),
   };
 
-  const doFetch = () =>
-    fetch(url, {
+  const doFetch = () => {
+    const deviceId = getDeviceId();
+    return fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(getDeviceId() ? { "X-Vectora-Device-Id": getDeviceId()! } : {}),
+        ...(deviceId ? { "X-Vectora-Device-Id": deviceId } : {}),
       },
       credentials: "include",
       body: JSON.stringify(requestWithTurn),
       signal,
     });
+  };
 
   let response = await doFetch();
 
@@ -358,17 +358,19 @@ export async function* resumeChat(
 ): AsyncGenerator<StreamEvent> {
   const url = `${VECTORA_API_URL}/vectora.chat.v1.ChatService/ResumeChat`;
 
-  const doFetch = () =>
-    fetch(url, {
+  const doFetch = () => {
+    const deviceId = getDeviceId();
+    return fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(getDeviceId() ? { "X-Vectora-Device-Id": getDeviceId()! } : {}),
+        ...(deviceId ? { "X-Vectora-Device-Id": deviceId } : {}),
       },
       credentials: "include",
       body: JSON.stringify(request),
       signal,
     });
+  };
 
   let response = await doFetch();
 
@@ -400,10 +402,7 @@ async function postRpc<T>(
 ): Promise<T> {
   const response = await fetch(`${VECTORA_API_URL}${path}`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(getDeviceId() ? { "X-Vectora-Device-Id": getDeviceId()! } : {}),
-    },
+    headers: { "Content-Type": "application/json" },
     credentials: "include",
     body: JSON.stringify(body),
   });
@@ -550,6 +549,10 @@ export async function getThreadActivity(
   return res.json() as Promise<ThreadActivity>;
 }
 
+// ============================================================================
+// Stack hint — detects project type for contextual suggestions
+// ============================================================================
+
 export async function revokeCurrentDevice(): Promise<void> {
   const deviceId = getDeviceId();
   const res = await fetch("/threads/device/revoke", {
@@ -563,10 +566,6 @@ export async function revokeCurrentDevice(): Promise<void> {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   resetDeviceId();
 }
-
-// ============================================================================
-// Stack hint — detects project type for contextual suggestions
-// ============================================================================
 
 export async function getStackHint(
   workspaceId: string,
@@ -640,6 +639,13 @@ export async function submitFeedback(
     }
     throw error;
   }
+}
+
+export async function markThreadRead(threadId: string): Promise<void> {
+  await postRpc<{ thread_id: string; unread_count: number }>(
+    `/threads/${encodeURIComponent(threadId)}/read`,
+    {},
+  );
 }
 
 // ============================================================================

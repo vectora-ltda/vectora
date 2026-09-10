@@ -15,6 +15,7 @@ import {
   setThreadPins,
   updateThread,
   submitFeedback,
+  markThreadRead,
 } from "@/lib/api/vectora-client";
 
 function jsonResponse(data: unknown, status = 200) {
@@ -34,6 +35,40 @@ beforeEach(() => {
 });
 
 describe("RPCs simples", () => {
+  it("markThreadRead: faz POST com id codificado e credenciais", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ unread_count: 0 }));
+
+    await markThreadRead("thread com espaço/");
+
+    const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(String(url)).toContain(
+      "/threads/thread%20com%20espa%C3%A7o%2F/read",
+    );
+    expect(opts.method).toBe("POST");
+    expect(opts.credentials).toBe("include");
+  });
+
+  it("markThreadRead: renova a sessão e repete o POST após 401", async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ thread_id: "thread-1", unread_count: 0 }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+
+    await markThreadRead("thread-1");
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/auth/refresh");
+    expect(fetchMock.mock.calls[2]?.[1]).toMatchObject({ method: "POST" });
+  });
+
   it("generateTitle: POST GenerateTitle com thread_id e retorna {title}", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ title: "Plano de deploy" }));
     const r = await generateTitle("t1");
