@@ -22,6 +22,12 @@ import {
 } from "@testing-library/react";
 import { MessageList } from "../message-list";
 import type { Message } from "@/lib/types";
+vi.mock("@/lib/paraglide/messages", () => ({
+  m: {
+    message_list_aria: () => "Messages",
+    scroll_back_to_bottom: () => "Back to bottom",
+  },
+}));
 
 vi.mock("../message-item", () => ({
   MessageItem: ({ message }: { message: Message }) => (
@@ -234,21 +240,21 @@ describe("MessageList — botão 'Voltar ao fim'", () => {
     });
 
     // Nenhum botão enquanto o scroll está no fim.
-    expect(screen.queryByLabelText("Voltar ao fim")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Back to bottom")).not.toBeInTheDocument();
 
     // Usuário rola pra cima.
     container.scrollTop = 200;
     await act(async () => {
       fireEvent.scroll(container);
     });
-    expect(screen.getByLabelText("Voltar ao fim")).toBeInTheDocument();
+    expect(screen.getByLabelText("Back to bottom")).toBeInTheDocument();
 
     // E volta ao fim: 2000 - 500 = 1500 é o scrollTop máximo aqui.
     container.scrollTop = 1500;
     await act(async () => {
       fireEvent.scroll(container);
     });
-    expect(screen.queryByLabelText("Voltar ao fim")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Back to bottom")).not.toBeInTheDocument();
   });
 
   it("clicar no botão leva ao fim de uma vez, sem posição intermediária", async () => {
@@ -269,11 +275,11 @@ describe("MessageList — botão 'Voltar ao fim'", () => {
     });
 
     await act(async () => {
-      fireEvent.click(screen.getByLabelText("Voltar ao fim"));
+      fireEvent.click(screen.getByLabelText("Back to bottom"));
     });
 
     expect(container.scrollTop).toBe(2000);
-    expect(screen.queryByLabelText("Voltar ao fim")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Back to bottom")).not.toBeInTheDocument();
   });
 });
 
@@ -307,7 +313,7 @@ describe("MessageList — skeletons de carregamento", () => {
     await act(async () => {
       fireEvent.scroll(container);
     });
-    expect(screen.getByLabelText("Voltar ao fim")).toBeInTheDocument();
+    expect(screen.getByLabelText("Back to bottom")).toBeInTheDocument();
 
     rerender(
       <MessageList
@@ -316,7 +322,7 @@ describe("MessageList — skeletons de carregamento", () => {
         isLoadingThread
       />,
     );
-    expect(screen.queryByLabelText("Voltar ao fim")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Back to bottom")).not.toBeInTheDocument();
   });
 });
 
