@@ -40,6 +40,7 @@ import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { ThinkingTimer } from "./animations/thinking-timer";
 import { AnimatedThinking } from "./animations/animated-thinking";
 import { HITLPanel } from "./features/hitl-panel";
+import { StructuredQuestionPanel } from "./features/structured-question-panel";
 import type { RagCitation } from "./features/rag-citation-popover";
 import type { Message } from "@/lib/types";
 import { stripMarkdownEnvelope } from "@/lib/utils/string";
@@ -1416,6 +1417,11 @@ export const MessageItem = memo(
                     pending={message.hitlPending}
                     threadId={threadId}
                     onDecision={onHitlDecision}
+                  />
+                )}
+                {message.structuredQuestionPending && (
+                  <StructuredQuestionPanel
+                    pending={message.structuredQuestionPending}
                   />
                 )}
               </>
