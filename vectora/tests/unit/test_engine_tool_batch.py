@@ -95,7 +95,7 @@ class TestDespachoParaleloSequencial:
 
         @vtool(extras=ToolExtras(destructive=False))
         async def mcp_bloqueada(ctx: ToolContext) -> str:
-            return "Erro: servidor MCP bloqueado pela política."
+            return "Erro ao invocar tool MCP 'mcp_bloqueada': servidor indisponível."
 
         registry = ToolRegistry()
         spec = TOOL_REGISTRY.get("mcp_bloqueada")

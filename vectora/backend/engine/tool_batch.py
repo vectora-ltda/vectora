@@ -39,7 +39,7 @@ _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
 
 def _is_tool_error(text: str) -> bool:
     """Reconhece prefixos de erro emitidos pelas tools localizadas."""
-    return text.lstrip().lower().startswith(("error:", "erro:"))
+    return text.lstrip().lower().startswith(("error:", "erro:", "erro ao "))
 
 
 def _redact_secrets(texto: str) -> str:
