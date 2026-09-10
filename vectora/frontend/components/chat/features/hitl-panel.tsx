@@ -66,6 +66,7 @@ export interface HITLPendingInfo {
   affectedPaths?: string[];
   /** Modo de permissão ativo (default/yolo/…). */
   permissionMode?: string;
+  options?: Array<{ label: string; value: string }>;
   /** Anotação do avaliador auxiliar/allowlist — nunca decide sozinho, só
    * marca a sugestão como reconhecida. O painel ainda pausa esperando o
    * clique de confirmação. */
@@ -82,7 +83,7 @@ interface HITLPanelProps {
   onDecision: (
     messageId: string,
     interruptId: string,
-    decision: "approve" | "reject" | `edit:${string}`,
+    decision: "approve" | "reject" | `edit:${string}` | `option:${string}`,
   ) => void;
 }
 
@@ -320,6 +321,23 @@ export function HITLPanel({ messageId, pending, onDecision }: HITLPanelProps) {
                 <Check className="w-3 h-3 mr-1" />
                 {m.hitl_approve()}
               </Button>
+              {pending.options?.map((option) => (
+                <Button
+                  key={option.value}
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-3 text-xs"
+                  onClick={() =>
+                    onDecision(
+                      messageId,
+                      pending.interruptId,
+                      `option:${option.value}`,
+                    )
+                  }
+                >
+                  {option.label}
+                </Button>
+              ))}
               <Button
                 size="sm"
                 variant="outline"

@@ -62,7 +62,7 @@ interface MessageListProps {
   onHitlDecision?: (
     messageId: string,
     interruptId: string,
-    decision: "approve" | "reject" | `edit:${string}`,
+    decision: "approve" | "reject" | `edit:${string}` | `option:${string}`,
   ) => void;
   /** M5 — retry ao clicar no botão de erro */
   onRetry?: () => void;
