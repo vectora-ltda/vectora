@@ -99,3 +99,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_insight_event_id
     ON usage_insight_events(user_id, event_id);
 CREATE INDEX IF NOT EXISTS idx_usage_insight_user_time
     ON usage_insight_events(user_id, occurred_at);
+
+
+-- Cotas mensais de mídia e reservas idempotentes.
+CREATE TABLE IF NOT EXISTS media_quota_usage (
+    user_id TEXT NOT NULL, period TEXT NOT NULL, used_units INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, period)
+);
+CREATE TABLE IF NOT EXISTS media_quota_reservations (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, period TEXT NOT NULL, operation TEXT NOT NULL,
+    units INTEGER NOT NULL, state TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, period, id)
+);
+
+-- Entitlements por usuário, separadas do cache global de licença.
+CREATE TABLE IF NOT EXISTS vectora_user_entitlements (
+    user_id TEXT PRIMARY KEY, tier TEXT NOT NULL CHECK (tier IN ('free', 'pro')),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
