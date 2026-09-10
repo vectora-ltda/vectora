@@ -23,6 +23,7 @@ from backend.engine.stream_events import (
     NodeStatus,
     RagCitation,
     RagCitations,
+    StructuredQuestionRequested,
     SubagentOutput,
     TerminalLine,
     ThreadStarted,
@@ -181,6 +182,30 @@ class TestParidadeComOSchemaPydantic:
         )
         assert nativo == pydantic
         assert _parse(nativo)["type"] == "workbench_invalidate"
+
+    def test_structured_question_requested(self):
+        nativo = to_sse_line(
+            StructuredQuestionRequested(
+                question_id="q1",
+                thread_id="t1",
+                prompt="Escolha",
+                options=["a", "b"],
+                allow_free_text=False,
+                expires_at="2030-01-01T00:00:00+00:00",
+            )
+        )
+        pydantic = schemas.encode_event(
+            schemas.StructuredQuestionEvent(
+                question_id="q1",
+                thread_id="t1",
+                prompt="Escolha",
+                options=["a", "b"],
+                allow_free_text=False,
+                expires_at="2030-01-01T00:00:00+00:00",
+            )
+        )
+        assert nativo == pydantic
+        assert _parse(nativo)["type"] == "structured_question"
 
     def test_todos_updated(self):
         nativo = to_sse_line(
