@@ -203,6 +203,27 @@ class TestApprovalGate:
 
         assert await session_store.get_pending_approval("thread-1") is None
 
+    async def test_resolve_limpa_args_efemeros_apos_claim(self, session_store) -> None:
+        """A limpeza usa o interrupt_id mesmo depois de a pendência ser consumida."""
+        gate = ApprovalGate(session_store)
+        await gate.request_approval(
+            "thread-1",
+            interrupt_id="int-media",
+            tool_name="generate_image",
+            tool_call_id="call-media",
+            args={"prompt": "segredo"},
+        )
+
+        claimed = await session_store.claim_pending_approval(
+            "thread-1", interrupt_id="int-media"
+        )
+        assert claimed is not None
+        assert gate.ephemeral_args("int-media") == {"prompt": "segredo"}
+
+        await gate.resolve("thread-1", interrupt_id="int-media")
+
+        assert gate.ephemeral_args("int-media") is None
+
     async def test_wait_for_resume_retorna_true_quando_resolve_e_chamado(
         self, session_store
     ):

@@ -273,12 +273,14 @@ class ApprovalGate:
         except TimeoutError:
             return False
 
-    async def resolve(self, thread_id: str) -> None:
+    async def resolve(self, thread_id: str, *, interrupt_id: str | None = None) -> None:
         """Libera o fast-path local e limpa a aprovação pendente
         persistida — chamado depois que a decisão (approve/reject/edit) já
         foi processada e o resultado já foi persistido no histórico."""
+        if interrupt_id is not None:
+            self._ephemeral_args.pop(interrupt_id, None)
         pending = await self._session_store.get_pending_approval(thread_id)
-        if pending is not None:
+        if pending is not None and interrupt_id is None:
             self._ephemeral_args.pop(pending["interrupt_id"], None)
         await self._session_store.clear_pending_approval(thread_id)
         event = self._events.pop(thread_id, None)

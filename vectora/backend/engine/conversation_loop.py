@@ -712,7 +712,9 @@ async def resume_conversation(
             result=decision,
         )
     if approval_gate is not None:
-        await approval_gate.resolve(thread_id)
+        await approval_gate.resolve(
+            thread_id, interrupt_id=str(pending["interrupt_id"])
+        )
     elif claim_pending is None:
         await session_store.clear_pending_approval(thread_id)
     return True
