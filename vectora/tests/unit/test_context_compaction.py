@@ -65,3 +65,12 @@ def test_compaction_descarta_unidade_recente_maior_que_orcamento() -> None:
     compacted = compact_messages(messages, max_tokens=20)
 
     assert sum(_message_tokens(message) for message in compacted) <= 20
+
+
+def test_compaction_preserva_system_quando_custo_excede_orcamento() -> None:
+    system = text_message(MessageRole.SYSTEM, "regra obrigatória " * 100)
+    messages = [system, text_message(MessageRole.USER, "pedido")]
+
+    compacted = compact_messages(messages, max_tokens=1)
+
+    assert compacted == [system]

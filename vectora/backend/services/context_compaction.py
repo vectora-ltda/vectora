@@ -70,8 +70,11 @@ def compact_messages(
     selected_units: list[list[VMessage]] = []
     used = sum(_message_tokens(message) for message in systems)
     if used > max_tokens:
-        systems = []
-        used = 0
+        # As instruções de sistema são obrigatórias e nunca podem ser
+        # descartadas para satisfazer um orçamento de histórico. Nesse caso
+        # preservamos somente essas instruções e falhamos fechado para o
+        # restante da conversa, mesmo que o resultado exceda max_tokens.
+        return systems
     for unit in reversed(units):
         cost = sum(_message_tokens(message) for message in unit)
         if used + cost > max_tokens:
