@@ -27,7 +27,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -65,6 +65,27 @@ def _user_id(request: Request) -> str:
     if user is not None and getattr(user, "id", None):
         return str(user.id)
     return "local"
+
+
+@router.post("/threads/device/revoke")
+async def revoke_current_device(
+    request: Request,
+    device_id: Annotated[str | None, Header(alias="X-Vectora-Device-Id")] = None,
+) -> dict[str, bool]:
+    """Revoga a atividade remota associada ao dispositivo autenticado."""
+    user = getattr(request.state, "user", None)
+    if user is None or not getattr(user, "id", None):
+        raise HTTPException(status_code=401, detail="Autenticação necessária")
+    from backend.persistence.thread_activity import revoke_device_activity
+    from backend.rbac.device_id import validate_device_id
+
+    validated = validate_device_id(device_id)
+    if validated is None:
+        raise HTTPException(
+            status_code=400, detail="Identificador de dispositivo inválido"
+        )
+    await revoke_device_activity(_user_id(request), validated)
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------

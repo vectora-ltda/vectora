@@ -315,14 +315,19 @@ export async function* streamChat(
     turn_id: request.turn_id ?? crypto.randomUUID(),
   };
 
-  const doFetch = () =>
-    fetch(url, {
+  const doFetch = () => {
+    const deviceId = getDeviceId();
+    return fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(deviceId ? { "X-Vectora-Device-Id": deviceId } : {}),
+      },
       credentials: "include",
       body: JSON.stringify(requestWithTurn),
       signal,
     });
+  };
 
   let response = await doFetch();
 
@@ -353,14 +358,19 @@ export async function* resumeChat(
 ): AsyncGenerator<StreamEvent> {
   const url = `${VECTORA_API_URL}/vectora.chat.v1.ChatService/ResumeChat`;
 
-  const doFetch = () =>
-    fetch(url, {
+  const doFetch = () => {
+    const deviceId = getDeviceId();
+    return fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(deviceId ? { "X-Vectora-Device-Id": deviceId } : {}),
+      },
       credentials: "include",
       body: JSON.stringify(request),
       signal,
     });
+  };
 
   let response = await doFetch();
 
