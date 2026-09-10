@@ -656,6 +656,17 @@ async def stream_chat(
     # namespace lido por GET /memory (handlers/memory.py). Sem isso, save_memory
     # caía em session_<thread_id> e a aba Memória ficava vazia.
     user_id = _user_id_from_request(http_request)
+    from backend.rbac.device_id import validate_device_id
+
+    device_id = validate_device_id(getattr(http_request.state, "device_id", None))
+    if request.thread_id:
+        from backend.api.handlers.threads import _assert_owns_thread
+
+        await _assert_owns_thread(thread_id, http_request)
+        if device_id:
+            from backend.persistence.thread_activity import record_activity
+
+            await record_activity(user_id, device_id, thread_id)
     _apply_persisted_model_preference(request.config, user_id)
 
     chat_mode = request.config.chat_mode
@@ -820,6 +831,10 @@ async def stream_chat(
         mode="chat" if chat_mode else "code",
         permission_mode=permission_mode,
     )
+    if device_id:
+        from backend.persistence.thread_activity import record_activity
+
+        await record_activity(user_id, device_id, thread_id)
 
     # Registra thread em vectora_sessions e conta a mensagem do usuário —
     # é o usuário quem inicia a conversa, então a thread já é "real" (deve
@@ -1059,6 +1074,15 @@ async def resume_chat(
 
     await _assert_owns_thread(request.thread_id, http_request)
     resume_user_id = _user_id_from_request(http_request)
+    from backend.rbac.device_id import validate_device_id
+
+    resume_device_id = validate_device_id(
+        getattr(http_request.state, "device_id", None)
+    )
+    if resume_device_id:
+        from backend.persistence.thread_activity import record_activity
+
+        await record_activity(resume_user_id, resume_device_id, request.thread_id)
     permission_mode = _thread_permission_mode.get(request.thread_id, "ask")
     selector = _thread_graph_selector.get(request.thread_id, {})
     selector_model = str(selector.get("model", "") or "")

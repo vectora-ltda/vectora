@@ -253,7 +253,7 @@ export default function GhBotSection() {
         ) : tokens && tokens.length > 0 ? (
           <table className="w-full text-xs">
             <thead>
-              <tr className="text-muted-foreground text-left">
+              <tr className="text-muted-foreground text-start">
                 <th className="font-medium pb-2">{m.gh_bot_table_id()}</th>
                 <th className="font-medium pb-2">
                   {m.gh_bot_table_created_at()}
@@ -284,7 +284,7 @@ export default function GhBotSection() {
                           : m.gh_bot_status_active()}
                       </span>
                     </td>
-                    <td className="py-2 text-right">
+                    <td className="py-2 text-end">
                       {!revoked && (
                         <button
                           onClick={() => revokeTokenMutation.mutate(t.id)}
@@ -337,13 +337,13 @@ export default function GhBotSection() {
           2. {m.gh_bot_install_step2()}
         </p>
         <div className="relative">
-          <pre className="rounded-lg border border-border bg-background p-3 pr-10 text-[11px] overflow-x-auto">
+          <pre className="rounded-lg border border-border bg-background p-3 pe-10 text-[11px] overflow-x-auto">
             {WORKFLOW_YAML}
           </pre>
           <button
             type="button"
             onClick={() => void handleCopyYaml()}
-            className="absolute top-2 right-2 rounded-lg p-1.5 text-muted-foreground hover:bg-card hover:text-foreground transition-colors"
+            className="absolute top-2 end-2 rounded-lg p-1.5 text-muted-foreground hover:bg-card hover:text-foreground transition-colors"
             title={m.gh_bot_yaml_copy_cta()}
           >
             <Copy className="h-3.5 w-3.5" />

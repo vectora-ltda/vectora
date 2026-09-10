@@ -135,7 +135,7 @@ function SignupPage() {
               autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-xl border border-border bg-card/60 px-4 py-2.5 pr-11 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary transition-colors"
+              className="w-full rounded-xl border border-border bg-card/60 px-4 py-2.5 pe-11 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary transition-colors"
             />
             <button
               type="button"
@@ -143,7 +143,7 @@ function SignupPage() {
               aria-label={
                 showPassword ? m.form_password_hide() : m.form_password_show()
               }
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+              className="absolute end-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
             >
               {showPassword ? (
                 <EyeOff className="h-4 w-4" />

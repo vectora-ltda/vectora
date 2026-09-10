@@ -107,6 +107,17 @@ describe("useThreadsQuery", () => {
     expect(result.current.data![0].pinned).toBe(true);
   });
 
+  it("transporta atividade remota para a thread da sidebar", async () => {
+    const remote_activity = { last_active_at: "2026-09-08T12:00:00+00:00" };
+    listThreads.mockResolvedValueOnce({
+      threads: [vthread("t1", { remote_activity })],
+    });
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useThreadsQuery("u1"), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data![0].remote_activity).toEqual(remote_activity);
+  });
+
   it("erro/borda: pinned ausente no backend vira false", async () => {
     listThreads.mockResolvedValueOnce({ threads: [vthread("t1")] });
     const { wrapper } = makeWrapper();
