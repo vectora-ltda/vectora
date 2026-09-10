@@ -131,21 +131,21 @@ def _plan_mode_ja_passou_neste_turno(history: list[VMessage]) -> bool:
 
 def _mode_should_interrupt(mode: str, tool_name: str, history: list[VMessage]) -> bool:
     """Política canônica dos 5 modos — fonte única de verdade do HITL nativo."""
-    if tool_name not in REQUIRE_APPROVAL:
-        return False
-    if tool_name in _ALWAYS_INTERRUPT:
-        return True
+    requires_approval = tool_name in REQUIRE_APPROVAL
+    always_interrupt = tool_name in _ALWAYS_INTERRUPT
     if mode in _NON_INTERRUPTING_MODES:
-        return False
-    if mode == "accept_edits":
-        return tool_name not in _ACCEPT_EDITS_AUTO
-    if mode == "plan":
+        decision = False
+    elif mode == "accept_edits":
+        decision = tool_name not in _ACCEPT_EDITS_AUTO
+    elif mode == "plan":
         # Cada operação de mídia acima do limite precisa de sua própria
         # aprovação; um resultado anterior nunca autoriza outra cobrança.
-        if tool_name in {"generate_image", "text_to_speech", "generate_video"}:
-            return True
-        return not _plan_mode_ja_passou_neste_turno(history)
-    return True  # "ask" ou desconhecido → mais restritivo
+        decision = tool_name in {"generate_image", "text_to_speech", "generate_video"}
+        if not decision:
+            decision = not _plan_mode_ja_passou_neste_turno(history)
+    else:
+        decision = True  # "ask" ou desconhecido → mais restritivo
+    return requires_approval and (always_interrupt or decision)
 
 
 def should_require_approval(
