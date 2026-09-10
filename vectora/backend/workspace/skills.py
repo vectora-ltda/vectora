@@ -264,6 +264,8 @@ def _skill_lock_entry(skill: Skill) -> dict[str, object]:
             if not isinstance(dependency, str) or not isinstance(constraint, str):
                 raise ValueError(f"requires_skills inválido para skill {skill.id}")
             normalized_dependency = dependency.strip()
+            if not normalized_dependency:
+                raise ValueError(f"requires_skills inválido para skill {skill.id}")
             if normalized_dependency in requirements:
                 raise ValueError(f"dependência duplicada para skill {skill.id}")
             requirements[normalized_dependency] = constraint.strip()
@@ -280,6 +282,8 @@ def _skill_lock_entry(skill: Skill) -> dict[str, object]:
             if not isinstance(dependency, str) or not isinstance(constraint, str):
                 raise ValueError(f"requires_skills inválido para skill {skill.id}")
             normalized_dependency = dependency.strip()
+            if not normalized_dependency:
+                raise ValueError(f"requires_skills inválido para skill {skill.id}")
             if normalized_dependency in requirements:
                 raise ValueError(f"dependência duplicada para skill {skill.id}")
             requirements[normalized_dependency] = constraint.strip()

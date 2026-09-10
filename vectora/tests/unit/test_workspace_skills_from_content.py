@@ -88,6 +88,36 @@ def test_lock_entry_rejeita_dependencias_com_ids_normalizados_duplicados(
         skills._skill_lock_entry(skill)
 
 
+@pytest.mark.parametrize(
+    "requires_skills",
+    [
+        "requires_skills:\n  ' ': '^1.0.0'",
+        "requires_skills:\n  - id: ' '\n    version: '^1.0.0'",
+    ],
+)
+def test_lock_entry_rejeita_dependencia_vazia_apos_normalizacao(
+    tmp_path: Path, requires_skills: str
+) -> None:
+    root = tmp_path / "skill"
+    root.mkdir()
+    (root / "SKILL.md").write_text(
+        f"---\nname: n\ndescription: d\nversion: 1.0.0\n{requires_skills}\n---\n",
+        encoding="utf-8",
+    )
+    skill = Skill(
+        id="n",
+        name="n",
+        description="d",
+        source="local",
+        path=str(root),
+        installed_at="2026-01-01T00:00:00+00:00",
+        installed_by="u1",
+    )
+
+    with pytest.raises(ValueError, match="requires_skills inválido"):
+        skills._skill_lock_entry(skill)
+
+
 def test_runtime_skill_install_uses_session_scoped_memory(tmp_path) -> None:
     source = tmp_path / "runtime-skill"
     source.mkdir()
