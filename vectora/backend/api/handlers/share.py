@@ -31,7 +31,8 @@ from backend.api.schemas import (
 
 logger = logging.getLogger(__name__)
 _SECRET_TEXT = re.compile(
-    r"(?i)(api[_ -]?key|token|secret|password|authorization)\s*[:=]\s*[^\s,;]+"
+    r"(?i)(api[_ -]?key|token|secret|password)\s*[:=]\s*[^\s,;]+|"
+    r"authorization\s*[:=]\s*bearer\s+[^\s,;]+"
 )
 
 
@@ -101,12 +102,10 @@ async def create_share(
     session = await (await agent_factory.get_session_store()).get_session(
         body.thread_id
     )
-    owner_id = str(session.get("user_id", "")) if session else ""
-    if (
-        owner_id
-        and owner_id != user_id
-        and getattr(user, "role", "member") not in ("root", "admin")
-    ):
+    if session is None:
+        raise HTTPException(status_code=404, detail="Sessão não encontrada")
+    owner_id = str(session.get("user_id", ""))
+    if owner_id != user_id and getattr(user, "role", "member") not in ("root", "admin"):
         raise HTTPException(status_code=403, detail="Não autorizado")
     await db.execute(
         "INSERT INTO shared_threads (token, thread_id, created_by, created_at, expires_at, permission) VALUES (?,?,?,?,?,?)",
@@ -114,10 +113,11 @@ async def create_share(
     )
     await db.commit()
     with contextlib.suppress(Exception):
-        from backend.rbac.auth import write_audit
+        from backend.rbac.auth import get_db_for_audit, write_audit
 
+        audit_db = await get_db_for_audit()
         await write_audit(
-            db,
+            audit_db,
             user_id,
             "share_create",
             success=True,
@@ -192,7 +192,7 @@ async def get_shared_thread(token: str) -> SharedThread:
         messages=messages,
         created_at=created_at,
         expires_at=expires_at,
-        permission=permission if permission in ("read", "comment") else "read",
+        permission="read",
     )
 
 
@@ -204,7 +204,9 @@ async def get_shared_thread(token: str) -> SharedThread:
 @router.delete("/share/{token}")
 async def delete_share(token: str, request: Request) -> dict:
     user = getattr(request.state, "user", None)
-    user_id = user.id if user else "local"
+    if user is None:
+        raise HTTPException(status_code=401, detail="Autenticação necessária")
+    user_id = user.id
 
     db = await _get_db()
     await _ensure_share_table(db)
@@ -219,16 +221,17 @@ async def delete_share(token: str, request: Request) -> dict:
         raise HTTPException(status_code=404, detail="Share token not found")
 
     # Apenas o criador ou admin pode revogar
-    role = getattr(user, "role", "member") if user else "local"
+    role = getattr(user, "role", "member")
     if row[0] != user_id and role not in ("root", "admin"):
         raise HTTPException(status_code=403, detail="Não autorizado")
 
     await db.execute("DELETE FROM shared_threads WHERE token = ?", (token,))
     await db.commit()
     with contextlib.suppress(Exception):
-        from backend.rbac.auth import write_audit
+        from backend.rbac.auth import get_db_for_audit, write_audit
 
+        audit_db = await get_db_for_audit()
         await write_audit(
-            db, user_id, "share_revoke", success=True, metadata={"token": token}
+            audit_db, user_id, "share_revoke", success=True, metadata={"token": token}
         )
     return {}
