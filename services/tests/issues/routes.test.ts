@@ -405,7 +405,7 @@ describe("POST /issues/github/webhook", () => {
   it("não toma uma reserva de promoção ainda dentro do lease", async () => {
     const issueId = crypto.randomUUID();
     await env.DB.prepare(
-      "INSERT INTO issues (id, title, category, description, github_sync_state, github_sync_error, approved_at, approved_by) VALUES (?, 'lease', 'bug', 'descrição', 'promotion_pending', 'token-ativo', datetime('now'), 'admin')",
+      "INSERT INTO issues (id, title, category, description, github_sync_state, github_sync_error, approved_at, promotion_lease_until, approved_by) VALUES (?, 'lease', 'bug', 'descrição', 'promotion_pending', 'token-ativo', datetime('now'), datetime('now', '+10 minutes'), 'admin')",
     )
       .bind(issueId)
       .run();
@@ -523,7 +523,7 @@ describe("POST /issues/github/webhook", () => {
   it("abandona a promoção antiga quando o reconciliador substitui o lease", async () => {
     const issueId = crypto.randomUUID();
     await env.DB.prepare(
-      "INSERT INTO issues (id, title, category, description, github_repo, github_number, github_url, github_sync_state, approved_at, approved_by) VALUES (?, 'lease expirado', 'bug', 'descrição', ?, 9883, ?, 'approval_error', datetime('now', '-1 hour'), 'admin')",
+      "INSERT INTO issues (id, title, category, description, github_repo, github_number, github_url, github_sync_state, approved_at, promotion_lease_until, approved_by) VALUES (?, 'lease expirado', 'bug', 'descrição', ?, 9883, ?, 'approval_error', datetime('now', '-1 hour'), datetime('now', '-1 hour'), 'admin')",
     )
       .bind(
         issueId,
@@ -588,7 +588,7 @@ describe("POST /issues/github/webhook", () => {
     expect(commentPosts).toBe(1);
 
     await env.DB.prepare(
-      "UPDATE issues SET approved_at = datetime('now', '-1 hour') WHERE id = ?",
+      "UPDATE issues SET promotion_lease_until = datetime('now', '-1 hour') WHERE id = ?",
     )
       .bind(issueId)
       .run();

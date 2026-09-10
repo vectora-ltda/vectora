@@ -1,16 +1,6 @@
--- Compatibilidade para bancos que já aplicaram 0001 antes da sincronização
--- com o GitHub. Em instalações novas, 0001 cria a tabela base e este arquivo
--- adiciona as colunas e tabelas da integração na mesma ordem.
-ALTER TABLE issues ADD COLUMN github_repo TEXT;
-ALTER TABLE issues ADD COLUMN github_number INTEGER;
-ALTER TABLE issues ADD COLUMN github_url TEXT;
-ALTER TABLE issues ADD COLUMN github_sync_state TEXT NOT NULL DEFAULT 'pending';
-ALTER TABLE issues ADD COLUMN github_sync_error TEXT;
-ALTER TABLE issues ADD COLUMN core_repo TEXT;
-ALTER TABLE issues ADD COLUMN core_number INTEGER;
-ALTER TABLE issues ADD COLUMN core_url TEXT;
-ALTER TABLE issues ADD COLUMN approved_at TEXT;
-ALTER TABLE issues ADD COLUMN approved_by TEXT;
+-- Objetos auxiliares da sincronização GitHub. As colunas de `issues` vivem no
+-- shape final de 0001_schema.sql; o upgrade operacional adiciona-as apenas a
+-- bancos legados que já existiam antes desse shape.
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_issues_github_identity
   ON issues(github_repo, github_number)

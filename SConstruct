@@ -915,6 +915,8 @@ def _upgrade_d1_schema(log) -> None:
         ("issues", "core_url", "TEXT"),
         ("issues", "approved_at", "TEXT"),
         ("issues", "approved_by", "TEXT"),
+        ("issues", "promotion_lease_until", "TEXT"),
+        ("issues", "response_version", "INTEGER NOT NULL DEFAULT 0"),
         ("issue_comments", "updated_at", "TEXT"),
         ("issue_comments", "deleted_at", "TEXT"),
         ("github_webhook_deliveries", "attempt_token", "TEXT"),
@@ -1012,7 +1014,6 @@ def _action_prod(target, source, env):
             log=log,
             cwd=SERVICES,
         )
-        _upgrade_d1_schema(log)
         _run(
             [
                 WRANGLER,
@@ -1025,6 +1026,9 @@ def _action_prod(target, source, env):
             log=log,
             cwd=SERVICES,
         )
+        # O upgrade aditivo só roda depois das migrations, que criam as
+        # tabelas auxiliares consultadas pelo preflight.
+        _upgrade_d1_schema(log)
         _run([WRANGLER, "deploy"], log=log, cwd=SERVICES)
     print(
         "\n>> deploy de produção concluído: "

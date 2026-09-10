@@ -733,10 +733,21 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: pnpm exec wrangler d1 execute vectora-db --remote --file=migrations/0001_schema.sql
+      - name: Apply tracked migrations (D1)
+        id: apply_d1_migrations
+        if: >-
+          always() && steps.apply_base_schema.outcome == 'success' &&
+          steps.credentials.outputs.has_cloudflare_token == 'true'
+        working-directory: services
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler d1 migrations apply vectora-db --remote
+
       - name: Upgrade existing D1 schema (D1)
         id: upgrade_d1_schema
         if: >-
-          always() && steps.apply_base_schema.outcome == 'success' &&
+          always() && steps.apply_d1_migrations.outcome == 'success' &&
           steps.credentials.outputs.has_cloudflare_token == 'true'
         working-directory: services
         env:
@@ -765,24 +776,16 @@ jobs:
           ensure_column issues core_url "TEXT"
           ensure_column issues approved_at "TEXT"
           ensure_column issues approved_by "TEXT"
+          ensure_column issues promotion_lease_until "TEXT"
+          ensure_column issues response_version "INTEGER NOT NULL DEFAULT 0"
           ensure_column issue_comments updated_at "TEXT"
           ensure_column issue_comments deleted_at "TEXT"
           ensure_column github_webhook_deliveries attempt_token "TEXT"
           ensure_column github_webhook_deliveries lease_until "TEXT"
           ensure_column gha_bot_review_jobs callback_secret_hash "TEXT"
-      - name: Apply tracked migrations (D1)
-        id: apply_d1_migrations
-        if: >-
-          always() && steps.upgrade_d1_schema.outcome == 'success' &&
-          steps.credentials.outputs.has_cloudflare_token == 'true'
-        working-directory: services
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm exec wrangler d1 migrations apply vectora-db --remote
       - name: Deploy services (Workers)
         if: >-
-          always() && steps.apply_d1_migrations.outcome == 'success' &&
+          always() && steps.upgrade_d1_schema.outcome == 'success' &&
           steps.credentials.outputs.has_cloudflare_token == 'true'
         working-directory: services
         env:

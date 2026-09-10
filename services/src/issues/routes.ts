@@ -80,20 +80,42 @@ export async function syncIssueResponse(
   number: number,
   response: string,
   resolve: boolean,
+  expectedVersion?: number,
 ): Promise<void> {
+  const isCurrent = async (): Promise<boolean> => {
+    if (expectedVersion === undefined) return true;
+    const current = await env.DB.prepare(
+      "SELECT response_version FROM issues WHERE id = ? AND response_version = ? AND response = ?",
+    )
+      .bind(issueId, expectedVersion, response)
+      .first();
+    return Boolean(current);
+  };
+  if (!(await isCurrent())) throw new Error("response_superseded");
   const marker = await responseMarker(issueId, response);
   const existing = await findCommentByMarker(env, repo, number, marker);
   if (!existing) {
+    if (!(await isCurrent())) throw new Error("response_superseded");
     await addComment(env, repo, number, `<!-- ${marker} -->\n${response}`);
   }
   if (resolve) {
+    if (!(await isCurrent())) throw new Error("response_superseded");
     await updateIssue(env, repo, number, { state: "closed" });
   }
-  await env.DB.prepare(
-    "UPDATE issues SET github_sync_state = 'synced', github_sync_error = NULL WHERE id = ?",
-  )
-    .bind(issueId)
-    .run();
+  const finalized =
+    expectedVersion === undefined
+      ? await env.DB.prepare(
+          "UPDATE issues SET github_sync_state = 'synced', github_sync_error = NULL WHERE id = ?",
+        )
+          .bind(issueId)
+          .run()
+      : await env.DB.prepare(
+          "UPDATE issues SET github_sync_state = 'synced', github_sync_error = NULL WHERE id = ? AND response_version = ?",
+        )
+          .bind(issueId, expectedVersion)
+          .run();
+  if (expectedVersion !== undefined && finalized.meta.changes === 0)
+    throw new Error("response_superseded");
 }
 
 /** Publica ou reconcilia uma issue da Company no repositório público. */
@@ -144,7 +166,7 @@ export async function syncCreatedIssue(
       const message =
         error instanceof Error ? error.message : "github_sync_failed";
       await env.DB.prepare(
-        "UPDATE issues SET github_sync_state = 'response_pending', github_sync_error = ? WHERE id = ?",
+        "UPDATE issues SET github_sync_state = CASE WHEN response IS NOT NULL THEN 'response_pending' ELSE github_sync_state END, github_sync_error = ? WHERE id = ?",
       )
         .bind(message.slice(0, 200), issueId)
         .run();
@@ -558,12 +580,6 @@ issues.post("/github/webhook", async (c) => {
         try {
           await promoteIssue(c.env, issueId, payload.sender.login);
         } catch (error) {
-          if (
-            error instanceof Error &&
-            error.message === "promotion_in_progress"
-          ) {
-            return;
-          }
           const message =
             error instanceof Error ? error.message : "promotion_failed";
           if (message === "promotion_in_progress") {

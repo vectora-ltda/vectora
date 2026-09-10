@@ -27,7 +27,7 @@ async function renewPromotionLease(
   operationToken: string,
 ): Promise<void> {
   const renewed = await env.DB.prepare(
-    `UPDATE issues SET approved_at = datetime('now')
+    `UPDATE issues SET promotion_lease_until = datetime('now', '+${PROMOTION_LEASE_MINUTES} minutes')
      WHERE id = ? AND github_sync_state = 'promotion_pending'
      AND github_sync_error = ?`,
   )
@@ -176,12 +176,12 @@ export async function promoteIssue(
   const operationToken = claimToken ?? crypto.randomUUID();
   const claimed = claimToken
     ? await env.DB.prepare(
-        "UPDATE issues SET github_sync_state = 'promotion_pending', approved_at = datetime('now') WHERE id = ? AND github_sync_state = 'promotion_failed' AND github_sync_error = ?",
+        "UPDATE issues SET github_sync_state = 'promotion_pending', promotion_lease_until = datetime('now', '+10 minutes') WHERE id = ? AND github_sync_state = 'promotion_failed' AND github_sync_error = ?",
       )
         .bind(issueId, claimToken)
         .run()
     : await env.DB.prepare(
-        "UPDATE issues SET github_sync_state = 'promotion_pending', github_sync_error = ?, approved_at = datetime('now'), approved_by = COALESCE(approved_by, ?) WHERE id = ? AND github_sync_state NOT IN ('promotion_pending', 'promoted')",
+        "UPDATE issues SET github_sync_state = 'promotion_pending', github_sync_error = ?, approved_at = COALESCE(approved_at, datetime('now')), promotion_lease_until = datetime('now', '+10 minutes'), approved_by = COALESCE(approved_by, ?) WHERE id = ? AND github_sync_state NOT IN ('promotion_pending', 'promoted')",
       )
         .bind(operationToken, approvedBy, issueId)
         .run();
@@ -200,7 +200,7 @@ export async function promoteIssue(
     );
   }
   const persisted = await env.DB.prepare(
-    "UPDATE issues SET core_repo = ?, core_number = ?, core_url = ?, approved_at = COALESCE(approved_at, datetime('now')), approved_by = COALESCE(approved_by, ?), github_sync_state = 'promotion_pending', github_sync_error = ? WHERE id = ? AND github_sync_error = ?",
+    "UPDATE issues SET core_repo = ?, core_number = ?, core_url = ?, approved_at = COALESCE(approved_at, datetime('now')), promotion_lease_until = datetime('now', '+10 minutes'), approved_by = COALESCE(approved_by, ?), github_sync_state = 'promotion_pending', github_sync_error = ? WHERE id = ? AND github_sync_error = ?",
   )
     .bind(
       targetRepo,
@@ -292,30 +292,23 @@ export async function reconcilePendingPromotions(env: Env): Promise<void> {
     "SELECT id, approved_by, core_number, github_sync_state FROM issues " +
       "WHERE github_sync_state IN ('promotion_pending', 'approval_error') " +
       "AND approved_by IS NOT NULL " +
-      "AND (github_sync_state = 'approval_error' OR approved_at IS NULL OR approved_at <= datetime('now', ?)) " +
+      "AND (github_sync_state = 'approval_error' OR promotion_lease_until IS NULL OR promotion_lease_until <= datetime('now')) " +
       "LIMIT 25",
-  )
-    .bind(`-${PROMOTION_LEASE_MINUTES} minutes`)
-    .all<{
-      id: string;
-      approved_by: string;
-      core_number: number | null;
-      github_sync_state: string;
-    }>();
+  ).all<{
+    id: string;
+    approved_by: string;
+    core_number: number | null;
+    github_sync_state: string;
+  }>();
   for (const issue of results) {
     try {
       const claimToken = crypto.randomUUID();
       const claimed = await env.DB.prepare(
         "UPDATE issues SET github_sync_state = 'promotion_failed', github_sync_error = ? " +
           "WHERE id = ? AND github_sync_state = ? " +
-          "AND (github_sync_state = 'approval_error' OR approved_at IS NULL OR approved_at <= datetime('now', ?))",
+          "AND (github_sync_state = 'approval_error' OR promotion_lease_until IS NULL OR promotion_lease_until <= datetime('now'))",
       )
-        .bind(
-          claimToken,
-          issue.id,
-          issue.github_sync_state,
-          `-${PROMOTION_LEASE_MINUTES} minutes`,
-        )
+        .bind(claimToken, issue.id, issue.github_sync_state)
         .run();
       if (claimed.meta.changes === 0) continue;
       await promoteIssue(env, issue.id, issue.approved_by, claimToken);

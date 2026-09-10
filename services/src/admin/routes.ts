@@ -246,6 +246,7 @@ interface AdminIssueRow {
   core_url: string | null;
   approved_at: string | null;
   approved_by: string | null;
+  response_version: number;
 }
 
 // Lista completa (com email — o público NUNCA vê esse campo) pro admin
@@ -260,7 +261,7 @@ admin.get("/issues", async (c) => {
   const offset = Number(c.req.query("offset") ?? "0");
 
   const { results } = await c.env.DB.prepare(
-    "SELECT id, title, category, description, email, files, status, response, responded_at, archived_at, created_at, github_repo, github_number, github_url, github_sync_state, github_sync_error, core_repo, core_number, core_url, approved_at, approved_by FROM issues WHERE archived_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?",
+    "SELECT id, title, category, description, email, files, status, response, responded_at, archived_at, created_at, github_repo, github_number, github_url, github_sync_state, github_sync_error, core_repo, core_number, core_url, approved_at, approved_by, response_version FROM issues WHERE archived_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?",
   )
     .bind(limit, offset)
     .all<AdminIssueRow>();
@@ -280,7 +281,7 @@ admin.get("/issues/:id", async (c) => {
   if (!adminId) return c.json({ error: "forbidden" }, 403);
 
   const row = await c.env.DB.prepare(
-    "SELECT id, title, category, description, email, files, status, response, responded_at, archived_at, created_at, github_repo, github_number, github_url, github_sync_state, github_sync_error, core_repo, core_number, core_url, approved_at, approved_by FROM issues WHERE id = ?",
+    "SELECT id, title, category, description, email, files, status, response, responded_at, archived_at, created_at, github_repo, github_number, github_url, github_sync_state, github_sync_error, core_repo, core_number, core_url, approved_at, approved_by, response_version FROM issues WHERE id = ?",
   )
     .bind(c.req.param("id"))
     .first<AdminIssueRow>();
@@ -398,7 +399,7 @@ admin.post("/issues/:id/respond", async (c) => {
   }
 
   const issue = await c.env.DB.prepare(
-    "SELECT title, email, github_repo, github_number FROM issues WHERE id = ?",
+    "SELECT title, email, github_repo, github_number, response_version FROM issues WHERE id = ?",
   )
     .bind(id)
     .first<{
@@ -406,12 +407,13 @@ admin.post("/issues/:id/respond", async (c) => {
       email: string | null;
       github_repo: string | null;
       github_number: number | null;
+      response_version: number;
     }>();
   if (!issue) return c.json({ error: "not_found" }, 404);
 
   const newStatus = body.resolve ? "resolved" : "open";
   await c.env.DB.prepare(
-    "UPDATE issues SET response = ?, responded_at = datetime('now'), status = ?, github_sync_state = CASE WHEN github_repo IS NOT NULL AND github_number IS NOT NULL THEN 'response_pending' ELSE github_sync_state END, github_sync_error = NULL WHERE id = ?",
+    "UPDATE issues SET response = ?, responded_at = datetime('now'), status = ?, response_version = response_version + 1, github_sync_state = CASE WHEN github_repo IS NOT NULL AND github_number IS NOT NULL THEN 'response_pending' ELSE github_sync_state END, github_sync_error = NULL WHERE id = ?",
   )
     .bind(body.response, newStatus, id)
     .run();
@@ -425,14 +427,23 @@ admin.post("/issues/:id/respond", async (c) => {
         issue.github_number,
         body.response,
         Boolean(body.resolve),
+        issue.response_version + 1,
       );
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "github_sync_failed";
+      if (message === "response_superseded") {
+        return c.json({ error: message }, 409);
+      }
       await c.env.DB.prepare(
-        "UPDATE issues SET github_sync_state = 'response_pending', github_sync_error = ? WHERE id = ?",
+        "UPDATE issues SET github_sync_state = CASE WHEN response_version = ? THEN 'response_pending' ELSE github_sync_state END, github_sync_error = CASE WHEN response_version = ? THEN ? ELSE github_sync_error END WHERE id = ?",
       )
-        .bind(message.slice(0, 200), id)
+        .bind(
+          issue.response_version + 1,
+          issue.response_version + 1,
+          message.slice(0, 200),
+          id,
+        )
         .run();
       console.error("issue_github_response_sync_failed", {
         id,
