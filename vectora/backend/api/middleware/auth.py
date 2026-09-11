@@ -44,6 +44,7 @@ _API_PREFIXES: tuple[str, ...] = (
     "/vectora.",
     "/oauth",
     "/mcp",
+    "/url-preview",
     "/health",
     "/license",
     "/metrics",
