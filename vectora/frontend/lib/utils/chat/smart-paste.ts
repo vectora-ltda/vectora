@@ -1,6 +1,6 @@
 import { isMap, isSeq, parseDocument } from "yaml";
 
-export type SmartPasteKind = "url" | "json" | "yaml" | "code" | "text";
+export type SmartPasteKind = "url" | "json" | "yaml" | "html" | "code" | "text";
 
 export interface SmartPasteResult {
   kind: SmartPasteKind;
@@ -34,6 +34,9 @@ export function classifySmartPaste(value: string): SmartPasteResult {
     } catch {
       // Fall through to code/text classification for invalid YAML.
     }
+  }
+  if (/<\/?[a-z][^>]*>/i.test(trimmed)) {
+    return { kind: "html", extension: "html", mimeType: "text/html" };
   }
   if (
     /\b(const|let|function|import|export)\b|[{}]\s*[;)]|<\w+[\s>]/.test(trimmed)

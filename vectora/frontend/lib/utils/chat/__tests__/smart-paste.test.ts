@@ -26,4 +26,22 @@ describe("classifySmartPaste", () => {
   it("falls back to text for invalid structured data", () => {
     expect(classifySmartPaste("name: [").kind).toBe("text");
   });
+
+  it("classifies HTML as an HTML attachment", () => {
+    expect(classifySmartPaste("<section><h1>Relatório</h1></section>")).toEqual(
+      {
+        kind: "html",
+        extension: "html",
+        mimeType: "text/html",
+      },
+    );
+  });
+
+  it("keeps prose as plain text", () => {
+    expect(classifySmartPaste("Relatório de uso do workspace")).toEqual({
+      kind: "text",
+      extension: "txt",
+      mimeType: "text/plain",
+    });
+  });
 });
