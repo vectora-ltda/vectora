@@ -206,6 +206,9 @@ class TestAgetThreadMessagesNativePrimeiro:
         assert pairs[0][3] == [
             {
                 "kind": "image",
+                "name": "asset-1",
+                "mimeType": "image/png",
+                "size": 0,
                 "url": "/threads/thread-image/assets/asset-1",
                 "asset_id": "asset-1",
             }
@@ -231,6 +234,9 @@ class TestAgetThreadMessagesNativePrimeiro:
         assert pairs[0][3] == [
             {
                 "kind": "image",
+                "name": "old.png",
+                "mimeType": "image/png",
+                "size": 0,
                 "url": "/threads/thread-legacy-image/attachments/old.png",
                 "attachment_name": "old.png",
             }
