@@ -87,28 +87,6 @@ class MediaQuota:
         self.database.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(self.database)
         connection.execute("PRAGMA busy_timeout = 5000")
-        # Keep CLI/test databases usable when the global migration runner has
-        # not initialized this file yet. Production startup still owns the
-        # canonical schema and migrations remain authoritative.
-        connection.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS media_quota_usage (
-              user_id TEXT NOT NULL,
-              period TEXT NOT NULL,
-              used_units INTEGER NOT NULL DEFAULT 0,
-              PRIMARY KEY (user_id, period)
-            );
-            CREATE TABLE IF NOT EXISTS media_quota_reservations (
-              id TEXT PRIMARY KEY,
-              user_id TEXT NOT NULL,
-              period TEXT NOT NULL,
-              operation TEXT NOT NULL,
-              units INTEGER NOT NULL,
-              state TEXT NOT NULL,
-              created_at TEXT NOT NULL
-            );
-            """,
-        )
         return connection
 
     @staticmethod
