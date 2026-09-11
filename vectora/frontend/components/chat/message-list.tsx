@@ -35,8 +35,10 @@ const messageCatalog = m as typeof m & {
   }) => string;
 };
 messageCatalog.chat_messages ??= (() => "Messages") as typeof m.chat_messages;
+messageCatalog.message_list_aria ??= (() =>
+  "Message list") as typeof m.message_list_aria;
 messageCatalog.scroll_back_to_bottom ??= (() =>
-  "Voltar ao fim") as typeof m.scroll_back_to_bottom;
+  "Back to bottom") as typeof m.scroll_back_to_bottom;
 function formatComparisonSegments(args: {
   common: string;
   active: string;
@@ -591,7 +593,7 @@ export const MessageList = memo(function MessageList({
         onScroll={handleScroll}
         aria-live="polite"
         aria-busy={isLoadingThread}
-        aria-label={m.message_list_aria()}
+        aria-label={messageCatalog.message_list_aria()}
         style={{
           willChange: "scroll-position",
           contain: "layout style paint",
@@ -691,7 +693,7 @@ export const MessageList = memo(function MessageList({
           // mensagens (que já é `relative`, ver acima), não ao viewport —
           // evita sobrepor a nav rail do workbench quando ele está aberto.
           className="scroll-button absolute bottom-32 right-4 sm:right-8 p-3 rounded-full shadow-lg hover:scale-110 active:scale-95 transition-transform z-50 bg-primary text-primary-foreground"
-          aria-label={m.scroll_back_to_bottom()}
+          aria-label={messageCatalog.scroll_back_to_bottom()}
         >
           <ArrowDown className="w-5 h-5" />
         </button>
