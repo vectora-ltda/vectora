@@ -7,7 +7,7 @@ import asyncio
 
 import pytest
 
-from backend.persistence.native.session_store import SessionStore
+from backend.persistence.native.session_store import SessionStore, _message_to_row
 from backend.storage.sqlite.pool import AsyncConnectionPool
 from backend.vtypes.message import (
     ContentBlock,
@@ -60,6 +60,20 @@ class TestCreateSession:
 
 
 class TestAppendMessageEGetHistory:
+    def test_persistencia_de_imagem_nao_grava_base64(self) -> None:
+        raw = "data:image/png;base64,c2Vuc2l0aXZl"
+        _, content_json, *_ = _message_to_row(
+            VMessage(
+                role=MessageRole.USER,
+                content=[
+                    ContentBlock(kind="image_url", image_url=raw, asset_id="asset-1")
+                ],
+            )
+        )
+
+        assert raw not in content_json
+        assert '"image_url": null' in content_json
+
     async def test_lista_compara_e_seleciona_branches(self, store: SessionStore):
         await store.create_session("thread-branches", user_id="alice")
         root = await store.append_message(

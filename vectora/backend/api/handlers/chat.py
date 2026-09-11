@@ -329,10 +329,17 @@ def _persist_image_file(thread_id: str, att: Attachment) -> Path | None:
     já foi enviada ao provider via base64 inline; só a reexibição depois de
     um restart fica indisponível, o que é preferível a quebrar o chat.
     """
+    from backend.services.assets import ALLOWED_MIME, MAX_ASSET_BYTES
     from backend.settings import settings
 
     try:
         raw = base64.b64decode(att.base64_data)
+        normalized_mime = (
+            "image/jpeg" if att.mime_type == "image/jpg" else att.mime_type
+        )
+        if normalized_mime not in ALLOWED_MIME or len(raw) > MAX_ASSET_BYTES:
+            logger.warning("chat: imagem rejeitada antes de persistir: %s", att.name)
+            return None
         ext = Path(att.name).suffix or _EXT_BY_MIME.get(att.mime_type, "")
         filename = f"{uuid.uuid4().hex}{ext}"
         safe_thread = thread_id.replace("/", "").replace("\\", "").replace("..", "")
@@ -420,13 +427,17 @@ async def _build_user_vmessage(
                     ).id
                 except Exception:
                     logger.exception("chat: falha ao registrar asset multimodal")
+                    persisted.unlink(missing_ok=True)
+                    persisted = None
 
             blocks.append(
                 ContentBlock(
                     kind="image_url",
                     image_url=f"data:{att.mime_type};base64,{att.base64_data}",
                     asset_id=asset_id,
-                    attachment_name=persisted.name if persisted is not None else None,
+                    attachment_name=persisted.name
+                    if asset_id and persisted is not None
+                    else None,
                     attachment_mime_type=att.mime_type,
                     attachment_size_bytes=img_size,
                 )

@@ -74,6 +74,19 @@ def test_asset_store_recupera_indice_incompleto_sem_excecao(tmp_path) -> None:
     assert AssetStore(metadata)._read() == {}
 
 
+@pytest.mark.parametrize("payload", ["[]", "null", '{"bad": []}'])
+def test_asset_store_ignora_raiz_ou_registros_malformados(
+    tmp_path, payload: str
+) -> None:
+    metadata = tmp_path / "metadata"
+    metadata.mkdir()
+    (metadata / "index.json").write_text(payload, encoding="utf-8")
+
+    store = AssetStore(metadata)
+    assert store._read() == {}
+    assert store.get("bad", owner_id="u1", workspace_id="w1") is None
+
+
 def test_asset_store_no_windows_reposiciona_descritor_antes_do_lock(
     tmp_path, monkeypatch
 ) -> None:

@@ -299,6 +299,48 @@ class TestBuildUserVMessage:
         assert persisted[0].read_bytes() == raw_bytes
 
     @pytest.mark.asyncio
+    async def test_falha_ao_criar_asset_remove_arquivo_persistido(self, monkeypatch):
+        from backend.api.handlers.chat import _build_user_vmessage
+        from backend.services.assets import asset_store
+
+        def fail_create(**_kwargs):
+            raise ValueError("asset inválido")
+
+        monkeypatch.setattr(asset_store, "create", fail_create)
+        att = Attachment(
+            kind=AttachmentKind.IMAGE,
+            name="invalid.png",
+            mime_type="image/png",
+            base64_data=_b64_bytes(b"image"),
+        )
+        msg = await _build_user_vmessage("veja", [att], "thread-invalid")
+
+        assert msg.content[1].asset_id is None
+        assert msg.content[1].attachment_name is None
+        from backend.settings import settings
+
+        assert not [
+            path
+            for path in (settings.vectora_home / "chat-attachments").rglob("*")
+            if path.is_file()
+        ]
+
+    @pytest.mark.asyncio
+    async def test_mime_invalido_nao_grava_arquivo(self, monkeypatch):
+        from backend.api.handlers.chat import _persist_image_file
+
+        att = Attachment(
+            kind=AttachmentKind.IMAGE,
+            name="invalid.png",
+            mime_type="image/png",
+            base64_data=_b64_bytes(b"image"),
+        )
+        from backend.services import assets
+
+        monkeypatch.setattr(assets, "ALLOWED_MIME", {"audio/mpeg"})
+        assert _persist_image_file("thread-invalid", att) is None
+
+    @pytest.mark.asyncio
     async def test_falha_ao_persistir_nao_aborta_o_turno(self, monkeypatch) -> None:
         """Erro/borda: disco cheio/sem permissão não pode derrubar o chat —
         a imagem já foi enviada ao provider via base64 inline, só a

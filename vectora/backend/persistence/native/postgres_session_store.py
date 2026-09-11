@@ -93,6 +93,9 @@ def _message_to_row(
     msg: VMessage,
 ) -> tuple[str, str, str | None, str | None, str | None]:
     data = msg.to_dict()
+    for block in data["content"]:
+        if block.get("kind") == "image_url":
+            block["image_url"] = None
     content_json = json.dumps(data["content"], ensure_ascii=False)
     tool_calls_json = (
         json.dumps(data["tool_calls"], ensure_ascii=False)

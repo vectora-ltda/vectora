@@ -698,7 +698,9 @@ async def create_thread(body: CreateThreadRequest, http_request: Request) -> Thr
 # ---------------------------------------------------------------------------
 
 
-async def _assert_owns_thread(thread_id: str, http_request: Request | None) -> None:
+async def _assert_owns_thread(
+    thread_id: str, http_request: Request | None, *, require_existing: bool = False
+) -> None:
     """Confirma em ``SessionStore`` (fonte de verdade sobre posse) que
     ``thread_id``, SE registrada lá, pertence ao usuário autenticado em
     ``http_request``.
@@ -707,8 +709,8 @@ async def _assert_owns_thread(thread_id: str, http_request: Request | None) -> N
     checagem — mantém o comportamento pré-existente dos callers internos de
     ``get_thread`` (GetHistory, GenerateTitle, histórico paginado), que já
     resolvem a thread por outros meios. Thread sem registro nenhum em
-    ``SessionStore`` (legado, criada antes da posse ser rastreada lá) também
-    passa — ausência de registro não é prova de posse alheia. Levanta 404
+    ``SessionStore`` também retorna 404 para chamadas HTTP autenticadas,
+    evitando que uma rota legada vire um bypass. Levanta 404
     (nunca 403) quando HÁ registro e o dono não bate — não distingue
     "não existe" de "não é sua" pro caller, pra não vazar a existência de
     threads de outro usuário."""
@@ -721,6 +723,10 @@ async def _assert_owns_thread(thread_id: str, http_request: Request | None) -> N
     session_store = await _get_session_store()
     session = await session_store.get_session(thread_id)
     if session is None:
+        if require_existing:
+            raise HTTPException(
+                status_code=404, detail=f"Thread {thread_id!r} not found"
+            )
         return
     user_id = _user_id(http_request)
     if session["user_id"] != user_id:
@@ -729,6 +735,14 @@ async def _assert_owns_thread(thread_id: str, http_request: Request | None) -> N
 
 async def _require_existing_thread(thread_id: str, request: Request) -> None:
     """Exige posse e registro existente para os endpoints de branches."""
+    await _assert_owns_thread(thread_id, request, require_existing=True)
+    store = await _get_session_store()
+    if await store.get_session(thread_id) is None:
+        raise HTTPException(status_code=404, detail="Thread não encontrada")
+
+
+async def _assert_existing_thread_ownership(thread_id: str, request: Request) -> None:
+    """Apply ownership checks and reject authenticated requests without a session."""
     await _assert_owns_thread(thread_id, request)
     store = await _get_session_store()
     if await store.get_session(thread_id) is None:
@@ -1724,7 +1738,7 @@ async def get_thread_attachment(
     os dois segmentos (sem `..`/separador) antes de tocar o filesystem."""
     from backend.settings import settings
 
-    await _assert_owns_thread(thread_id, request)
+    await _assert_existing_thread_ownership(thread_id, request)
 
     safe_thread = thread_id.replace("/", "").replace("\\", "").replace("..", "")
     safe_filename = filename.replace("/", "").replace("\\", "").replace("..", "")

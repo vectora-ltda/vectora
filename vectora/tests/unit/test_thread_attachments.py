@@ -152,7 +152,9 @@ class TestGetThreadAttachment:
         target_dir.mkdir(parents=True)
         (target_dir / "abc123.png").write_bytes(b"\x89PNG-fake-bytes")
 
-        monkeypatch.setattr(threads_mod, "_assert_owns_thread", AsyncMock())
+        monkeypatch.setattr(
+            threads_mod, "_assert_existing_thread_ownership", AsyncMock()
+        )
         response = await threads_mod.get_thread_attachment(
             "t1", "abc123.png", self._request()
         )
@@ -215,7 +217,7 @@ class TestGetThreadAttachment:
         async def reject(_thread_id, _request):
             raise HTTPException(status_code=404, detail="Thread não encontrada")
 
-        monkeypatch.setattr(threads_mod, "_assert_owns_thread", reject)
+        monkeypatch.setattr(threads_mod, "_assert_existing_thread_ownership", reject)
         with pytest.raises(HTTPException) as exc_info:
             await threads_mod.get_thread_attachment("t1", "abc123.png", self._request())
         assert exc_info.value.status_code == 404

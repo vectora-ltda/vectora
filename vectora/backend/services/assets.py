@@ -146,12 +146,27 @@ class AssetStore:
         thread_id: str = "",
     ) -> Asset | None:
         raw = self._read().get(asset_id)
+        if not isinstance(raw, dict):
+            return None
         if (
             not raw
             or raw.get("owner_id") != owner_id
             or raw.get("workspace_id") != workspace_id
             or (thread_id and raw.get("thread_id") != thread_id)
         ):
+            return None
+        required = (
+            "id",
+            "path",
+            "owner_id",
+            "workspace_id",
+            "thread_id",
+            "mime_type",
+            "size_bytes",
+            "source",
+            "created_at",
+        )
+        if any(key not in raw for key in required):
             return None
         path = Path(str(raw["path"]))
         if path.is_symlink() or not path.is_file():
@@ -173,9 +188,16 @@ class AssetStore:
 
     def _read(self) -> dict[str, dict[str, object]]:
         try:
-            return json.loads(self.index.read_text(encoding="utf-8"))
+            value = json.loads(self.index.read_text(encoding="utf-8"))
         except (FileNotFoundError, json.JSONDecodeError):
             return {}
+        if not isinstance(value, dict):
+            return {}
+        return {
+            str(key): record
+            for key, record in value.items()
+            if isinstance(record, dict)
+        }
 
 
 asset_store = AssetStore()
