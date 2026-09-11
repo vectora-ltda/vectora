@@ -215,6 +215,26 @@ export interface Thread {
   remote_activity?: { last_active_at: string } | null;
 }
 
+export interface ConversationBranch {
+  head_message_id: number;
+  created_at: string;
+  active: boolean;
+  message_count: number;
+}
+
+export interface ConversationBranchesResponse {
+  branches: ConversationBranch[];
+  active_head_message_id: number | null;
+}
+
+export interface ConversationBranchComparison {
+  active_head_message_id: number | null;
+  selected_head_message_id: number;
+  common_message_ids: number[];
+  active_divergent_message_ids: number[];
+  selected_divergent_message_ids: number[];
+}
+
 /** Anexo persistido de uma mensagem do histórico — `url`, quando presente,
  * aponta pra `GET /threads/{id}/attachments/{filename}` (sobrevive a
  * restart do backend, diferente do base64 que só existe durante o turno
@@ -465,6 +485,66 @@ export const getHistory = (
   if (!thread_id.trim()) return Promise.resolve({ messages: [] });
   return postRpc("/vectora.chat.v1.ThreadService/GetHistory", { thread_id });
 };
+
+const branchUrl = (threadId: string, suffix = "") =>
+  `/threads/${encodeURIComponent(threadId)}/branches${suffix}`;
+
+async function branchRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const request = () =>
+    fetch(`${VECTORA_API_URL}${path}`, {
+      ...init,
+      credentials: "include",
+    });
+  let response = await request();
+  if (response.status === 401) {
+    if (!(await tryRefreshToken())) {
+      redirectToLogin();
+      throw new BranchRequestError(401, "sessão expirada");
+    }
+    response = await request();
+  }
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new BranchRequestError(response.status, detail);
+  }
+  return (await response.json()) as T;
+}
+
+export class BranchRequestError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly detail: string,
+  ) {
+    super(`branches falhou (${status}): ${detail}`);
+    this.name = "BranchRequestError";
+  }
+}
+
+export const listConversationBranches = (
+  threadId: string,
+  limit = 100,
+): Promise<ConversationBranchesResponse> =>
+  branchRequest<ConversationBranchesResponse>(
+    `${branchUrl(threadId)}?limit=${limit}`,
+  );
+
+export const compareConversationBranch = (
+  threadId: string,
+  headMessageId: number,
+): Promise<ConversationBranchComparison> =>
+  branchRequest<ConversationBranchComparison>(
+    branchUrl(threadId, `/${headMessageId}/compare`),
+  );
+
+export const selectConversationBranch = (
+  threadId: string,
+  headMessageId: number,
+): Promise<ConversationBranchesResponse> =>
+  branchRequest<ConversationBranchesResponse>(branchUrl(threadId, "/select"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ head_message_id: headMessageId }),
+  });
 
 export interface PagedHistoryResponse {
   messages: HistoryMessage[];
