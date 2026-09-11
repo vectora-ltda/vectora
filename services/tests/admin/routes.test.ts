@@ -577,6 +577,53 @@ describe("POST /admin/issues/:id/respond", () => {
     releaseCommentLookup(new Response("[]", { status: 200 }));
     expect((await firstResponse).status).toBe(200);
   });
+
+  it("aceita somente uma de duas respostas concorrentes na mesma versão", async () => {
+    const { token } = await createUser("admin");
+    const id = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO issues (id, title, category, description, github_repo, github_number, github_url, github_sync_state) VALUES (?, 'CAS', 'bug', 'Descrição', ?, 9913, ?, 'synced')",
+    )
+      .bind(
+        id,
+        "vectora-ltda/vectora-issues",
+        "https://github.com/vectora-ltda/vectora-issues/issues/9913",
+      )
+      .run();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (
+          url.includes("/issues/9913/comments") &&
+          (init?.method ?? "GET") === "GET"
+        ) {
+          return new Response("[]", { status: 200 });
+        }
+        if (url.includes("/issues/9913/comments") && init?.method === "POST") {
+          return new Response(JSON.stringify({ id: 2 }), { status: 201 });
+        }
+        return new Response("{}", { status: 200 });
+      }),
+    );
+    const githubEnv = { ...env, GITHUB_TOKEN: "test-token" };
+    const request = (response: string, resolve: boolean) =>
+      admin.request(
+        `/issues/${id}/respond`,
+        authed(token, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ response, resolve }),
+        }),
+        githubEnv,
+      );
+
+    const results = await Promise.all([
+      request("Resposta A", true),
+      request("Resposta B", false),
+    ]);
+    expect(results.map((result) => result.status).sort()).toEqual([200, 409]);
+  });
 });
 
 describe("POST /admin/issues/:id/archive", () => {
