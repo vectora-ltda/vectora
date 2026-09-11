@@ -630,6 +630,26 @@ class PagedHistoryResponse(BaseModel):
     total_count: int
 
 
+class ConversationBranch(BaseModel):
+    head_message_id: int
+    created_at: str
+    active: bool
+    message_count: int
+
+
+class ConversationBranchesResponse(BaseModel):
+    branches: list[ConversationBranch]
+    active_head_message_id: int | None = None
+
+
+class ConversationBranchComparison(BaseModel):
+    active_head_message_id: int | None = None
+    selected_head_message_id: int
+    common_message_ids: list[int]
+    active_divergent_message_ids: list[int]
+    selected_divergent_message_ids: list[int]
+
+
 class StructuredQuestionAnswerRequest(BaseModel):
     question_id: str
     answer: str | None = None
