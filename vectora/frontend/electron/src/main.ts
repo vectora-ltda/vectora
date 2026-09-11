@@ -21,6 +21,7 @@ import * as fs from "fs";
 import {
   app,
   BrowserWindow,
+  desktopCapturer,
   Menu,
   screen,
   session,
@@ -887,6 +888,31 @@ function registerIpc(): void {
       return result;
     },
   );
+  ipcMain.handle("vectora:capture-screenshot", async () => {
+    const sources = await desktopCapturer.getSources({
+      types: ["screen", "window"],
+      thumbnailSize: { width: 1920, height: 1080 },
+    });
+    if (sources.length === 0) return null;
+    const result = mainWindow
+      ? await dialog.showMessageBox(mainWindow, {
+          type: "question",
+          buttons: [...sources.map((source) => source.name), "Cancelar"],
+          cancelId: sources.length,
+          title: "Capturar screenshot",
+          message: "Escolha a tela ou janela que deseja anexar.",
+        })
+      : await dialog.showMessageBox({
+          type: "question",
+          buttons: [...sources.map((source) => source.name), "Cancelar"],
+          cancelId: sources.length,
+          title: "Capturar screenshot",
+          message: "Escolha a tela ou janela que deseja anexar.",
+        });
+    if (result.response === sources.length) return null;
+    const source = sources[result.response];
+    return source ? source.thumbnail.toPNG() : null;
+  });
   ipcMain.on("vectora:deep-link-ack", (_event, url: string) => {
     console.log(`[deep-link] renderer ack: ${url}`);
   });

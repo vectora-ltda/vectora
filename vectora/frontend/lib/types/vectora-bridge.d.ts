@@ -68,6 +68,7 @@ export interface VectoraDesktopBridge {
   backupRestore?: (
     categories: string[],
   ) => Promise<VectoraBackupPreview | null>;
+  captureScreenshot?: () => Promise<Uint8Array | null>;
   acknowledgeDeepLink?: (url: string) => void;
   onDeepLink?: (handler: (url: string) => void) => () => void;
   onUpdateStatus?: (

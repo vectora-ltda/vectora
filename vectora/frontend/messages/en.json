@@ -762,6 +762,8 @@
   "toolpolicy_saved": "Saved",
   "toolpolicy_error_load": "Error loading tools",
   "toolpolicy_error_save": "Error saving",
+  "plus_capture_screenshot": "Capture screenshot",
+  "plus_capture_screenshot_error": "Screenshot capture failed",
   "chat_url_preview_loading": "Loading link preview…",
   "chat_url_preview_unavailable": "Link preview unavailable or blocked",
   "chat_url_preview_remove": "Remove link preview",

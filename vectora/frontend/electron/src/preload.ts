@@ -39,6 +39,8 @@ export interface VectoraDesktopBridge {
     compatible: boolean;
     storage_mode: string;
   } | null>;
+  /** Captura uma tela/janela após escolha explícita; null significa cancelar. */
+  captureScreenshot: () => Promise<Uint8Array | null>;
   /** Notifica o main que o renderer recebeu um deep-link e o processou. */
   acknowledgeDeepLink: (url: string) => void;
   /** Subscreve a deep-links (`vectora://...`) entregues ao app. */
@@ -145,6 +147,7 @@ const bridge: VectoraDesktopBridge = {
     ipcRenderer.invoke("vectora:backup-pick-and-inspect"),
   backupRestore: (categories) =>
     ipcRenderer.invoke("vectora:backup-restore", categories),
+  captureScreenshot: () => ipcRenderer.invoke("vectora:capture-screenshot"),
   acknowledgeDeepLink: (url) => ipcRenderer.send("vectora:deep-link-ack", url),
   onDeepLink: (handler) => {
     const listener = (_event: unknown, url: string) => handler(url);
