@@ -1,0 +1,102 @@
+"""Feedback inline autenticado, limitado e sem conteúdo sensível."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import re
+import uuid
+from datetime import UTC, datetime
+from typing import Literal
+
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, ConfigDict, Field
+from slowapi.util import get_remote_address
+
+from backend.api.middleware.rate_limit import limiter
+from backend.settings import settings
+
+router = APIRouter(prefix="/feedback", tags=["feedback"])
+type FeedbackContextKey = Literal["app_version", "platform", "route"]
+KNOWN_PLATFORMS = frozenset(
+    {
+        "Linux x86_64",
+        "MacIntel",
+        "MacPPC",
+        "Win32",
+        "Win64",
+        "iPhone",
+        "iPad",
+        "Android",
+    }
+)
+
+
+class FeedbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    kind: Literal["bug", "suggestion"]
+    description: str = Field(min_length=1, max_length=5000)
+    include_context: bool = False
+    context: dict[FeedbackContextKey, str] = Field(default_factory=dict)
+
+
+class FeedbackResponse(BaseModel):
+    id: str
+    status: Literal["received"] = "received"
+
+
+def _safe_context(body: FeedbackRequest) -> dict[str, str]:
+    """Mantém somente metadados técnicos com formatos previsíveis."""
+    values: dict[str, str] = {}
+    for key, value in body.context.items():
+        if not body.include_context:
+            continue
+        if (
+            (key == "route" and value in {"/chat", "/settings", "/workbench"})
+            or (key == "app_version" and re.fullmatch(r"[0-9A-Za-z._-]{1,32}", value))
+            or (key == "platform" and value in KNOWN_PLATFORMS)
+        ):
+            values[key] = value
+    return values
+
+
+def _user_id(request: Request) -> str:
+    user = getattr(request.state, "user", None)
+    if user is None or not getattr(user, "id", None):
+        raise HTTPException(status_code=401, detail="Autenticação necessária")
+    return str(user.id)
+
+
+def _feedback_rate_key(request: Request) -> str:
+    """Limita por usuário autenticado e isola usuários atrás do mesmo NAT."""
+    user = getattr(request.state, "user", None)
+    user_id = getattr(user, "id", None)
+    if user_id:
+        return f"user:{user_id}"
+    return f"ip:{get_remote_address(request)}"
+
+
+@router.post("", response_model=FeedbackResponse)
+@limiter.limit("5/minute", key_func=_feedback_rate_key)
+async def submit_feedback(request: Request, body: FeedbackRequest) -> FeedbackResponse:
+    """Recebe feedback mínimo e grava somente metadados permitidos."""
+    user_id = _user_id(request)
+    safe_context = _safe_context(body)
+    record = {
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "kind": body.kind,
+        "description": body.description,
+        "context": safe_context,
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+    path = settings.vectora_home / "feedback.jsonl"
+
+    def persist() -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    await asyncio.to_thread(persist)
+    return FeedbackResponse(id=record["id"])

@@ -1,10 +1,17 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it, afterEach, vi } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import {
+  render,
+  screen,
+  cleanup,
+  fireEvent,
+  act,
+} from "@testing-library/react";
 import { ThreadGroup } from "../thread-group";
 import { WorkspaceGroup } from "../workspace-group";
 import { SidebarFooter } from "../sidebar-footer";
+import { submitFeedback } from "@/lib/api/vectora-client";
 import type { Thread } from "@/lib/hooks/threads";
 import type { WorkspaceInfo } from "@/lib/stores/workspaces-store";
 
@@ -27,6 +34,16 @@ vi.mock("@/lib/paraglide/messages", () => ({
     sidebar_documentation: () => "Documentação",
     sidebar_documentation_caption: () => "Saiba mais",
     sidebar_feedback: () => "Feedback",
+    feedback_title: () => "Enviar feedback",
+    feedback_bug: () => "Bug",
+    feedback_suggestion: () => "Sugestão",
+    feedback_cancel: () => "Cancelar",
+    feedback_send: () => "Enviar",
+    feedback_required: () => "Descreva o problema",
+    feedback_sent: () => "Enviado",
+    feedback_rate_limited: () => "Limite atingido",
+    feedback_error: () => "Erro",
+    feedback_include_context: () => "Incluir contexto técnico",
     sidebar_docs: () => "Docs",
     sidebar_report_issue: () => "Reportar problema",
     sidebar_workspace_collapse: () => "Recolher",
@@ -48,6 +65,7 @@ vi.mock("../../src/router", () => ({
 vi.mock("@/lib/api/vectora-client", () => ({
   getHistory: vi.fn(),
   listThreads: vi.fn(),
+  submitFeedback: vi.fn().mockResolvedValue({ id: "feedback-1" }),
 }));
 vi.mock("@/lib/queries/threads", () => ({
   threadsQueryKey: (limit = 100) => ["threads", limit],
@@ -64,7 +82,11 @@ vi.mock("@/lib/monaco/setup", () => ({
   languageFromPath: () => "plaintext",
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.mocked(submitFeedback).mockReset();
+  vi.mocked(submitFeedback).mockResolvedValue({ id: "feedback-1" });
+});
 
 function makeThread(id: string): Thread {
   return {
@@ -252,12 +274,12 @@ describe("WorkspaceGroup — layout compacto", () => {
 });
 
 describe("SidebarFooter — ícones inline sem labels", () => {
-  it("renderiza dois links com title (docs e feedback)", () => {
+  it("renderiza os controles de documentação e feedback com title", () => {
     render(<SidebarFooter />);
-    const links = document.querySelectorAll("a[title]");
-    expect(links).toHaveLength(2);
-    expect(links[0].getAttribute("title")).toBe("Documentação");
-    expect(links[1].getAttribute("title")).toBe("Feedback");
+    const controls = document.querySelectorAll("[title]");
+    expect(controls).toHaveLength(2);
+    expect(controls[0].getAttribute("title")).toBe("Documentação");
+    expect(controls[1].getAttribute("title")).toBe("Feedback");
   });
 
   it("não renderiza texto de label visível inline", () => {
@@ -270,5 +292,104 @@ describe("SidebarFooter — ícones inline sem labels", () => {
     const { container } = render(<SidebarFooter />);
     const footer = container.firstElementChild as HTMLElement;
     expect(footer.className).toContain("pt-1.5");
+  });
+
+  it("mantém o foco dentro do diálogo de feedback", () => {
+    render(<SidebarFooter />);
+    fireEvent.click(screen.getByTitle("Feedback"));
+    const dialog = screen.getByRole("dialog");
+    const controls = Array.from(
+      dialog.querySelectorAll<HTMLElement>("select, textarea, button"),
+    );
+    controls[controls.length - 1].focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(controls[0]);
+
+    controls[0].focus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(controls[controls.length - 1]);
+  });
+
+  it("associa nomes acessíveis aos campos de feedback", () => {
+    render(<SidebarFooter />);
+    fireEvent.click(screen.getByTitle("Feedback"));
+    expect(screen.getByRole("combobox")).toHaveAttribute("id", "feedback-kind");
+    expect(screen.getByLabelText("Descreva o problema")).toBeInTheDocument();
+  });
+
+  it("anuncia sucesso do feedback para leitores de tela", async () => {
+    render(<SidebarFooter />);
+    fireEvent.click(screen.getByTitle("Feedback"));
+    fireEvent.change(screen.getByLabelText("Descreva o problema"), {
+      target: { value: "um feedback" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Enviado");
+    expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite");
+  });
+
+  it("não inclui contexto técnico por padrão", async () => {
+    render(<SidebarFooter />);
+    fireEvent.click(screen.getByTitle("Feedback"));
+    fireEvent.change(screen.getByLabelText("Descreva o problema"), {
+      target: { value: "sem contexto" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    await screen.findByRole("status");
+    expect(submitFeedback).toHaveBeenCalledWith({
+      kind: "bug",
+      description: "sem contexto",
+      include_context: false,
+    });
+  });
+
+  it("inclui contexto técnico quando o usuário habilita a opção", async () => {
+    render(<SidebarFooter />);
+    fireEvent.click(screen.getByTitle("Feedback"));
+    fireEvent.change(screen.getByLabelText("Descreva o problema"), {
+      target: { value: "com contexto" },
+    });
+    fireEvent.click(screen.getByLabelText("Incluir contexto técnico"));
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    await screen.findByRole("status");
+    expect(submitFeedback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include_context: true,
+        context: expect.objectContaining({ route: expect.any(String) }),
+      }),
+    );
+  });
+
+  it("anuncia descrição vazia como alerta acessível", () => {
+    render(<SidebarFooter />);
+    fireEvent.click(screen.getByTitle("Feedback"));
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Descreva o problema");
+    expect(screen.getByRole("alert")).toHaveAttribute("aria-live", "assertive");
+  });
+
+  it("ignora submits concorrentes antes da primeira resposta", async () => {
+    let resolveSubmit!: (value: { id: string }) => void;
+    const pending = new Promise<{ id: string }>((resolve) => {
+      resolveSubmit = resolve;
+    });
+    vi.mocked(submitFeedback).mockReturnValueOnce(pending);
+
+    render(<SidebarFooter />);
+    fireEvent.click(screen.getByTitle("Feedback"));
+    fireEvent.change(screen.getByLabelText("Descreva o problema"), {
+      target: { value: "um feedback" },
+    });
+    const dialog = screen.getByRole("dialog");
+    act(() => {
+      fireEvent.submit(dialog);
+      fireEvent.submit(dialog);
+    });
+
+    expect(submitFeedback).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolveSubmit({ id: "feedback-1" });
+      await pending;
+    });
   });
 });
