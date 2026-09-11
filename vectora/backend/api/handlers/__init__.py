@@ -20,6 +20,7 @@ from backend.api.handlers.skills import router as skills_router
 from backend.api.handlers.terminal import router as terminal_router
 from backend.api.handlers.threads import router as threads_router
 from backend.api.handlers.tools import router as tools_router
+from backend.api.handlers.url_preview import router as url_preview_router
 from backend.api.handlers.workspaces import router as workspaces_router
 from backend.api.handlers.workspaces import view_router as workspaces_view_router
 from backend.api.handlers.workspaces import (
@@ -40,6 +41,7 @@ __all__ = [
     "terminal_router",
     "threads_router",
     "tools_router",
+    "url_preview_router",
     "workspaces_router",
     "workspaces_scoped_view_router",
     "workspaces_view_router",
