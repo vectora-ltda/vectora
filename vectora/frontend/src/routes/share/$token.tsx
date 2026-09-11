@@ -73,7 +73,7 @@ function SharePage() {
           <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center">
             <AlertTriangle className="h-10 w-10 text-destructive/50" />
             <p className="text-sm font-medium text-foreground">
-              {error || m.share_network_error()}
+              {m.share_network_error()}
             </p>
           </div>
         )}

@@ -38,7 +38,7 @@ class TestShareGetNotFound:
         body = resp.json()
         assert "detail" in body
 
-    def test_sanitizes_bearer_and_named_secrets(self):
+    def test_sanitizes_bearer_and_named_secrets(self) -> None:
         value = "Authorization: Bearer abc def token=xyz password: p@ss"
         sanitized = _sanitize_shared_text(value)
         assert "abc def" not in sanitized
@@ -46,6 +46,9 @@ class TestShareGetNotFound:
         assert "xyz" not in sanitized
         assert "p@ss" not in sanitized
         assert "authorization: [redacted]" in sanitized.lower()
+        quoted = _sanitize_shared_text('{"token":"abc","api_key":"abc def"}')
+        assert "abc" not in quoted
+        assert "abc def" not in quoted
 
     @pytest.mark.asyncio
     async def test_auditoria_obrigatoria_propaga_falha(self):

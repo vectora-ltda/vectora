@@ -30,15 +30,20 @@ from backend.api.schemas import (
 
 logger = logging.getLogger(__name__)
 _SECRET_TEXT = re.compile(
-    r"(?i)(api[_ -]?key|token|secret|password)\s*[:=]\s*[^\s,;]+|"
-    r"(authorization)\s*[:=]\s*bearer\s+[^\r\n,;]+"
+    r"(?i)[\"']?(api[_ -]?key|token|secret|password)[\"']?\s*[:=]\s*"
+    r"(?:\"[^\"]*\"|'[^']*'|[^\s,;}]+)|"
+    r"[\"']?(authorization)[\"']?\s*[:=]\s*bearer\s+"
+    r"(?:\"[^\"]*\"|'[^']*'|[^\r\n,;}]+)"
 )
 
 
 def _sanitize_shared_text(value: str) -> str:
     """Remove credential-shaped values before exposing a public snapshot."""
     return _SECRET_TEXT.sub(
-        lambda match: f"{match.group(1) or match.group(2)}: [redacted]", value
+        lambda match: (
+            f"{match.group(1) or match.group(2) or 'authorization'}: [redacted]"
+        ),
+        value,
     )
 
 
