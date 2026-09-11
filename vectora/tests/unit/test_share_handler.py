@@ -14,6 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.api.handlers.share import _sanitize_shared_text
+from backend.rbac.auth import _write_audit
 
 
 @pytest.fixture(scope="module")
@@ -43,6 +44,15 @@ class TestShareGetNotFound:
         assert "xyz" not in sanitized
         assert "p@ss" not in sanitized
         assert "authorization: [redacted]" in sanitized.lower()
+
+    @pytest.mark.asyncio
+    async def test_auditoria_obrigatoria_propaga_falha(self):
+        class BrokenDb:
+            async def execute(self, *_args):
+                raise RuntimeError("audit indisponível")
+
+        with pytest.raises(RuntimeError, match="audit indisponível"):
+            await _write_audit(BrokenDb(), "user", "share_create", strict=True)
 
 
 class TestShareCreate:

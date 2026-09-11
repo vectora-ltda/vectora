@@ -1192,6 +1192,7 @@ async def _write_audit(
     target_type: str | None = None,
     target_id: str | None = None,
     ip: str = "",
+    strict: bool = False,
 ) -> None:
     """Registra evento no audit log (best-effort — nunca propaga exceção)."""
     import json
@@ -1216,10 +1217,37 @@ async def _write_audit(
         await db.commit()
     except Exception as exc:
         logger.warning("auth: falha ao escrever audit log: %s", exc)
+        if strict:
+            raise
 
 
 # Exportamos write_audit para uso externo (handlers, middleware)
 write_audit = _write_audit
+
+
+async def write_audit_required(
+    db: Any,
+    user_id: str | None,
+    action: str,
+    *,
+    success: bool = True,
+    metadata: dict[str, Any] | None = None,
+    target_type: str | None = None,
+    target_id: str | None = None,
+    ip: str = "",
+) -> None:
+    """Registra auditoria de operações que não podem ter sucesso sem trilha."""
+    await _write_audit(
+        db,
+        user_id,
+        action,
+        success=success,
+        metadata=metadata,
+        target_type=target_type,
+        target_id=target_id,
+        ip=ip,
+        strict=True,
+    )
 
 
 async def get_db_for_audit() -> Any:

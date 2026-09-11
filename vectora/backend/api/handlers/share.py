@@ -81,7 +81,7 @@ async def _write_share_audit(
     user_id: str, action: str, *, thread_id: str | None = None, token: str | None = None
 ) -> None:
     """Persiste a auditoria; falha explícita impede uma operação sem trilha."""
-    from backend.rbac.auth import get_db_for_audit, write_audit
+    from backend.rbac.auth import get_db_for_audit, write_audit_required
 
     audit_db = await get_db_for_audit()
     metadata = {
@@ -89,7 +89,9 @@ async def _write_share_audit(
         for key, value in (("thread_id", thread_id), ("token", token))
         if value
     }
-    await write_audit(audit_db, user_id, action, success=True, metadata=metadata)
+    await write_audit_required(
+        audit_db, user_id, action, success=True, metadata=metadata
+    )
 
 
 # ---------------------------------------------------------------------------
