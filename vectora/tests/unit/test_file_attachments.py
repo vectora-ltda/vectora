@@ -45,7 +45,7 @@ def _b64_bytes(data: bytes) -> str:
 
 class TestAttachmentSchema:
     def test_image_attachment_valid(self) -> None:
-        att = Attachment(
+        att = Attachment.model_construct(
             kind=AttachmentKind.IMAGE,
             name="photo.png",
             mime_type="image/png",
@@ -339,6 +339,20 @@ class TestBuildUserVMessage:
 
         monkeypatch.setattr(assets, "ALLOWED_MIME", {"audio/mpeg"})
         assert _persist_image_file("thread-invalid", att) is None
+
+    @pytest.mark.asyncio
+    async def test_base64_invalido_nao_gera_bloco_de_imagem(self):
+        from backend.api.handlers.chat import _build_user_vmessage
+
+        att = Attachment.model_construct(
+            kind=AttachmentKind.IMAGE,
+            name="invalid.png",
+            mime_type="image/png",
+            base64_data="not-base64",
+        )
+        msg = await _build_user_vmessage("veja", [att], "thread-invalid")
+
+        assert [block.kind for block in msg.content] == ["text"]
 
     @pytest.mark.asyncio
     async def test_falha_ao_persistir_nao_aborta_o_turno(self, monkeypatch) -> None:

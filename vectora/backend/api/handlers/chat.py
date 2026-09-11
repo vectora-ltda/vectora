@@ -14,6 +14,7 @@ Formato de resposta:
 from __future__ import annotations
 
 import base64
+import binascii
 import contextlib
 import json
 import logging
@@ -408,8 +409,9 @@ async def _build_user_vmessage(
                         att.name,
                         img_size,
                     )
-            except Exception:
-                pass
+            except (ValueError, binascii.Error):
+                logger.warning("chat: imagem Base64 inválida rejeitada: %s", att.name)
+                continue
 
             persisted = _persist_image_file(thread_id, att)
             asset_id = None
