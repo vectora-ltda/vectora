@@ -39,9 +39,7 @@ function SharePage() {
         </span>
         <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
           <Lock className="h-3 w-3" />
-          {data?.permission === "comment"
-            ? m.share_comment_permission()
-            : m.share_read_permission()}
+          {m.share_read_permission()}
         </span>
       </header>
 

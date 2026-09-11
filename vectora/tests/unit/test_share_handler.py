@@ -39,6 +39,7 @@ class TestShareGetNotFound:
         value = "Authorization: Bearer abc def token=xyz password: p@ss"
         sanitized = _sanitize_shared_text(value)
         assert "abc def" not in sanitized
+        assert "def" not in sanitized
         assert "xyz" not in sanitized
         assert "p@ss" not in sanitized
         assert "authorization: [redacted]" in sanitized.lower()

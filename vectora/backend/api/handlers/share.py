@@ -11,7 +11,6 @@ SQLite usado pelas threads (``~/.vectora/checkpoints.db``).
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 import re
@@ -32,7 +31,7 @@ from backend.api.schemas import (
 logger = logging.getLogger(__name__)
 _SECRET_TEXT = re.compile(
     r"(?i)(api[_ -]?key|token|secret|password)\s*[:=]\s*[^\s,;]+|"
-    r"(authorization)\s*[:=]\s*bearer\s+[^\s,;]+"
+    r"(authorization)\s*[:=]\s*bearer\s+[^\r\n,;]+"
 )
 
 
@@ -78,6 +77,21 @@ async def _ensure_share_table(db: Any) -> None:
     await db.commit()
 
 
+async def _write_share_audit(
+    user_id: str, action: str, *, thread_id: str | None = None, token: str | None = None
+) -> None:
+    """Persiste a auditoria; falha explícita impede uma operação sem trilha."""
+    from backend.rbac.auth import get_db_for_audit, write_audit
+
+    audit_db = await get_db_for_audit()
+    metadata = {
+        key: value
+        for key, value in (("thread_id", thread_id), ("token", token))
+        if value
+    }
+    await write_audit(audit_db, user_id, action, success=True, metadata=metadata)
+
+
 # ---------------------------------------------------------------------------
 # POST /threads/share — cria token (autenticado)
 # ---------------------------------------------------------------------------
@@ -114,17 +128,7 @@ async def create_share(
         (token, body.thread_id, user_id, now.isoformat(), expires_at, body.permission),
     )
     await db.commit()
-    with contextlib.suppress(Exception):
-        from backend.rbac.auth import get_db_for_audit, write_audit
-
-        audit_db = await get_db_for_audit()
-        await write_audit(
-            audit_db,
-            user_id,
-            "share_create",
-            success=True,
-            metadata={"thread_id": body.thread_id},
-        )
+    await _write_share_audit(user_id, "share_create", thread_id=body.thread_id)
 
     base_url = str(request.base_url).rstrip("/")
     return CreateShareResponse(
@@ -229,11 +233,5 @@ async def delete_share(token: str, request: Request) -> dict:
 
     await db.execute("DELETE FROM shared_threads WHERE token = ?", (token,))
     await db.commit()
-    with contextlib.suppress(Exception):
-        from backend.rbac.auth import get_db_for_audit, write_audit
-
-        audit_db = await get_db_for_audit()
-        await write_audit(
-            audit_db, user_id, "share_revoke", success=True, metadata={"token": token}
-        )
+    await _write_share_audit(user_id, "share_revoke", token=token)
     return {}
