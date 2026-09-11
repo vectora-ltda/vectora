@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS vectora_sessions (
     message_count BIGINT NOT NULL DEFAULT 0,
     extra JSONB NOT NULL DEFAULT '{}'
 );
+ALTER TABLE vectora_sessions ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE vectora_sessions ADD COLUMN IF NOT EXISTS permission_mode TEXT NOT NULL DEFAULT 'ask';
 CREATE TABLE IF NOT EXISTS vectora_native_sessions (
     thread_id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
