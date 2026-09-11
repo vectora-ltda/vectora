@@ -176,18 +176,13 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       qdrant:
-        image: qdrant/qdrant:latest
+        image: qdrant/qdrant:v1.19.1
         ports:
           - 6333:6333
           - 6334:6334
         env:
           QDRANT__SERVICE__API_KEY: vectora
           QDRANT__SERVICE__GRPC_PORT: 6334
-        options: >-
-          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:6333/readyz || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-uv
@@ -318,14 +313,11 @@ jobs:
           --health-cmd "redis-cli ping" --health-interval 10s
           --health-timeout 5s --health-retries 5
       qdrant:
-        image: qdrant/qdrant:latest
+        image: qdrant/qdrant:v1.19.1
         ports: [6333:6333, 6334:6334]
         env:
           QDRANT__SERVICE__API_KEY: vectora
           QDRANT__SERVICE__GRPC_PORT: 6334
-        options: >-
-          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:6333/readyz || exit 1"
-          --health-interval 10s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-uv
