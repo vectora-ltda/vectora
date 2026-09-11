@@ -135,7 +135,12 @@ async def create_share(
         (token, body.thread_id, user_id, now.isoformat(), expires_at, body.permission),
     )
     await db.commit()
-    await _write_share_audit(user_id, "share_create", thread_id=body.thread_id)
+    try:
+        await _write_share_audit(user_id, "share_create", thread_id=body.thread_id)
+    except Exception:
+        await db.execute("DELETE FROM shared_threads WHERE token = ?", (token,))
+        await db.commit()
+        raise
 
     base_url = str(request.base_url).rstrip("/")
     return CreateShareResponse(
@@ -225,7 +230,7 @@ async def delete_share(token: str, request: Request) -> dict:
     await _ensure_share_table(db)
 
     async with db.execute(
-        "SELECT created_by FROM shared_threads WHERE token = ?",
+        "SELECT thread_id, created_by, created_at, expires_at, permission FROM shared_threads WHERE token = ?",
         (token,),
     ) as cur:
         row = await cur.fetchone()
@@ -235,10 +240,18 @@ async def delete_share(token: str, request: Request) -> dict:
 
     # Apenas o criador ou admin pode revogar
     role = getattr(user, "role", "member")
-    if row[0] != user_id and role not in ("root", "admin"):
+    if row[1] != user_id and role not in ("root", "admin"):
         raise HTTPException(status_code=403, detail="Não autorizado")
 
     await db.execute("DELETE FROM shared_threads WHERE token = ?", (token,))
     await db.commit()
-    await _write_share_audit(user_id, "share_revoke", token=token)
+    try:
+        await _write_share_audit(user_id, "share_revoke", token=token)
+    except Exception:
+        await db.execute(
+            "INSERT INTO shared_threads (token, thread_id, created_by, created_at, expires_at, permission) VALUES (?,?,?,?,?,?)",
+            (token, *row),
+        )
+        await db.commit()
+        raise
     return {}
