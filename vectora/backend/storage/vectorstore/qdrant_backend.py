@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Any
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from qdrant_client import AsyncQdrantClient, models
 
@@ -22,6 +23,15 @@ logger = logging.getLogger(__name__)
 
 _TIMEOUT_S = 10
 _SCROLL_PAGE_SIZE = 256
+
+
+def _point_id(collection: str, row_id: str) -> int | str:
+    """Map arbitrary Vectora IDs to Qdrant's integer/UUID point-id contract."""
+    try:
+        UUID(row_id)
+    except ValueError:
+        return str(uuid5(NAMESPACE_URL, f"vectora:{collection}:{row_id}"))
+    return row_id
 
 
 class QdrantBackend:
@@ -89,7 +99,7 @@ class QdrantBackend:
             distance = 1.0 - float(point.score)
             hits.append(
                 VectorHit(
-                    id=str(point.id),
+                    id=str(payload.get("_vectora_id", point.id)),
                     score=distance,
                     content=str(payload.get("text", "")),
                     metadata=payload.get("metadata") or {},
@@ -176,7 +186,7 @@ class QdrantBackend:
             payload = point.payload or {}
             hits.append(
                 VectorHit(
-                    id=str(point.id),
+                    id=str(payload.get("_vectora_id", point.id)),
                     score=float(overlap),
                     content=str(payload.get("text", "")),
                     metadata=payload.get("metadata") or {},
@@ -192,9 +202,13 @@ class QdrantBackend:
         client = self._get_client()
         points = [
             models.PointStruct(
-                id=row.id,
+                id=_point_id(collection, row.id),
                 vector=row.vector,
-                payload={"text": row.text, "metadata": row.metadata},
+                payload={
+                    "text": row.text,
+                    "metadata": row.metadata,
+                    "_vectora_id": row.id,
+                },
             )
             for row in rows
         ]
@@ -229,7 +243,7 @@ class QdrantBackend:
                 vector: list[float] = raw_vector if isinstance(raw_vector, list) else []  # ty: ignore[invalid-assignment]
                 rows.append(
                     VectorRow(
-                        id=str(point.id),
+                        id=str(payload.get("_vectora_id", point.id)),
                         vector=vector,
                         text=str(payload.get("text", "")),
                         metadata=payload.get("metadata") or {},
@@ -247,7 +261,9 @@ class QdrantBackend:
         async with asyncio.timeout(_TIMEOUT_S):
             await client.delete(
                 collection_name=collection,
-                points_selector=models.PointIdsList(points=ids),
+                points_selector=models.PointIdsList(
+                    points=[_point_id(collection, row_id) for row_id in ids]
+                ),
             )
         return len(ids)
 
