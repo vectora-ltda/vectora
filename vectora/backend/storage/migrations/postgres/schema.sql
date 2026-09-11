@@ -121,8 +121,7 @@ CREATE TABLE IF NOT EXISTS media_quota_usage (
 );
 CREATE TABLE IF NOT EXISTS media_quota_reservations (
     id TEXT PRIMARY KEY, user_id TEXT NOT NULL, period TEXT NOT NULL, operation TEXT NOT NULL,
-    units INTEGER NOT NULL, state TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (user_id, period, id)
+    units INTEGER NOT NULL, state TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- Entitlements por usuário, separadas do cache global de licença.

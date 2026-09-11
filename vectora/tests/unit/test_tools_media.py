@@ -9,6 +9,8 @@ Cada caminho feliz tem o par de erro/borda no mesmo teste.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Coroutine
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -56,17 +58,19 @@ def _quota_ctx(model: str) -> ToolContext:
     ],
 )
 async def test_quota_esgotada_devolve_resumo_sem_chamar_provider(
-    operation, call, monkeypatch
-):
+    operation: str,
+    call: Callable[[], Coroutine[Any, Any, str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """O bloqueio de quota informa saldo e renovação sem enviar o payload."""
 
-    async def reject_reservation(**_kwargs):
+    async def reject_reservation(**_kwargs: object) -> None:
         return None
 
     async def quota_summary(_user_id: str) -> dict[str, int | str]:
         return {"remaining": 0, "limit": 10, "period": "2026-09", "used": 10}
 
-    async def provider_called(*_args, **_kwargs):
+    async def provider_called(*_args: object, **_kwargs: object) -> bytes:
         raise AssertionError(f"provider chamado para {operation}")
 
     monkeypatch.setattr(media_quota, "reserve", reject_reservation)

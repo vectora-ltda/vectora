@@ -7,9 +7,14 @@ disponível; do contrário, todos os testes são pulados.
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import pytest
+
+if TYPE_CHECKING:
+    import asyncpg
 
 
 async def _resolved(value: object) -> object:
@@ -84,8 +89,11 @@ class TestMediaQuotaPostgres:
     @pytest.mark.storage
     @pytest.mark.parametrize("previous_state", ["failed", "cancelled"])
     async def test_reativa_estado_e_registra_transicao(
-        self, pg_pool, monkeypatch, previous_state
-    ):
+        self,
+        pg_pool: asyncpg.Pool,
+        monkeypatch: pytest.MonkeyPatch,
+        previous_state: str,
+    ) -> None:
         from backend.services.media_quota import MediaQuota
 
         user_id = f"quota-{uuid4().hex}"
@@ -101,12 +109,15 @@ class TestMediaQuotaPostgres:
             lambda **fields: events.append(fields),
         )
         async with pg_pool.acquire() as connection:
-            await connection.execute(
-                "CREATE TABLE IF NOT EXISTS media_quota_usage (user_id TEXT NOT NULL, period TEXT NOT NULL, used_units INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (user_id, period))"
+            schema = (
+                Path(__file__).resolve().parents[2]
+                / "backend"
+                / "storage"
+                / "migrations"
+                / "postgres"
+                / "schema.sql"
             )
-            await connection.execute(
-                "CREATE TABLE IF NOT EXISTS media_quota_reservations (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, period TEXT NOT NULL, operation TEXT NOT NULL, units INTEGER NOT NULL, state TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), UNIQUE (user_id, period, id))"
-            )
+            await connection.execute(schema.read_text(encoding="utf-8"))
             period = quota.period()
             await connection.execute(
                 "INSERT INTO media_quota_usage VALUES ($1,$2,0)", user_id, period
@@ -133,6 +144,12 @@ class TestMediaQuotaPostgres:
                     "new_state": "reserved",
                 }
             ]
+            async with pg_pool.acquire() as connection:
+                usage = await connection.fetchval(
+                    "SELECT used_units FROM media_quota_usage WHERE user_id = $1",
+                    user_id,
+                )
+                assert usage == 1
         finally:
             async with pg_pool.acquire() as connection:
                 await connection.execute(
@@ -148,8 +165,6 @@ class TestMediaQuotaPostgres:
         self, pg_conn, tmp_path
     ):
         """Editar o schema.sql muda o checksum: upgrade() reaplica e status() reflete."""
-        from pathlib import Path
-
         from backend.storage.migrations.postgres_runner import PostgresMigrationRunner
 
         original = (

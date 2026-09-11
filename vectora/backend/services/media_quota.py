@@ -87,9 +87,9 @@ class MediaQuota:
         self.database.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(self.database)
         connection.execute("PRAGMA busy_timeout = 5000")
-        # Alguns ambientes efêmeros (CLI/testes e instalações antigas) abrem
-        # o arquivo sem passar pelo runner global de schema. A quota deve
-        # continuar segura e idempotente nesses ambientes.
+        # Keep CLI/test databases usable when the global migration runner has
+        # not initialized this file yet. Production startup still owns the
+        # canonical schema and migrations remain authoritative.
         connection.executescript(
             """
             CREATE TABLE IF NOT EXISTS media_quota_usage (
@@ -105,8 +105,7 @@ class MediaQuota:
               operation TEXT NOT NULL,
               units INTEGER NOT NULL,
               state TEXT NOT NULL,
-              created_at TEXT NOT NULL,
-              UNIQUE (user_id, period, id)
+              created_at TEXT NOT NULL
             );
             """,
         )

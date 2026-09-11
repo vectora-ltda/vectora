@@ -94,7 +94,7 @@ async def test_retry_de_reserva_falha_reusa_a_mesma_debitacao(tmp_path: Path) ->
 
 @pytest.mark.asyncio
 async def test_reserva_finalizada_preserva_estado_e_nao_reautoriza_operacao(
-    tmp_path,
+    tmp_path: Path,
 ) -> None:
     """Uma chave já finalizada não volta ao estado reservado em novo pedido."""
     quota = _quota(tmp_path / "quota.sqlite3")
@@ -132,7 +132,7 @@ async def test_tier_indisponivel_bloqueia_reserva_de_usuario_autenticado(
 
 @pytest.mark.asyncio
 async def test_summary_postgres_usa_tier_do_store_de_entitlements(
-    tmp_path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     quota = _quota(tmp_path / "quota.sqlite3")
 
@@ -164,17 +164,15 @@ async def test_reservas_postgres_concorrentes_mesma_chave_sao_idempotentes(
     key = f"postgres-call-{os.urandom(8).hex()}"
     try:
         async with pool.acquire() as connection:
-            await connection.execute(
-                "CREATE TABLE IF NOT EXISTS media_quota_usage ("
-                "user_id TEXT NOT NULL, period TEXT NOT NULL, used_units INTEGER NOT NULL DEFAULT 0, "
-                "PRIMARY KEY (user_id, period))"
+            schema = (
+                Path(__file__).resolve().parents[2]
+                / "backend"
+                / "storage"
+                / "migrations"
+                / "postgres"
+                / "schema.sql"
             )
-            await connection.execute(
-                "CREATE TABLE IF NOT EXISTS media_quota_reservations ("
-                "id TEXT PRIMARY KEY, user_id TEXT NOT NULL, period TEXT NOT NULL, operation TEXT NOT NULL, "
-                "units INTEGER NOT NULL, state TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), "
-                "UNIQUE (user_id, period, id))"
-            )
+            await connection.execute(schema.read_text(encoding="utf-8"))
         monkeypatch.setattr(quota, "_postgres_enabled", lambda: True)
         monkeypatch.setattr(quota, "_current_tier", lambda _user_id: "pro")
 
