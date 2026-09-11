@@ -8,6 +8,10 @@ from backend.vtypes.message import ContentBlock, MessageRole, VMessage
 
 def _message_tokens(message: VMessage) -> int:
     """Estimate tokens for text, images and tool-call arguments."""
+    if message.role is MessageRole.SYSTEM and message.text() == "[Context compacted]":
+        # O marcador é um token de controle sintético; contar o texto inteiro
+        # faria a sinalização expulsar uma unidade tool-call válida do limite.
+        return 1
     text = message.text()
     if message.tool_calls:
         text += "\n".join(str(call.args) for call in message.tool_calls)
@@ -75,9 +79,20 @@ def compact_messages(
         # preservamos somente essas instruções e falhamos fechado para o
         # restante da conversa, mesmo que o resultado exceda max_tokens.
         return systems
+    marker_cost = _message_tokens(_marker(len(non_system)))
+    selection_budget = max_tokens - marker_cost
+    if used > selection_budget:
+        # Não há espaço para uma unidade recente sem perder o marcador. Os
+        # sistemas continuam obrigatórios; o marcador ainda cabe quando o
+        # orçamento comporta ambos.
+        return (
+            [*systems, _marker(len(non_system))]
+            if used + marker_cost <= max_tokens
+            else systems
+        )
     for unit in reversed(units):
         cost = sum(_message_tokens(message) for message in unit)
-        if used + cost > max_tokens:
+        if used + cost > selection_budget:
             continue
         selected_units.append(unit)
         used += cost
@@ -85,8 +100,6 @@ def compact_messages(
     omitted = len(non_system) - len(selected)
     result = [*systems]
     if omitted > 0:
-        marker = _marker(omitted)
-        if used + _message_tokens(marker) <= max_tokens:
-            result.append(marker)
+        result.append(_marker(omitted))
     result.extend(selected)
     return result

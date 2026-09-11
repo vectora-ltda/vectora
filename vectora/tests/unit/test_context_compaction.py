@@ -74,3 +74,15 @@ def test_compaction_preserva_system_quando_custo_excede_orcamento() -> None:
     compacted = compact_messages(messages, max_tokens=1)
 
     assert compacted == [system]
+
+
+def test_compaction_reserva_espaco_para_marcador_dentro_do_orcamento() -> None:
+    messages = [
+        text_message(MessageRole.USER, "histórico antigo " * 100),
+        text_message(MessageRole.USER, "mensagem recente"),
+    ]
+
+    compacted = compact_messages(messages, max_tokens=20)
+
+    assert any(message.text() == "[Context compacted]" for message in compacted)
+    assert sum(_message_tokens(message) for message in compacted) <= 20
