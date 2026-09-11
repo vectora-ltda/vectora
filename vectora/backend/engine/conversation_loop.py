@@ -642,9 +642,27 @@ async def resume_conversation(
     parent_id = await session_store.get_branch_head_id(thread_id)
     for tc in tool_calls:
         if tc.id != flagged_id:
-            resultado = await _execute_single_call(
-                tc, tool_registry=tool_registry, ctx=ctx
-            )
+            spec = tool_registry.get(tc.name)
+            if spec is not None and spec.extras.category == "media":
+                resultado = VMessage(
+                    role=MessageRole.TOOL,
+                    content=[
+                        ContentBlock(
+                            kind="text",
+                            text=(
+                                "Esta operação de mídia exige uma aprovação "
+                                "separada antes de ser executada."
+                            ),
+                        )
+                    ],
+                    tool_call_id=tc.id,
+                    name=tc.name,
+                    is_error=True,
+                )
+            else:
+                resultado = await _execute_single_call(
+                    tc, tool_registry=tool_registry, ctx=ctx
+                )
         elif decision == "reject":
             resultado = VMessage(
                 role=MessageRole.TOOL,
