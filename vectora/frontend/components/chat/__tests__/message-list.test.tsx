@@ -12,7 +12,15 @@
  * de modo (Assistente/IDE/Kanban) remonta o chat.
  */
 
-import { describe, expect, it, afterEach, beforeAll, vi } from "vitest";
+import {
+  describe,
+  expect,
+  it,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  vi,
+} from "vitest";
 import {
   act,
   render,
@@ -22,17 +30,27 @@ import {
 } from "@testing-library/react";
 import { MessageList } from "../message-list";
 import type { Message } from "@/lib/types";
-vi.mock("@/lib/paraglide/messages", () => ({
-  m: {
-    message_list_aria: () => "Messages",
-    scroll_back_to_bottom: () => "Back to bottom",
-  },
+const branchMocks = vi.hoisted(() => ({
+  listConversationBranches: vi.fn(),
+  compareConversationBranch: vi.fn(),
+  selectConversationBranch: vi.fn(),
 }));
+
+vi.mock("@/lib/api/vectora-client", async () => {
+  const actual = await vi.importActual<
+    typeof import("@/lib/api/vectora-client")
+  >("@/lib/api/vectora-client");
+  return { ...actual, ...branchMocks };
+});
 
 vi.mock("@/lib/paraglide/messages", () => ({
   m: {
     message_list_aria: () => "Messages",
     scroll_back_to_bottom: () => "Back to bottom",
+    chat_branch_label: () => "Branch",
+    chat_branch_current: () => "Current branch",
+    chat_branch_point: ({ id }: { id: number }) => `Branch ${id}`,
+    chat_branch_compare: () => "Compare",
   },
 }));
 
@@ -82,6 +100,16 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   scrollToIndexMock.mockClear();
+  branchMocks.listConversationBranches.mockReset();
+  branchMocks.compareConversationBranch.mockReset();
+  branchMocks.selectConversationBranch.mockReset();
+});
+
+beforeEach(() => {
+  branchMocks.listConversationBranches.mockResolvedValue({
+    branches: [],
+    active_head_message_id: null,
+  });
 });
 
 function msg(id: string, content: string): Message {
@@ -377,5 +405,83 @@ describe("MessageList — padding compacto (modo IDE)", () => {
 
     expect(container.querySelector(".px-4")).not.toBeNull();
     expect(container.querySelector(".px-3")).toBeNull();
+  });
+});
+
+describe("MessageList — comparação e seleção de branches", () => {
+  const branches = {
+    branches: [
+      { head_message_id: 2, created_at: "", active: true, message_count: 2 },
+      { head_message_id: 3, created_at: "", active: false, message_count: 2 },
+    ],
+    active_head_message_id: 2,
+  };
+
+  it("compara a ponta candidata sem selecionar a branch ativa", async () => {
+    branchMocks.listConversationBranches.mockResolvedValue(branches);
+    branchMocks.compareConversationBranch.mockResolvedValue({
+      active_head_message_id: 2,
+      selected_head_message_id: 3,
+      common_message_ids: [1],
+      active_divergent_message_ids: [2],
+      selected_divergent_message_ids: [3],
+    });
+    branchMocks.selectConversationBranch.mockResolvedValue(branches);
+
+    render(
+      <MessageList {...baseProps([msg("m1", "olá")])} threadId="t-branches" />,
+    );
+    expect(
+      await screen.findByRole("button", { name: "Branch 3" }),
+    ).toHaveAttribute("aria-pressed", "false");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Compare 3" }));
+    });
+
+    expect(branchMocks.compareConversationBranch).toHaveBeenCalledWith(
+      "t-branches",
+      3,
+    );
+    expect(branchMocks.selectConversationBranch).not.toHaveBeenCalled();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "comum: 1; ativa: 2; candidata: 3",
+    );
+    expect(
+      screen.getByRole("button", { name: "Current branch" }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("seleciona explicitamente uma branch e recarrega o estado ativo", async () => {
+    branchMocks.listConversationBranches.mockResolvedValue(branches);
+    branchMocks.selectConversationBranch.mockResolvedValue({
+      branches: [
+        { ...branches.branches[0], active: false },
+        { ...branches.branches[1], active: true },
+      ],
+      active_head_message_id: 3,
+    });
+
+    render(
+      <MessageList {...baseProps([msg("m1", "olá")])} threadId="t-select" />,
+    );
+    const branchButton = await screen.findByRole("button", {
+      name: "Branch 3",
+    });
+    await act(async () => {
+      fireEvent.click(branchButton);
+    });
+
+    expect(branchMocks.selectConversationBranch).toHaveBeenCalledWith(
+      "t-select",
+      3,
+    );
+    expect(
+      screen.getByRole("button", { name: "Current branch" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Branch 2" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
   });
 });
