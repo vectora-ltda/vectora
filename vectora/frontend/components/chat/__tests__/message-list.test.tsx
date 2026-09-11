@@ -444,7 +444,9 @@ describe("MessageList — comparação e seleção de branches", () => {
       3,
     );
     expect(branchMocks.selectConversationBranch).not.toHaveBeenCalled();
-    expect(screen.getByRole("status")).toHaveTextContent("1/1");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "comum: 1; ativa: 2; candidata: 3",
+    );
     expect(
       screen.getByRole("button", { name: "Current branch" }),
     ).toHaveAttribute("aria-pressed", "true");

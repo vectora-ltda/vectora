@@ -1156,6 +1156,8 @@
   "chat_branch_current": "Actual",
   "chat_branch_point": "Desde el mensaje {id}",
   "chat_branch_compare": "Comparar rama",
+  "chat_branch_comparison_segments": "común: {common}; activa: {active}; candidata: {selected}",
+  "chat_branch_history_reload_error": "No se pudo recargar el historial de la rama seleccionada.",
   "chat_edit_rerun": "Haz clic para editar y volver a ejecutar desde aquí",
   "chat_feedback_placeholder": "Añade comentarios sobre esta respuesta...",
   "chat_feedback_select_rating": "Selecciona positivo o negativo antes de enviar",

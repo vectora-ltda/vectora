@@ -27,10 +27,17 @@ import {
 const messageCatalog = m as typeof m & {
   chat_messages?: () => string;
   scroll_back_to_bottom?: () => string;
+  chat_branch_comparison_segments?: (args: {
+    common: string;
+    active: string;
+    selected: string;
+  }) => string;
 };
 messageCatalog.chat_messages ??= (() => "Messages") as typeof m.chat_messages;
 messageCatalog.scroll_back_to_bottom ??= (() =>
   "Voltar ao fim") as typeof m.scroll_back_to_bottom;
+messageCatalog.chat_branch_comparison_segments ??= (args) =>
+  `comum: ${args.common}; ativa: ${args.active}; candidata: ${args.selected}`;
 
 // Ativa virtualização quando a thread tem mais que este número de mensagens.
 // Abaixo do threshold, renderização direta é mais simples e igualmente rápida.
@@ -95,7 +102,11 @@ function ConversationBranchBar({ threadId }: { threadId?: string }) {
   const [comparisonCandidateId, setComparisonCandidateId] = useState<
     number | null
   >(null);
-  const [comparison, setComparison] = useState<string | null>(null);
+  const [comparison, setComparison] = useState<{
+    common: number | null;
+    active: number[];
+    selected: number[];
+  } | null>(null);
 
   useEffect(() => {
     if (!threadId) return;
@@ -164,11 +175,13 @@ function ConversationBranchBar({ threadId }: { threadId?: string }) {
               setComparisonCandidateId(branch.head_message_id);
               void compareConversationBranch(threadId, branch.head_message_id)
                 .then((result) =>
-                  setComparison(
-                    `${result.active_divergent_message_ids.length}/${result.selected_divergent_message_ids.length}`,
-                  ),
+                  setComparison({
+                    common: result.common_message_ids.at(-1) ?? null,
+                    active: result.active_divergent_message_ids,
+                    selected: result.selected_divergent_message_ids,
+                  }),
                 )
-                .catch(() => setComparison("erro"));
+                .catch(() => setComparison(null));
             }}
           >
             {m.chat_branch_compare()}
@@ -179,7 +192,11 @@ function ConversationBranchBar({ threadId }: { threadId?: string }) {
           role="status"
           aria-label={`${m.chat_branch_compare()} ${comparisonCandidateId}`}
         >
-          {comparison}
+          {messageCatalog.chat_branch_comparison_segments({
+            common: String(comparison.common ?? "—"),
+            active: comparison.active.join(", ") || "—",
+            selected: comparison.selected.join(", ") || "—",
+          })}
         </span>
       )}
     </div>
