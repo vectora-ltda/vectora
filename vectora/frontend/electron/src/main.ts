@@ -855,6 +855,9 @@ function registerIpc(): void {
     return result.filePaths[0];
   });
   ipcMain.handle("vectora:backup-pick-and-inspect", async () => {
+    // Starting a new selection invalidates any previously inspected archive,
+    // including when the native dialog is cancelled.
+    selectedBackupPath = null;
     const opts: Electron.OpenDialogOptions = {
       properties: ["openFile"],
       filters: [{ name: "Backup Vectora", extensions: ["zip", "gz"] }],
@@ -864,9 +867,6 @@ function registerIpc(): void {
       : await dialog.showOpenDialog(opts);
     if (result.canceled || result.filePaths.length === 0) return null;
     const archivePath = result.filePaths[0];
-    // A failed inspection must never leave a previous archive eligible for
-    // restore.  Set the selection only after the new preview succeeds.
-    selectedBackupPath = null;
     try {
       const preview = await postBackendJson(
         backendTransport(),
