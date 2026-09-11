@@ -21,6 +21,32 @@ def test_public_host_rejects_private_and_loopback_addresses(
     assert _public_host("internal.example") is False
 
 
+def test_validated_ip_rejects_shared_cgnat_range(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *_args: [(socket.AF_INET, 0, 0, "", ("100.64.0.1", 0))],
+    )
+    from backend.api.handlers.url_preview import _validated_ip
+
+    assert _validated_ip("shared.example") is None
+
+
+def test_validated_ip_accepts_global_address(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *_args: [(socket.AF_INET, 0, 0, "", ("93.184.216.34", 0))],
+    )
+    from backend.api.handlers.url_preview import _validated_ip
+
+    assert _validated_ip("example.com") == "93.184.216.34"
+
+
 @pytest.mark.asyncio
 async def test_preview_rejects_non_http_schemes() -> None:
     with pytest.raises(HTTPException) as error:

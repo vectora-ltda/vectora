@@ -31,6 +31,7 @@ def _public_host(host: str) -> bool:
                 or address.is_multicast
                 or address.is_reserved
                 or address.is_unspecified
+                or not address.is_global
             )
             for item in addresses
             if (address := ipaddress.ip_address(item[4][0]))
@@ -53,6 +54,7 @@ def _validated_ip(host: str) -> str | None:
                 or address.is_multicast
                 or address.is_reserved
                 or address.is_unspecified
+                or not address.is_global
             )
         ]
         return public[0] if public else None
