@@ -34,7 +34,9 @@ def _tier_from_env(user_id: str) -> LicenseTier | None:
         tier = json.loads(raw).get(user_id)
     except (json.JSONDecodeError, AttributeError, TypeError):
         return None
-    return tier if tier in {"free", "pro"} else ("free" if tier is None else None)
+    if tier is None:
+        return None
+    return tier if tier in {"free", "pro"} else None
 
 
 def _tier_from_store(user_id: str) -> LicenseTier | None:
@@ -49,7 +51,7 @@ def _tier_from_store(user_id: str) -> LicenseTier | None:
             ).fetchone()
     except sqlite3.OperationalError as exc:
         if "no such table" in str(exc).lower():
-            return "free"
+            return None
         return None
     except OSError:
         return None

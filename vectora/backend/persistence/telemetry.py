@@ -52,6 +52,8 @@ _RECORD_FIELDS = (
     "currency",
     "units",
     "state",
+    "previous_state",
+    "new_state",
     "result",
     "idempotency_key",
 )

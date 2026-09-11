@@ -142,8 +142,8 @@ class TestShouldRequireApproval:
 
 class TestApprovalGate:
     async def test_midia_persiste_apenas_metadados_e_mantem_payload_efemero(
-        self, session_store
-    ):
+        self, session_store: SessionStore
+    ) -> None:
         gate = ApprovalGate(session_store)
         args = {"prompt": "segredo", "size": "1024x1024"}
         metadata = {
@@ -172,7 +172,9 @@ class TestApprovalGate:
         assert "prompt" not in pending["args"]
         assert gate.ephemeral_args("int-1") == args
 
-    async def test_request_approval_persiste_no_session_store(self, session_store):
+    async def test_request_approval_persiste_no_session_store(
+        self, session_store: SessionStore
+    ) -> None:
         gate = ApprovalGate(session_store)
 
         await gate.request_approval(

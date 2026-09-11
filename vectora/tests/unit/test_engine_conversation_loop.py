@@ -1164,8 +1164,13 @@ class TestResumeConversation:
         ],
     )
     async def test_midia_aprovada_no_loop_preserva_payload_somente_em_memoria(
-        self, session_store, ctx, monkeypatch, tool_name, args
-    ):
+        self,
+        session_store: SessionStore,
+        ctx: ToolContext,
+        monkeypatch: pytest.MonkeyPatch,
+        tool_name: str,
+        args: dict[str, str],
+    ) -> None:
         """O loop persiste apenas metadados e executa o payload efêmero após aprovação."""
         from backend.persistence.telemetry import telemetry
         from backend.services.media_quota import media_quota
@@ -1272,8 +1277,13 @@ class TestResumeConversation:
         ],
     )
     async def test_midia_aprovacao_apos_restart_nao_executa_payload(
-        self, session_store, ctx, monkeypatch, tool_name, args
-    ):
+        self,
+        session_store: SessionStore,
+        ctx: ToolContext,
+        monkeypatch: pytest.MonkeyPatch,
+        tool_name: str,
+        args: dict[str, str],
+    ) -> None:
         """Após restart, a pendência continua segura e não reidrata o payload."""
         from backend.services.media_quota import media_quota
 

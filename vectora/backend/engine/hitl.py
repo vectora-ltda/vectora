@@ -184,6 +184,9 @@ def should_require_approval(
                     result="auto_approved",
                 )
                 return False
+            # Custos acima do limiar exigem aprovação em qualquer modo,
+            # inclusive `auto` e `bypass`.
+            return True
     if tool_name in _JAILED_BYPASS_TOOLS and _workspace_is_jailed(ctx.workspace_id):
         return False
     mode = ctx.permission_mode or "ask"

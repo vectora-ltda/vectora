@@ -328,6 +328,7 @@ async def run_conversation(
             )
             if pendente is not None:
                 interrupt_id = str(uuid4())
+                stable_call_id = (pendente.id or "").strip() or interrupt_id
                 approval_args = dict(pendente.args)
                 approval_metadata: dict[str, Any] | None = None
                 if pendente.name == "write_terminal":
@@ -360,7 +361,7 @@ async def run_conversation(
                         "currency": estimate.currency,
                         "estimated_units": estimate.units,
                         "idempotency_key": new_idempotency_key(
-                            pendente.id, pendente.name
+                            stable_call_id, pendente.name
                         ),
                         # A reserva acontece somente após a aprovação. Este valor
                         # representa o saldo projetado e permite à UI mostrar o
@@ -394,7 +395,7 @@ async def run_conversation(
                         thread_id,
                         interrupt_id=interrupt_id,
                         tool_name=pendente.name,
-                        tool_call_id=pendente.id,
+                        tool_call_id=stable_call_id,
                         args=pendente.args,
                         options=options,
                         priority=priority,

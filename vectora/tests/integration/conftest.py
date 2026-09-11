@@ -99,17 +99,35 @@ def integration_cleanup() -> None:  # type: ignore[return]
 
 @pytest.fixture(scope="session")
 def _storage_stack_ok() -> bool:
-    """True se Postgres (5432), Redis (6379) e Qdrant (6333) respondem na porta."""
+    """True quando os endpoints configurados dos três serviços respondem."""
     import socket
+    from urllib.parse import urlparse
 
-    from backend.storage.dev_stack import _docker_available, stack_up
+    from backend.storage.dev_stack import (
+        DEFAULT_POSTGRES_DSN,
+        DEFAULT_QDRANT_URL,
+        DEFAULT_REDIS_URL,
+        _docker_available,
+        stack_up,
+    )
 
     if _docker_available() and not os.getenv("CI"):
         stack_up()  # best-effort: sobe se parado, ignora erros
 
-    for port in (5432, 6379, 6333):
+    endpoints = (
+        (
+            os.getenv("VECTORA_TEST_POSTGRES_DSN", DEFAULT_POSTGRES_DSN),
+            5432,
+        ),
+        (os.getenv("VECTORA_TEST_REDIS_URL", DEFAULT_REDIS_URL), 6379),
+        (os.getenv("VECTORA_TEST_QDRANT_URL", DEFAULT_QDRANT_URL), 6333),
+    )
+    for endpoint, default_port in endpoints:
+        parsed = urlparse(endpoint.replace("postgresql+asyncpg://", "postgresql://"))
+        host = parsed.hostname or "127.0.0.1"
+        port = parsed.port or default_port
         try:
-            with socket.create_connection(("127.0.0.1", port), timeout=3):
+            with socket.create_connection((host, port), timeout=3):
                 pass
         except OSError:
             return False
