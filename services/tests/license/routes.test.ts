@@ -66,6 +66,20 @@ async function validate(token: string) {
   );
 }
 
+function envWithDeterministicLicenseLimiter(): typeof env {
+  const counts = new Map<string, number>();
+  const limiter = {
+    limit: async ({ key }: { key: string }) => {
+      const next = (counts.get(key) ?? 0) + 1;
+      counts.set(key, next);
+      return { success: next <= 30 };
+    },
+  };
+  return Object.assign(Object.create(env), {
+    LICENSE_VALIDATE_LIMITER: limiter,
+  }) as typeof env;
+}
+
 async function makeUserWithTokenNoSubscription() {
   const userId = crypto.randomUUID();
   const email = `${userId}@example.com`;
@@ -88,6 +102,7 @@ describe("POST /validate rate limiting", () => {
   it("blocks with 429 after exceeding the per-IP limit, keyed independently per IP", async () => {
     const { rawToken } = await makeUserWithToken();
     const ip = `203.0.113.${Math.floor(Math.random() * 254) + 1}`;
+    const testEnv = envWithDeterministicLicenseLimiter();
     const requestWithIp = () =>
       license.request(
         "/validate",
@@ -99,7 +114,7 @@ describe("POST /validate rate limiting", () => {
           },
           body: JSON.stringify({ token: rawToken, version: "1.0.0" }),
         },
-        env,
+        testEnv,
       );
 
     // O limite configurado é 30/60s — 31 chamadas do mesmo IP garantem
@@ -124,6 +139,7 @@ describe("POST /validate rate limiting", () => {
     const { rawToken } = await makeUserWithToken();
     const busyIp = `198.51.100.${Math.floor(Math.random() * 254) + 1}`;
     const freshIp = `198.51.100.${Math.floor(Math.random() * 254) + 1}`;
+    const testEnv = envWithDeterministicLicenseLimiter();
     const requestWithIp = (ip: string) =>
       license.request(
         "/validate",
@@ -135,7 +151,7 @@ describe("POST /validate rate limiting", () => {
           },
           body: JSON.stringify({ token: rawToken, version: "1.0.0" }),
         },
-        env,
+        testEnv,
       );
 
     for (let i = 0; i < 31; i++) await requestWithIp(busyIp);
