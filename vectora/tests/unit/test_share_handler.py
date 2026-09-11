@@ -210,21 +210,32 @@ class TestShareDelete:
     @pytest.mark.asyncio
     async def test_revoga_pelo_criador_e_persiste_auditoria(self, monkeypatch):
         db = await self._database()
-        events = []
-
-        async def audit(user_id, action, **fields):
-            events.append((user_id, action, fields))
+        await db.execute(
+            """CREATE TABLE audit (
+                id TEXT PRIMARY KEY, user_id TEXT, action TEXT NOT NULL,
+                target_type TEXT, target_id TEXT, timestamp TEXT NOT NULL,
+                ip TEXT, user_agent TEXT, success INTEGER NOT NULL DEFAULT 1,
+                metadata_json TEXT NOT NULL DEFAULT '{}'
+            )"""
+        )
+        from backend.rbac import auth
 
         monkeypatch.setattr(share_handler, "_get_db", lambda: _resolved(db))
         monkeypatch.setattr(share_handler, "_ensure_share_table", _noop)
-        monkeypatch.setattr(share_handler, "_write_share_audit", audit)
+        monkeypatch.setattr(auth, "get_db_for_audit", lambda: _resolved(db))
 
         result = await share_handler.delete_share(
             "share-token", self._request(SimpleNamespace(id="owner-1", role="member"))
         )
 
         assert result == {}
-        assert events == [("owner-1", "share_revoke", {"token": "share-token"})]
+        async with db.execute(
+            "SELECT user_id, action, metadata_json FROM audit"
+        ) as cursor:
+            audit_row = await cursor.fetchone()
+        assert audit_row is not None
+        assert audit_row[0:2] == ("owner-1", "share_revoke")
+        assert '"token": "[REDACTED]"' in audit_row[2]
         async with db.execute(
             "SELECT 1 FROM shared_threads WHERE token = ?", ("share-token",)
         ) as cursor:
