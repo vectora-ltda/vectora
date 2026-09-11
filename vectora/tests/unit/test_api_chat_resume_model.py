@@ -68,6 +68,9 @@ class TestResumeChatUsesSameNativeAgentAsStreamChat:
             )
 
         session_store = _fake_session_store()
+        run_conversation_mock = AsyncMock(
+            return_value=LoopResult(stopped_reason="stop")
+        )
 
         with ExitStack() as stack:
             stack.enter_context(
@@ -97,7 +100,7 @@ class TestResumeChatUsesSameNativeAgentAsStreamChat:
             stack.enter_context(
                 patch(
                     "backend.api.handlers.chat.run_conversation",
-                    new=AsyncMock(return_value=LoopResult(stopped_reason="stop")),
+                    new=run_conversation_mock,
                 )
             )
             stack.enter_context(
@@ -133,7 +136,11 @@ class TestResumeChatUsesSameNativeAgentAsStreamChat:
             stream_request = StreamChatRequest(
                 content="oi",
                 thread_id="thread-resume-1",
-                config=ChatConfig(model="nine_router:gemini-2.5-flash"),
+                config=ChatConfig(
+                    model="nine_router:gemini-2.5-flash",
+                    context_max_tokens=1234,
+                    context_compaction_enabled=False,
+                ),
             )
             stream_response = await chat_mod.stream_chat(stream_request, http_request)
             async for _chunk in stream_response.body_iterator:
@@ -154,6 +161,10 @@ class TestResumeChatUsesSameNativeAgentAsStreamChat:
         assert stream_call["chat_mode"] is False
         assert resume_call["chat_mode"] == stream_call["chat_mode"]
         assert resume_call["workspace_id"] == stream_call["workspace_id"]
+
+        resume_loop_config = run_conversation_mock.call_args.kwargs["config"]
+        assert resume_loop_config.context_max_tokens == 1234
+        assert resume_loop_config.context_compaction_enabled is False
 
     @pytest.mark.asyncio
     async def test_resume_chat_sem_turno_anterior_conhecido_usa_default_sem_lancar(
