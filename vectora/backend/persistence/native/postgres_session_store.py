@@ -21,6 +21,17 @@ if TYPE_CHECKING:
     import asyncpg
 
 _SETUP_SQL = """
+CREATE TABLE IF NOT EXISTS vectora_sessions (
+    thread_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL DEFAULT '',
+    user_type TEXT NOT NULL DEFAULT 'human',
+    mode TEXT NOT NULL DEFAULT 'code',
+    permission_mode TEXT NOT NULL DEFAULT 'ask',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_activity TIMESTAMPTZ NOT NULL DEFAULT now(),
+    message_count BIGINT NOT NULL DEFAULT 0,
+    extra JSONB NOT NULL DEFAULT '{}'
+);
 CREATE TABLE IF NOT EXISTS vectora_native_sessions (
     thread_id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -183,6 +194,16 @@ class PostgresSessionStore:
                 permission_mode,
                 agora,
                 agora,
+            )
+            await conn.execute(
+                "INSERT INTO vectora_sessions (thread_id, user_id, mode, permission_mode) "
+                "VALUES ($1, $2, $3, $4) ON CONFLICT (thread_id) DO UPDATE SET "
+                "user_id = EXCLUDED.user_id, mode = EXCLUDED.mode, "
+                "permission_mode = EXCLUDED.permission_mode, last_activity = now()",
+                thread_id,
+                user_id,
+                mode,
+                permission_mode,
             )
 
     async def append_message(

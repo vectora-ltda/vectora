@@ -181,10 +181,6 @@ async def pg_pool(_storage_stack_ok: bool, pg_dsn: str):
             await asyncio.sleep(1)
 
     assert pool is not None
-    from backend.storage.migrations.postgres_runner import PostgresMigrationRunner
-
-    async with pool.acquire() as conn:
-        await PostgresMigrationRunner(conn).apply()
     yield pool
     await pool.close()
 
