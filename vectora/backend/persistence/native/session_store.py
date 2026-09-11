@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_messages_thread ON messages(thread_id, id);
+CREATE INDEX IF NOT EXISTS ix_messages_thread_parent ON messages(thread_id, parent_message_id);
 CREATE TABLE IF NOT EXISTS pending_approvals (
     thread_id TEXT PRIMARY KEY REFERENCES sessions(thread_id),
     interrupt_id TEXT NOT NULL,
@@ -376,7 +377,9 @@ class SessionStore:
 
         return [(row[0], _row_to_message(row)) for row in cadeia]
 
-    async def set_branch_head(self, thread_id: str, message_id: int) -> None:
+    async def set_branch_head(
+        self, thread_id: str, message_id: int, *, allow_internal: bool = False
+    ) -> None:
         """Marca `message_id` como a ponta ativa da thread — fork explícito
         (editar mensagem/regenerar) sem apagar nenhuma mensagem existente.
 
@@ -384,10 +387,15 @@ class SessionStore:
         thread ficaria sem nenhuma ponta ativa (histórico "sumiria")."""
         await self.setup()
         async with self._pool.acquire() as conn:
-            cur = await conn.execute(
-                "SELECT 1 FROM messages WHERE thread_id = ? AND id = ?",
-                (thread_id, message_id),
-            )
+            if allow_internal:
+                query = "SELECT 1 FROM messages WHERE thread_id = ? AND id = ?"
+            else:
+                query = (
+                    "SELECT 1 FROM messages m WHERE m.thread_id = ? AND m.id = ? "
+                    "AND NOT EXISTS (SELECT 1 FROM messages d "
+                    "WHERE d.thread_id = m.thread_id AND d.parent_message_id = m.id)"
+                )
+            cur = await conn.execute(query, (thread_id, message_id))
             if await cur.fetchone() is None:
                 erro = f"mensagem {message_id} não pertence à thread '{thread_id}'"
                 raise ValueError(erro)
@@ -400,10 +408,97 @@ class SessionStore:
                     "UPDATE messages SET is_branch_head = 1 WHERE thread_id = ? AND id = ?",
                     (thread_id, message_id),
                 )
+                await conn.execute(
+                    "UPDATE sessions SET updated_at = ? WHERE thread_id = ?",
+                    (datetime.now(UTC).isoformat(), thread_id),
+                )
                 await conn.commit()
             except Exception:
                 await conn.rollback()
                 raise
+
+    async def list_branch_heads(
+        self, thread_id: str, *, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        """Lista as pontas (folhas) persistidas de uma conversa.
+
+        A ponta ativa continua sendo marcada por ``is_branch_head``. Para
+        preservar branches antigas, a enumeração também considera mensagens
+        que não são pai de nenhuma outra mensagem.
+        """
+        await self.setup()
+        bounded_limit = max(1, min(limit, 500))
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT m.id, m.created_at, m.is_branch_head, "
+                "(SELECT COUNT(*) FROM messages d WHERE d.thread_id = m.thread_id "
+                "AND d.parent_message_id = m.id) AS child_count "
+                "FROM messages m WHERE m.thread_id = ? "
+                "AND NOT EXISTS (SELECT 1 FROM messages d WHERE d.thread_id = m.thread_id "
+                "AND d.parent_message_id = m.id) "
+                "ORDER BY m.created_at DESC, m.id DESC LIMIT ?",
+                (thread_id, bounded_limit),
+            )
+            rows = await cur.fetchall()
+        return [
+            {
+                "head_message_id": int(row[0]),
+                "created_at": str(row[1]),
+                "active": bool(row[2]),
+                "message_count": len(
+                    await self.get_history_with_ids(
+                        thread_id, up_to_message_id=int(row[0])
+                    )
+                ),
+            }
+            for row in rows
+        ]
+
+    async def compare_branches(
+        self, thread_id: str, selected_head_id: int
+    ) -> dict[str, Any]:
+        """Compara a ponta ativa com outra ponta da mesma thread."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT 1 FROM messages m WHERE m.thread_id = ? AND m.id = ? "
+                "AND NOT EXISTS (SELECT 1 FROM messages d WHERE d.thread_id = m.thread_id "
+                "AND d.parent_message_id = m.id)",
+                (thread_id, selected_head_id),
+            )
+            if await cur.fetchone() is None:
+                raise ValueError(f"mensagem {selected_head_id} não é uma ponta")
+        selected = await self.get_history_with_ids(
+            thread_id, up_to_message_id=selected_head_id
+        )
+        if not selected or selected[-1][0] != selected_head_id:
+            raise ValueError(
+                f"mensagem {selected_head_id} não pertence à thread '{thread_id}'"
+            )
+        active_head = await self.get_branch_head_id(thread_id)
+        active = (
+            await self.get_history_with_ids(thread_id, up_to_message_id=active_head)
+            if active_head is not None
+            else []
+        )
+        active_ids = [item[0] for item in active]
+        selected_ids = [item[0] for item in selected]
+        common = 0
+        for left, right in zip(active_ids, selected_ids, strict=False):
+            if left != right:
+                break
+            common += 1
+        result = {
+            "active_head_message_id": active_head,
+            "selected_head_message_id": selected_head_id,
+            "common_message_ids": active_ids[:common],
+            "active_divergent_message_ids": active_ids[common:],
+            "selected_divergent_message_ids": selected_ids[common:],
+        }
+        max_items = 2000
+        if len(active_ids) + len(selected_ids) > max_items:
+            raise ValueError("comparação de branches excede o limite permitido")
+        return result
 
     async def get_session(
         self, thread_id: str, *, user_id: str | None = None

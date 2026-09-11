@@ -130,6 +130,7 @@ export function ChatInterface({
 
   // Cached por threadId via Zustand — switching back não causa flash vazio.
   const [messages, setMessages] = useThreadMessages(threadId);
+  const [branchHistoryError, setBranchHistoryError] = useState(false);
 
   // Barra de uso de contexto: estima tokens e deriva pct de uso.
   // Aviso (toast) em 80% e bloqueio de send em 95%.
@@ -621,9 +622,33 @@ export function ChatInterface({
           console.error("Erro ao recarregar histórico após rewind:", err);
         });
     };
+    const onBranchSelected = (event: Event) => {
+      const detail = (event as CustomEvent<{ threadId?: string }>).detail;
+      if (detail?.threadId !== threadId) return;
+      void queryClient.invalidateQueries({
+        queryKey: ["thread-history", threadId],
+      });
+      getHistory(threadId)
+        .then(({ messages: historyMessages }) => {
+          setBranchHistoryError(false);
+          setMessages(
+            historyMessages
+              .map((hist, idx) =>
+                historyMessageToMessage(hist, `history-${threadId}-${idx}`),
+              )
+              .filter((message) => message.content.trim().length > 0),
+          );
+        })
+        .catch(() => {
+          setBranchHistoryError(true);
+        });
+    };
     document.addEventListener("vectora:thread-rewound", onThreadRewound);
-    return () =>
-      document.removeEventListener("vectora:thread-rewound", onThreadRewound);
+    window.addEventListener("vectora:branch-selected", onBranchSelected);
+    return () => (
+      document.removeEventListener("vectora:thread-rewound", onThreadRewound),
+      window.removeEventListener("vectora:branch-selected", onBranchSelected)
+    );
   }, [threadId, setMessages]);
 
   // Auto-focus textarea when loading completes and userId is available
@@ -1317,6 +1342,14 @@ export function ChatInterface({
   return (
     <>
       <main className="h-full flex flex-col overflow-hidden relative">
+        {branchHistoryError && (
+          <div
+            role="alert"
+            className="border-b border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive"
+          >
+            {msg.chat_branch_history_reload_error()}
+          </div>
+        )}
         {isNewChat ? (
           <EmptyStateHeader
             // Seletor Chat/Sessão de código (onStartChat/onStartCode) e chips
