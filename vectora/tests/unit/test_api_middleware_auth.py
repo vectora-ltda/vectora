@@ -337,6 +337,41 @@ class TestAuthMiddlewareIntegration:
             response.json()
         )
 
+    def test_tool_usage_returns_zero_for_tools_without_events(
+        self, auth_client, monkeypatch
+    ) -> None:
+        signup = auth_client.post(
+            "/auth/signup",
+            json={
+                "email": "tool-usage-empty@test.com",
+                "password": "emptytest1234",
+            },
+        )
+        assert signup.status_code == 200
+        access_token = signup.json()["access_token"]
+
+        import backend.api.handlers.tools as tools_handler
+
+        monkeypatch.setattr(
+            tools_handler, "_all_tool_names", lambda: ["file_read", "terminal"]
+        )
+        from backend.services import tool_usage
+
+        async def no_events(_user_id: str) -> dict[str, int]:
+            return {}
+
+        monkeypatch.setattr(tool_usage, "aggregate_last_7d", no_events)
+
+        response = auth_client.get(
+            "/tools/usage", headers={"Authorization": f"Bearer {access_token}"}
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "window_days": 7,
+            "usage": {"file_read": 0, "terminal": 0},
+        }
+
     def test_private_route_with_cookie_token_passes(self, auth_client):
         # Signup para ter cookies definidos
         r = auth_client.post(
