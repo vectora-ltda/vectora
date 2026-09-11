@@ -8,3 +8,16 @@ export function screenshotBytesToFile(
     type: "image/png",
   });
 }
+
+export async function captureScreenshotAttachment(
+  capture: () => Promise<Uint8Array | null>,
+  processFiles: (files: File[]) => Promise<void>,
+  onError: () => void,
+): Promise<void> {
+  try {
+    const file = screenshotBytesToFile(await capture());
+    if (file) await processFiles([file]);
+  } catch {
+    onError();
+  }
+}

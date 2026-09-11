@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
-import { screenshotBytesToFile } from "../screenshot-capture";
+import { describe, expect, it, vi } from "vitest";
+import {
+  captureScreenshotAttachment,
+  screenshotBytesToFile,
+} from "../screenshot-capture";
 
 describe("screenshotBytesToFile", () => {
   it("retorna null quando o diálogo é cancelado", () => {
@@ -15,5 +18,36 @@ describe("screenshotBytesToFile", () => {
     expect([...new Uint8Array(await file!.arrayBuffer())]).toEqual([
       137, 80, 78, 71,
     ]);
+  });
+
+  it("não chama o pipeline quando a captura é cancelada", async () => {
+    const processFiles = vi.fn();
+    await captureScreenshotAttachment(async () => null, processFiles, vi.fn());
+    expect(processFiles).not.toHaveBeenCalled();
+  });
+
+  it("envia bytes capturados ao pipeline", async () => {
+    const processFiles = vi.fn(async () => undefined);
+    await captureScreenshotAttachment(
+      async () => new Uint8Array([1, 2, 3]),
+      processFiles,
+      vi.fn(),
+    );
+    expect(processFiles).toHaveBeenCalledOnce();
+    const calls = processFiles.mock.calls as unknown as [File[]][];
+    const files = calls[0]?.[0] ?? [];
+    expect(files[0]?.type).toBe("image/png");
+  });
+
+  it("exibe erro quando a ponte rejeita", async () => {
+    const onError = vi.fn();
+    await captureScreenshotAttachment(
+      async () => {
+        throw new Error("bridge indisponível");
+      },
+      vi.fn(),
+      onError,
+    );
+    expect(onError).toHaveBeenCalledOnce();
   });
 });

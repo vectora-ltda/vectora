@@ -59,7 +59,7 @@ const VOICE_LANG: Record<Lang, string> = {
 import { LARGE_PASTE_THRESHOLD } from "@/lib/constants/features";
 import { m as msg } from "@/lib/paraglide/messages";
 import { mDyn } from "@/lib/i18n-dyn";
-import { screenshotBytesToFile } from "@/lib/utils/screenshot-capture";
+import { captureScreenshotAttachment } from "@/lib/utils/screenshot-capture";
 
 interface ChatInterfaceProps {
   showToolCalls?: boolean;
@@ -1256,14 +1256,9 @@ export function ChatInterface({
   const handleCaptureScreenshot = useCallback(async () => {
     const capture = window.vectora?.captureScreenshot;
     if (!capture) return;
-    try {
-      const bytes = await capture();
-      const file = screenshotBytesToFile(bytes);
-      if (!file) return;
-      await processFiles([file]);
-    } catch {
-      setUploadError(msg.plus_capture_screenshot_error());
-    }
+    await captureScreenshotAttachment(capture, processFiles, () =>
+      setUploadError(msg.plus_capture_screenshot_error()),
+    );
   }, [processFiles]);
 
   // Paste grande vira anexo e preserva o fluxo normal de composição:
