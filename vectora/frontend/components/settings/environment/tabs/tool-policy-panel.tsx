@@ -141,6 +141,8 @@ export function ToolPolicyPanel() {
                   <button
                     type="button"
                     className="inline-flex items-center gap-1"
+                    aria-expanded={openSchema === name}
+                    aria-controls={`tool-schema-${name}`}
                     onClick={() =>
                       setOpenSchema(openSchema === name ? null : name)
                     }
@@ -157,7 +159,12 @@ export function ToolPolicyPanel() {
                 )}
               </div>
               {openSchema === name && schema !== undefined && (
-                <pre className="mt-2 max-h-48 overflow-auto rounded bg-muted p-2 text-[10px]">
+                <pre
+                  id={`tool-schema-${name}`}
+                  role="region"
+                  aria-label={`${name} schema`}
+                  className="mt-2 max-h-48 overflow-auto rounded bg-muted p-2 text-[10px]"
+                >
                   {JSON.stringify(schema, null, 2)}
                 </pre>
               )}
