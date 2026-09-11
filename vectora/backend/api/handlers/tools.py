@@ -39,9 +39,35 @@ def _all_tool_names() -> list[str]:
 async def get_policy(request: Request) -> dict:
     """Política de tools do usuário atual."""
     uid = _user_id(request)
+    from backend.nodes.tools import ALL_TOOL_SPECS
+
+    schemas = {
+        spec.name: {
+            "type": "function",
+            "function": {
+                "name": spec.name,
+                "description": spec.description,
+                "parameters": spec.openai_schema()["function"]["parameters"],
+            },
+        }
+        for spec in ALL_TOOL_SPECS
+    }
     return {
         "disabled": tool_policy.get_disabled(uid),
         "available": _all_tool_names(),
+        "schemas": schemas,
+    }
+
+
+@router.get("/usage")
+async def get_usage(request: Request) -> dict:
+    """Retorna somente contagens da identidade autenticada na janela de 7 dias."""
+    from backend.services.tool_usage import aggregate_last_7d
+
+    counts = await aggregate_last_7d(_user_id(request))
+    return {
+        "window_days": 7,
+        "usage": {name: counts.get(name, 0) for name in _all_tool_names()},
     }
 
 
