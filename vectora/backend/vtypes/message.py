@@ -60,6 +60,8 @@ class ContentBlock:
     image_url: str | None = None
     asset_id: str | None = None
     attachment_name: str | None = None
+    attachment_mime_type: str | None = None
+    attachment_size_bytes: int | None = None
     reasoning_text: str | None = None
 
 
@@ -99,6 +101,8 @@ class VMessage:
                     "image_url": b.image_url,
                     "asset_id": b.asset_id,
                     "attachment_name": b.attachment_name,
+                    "attachment_mime_type": b.attachment_mime_type,
+                    "attachment_size_bytes": b.attachment_size_bytes,
                     "reasoning_text": b.reasoning_text,
                 }
                 for b in self.content
@@ -129,6 +133,8 @@ class VMessage:
                         image_url=b.get("image_url"),
                         asset_id=b.get("asset_id"),
                         attachment_name=b.get("attachment_name"),
+                        attachment_mime_type=b.get("attachment_mime_type"),
+                        attachment_size_bytes=b.get("attachment_size_bytes"),
                         reasoning_text=b.get("reasoning_text"),
                     )
                     for b in data.get("content", [])

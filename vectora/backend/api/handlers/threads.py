@@ -1610,15 +1610,14 @@ async def get_thread_history_paginated(
 async def get_thread_attachment(
     thread_id: str,
     filename: str,
-    request: Request = None,  # ty: ignore[invalid-parameter-default]
+    request: Request,
 ) -> FileResponse:
     """Serve um anexo de imagem persistido por `_persist_image_attachment`
     (`chat.py`) — `attachments[].url` no histórico aponta pra cá. Sanitiza
     os dois segmentos (sem `..`/separador) antes de tocar o filesystem."""
     from backend.settings import settings
 
-    if request is not None:
-        await _assert_owns_thread(thread_id, request)
+    await _assert_owns_thread(thread_id, request)
 
     safe_thread = thread_id.replace("/", "").replace("\\", "").replace("..", "")
     safe_filename = filename.replace("/", "").replace("\\", "").replace("..", "")

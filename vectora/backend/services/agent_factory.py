@@ -795,6 +795,9 @@ async def aget_thread_messages(
         attachments = [
             {
                 "kind": "image",
+                "name": block.attachment_name or block.asset_id or "image",
+                "mimeType": block.attachment_mime_type or "image/png",
+                "size": block.attachment_size_bytes or 0,
                 "url": (
                     f"/threads/{thread_id}/assets/{block.asset_id}"
                     if block.asset_id
