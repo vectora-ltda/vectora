@@ -16,7 +16,7 @@ from typing import Annotated
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.services.maintenance import maintenance_window
+from backend.services.maintenance import maintenance_bypass, maintenance_window
 from backend.settings import settings
 from backend.storage.backup_manifest import (
     BackupPreview,
@@ -92,9 +92,10 @@ async def restore_local_backup(
         )
 
         async def reopen_consumers() -> None:
-            await threads.ensure_sessions_table()
-            await auth._get_db()
-            await agent_factory.awarm(strict=True)
+            async with maintenance_bypass():
+                await threads.ensure_sessions_table()
+                await auth._get_db()
+                await agent_factory.awarm(strict=True)
 
         try:
             await agent_factory.aclose(strict=True)

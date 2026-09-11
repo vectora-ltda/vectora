@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -18,6 +19,39 @@ def test_maintenance_barrier_blocks_until_release() -> None:
         await waiter
 
     asyncio.run(scenario())
+
+
+@pytest.mark.asyncio
+async def test_maintenance_window_waits_for_active_storage_operation() -> None:
+    import asyncio
+
+    import backend.services.maintenance as maintenance
+
+    maintenance._condition = asyncio.Condition()
+    maintenance._active_operations = 0
+    maintenance._maintenance_active = False
+    maintenance_window = maintenance.maintenance_window
+    storage_operation = maintenance.storage_operation
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def active_operation() -> None:
+        async with storage_operation():
+            entered.set()
+            await release.wait()
+
+    async def enter_window() -> None:
+        async with maintenance_window():
+            return
+
+    operation = asyncio.create_task(active_operation())
+    await entered.wait()
+    window = asyncio.create_task(enter_window())
+    await asyncio.sleep(0)
+    assert not window.done()
+    release.set()
+    await operation
+    await window
 
 
 def test_backup_inspect_exige_ponte_desktop(monkeypatch) -> None:

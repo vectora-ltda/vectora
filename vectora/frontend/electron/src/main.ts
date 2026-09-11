@@ -864,28 +864,34 @@ function registerIpc(): void {
       : await dialog.showOpenDialog(opts);
     if (result.canceled || result.filePaths.length === 0) return null;
     const archivePath = result.filePaths[0];
-    const preview = await postBackendJson(
-      backendTransport(),
-      "/storage/backup/inspect",
-      { archive_path: archivePath },
-      { "x-vectora-desktop-bridge": desktopBridgeToken },
-    );
-    if (!preview) return null;
-    selectedBackupPath = archivePath;
-    return preview;
+    try {
+      const preview = await postBackendJson(
+        backendTransport(),
+        "/storage/backup/inspect",
+        { archive_path: archivePath },
+        { "x-vectora-desktop-bridge": desktopBridgeToken },
+      );
+      if (!preview) return null;
+      selectedBackupPath = archivePath;
+      return preview;
+    } finally {
+      if (!selectedBackupPath) selectedBackupPath = null;
+    }
   });
   ipcMain.handle(
     "vectora:backup-restore",
     async (_event, categories: string[]) => {
       if (!selectedBackupPath) return null;
-      const result = await postBackendJson(
-        backendTransport(),
-        "/storage/backup/restore",
-        { archive_path: selectedBackupPath, categories, confirmed: true },
-        { "x-vectora-desktop-bridge": desktopBridgeToken },
-      );
-      selectedBackupPath = null;
-      return result;
+      try {
+        return await postBackendJson(
+          backendTransport(),
+          "/storage/backup/restore",
+          { archive_path: selectedBackupPath, categories, confirmed: true },
+          { "x-vectora-desktop-bridge": desktopBridgeToken },
+        );
+      } finally {
+        selectedBackupPath = null;
+      }
     },
   );
   ipcMain.handle("vectora:capture-screenshot", async () => {
