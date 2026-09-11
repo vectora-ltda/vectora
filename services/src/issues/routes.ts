@@ -82,6 +82,14 @@ export async function syncIssueResponse(
   resolve: boolean,
   expectedVersion?: number,
 ): Promise<void> {
+  if (expectedVersion !== undefined) {
+    const claimed = await env.DB.prepare(
+      "UPDATE issues SET github_sync_state = 'response_syncing', response_sync_lease_until = datetime('now', '+5 minutes') WHERE id = ? AND response_version = ? AND response = ? AND (github_sync_state = 'response_pending' OR (github_sync_state = 'response_syncing' AND response_sync_lease_until <= datetime('now'))) ",
+    )
+      .bind(issueId, expectedVersion, response)
+      .run();
+    if (claimed.meta.changes === 0) throw new Error("response_superseded");
+  }
   const isCurrent = async (): Promise<boolean> => {
     if (expectedVersion === undefined) return true;
     const current = await env.DB.prepare(
@@ -110,7 +118,7 @@ export async function syncIssueResponse(
           .bind(issueId)
           .run()
       : await env.DB.prepare(
-          "UPDATE issues SET github_sync_state = 'synced', github_sync_error = NULL WHERE id = ? AND response_version = ?",
+          "UPDATE issues SET github_sync_state = 'synced', github_sync_error = NULL, response_sync_lease_until = NULL WHERE id = ? AND response_version = ?",
         )
           .bind(issueId, expectedVersion)
           .run();
@@ -270,7 +278,7 @@ export async function reconcileIssueComments(
 /** Retoma respostas públicas persistidas após falhas transitórias do GitHub. */
 export async function reconcilePendingIssueResponses(env: Env): Promise<void> {
   const { results } = await env.DB.prepare(
-    "SELECT id, response, status, response_version, github_repo, github_number FROM issues WHERE github_sync_state = 'response_pending' AND response IS NOT NULL AND github_repo IS NOT NULL AND github_number IS NOT NULL ORDER BY responded_at ASC LIMIT 25",
+    "SELECT id, response, status, response_version, github_repo, github_number FROM issues WHERE response IS NOT NULL AND github_repo IS NOT NULL AND github_number IS NOT NULL AND (github_sync_state = 'response_pending' OR (github_sync_state = 'response_syncing' AND response_sync_lease_until <= datetime('now'))) ORDER BY responded_at ASC LIMIT 25",
   ).all<{
     id: string;
     response: string;
@@ -291,6 +299,11 @@ export async function reconcilePendingIssueResponses(env: Env): Promise<void> {
         issue.response_version,
       );
     } catch (error) {
+      await env.DB.prepare(
+        "UPDATE issues SET github_sync_state = 'response_pending', response_sync_lease_until = NULL WHERE id = ? AND response_version = ? AND github_sync_state = 'response_syncing'",
+      )
+        .bind(issue.id, issue.response_version)
+        .run();
       console.error("issue_github_response_retry_failed", {
         issueId: issue.id,
         message: error instanceof Error ? error.message : "github_sync_failed",

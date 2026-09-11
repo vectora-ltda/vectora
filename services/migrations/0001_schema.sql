@@ -182,7 +182,8 @@ CREATE TABLE IF NOT EXISTS issues (
   approved_at  TEXT,
   approved_by  TEXT,
   promotion_lease_until TEXT,
-  response_version INTEGER NOT NULL DEFAULT 0
+  response_version INTEGER NOT NULL DEFAULT 0,
+  response_sync_lease_until TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_issues_github_identity
