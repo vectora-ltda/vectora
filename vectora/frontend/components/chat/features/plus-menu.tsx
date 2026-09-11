@@ -5,6 +5,7 @@ import {
   Database,
   FolderPlus,
   Paperclip,
+  Camera,
   Plus,
   Share2,
   Slash,
@@ -31,12 +32,14 @@ interface PlusMenuProps {
   onAddFiles: (e: React.MouseEvent) => void;
   /** Insere "/" no input para disparar o autocomplete de comandos (opcional). */
   onSlashCommands?: () => void;
+  onCaptureScreenshot?: () => void;
 }
 
 export function PlusMenu({
   disabled,
   onAddFiles,
   onSlashCommands,
+  onCaptureScreenshot,
 }: PlusMenuProps) {
   const openEnvironment = useEnvironmentDialogStore((s) => s.openAt);
   const activeCwd = useWorkspacesStore((s) => s.getActive()?.cwd);
@@ -85,6 +88,20 @@ export function PlusMenu({
             <Paperclip className="w-4 h-4 shrink-0 text-muted-foreground" />
             {m.plus_add_files()}
           </button>
+
+          {onCaptureScreenshot && (
+            <button
+              data-testid="plus-menu-capture-screenshot"
+              className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-foreground/80 hover:text-foreground hover:bg-accent transition-colors text-left rounded-sm"
+              onClick={() => {
+                setOpen(false);
+                onCaptureScreenshot();
+              }}
+            >
+              <Camera className="w-4 h-4 shrink-0 text-muted-foreground" />
+              {m.plus_capture_screenshot()}
+            </button>
+          )}
 
           <button
             data-testid="plus-menu-add-folder"
