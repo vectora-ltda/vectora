@@ -421,7 +421,7 @@ admin.post("/issues/:id/respond", async (c) => {
   const newStatus = body.resolve ? "resolved" : "open";
   const nextVersion = issue.response_version + 1;
   const bumped = await c.env.DB.prepare(
-    "UPDATE issues SET response = ?, responded_at = datetime('now'), status = ?, response_version = ?, github_sync_state = CASE WHEN github_repo IS NOT NULL AND github_number IS NOT NULL THEN 'response_pending' ELSE github_sync_state END, response_sync_lease_until = NULL, github_sync_error = NULL WHERE id = ? AND response_version = ?",
+    "UPDATE issues SET response = ?, responded_at = datetime('now'), status = ?, response_version = ?, github_sync_state = CASE WHEN github_repo IS NOT NULL AND github_number IS NOT NULL THEN 'response_pending' ELSE github_sync_state END, response_sync_lease_until = NULL, github_sync_error = NULL WHERE id = ? AND response_version = ? AND NOT (github_sync_state = 'response_syncing' AND response_sync_lease_until > datetime('now'))",
   )
     .bind(body.response, newStatus, nextVersion, id, issue.response_version)
     .run();
