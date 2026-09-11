@@ -76,6 +76,16 @@ def test_compaction_preserva_system_quando_custo_excede_orcamento() -> None:
     assert compacted == [system]
 
 
+def test_message_tokens_inclui_custo_de_cada_imagem() -> None:
+    text = text_message(MessageRole.USER, "pedido")
+    image = VMessage(
+        role=MessageRole.USER,
+        content=[ContentBlock(kind="image_url", image_url="data:image/png;base64,x")],
+    )
+
+    assert _message_tokens(image) >= 1_600 + _message_tokens(text) - 1
+
+
 def test_compaction_reserva_espaco_para_marcador_dentro_do_orcamento() -> None:
     messages = [
         text_message(MessageRole.USER, "histórico antigo " * 100),

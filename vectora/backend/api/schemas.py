@@ -239,7 +239,9 @@ class ResumeChatRequest(BaseModel):
     turn_id: str | None = None
     decision: str  # "approve" | "reject" | "edit:<args_json>"
     context_max_tokens: int | None = Field(default=None, ge=1)
-    context_compaction_enabled: bool = True
+    # ``None`` means that the resume request omitted the option and should
+    # reuse the setting captured by the original stream turn.
+    context_compaction_enabled: bool | None = None
 
 
 class TranscribeAudioRequest(BaseModel):

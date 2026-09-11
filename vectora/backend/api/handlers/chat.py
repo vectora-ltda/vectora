@@ -766,6 +766,8 @@ async def stream_chat(
         "model": selected_model,
         "chat_mode": chat_mode,
         "workspace_id": workspace_id or None,
+        "context_max_tokens": request.config.context_max_tokens,
+        "context_compaction_enabled": request.config.context_compaction_enabled,
     }
     try:
         project_root = None
@@ -1059,6 +1061,8 @@ async def resume_chat(
     selector_model = str(selector.get("model", "") or "")
     selector_chat_mode = bool(selector.get("chat_mode", False))
     selector_workspace_id = selector.get("workspace_id")
+    selector_context_max_tokens = selector.get("context_max_tokens")
+    selector_compaction_enabled = bool(selector.get("context_compaction_enabled", True))
     pending_store = await agent_factory.get_session_store()
     pending = await pending_store.get_pending_approval(request.thread_id)
     if pending is None or pending["interrupt_id"] != request.interrupt_id:
@@ -1164,8 +1168,16 @@ async def resume_chat(
         chat_client = FallbackChatClient(primary_model_id=selector_model)
         loop_config = LoopConfig(
             max_iterations=50,
-            context_max_tokens=request.context_max_tokens,
-            context_compaction_enabled=request.context_compaction_enabled,
+            context_max_tokens=(
+                request.context_max_tokens
+                if request.context_max_tokens is not None
+                else selector_context_max_tokens
+            ),
+            context_compaction_enabled=(
+                request.context_compaction_enabled
+                if request.context_compaction_enabled is not None
+                else selector_compaction_enabled
+            ),
         )
         if native_agent.subagent_catalog:
             run_ctx._extra["subagent_deps"] = SubagentDeps(

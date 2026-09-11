@@ -5,6 +5,8 @@ from __future__ import annotations
 from backend.services.text import text_service
 from backend.vtypes.message import ContentBlock, MessageRole, VMessage
 
+_IMAGE_TOKEN_ESTIMATE = 1_600
+
 
 def _message_tokens(message: VMessage) -> int:
     """Estimate tokens for text, images and tool-call arguments."""
@@ -15,9 +17,10 @@ def _message_tokens(message: VMessage) -> int:
     text = message.text()
     if message.tool_calls:
         text += "\n".join(str(call.args) for call in message.tool_calls)
-    if any(block.kind == "image_url" for block in message.content):
-        text += " [image]"
-    return max(1, text_service.count_tokens(text) + 4)
+    image_count = sum(block.kind == "image_url" for block in message.content)
+    return max(
+        1, text_service.count_tokens(text) + 4 + image_count * _IMAGE_TOKEN_ESTIMATE
+    )
 
 
 def _marker(removed: int) -> VMessage:
