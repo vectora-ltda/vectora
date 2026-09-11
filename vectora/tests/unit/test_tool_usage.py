@@ -95,9 +95,52 @@ async def test_record_postgres_usa_datetime_para_timestamptz(
     class FakeConnection:
         def __init__(self) -> None:
             self.calls: list[tuple[str, tuple[object, ...]]] = []
+            self.rows: list[dict[str, object]] = [
+                {
+                    "tool_name": "expired",
+                    "user_id": "alice",
+                    "status": "ok",
+                    "created_at": datetime.now(UTC) - timedelta(days=8),
+                }
+            ]
 
         async def execute(self, query: str, *args: object) -> None:
             self.calls.append((query, args))
+            if query.startswith("DELETE"):
+                cutoff = args[0]
+                assert isinstance(cutoff, datetime)
+                self.rows = [
+                    row
+                    for row in self.rows
+                    if isinstance(row["created_at"], datetime)
+                    and row["created_at"] >= cutoff
+                ]
+            elif query.startswith("INSERT"):
+                self.rows.append(
+                    {
+                        "tool_name": args[2],
+                        "user_id": args[1],
+                        "status": args[3],
+                        "created_at": args[4],
+                    }
+                )
+
+        async def fetch(
+            self, _query: str, user_id: str, cutoff: datetime
+        ) -> list[dict[str, object]]:
+            active = [
+                row
+                for row in self.rows
+                if row["user_id"] == user_id
+                and isinstance(row["created_at"], datetime)
+                and row["created_at"] >= cutoff
+            ]
+            return [
+                {
+                    "tool_name": "file_read",
+                    "count": sum(row["tool_name"] == "file_read" for row in active),
+                }
+            ]
 
     class Acquire:
         def __init__(self, connection: FakeConnection) -> None:
@@ -134,3 +177,5 @@ async def test_record_postgres_usa_datetime_para_timestamptz(
     assert len(connection.calls) == 2
     assert isinstance(connection.calls[0][1][0], datetime)
     assert isinstance(connection.calls[1][1][4], datetime)
+    assert await tool_usage.aggregate_last_7d("alice") == {"file_read": 1}
+    assert all(row["tool_name"] != "expired" for row in connection.rows)
