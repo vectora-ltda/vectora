@@ -380,3 +380,13 @@ CREATE TABLE IF NOT EXISTS vectora_user_entitlements (
     user_id TEXT PRIMARY KEY, tier TEXT NOT NULL CHECK (tier IN ('free', 'pro')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS tool_usage_events (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tool_usage_user_time_name
+    ON tool_usage_events(user_id, created_at, tool_name);

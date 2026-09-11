@@ -45,7 +45,7 @@ from backend.engine.stream_events import (
     ToolResult,
     WorkbenchInvalidate,
 )
-from backend.engine.tool_batch import execute_tool_batch
+from backend.engine.tool_batch import _is_tool_error, execute_tool_batch
 from backend.vtypes.message import ContentBlock, MessageRole, ToolCall, VMessage
 
 _REPEATED_CALL_THRESHOLD = 3
@@ -552,7 +552,12 @@ async def _execute_single_call(
                 _extra={**ctx._extra, "event_sink": on_event},
             ),
         )
-        is_error = texto.startswith("Error:")
+        is_error = _is_tool_error(texto)
+        from backend.services.tool_usage import record_tool_usage
+
+        await record_tool_usage(
+            ctx.user_id or "local", tool_call.name, "error" if is_error else "ok"
+        )
     return VMessage(
         role=MessageRole.TOOL,
         content=[ContentBlock(kind="text", text=texto)],

@@ -1102,6 +1102,57 @@ class TestResumeConversation:
             ToolResult(tool_call_id="call_1", content_json="escrito!", is_error=False)
         ]
 
+    async def test_aprovar_classifica_erro_mcp_localizado_e_registra_uso(
+        self, session_store, ctx, monkeypatch
+    ):
+        chamadas: list[tuple[str, str, str]] = []
+
+        async def registrar(user_id: str, tool_name: str, status: str) -> None:
+            chamadas.append((user_id, tool_name, status))
+
+        monkeypatch.setattr("backend.services.tool_usage.record_tool_usage", registrar)
+
+        @vtool(extras=ToolExtras(destructive=True))
+        async def falhar_mcp(ctx: ToolContext) -> str:
+            """simula falha localizada de uma ferramenta MCP."""
+            return "Erro ao invocar tool MCP 'demo': conexão recusada"
+
+        registry = ToolRegistry()
+        _register(registry, "falhar_mcp")
+        client = _ScriptedChatClient(
+            [[_tool_call_chunk(index=0, id="call_mcp", name="falhar_mcp", args="{}")]]
+        )
+        gate = ApprovalGate(session_store)
+        await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+            should_require_approval=lambda *_a: True,
+            approval_gate=gate,
+        )
+
+        eventos: list[EngineEvent] = []
+
+        async def on_event(event: EngineEvent) -> None:
+            eventos.append(event)
+
+        assert await resume_conversation(
+            session_store=session_store,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            decision="approve",
+            approval_gate=gate,
+            on_event=on_event,
+        )
+
+        resultado = next(event for event in eventos if isinstance(event, ToolResult))
+        assert resultado.is_error is True
+        assert chamadas == [(ctx.user_id, "falhar_mcp", "error")]
+
     async def test_rejeitar_nao_executa_a_tool_e_persiste_mensagem_de_erro(
         self, session_store, ctx
     ):
