@@ -1,3 +1,4 @@
+import os
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -71,3 +72,38 @@ def test_asset_store_recupera_indice_incompleto_sem_excecao(tmp_path) -> None:
     (metadata / "index.json").write_text('{"truncated":', encoding="utf-8")
 
     assert AssetStore(metadata)._read() == {}
+
+
+def test_asset_store_no_windows_reposiciona_descritor_antes_do_lock(
+    tmp_path, monkeypatch
+) -> None:
+    """O caminho msvcrt bloqueia sempre o byte zero, nunca o fim do arquivo."""
+    import backend.services.assets as assets_module
+
+    class FakeMsvcrt:
+        LK_LOCK = 1
+
+        def __init__(self) -> None:
+            self.positions: list[int] = []
+
+        def locking(
+            self, file_descriptor: int, mode: int, number_of_bytes: int
+        ) -> None:
+            self.positions.append(os.lseek(file_descriptor, 0, os.SEEK_CUR))
+
+    fake_msvcrt = FakeMsvcrt()
+    monkeypatch.setattr(assets_module, "_fcntl", None)
+    monkeypatch.setattr(assets_module, "_msvcrt", fake_msvcrt)
+    path = tmp_path / "image.png"
+    path.write_bytes(b"png")
+
+    AssetStore(tmp_path / "metadata").create(
+        path=path,
+        owner_id="u1",
+        workspace_id="w1",
+        thread_id="t1",
+        mime_type="image/png",
+        source="upload",
+    )
+
+    assert fake_msvcrt.positions == [0]

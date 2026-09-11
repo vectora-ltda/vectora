@@ -426,6 +426,7 @@ async def _build_user_vmessage(
                     kind="image_url",
                     image_url=f"data:{att.mime_type};base64,{att.base64_data}",
                     asset_id=asset_id,
+                    attachment_name=persisted.name if persisted is not None else None,
                 )
             )
         elif att.kind == AttachmentKind.AUDIO:

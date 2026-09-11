@@ -106,13 +106,18 @@ class AssetStore:
             datetime.now(UTC).isoformat(),
         )
         self.root.mkdir(parents=True, exist_ok=True)
-        with self._process_lock(), self._lock.open("a+b") as lock:
+        try:
+            lock_file = self._lock.open("r+b")
+        except FileNotFoundError:
+            lock_file = self._lock.open("w+b")
+        with self._process_lock(), lock_file as lock:
             if _fcntl is not None:
                 _fcntl.flock(lock.fileno(), _fcntl.LOCK_EX)
             elif _msvcrt is not None:
                 lock.seek(0)
                 lock.write(b"0")
                 lock.flush()
+                lock.seek(0)
                 _msvcrt.locking(lock.fileno(), _msvcrt.LK_LOCK, 1)
             else:
                 raise RuntimeError("lock interprocesso de assets indisponível")

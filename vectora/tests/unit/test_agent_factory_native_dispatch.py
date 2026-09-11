@@ -179,6 +179,63 @@ class TestAgetThreadMessagesNativePrimeiro:
         # tool nunca aparecem no histórico exibido ao usuário.
         assert pairs == []
 
+    async def test_preserva_mensagem_com_apenas_imagem_e_asset(
+        self, session_store: SessionStore
+    ):
+        await session_store.create_session("thread-image", user_id="alice")
+        await session_store.append_message(
+            "thread-image",
+            VMessage(
+                role=MessageRole.USER,
+                content=[
+                    ContentBlock(
+                        kind="image_url",
+                        asset_id="asset-1",
+                        image_url="data:image/png;base64,x",
+                    )
+                ],
+            ),
+        )
+
+        with patch.object(
+            af, "get_session_store", AsyncMock(return_value=session_store)
+        ):
+            pairs = await af.aget_thread_messages("thread-image")
+
+        assert pairs[0][1] == ""
+        assert pairs[0][3] == [
+            {
+                "kind": "image",
+                "url": "/threads/thread-image/assets/asset-1",
+                "asset_id": "asset-1",
+            }
+        ]
+
+    async def test_reidrata_anexo_legado_por_filename(
+        self, session_store: SessionStore
+    ):
+        await session_store.create_session("thread-legacy-image", user_id="alice")
+        await session_store.append_message(
+            "thread-legacy-image",
+            VMessage(
+                role=MessageRole.USER,
+                content=[ContentBlock(kind="image_url", attachment_name="old.png")],
+            ),
+        )
+
+        with patch.object(
+            af, "get_session_store", AsyncMock(return_value=session_store)
+        ):
+            pairs = await af.aget_thread_messages("thread-legacy-image")
+
+        assert pairs[0][3] == [
+            {
+                "kind": "image",
+                "url": "/threads/thread-legacy-image/attachments/old.png",
+                "attachment_name": "old.png",
+            }
+        ]
+
     async def test_thread_sem_mensagem_nativa_devolve_lista_vazia(
         self, session_store: SessionStore
     ):
