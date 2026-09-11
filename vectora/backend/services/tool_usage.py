@@ -47,6 +47,7 @@ async def _sqlite() -> AsyncConnectionPool:
 async def record_tool_usage(user_id: str, tool_name: str, status: str) -> None:
     """Registra somente a conclusão de uma execução efetiva, sem argumentos."""
     now = datetime.now(UTC).isoformat()
+    cutoff = (datetime.now(UTC) - timedelta(days=7)).isoformat()
     try:
         from backend.services.license import get_effective_storage_mode
 
@@ -55,6 +56,9 @@ async def record_tool_usage(user_id: str, tool_name: str, status: str) -> None:
 
             pool = await get_pg_pool()
             async with pool.acquire() as conn:
+                await conn.execute(
+                    "DELETE FROM tool_usage_events WHERE created_at < $1", cutoff
+                )
                 await conn.execute(
                     "INSERT INTO tool_usage_events "
                     "(id,user_id,tool_name,status,created_at) VALUES ($1,$2,$3,$4,$5)",
@@ -67,6 +71,9 @@ async def record_tool_usage(user_id: str, tool_name: str, status: str) -> None:
             return
         pool = await _sqlite()
         async with pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM tool_usage_events WHERE created_at < ?", (cutoff,)
+            )
             await conn.execute(
                 "INSERT INTO tool_usage_events "
                 "(id,user_id,tool_name,status,created_at) VALUES (?,?,?,?,?)",

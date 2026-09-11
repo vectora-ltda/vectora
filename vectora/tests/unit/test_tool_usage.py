@@ -65,3 +65,24 @@ async def test_usage_record_does_not_store_arguments_or_results(usage_db: Path) 
     assert len(rows) == 1
     row = rows[0]
     assert row[1:] == ("alice", "terminal", "error", row[4])
+
+
+@pytest.mark.asyncio
+async def test_record_prunes_events_older_than_seven_days(usage_db: Path) -> None:
+    old = (datetime.now(UTC) - timedelta(days=8)).isoformat()
+    async with aiosqlite.connect(usage_db) as db:
+        await db.execute(
+            "CREATE TABLE tool_usage_events (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, tool_name TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL)"
+        )
+        await db.execute(
+            "INSERT INTO tool_usage_events VALUES (?, ?, ?, ?, ?)",
+            ("expired", "alice", "file_read", "ok", old),
+        )
+        await db.commit()
+
+    await tool_usage.record_tool_usage("alice", "file_write", "ok")
+
+    async with aiosqlite.connect(usage_db) as db:
+        rows = list(await db.execute_fetchall("SELECT id FROM tool_usage_events"))
+    assert len(rows) == 1
+    assert rows[0][0] != "expired"
