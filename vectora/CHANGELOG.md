@@ -2,6 +2,14 @@
 
 Esta vers�o consolida as altera��es publicadas desde a vers�o 0.1.17.
 
+## [0.1.20](https://github.com/vectora-ltda/vectora/compare/v0.1.19...v0.1.20) (2026-09-11)
+
+
+### Features
+
+* compartilhar sessões com links sanitizados ([#163](https://github.com/vectora-ltda/vectora/issues/163)) ([231b254](https://github.com/vectora-ltda/vectora/commit/231b254a476523b1ca7f77d862ff4daf777d1870))
+* navigate conversation branches ([#175](https://github.com/vectora-ltda/vectora/issues/175)) ([d4baf5b](https://github.com/vectora-ltda/vectora/commit/d4baf5b529e0340e3a3e506e9a63a1e4c75d5ffd)), closes [#117](https://github.com/vectora-ltda/vectora/issues/117)
+
 ## [0.1.19](https://github.com/vectora-ltda/vectora/compare/v0.1.18...v0.1.19) (2026-09-11)
 
 

@@ -1,6 +1,6 @@
 {
   "name": "vectora-company",
-  "version": "0.1.19",
+  "version": "0.1.20",
   "description": "Site institucional e infra de billing da Vectora — vectora.company",
   "private": true,
   "engines": {
