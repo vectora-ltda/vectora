@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -86,6 +87,57 @@ async def test_record_prunes_events_older_than_seven_days(usage_db: Path) -> Non
         rows = list(await db.execute_fetchall("SELECT id FROM tool_usage_events"))
     assert len(rows) == 1
     assert rows[0][0] != "expired"
+
+
+@pytest.mark.asyncio
+async def test_sqlite_pool_initialization_is_serialized_per_path(
+    usage_db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    opened = asyncio.Event()
+    release = asyncio.Event()
+
+    class FakeConnection:
+        async def execute(self, _query: str) -> None:
+            return None
+
+        async def commit(self) -> None:
+            return None
+
+    class Acquire:
+        async def __aenter__(self) -> FakeConnection:
+            return FakeConnection()
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+    class FakePool:
+        created = 0
+
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            type(self).created += 1
+
+        async def open(self) -> None:
+            opened.set()
+            await release.wait()
+
+        def acquire(self) -> Acquire:
+            return Acquire()
+
+    monkeypatch.setattr(tool_usage, "AsyncConnectionPool", FakePool)
+    tool_usage._sqlite_pools.pop(str(usage_db), None)
+    tool_usage._sqlite_locks.pop(str(usage_db), None)
+
+    first = asyncio.create_task(tool_usage._sqlite())
+    await opened.wait()
+    second = asyncio.create_task(tool_usage._sqlite())
+    await asyncio.sleep(0)
+    assert not second.done()
+
+    release.set()
+    first_pool, second_pool = await asyncio.gather(first, second)
+
+    assert first_pool is second_pool
+    assert FakePool.created == 1
 
 
 @pytest.mark.asyncio

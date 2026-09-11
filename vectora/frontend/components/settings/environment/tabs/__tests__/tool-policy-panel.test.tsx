@@ -46,4 +46,43 @@ describe("ToolPolicyPanel", () => {
       await screen.findByText("Used 3 times in the last 7 days"),
     ).toBeInTheDocument();
   });
+
+  it("usa a forma singular e localiza o rótulo do schema", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify(
+              url === "/tools/policy"
+                ? {
+                    available: ["web_search"],
+                    disabled: [],
+                    schemas: { web_search: { type: "object" } },
+                  }
+                : { usage: { web_search: 1 } },
+            ),
+            { status: 200 },
+          ),
+        ),
+      ),
+    );
+
+    render(<ToolPolicyPanel />);
+
+    expect(
+      await screen.findByText("Used 1 time in the last 7 days"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Show schema" }),
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      screen.getByRole("button", { name: "Show schema" }).click();
+    });
+
+    expect(
+      screen.getByRole("region", { name: "web_search schema" }),
+    ).toBeInTheDocument();
+  });
 });

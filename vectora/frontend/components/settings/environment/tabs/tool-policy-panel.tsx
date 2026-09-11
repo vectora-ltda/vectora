@@ -139,7 +139,11 @@ export function ToolPolicyPanel() {
                     ? m.toolpolicy_usage_loading()
                     : usageError
                       ? m.toolpolicy_usage_error()
-                      : m.toolpolicy_usage({ count: usage?.[name] ?? 0 })}
+                      : (usage?.[name] ?? 0) === 1
+                        ? m.toolpolicy_usage_one({ count: usage?.[name] ?? 0 })
+                        : m.toolpolicy_usage_many({
+                            count: usage?.[name] ?? 0,
+                          })}
                 </span>
                 {schema !== undefined && (
                   <button
@@ -166,7 +170,7 @@ export function ToolPolicyPanel() {
                 <pre
                   id={`tool-schema-${name}`}
                   role="region"
-                  aria-label={`${name} schema`}
+                  aria-label={m.toolpolicy_schema_label({ name })}
                   className="mt-2 max-h-48 overflow-auto rounded bg-muted p-2 text-[10px]"
                 >
                   {JSON.stringify(schema, null, 2)}

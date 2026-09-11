@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -12,6 +13,7 @@ from backend.storage.sqlite.pool import AsyncConnectionPool
 logger = logging.getLogger(__name__)
 
 _sqlite_pools: dict[str, AsyncConnectionPool] = {}
+_sqlite_locks: dict[str, asyncio.Lock] = {}
 
 
 async def _sqlite() -> AsyncConnectionPool:
@@ -25,9 +27,13 @@ async def _sqlite() -> AsyncConnectionPool:
     path = settings.db_dsn or str(settings.vectora_home / "data" / "backend.db")
     pool = _sqlite_pools.get(path)
     if pool is None:
-        pool = AsyncConnectionPool(path, min_size=1, max_size=4)
-        await pool.open()
-        _sqlite_pools[path] = pool
+        lock = _sqlite_locks.setdefault(path, asyncio.Lock())
+        async with lock:
+            pool = _sqlite_pools.get(path)
+            if pool is None:
+                pool = AsyncConnectionPool(path, min_size=1, max_size=4)
+                await pool.open()
+                _sqlite_pools[path] = pool
 
     async with pool.acquire() as conn:
         await conn.execute(
