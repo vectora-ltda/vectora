@@ -59,6 +59,7 @@ const VOICE_LANG: Record<Lang, string> = {
 import { LARGE_PASTE_THRESHOLD } from "@/lib/constants/features";
 import { m as msg } from "@/lib/paraglide/messages";
 import { mDyn } from "@/lib/i18n-dyn";
+import { captureScreenshotAttachment } from "@/lib/utils/screenshot-capture";
 import { classifySmartPaste } from "@/lib/utils/chat/smart-paste";
 
 interface ChatInterfaceProps {
@@ -1258,6 +1259,14 @@ export function ChatInterface({
     }
   }, []);
 
+  const handleCaptureScreenshot = useCallback(async () => {
+    const capture = window.vectora?.captureScreenshot;
+    if (!capture) return;
+    await captureScreenshotAttachment(capture, processFiles, () =>
+      setUploadError(msg.plus_capture_screenshot_error()),
+    );
+  }, [processFiles]);
+
   // Paste grande vira anexo e preserva o fluxo normal de composição:
   // texto curto cola normal; texto longo (> LARGE_PASTE_THRESHOLD)
   // entra como `pasted-<N>.txt` na grid de anexos. Imagens continuam
@@ -1371,6 +1380,12 @@ export function ChatInterface({
           onPaste={handleInputPaste}
           onRemoveFile={removeFile}
           onFileButtonClick={handleFileButtonClick}
+          onCaptureScreenshot={
+            typeof window !== "undefined" &&
+            Boolean(window.vectora?.captureScreenshot)
+              ? handleCaptureScreenshot
+              : undefined
+          }
           fileInputRef={fileInputRef}
           onFileSelect={handleFileSelect}
           textareaRef={textareaRef}
