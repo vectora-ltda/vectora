@@ -222,4 +222,22 @@ class TestGetThreadAttachment:
             await threads_mod.get_thread_attachment("t1", "abc123.png", self._request())
         assert exc_info.value.status_code == 404
 
+    @pytest.mark.asyncio
+    async def test_rejeita_anexo_sem_sessao_registrada(self, monkeypatch):
+        from backend.api.handlers import threads as threads_mod
+
+        class EmptyStore:
+            async def get_session(self, _thread_id: str) -> None:
+                return None
+
+        monkeypatch.setattr(
+            threads_mod, "_get_session_store", AsyncMock(return_value=EmptyStore())
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await threads_mod.get_thread_attachment(
+                "legacy", "old.png", self._request()
+            )
+
+        assert exc_info.value.status_code == 404
+
         assert exc_info.value.status_code == 404

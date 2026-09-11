@@ -1,12 +1,13 @@
 import os
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import pytest
 
 from backend.services.assets import Asset, AssetStore
 
 
-def test_asset_store_returns_only_owned_non_symlink_assets(tmp_path) -> None:
+def test_asset_store_returns_only_owned_non_symlink_assets(tmp_path: Path) -> None:
     media = tmp_path / "image.png"
     media.write_bytes(b"png")
     store = AssetStore(tmp_path / "metadata")
@@ -27,7 +28,7 @@ def test_asset_store_returns_only_owned_non_symlink_assets(tmp_path) -> None:
     assert store.get(asset.id, owner_id="u1", workspace_id="w1", thread_id="t2") is None
 
 
-def test_asset_store_rejects_unknown_mime(tmp_path) -> None:
+def test_asset_store_rejects_unknown_mime(tmp_path: Path) -> None:
     path = tmp_path / "payload.bin"
     path.write_bytes(b"x")
     with pytest.raises(ValueError):
@@ -41,7 +42,9 @@ def test_asset_store_rejects_unknown_mime(tmp_path) -> None:
         )
 
 
-def test_asset_store_preserva_registros_em_criacoes_concorrentes(tmp_path) -> None:
+def test_asset_store_preserva_registros_em_criacoes_concorrentes(
+    tmp_path: Path,
+) -> None:
     media = tmp_path / "image.png"
     media.write_bytes(b"png")
     store = AssetStore(tmp_path / "metadata")
@@ -66,7 +69,7 @@ def test_asset_store_preserva_registros_em_criacoes_concorrentes(tmp_path) -> No
     )
 
 
-def test_asset_store_recupera_indice_incompleto_sem_excecao(tmp_path) -> None:
+def test_asset_store_recupera_indice_incompleto_sem_excecao(tmp_path: Path) -> None:
     metadata = tmp_path / "metadata"
     metadata.mkdir()
     (metadata / "index.json").write_text('{"truncated":', encoding="utf-8")
@@ -76,7 +79,7 @@ def test_asset_store_recupera_indice_incompleto_sem_excecao(tmp_path) -> None:
 
 @pytest.mark.parametrize("payload", ["[]", "null", '{"bad": []}'])
 def test_asset_store_ignora_raiz_ou_registros_malformados(
-    tmp_path, payload: str
+    tmp_path: Path, payload: str
 ) -> None:
     metadata = tmp_path / "metadata"
     metadata.mkdir()
@@ -88,7 +91,7 @@ def test_asset_store_ignora_raiz_ou_registros_malformados(
 
 
 def test_asset_store_no_windows_reposiciona_descritor_antes_do_lock(
-    tmp_path, monkeypatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """O caminho msvcrt bloqueia sempre o byte zero, nunca o fim do arquivo."""
     import backend.services.assets as assets_module
