@@ -13,6 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 from backend.api.handlers import share as share_handler
 from backend.api.handlers.share import _sanitize_shared_text
@@ -170,6 +171,102 @@ class TestShareCreate:
             await share_handler.create_share(
                 request, share_handler.CreateShareRequest(thread_id="thread")
             )
+
+
+class TestShareDelete:
+    async def _database(self, token: str = "share-token"):
+        import aiosqlite
+
+        db = await aiosqlite.connect(":memory:")
+        await db.execute(
+            "CREATE TABLE shared_threads (token TEXT PRIMARY KEY, thread_id TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, permission TEXT NOT NULL DEFAULT 'read')"
+        )
+        await db.execute(
+            "INSERT INTO shared_threads VALUES (?, 'thread-1', 'owner-1', '2026-01-01', '2026-12-31', 'read')",
+            (token,),
+        )
+        await db.commit()
+        return db
+
+    @staticmethod
+    def _request(user: object | None = None) -> Request:
+        request = Request(
+            {
+                "type": "http",
+                "method": "DELETE",
+                "path": "/threads/share/share-token",
+                "headers": [],
+                "scheme": "http",
+                "server": ("test", 80),
+                "client": ("test", 1),
+                "root_path": "",
+                "query_string": b"",
+            }
+        )
+        if user is not None:
+            request.state.user = user
+        return request
+
+    @pytest.mark.asyncio
+    async def test_revoga_pelo_criador_e_persiste_auditoria(self, monkeypatch):
+        db = await self._database()
+        events = []
+
+        async def audit(user_id, action, **fields):
+            events.append((user_id, action, fields))
+
+        monkeypatch.setattr(share_handler, "_get_db", lambda: _resolved(db))
+        monkeypatch.setattr(share_handler, "_ensure_share_table", _noop)
+        monkeypatch.setattr(share_handler, "_write_share_audit", audit)
+
+        result = await share_handler.delete_share(
+            "share-token", self._request(SimpleNamespace(id="owner-1", role="member"))
+        )
+
+        assert result == {}
+        assert events == [("owner-1", "share_revoke", {"token": "share-token"})]
+        async with db.execute(
+            "SELECT 1 FROM shared_threads WHERE token = ?", ("share-token",)
+        ) as cursor:
+            assert await cursor.fetchone() is None
+        await db.close()
+
+    @pytest.mark.asyncio
+    async def test_rejeita_nao_autorizado_e_sem_autenticacao(self, monkeypatch):
+        db = await self._database()
+        monkeypatch.setattr(share_handler, "_get_db", lambda: _resolved(db))
+        monkeypatch.setattr(share_handler, "_ensure_share_table", _noop)
+
+        with pytest.raises(share_handler.HTTPException) as unauthenticated:
+            await share_handler.delete_share("share-token", self._request())
+        assert unauthenticated.value.status_code == 401
+
+        with pytest.raises(share_handler.HTTPException) as forbidden:
+            await share_handler.delete_share(
+                "share-token", self._request(SimpleNamespace(id="other", role="member"))
+            )
+        assert forbidden.value.status_code == 403
+        await db.close()
+
+    @pytest.mark.asyncio
+    async def test_restaura_link_se_auditoria_falhar(self, monkeypatch):
+        db = await self._database()
+        monkeypatch.setattr(share_handler, "_get_db", lambda: _resolved(db))
+        monkeypatch.setattr(share_handler, "_ensure_share_table", _noop)
+        monkeypatch.setattr(share_handler, "_write_share_audit", _audit_failure)
+
+        with pytest.raises(RuntimeError, match="audit indisponível"):
+            await share_handler.delete_share(
+                "share-token",
+                self._request(SimpleNamespace(id="owner-1", role="member")),
+            )
+
+        async with db.execute(
+            "SELECT created_by, permission FROM shared_threads WHERE token = ?",
+            ("share-token",),
+        ) as cursor:
+            assert await cursor.fetchone() == ("owner-1", "read")
+        await db.close()
 
 
 async def _resolved(value):
