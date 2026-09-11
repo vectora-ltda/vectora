@@ -242,6 +242,22 @@ describe("branches de conversa", () => {
       expect.objectContaining<Partial<BranchRequestError>>({ status: 409 }),
     );
   });
+
+  it("preserva o erro tipado quando a renovação falha", async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      .mockResolvedValueOnce(new Response(null, { status: 401 }));
+
+    try {
+      await selectConversationBranch("thread-1", 3);
+      throw new Error("a seleção deveria falhar");
+    } catch (error) {
+      expect(error).toBeInstanceOf(BranchRequestError);
+      expect(error).toMatchObject({ status: 401, detail: "sessão expirada" });
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/auth/refresh");
+  });
 });
 
 describe("feedback", () => {

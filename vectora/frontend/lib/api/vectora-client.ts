@@ -499,7 +499,7 @@ async function branchRequest<T>(path: string, init?: RequestInit): Promise<T> {
   if (response.status === 401) {
     if (!(await tryRefreshToken())) {
       redirectToLogin();
-      throw new Error("sessão expirada");
+      throw new BranchRequestError(401, "sessão expirada");
     }
     response = await request();
   }

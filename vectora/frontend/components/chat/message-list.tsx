@@ -134,6 +134,7 @@ function ConversationBranchBar({ threadId }: { threadId?: string }) {
           onClick={() => {
             void selectConversationBranch(threadId, branch.head_message_id)
               .then((result) => {
+                setBranches(result.branches);
                 setActiveBranchId(result.active_head_message_id);
                 setComparisonCandidateId(null);
                 setComparison(null);

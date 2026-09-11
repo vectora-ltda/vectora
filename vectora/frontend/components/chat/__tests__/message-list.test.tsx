@@ -453,7 +453,10 @@ describe("MessageList — comparação e seleção de branches", () => {
   it("seleciona explicitamente uma branch e recarrega o estado ativo", async () => {
     branchMocks.listConversationBranches.mockResolvedValue(branches);
     branchMocks.selectConversationBranch.mockResolvedValue({
-      ...branches,
+      branches: [
+        { ...branches.branches[0], active: false },
+        { ...branches.branches[1], active: true },
+      ],
       active_head_message_id: 3,
     });
 
@@ -470,6 +473,13 @@ describe("MessageList — comparação e seleção de branches", () => {
     expect(branchMocks.selectConversationBranch).toHaveBeenCalledWith(
       "t-select",
       3,
+    );
+    expect(
+      screen.getByRole("button", { name: "Current branch" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Branch 2" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
     );
   });
 });
