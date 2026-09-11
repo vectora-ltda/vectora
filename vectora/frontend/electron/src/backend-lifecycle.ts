@@ -234,6 +234,51 @@ export function fetchBackendJson<T = unknown>(
   });
 }
 
+/** POST JSON autenticado pela ponte local do processo principal. */
+export function postBackendJson<T = unknown>(
+  transport: http.RequestOptions,
+  urlPath: string,
+  payload: unknown,
+  headers: Record<string, string> = {},
+): Promise<T | null> {
+  return new Promise((resolve) => {
+    const body = JSON.stringify(payload);
+    const req = http.request(
+      {
+        ...transport,
+        method: "POST",
+        path: urlPath,
+        headers: {
+          "content-type": "application/json",
+          "content-length": Buffer.byteLength(body),
+          ...headers,
+        },
+      },
+      (res) => {
+        if ((res.statusCode ?? 500) >= 400) {
+          res.resume();
+          resolve(null);
+          return;
+        }
+        let response = "";
+        res.on("data", (chunk: Buffer) => {
+          response += chunk;
+        });
+        res.on("end", () => {
+          try {
+            resolve(JSON.parse(response) as T);
+          } catch {
+            resolve(null);
+          }
+        });
+      },
+    );
+    req.on("error", () => resolve(null));
+    req.write(body);
+    req.end();
+  });
+}
+
 export interface WaitForBackendOptions {
   ping: () => Promise<boolean>;
   isExited: () => { exited: boolean; code: number | null };

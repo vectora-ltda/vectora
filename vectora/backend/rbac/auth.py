@@ -200,6 +200,15 @@ def _generate_refresh_token() -> str:
 _db_conn: Any = None
 
 
+async def close_db() -> None:
+    """Fecha a conexão compartilhada antes de substituir ``checkpoints.db``."""
+    global _db_conn
+    connection = _db_conn
+    _db_conn = None
+    if connection is not None:
+        await connection.close()
+
+
 async def _get_db() -> Any:
     """Retorna conexão aiosqlite compartilhada com os schemas de auth.
 
@@ -210,6 +219,9 @@ async def _get_db() -> Any:
     fallback garantido. Não trocar esta função para retornar um pool Postgres;
     ver ``PostgresAuthDB`` abaixo para o motivo de não estar em uso.
     """
+    from backend.services.maintenance import wait_until_available
+
+    await wait_until_available()
     global _db_conn
     if _db_conn is not None:
         return _db_conn

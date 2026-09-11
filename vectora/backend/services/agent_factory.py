@@ -583,6 +583,9 @@ async def get_session_store() -> SessionStore:
     """``SessionStore`` compartilhado do motor nativo — histórico de
     mensagens e aprovações pendentes das threads de chat (StreamChat/
     ResumeChat)."""
+    from backend.services.maintenance import wait_until_available
+
+    await wait_until_available()
     await _ensure_infra()
     if _session_store is None:
         msg = "_ensure_infra não inicializou o SessionStore"
@@ -747,6 +750,9 @@ async def get_native_agent(
     """Componentes do motor nativo (tools, subagentes, system prompt) para
     o dispatch de produção do chat — cache por ``(user_id, chat_mode,
     workspace_id)``. Thread-safe via ``_lock``."""
+    from backend.services.maintenance import wait_until_available
+
+    await wait_until_available()
     _check_global_tools_version()
     if user_id:
         _track_versions(user_id)
@@ -912,7 +918,7 @@ def _invalidate_llm_cache(user_id: str) -> None:
         pass
 
 
-async def aclose() -> None:
+async def aclose(*, strict: bool = False) -> None:
     """Fecha o store nativo (SQLite ou Postgres) + o ``SessionStore``/
     ``ApprovalGate``. Idempotente.
 
@@ -932,6 +938,8 @@ async def aclose() -> None:
                 await pool.close()
                 logger.info("agent_factory: SessionStore fechado")
             except Exception as exc:
+                if strict:
+                    raise
                 logger.warning("agent_factory: erro ao fechar SessionStore: %s", exc)
 
         if _store is None:
@@ -947,10 +955,12 @@ async def aclose() -> None:
                 await store_ctx.close()
                 logger.info("agent_factory: store Postgres fechado")
             except Exception as exc:
+                if strict:
+                    raise
                 logger.warning("agent_factory: erro ao fechar store Postgres: %s", exc)
 
 
-async def awarm() -> None:
+async def awarm(*, strict: bool = False) -> None:
     """Inicializa a infra de persistência + o ``NativeAgent`` padrão eagerly
     no startup (opt-in).
 
@@ -963,3 +973,5 @@ async def awarm() -> None:
         await get_native_agent()
     except Exception as exc:
         logger.warning("agent_factory: awarm falhou: %s", exc)
+        if strict:
+            raise
