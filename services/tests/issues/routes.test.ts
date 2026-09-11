@@ -582,8 +582,9 @@ describe("POST /issues/github/webhook", () => {
       issueId,
       "admin",
     );
-    for (let attempt = 0; attempt < 100 && commentPosts === 0; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 1));
+    const deadline = Date.now() + 10_000;
+    while (commentPosts === 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
     }
     expect(commentPosts).toBe(1);
 

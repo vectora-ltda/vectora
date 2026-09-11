@@ -179,7 +179,7 @@ function IssueDetailPage() {
               rel="noreferrer"
               className="text-xs text-primary hover:underline"
             >
-              GitHub intake ↗
+              {m.issues_github_intake()}
             </a>
           )}
           {issue.core_url && (
@@ -189,7 +189,7 @@ function IssueDetailPage() {
               rel="noreferrer"
               className="text-xs text-primary hover:underline"
             >
-              Core issue ↗
+              {m.issues_core_issue()}
             </a>
           )}
         </div>
@@ -221,11 +221,11 @@ function IssueDetailPage() {
       {issue.comments && issue.comments.length > 0 && (
         <div className="mt-6 space-y-3">
           <h2 className="text-sm font-semibold text-foreground">
-            GitHub discussion
+            {m.issues_github_discussion()}
           </h2>
           {issue.comments.map((comment) => (
             <div
-              key={`${comment.author}-${comment.created_at}`}
+              key={comment.github_comment_id}
               className="rounded-xl border border-border bg-card/30 p-4"
             >
               <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
@@ -242,7 +242,7 @@ function IssueDetailPage() {
                   rel="noreferrer"
                   className="mt-2 inline-block text-xs text-primary hover:underline"
                 >
-                  View on GitHub ↗
+                  {m.issues_view_on_github()}
                 </a>
               )}
             </div>
@@ -305,8 +305,8 @@ function IssueDetailPage() {
                   className="rounded-lg border border-primary px-4 py-2 text-sm text-primary hover:bg-primary/10 disabled:opacity-40 transition-colors"
                 >
                   {approveMutation.isPending
-                    ? "Promoting…"
-                    : "Approve for core"}
+                    ? m.issues_promoting()
+                    : m.issues_approve_core()}
                 </button>
               )}
               {!issue.github_url && (
@@ -315,7 +315,9 @@ function IssueDetailPage() {
                   disabled={syncMutation.isPending}
                   className="rounded-lg border border-border px-4 py-2 text-sm text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"
                 >
-                  {syncMutation.isPending ? "Syncing…" : "Retry GitHub sync"}
+                  {syncMutation.isPending
+                    ? m.issues_syncing()
+                    : m.issues_retry_github_sync()}
                 </button>
               )}
               <button

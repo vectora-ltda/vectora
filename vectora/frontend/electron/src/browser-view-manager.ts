@@ -23,6 +23,12 @@ export interface ViewBounds {
 const HIDDEN_BOUNDS: ViewBounds = { x: 0, y: 0, width: 0, height: 0 };
 
 export interface ManagedWebContents {
+  navigationHistory?: {
+    canGoBack(): boolean;
+    canGoForward(): boolean;
+    goBack(): void;
+    goForward(): void;
+  };
   loadURL(url: string): Promise<void>;
   goBack(): void;
   goForward(): void;
@@ -124,11 +130,15 @@ export class BrowserViewManager {
   }
 
   goBack(id: number): void {
-    this.entries.get(id)?.view.webContents.goBack();
+    const wc = this.entries.get(id)?.view.webContents;
+    if (!wc) return;
+    wc.navigationHistory?.goBack() ?? wc.goBack();
   }
 
   goForward(id: number): void {
-    this.entries.get(id)?.view.webContents.goForward();
+    const wc = this.entries.get(id)?.view.webContents;
+    if (!wc) return;
+    wc.navigationHistory?.goForward() ?? wc.goForward();
   }
 
   reload(id: number): void {

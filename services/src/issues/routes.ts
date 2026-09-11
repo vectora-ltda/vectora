@@ -135,18 +135,34 @@ export async function syncCreatedIssue(
   description: string | undefined,
 ): Promise<void> {
   if (!env.GITHUB_ISSUES_TOKEN && !env.GITHUB_TOKEN) return;
-  const existing = await env.DB.prepare(
-    "SELECT github_repo, github_number, github_url, github_sync_state, response, status FROM issues WHERE id = ?",
-  )
-    .bind(issueId)
-    .first<{
-      github_repo: string | null;
-      github_number: number | null;
-      github_url: string | null;
-      github_sync_state: string;
-      response: string | null;
-      status: string;
-    }>();
+  let existing: {
+    github_repo: string | null;
+    github_number: number | null;
+    github_url: string | null;
+    github_sync_state: string;
+    response: string | null;
+    status: string;
+  } | null;
+  try {
+    existing = await env.DB.prepare(
+      "SELECT github_repo, github_number, github_url, github_sync_state, response, status FROM issues WHERE id = ?",
+    )
+      .bind(issueId)
+      .first<{
+        github_repo: string | null;
+        github_number: number | null;
+        github_url: string | null;
+        github_sync_state: string;
+        response: string | null;
+        status: string;
+      }>();
+  } catch (error) {
+    console.error("issue_github_initial_read_failed", {
+      issueId,
+      message: error instanceof Error ? error.message : "database_error",
+    });
+    return;
+  }
   if (existing?.github_repo && existing.github_number && existing.github_url) {
     try {
       await reconcileIssueComments(
@@ -697,13 +713,13 @@ issues.get("/files/*", async (c) => {
 // arquivada é admin, via GET /admin/issues/:id.
 issues.get("/:id", async (c) => {
   const row = await c.env.DB.prepare(
-    "SELECT id, title, category, description, files, status, created_at, github_url, github_sync_state, core_url FROM issues WHERE id = ? AND archived_at IS NULL",
+    "SELECT id, title, category, description, files, status, created_at, github_url, github_sync_state FROM issues WHERE id = ? AND archived_at IS NULL",
   )
     .bind(c.req.param("id"))
     .first<{ files: string | null } & Record<string, unknown>>();
   if (!row) return c.json({ error: "not_found" }, 404);
   const { results: comments } = await c.env.DB.prepare(
-    "SELECT author, body, html_url, created_at, updated_at FROM issue_comments WHERE issue_id = ? AND deleted_at IS NULL ORDER BY created_at ASC",
+    "SELECT github_comment_id, author, body, html_url, created_at, updated_at FROM issue_comments WHERE issue_id = ? AND deleted_at IS NULL ORDER BY created_at ASC",
   )
     .bind(c.req.param("id"))
     .all();

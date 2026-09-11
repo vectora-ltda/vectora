@@ -247,6 +247,13 @@ interface AdminIssueRow {
   approved_at: string | null;
   approved_by: string | null;
   response_version: number;
+  comments?: Array<{
+    github_comment_id: number;
+    author: string;
+    body: string;
+    html_url: string | null;
+    created_at: string;
+  }>;
 }
 
 // Lista completa (com email — o público NUNCA vê esse campo) pro admin
@@ -288,7 +295,7 @@ admin.get("/issues/:id", async (c) => {
   if (!row) return c.json({ error: "not_found" }, 404);
 
   const { results: comments } = await c.env.DB.prepare(
-    "SELECT author, body, html_url, created_at, updated_at FROM issue_comments WHERE issue_id = ? AND deleted_at IS NULL ORDER BY created_at ASC",
+    "SELECT github_comment_id, author, body, html_url, created_at, updated_at FROM issue_comments WHERE issue_id = ? AND deleted_at IS NULL ORDER BY created_at ASC",
   )
     .bind(c.req.param("id"))
     .all();
@@ -412,11 +419,14 @@ admin.post("/issues/:id/respond", async (c) => {
   if (!issue) return c.json({ error: "not_found" }, 404);
 
   const newStatus = body.resolve ? "resolved" : "open";
-  await c.env.DB.prepare(
-    "UPDATE issues SET response = ?, responded_at = datetime('now'), status = ?, response_version = response_version + 1, github_sync_state = CASE WHEN github_repo IS NOT NULL AND github_number IS NOT NULL THEN 'response_pending' ELSE github_sync_state END, response_sync_lease_until = NULL, github_sync_error = NULL WHERE id = ?",
+  const nextVersion = issue.response_version + 1;
+  const bumped = await c.env.DB.prepare(
+    "UPDATE issues SET response = ?, responded_at = datetime('now'), status = ?, response_version = ?, github_sync_state = CASE WHEN github_repo IS NOT NULL AND github_number IS NOT NULL THEN 'response_pending' ELSE github_sync_state END, response_sync_lease_until = NULL, github_sync_error = NULL WHERE id = ? AND response_version = ?",
   )
-    .bind(body.response, newStatus, id)
+    .bind(body.response, newStatus, nextVersion, id, issue.response_version)
     .run();
+  if (bumped.meta.changes === 0)
+    return c.json({ error: "response_superseded" }, 409);
 
   if (issue.github_repo && issue.github_number) {
     try {
@@ -427,7 +437,7 @@ admin.post("/issues/:id/respond", async (c) => {
         issue.github_number,
         body.response,
         Boolean(body.resolve),
-        issue.response_version + 1,
+        nextVersion,
       );
     } catch (error) {
       const message =
@@ -438,13 +448,7 @@ admin.post("/issues/:id/respond", async (c) => {
       await c.env.DB.prepare(
         "UPDATE issues SET github_sync_state = CASE WHEN response_version = ? THEN 'response_pending' ELSE github_sync_state END, response_sync_lease_until = CASE WHEN response_version = ? THEN NULL ELSE response_sync_lease_until END, github_sync_error = CASE WHEN response_version = ? THEN ? ELSE github_sync_error END WHERE id = ?",
       )
-        .bind(
-          issue.response_version + 1,
-          issue.response_version + 1,
-          issue.response_version + 1,
-          message.slice(0, 200),
-          id,
-        )
+        .bind(nextVersion, nextVersion, nextVersion, message.slice(0, 200), id)
         .run();
       console.error("issue_github_response_sync_failed", {
         id,

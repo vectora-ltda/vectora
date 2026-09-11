@@ -29,7 +29,7 @@ async function renewPromotionLease(
   const renewed = await env.DB.prepare(
     `UPDATE issues SET promotion_lease_until = datetime('now', '+${PROMOTION_LEASE_MINUTES} minutes')
      WHERE id = ? AND github_sync_state = 'promotion_pending'
-     AND github_sync_error = ?`,
+     AND promotion_operation_token = ?`,
   )
     .bind(issueId, operationToken)
     .run();
@@ -176,12 +176,12 @@ export async function promoteIssue(
   const operationToken = claimToken ?? crypto.randomUUID();
   const claimed = claimToken
     ? await env.DB.prepare(
-        "UPDATE issues SET github_sync_state = 'promotion_pending', promotion_lease_until = datetime('now', '+10 minutes') WHERE id = ? AND github_sync_state = 'promotion_failed' AND github_sync_error = ?",
+        "UPDATE issues SET github_sync_state = 'promotion_pending', promotion_operation_token = ?, promotion_lease_until = datetime('now', '+10 minutes') WHERE id = ? AND github_sync_state = 'promotion_failed' AND github_sync_error = ?",
       )
-        .bind(issueId, claimToken)
+        .bind(operationToken, issueId, claimToken)
         .run()
     : await env.DB.prepare(
-        "UPDATE issues SET github_sync_state = 'promotion_pending', github_sync_error = ?, approved_at = COALESCE(approved_at, datetime('now')), promotion_lease_until = datetime('now', '+10 minutes'), approved_by = COALESCE(approved_by, ?) WHERE id = ? AND github_sync_state NOT IN ('promotion_pending', 'promoted')",
+        "UPDATE issues SET github_sync_state = 'promotion_pending', promotion_operation_token = ?, github_sync_error = NULL, approved_at = COALESCE(approved_at, datetime('now')), promotion_lease_until = datetime('now', '+10 minutes'), approved_by = COALESCE(approved_by, ?) WHERE id = ? AND github_sync_state NOT IN ('promotion_pending', 'promoted')",
       )
         .bind(operationToken, approvedBy, issueId)
         .run();
@@ -200,14 +200,13 @@ export async function promoteIssue(
     );
   }
   const persisted = await env.DB.prepare(
-    "UPDATE issues SET core_repo = ?, core_number = ?, core_url = ?, approved_at = COALESCE(approved_at, datetime('now')), promotion_lease_until = datetime('now', '+10 minutes'), approved_by = COALESCE(approved_by, ?), github_sync_state = 'promotion_pending', github_sync_error = ? WHERE id = ? AND github_sync_error = ?",
+    "UPDATE issues SET core_repo = ?, core_number = ?, core_url = ?, approved_at = COALESCE(approved_at, datetime('now')), promotion_lease_until = datetime('now', '+10 minutes'), approved_by = COALESCE(approved_by, ?), github_sync_state = 'promotion_pending', github_sync_error = NULL WHERE id = ? AND promotion_operation_token = ?",
   )
     .bind(
       targetRepo,
       created.number,
       created.html_url,
       approvedBy,
-      operationToken,
       issueId,
       operationToken,
     )
@@ -269,7 +268,7 @@ export async function promoteIssue(
     }
   }
   await env.DB.prepare(
-    "UPDATE issues SET github_sync_state = 'promoted', github_sync_error = NULL WHERE id = ? AND github_sync_error = ?",
+    "UPDATE issues SET github_sync_state = 'promoted', github_sync_error = NULL WHERE id = ? AND promotion_operation_token = ?",
   )
     .bind(issueId, operationToken)
     .run();
@@ -290,9 +289,9 @@ export function githubApprovalAllowed(env: Env, login: string): boolean {
 export async function reconcilePendingPromotions(env: Env): Promise<void> {
   const { results } = await env.DB.prepare(
     "SELECT id, approved_by, core_number, github_sync_state FROM issues " +
-      "WHERE github_sync_state IN ('promotion_pending', 'approval_error') " +
+      "WHERE github_sync_state IN ('promotion_pending', 'approval_error', 'promotion_failed') " +
       "AND approved_by IS NOT NULL " +
-      "AND (github_sync_state = 'approval_error' OR promotion_lease_until IS NULL OR promotion_lease_until <= datetime('now')) " +
+      "AND (github_sync_state IN ('approval_error', 'promotion_failed') OR promotion_lease_until IS NULL OR promotion_lease_until <= datetime('now')) " +
       "LIMIT 25",
   ).all<{
     id: string;
@@ -304,11 +303,11 @@ export async function reconcilePendingPromotions(env: Env): Promise<void> {
     try {
       const claimToken = crypto.randomUUID();
       const claimed = await env.DB.prepare(
-        "UPDATE issues SET github_sync_state = 'promotion_failed', github_sync_error = ? " +
+        "UPDATE issues SET github_sync_state = 'promotion_failed', promotion_operation_token = ?, github_sync_error = ? " +
           "WHERE id = ? AND github_sync_state = ? " +
-          "AND (github_sync_state = 'approval_error' OR promotion_lease_until IS NULL OR promotion_lease_until <= datetime('now'))",
+          "AND (github_sync_state IN ('approval_error', 'promotion_failed') OR promotion_lease_until IS NULL OR promotion_lease_until <= datetime('now'))",
       )
-        .bind(claimToken, issue.id, issue.github_sync_state)
+        .bind(claimToken, claimToken, issue.id, issue.github_sync_state)
         .run();
       if (claimed.meta.changes === 0) continue;
       await promoteIssue(env, issue.id, issue.approved_by, claimToken);

@@ -112,6 +112,7 @@ export interface AdminIssueRow {
     body: string;
     html_url: string | null;
     created_at: string;
+    github_comment_id: number;
   }>;
 }
 

@@ -284,6 +284,7 @@ jobs:
           ensure_column issues approved_at "TEXT"
           ensure_column issues approved_by "TEXT"
           ensure_column issues promotion_lease_until "TEXT"
+          ensure_column issues promotion_operation_token "TEXT"
           ensure_column issues response_version "INTEGER NOT NULL DEFAULT 0"
           ensure_column issues response_sync_lease_until "TEXT"
           ensure_column issue_comments updated_at "TEXT"

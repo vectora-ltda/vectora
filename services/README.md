@@ -107,6 +107,8 @@ handler):
   `update_telemetry`, `telemetry_ingest`, `rag_reindex`; DLQ
   `vectora-jobs-dlq`.
 
+O deploy valida o schema existente antes de iniciar os serviços de sincronização, permitindo atualizar instalações legadas de forma aditiva e idempotente.
+
 ### Atualização do schema da sincronização de issues
 
 O `0001_schema.sql` continua sendo o único schema base, idempotente para bancos
