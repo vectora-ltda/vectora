@@ -422,11 +422,25 @@ admin.post("/issues/:id/respond", async (c) => {
   }
 
   const newStatus = body.resolve ? "resolved" : "open";
-  await c.env.DB.prepare(
-    "UPDATE issues SET response = ?, responded_at = datetime('now'), status = ?, response_version = response_version + 1, github_sync_state = CASE WHEN github_repo IS NOT NULL AND github_number IS NOT NULL THEN 'response_syncing' ELSE github_sync_state END, response_sync_lease_until = CASE WHEN github_repo IS NOT NULL AND github_number IS NOT NULL THEN datetime('now', '+5 minutes') ELSE NULL END, github_sync_error = NULL WHERE id = ?",
-  )
-    .bind(body.response, newStatus, id)
-    .run();
+  const responseUpdate =
+    issue.github_repo && issue.github_number
+      ? await c.env.DB.prepare(
+          "UPDATE issues SET response = ?, responded_at = datetime('now'), status = ?, response_version = response_version + 1, github_sync_state = 'response_syncing', response_sync_lease_until = datetime('now', '+5 minutes'), github_sync_error = NULL WHERE id = ? AND response_version = ? AND (github_sync_state != 'response_syncing' OR response_sync_lease_until IS NULL OR response_sync_lease_until <= datetime('now'))",
+        )
+          .bind(body.response, newStatus, id, issue.response_version)
+          .run()
+      : await c.env.DB.prepare(
+          "UPDATE issues SET response = ?, responded_at = datetime('now'), status = ?, response_version = response_version + 1, github_sync_error = NULL WHERE id = ?",
+        )
+          .bind(body.response, newStatus, id)
+          .run();
+  if (
+    issue.github_repo &&
+    issue.github_number &&
+    responseUpdate.meta.changes === 0
+  ) {
+    return c.json({ error: "response_superseded" }, 409);
+  }
 
   if (issue.github_repo && issue.github_number) {
     try {
