@@ -21,6 +21,8 @@ export interface VectoraDesktopBridge {
   openExternal: (url: string) => Promise<void>;
   /** Abre o seletor nativo de pasta. `null` = usuário cancelou. */
   pickDirectory: () => Promise<string | null>;
+  /** Captura uma tela/janela após escolha explícita; null significa cancelar. */
+  captureScreenshot: () => Promise<Uint8Array | null>;
   /** Notifica o main que o renderer recebeu um deep-link e o processou. */
   acknowledgeDeepLink: (url: string) => void;
   /** Subscreve a deep-links (`vectora://...`) entregues ao app. */
@@ -123,6 +125,7 @@ const bridge: VectoraDesktopBridge = {
   appVersion: process.env.VECTORA_APP_VERSION ?? "0.0.0",
   openExternal: (url) => ipcRenderer.invoke("vectora:open-external", url),
   pickDirectory: () => ipcRenderer.invoke("vectora:pick-directory"),
+  captureScreenshot: () => ipcRenderer.invoke("vectora:capture-screenshot"),
   acknowledgeDeepLink: (url) => ipcRenderer.send("vectora:deep-link-ack", url),
   onDeepLink: (handler) => {
     const listener = (_event: unknown, url: string) => handler(url);
