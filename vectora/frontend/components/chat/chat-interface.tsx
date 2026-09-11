@@ -60,6 +60,7 @@ import { LARGE_PASTE_THRESHOLD } from "@/lib/constants/features";
 import { m as msg } from "@/lib/paraglide/messages";
 import { mDyn } from "@/lib/i18n-dyn";
 import { captureScreenshotAttachment } from "@/lib/utils/screenshot-capture";
+import { classifySmartPaste } from "@/lib/utils/chat/smart-paste";
 
 interface ChatInterfaceProps {
   showToolCalls?: boolean;
@@ -190,6 +191,11 @@ export function ChatInterface({
     setInput,
   } = useChatState(threadId);
   const [inputError, setInputError] = useState<string | null>(null);
+  const [structuredPaste, setStructuredPaste] = useState<{
+    content: string;
+    extension: string;
+    mimeType: string;
+  } | null>(null);
 
   // Consome drafts pré-populados por outras áreas (ex.: empty
   // state do PlanTab que faz "Pedir um plano ao Vectora"). O draft é
@@ -1270,9 +1276,23 @@ export function ChatInterface({
       const pastedText = e.clipboardData?.getData("text") ?? "";
       if (pastedText.length > LARGE_PASTE_THRESHOLD) {
         e.preventDefault();
-        const blob = new Blob([pastedText], { type: "text/plain" });
-        const fileName = `pasted-${Date.now()}.txt`;
-        const file = new File([blob], fileName, { type: "text/plain" });
+        const detected = classifySmartPaste(pastedText);
+        const structured = detected.kind === "json" || detected.kind === "yaml";
+        if (structured) {
+          setStructuredPaste({
+            content: pastedText,
+            extension: detected.extension,
+            mimeType: detected.mimeType,
+          });
+          return;
+        }
+        const suffix =
+          detected.kind === "text" || detected.kind === "url"
+            ? "txt"
+            : detected.extension;
+        const blob = new Blob([pastedText], { type: detected.mimeType });
+        const fileName = `pasted-${Date.now()}.${suffix}`;
+        const file = new File([blob], fileName, { type: detected.mimeType });
         await processFiles([file]);
         return;
       }
@@ -1380,6 +1400,25 @@ export function ChatInterface({
           onAgentConfigChange={onAgentConfigChange}
           dropHintExpanded={isNewChat}
           compact={compact}
+          structuredPaste={structuredPaste}
+          onStructuredPasteCancel={() => setStructuredPaste(null)}
+          onStructuredPasteAttach={async () => {
+            if (!structuredPaste) return;
+            const file = new File(
+              [structuredPaste.content],
+              `pasted-${Date.now()}.${structuredPaste.extension}`,
+              { type: structuredPaste.mimeType },
+            );
+            setStructuredPaste(null);
+            await processFiles([file]);
+          }}
+          onStructuredPasteText={() => {
+            if (!structuredPaste) return;
+            setInput(
+              `${uiState.input}${uiState.input ? "\n" : ""}${structuredPaste.content}`,
+            );
+            setStructuredPaste(null);
+          }}
         />
       </main>
     </>

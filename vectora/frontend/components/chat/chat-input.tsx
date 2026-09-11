@@ -5,7 +5,7 @@
  * Includes file upload, drag & drop, and paste support.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Send, TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { FilePreviewGrid } from "./features/file-preview-grid";
+import { UrlPreviewCard } from "./features/url-preview-card";
 import { VoiceInputButton } from "./features/voice-input-button";
 import { PermissionModeMenu } from "./features/permission-mode-menu";
 import { EffortMenu } from "./features/effort-menu";
@@ -39,6 +40,7 @@ import {
 } from "@/lib/config/deployment-config";
 import { checkOpenRouterModelSupportsImage } from "@/lib/api/openrouter-vision";
 import { m } from "@/lib/paraglide/messages";
+import { classifySmartPaste } from "@/lib/utils/chat/smart-paste";
 
 interface VscodeOption {
   strategy: string;
@@ -130,6 +132,14 @@ interface ChatInputProps {
   onAtMentionSelect?: (path: string, startIdx: number, endIdx: number) => void;
   /** IDE sidebar: usa bg-sidebar em vez de bg-background. */
   compact?: boolean;
+  structuredPaste?: {
+    content: string;
+    extension: string;
+    mimeType: string;
+  } | null;
+  onStructuredPasteAttach?: () => void;
+  onStructuredPasteText?: () => void;
+  onStructuredPasteCancel?: () => void;
 }
 
 const EMPTY_QUEUED_MESSAGES: NonNullable<ChatInputProps["queuedMessages"]> = [];
@@ -173,6 +183,10 @@ export function ChatInput({
   dropHintExpanded = false,
   onAtMentionSelect,
   compact = false,
+  structuredPaste,
+  onStructuredPasteAttach,
+  onStructuredPasteText,
+  onStructuredPasteCancel,
 }: ChatInputProps) {
   const wsId = useWorkspacesStore((s) => s.getActive())?.id ?? "";
   const chatMode = useSettingsStore((s) => s.chatMode);
@@ -196,6 +210,21 @@ export function ChatInput({
   // por modelo — consulta o catálogo (cacheado no backend) em vez de tratar
   // o provedor inteiro como sem suporte a imagem.
   const [openRouterSupportsImage, setOpenRouterSupportsImage] = useState(true);
+  const [dismissedPreviewUrl, setDismissedPreviewUrl] = useState<string | null>(
+    null,
+  );
+  const previousPreviewUrl = useRef<string | null>(null);
+  const previewUrl = useMemo(() => {
+    const value = input.trim();
+    return classifySmartPaste(value).kind === "url" ? value : null;
+  }, [input]);
+  useEffect(() => {
+    if (previousPreviewUrl.current === previewUrl) return;
+    previousPreviewUrl.current = previewUrl;
+    // A changed URL should always be eligible for a fresh preview.
+    // oxlint-disable-next-line react/set-state-in-effect
+    setDismissedPreviewUrl(null);
+  }, [previewUrl]);
   useEffect(() => {
     if (provider !== "openrouter" || !hasImage || !agentConfig?.model) {
       // Consulta o catálogo de modelos OpenRouter (I/O de rede, cacheado no
@@ -257,6 +286,51 @@ export function ChatInput({
             de viewport (sm:) nunca disparavam ali e os controles transbordavam.
             Container queries resolvem chat largo e IDE estreito com uma regra. */}
         <div className="@container/composer w-full max-w-4xl mx-auto">
+          {structuredPaste && (
+            <div
+              className="mb-2 rounded-lg border border-border bg-muted/40 p-3"
+              role="dialog"
+              aria-label={m.chat_structured_paste_title()}
+            >
+              <p className="text-sm font-medium text-foreground">
+                {m.chat_structured_paste_title()}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {m.chat_structured_paste_description()}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={onStructuredPasteAttach}
+                >
+                  {m.chat_structured_paste_attach()}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={onStructuredPasteText}
+                >
+                  {m.chat_structured_paste_text()}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={onStructuredPasteCancel}
+                >
+                  {m.chat_structured_paste_cancel()}
+                </Button>
+              </div>
+            </div>
+          )}
+          {previewUrl && previewUrl !== dismissedPreviewUrl && (
+            <UrlPreviewCard
+              url={previewUrl}
+              onDismiss={() => setDismissedPreviewUrl(previewUrl)}
+            />
+          )}
           {/* File Previews */}
           <FilePreviewGrid files={attachedFiles} onRemove={onRemoveFile} />
 
