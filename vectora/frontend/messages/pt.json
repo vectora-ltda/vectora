@@ -748,6 +748,7 @@
   "toolpolicy_error_save": "Erro ao salvar",
   "toolpolicy_usage": "Usada {count} vezes nos últimos 7 dias",
   "toolpolicy_usage_error": "Uso indisponível",
+  "toolpolicy_usage_loading": "Carregando uso…",
   "toolpolicy_show_schema": "Mostrar schema",
   "toolpolicy_hide_schema": "Ocultar schema",
   "terminal_title": "Terminal",

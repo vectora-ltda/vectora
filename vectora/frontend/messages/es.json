@@ -748,6 +748,7 @@
   "toolpolicy_error_save": "Error al guardar",
   "toolpolicy_usage": "Usada {count} veces en los últimos 7 días",
   "toolpolicy_usage_error": "Uso no disponible",
+  "toolpolicy_usage_loading": "Cargando uso…",
   "toolpolicy_show_schema": "Mostrar esquema",
   "toolpolicy_hide_schema": "Ocultar esquema",
   "terminal_title": "Terminal",

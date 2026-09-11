@@ -28,6 +28,7 @@ export function ToolPolicyPanel() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [usage, setUsage] = useState<Record<string, number> | null>(null);
+  const [usageLoading, setUsageLoading] = useState(true);
   const [usageError, setUsageError] = useState(false);
   const [openSchema, setOpenSchema] = useState<string | null>(null);
 
@@ -53,7 +54,8 @@ export function ToolPolicyPanel() {
         if (d?.usage) setUsage(d.usage);
         else setUsageError(true);
       })
-      .catch(() => setUsageError(true));
+      .catch(() => setUsageError(true))
+      .finally(() => setUsageLoading(false));
     return () => {
       cancelled = true;
     };
@@ -133,9 +135,11 @@ export function ToolPolicyPanel() {
               </div>
               <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
                 <span>
-                  {usageError
-                    ? m.toolpolicy_usage_error()
-                    : m.toolpolicy_usage({ count: usage?.[name] ?? 0 })}
+                  {usageLoading
+                    ? m.toolpolicy_usage_loading()
+                    : usageError
+                      ? m.toolpolicy_usage_error()
+                      : m.toolpolicy_usage({ count: usage?.[name] ?? 0 })}
                 </span>
                 {schema !== undefined && (
                   <button
