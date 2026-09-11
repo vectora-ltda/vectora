@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 
 import pytest
+from fastapi.testclient import TestClient
 
 # ---------------------------------------------------------------------------
 # _is_public_route
@@ -257,6 +258,10 @@ class TestAuthMiddlewareIntegration:
 
     def test_private_route_without_token_returns_401(self, auth_client):
         r = auth_client.get("/auth/me")
+        assert r.status_code == 401
+
+    def test_feedback_without_token_returns_401(self, auth_client: TestClient) -> None:
+        r = auth_client.post("/feedback", json={"kind": "bug", "description": "falha"})
         assert r.status_code == 401
 
     def test_update_changelog_without_token_returns_401(self, auth_client):
