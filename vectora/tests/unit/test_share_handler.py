@@ -9,10 +9,12 @@ Valida:
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.api.handlers import share as share_handler
 from backend.api.handlers.share import _sanitize_shared_text
 from backend.rbac.auth import _write_audit
 
@@ -75,3 +77,55 @@ class TestShareCreate:
             assert "token" in body
             assert "url" in body
             assert "expires_at" in body
+
+    @pytest.mark.asyncio
+    async def test_criacao_falha_se_auditoria_obrigatoria_falhar(self, monkeypatch):
+        class FakeDb:
+            async def execute(self, *_args):
+                return None
+
+            async def commit(self):
+                return None
+
+        class FakeStore:
+            async def get_session(self, _thread_id):
+                return {"user_id": "owner"}
+
+        request = __import__("starlette.requests", fromlist=["Request"]).Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/threads/share",
+                "headers": [],
+                "scheme": "http",
+                "server": ("test", 80),
+                "client": ("test", 1),
+                "root_path": "",
+                "query_string": b"",
+            }
+        )
+        request.state.user = SimpleNamespace(id="owner", role="member")
+        monkeypatch.setattr(share_handler, "_get_db", lambda: _resolved(FakeDb()))
+        monkeypatch.setattr(share_handler, "_ensure_share_table", _noop)
+        monkeypatch.setattr(
+            "backend.services.agent_factory.get_session_store",
+            lambda: _resolved(FakeStore()),
+        )
+        monkeypatch.setattr(share_handler, "_write_share_audit", _audit_failure)
+
+        with pytest.raises(RuntimeError, match="audit indisponível"):
+            await share_handler.create_share(
+                request, share_handler.CreateShareRequest(thread_id="thread")
+            )
+
+
+async def _resolved(value):
+    return value
+
+
+async def _noop(*_args, **_kwargs):
+    return None
+
+
+async def _audit_failure(*_args, **_kwargs):
+    raise RuntimeError("audit indisponível")
