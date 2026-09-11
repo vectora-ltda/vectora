@@ -45,6 +45,7 @@ from backend.api.handlers.boards import router as boards_router
 from backend.api.handlers.chat import router as chat_router
 from backend.api.handlers.connect import router as connect_router
 from backend.api.handlers.context_graph import router as graph_router
+from backend.api.handlers.feedback import router as feedback_router
 from backend.api.handlers.flags import router as flags_router
 from backend.api.handlers.gateway import router as gateway_router
 from backend.api.handlers.license import router as license_router
@@ -605,6 +606,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
 
     # ── Routers ───────────────────────────────────────────────────────────────
     app.include_router(flags_router)
+    app.include_router(feedback_router)
     app.include_router(auth_router)
     app.include_router(connect_router)
     app.include_router(chat_router)
