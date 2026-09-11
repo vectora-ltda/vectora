@@ -12,6 +12,8 @@ import { requireAdmin } from "../auth/roles";
 import { grantSubscription } from "../billing/routes";
 import { giftReceivedHtml, issueResponseHtml } from "../lib/email";
 import { enqueueEmail } from "../lib/queue";
+import { promoteIssue } from "../issues/promotion";
+import { syncCreatedIssue, syncIssueResponse } from "../issues/routes";
 
 export const admin = new Hono<{ Bindings: Env }>();
 
@@ -234,6 +236,24 @@ interface AdminIssueRow {
   responded_at: string | null;
   archived_at: string | null;
   created_at: string;
+  github_repo: string | null;
+  github_number: number | null;
+  github_url: string | null;
+  github_sync_state: string;
+  github_sync_error: string | null;
+  core_repo: string | null;
+  core_number: number | null;
+  core_url: string | null;
+  approved_at: string | null;
+  approved_by: string | null;
+  response_version: number;
+  comments?: Array<{
+    github_comment_id: number;
+    author: string;
+    body: string;
+    html_url: string | null;
+    created_at: string;
+  }>;
 }
 
 // Lista completa (com email — o público NUNCA vê esse campo) pro admin
@@ -248,7 +268,7 @@ admin.get("/issues", async (c) => {
   const offset = Number(c.req.query("offset") ?? "0");
 
   const { results } = await c.env.DB.prepare(
-    "SELECT id, title, category, description, email, files, status, response, responded_at, archived_at, created_at FROM issues WHERE archived_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?",
+    "SELECT id, title, category, description, email, files, status, response, responded_at, archived_at, created_at, github_repo, github_number, github_url, github_sync_state, github_sync_error, core_repo, core_number, core_url, approved_at, approved_by, response_version FROM issues WHERE archived_at IS NULL ORDER BY created_at DESC LIMIT ? OFFSET ?",
   )
     .bind(limit, offset)
     .all<AdminIssueRow>();
@@ -268,16 +288,92 @@ admin.get("/issues/:id", async (c) => {
   if (!adminId) return c.json({ error: "forbidden" }, 403);
 
   const row = await c.env.DB.prepare(
-    "SELECT id, title, category, description, email, files, status, response, responded_at, archived_at, created_at FROM issues WHERE id = ?",
+    "SELECT id, title, category, description, email, files, status, response, responded_at, archived_at, created_at, github_repo, github_number, github_url, github_sync_state, github_sync_error, core_repo, core_number, core_url, approved_at, approved_by, response_version FROM issues WHERE id = ?",
   )
     .bind(c.req.param("id"))
     .first<AdminIssueRow>();
   if (!row) return c.json({ error: "not_found" }, 404);
 
+  const { results: comments } = await c.env.DB.prepare(
+    "SELECT github_comment_id, author, body, html_url, created_at, updated_at FROM issue_comments WHERE issue_id = ? AND deleted_at IS NULL ORDER BY created_at ASC",
+  )
+    .bind(c.req.param("id"))
+    .all();
+
   return c.json({
     ...row,
     files: row.files ? (JSON.parse(row.files) as string[]) : [],
+    comments,
   });
+});
+
+admin.post("/issues/:id/approve", async (c) => {
+  const adminId = await requireAdmin(c);
+  if (!adminId) return c.json({ error: "forbidden" }, 403);
+
+  const id = c.req.param("id");
+  try {
+    const result = await promoteIssue(c.env, id, adminId);
+    return c.json({
+      ok: true,
+      promoted: !result.alreadyPromoted,
+      already_promoted: result.alreadyPromoted ?? false,
+      url: result.url,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "promotion_failed";
+    if (message === "issue_not_found")
+      return c.json({ error: "not_found" }, 404);
+    if (message === "github_not_configured")
+      return c.json({ error: message }, 503);
+    if (message === "promotion_in_progress")
+      return c.json({ error: message }, 409);
+    console.error("issue_github_promotion_failed", { id, message });
+    return c.json({ error: "promotion_failed" }, 502);
+  }
+});
+
+admin.post("/issues/:id/sync", async (c) => {
+  const adminId = await requireAdmin(c);
+  if (!adminId) return c.json({ error: "forbidden" }, 403);
+  const id = c.req.param("id");
+  const issue = await c.env.DB.prepare(
+    "SELECT id, title, category, description FROM issues WHERE id = ?",
+  )
+    .bind(id)
+    .first<{
+      id: string;
+      title: string;
+      category: string;
+      description: string | null;
+    }>();
+  if (!issue) return c.json({ error: "not_found" }, 404);
+  if (!c.env.GITHUB_ISSUES_TOKEN && !c.env.GITHUB_TOKEN) {
+    return c.json({ error: "github_not_configured" }, 503);
+  }
+  await syncCreatedIssue(
+    c.env,
+    issue.id,
+    issue.title,
+    issue.category,
+    issue.description ?? undefined,
+  );
+  const updated = await c.env.DB.prepare(
+    "SELECT github_url, github_sync_state, github_sync_error FROM issues WHERE id = ?",
+  )
+    .bind(id)
+    .first<{
+      github_url: string | null;
+      github_sync_state: string;
+      github_sync_error: string | null;
+    }>();
+  if (updated?.github_sync_state === "error") {
+    return c.json(
+      { error: "github_sync_failed", detail: updated.github_sync_error },
+      502,
+    );
+  }
+  return c.json({ ok: true, ...updated });
 });
 
 admin.post("/issues/:id/archive", async (c) => {
@@ -310,18 +406,57 @@ admin.post("/issues/:id/respond", async (c) => {
   }
 
   const issue = await c.env.DB.prepare(
-    "SELECT title, email FROM issues WHERE id = ?",
+    "SELECT title, email, github_repo, github_number, response_version FROM issues WHERE id = ?",
   )
     .bind(id)
-    .first<{ title: string; email: string | null }>();
+    .first<{
+      title: string;
+      email: string | null;
+      github_repo: string | null;
+      github_number: number | null;
+      response_version: number;
+    }>();
   if (!issue) return c.json({ error: "not_found" }, 404);
 
   const newStatus = body.resolve ? "resolved" : "open";
-  await c.env.DB.prepare(
-    "UPDATE issues SET response = ?, responded_at = datetime('now'), status = ? WHERE id = ?",
+  const nextVersion = issue.response_version + 1;
+  const bumped = await c.env.DB.prepare(
+    "UPDATE issues SET response = ?, responded_at = datetime('now'), status = ?, response_version = ?, github_sync_state = CASE WHEN github_repo IS NOT NULL AND github_number IS NOT NULL THEN 'response_pending' ELSE github_sync_state END, response_sync_lease_until = NULL, github_sync_error = NULL WHERE id = ? AND response_version = ? AND NOT (github_sync_state = 'response_syncing' AND response_sync_lease_until > datetime('now'))",
   )
-    .bind(body.response, newStatus, id)
+    .bind(body.response, newStatus, nextVersion, id, issue.response_version)
     .run();
+  if (bumped.meta.changes === 0)
+    return c.json({ error: "response_superseded" }, 409);
+
+  if (issue.github_repo && issue.github_number) {
+    try {
+      await syncIssueResponse(
+        c.env,
+        id,
+        issue.github_repo,
+        issue.github_number,
+        body.response,
+        Boolean(body.resolve),
+        nextVersion,
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "github_sync_failed";
+      if (message === "response_superseded") {
+        return c.json({ error: message }, 409);
+      }
+      await c.env.DB.prepare(
+        "UPDATE issues SET github_sync_state = CASE WHEN response_version = ? THEN 'response_pending' ELSE github_sync_state END, response_sync_lease_until = CASE WHEN response_version = ? THEN NULL ELSE response_sync_lease_until END, github_sync_error = CASE WHEN response_version = ? THEN ? ELSE github_sync_error END WHERE id = ?",
+      )
+        .bind(nextVersion, nextVersion, nextVersion, message.slice(0, 200), id)
+        .run();
+      console.error("issue_github_response_sync_failed", {
+        id,
+        message,
+      });
+      return c.json({ error: "github_sync_pending" }, 502);
+    }
+  }
 
   // Só notifica se o reporter deixou email (opcional no formulário) — sem
   // email, a resposta fica só visível na página pública da issue.

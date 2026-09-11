@@ -40,13 +40,20 @@ async def list_catalog(q: str | None = None) -> list[dict]:
     já faz `LIKE` sobre nome/descrição). Degrada para lista vazia em
     qualquer falha de rede — nunca propaga exceção pro handler HTTP (a
     seção da Library trata lista vazia como estado vazio, não erro)."""
-    url = f"{_rag_library_url()}/"
+    base_url = _rag_library_url().rstrip("/")
     params = {"q": q} if q else None
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            resp = await client.get(url, params=params)
-            resp.raise_for_status()
-            return resp.json()
+            # Versões antigas do Worker aceitavam apenas a barra final;
+            # versões atuais aceitam a raiz sem ela. Tente ambas para que
+            # uma atualização gradual nunca derrube o catálogo no desktop.
+            for url in (f"{base_url}/", base_url):
+                resp = await client.get(url, params=params)
+                if resp.status_code == 404 and url.endswith("/"):
+                    continue
+                resp.raise_for_status()
+                return resp.json()
+            raise RuntimeError("Memory Library retornou 404 nas duas rotas")
     except Exception as exc:
         logger.warning("memory_library: falha ao consultar catálogo — %s", exc)
         return []
