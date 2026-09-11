@@ -158,12 +158,36 @@ class MediaQuota:
         self, user_id: str, operation: str, idempotency_key: str, units: int | None
     ) -> QuotaReservation | None:
         estimate_units = UNIT_COSTS.get(operation, 0) if units is None else units
+        try:
+            from backend.persistence.telemetry import telemetry
+
+            telemetry.record_media_quota(
+                "estimate",
+                operation=operation,
+                units=estimate_units,
+                estimate_version="v1",
+                currency="quota_units",
+                idempotency_key=idempotency_key,
+            )
+        except Exception:
+            logger.debug("media_quota: falha ao registrar estimativa", exc_info=True)
         tier = self._current_tier(user_id)
         if tier is None:
             logger.info(
                 "media_quota.blocked",
                 extra={"operation": operation, "reason": "entitlement_unavailable"},
             )
+            try:
+                from backend.persistence.telemetry import telemetry
+
+                telemetry.record_media_quota(
+                    "blocked",
+                    operation=operation,
+                    result="entitlement_unavailable",
+                    idempotency_key=idempotency_key,
+                )
+            except Exception:
+                logger.debug("media_quota: falha ao registrar bloqueio", exc_info=True)
             return None
         pool = await self._postgres_pool()
         async with pool.acquire() as connection:
@@ -214,6 +238,20 @@ class MediaQuota:
                             MONTHLY_LIMITS.get(tier, MONTHLY_LIMITS["free"]),
                         )
                         if not updated.endswith("1"):
+                            try:
+                                from backend.persistence.telemetry import telemetry
+
+                                telemetry.record_media_quota(
+                                    "blocked",
+                                    operation=operation,
+                                    result="quota_exceeded",
+                                    idempotency_key=idempotency_key,
+                                )
+                            except Exception:
+                                logger.debug(
+                                    "media_quota: falha ao registrar bloqueio",
+                                    exc_info=True,
+                                )
                             return None
                         await connection.execute(
                             "UPDATE media_quota_reservations SET state = 'reserved', period = $1 "
@@ -256,6 +294,19 @@ class MediaQuota:
                         "DELETE FROM media_quota_reservations WHERE id = $1",
                         idempotency_key,
                     )
+                    try:
+                        from backend.persistence.telemetry import telemetry
+
+                        telemetry.record_media_quota(
+                            "blocked",
+                            operation=operation,
+                            result="quota_exceeded",
+                            idempotency_key=idempotency_key,
+                        )
+                    except Exception:
+                        logger.debug(
+                            "media_quota: falha ao registrar bloqueio", exc_info=True
+                        )
                     return None
                 # A reserva foi inserida acima; só o débito ainda precisa ser
                 # confirmado nesta mesma transação.
@@ -469,6 +520,12 @@ class MediaQuota:
                 (state, reservation_id),
             )
             if updated.rowcount == 1:
+                if state in {"failed", "cancelled"}:
+                    db.execute(
+                        "UPDATE media_quota_usage SET used_units = MAX(0, used_units - ?) "
+                        "WHERE user_id = ? AND period = ?",
+                        (row[3], row[0], row[1]),
+                    )
                 db.commit()
                 self._record_transition(
                     operation=row[2],
@@ -477,12 +534,6 @@ class MediaQuota:
                     new_state=state,
                 )
                 logger.info("media_quota.finalized", extra={"state": state})
-            if updated.rowcount == 1 and state in {"failed", "cancelled"}:
-                db.execute(
-                    "UPDATE media_quota_usage SET used_units = MAX(0, used_units - ?) "
-                    "WHERE user_id = ? AND period = ?",
-                    (row[3], row[0], row[1]),
-                )
 
     async def summary(self, user_id: str) -> dict[str, int | str]:
         if self._postgres_enabled():

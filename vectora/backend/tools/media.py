@@ -84,9 +84,18 @@ async def _reserve_media(
         new_idempotency_key,
     )
 
-    # Contextos legados sem ID recebem uma chave efêmera; nunca usamos a
-    # thread como identidade de cobrança entre chamadas independentes.
-    stable_call_id = ctx.tool_call_id or uuid4().hex
+    # A cobrança precisa estar vinculada a uma identidade estável do ciclo de
+    # tool. Sem ela não há como distinguir retry de uma nova operação; falhar
+    # fechado evita uma segunda cobrança acidental.
+    stable_call_id = ctx.tool_call_id
+    if not stable_call_id:
+        return None, json.dumps(
+            {
+                "error": "identidade estável ausente para operação gerenciada",
+                "operation": operation,
+            },
+            ensure_ascii=False,
+        )
     try:
         idempotency_key = new_idempotency_key(stable_call_id, operation)
     except ValueError:
@@ -366,6 +375,7 @@ async def generate_image(ctx: ToolContext, prompt: str) -> str:
     """
     provider = _active_provider(ctx)
     reservation = None
+    submitted = False
     try:
         from backend.settings import configured_gateway_model, provider_supports
 
@@ -383,6 +393,7 @@ async def generate_image(ctx: ToolContext, prompt: str) -> str:
         if quota_error:
             return quota_error
 
+        submitted = True
         data = await asyncio.to_thread(_generate_image_bytes, provider, prompt)
         if not data:
             await _finalize_media(reservation, "unknown")
@@ -401,10 +412,10 @@ async def generate_image(ctx: ToolContext, prompt: str) -> str:
             ensure_ascii=False,
         )
     except asyncio.CancelledError:
-        await _finalize_media(reservation, "unknown")
+        await _finalize_media(reservation, "unknown" if submitted else "cancelled")
         raise
     except Exception as exc:
-        await _finalize_media(reservation, "unknown")
+        await _finalize_media(reservation, "unknown" if submitted else "failed")
         logger.exception("generate_image: falha", extra={"provider": provider})
         return json.dumps(
             {"error": f"falha ao gerar imagem: {exc}"}, ensure_ascii=False
@@ -439,6 +450,7 @@ async def text_to_speech(ctx: ToolContext, text: str, voice: str = "") -> str:
     """
     provider = _active_provider(ctx)
     reservation = None
+    submitted = False
     try:
         from backend.settings import configured_gateway_model, provider_supports
 
@@ -456,6 +468,7 @@ async def text_to_speech(ctx: ToolContext, text: str, voice: str = "") -> str:
         if quota_error:
             return quota_error
 
+        submitted = True
         data = await asyncio.to_thread(_synthesize_speech_bytes, provider, text, voice)
         if not data:
             await _finalize_media(reservation, "unknown")
@@ -476,10 +489,10 @@ async def text_to_speech(ctx: ToolContext, text: str, voice: str = "") -> str:
             ensure_ascii=False,
         )
     except asyncio.CancelledError:
-        await _finalize_media(reservation, "unknown")
+        await _finalize_media(reservation, "unknown" if submitted else "cancelled")
         raise
     except Exception as exc:
-        await _finalize_media(reservation, "unknown")
+        await _finalize_media(reservation, "unknown" if submitted else "failed")
         logger.exception("text_to_speech: falha", extra={"provider": provider})
         return json.dumps({"error": f"falha ao gerar áudio: {exc}"}, ensure_ascii=False)
 
@@ -650,6 +663,7 @@ async def generate_video(ctx: ToolContext, prompt: str) -> str:
     """
     provider = _active_provider(ctx)
     reservation = None
+    submitted = False
     try:
         from backend.settings import provider_supports
 
@@ -667,6 +681,7 @@ async def generate_video(ctx: ToolContext, prompt: str) -> str:
         if quota_error:
             return quota_error
 
+        submitted = True
         data = await _generate_video_bytes(provider, prompt)
         if not data:
             await _finalize_media(reservation, "unknown")
@@ -687,10 +702,10 @@ async def generate_video(ctx: ToolContext, prompt: str) -> str:
             ensure_ascii=False,
         )
     except asyncio.CancelledError:
-        await _finalize_media(reservation, "unknown")
+        await _finalize_media(reservation, "unknown" if submitted else "cancelled")
         raise
     except Exception as exc:
-        await _finalize_media(reservation, "unknown")
+        await _finalize_media(reservation, "unknown" if submitted else "failed")
         logger.exception("generate_video: falha", extra={"provider": provider})
         return json.dumps({"error": f"falha ao gerar vídeo: {exc}"}, ensure_ascii=False)
 

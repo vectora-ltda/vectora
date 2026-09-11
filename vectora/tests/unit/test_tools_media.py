@@ -9,6 +9,7 @@ Cada caminho feliz tem o par de erro/borda no mesmo teste.
 from __future__ import annotations
 
 import json
+from uuid import uuid4
 
 import pytest
 
@@ -19,7 +20,7 @@ from backend.tools.context import ToolContext
 
 
 def _ctx(model: str) -> ToolContext:
-    return ToolContext(model=model, thread_id="t-media")
+    return ToolContext(model=model, thread_id="t-media", tool_call_id=uuid4().hex)
 
 
 def _quota_ctx(model: str) -> ToolContext:

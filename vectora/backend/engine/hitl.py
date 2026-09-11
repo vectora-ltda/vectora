@@ -172,6 +172,17 @@ def should_require_approval(
             provider, _, model = ctx.model.partition(":")
             estimate = media_estimate_record(tool_name, provider=provider, model=model)
             if estimate.units <= threshold:
+                from backend.persistence.telemetry import telemetry
+
+                telemetry.record_media_quota(
+                    "hitl_decision",
+                    operation=estimate.operation,
+                    provider=estimate.provider,
+                    model=estimate.model,
+                    estimate_version=estimate.version,
+                    units=estimate.units,
+                    result="auto_approved",
+                )
                 return False
     if tool_name in _JAILED_BYPASS_TOOLS and _workspace_is_jailed(ctx.workspace_id):
         return False
