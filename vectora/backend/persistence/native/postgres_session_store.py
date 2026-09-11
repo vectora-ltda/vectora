@@ -59,6 +59,8 @@ CREATE TABLE IF NOT EXISTS vectora_native_messages (
 );
 CREATE INDEX IF NOT EXISTS ix_vectora_native_messages_thread
     ON vectora_native_messages(thread_id, id);
+CREATE INDEX IF NOT EXISTS ix_vectora_native_messages_thread_parent
+    ON vectora_native_messages(thread_id, parent_message_id);
 CREATE TABLE IF NOT EXISTS vectora_native_pending_approvals (
     thread_id TEXT PRIMARY KEY REFERENCES vectora_native_sessions(thread_id),
     interrupt_id TEXT NOT NULL,
@@ -352,18 +354,69 @@ class PostgresSessionStore:
 
         return [_row_to_message(row) for row in cadeia]
 
-    async def set_branch_head(self, thread_id: str, message_id: int) -> None:
+    async def get_history_with_ids(
+        self, thread_id: str, *, up_to_message_id: int | None = None
+    ) -> list[tuple[int, VMessage]]:
+        """Reconstrói uma cadeia e preserva os IDs de mensagem."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            if up_to_message_id is None:
+                row = await conn.fetchrow(
+                    "SELECT id FROM vectora_native_messages WHERE thread_id = $1 "
+                    "AND is_branch_head = TRUE ORDER BY id DESC LIMIT 1",
+                    thread_id,
+                )
+                start_id = row["id"] if row is not None else None
+            else:
+                start_id = up_to_message_id
+            if start_id is None:
+                return []
+            rows = await conn.fetch(
+                "WITH RECURSIVE chain(id, parent_message_id, role, content_json, "
+                "tool_calls_json, tool_call_id, name, depth) AS ("
+                "SELECT id, parent_message_id, role, content_json, tool_calls_json, "
+                "tool_call_id, name, 0 FROM vectora_native_messages "
+                "WHERE thread_id = $1 AND id = $2 UNION ALL "
+                "SELECT m.id, m.parent_message_id, m.role, m.content_json, "
+                "m.tool_calls_json, m.tool_call_id, m.name, chain.depth + 1 "
+                "FROM vectora_native_messages m JOIN chain ON m.id = chain.parent_message_id "
+                "WHERE m.thread_id = $1 AND chain.depth < $3) "
+                "SELECT id, parent_message_id, role, content_json, tool_calls_json, "
+                "tool_call_id, name FROM chain ORDER BY depth DESC",
+                thread_id,
+                start_id,
+                _CHAIN_DEPTH_CAP - 1,
+            )
+        if len(rows) >= _CHAIN_DEPTH_CAP:
+            raise RuntimeError(f"cadeia excedeu {_CHAIN_DEPTH_CAP} elos")
+        return [(int(row["id"]), _row_to_message(row)) for row in rows]
+
+    async def set_branch_head(
+        self, thread_id: str, message_id: int, *, allow_internal: bool = False
+    ) -> None:
         """Marca `message_id` como a ponta ativa da thread.
 
         `message_id` precisa pertencer a `thread_id`; caso contrário a
         thread ficaria sem nenhuma ponta ativa (histórico "sumiria")."""
         await self.setup()
         async with self._pool.acquire() as conn, conn.transaction():
-            exists = await conn.fetchval(
-                "SELECT 1 FROM vectora_native_messages WHERE thread_id = $1 AND id = $2",
+            await conn.fetchval(
+                "SELECT 1 FROM vectora_native_sessions WHERE thread_id = $1 FOR UPDATE",
                 thread_id,
-                message_id,
             )
+            if allow_internal:
+                query = (
+                    "SELECT 1 FROM vectora_native_messages "
+                    "WHERE thread_id = $1 AND id = $2"
+                )
+            else:
+                query = (
+                    "SELECT 1 FROM vectora_native_messages m "
+                    "WHERE m.thread_id = $1 AND m.id = $2 "
+                    "AND NOT EXISTS (SELECT 1 FROM vectora_native_messages d "
+                    "WHERE d.thread_id = m.thread_id AND d.parent_message_id = m.id)"
+                )
+            exists = await conn.fetchval(query, thread_id, message_id)
             if exists is None:
                 erro = f"mensagem {message_id} não pertence à thread '{thread_id}'"
                 raise ValueError(erro)
@@ -378,6 +431,90 @@ class PostgresSessionStore:
                 thread_id,
                 message_id,
             )
+            await conn.execute(
+                "UPDATE vectora_native_sessions SET updated_at = NOW() WHERE thread_id = $1",
+                thread_id,
+            )
+
+    async def list_branch_heads(
+        self, thread_id: str, *, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        """Lista folhas da conversa, incluindo branches antigas."""
+        await self.setup()
+        bounded_limit = max(1, min(limit, 500))
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT m.id, m.created_at, m.is_branch_head "
+                "FROM vectora_native_messages m "
+                "WHERE m.thread_id = $1 AND NOT EXISTS ("
+                "SELECT 1 FROM vectora_native_messages d "
+                "WHERE d.thread_id = m.thread_id AND d.parent_message_id = m.id) "
+                "ORDER BY m.created_at DESC, m.id DESC LIMIT $2",
+                thread_id,
+                bounded_limit,
+            )
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            head_id = int(row["id"])
+            history = await self.get_history_with_ids(
+                thread_id, up_to_message_id=head_id
+            )
+            result.append(
+                {
+                    "head_message_id": head_id,
+                    "created_at": str(row["created_at"]),
+                    "active": bool(row["is_branch_head"]),
+                    "message_count": len(history),
+                }
+            )
+        return result
+
+    async def compare_branches(
+        self, thread_id: str, selected_head_id: int
+    ) -> dict[str, Any]:
+        """Compara a ponta ativa com outra ponta da mesma thread."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            is_leaf = await conn.fetchval(
+                "SELECT 1 FROM vectora_native_messages m WHERE m.thread_id = $1 "
+                "AND m.id = $2 AND NOT EXISTS (SELECT 1 FROM vectora_native_messages d "
+                "WHERE d.thread_id = m.thread_id AND d.parent_message_id = m.id)",
+                thread_id,
+                selected_head_id,
+            )
+        if is_leaf is None:
+            raise ValueError(f"mensagem {selected_head_id} não é uma ponta")
+        selected = await self.get_history_with_ids(
+            thread_id, up_to_message_id=selected_head_id
+        )
+        if not selected or selected[-1][0] != selected_head_id:
+            raise ValueError(
+                f"mensagem {selected_head_id} não pertence à thread '{thread_id}'"
+            )
+        active_head = await self.get_branch_head_id(thread_id)
+        active = (
+            await self.get_history_with_ids(thread_id, up_to_message_id=active_head)
+            if active_head is not None
+            else []
+        )
+        active_ids = [item[0] for item in active]
+        selected_ids = [item[0] for item in selected]
+        common = 0
+        for left, right in zip(active_ids, selected_ids, strict=False):
+            if left != right:
+                break
+            common += 1
+        result = {
+            "active_head_message_id": active_head,
+            "selected_head_message_id": selected_head_id,
+            "common_message_ids": active_ids[:common],
+            "active_divergent_message_ids": active_ids[common:],
+            "selected_divergent_message_ids": selected_ids[common:],
+        }
+        max_items = 2000
+        if len(active_ids) + len(selected_ids) > max_items:
+            raise ValueError("comparação de branches excede o limite permitido")
+        return result
 
     async def get_pending_approval(self, thread_id: str) -> dict[str, Any] | None:
         await self.setup()
