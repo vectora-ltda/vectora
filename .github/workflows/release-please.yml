@@ -11,6 +11,12 @@ on:
   push:
     branches: [master]
 
+# Apenas uma execução pode atualizar o PR de release e suas labels por vez.
+# Isso evita que duas execuções removam a mesma label simultaneamente.
+concurrency:
+  group: release-please-master
+  cancel-in-progress: false
+
 permissions:
   contents: write
   pull-requests: write
