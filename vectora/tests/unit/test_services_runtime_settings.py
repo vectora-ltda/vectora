@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sqlite3
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -103,6 +104,42 @@ class TestPersistence:
         rs.set("key", "first")
         rs.set("key", "second")
         assert rs.get("key") == "second"
+
+    def test_commit_falho_faz_rollback_e_nao_vaza_cache_ou_dado_parcial(
+        self, tmp_settings_path: Path
+    ) -> None:
+        """Uma falha real de commit não deixa escrita parcial nem cache sujo."""
+        rs = RuntimeSettings(path=tmp_settings_path)
+        rs.set("persistido_antes", "ok")
+        connection = rs._conn
+
+        class CommitFailureOnce:
+            def __init__(self, delegate: sqlite3.Connection) -> None:
+                self._delegate = delegate
+                self._failed = False
+
+            def execute(self, sql: str, parameters: tuple[object, ...] = ()):
+                # O wrapper é um dublê local apenas para injetar a falha de commit.
+                return self._delegate.execute(sql, cast("tuple", parameters))
+
+            def commit(self) -> None:
+                if not self._failed:
+                    self._failed = True
+                    raise sqlite3.OperationalError("commit simulado")
+                self._delegate.commit()
+
+            def rollback(self) -> None:
+                self._delegate.rollback()
+
+        rs._conn = cast("sqlite3.Connection", CommitFailureOnce(connection))
+        with pytest.raises(sqlite3.OperationalError):
+            rs.set("persistido_depois", "nao deve persistir")
+        assert rs.get("persistido_depois") is None
+
+        rs.set("persistido_depois", "somente esta deve persistir")
+        recarregado = RuntimeSettings(path=tmp_settings_path)
+        assert recarregado.get("persistido_antes") == "ok"
+        assert recarregado.get("persistido_depois") == "somente esta deve persistir"
 
 
 # ---------------------------------------------------------------------------
