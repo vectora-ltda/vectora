@@ -12,12 +12,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const listThreads = vi.fn();
 const deleteThread = vi.fn();
 const updateThread = vi.fn();
+const markThreadRead = vi.fn();
 const broadcastEvent = vi.fn();
 
 vi.mock("@/lib/api/vectora-client", () => ({
   listThreads: (...a: unknown[]) => listThreads(...a),
   deleteThread: (...a: unknown[]) => deleteThread(...a),
   updateThread: (...a: unknown[]) => updateThread(...a),
+  markThreadRead: (...a: unknown[]) => markThreadRead(...a),
 }));
 
 vi.mock("@/lib/hooks/use-broadcast-sync", () => ({
@@ -54,6 +56,7 @@ beforeEach(() => {
   listThreads.mockReset();
   deleteThread.mockReset();
   updateThread.mockReset();
+  markThreadRead.mockReset();
   broadcastEvent.mockReset();
 });
 
@@ -107,15 +110,30 @@ describe("useThreadsQuery", () => {
     expect(result.current.data![0].pinned).toBe(true);
   });
 
-  it("transporta atividade remota para a thread da sidebar", async () => {
-    const remote_activity = { last_active_at: "2026-09-08T12:00:00+00:00" };
+  it("propaga unread_count para a sidebar", async () => {
     listThreads.mockResolvedValueOnce({
-      threads: [vthread("t1", { remote_activity })],
+      threads: [vthread("t1", { unread_count: 4 })],
     });
     const { wrapper } = makeWrapper();
     const { result } = renderHook(() => useThreadsQuery("u1"), { wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data![0].remote_activity).toEqual(remote_activity);
+    expect(result.current.data![0].unread_count).toBe(4);
+  });
+
+  it("propaga atividade remota para a sidebar", async () => {
+    listThreads.mockResolvedValueOnce({
+      threads: [
+        vthread("t1", {
+          remote_activity: { last_active_at: "2026-09-10T12:00:00Z" },
+        }),
+      ],
+    });
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useThreadsQuery("u1"), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data![0].remote_activity).toEqual({
+      last_active_at: "2026-09-10T12:00:00Z",
+    });
   });
 
   it("erro/borda: pinned ausente no backend vira false", async () => {
