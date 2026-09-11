@@ -25,6 +25,7 @@ import {
 
 // Alguns testes usam um catálogo reduzido; preserve rótulos acessíveis nesses ambientes.
 const messageCatalog = m as typeof m & {
+  message_list_aria?: () => string;
   chat_messages?: () => string;
   scroll_back_to_bottom?: () => string;
   chat_branch_comparison_segments?: (args: {
@@ -46,16 +47,6 @@ function formatComparisonSegments(args: {
     ? String(localized(args))
     : `comum: ${args.common}; ativa: ${args.active}; candidata: ${args.selected}`;
 }
-
-// Alguns testes usam um catálogo reduzido; preserve rótulos acessíveis nesses ambientes.
-const messageCatalog = m as typeof m & {
-  message_list_aria?: () => string;
-  scroll_back_to_bottom?: () => string;
-};
-messageCatalog.message_list_aria ??= (() =>
-  "Messages") as typeof m.message_list_aria;
-messageCatalog.scroll_back_to_bottom ??= (() =>
-  "Back to bottom") as typeof m.scroll_back_to_bottom;
 
 // Ativa virtualização quando a thread tem mais que este número de mensagens.
 // Abaixo do threshold, renderização direta é mais simples e igualmente rápida.
