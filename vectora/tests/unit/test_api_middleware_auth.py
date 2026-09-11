@@ -287,6 +287,56 @@ class TestAuthMiddlewareIntegration:
         assert r.status_code == 200
         assert r.json()["email"] == "mw@test.com"
 
+    def test_tool_usage_requires_authentication(self, auth_client):
+        response = auth_client.get("/tools/usage")
+
+        assert response.status_code == 401
+
+    def test_tool_usage_contract_is_user_scoped_and_redacted(
+        self, auth_client, monkeypatch
+    ):
+        """The HTTP contract exposes only per-user counts for available tools."""
+        signup = auth_client.post(
+            "/auth/signup",
+            json={
+                "email": "tool-usage-contract@test.com",
+                "password": "contracttest1234",
+            },
+        )
+        assert signup.status_code == 200
+        access_token = signup.json()["access_token"]
+
+        import backend.api.handlers.tools as tools_handler
+
+        monkeypatch.setattr(
+            tools_handler, "_all_tool_names", lambda: ["file_read", "terminal"]
+        )
+
+        observed_user_ids: list[str] = []
+
+        async def fake_aggregate(user_id: str) -> dict[str, int]:
+            observed_user_ids.append(user_id)
+            return {"file_read": 3}
+
+        from backend.services import tool_usage
+
+        monkeypatch.setattr(tool_usage, "aggregate_last_7d", fake_aggregate)
+
+        response = auth_client.get(
+            "/tools/usage?user_id=attacker",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+
+        assert response.status_code == 200
+        assert observed_user_ids == [signup.json()["user"]["id"]]
+        assert response.json() == {
+            "window_days": 7,
+            "usage": {"file_read": 3, "terminal": 0},
+        }
+        assert not {"arguments", "result", "results", "payload"}.intersection(
+            response.json()
+        )
+
     def test_private_route_with_cookie_token_passes(self, auth_client):
         # Signup para ter cookies definidos
         r = auth_client.post(
