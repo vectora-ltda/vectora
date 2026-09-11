@@ -251,7 +251,11 @@ def _save_qdrant_to_settings(url: str, api_key: str) -> None:
 
 
 async def _storage_backup(console: Console, db_path: str, output: str | None) -> None:
-    """``vectora storage backup`` — exporta SQLite comprimido."""
+    """``vectora storage backup`` — preserva o formato legado por padrão.
+
+    O formato manifestado é opt-in com extensão ``.vbackup.zip``; o restore
+    aceita ambos os formatos para não quebrar instalações existentes.
+    """
     import gzip
     import shutil
     from datetime import UTC, datetime
@@ -265,18 +269,20 @@ async def _storage_backup(console: Console, db_path: str, output: str | None) ->
     if not output:
         ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
         output = str(src.with_suffix(f".backup.{ts}.db.gz"))
+    if output.endswith(".db.gz"):
+        with src.open("rb") as source, gzip.open(output, "wb") as destination:
+            shutil.copyfileobj(source, destination)
+        size_mb = _Path(output).stat().st_size / 1024 / 1024
+    else:
+        from backend.storage.backup_manifest import create_backup
 
-    with src.open("rb") as f_in, gzip.open(output, "wb") as f_out:
-        shutil.copyfileobj(f_in, f_out)
-
-    size_mb = _Path(output).stat().st_size / 1024 / 1024
+        preview = create_backup(src, output)
+        size_mb = preview.size_bytes / 1024 / 1024
     console.print(f"[green]✓ Backup criado:[/green] {output} ({size_mb:.2f} MiB)")
 
 
 async def _storage_restore(console: Console, archive: str, db_path: str) -> None:
-    """``vectora storage restore <arquivo>`` — restaura SQLite de backup."""
-    import gzip
-    import shutil
+    """``vectora storage restore <arquivo>`` — restaura backup manifestado."""
     from pathlib import Path as _Path
 
     arc = _Path(archive)
@@ -284,11 +290,9 @@ async def _storage_restore(console: Console, archive: str, db_path: str) -> None
         console.print(f"[red]Arquivo não encontrado: {archive}[/red]")
         sys.exit(1)
 
-    dest = _Path(db_path)
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    from backend.storage.backup_manifest import restore_backup
 
-    with gzip.open(str(arc), "rb") as f_in, dest.open("wb") as f_out:
-        shutil.copyfileobj(f_in, f_out)
+    restore_backup(arc, _Path(db_path))
 
     console.print(f"[green]✓ Restaurado:[/green] {db_path}")
 

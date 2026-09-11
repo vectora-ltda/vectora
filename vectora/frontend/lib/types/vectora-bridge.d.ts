@@ -64,6 +64,10 @@ export interface VectoraDesktopBridge {
   /** Seletor nativo de pasta. `null` = cancelado (distinto de pasta escolhida).
    * Opcional como o resto da bridge: no modo web `window.vectora` não existe. */
   pickDirectory?: () => Promise<string | null>;
+  backupPickAndInspect?: () => Promise<VectoraBackupPreview | null>;
+  backupRestore?: (
+    categories: string[],
+  ) => Promise<VectoraBackupPreview | null>;
   captureScreenshot?: () => Promise<Uint8Array | null>;
   acknowledgeDeepLink?: (url: string) => void;
   onDeepLink?: (handler: (url: string) => void) => () => void;
@@ -130,6 +134,16 @@ export interface VectoraDesktopBridge {
     setPercent: (percent: number) => void;
     get: () => Promise<number>;
   };
+}
+
+export interface VectoraBackupPreview {
+  version: number;
+  app_version: string;
+  size_bytes: number;
+  categories: Record<string, number>;
+  compatible: boolean;
+  storage_mode: string;
+  results?: Record<string, { status: string; count: number }>;
 }
 
 declare global {

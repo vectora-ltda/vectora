@@ -38,6 +38,7 @@ import { autoUpdater } from "electron-updater";
 import * as http from "http";
 import * as os from "os";
 import * as path from "path";
+import { randomUUID } from "crypto";
 import { Readable } from "stream";
 // tree-kill ships its own types — no @types/tree-kill needed.
 import treeKill = require("tree-kill");
@@ -50,6 +51,7 @@ import {
   IpcPipeParser,
   pingBackendHttp,
   fetchBackendJson,
+  postBackendJson,
   waitForBackendReady,
   killBackendTree,
   resolveExternalBackendConnection,
@@ -98,6 +100,9 @@ let tray: Tray | null = null;
 let pendingDeepLink: string | null = null;
 let updateReady = false;
 let browserViewManager: BrowserViewManager | null = null;
+const desktopBridgeToken =
+  process.env.VECTORA_DESKTOP_BRIDGE_TOKEN ?? randomUUID();
+let selectedBackupPath: string | null = null;
 let pendingBackupPromise: Promise<void> | null = null;
 let updateDownloadPromise: Promise<void> | null = null;
 
@@ -428,6 +433,7 @@ async function startBackend(): Promise<void> {
     ...process.env,
     VECTORA_PORT: String(backendPort),
     VECTORA_DESKTOP: "1",
+    VECTORA_DESKTOP_BRIDGE_TOKEN: desktopBridgeToken,
     ...(natsBin ? { VECTORA_NATS_BINARY: natsBin } : {}),
   };
   const exePath = backendPath(process.env, process.platform, _resourcesPath());
@@ -848,6 +854,49 @@ function registerIpc(): void {
     if (result.canceled || result.filePaths.length === 0) return null;
     return result.filePaths[0];
   });
+  ipcMain.handle("vectora:backup-pick-and-inspect", async () => {
+    // Starting a new selection invalidates any previously inspected archive,
+    // including when the native dialog is cancelled.
+    selectedBackupPath = null;
+    const opts: Electron.OpenDialogOptions = {
+      properties: ["openFile"],
+      filters: [{ name: "Backup Vectora", extensions: ["zip", "gz"] }],
+    };
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, opts)
+      : await dialog.showOpenDialog(opts);
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const archivePath = result.filePaths[0];
+    try {
+      const preview = await postBackendJson(
+        backendTransport(),
+        "/storage/backup/inspect",
+        { archive_path: archivePath },
+        { "x-vectora-desktop-bridge": desktopBridgeToken },
+      );
+      if (!preview) return null;
+      selectedBackupPath = archivePath;
+      return preview;
+    } finally {
+      if (!selectedBackupPath) selectedBackupPath = null;
+    }
+  });
+  ipcMain.handle(
+    "vectora:backup-restore",
+    async (_event, categories: string[]) => {
+      if (!selectedBackupPath) return null;
+      try {
+        return await postBackendJson(
+          backendTransport(),
+          "/storage/backup/restore",
+          { archive_path: selectedBackupPath, categories, confirmed: true },
+          { "x-vectora-desktop-bridge": desktopBridgeToken },
+        );
+      } finally {
+        selectedBackupPath = null;
+      }
+    },
+  );
   ipcMain.handle("vectora:capture-screenshot", async () => {
     const sources = await desktopCapturer.getSources({
       types: ["screen", "window"],
