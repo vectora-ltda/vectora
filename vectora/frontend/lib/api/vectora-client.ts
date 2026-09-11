@@ -617,6 +617,31 @@ export async function getTools(): Promise<GetToolsResponse> {
   return res.json();
 }
 
+export type FeedbackContextKey = "route" | "app_version" | "platform";
+
+export interface FeedbackInput {
+  kind: "bug" | "suggestion";
+  description: string;
+  include_context?: boolean;
+  context?: Partial<Record<FeedbackContextKey, string>>;
+}
+
+export async function submitFeedback(
+  input: FeedbackInput,
+): Promise<{ id: string }> {
+  try {
+    return await postRpc<{ id: string; status: "received" }>(
+      "/feedback",
+      input,
+    );
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("(429)")) {
+      throw new Error("rate_limited");
+    }
+    throw error;
+  }
+}
+
 export async function markThreadRead(threadId: string): Promise<void> {
   await postRpc<{ thread_id: string; unread_count: number }>(
     `/threads/${encodeURIComponent(threadId)}/read`,
