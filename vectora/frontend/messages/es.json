@@ -753,6 +753,8 @@
   "toolpolicy_saved": "Guardado",
   "toolpolicy_error_load": "Error al cargar herramientas",
   "toolpolicy_error_save": "Error al guardar",
+  "plus_capture_screenshot": "Capturar captura de pantalla",
+  "plus_capture_screenshot_error": "No se pudo capturar la pantalla",
   "chat_url_preview_loading": "Cargando vista previa del enlace…",
   "chat_url_preview_unavailable": "Vista previa no disponible o bloqueada",
   "chat_url_preview_remove": "Quitar vista previa del enlace",
