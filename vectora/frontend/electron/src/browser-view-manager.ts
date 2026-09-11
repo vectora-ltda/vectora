@@ -159,8 +159,12 @@ export class BrowserViewManager {
       this.deps.emit(id, {
         type: "navigated",
         url: wc.getURL(),
-        canGoBack: wc.canGoBack(),
-        canGoForward: wc.canGoForward(),
+        canGoBack: wc.navigationHistory
+          ? wc.navigationHistory.canGoBack()
+          : wc.canGoBack(),
+        canGoForward: wc.navigationHistory
+          ? wc.navigationHistory.canGoForward()
+          : wc.canGoForward(),
       });
     wc.on("did-navigate", navigated);
     wc.on("did-navigate-in-page", navigated);

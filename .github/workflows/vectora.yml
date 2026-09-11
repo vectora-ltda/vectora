@@ -784,6 +784,23 @@ jobs:
           ensure_column github_webhook_deliveries attempt_token "TEXT"
           ensure_column github_webhook_deliveries lease_until "TEXT"
           ensure_column gha_bot_review_jobs callback_secret_hash "TEXT"
+          # Catálogos antigos foram criados antes do versionamento de
+          # pacotes. Garanta o shape atual antes de iniciar o Worker, para
+          # que as consultas públicas não retornem 500 após o deploy.
+          ensure_column rag_packages package_name "TEXT"
+          ensure_column rag_packages version "TEXT NOT NULL DEFAULT '0.0.1'"
+          ensure_column rag_packages embed_model "TEXT"
+          ensure_column rag_packages publisher_id "TEXT"
+          ensure_column rag_packages verified "INTEGER NOT NULL DEFAULT 0"
+          ensure_column rag_packages downloads_count "INTEGER NOT NULL DEFAULT 0"
+          ensure_column rag_packages license "TEXT"
+          ensure_column rag_packages description "TEXT"
+          ensure_column skills_catalog package_name "TEXT"
+          ensure_column skills_catalog version "TEXT NOT NULL DEFAULT '0.0.1'"
+          ensure_column skills_catalog category "TEXT"
+          ensure_column skills_catalog publisher_id "TEXT"
+          ensure_column skills_catalog verified "INTEGER NOT NULL DEFAULT 0"
+          ensure_column skills_catalog downloads_count "INTEGER NOT NULL DEFAULT 0"
           pnpm exec wrangler d1 execute vectora-db --remote \
             --command "CREATE UNIQUE INDEX IF NOT EXISTS idx_issues_github_identity ON issues(github_repo, github_number) WHERE github_repo IS NOT NULL AND github_number IS NOT NULL"
       - name: Deploy services (Workers)
