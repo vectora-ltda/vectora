@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
+import sqlite3
 import zipfile
 from pathlib import Path
 
@@ -101,3 +103,61 @@ def test_restore_mantem_compatibilidade_com_backup_db_gz(tmp_path: Path) -> None
     target = tmp_path / "custom.db"
     restore_backup(archive, target)
     assert target.read_bytes() == b"legacy"
+
+
+def test_restore_promove_banco_de_staging_ja_migrado(tmp_path: Path) -> None:
+    """O arquivo publicado deve conter as colunas adicionadas pelo schema."""
+    source = tmp_path / "source.db"
+    connection = sqlite3.connect(source)
+    connection.execute(
+        """
+        CREATE TABLE vectora_background_tasks (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            workspace_id TEXT,
+            user_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            name TEXT NOT NULL,
+            instruction TEXT NOT NULL,
+            trigger_type TEXT NOT NULL,
+            trigger_config TEXT NOT NULL DEFAULT '{}',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            last_run_at TEXT,
+            next_run_at TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+    connection.commit()
+    connection.close()
+    payload = source.read_bytes()
+    archive = tmp_path / "migration.zip"
+    manifest = {
+        "format_version": 1,
+        "storage_mode": "lite",
+        "files": {
+            "database": {
+                "path": "vectora.db",
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "size": len(payload),
+                "count": 0,
+            }
+        },
+    }
+    with zipfile.ZipFile(archive, "w") as handle:
+        handle.writestr("manifest.json", json.dumps(manifest))
+        handle.writestr("vectora.db", payload)
+
+    target = tmp_path / "restored.db"
+    restore_backup(archive, target)
+    connection = sqlite3.connect(target)
+    columns = {
+        row[1]
+        for row in connection.execute(
+            "PRAGMA table_info(vectora_background_tasks)"
+        ).fetchall()
+    }
+    connection.close()
+    assert "status" in columns
+    assert "priority" in columns

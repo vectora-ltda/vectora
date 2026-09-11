@@ -200,6 +200,15 @@ def _generate_refresh_token() -> str:
 _db_conn: Any = None
 
 
+async def close_db() -> None:
+    """Fecha a conexão compartilhada antes de substituir ``checkpoints.db``."""
+    global _db_conn
+    connection = _db_conn
+    _db_conn = None
+    if connection is not None:
+        await connection.close()
+
+
 async def _get_db() -> Any:
     """Retorna conexão aiosqlite compartilhada com os schemas de auth.
 

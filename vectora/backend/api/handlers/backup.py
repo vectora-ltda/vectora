@@ -7,6 +7,7 @@ destino e a confirmação é obrigatória para publicar dados.
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import os
 from typing import Annotated
@@ -22,6 +23,7 @@ from backend.storage.backup_manifest import (
 )
 
 router = APIRouter(prefix="/storage/backup", tags=["backup"])
+_restore_lock = asyncio.Lock()
 
 
 class InspectBackupRequest(BaseModel):
@@ -73,11 +75,22 @@ async def restore_local_backup(
         raise HTTPException(status_code=400, detail="confirmação explícita necessária")
     db_path = settings.db_file or settings.vectora_home / "data" / "backend.db"
     selected = None if payload.categories is None else set(payload.categories)
+    from backend.api.handlers import threads
+    from backend.rbac import auth
     from backend.services import agent_factory
 
-    await agent_factory.aclose()
-    try:
-        preview = restore_backup(payload.archive_path, db_path, selected)
-        return _preview_payload(preview)
-    finally:
-        await agent_factory.awarm()
+    async with _restore_lock:
+        # Todos os consumidores mantêm conexões no mesmo conjunto de arquivos.
+        # Fechá-los antes da promoção evita handles antigos apontando para o
+        # inode anterior (especialmente no Windows).
+        await agent_factory.aclose()
+        await threads.close_db()
+        await auth.close_db()
+        try:
+            preview = restore_backup(payload.archive_path, db_path, selected)
+            return _preview_payload(preview)
+        finally:
+            # Reabre cada consumidor antes de liberar o lock de manutenção.
+            await threads.ensure_sessions_table()
+            await auth._get_db()
+            await agent_factory.awarm()

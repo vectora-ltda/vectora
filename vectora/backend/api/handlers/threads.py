@@ -253,6 +253,16 @@ async def ensure_sessions_table() -> None:
     await _ensure_schema(db)
 
 
+async def close_db() -> None:
+    """Fecha a conexão persistente antes de promover um backup SQLite."""
+    global _db_conn
+    async with _db_conn_lock:
+        connection = _db_conn
+        _db_conn = None
+        if connection is not None:
+            await connection.close()
+
+
 async def _get_session_store() -> Any:
     """``SessionStore`` do motor nativo — fonte de verdade sobre EXISTÊNCIA
     e DONO (``user_id``) de uma thread. ``vectora_sessions`` (acima) guarda

@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from backend.storage.migrations.runner import _ALTER_ADD_COLUMN_RE, _split_statements
+
 MANIFEST = "manifest.json"
 FORMAT_VERSION = 1
 MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
@@ -329,6 +331,30 @@ def _atomic_write(destination: Path, data: bytes) -> None:
     temporary.replace(destination)
 
 
+def _apply_sqlite_schema(connection: sqlite3.Connection) -> None:
+    """Aplica o schema único ao banco em staging com a mesma semântica do runner.
+
+    O restore é síncrono e ocorre antes de o arquivo voltar a ser visível para o
+    processo. Reutilizamos a divisão e a regra de ``ALTER TABLE`` do runner para
+    manter as migrações idempotentes, sem executar o script inteiro de uma vez.
+    """
+    schema_path = Path(__file__).parent / "migrations" / "sqlite" / "schema.sql"
+    if not schema_path.is_file():
+        return
+    for statement in _split_statements(schema_path.read_text(encoding="utf-8")):
+        alter_match = _ALTER_ADD_COLUMN_RE.match(statement)
+        if alter_match:
+            table, column = alter_match.group(1), alter_match.group(2)
+            columns = {
+                row[1]
+                for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+            }
+            if column in columns:
+                continue
+        connection.execute(statement)
+    connection.commit()
+
+
 def restore_backup(
     archive_path: str | Path, db_path: str | Path, categories: set[str] | None = None
 ) -> BackupPreview:
@@ -367,7 +393,9 @@ def restore_backup(
                 targets[category]: archive.read(declared[category][0]["path"])
                 for category in selected
             }
-        # Validação do SQLite ocorre no staging, antes de tocar no banco ativo.
+        # Validação e migração do SQLite ocorrem no staging, antes de tocar no
+        # banco ativo. O arquivo promovido é o staging migrado, nunca o payload
+        # original do ZIP.
         staged_temp: dict[Path, Path] = {}
         for path, data in staged.items():
             if path.suffix == ".db":
@@ -378,12 +406,8 @@ def restore_backup(
                 try:
                     if check.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                         raise ValueError("banco restaurado inválido")
-                    schema_path = (
-                        Path(__file__).parent / "migrations" / "sqlite" / "schema.sql"
-                    )
-                    if schema_path.is_file():
-                        check.executescript(schema_path.read_text(encoding="utf-8"))
-                        check.commit()
+                    _apply_sqlite_schema(check)
+                    staged[path] = staged_temp[path].read_bytes()
                 finally:
                     check.close()
                     staged_temp[path].unlink(missing_ok=True)
