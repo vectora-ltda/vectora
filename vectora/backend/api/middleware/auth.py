@@ -92,7 +92,7 @@ def _auth_enabled() -> bool:
     return runtime_settings.auth_required
 
 
-def _is_public_route(path: str) -> bool:
+def _is_public_route(path: str, method: str = "GET") -> bool:
     """True se a rota é pública (não requer token).
 
     Lógica em camadas:
@@ -107,7 +107,7 @@ def _is_public_route(path: str) -> bool:
         return True
     # Rotas de API marcadas explicitamente como públicas (ex.: viewer de share)
     if any(path.startswith(p) for p in _EXTRA_PUBLIC_PREFIXES):
-        return True
+        return not (path.startswith("/threads/share/") and method.upper() != "GET")
     # Arquivos estáticos (extensão presente) são sempre públicos
     last_segment = path.rsplit("/", maxsplit=1)[-1]
     if "." in last_segment:
@@ -218,7 +218,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
     ) -> Response:
         path = request.url.path
 
-        if not _auth_enabled() or _is_public_route(path):
+        if not _auth_enabled() or _is_public_route(path, request.method):
             # Rotas públicas não bloqueiam, mas tentamos extrair o usuário
             # para que handlers como /auth/me possam verificar autenticação.
             request.state.user = await _extract_user(request)
