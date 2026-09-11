@@ -182,14 +182,19 @@ export async function syncCreatedIssue(
     }
     return;
   }
+  let operationToken: string | undefined;
   try {
     const repo = intakeRepo(env);
     const marker = `vectora-company-issue:${issueId}`;
     const body = githubBody(category, description, issueId);
+    // A reserva durável inclui um token e prazo no estado existente. Assim
+    // uma execução concorrente não passa pelo POST, e uma execução que morreu
+    // pode ser retomada depois do lease sem ficar presa para sempre.
+    operationToken = `${new Date().toISOString().slice(0, 19).replace("T", " ")}|${crypto.randomUUID()}`;
     const claimed = await env.DB.prepare(
-      "UPDATE issues SET github_sync_state = 'sync_pending', github_sync_error = NULL WHERE id = ? AND github_number IS NULL AND github_sync_state != 'sync_pending'",
+      "UPDATE issues SET github_sync_state = 'sync_pending', github_sync_error = ? WHERE id = ? AND github_number IS NULL AND (github_sync_state != 'sync_pending' OR github_sync_error IS NULL OR substr(github_sync_error, 1, 19) <= datetime('now', '-10 minutes'))",
     )
-      .bind(issueId)
+      .bind(operationToken, issueId)
       .run();
     if (claimed.meta.changes === 0) {
       const current = await env.DB.prepare(
@@ -214,19 +219,20 @@ export async function syncCreatedIssue(
     const existingRemote = await findIssueByMarker(env, repo, marker);
     const created =
       existingRemote ?? (await createIssue(env, repo, title, body));
-    await env.DB.prepare(
-      "UPDATE issues SET github_repo = ?, github_number = ?, github_url = ?, github_sync_state = 'synced', github_sync_error = NULL WHERE id = ?",
+    const persisted = await env.DB.prepare(
+      "UPDATE issues SET github_repo = ?, github_number = ?, github_url = ?, github_sync_state = 'synced', github_sync_error = NULL WHERE id = ? AND github_sync_error = ?",
     )
-      .bind(repo, created.number, created.html_url, issueId)
+      .bind(repo, created.number, created.html_url, issueId, operationToken)
       .run();
+    if (persisted.meta.changes === 0) return;
     await reconcileIssueComments(env, issueId, repo, created.number);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "github_sync_failed";
     await env.DB.prepare(
-      "UPDATE issues SET github_sync_state = 'error', github_sync_error = ? WHERE id = ?",
+      "UPDATE issues SET github_sync_state = 'error', github_sync_error = ? WHERE id = ? AND github_sync_state = 'sync_pending' AND github_sync_error = ?",
     )
-      .bind(message.slice(0, 200), issueId)
+      .bind(message.slice(0, 200), issueId, operationToken)
       .run();
     console.error("issue_github_sync_failed", { issueId, message });
   }
