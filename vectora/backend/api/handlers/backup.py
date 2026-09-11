@@ -16,6 +16,7 @@ from typing import Annotated
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from backend.services.maintenance import maintenance_window
 from backend.settings import settings
 from backend.storage.backup_manifest import (
     BackupPreview,
@@ -82,13 +83,10 @@ async def restore_local_backup(
     from backend.rbac import auth
     from backend.services import agent_factory
 
-    async with _restore_lock:
+    async with _restore_lock, maintenance_window():
         # Todos os consumidores mantêm conexões no mesmo conjunto de arquivos.
         # Fechá-los antes da promoção evita handles antigos apontando para o
         # inode anterior (especialmente no Windows).
-        await agent_factory.aclose()
-        await threads.close_db()
-        await auth.close_db()
         snapshots = snapshot_targets(
             db_path, set(selected or {"database", "workspaces", "threads", "memories"})
         )
@@ -105,9 +103,12 @@ async def restore_local_backup(
         except Exception:
             # Se a promoção terminou, mas algum consumidor não reabriu, volta
             # todos os arquivos ao snapshot anterior antes de reabrir o estado.
-            await agent_factory.aclose()
-            await threads.close_db()
-            await auth.close_db()
+            with contextlib.suppress(Exception):
+                await agent_factory.aclose()
+            with contextlib.suppress(Exception):
+                await threads.close_db()
+            with contextlib.suppress(Exception):
+                await auth.close_db()
             restore_snapshots(snapshots)
             with contextlib.suppress(Exception):
                 await reopen_consumers()

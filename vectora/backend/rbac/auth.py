@@ -219,6 +219,9 @@ async def _get_db() -> Any:
     fallback garantido. Não trocar esta função para retornar um pool Postgres;
     ver ``PostgresAuthDB`` abaixo para o motivo de não estar em uso.
     """
+    from backend.services.maintenance import wait_until_available
+
+    await wait_until_available()
     global _db_conn
     if _db_conn is not None:
         return _db_conn

@@ -215,6 +215,9 @@ async def _migrate_pinned_column(db: Any) -> None:
 
 
 async def _get_db() -> Any:
+    from backend.services.maintenance import wait_until_available
+
+    await wait_until_available()
     """Retorna conexão aiosqlite com o banco de checkpoints/sessões."""
     global _db_conn
     if _db_conn is None:
