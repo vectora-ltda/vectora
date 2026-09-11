@@ -15,17 +15,23 @@ import {
 } from "@testing-library/react";
 import type { Thread } from "@/lib/hooks/threads";
 import { ThreadItem } from "../thread-item";
+import { queryClient } from "../../../src/router";
 
 vi.mock("@/lib/stores/streaming-store", () => ({
   useStreamingStore: () => false,
 }));
 
 vi.mock("../../../src/router", () => ({
-  queryClient: { prefetchQuery: vi.fn() },
+  queryClient: {
+    prefetchQuery: vi.fn(),
+    setQueryData: vi.fn(),
+    invalidateQueries: vi.fn(),
+  },
 }));
 vi.mock("@/lib/api/vectora-client", () => ({
   getHistory: vi.fn(),
   listThreads: vi.fn(),
+  markThreadRead: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@/lib/queries/threads", () => ({
   threadsQueryKey: (limit = 100) => ["threads", limit],
@@ -39,26 +45,17 @@ vi.mock("@/lib/paraglide/messages", () => ({
     sidebar_ctx_pin: () => "Fixar",
     sidebar_ctx_unpin: () => "Desafixar",
     sidebar_ctx_delete: () => "Apagar",
-    sidebar_ctx_resume: () => "Abrir neste dispositivo",
-    sidebar_remote_activity_tooltip: ({ time }: { time: string }) =>
-      `Ativa em outro dispositivo ${time}`,
     sidebar_rename_placeholder: () => "Nome da sessão",
     sidebar_delete_thread: () => "Excluir conversa",
-    time_just_now: () => "agora",
-    time_minutes_ago: ({ n }: { n: number }) => `${n} min atrás`,
-    time_hour_ago: () => "há 1 hora",
-    time_hours_ago: ({ n }: { n: number }) => `há ${n} horas`,
-    time_yesterday: () => "ontem",
-    time_days_ago: ({ n }: { n: number }) => `há ${n} dias`,
-    time_week_ago: () => "há 1 semana",
-    time_weeks_ago: ({ n }: { n: number }) => `há ${n} semanas`,
-    time_month_ago: () => "há 1 mês",
-    time_months_ago: ({ n }: { n: number }) => `há ${n} meses`,
+    unread_messages_count: ({ n }: { n: number }) => `${n} mensagens não lidas`,
   },
 }));
 
 afterEach(cleanup);
-beforeEach(() => vi.useFakeTimers());
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.useFakeTimers();
+});
 afterEach(() => vi.useRealTimers());
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
@@ -111,17 +108,44 @@ describe("ThreadItem — menu de contexto", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("mostra atividade remota e permite reabrir a thread", () => {
-    const onSelect = vi.fn();
+  it("limpa o contador da thread ativa após confirmar a leitura", async () => {
+    const { markThreadRead } = await import("@/lib/api/vectora-client");
     render(
       <ThreadItem
-        thread={makeThread({
-          remote_activity: {
-            last_active_at: new Date(Date.now() - 120_000).toISOString(),
-          },
-        })}
+        thread={makeThread({ unread_count: 2 })}
+        isActive
+        onSelect={vi.fn()}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+    await act(async () => undefined);
+    expect(markThreadRead).toHaveBeenCalledWith("t1");
+    expect(queryClient.setQueryData).toHaveBeenCalled();
+  });
+
+  it("expõe o contador de mensagens não lidas com rótulo localizado", () => {
+    render(
+      <ThreadItem
+        thread={makeThread({ unread_count: 3 })}
         isActive={false}
-        onSelect={onSelect}
+        onSelect={vi.fn()}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText("3 mensagens não lidas")).toBeInTheDocument();
+  });
+
+  it("não renderiza contador quando não há mensagens não lidas", () => {
+    render(
+      <ThreadItem
+        thread={makeThread({ unread_count: 0 })}
+        isActive={false}
+        onSelect={vi.fn()}
         onDelete={vi.fn()}
         onRename={vi.fn()}
         onTogglePin={vi.fn()}
@@ -129,13 +153,62 @@ describe("ThreadItem — menu de contexto", () => {
     );
 
     expect(
-      screen.getByLabelText(/Ativa em outro dispositivo/),
-    ).toBeInTheDocument();
-    fireEvent.contextMenu(screen.getByText("Conversa T1"));
-    fireEvent.click(
-      screen.getByRole("menuitem", { name: "Abrir neste dispositivo" }),
+      screen.queryByLabelText(/mensagens não lidas/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("zera somente a thread correta no updater do cache", async () => {
+    render(
+      <ThreadItem
+        thread={makeThread({ unread_count: 2 })}
+        isActive
+        onSelect={vi.fn()}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
     );
-    expect(onSelect).toHaveBeenCalledWith("t1");
+    await act(async () => undefined);
+
+    const call = vi.mocked(queryClient.setQueryData).mock.calls[0];
+    const updater = call[1] as (data: {
+      threads: { id: string; unread_count?: number }[];
+    }) => { threads: { id: string; unread_count?: number }[] };
+    const updated = updater({
+      threads: [
+        { id: "t1", unread_count: 2 },
+        { id: "t2", unread_count: 4 },
+      ],
+    });
+
+    expect(updated.threads).toEqual([
+      { id: "t1", unread_count: 0 },
+      { id: "t2", unread_count: 4 },
+    ]);
+  });
+
+  it("invalida o cache quando confirmar a leitura falha", async () => {
+    const { markThreadRead } = await import("@/lib/api/vectora-client");
+    vi.mocked(markThreadRead).mockRejectedValueOnce(new Error("offline"));
+    render(
+      <ThreadItem
+        thread={makeThread({ unread_count: 2 })}
+        isActive
+        onSelect={vi.fn()}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["threads", 100],
+    });
   });
 
   it("clicar em 'Fixar' chama onTogglePin com o novo estado", () => {
