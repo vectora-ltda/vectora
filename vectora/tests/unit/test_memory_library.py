@@ -185,6 +185,25 @@ async def test_list_catalog_falha_de_rede_devolve_lista_vazia_sem_propagar(
 
 
 @pytest.mark.asyncio
+async def test_list_catalog_faz_fallback_da_rota_com_barra(monkeypatch):
+    calls: list[str] = []
+
+    async def _fake_get(self, url, **kwargs):
+        calls.append(url)
+        if url.endswith("/"):
+            return httpx.Response(404, request=httpx.Request("GET", url))
+        return _catalog_response([{"id": "legacy", "name": "Legado"}])
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+    result = await list_catalog()
+    assert calls == [
+        "https://services.vectora.company/rag-library/",
+        "https://services.vectora.company/rag-library",
+    ]
+    assert result == [{"id": "legacy", "name": "Legado"}]
+
+
+@pytest.mark.asyncio
 async def test_list_catalog_vazio_do_servidor_e_estado_valido(monkeypatch):
     async def _fake_get(self, url, **kwargs):
         return _catalog_response([])
