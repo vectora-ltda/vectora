@@ -864,6 +864,9 @@ function registerIpc(): void {
       : await dialog.showOpenDialog(opts);
     if (result.canceled || result.filePaths.length === 0) return null;
     const archivePath = result.filePaths[0];
+    // A failed inspection must never leave a previous archive eligible for
+    // restore.  Set the selection only after the new preview succeeds.
+    selectedBackupPath = null;
     try {
       const preview = await postBackendJson(
         backendTransport(),

@@ -25,8 +25,9 @@ async def wait_until_available() -> None:
 async def storage_operation() -> AsyncIterator[None]:
     """Registra uma operação que mantém arquivos restauráveis em uso."""
     global _active_operations
-    await wait_until_available()
     async with _condition:
+        if not _maintenance_bypass.get():
+            await _condition.wait_for(lambda: not _maintenance_active)
         _active_operations += 1
     try:
         yield

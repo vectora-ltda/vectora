@@ -546,6 +546,18 @@ def create_app(serve_static: bool = True) -> FastAPI:
         redoc_url=None,
     )
 
+    @app.middleware("http")
+    async def _track_storage_operation(request: Request, call_next):
+        """Keep the restore barrier active for the full HTTP operation."""
+        from backend.services.maintenance import storage_operation
+
+        # The restore endpoint owns the maintenance window itself; counting
+        # that request would make it wait for its own operation to finish.
+        if request.url.path == "/storage/backup/restore":
+            return await call_next(request)
+        async with storage_operation():
+            return await call_next(request)
+
     # ── Exceção não tratada: loga antes do 500 genérico ────────────────────────
     # Sem isso, uma exceção em qualquer handler vira "500 Internal Server
     # Error" sem rastro nenhum no log — Starlette imprime via
