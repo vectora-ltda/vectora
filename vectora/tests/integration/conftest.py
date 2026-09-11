@@ -130,6 +130,11 @@ def _storage_stack_ok() -> bool:
             with socket.create_connection((host, port), timeout=3):
                 pass
         except OSError:
+            if os.getenv("CI"):
+                pytest.fail(
+                    f"Storage service unavailable in CI: {host}:{port}; "
+                    "integration tests must not be skipped"
+                )
             return False
     return True
 
@@ -160,8 +165,10 @@ def qdrant_url() -> str:
 
 @pytest.fixture
 async def pg_pool(_storage_stack_ok: bool, pg_dsn: str):
-    """Pool asyncpg para testes de integração. Skip se Postgres indisponível."""
+    """Pool asyncpg para testes de integração."""
     if not _storage_stack_ok:
+        if os.getenv("CI"):
+            pytest.fail("Postgres unavailable in CI; refusing to skip storage tests")
         pytest.skip("Docker indisponível — Postgres não iniciado")
 
     import asyncio
@@ -177,6 +184,8 @@ async def pg_pool(_storage_stack_ok: bool, pg_dsn: str):
             break
         except Exception:
             if attempt == 14:
+                if os.getenv("CI"):
+                    pytest.fail("Postgres did not become ready in CI")
                 pytest.skip("Postgres não respondeu após 15 tentativas")
             await asyncio.sleep(1)
 
@@ -206,8 +215,10 @@ async def pg_conn(pg_pool):
 
 @pytest.fixture
 async def redis_client(_storage_stack_ok: bool, redis_url: str):
-    """Cliente redis.asyncio para testes de integração. Skip se Redis indisponível."""
+    """Cliente redis.asyncio para testes de integração."""
     if not _storage_stack_ok:
+        if os.getenv("CI"):
+            pytest.fail("Redis unavailable in CI; refusing to skip storage tests")
         pytest.skip("Docker indisponível — Redis não iniciado")
 
     import asyncio
@@ -222,6 +233,8 @@ async def redis_client(_storage_stack_ok: bool, redis_url: str):
         except Exception:
             if attempt == 14:
                 await client.aclose()
+                if os.getenv("CI"):
+                    pytest.fail("Redis did not become ready in CI")
                 pytest.skip("Redis não respondeu após 15 tentativas")
             await asyncio.sleep(1)
 
@@ -231,8 +244,10 @@ async def redis_client(_storage_stack_ok: bool, redis_url: str):
 
 @pytest.fixture
 def qdrant_client(_storage_stack_ok: bool, qdrant_url: str):
-    """QdrantClient síncrono para testes de integração. Skip se Qdrant indisponível."""
+    """QdrantClient síncrono para testes de integração."""
     if not _storage_stack_ok:
+        if os.getenv("CI"):
+            pytest.fail("Qdrant unavailable in CI; refusing to skip storage tests")
         pytest.skip("Docker indisponível — Qdrant não iniciado")
 
     import time
@@ -246,6 +261,8 @@ def qdrant_client(_storage_stack_ok: bool, qdrant_url: str):
             break
         except Exception:
             if attempt == 14:
+                if os.getenv("CI"):
+                    pytest.fail("Qdrant did not become ready in CI")
                 pytest.skip("Qdrant não respondeu após 15 tentativas")
             time.sleep(1)
 
