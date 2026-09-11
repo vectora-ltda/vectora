@@ -94,9 +94,12 @@ async def restore_local_backup(
         async def reopen_consumers() -> None:
             await threads.ensure_sessions_table()
             await auth._get_db()
-            await agent_factory.awarm()
+            await agent_factory.awarm(strict=True)
 
         try:
+            await agent_factory.aclose(strict=True)
+            await threads.close_db()
+            await auth.close_db()
             preview = restore_backup(payload.archive_path, db_path, selected)
             await reopen_consumers()
             return _preview_payload(preview)
@@ -104,7 +107,7 @@ async def restore_local_backup(
             # Se a promoção terminou, mas algum consumidor não reabriu, volta
             # todos os arquivos ao snapshot anterior antes de reabrir o estado.
             with contextlib.suppress(Exception):
-                await agent_factory.aclose()
+                await agent_factory.aclose(strict=True)
             with contextlib.suppress(Exception):
                 await threads.close_db()
             with contextlib.suppress(Exception):
