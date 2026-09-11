@@ -916,6 +916,7 @@ def _upgrade_d1_schema(log) -> None:
         ("issues", "approved_at", "TEXT"),
         ("issues", "approved_by", "TEXT"),
         ("issues", "promotion_lease_until", "TEXT"),
+        ("issues", "promotion_operation_token", "TEXT"),
         ("issues", "response_version", "INTEGER NOT NULL DEFAULT 0"),
         ("issues", "response_sync_lease_until", "TEXT"),
         ("issue_comments", "updated_at", "TEXT"),

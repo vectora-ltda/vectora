@@ -6,6 +6,7 @@ import { SUPPORT_EMAIL, waitlistJoinedHtml } from "../lib/email";
 import { enqueueEmail } from "../lib/queue";
 import {
   addComment,
+  authenticatedLogin,
   createIssue,
   findCommentByMarker,
   findIssueByMarker,
@@ -136,7 +137,7 @@ export async function syncCreatedIssue(
 ): Promise<void> {
   if (!env.GITHUB_ISSUES_TOKEN && !env.GITHUB_TOKEN) return;
   const existing = await env.DB.prepare(
-    "SELECT github_repo, github_number, github_url, github_sync_state, response, status FROM issues WHERE id = ?",
+    "SELECT github_repo, github_number, github_url, github_sync_state, response, response_version, status FROM issues WHERE id = ?",
   )
     .bind(issueId)
     .first<{
@@ -145,6 +146,7 @@ export async function syncCreatedIssue(
       github_url: string | null;
       github_sync_state: string;
       response: string | null;
+      response_version: number;
       status: string;
     }>();
   if (existing?.github_repo && existing.github_number && existing.github_url) {
@@ -168,6 +170,7 @@ export async function syncCreatedIssue(
           existing.github_number,
           existing.response,
           existing.status === "resolved",
+          existing.response_version,
         );
       }
     } catch (error) {
@@ -217,8 +220,12 @@ export async function syncCreatedIssue(
       return;
     }
     const existingRemote = await findIssueByMarker(env, repo, marker);
+    const authenticated =
+      env.GITHUB_ISSUES_BOT_LOGIN?.trim() || (await authenticatedLogin(env));
+    const trustedRemote =
+      existingRemote?.user?.login === authenticated ? existingRemote : null;
     const created =
-      existingRemote ?? (await createIssue(env, repo, title, body));
+      trustedRemote ?? (await createIssue(env, repo, title, body));
     const persisted = await env.DB.prepare(
       "UPDATE issues SET github_repo = ?, github_number = ?, github_url = ?, github_sync_state = 'synced', github_sync_error = NULL WHERE id = ? AND github_sync_error = ?",
     )

@@ -51,6 +51,14 @@ export function coreRepo(env: Env): string {
   return env.GITHUB_CORE_REPO?.trim() || DEFAULT_CORE_REPO;
 }
 
+/** Retorna o login da identidade autenticada pelo token do GitHub. */
+export async function authenticatedLogin(env: Env): Promise<string> {
+  const identity = await request<{ login?: string }>(env, "user");
+  if (!identity.login)
+    throw new GitHubIssueError(502, "github_identity_invalid");
+  return identity.login;
+}
+
 function token(env: Env): string {
   return env.GITHUB_ISSUES_TOKEN?.trim() || env.GITHUB_TOKEN?.trim() || "";
 }
