@@ -91,7 +91,10 @@ interface MessageListProps {
 
 function ConversationBranchBar({ threadId }: { threadId?: string }) {
   const [branches, setBranches] = useState<ConversationBranch[]>([]);
-  const [selected, setSelected] = useState<number | null>(null);
+  const [activeBranchId, setActiveBranchId] = useState<number | null>(null);
+  const [comparisonCandidateId, setComparisonCandidateId] = useState<
+    number | null
+  >(null);
   const [comparison, setComparison] = useState<string | null>(null);
 
   useEffect(() => {
@@ -101,7 +104,9 @@ function ConversationBranchBar({ threadId }: { threadId?: string }) {
       .then((result) => {
         if (!active) return;
         setBranches(result.branches);
-        setSelected(result.active_head_message_id);
+        setActiveBranchId(result.active_head_message_id);
+        setComparisonCandidateId(null);
+        setComparison(null);
       })
       .catch(() => {
         if (active) setBranches([]);
@@ -119,12 +124,19 @@ function ConversationBranchBar({ threadId }: { threadId?: string }) {
         <button
           key={branch.head_message_id}
           type="button"
-          aria-pressed={selected === branch.head_message_id}
+          aria-pressed={activeBranchId === branch.head_message_id}
+          aria-label={
+            branch.active
+              ? m.chat_branch_current()
+              : m.chat_branch_point({ id: branch.head_message_id })
+          }
           className="rounded border px-2 py-1 hover:bg-accent"
           onClick={() => {
             void selectConversationBranch(threadId, branch.head_message_id)
-              .then(() => {
-                setSelected(branch.head_message_id);
+              .then((result) => {
+                setActiveBranchId(result.active_head_message_id);
+                setComparisonCandidateId(null);
+                setComparison(null);
                 window.dispatchEvent(
                   new CustomEvent("vectora:branch-selected", {
                     detail: { threadId },
@@ -139,24 +151,36 @@ function ConversationBranchBar({ threadId }: { threadId?: string }) {
             : m.chat_branch_point({ id: branch.head_message_id })}
         </button>
       ))}
-      {selected !== null && (
-        <button
-          type="button"
-          className="rounded border px-2 py-1 hover:bg-accent"
-          onClick={() => {
-            void compareConversationBranch(threadId, selected)
-              .then((result) =>
-                setComparison(
-                  `${result.active_divergent_message_ids.length}/${result.selected_divergent_message_ids.length}`,
-                ),
-              )
-              .catch(() => setComparison("erro"));
-          }}
+      {branches
+        .filter((branch) => branch.head_message_id !== activeBranchId)
+        .map((branch) => (
+          <button
+            key={`compare-${branch.head_message_id}`}
+            type="button"
+            aria-label={`${m.chat_branch_compare()} ${branch.head_message_id}`}
+            className="rounded border px-2 py-1 hover:bg-accent"
+            onClick={() => {
+              setComparisonCandidateId(branch.head_message_id);
+              void compareConversationBranch(threadId, branch.head_message_id)
+                .then((result) =>
+                  setComparison(
+                    `${result.active_divergent_message_ids.length}/${result.selected_divergent_message_ids.length}`,
+                  ),
+                )
+                .catch(() => setComparison("erro"));
+            }}
+          >
+            {m.chat_branch_compare()}
+          </button>
+        ))}
+      {comparisonCandidateId !== null && comparison && (
+        <span
+          role="status"
+          aria-label={`${m.chat_branch_compare()} ${comparisonCandidateId}`}
         >
-          {m.chat_branch_compare()}
-        </button>
+          {comparison}
+        </span>
       )}
-      {comparison && <span role="status">{comparison}</span>}
     </div>
   );
 }

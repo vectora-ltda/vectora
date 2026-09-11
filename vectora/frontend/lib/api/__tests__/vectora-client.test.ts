@@ -16,6 +16,10 @@ import {
   updateThread,
   submitFeedback,
   markThreadRead,
+  BranchRequestError,
+  listConversationBranches,
+  compareConversationBranch,
+  selectConversationBranch,
 } from "@/lib/api/vectora-client";
 
 function jsonResponse(data: unknown, status = 200) {
@@ -162,6 +166,81 @@ describe("auth no postRpc", () => {
   it("erro não-401 lança com o status", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ detail: "boom" }, 500));
     await expect(listThreads()).rejects.toThrow(/500/);
+  });
+});
+
+describe("branches de conversa", () => {
+  const branches = {
+    branches: [
+      {
+        head_message_id: 2,
+        created_at: "2026-01-01T00:00:00Z",
+        active: true,
+        message_count: 2,
+      },
+      {
+        head_message_id: 3,
+        created_at: "2026-01-01T00:01:00Z",
+        active: false,
+        message_count: 2,
+      },
+    ],
+    active_head_message_id: 2,
+  };
+
+  it("lista branches com limite e credenciais", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(branches));
+
+    await expect(listConversationBranches("thread/1", 25)).resolves.toEqual(
+      branches,
+    );
+    const [url, options] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/threads/thread%2F1/branches?limit=25");
+    expect(options.credentials).toBe("include");
+  });
+
+  it("compara uma ponta sem alterar a branch ativa", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        active_head_message_id: 2,
+        selected_head_message_id: 3,
+        common_message_ids: [1],
+        active_divergent_message_ids: [2],
+        selected_divergent_message_ids: [3],
+      }),
+    );
+
+    const result = await compareConversationBranch("thread-1", 3);
+    expect(result.selected_head_message_id).toBe(3);
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      credentials: "include",
+    });
+  });
+
+  it("renova a sessão uma vez e seleciona a ponta explicitamente", async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(
+        jsonResponse({ ...branches, active_head_message_id: 3 }),
+      );
+
+    const result = await selectConversationBranch("thread-1", 3);
+    expect(result.active_head_message_id).toBe(3);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(
+      JSON.parse((fetchMock.mock.calls[2][1] as RequestInit).body as string),
+    ).toEqual({
+      head_message_id: 3,
+    });
+  });
+
+  it("expõe erro tipado para respostas não autorizadas ou inválidas", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: "conflito" }, 409));
+
+    await expect(compareConversationBranch("thread-1", 3)).rejects.toEqual(
+      expect.objectContaining<Partial<BranchRequestError>>({ status: 409 }),
+    );
   });
 });
 
