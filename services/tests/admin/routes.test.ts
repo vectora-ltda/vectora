@@ -473,6 +473,43 @@ describe("POST /admin/issues/:id/respond", () => {
     );
     expect(missing.status).toBe(404);
   });
+
+  it("não substitui resposta enquanto a publicação externa mantém lease ativo", async () => {
+    const { token } = await createUser("admin");
+    const id = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO issues (id, title, category, description, response, response_version, github_repo, github_number, github_sync_state, response_sync_lease_until) VALUES (?, 'Corrida', 'bug', 'Descrição', 'Resposta em publicação', 1, ?, 9911, 'response_syncing', datetime('now', '+5 minutes'))",
+    )
+      .bind(id, "vectora-ltda/vectora-issues")
+      .run();
+
+    const res = await admin.request(
+      `/issues/${id}/respond`,
+      authed(token, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          response: "Resposta substituta",
+          resolve: false,
+        }),
+      }),
+      env,
+    );
+
+    expect(res.status).toBe(409);
+    const row = await env.DB.prepare(
+      "SELECT response, response_version, response_sync_lease_until FROM issues WHERE id = ?",
+    )
+      .bind(id)
+      .first<{
+        response: string;
+        response_version: number;
+        response_sync_lease_until: string;
+      }>();
+    expect(row?.response).toBe("Resposta em publicação");
+    expect(row?.response_version).toBe(1);
+    expect(row?.response_sync_lease_until).toBeTruthy();
+  });
 });
 
 describe("POST /admin/issues/:id/archive", () => {
