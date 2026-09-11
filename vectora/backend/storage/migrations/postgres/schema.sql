@@ -47,8 +47,10 @@ CREATE TABLE IF NOT EXISTS shared_threads (
     thread_id   TEXT         NOT NULL,
     created_by  TEXT         NOT NULL DEFAULT '',
     created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    expires_at  TIMESTAMPTZ  NOT NULL
+    expires_at  TIMESTAMPTZ  NOT NULL,
+    permission  TEXT         NOT NULL DEFAULT 'read'
 );
+ALTER TABLE shared_threads ADD COLUMN IF NOT EXISTS permission TEXT NOT NULL DEFAULT 'read';
 
 CREATE INDEX IF NOT EXISTS idx_sessions_activity ON vectora_sessions(last_activity DESC);
 CREATE INDEX IF NOT EXISTS idx_sessions_mode     ON vectora_sessions(mode);

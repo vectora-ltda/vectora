@@ -6,6 +6,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { AlertTriangle, Lock } from "lucide-react";
 import { getSharedThread, type SharedThread } from "@/lib/api/vectora-client";
+import { m } from "@/lib/paraglide/messages";
 
 // Rota pública — não exige autenticação.
 // O auth guard em __root.tsx já exclui o prefixo "/share/".
@@ -32,11 +33,13 @@ function SharePage() {
     <div className="min-h-full bg-background flex flex-col">
       {/* Header mínimo */}
       <header className="border-b border-border/60 h-14 flex items-center px-4 gap-2 shrink-0">
-        <img src="/vectora.svg" alt="Vectora" width={24} height={24} />
-        <span className="text-sm font-semibold text-foreground">Vectora</span>
+        <img src="/vectora.svg" alt={m.share_brand()} width={24} height={24} />
+        <span className="text-sm font-semibold text-foreground">
+          {m.share_brand()}
+        </span>
         <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
           <Lock className="h-3 w-3" />
-          Leitura apenas
+          {m.share_read_permission()}
         </span>
       </header>
 
@@ -46,7 +49,7 @@ function SharePage() {
           <div className="flex-1 flex items-center justify-center">
             <img
               src="/vectora.svg"
-              alt="Carregando"
+              alt={m.share_loading()}
               width={40}
               height={40}
               className="animate-pulse opacity-40"
@@ -59,11 +62,9 @@ function SharePage() {
           <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center">
             <AlertTriangle className="h-10 w-10 text-muted-foreground/40" />
             <p className="text-sm font-medium text-foreground">
-              Conversa não encontrada
+              {m.share_not_found()}
             </p>
-            <p className="text-xs text-muted-foreground">
-              Este link pode ter expirado ou sido removido.
-            </p>
+            <p className="text-xs text-muted-foreground">{m.share_expired()}</p>
           </div>
         )}
 
@@ -71,7 +72,9 @@ function SharePage() {
         {error && (
           <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center">
             <AlertTriangle className="h-10 w-10 text-destructive/50" />
-            <p className="text-sm font-medium text-foreground">{error}</p>
+            <p className="text-sm font-medium text-foreground">
+              {m.share_network_error()}
+            </p>
           </div>
         )}
 
@@ -107,7 +110,7 @@ function SharedMessage({ role, content }: SharedMessageProps) {
       {!isHuman && (
         <img
           src="/vectora.svg"
-          alt="Vectora"
+          alt={m.share_brand()}
           width={24}
           height={24}
           className="mt-1 shrink-0 opacity-70"
@@ -155,7 +158,9 @@ function SharedMessage({ role, content }: SharedMessageProps) {
       </div>
       {isHuman && (
         <div className="mt-1 w-6 h-6 shrink-0 rounded-full bg-primary/20 flex items-center justify-center">
-          <span className="text-[10px] font-medium text-primary">U</span>
+          <span className="text-[10px] font-medium text-primary">
+            {m.share_user_avatar()}
+          </span>
         </div>
       )}
     </div>

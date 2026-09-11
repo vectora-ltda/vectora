@@ -670,12 +670,14 @@ class StructuredQuestionResponse(BaseModel):
 class CreateShareRequest(BaseModel):
     thread_id: str
     ttl_hours: int = 72
+    permission: Literal["read"] = "read"
 
 
 class CreateShareResponse(BaseModel):
     token: str
     url: str
     expires_at: str
+    permission: Literal["read"] = "read"
 
 
 class SharedThread(BaseModel):
@@ -684,6 +686,7 @@ class SharedThread(BaseModel):
     messages: list[HistoryMessage]
     created_at: str
     expires_at: str = ""
+    permission: Literal["read"] = "read"
 
 
 # ---------------------------------------------------------------------------
