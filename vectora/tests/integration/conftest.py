@@ -102,12 +102,9 @@ def _storage_stack_ok() -> bool:
     """True se Postgres (5432), Redis (6379) e Qdrant (6333) respondem na porta."""
     import socket
 
-    if os.getenv("CI"):
-        return False
-
     from backend.storage.dev_stack import _docker_available, stack_up
 
-    if _docker_available():
+    if _docker_available() and not os.getenv("CI"):
         stack_up()  # best-effort: sobe se parado, ignora erros
 
     for port in (5432, 6379, 6333):
@@ -123,21 +120,24 @@ def _storage_stack_ok() -> bool:
 def pg_dsn() -> str:
     from backend.storage.dev_stack import DEFAULT_POSTGRES_DSN
 
-    return DEFAULT_POSTGRES_DSN.replace("postgresql+asyncpg://", "postgresql://")
+    return os.getenv(
+        "VECTORA_TEST_POSTGRES_DSN",
+        DEFAULT_POSTGRES_DSN.replace("postgresql+asyncpg://", "postgresql://"),
+    )
 
 
 @pytest.fixture(scope="session")
 def redis_url() -> str:
     from backend.storage.dev_stack import DEFAULT_REDIS_URL
 
-    return DEFAULT_REDIS_URL
+    return os.getenv("VECTORA_TEST_REDIS_URL", DEFAULT_REDIS_URL)
 
 
 @pytest.fixture(scope="session")
 def qdrant_url() -> str:
     from backend.storage.dev_stack import DEFAULT_QDRANT_URL
 
-    return DEFAULT_QDRANT_URL
+    return os.getenv("VECTORA_TEST_QDRANT_URL", DEFAULT_QDRANT_URL)
 
 
 @pytest.fixture

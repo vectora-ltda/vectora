@@ -200,6 +200,8 @@ class MediaQuota:
                 logger.debug("media_quota: falha ao registrar bloqueio", exc_info=True)
             return None
         pool = await self._postgres_pool()
+        reactivation: tuple[str, int, str] | None = None
+        reactivated_reservation: QuotaReservation | None = None
         async with pool.acquire() as connection:
             async with connection.transaction():
                 period = self.period()
@@ -269,7 +271,12 @@ class MediaQuota:
                             period,
                             idempotency_key,
                         )
-                        return QuotaReservation(
+                        reactivation = (
+                            operation,
+                            int(existing["units"]),
+                            str(existing["state"]),
+                        )
+                        reactivated_reservation = QuotaReservation(
                             idempotency_key,
                             user_id,
                             period,
@@ -277,49 +284,60 @@ class MediaQuota:
                             existing["units"],
                             "reserved",
                         )
-                    return QuotaReservation(
-                        idempotency_key,
-                        existing["user_id"],
-                        existing["period"],
-                        existing["operation"],
-                        existing["units"],
-                        existing["state"],
-                    )
-                await connection.execute(
-                    "INSERT INTO media_quota_usage(user_id, period, used_units) "
-                    "VALUES ($1, $2, 0) ON CONFLICT (user_id, period) DO NOTHING",
-                    user_id,
-                    period,
-                )
-                updated = await connection.execute(
-                    "UPDATE media_quota_usage SET used_units = used_units + $1 "
-                    "WHERE user_id = $2 AND period = $3 AND used_units + $1 <= $4",
-                    estimate_units,
-                    user_id,
-                    period,
-                    MONTHLY_LIMITS.get(tier, MONTHLY_LIMITS["free"]),
-                )
-                if not updated.endswith("1"):
+                    elif reactivated_reservation is None:
+                        return QuotaReservation(
+                            idempotency_key,
+                            existing["user_id"],
+                            existing["period"],
+                            existing["operation"],
+                            existing["units"],
+                            existing["state"],
+                        )
+                if reactivated_reservation is None:
                     await connection.execute(
-                        "DELETE FROM media_quota_reservations WHERE id = $1",
-                        idempotency_key,
+                        "INSERT INTO media_quota_usage(user_id, period, used_units) "
+                        "VALUES ($1, $2, 0) ON CONFLICT (user_id, period) DO NOTHING",
+                        user_id,
+                        period,
                     )
-                    try:
-                        from backend.persistence.telemetry import telemetry
+                    updated = await connection.execute(
+                        "UPDATE media_quota_usage SET used_units = used_units + $1 "
+                        "WHERE user_id = $2 AND period = $3 AND used_units + $1 <= $4",
+                        estimate_units,
+                        user_id,
+                        period,
+                        MONTHLY_LIMITS.get(tier, MONTHLY_LIMITS["free"]),
+                    )
+                    if not updated.endswith("1"):
+                        await connection.execute(
+                            "DELETE FROM media_quota_reservations WHERE id = $1",
+                            idempotency_key,
+                        )
+                        try:
+                            from backend.persistence.telemetry import telemetry
 
-                        telemetry.record_media_quota(
-                            "blocked",
-                            operation=operation,
-                            result="quota_exceeded",
-                            idempotency_key=idempotency_key,
-                        )
-                    except Exception:
-                        logger.debug(
-                            "media_quota: falha ao registrar bloqueio", exc_info=True
-                        )
-                    return None
-                # A reserva foi inserida acima; só o débito ainda precisa ser
-                # confirmado nesta mesma transação.
+                            telemetry.record_media_quota(
+                                "blocked",
+                                operation=operation,
+                                result="quota_exceeded",
+                                idempotency_key=idempotency_key,
+                            )
+                        except Exception:
+                            logger.debug(
+                                "media_quota: falha ao registrar bloqueio",
+                                exc_info=True,
+                            )
+                        return None
+                    # A reserva foi inserida acima; só o débito ainda precisa ser
+                    # confirmado nesta mesma transação.
+        if reactivation is not None and reactivated_reservation is not None:
+            self._record_transition(
+                operation=reactivation[0],
+                units=reactivation[1],
+                previous_state=reactivation[2],
+                new_state="reserved",
+            )
+            return reactivated_reservation
         self._record_transition(
             operation=operation,
             units=estimate_units,
