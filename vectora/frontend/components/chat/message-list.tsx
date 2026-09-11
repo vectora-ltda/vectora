@@ -16,6 +16,36 @@ import { m } from "@/lib/paraglide/messages";
 import { MessageItem } from "./message-item";
 import { MessageSkeletons } from "./message-skeleton";
 import { ArrowDown } from "lucide-react";
+import {
+  listConversationBranches,
+  compareConversationBranch,
+  selectConversationBranch,
+  type ConversationBranch,
+} from "@/lib/api/vectora-client";
+
+// Alguns testes usam um catálogo reduzido; preserve rótulos acessíveis nesses ambientes.
+const messageCatalog = m as typeof m & {
+  chat_messages?: () => string;
+  scroll_back_to_bottom?: () => string;
+  chat_branch_comparison_segments?: (args: {
+    common: string;
+    active: string;
+    selected: string;
+  }) => string;
+};
+messageCatalog.chat_messages ??= (() => "Messages") as typeof m.chat_messages;
+messageCatalog.scroll_back_to_bottom ??= (() =>
+  "Voltar ao fim") as typeof m.scroll_back_to_bottom;
+function formatComparisonSegments(args: {
+  common: string;
+  active: string;
+  selected: string;
+}): string {
+  const localized = messageCatalog.chat_branch_comparison_segments;
+  return localized
+    ? String(localized(args))
+    : `comum: ${args.common}; ativa: ${args.active}; candidata: ${args.selected}`;
+}
 
 // Ativa virtualização quando a thread tem mais que este número de mensagens.
 // Abaixo do threshold, renderização direta é mais simples e igualmente rápida.
@@ -72,6 +102,113 @@ interface MessageListProps {
   workspaceId?: string;
   /** IDE sidebar: passa para MessageItem ocultar avatar e compactar. */
   compact?: boolean;
+}
+
+function ConversationBranchBar({ threadId }: { threadId?: string }) {
+  const [branches, setBranches] = useState<ConversationBranch[]>([]);
+  const [activeBranchId, setActiveBranchId] = useState<number | null>(null);
+  const [comparisonCandidateId, setComparisonCandidateId] = useState<
+    number | null
+  >(null);
+  const [comparison, setComparison] = useState<{
+    common: number | null;
+    active: number[];
+    selected: number[];
+  } | null>(null);
+
+  useEffect(() => {
+    if (!threadId) return;
+    let active = true;
+    void listConversationBranches(threadId)
+      .then((result) => {
+        if (!active) return;
+        setBranches(result.branches);
+        setActiveBranchId(result.active_head_message_id);
+        setComparisonCandidateId(null);
+        setComparison(null);
+      })
+      .catch(() => {
+        if (active) setBranches([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [threadId]);
+
+  if (!threadId || branches.length < 2) return null;
+  return (
+    <div className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background/95 px-4 py-2 text-xs backdrop-blur">
+      <span className="text-muted-foreground">{m.chat_branch_label()}:</span>
+      {branches.map((branch) => (
+        <button
+          key={branch.head_message_id}
+          type="button"
+          aria-pressed={activeBranchId === branch.head_message_id}
+          aria-label={
+            branch.active
+              ? m.chat_branch_current()
+              : m.chat_branch_point({ id: branch.head_message_id })
+          }
+          className="rounded border px-2 py-1 hover:bg-accent"
+          onClick={() => {
+            void selectConversationBranch(threadId, branch.head_message_id)
+              .then((result) => {
+                setBranches(result.branches);
+                setActiveBranchId(result.active_head_message_id);
+                setComparisonCandidateId(null);
+                setComparison(null);
+                window.dispatchEvent(
+                  new CustomEvent("vectora:branch-selected", {
+                    detail: { threadId },
+                  }),
+                );
+              })
+              .catch(() => undefined);
+          }}
+        >
+          {branch.active
+            ? m.chat_branch_current()
+            : m.chat_branch_point({ id: branch.head_message_id })}
+        </button>
+      ))}
+      {branches
+        .filter((branch) => branch.head_message_id !== activeBranchId)
+        .map((branch) => (
+          <button
+            key={`compare-${branch.head_message_id}`}
+            type="button"
+            aria-label={`${m.chat_branch_compare()} ${branch.head_message_id}`}
+            className="rounded border px-2 py-1 hover:bg-accent"
+            onClick={() => {
+              setComparisonCandidateId(branch.head_message_id);
+              void compareConversationBranch(threadId, branch.head_message_id)
+                .then((result) =>
+                  setComparison({
+                    common: result.common_message_ids.at(-1) ?? null,
+                    active: result.active_divergent_message_ids,
+                    selected: result.selected_divergent_message_ids,
+                  }),
+                )
+                .catch(() => setComparison(null));
+            }}
+          >
+            {m.chat_branch_compare()}
+          </button>
+        ))}
+      {comparisonCandidateId !== null && comparison && (
+        <span
+          role="status"
+          aria-label={`${m.chat_branch_compare()} ${comparisonCandidateId}`}
+        >
+          {formatComparisonSegments({
+            common: String(comparison.common ?? "—"),
+            active: comparison.active.join(", ") || "—",
+            selected: comparison.selected.join(", ") || "—",
+          })}
+        </span>
+      )}
+    </div>
+  );
 }
 
 export const MessageList = memo(function MessageList({
@@ -460,6 +597,7 @@ export const MessageList = memo(function MessageList({
           WebkitOverflowScrolling: "touch",
         }}
       >
+        <ConversationBranchBar threadId={threadId} />
         {/* M4 — Skeletons de carregamento */}
         {isLoadingThread ? (
           <MessageSkeletons />
