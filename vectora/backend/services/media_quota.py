@@ -154,7 +154,7 @@ class MediaQuota:
                     "INSERT INTO media_quota_reservations "
                     "(id, user_id, period, operation, units, state) "
                     "VALUES ($1, $2, $3, $4, $5, 'reserved') "
-                    "ON CONFLICT (id) DO NOTHING "
+                    "ON CONFLICT DO NOTHING "
                     "RETURNING id",
                     idempotency_key,
                     user_id,
