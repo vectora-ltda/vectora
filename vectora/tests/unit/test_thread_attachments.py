@@ -18,13 +18,30 @@ from backend.api.schemas import Thread
 from backend.vtypes.message import ContentBlock, MessageRole, VMessage
 
 
+def _request() -> Request:
+    """Cria um request local sem principal autenticado para o handler."""
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/threads/t1/history",
+            "headers": [],
+            "scheme": "http",
+            "server": ("test", 80),
+            "client": ("test", 1),
+            "root_path": "",
+            "query_string": b"",
+        }
+    )
+
+
 @pytest.mark.asyncio
 async def test_history_paginated_propaga_attachments(monkeypatch):
     """Regressão: `_att` era descartado na list comprehension — attachments
     do histórico nunca chegavam no frontend, mesmo já persistidos."""
     from backend.api.handlers import threads as threads_mod
 
-    async def _fake_get_thread(request):
+    async def _fake_get_thread(request, **_kwargs):
         return Thread(id=request.thread_id, created_at="", updated_at="")
 
     monkeypatch.setattr(threads_mod, "get_thread", _fake_get_thread)
@@ -45,7 +62,7 @@ async def test_history_paginated_propaga_attachments(monkeypatch):
         AsyncMock(return_value=fake_pairs),
     )
 
-    resp = await threads_mod.get_thread_history_paginated("t1")
+    resp = await threads_mod.get_thread_history_paginated("t1", _request())
 
     assert len(resp.messages) == 1
     assert resp.messages[0].attachments == attachments_meta
@@ -55,7 +72,7 @@ async def test_history_paginated_propaga_attachments(monkeypatch):
 async def test_history_paginated_mensagem_sem_attachments_fica_vazia(monkeypatch):
     from backend.api.handlers import threads as threads_mod
 
-    async def _fake_get_thread(request):
+    async def _fake_get_thread(request, **_kwargs):
         return Thread(id=request.thread_id, created_at="", updated_at="")
 
     monkeypatch.setattr(threads_mod, "get_thread", _fake_get_thread)
@@ -64,7 +81,7 @@ async def test_history_paginated_mensagem_sem_attachments_fica_vazia(monkeypatch
         AsyncMock(return_value=[("human", "oi", "cp1", [])]),
     )
 
-    resp = await threads_mod.get_thread_history_paginated("t1")
+    resp = await threads_mod.get_thread_history_paginated("t1", _request())
 
     assert resp.messages[0].attachments == []
 

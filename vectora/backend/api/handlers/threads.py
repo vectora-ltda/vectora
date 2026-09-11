@@ -1534,6 +1534,7 @@ MESSAGES_CAP = 200
 @router.get("/threads/{thread_id}/history", response_model=PagedHistoryResponse)
 async def get_thread_history_paginated(
     thread_id: str,
+    request: Request,
     limit: int = MESSAGES_CAP,
     offset: int = 0,
 ) -> PagedHistoryResponse:
@@ -1543,14 +1544,19 @@ async def get_thread_history_paginated(
     recentes), em ordem cronológica. ``has_more=True`` quando existem mensagens
     mais antigas além das retornadas.
     """
+    await _assert_owns_thread(thread_id, request)
     try:
         from backend.services import agent_factory
 
-        thread = await get_thread(GetThreadRequest(thread_id=thread_id))
+        thread = await get_thread(
+            GetThreadRequest(thread_id=thread_id), http_request=request
+        )
         pairs = await agent_factory.aget_thread_messages(
             thread_id,
             workspace_id=thread.workspace_id or None,
         )
+    except HTTPException:
+        raise
     except Exception:
         logger.exception("api/threads: erro ao carregar histórico paginado")
         return PagedHistoryResponse(messages=[], has_more=False, total_count=0)
