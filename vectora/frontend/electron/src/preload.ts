@@ -21,6 +21,24 @@ export interface VectoraDesktopBridge {
   openExternal: (url: string) => Promise<void>;
   /** Abre o seletor nativo de pasta. `null` = usuário cancelou. */
   pickDirectory: () => Promise<string | null>;
+  /** Seleciona backup pelo diálogo nativo e retorna apenas o preview. */
+  backupPickAndInspect: () => Promise<{
+    version: number;
+    app_version: string;
+    size_bytes: number;
+    categories: Record<string, number>;
+    compatible: boolean;
+    storage_mode: string;
+  } | null>;
+  /** Publica categorias confirmadas do backup previamente selecionado. */
+  backupRestore: (categories: string[]) => Promise<{
+    version: number;
+    app_version: string;
+    size_bytes: number;
+    categories: Record<string, number>;
+    compatible: boolean;
+    storage_mode: string;
+  } | null>;
   /** Captura uma tela/janela após escolha explícita; null significa cancelar. */
   captureScreenshot: () => Promise<Uint8Array | null>;
   /** Notifica o main que o renderer recebeu um deep-link e o processou. */
@@ -125,6 +143,10 @@ const bridge: VectoraDesktopBridge = {
   appVersion: process.env.VECTORA_APP_VERSION ?? "0.0.0",
   openExternal: (url) => ipcRenderer.invoke("vectora:open-external", url),
   pickDirectory: () => ipcRenderer.invoke("vectora:pick-directory"),
+  backupPickAndInspect: () =>
+    ipcRenderer.invoke("vectora:backup-pick-and-inspect"),
+  backupRestore: (categories) =>
+    ipcRenderer.invoke("vectora:backup-restore", categories),
   captureScreenshot: () => ipcRenderer.invoke("vectora:capture-screenshot"),
   acknowledgeDeepLink: (url) => ipcRenderer.send("vectora:deep-link-ack", url),
   onDeepLink: (handler) => {
