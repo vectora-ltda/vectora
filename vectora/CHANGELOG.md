@@ -2,19 +2,29 @@
 
 Esta vers�o consolida as altera��es publicadas desde a vers�o 0.1.17.
 
-## [0.1.19](https://github.com/vectora-ltda/vectora/compare/v0.1.18...v0.1.19) (2026-09-11)
-
+## [0.1.20](https://github.com/vectora-ltda/vectora/compare/v0.1.19...v0.1.20) (2026-09-11)
 
 ### Features
 
-* adicionar smart paste com preview seguro ([#159](https://github.com/vectora-ltda/vectora/issues/159)) ([f872816](https://github.com/vectora-ltda/vectora/commit/f87281691a377a5c4882a2618b00a96ffae6e597)), closes [#90](https://github.com/vectora-ltda/vectora/issues/90)
-* capturar screenshot no Electron ([#160](https://github.com/vectora-ltda/vectora/issues/160)) ([6679090](https://github.com/vectora-ltda/vectora/commit/66790901dc5d4a865ff265bc4a5a11a185faf21c)), closes [#92](https://github.com/vectora-ltda/vectora/issues/92)
-* exibir histórico de uso no tool palette ([#158](https://github.com/vectora-ltda/vectora/issues/158)) ([9e92109](https://github.com/vectora-ltda/vectora/commit/9e92109c1fa3207fa3881ff533245ac8736a67d1))
-
+- compartilhar sessões com links sanitizados ([#163](https://github.com/vectora-ltda/vectora/issues/163)) ([231b254](https://github.com/vectora-ltda/vectora/commit/231b254a476523b1ca7f77d862ff4daf777d1870))
+- navigate conversation branches ([#175](https://github.com/vectora-ltda/vectora/issues/175)) ([d4baf5b](https://github.com/vectora-ltda/vectora/commit/d4baf5b529e0340e3a3e506e9a63a1e4c75d5ffd)), closes [#117](https://github.com/vectora-ltda/vectora/issues/117)
+- compact long conversation context ([#170](https://github.com/vectora-ltda/vectora/issues/170)) ([22c1ffc](https://github.com/vectora-ltda/vectora/commit/22c1ffc2c41ec5a0458336bcf23546ce27ea7b72))
 
 ### Bug Fixes
 
-* corrigir release e build do electron ([#187](https://github.com/vectora-ltda/vectora/issues/187)) ([e126f40](https://github.com/vectora-ltda/vectora/commit/e126f40a2ad9ba15491d9ffb1eb59f2858a8bcef))
+- corrigir catálogo remoto e avisos do electron ([#188](https://github.com/vectora-ltda/vectora/issues/188)) ([8fd22cd](https://github.com/vectora-ltda/vectora/commit/8fd22cda05d404685cfde774152a22fcf77501c5))
+
+## [0.1.19](https://github.com/vectora-ltda/vectora/compare/v0.1.18...v0.1.19) (2026-09-11)
+
+### Features
+
+- adicionar smart paste com preview seguro ([#159](https://github.com/vectora-ltda/vectora/issues/159)) ([f872816](https://github.com/vectora-ltda/vectora/commit/f87281691a377a5c4882a2618b00a96ffae6e597)), closes [#90](https://github.com/vectora-ltda/vectora/issues/90)
+- capturar screenshot no Electron ([#160](https://github.com/vectora-ltda/vectora/issues/160)) ([6679090](https://github.com/vectora-ltda/vectora/commit/66790901dc5d4a865ff265bc4a5a11a185faf21c)), closes [#92](https://github.com/vectora-ltda/vectora/issues/92)
+- exibir histórico de uso no tool palette ([#158](https://github.com/vectora-ltda/vectora/issues/158)) ([9e92109](https://github.com/vectora-ltda/vectora/commit/9e92109c1fa3207fa3881ff533245ac8736a67d1))
+
+### Bug Fixes
+
+- corrigir release e build do electron ([#187](https://github.com/vectora-ltda/vectora/issues/187)) ([e126f40](https://github.com/vectora-ltda/vectora/commit/e126f40a2ad9ba15491d9ffb1eb59f2858a8bcef))
 
 ## [0.1.18](https://github.com/vectora-ltda/vectora/compare/v0.1.17...v0.1.18) (2026-09-11)
 
