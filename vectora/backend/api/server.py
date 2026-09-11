@@ -34,6 +34,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.responses import Response as FastAPIResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import RequestResponseEndpoint
 
 from backend.api.handlers.admin import router as admin_router
 from backend.api.handlers.agent_profiles import router as agent_profiles_router
@@ -547,7 +548,9 @@ def create_app(serve_static: bool = True) -> FastAPI:
     )
 
     @app.middleware("http")
-    async def _track_storage_operation(request: Request, call_next):
+    async def _track_storage_operation(
+        request: Request, call_next: RequestResponseEndpoint
+    ) -> FastAPIResponse:
         """Keep the restore barrier active for the full HTTP operation."""
         from backend.services.maintenance import storage_operation
 
