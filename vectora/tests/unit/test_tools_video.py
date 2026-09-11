@@ -30,7 +30,10 @@ from backend.tools.context import ToolContext
 
 def _ctx(model: str) -> ToolContext:
     return ToolContext(
-        model=model, thread_id="t-video", user_id=f"test-video-{uuid4().hex}"
+        model=model,
+        thread_id="t-video",
+        user_id=f"test-video-{uuid4().hex}",
+        tool_call_id=uuid4().hex,
     )
 
 
