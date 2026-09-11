@@ -131,6 +131,14 @@ interface ChatInputProps {
   onAtMentionSelect?: (path: string, startIdx: number, endIdx: number) => void;
   /** IDE sidebar: usa bg-sidebar em vez de bg-background. */
   compact?: boolean;
+  structuredPaste?: {
+    content: string;
+    extension: string;
+    mimeType: string;
+  } | null;
+  onStructuredPasteAttach?: () => void;
+  onStructuredPasteText?: () => void;
+  onStructuredPasteCancel?: () => void;
 }
 
 const EMPTY_QUEUED_MESSAGES: NonNullable<ChatInputProps["queuedMessages"]> = [];
@@ -173,6 +181,10 @@ export function ChatInput({
   dropHintExpanded = false,
   onAtMentionSelect,
   compact = false,
+  structuredPaste,
+  onStructuredPasteAttach,
+  onStructuredPasteText,
+  onStructuredPasteCancel,
 }: ChatInputProps) {
   const wsId = useWorkspacesStore((s) => s.getActive())?.id ?? "";
   const chatMode = useSettingsStore((s) => s.chatMode);
@@ -272,6 +284,45 @@ export function ChatInput({
             de viewport (sm:) nunca disparavam ali e os controles transbordavam.
             Container queries resolvem chat largo e IDE estreito com uma regra. */}
         <div className="@container/composer w-full max-w-4xl mx-auto">
+          {structuredPaste && (
+            <div
+              className="mb-2 rounded-lg border border-border bg-muted/40 p-3"
+              role="dialog"
+              aria-label={m.chat_structured_paste_title()}
+            >
+              <p className="text-sm font-medium text-foreground">
+                {m.chat_structured_paste_title()}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {m.chat_structured_paste_description()}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={onStructuredPasteAttach}
+                >
+                  {m.chat_structured_paste_attach()}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={onStructuredPasteText}
+                >
+                  {m.chat_structured_paste_text()}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={onStructuredPasteCancel}
+                >
+                  {m.chat_structured_paste_cancel()}
+                </Button>
+              </div>
+            </div>
+          )}
           {previewUrl && previewUrl !== dismissedPreviewUrl && (
             <UrlPreviewCard
               url={previewUrl}

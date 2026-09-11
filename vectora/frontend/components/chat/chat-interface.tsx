@@ -190,6 +190,11 @@ export function ChatInterface({
     setInput,
   } = useChatState(threadId);
   const [inputError, setInputError] = useState<string | null>(null);
+  const [structuredPaste, setStructuredPaste] = useState<{
+    content: string;
+    extension: string;
+    mimeType: string;
+  } | null>(null);
 
   // Consome drafts pré-populados por outras áreas (ex.: empty
   // state do PlanTab que faz "Pedir um plano ao Vectora"). O draft é
@@ -1265,23 +1270,12 @@ export function ChatInterface({
         const detected = classifySmartPaste(pastedText);
         const structured = detected.kind === "json" || detected.kind === "yaml";
         if (structured) {
-          const choice = window
-            .prompt(
-              "Conteúdo JSON/YAML grande: digite anexar, colar ou cancelar.",
-              "anexar",
-            )
-            ?.trim()
-            .toLowerCase();
-          if (choice === "cancelar" || !choice) return;
-          if (choice === "colar") {
-            const target = e.currentTarget;
-            const start = target.selectionStart;
-            const end = target.selectionEnd;
-            target.setRangeText(pastedText, start, end, "end");
-            target.dispatchEvent(new Event("input", { bubbles: true }));
-            return;
-          }
-          if (choice !== "anexar") return;
+          setStructuredPaste({
+            content: pastedText,
+            extension: detected.extension,
+            mimeType: detected.mimeType,
+          });
+          return;
         }
         const suffix =
           detected.kind === "text" || detected.kind === "url"
@@ -1391,6 +1385,25 @@ export function ChatInterface({
           onAgentConfigChange={onAgentConfigChange}
           dropHintExpanded={isNewChat}
           compact={compact}
+          structuredPaste={structuredPaste}
+          onStructuredPasteCancel={() => setStructuredPaste(null)}
+          onStructuredPasteAttach={async () => {
+            if (!structuredPaste) return;
+            const file = new File(
+              [structuredPaste.content],
+              `pasted-${Date.now()}.${structuredPaste.extension}`,
+              { type: structuredPaste.mimeType },
+            );
+            setStructuredPaste(null);
+            await processFiles([file]);
+          }}
+          onStructuredPasteText={() => {
+            if (!structuredPaste) return;
+            setInput(
+              `${uiState.input}${uiState.input ? "\n" : ""}${structuredPaste.content}`,
+            );
+            setStructuredPaste(null);
+          }}
         />
       </main>
     </>

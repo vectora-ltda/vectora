@@ -33,7 +33,7 @@ async def test_preview_rejects_private_destination(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "backend.api.handlers.url_preview._public_host", lambda _host: False
+        "backend.api.handlers.url_preview._validated_ip", lambda _host: None
     )
     with pytest.raises(HTTPException) as error:
         await preview_url("https://internal.example/page")
