@@ -36,6 +36,7 @@ describe("update backups", () => {
           path: path.join(root, "outside"),
           bytes: 0,
           sha256: "",
+          files: [],
         },
         path.join(root, "user-data"),
         path.join(root, "backups"),
