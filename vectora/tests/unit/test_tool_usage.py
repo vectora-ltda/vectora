@@ -86,3 +86,51 @@ async def test_record_prunes_events_older_than_seven_days(usage_db: Path) -> Non
         rows = list(await db.execute_fetchall("SELECT id FROM tool_usage_events"))
     assert len(rows) == 1
     assert rows[0][0] != "expired"
+
+
+@pytest.mark.asyncio
+async def test_record_postgres_usa_datetime_para_timestamptz(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeConnection:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, tuple[object, ...]]] = []
+
+        async def execute(self, query: str, *args: object) -> None:
+            self.calls.append((query, args))
+
+    class Acquire:
+        def __init__(self, connection: FakeConnection) -> None:
+            self.connection = connection
+
+        async def __aenter__(self) -> FakeConnection:
+            return self.connection
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+    class FakePool:
+        def __init__(self, connection: FakeConnection) -> None:
+            self.connection = connection
+
+        def acquire(self) -> Acquire:
+            return Acquire(self.connection)
+
+    from backend.settings import settings
+
+    connection = FakeConnection()
+    monkeypatch.setattr(
+        "backend.services.license.get_effective_storage_mode", lambda: "complete"
+    )
+    monkeypatch.setattr(settings, "postgres_dsn", "postgresql://test")
+
+    async def get_pool() -> FakePool:
+        return FakePool(connection)
+
+    monkeypatch.setattr("backend.storage.factory.get_pg_pool", get_pool)
+
+    await tool_usage.record_tool_usage("alice", "file_read", "ok")
+
+    assert len(connection.calls) == 2
+    assert isinstance(connection.calls[0][1][0], datetime)
+    assert isinstance(connection.calls[1][1][4], datetime)
