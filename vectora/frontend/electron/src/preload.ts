@@ -10,7 +10,7 @@
 
 import { contextBridge, ipcRenderer } from "electron";
 import type { BrowserViewEvent, ViewBounds } from "./browser-view-manager.js";
-import type { UpdateBackupEntry } from "../../lib/types/update-backup.js";
+import type { UpdateBackupEntry } from "./update-backup-types.js";
 
 export interface VectoraDesktopBridge {
   /** "win32" | "darwin" | "linux" — útil para shortcuts e UI condicional. */
