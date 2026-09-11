@@ -113,6 +113,16 @@ class MediaQuota:
         return connection
 
     @staticmethod
+    def _record_quota_event(event: str, **fields: object) -> None:
+        """Emite somente agregados seguros da quota."""
+        try:
+            from backend.persistence.telemetry import telemetry
+
+            telemetry.record_media_quota(event, **fields)
+        except Exception:
+            logger.debug("media_quota: falha ao registrar evento", exc_info=True)
+
+    @staticmethod
     def _record_transition(
         *,
         operation: str,
@@ -339,6 +349,14 @@ class MediaQuota:
                 "currency": "quota_units",
             },
         )
+        self._record_quota_event(
+            "estimate",
+            operation=operation,
+            units=units,
+            estimate_version="v1",
+            billable_unit="quota_unit",
+            currency="quota_units",
+        )
         try:
             tier = get_current_tier(user_id)
         except TypeError:
@@ -347,6 +365,12 @@ class MediaQuota:
             logger.info(
                 "media_quota.blocked",
                 extra={"operation": operation, "reason": "entitlement_unavailable"},
+            )
+            self._record_quota_event(
+                "blocked",
+                operation=operation,
+                units=units,
+                result="entitlement_unavailable",
             )
             return None
         period = self.period()
@@ -593,6 +617,7 @@ class MediaQuota:
                 "remaining": result["remaining"],
             },
         )
+        self._record_quota_event("summary", units=used, result="ok")
         return result
 
 

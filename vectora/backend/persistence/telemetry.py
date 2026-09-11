@@ -232,7 +232,6 @@ class VectoraTelemetry:
             "previous_state",
             "new_state",
             "result",
-            "idempotency_key",
         }
         self._emit(
             logging.INFO,

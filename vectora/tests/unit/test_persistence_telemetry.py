@@ -67,6 +67,7 @@ class TestRecordToolCall:
             prompt="segredo",
             api_key="chave",
             path="C:/segredo.png",
+            idempotency_key="chave-secreta",
         )
 
         record = captured.records[0]
@@ -74,6 +75,7 @@ class TestRecordToolCall:
         assert not hasattr(record, "prompt")
         assert not hasattr(record, "api_key")
         assert not hasattr(record, "path")
+        assert not hasattr(record, "idempotency_key")
 
     async def test_success_and_error_events_never_raise(
         self, captured: _ListHandler
