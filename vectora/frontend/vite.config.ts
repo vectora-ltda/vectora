@@ -109,6 +109,7 @@ export default defineConfig({
           /^\/health\b/,
           /^\/metrics\b/,
           /^\/mcp\b/,
+          /^\/url-preview\b/,
         ],
         runtimeCaching: [
           {
@@ -144,6 +145,7 @@ export default defineConfig({
       "/health": apiProxy,
       "/metrics": apiProxy,
       "/mcp": apiProxy,
+      "/url-preview": apiProxy,
     },
   },
   optimizeDeps: {
