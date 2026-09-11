@@ -184,7 +184,7 @@ jobs:
           QDRANT__SERVICE__API_KEY: vectora
           QDRANT__SERVICE__GRPC_PORT: 6334
         options: >-
-          --health-cmd "wget -qO- http://localhost:6333/readyz || exit 1"
+          --health-cmd "wget --header='api-key: vectora' -qO- http://localhost:6333/readyz || exit 1"
           --health-interval 10s --health-timeout 5s --health-retries 12
     steps:
       - uses: actions/checkout@v7
@@ -192,7 +192,8 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Verify Qdrant readiness
-        run: curl --fail --retry 15 --retry-delay 1 http://localhost:6333/readyz
+        run: >-
+          curl --fail --retry 15 --retry-delay 1 -H "api-key: vectora" http://localhost:6333/readyz
       - name: Create .env from Secrets
         run: |
           cat <<'EOF' > .env
@@ -324,7 +325,7 @@ jobs:
           QDRANT__SERVICE__API_KEY: vectora
           QDRANT__SERVICE__GRPC_PORT: 6334
         options: >-
-          --health-cmd "wget -qO- http://localhost:6333/readyz || exit 1"
+          --health-cmd "wget --header='api-key: vectora' -qO- http://localhost:6333/readyz || exit 1"
           --health-interval 10s --health-timeout 5s --health-retries 12
     steps:
       - uses: actions/checkout@v7
@@ -332,7 +333,8 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Verify Qdrant readiness
-        run: curl --fail --retry 15 --retry-delay 1 http://localhost:6333/readyz
+        run: >-
+          curl --fail --retry 15 --retry-delay 1 -H "api-key: vectora" http://localhost:6333/readyz
       - name: Create .env from Secrets
         run: |
           cat <<'EOF' > .env
