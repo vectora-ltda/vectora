@@ -901,6 +901,97 @@ def _check_vercel_link(folder: str, expected_project: str) -> None:
         raise SystemExit(1)
 
 
+def _upgrade_d1_schema(log) -> None:
+    """Adiciona colunas novas sem quebrar bancos D1 já existentes."""
+    columns: tuple[tuple[str, str, str], ...] = (
+        ("gha_bot_config", "self_hosted_enabled", "INTEGER NOT NULL DEFAULT 0"),
+        ("issues", "github_repo", "TEXT"),
+        ("issues", "github_number", "INTEGER"),
+        ("issues", "github_url", "TEXT"),
+        ("issues", "github_sync_state", "TEXT NOT NULL DEFAULT 'pending'"),
+        ("issues", "github_sync_error", "TEXT"),
+        ("issues", "core_repo", "TEXT"),
+        ("issues", "core_number", "INTEGER"),
+        ("issues", "core_url", "TEXT"),
+        ("issues", "approved_at", "TEXT"),
+        ("issues", "approved_by", "TEXT"),
+        ("issues", "promotion_lease_until", "TEXT"),
+        ("issues", "promotion_operation_token", "TEXT"),
+        ("issues", "response_version", "INTEGER NOT NULL DEFAULT 0"),
+        ("issues", "response_sync_lease_until", "TEXT"),
+        ("rag_packages", "package_name", "TEXT"),
+        ("rag_packages", "version", "TEXT NOT NULL DEFAULT '0.0.1'"),
+        ("rag_packages", "status", "TEXT NOT NULL DEFAULT 'ready'"),
+        ("rag_packages", "status_reason", "TEXT"),
+        ("rag_packages", "embed_model", "TEXT"),
+        ("rag_packages", "publisher_id", "TEXT"),
+        ("rag_packages", "verified", "INTEGER NOT NULL DEFAULT 0"),
+        ("rag_packages", "downloads_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("rag_packages", "license", "TEXT"),
+        ("rag_packages", "description", "TEXT"),
+        ("rag_packages", "updated_at", "TEXT"),
+        ("skills_catalog", "package_name", "TEXT"),
+        ("skills_catalog", "version", "TEXT NOT NULL DEFAULT '0.0.1'"),
+        ("skills_catalog", "tags", "TEXT NOT NULL DEFAULT '[]'"),
+        ("skills_catalog", "category", "TEXT"),
+        ("skills_catalog", "catalog_source", "TEXT NOT NULL DEFAULT 'curated'"),
+        ("skills_catalog", "vectora_verified", "INTEGER NOT NULL DEFAULT 0"),
+        ("skills_catalog", "publisher_id", "TEXT"),
+        ("skills_catalog", "verified", "INTEGER NOT NULL DEFAULT 0"),
+        ("skills_catalog", "downloads_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("skills_catalog", "updated_at", "TEXT"),
+        ("issue_comments", "updated_at", "TEXT"),
+        ("issue_comments", "deleted_at", "TEXT"),
+        ("github_webhook_deliveries", "attempt_token", "TEXT"),
+        ("github_webhook_deliveries", "lease_until", "TEXT"),
+        ("gha_bot_review_jobs", "callback_secret_hash", "TEXT"),
+    )
+    tables = {table for table, _, _ in columns}
+    existing: dict[str, set[str]] = {}
+    for table in tables:
+        result = subprocess.run(
+            [
+                WRANGLER,
+                "d1",
+                "execute",
+                "vectora-db",
+                "--remote",
+                "--command",
+                f"PRAGMA table_info({table})",
+                "--json",
+            ],
+            cwd=SERVICES,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+        if result.returncode != 0:
+            raise SystemExit(
+                f"[scons prod] não foi possível consultar o schema D1: {table}"
+            )
+        existing[table] = set(
+            re.findall(r'"name"\s*:\s*"([^"]+)"', result.stdout)
+        )
+    for table, column, definition in columns:
+        if column in existing[table]:
+            continue
+        _run(
+            [
+                WRANGLER,
+                "d1",
+                "execute",
+                "vectora-db",
+                "--remote",
+                "--command",
+                f"ALTER TABLE {table} ADD COLUMN {column} {definition}",
+            ],
+            log=log,
+            cwd=SERVICES,
+        )
+
+
 def _action_prod(target, source, env):
     # Preflights ANTES de publicar qualquer coisa: credencial Cloudflare válida
     # e cada pasta linkada ao projeto Vercel certo — senão o deploy vai pro
@@ -954,6 +1045,22 @@ def _action_prod(target, source, env):
                 "apply",
                 "vectora-db",
                 "--remote",
+            ],
+            log=log,
+            cwd=SERVICES,
+        )
+        # O upgrade aditivo só roda depois das migrations, que criam as
+        # tabelas auxiliares consultadas pelo preflight.
+        _upgrade_d1_schema(log)
+        _run(
+            [
+                WRANGLER,
+                "d1",
+                "execute",
+                "vectora-db",
+                "--remote",
+                "--command",
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_issues_github_identity ON issues(github_repo, github_number) WHERE github_repo IS NOT NULL AND github_number IS NOT NULL",
             ],
             log=log,
             cwd=SERVICES,

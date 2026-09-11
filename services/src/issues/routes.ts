@@ -4,6 +4,17 @@ import type { Env } from "../gateway/types";
 import { verifyTurnstile } from "../lib/turnstile";
 import { SUPPORT_EMAIL, waitlistJoinedHtml } from "../lib/email";
 import { enqueueEmail } from "../lib/queue";
+import {
+  addComment,
+  createIssue,
+  findCommentByMarker,
+  findIssueByMarker,
+  intakeRepo,
+  listComments,
+  type GitHubIssue,
+  updateIssue,
+} from "./github";
+import { githubApprovalAllowed, promoteIssue } from "./promotion";
 
 export const issues = new Hono<{ Bindings: Env }>();
 
@@ -28,6 +39,299 @@ interface IssueFields {
   email?: string;
   turnstileToken?: string;
   files: File[];
+}
+
+function githubBody(
+  category: string,
+  description: string | undefined,
+  sourceId: string,
+): string {
+  return [
+    `<!-- vectora-company-issue:${sourceId} -->`,
+    `**Categoria:** ${category}`,
+    "",
+    description?.trim() || "Sem descrição adicional.",
+    "",
+    `Origem: https://vectora.company/issues/${sourceId}`,
+  ].join("\n");
+}
+
+async function responseMarker(
+  issueId: string,
+  response: string,
+): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(response),
+  );
+  const suffix = Array.from(new Uint8Array(digest), (value) =>
+    value.toString(16).padStart(2, "0"),
+  )
+    .join("")
+    .slice(0, 24);
+  return `vectora-company-response:${issueId}:${suffix}`;
+}
+
+/** Publica uma resposta de forma idempotente e conclui a issue pública. */
+export async function syncIssueResponse(
+  env: Env,
+  issueId: string,
+  repo: string,
+  number: number,
+  response: string,
+  resolve: boolean,
+  expectedVersion?: number,
+): Promise<void> {
+  if (expectedVersion !== undefined) {
+    const claimed = await env.DB.prepare(
+      "UPDATE issues SET github_sync_state = 'response_syncing', response_sync_lease_until = datetime('now', '+5 minutes') WHERE id = ? AND response_version = ? AND response = ? AND (github_sync_state = 'response_pending' OR (github_sync_state = 'response_syncing' AND response_sync_lease_until <= datetime('now'))) ",
+    )
+      .bind(issueId, expectedVersion, response)
+      .run();
+    if (claimed.meta.changes === 0) throw new Error("response_superseded");
+  }
+  const isCurrent = async (): Promise<boolean> => {
+    if (expectedVersion === undefined) return true;
+    const current = await env.DB.prepare(
+      "SELECT response_version FROM issues WHERE id = ? AND response_version = ? AND response = ?",
+    )
+      .bind(issueId, expectedVersion, response)
+      .first();
+    return Boolean(current);
+  };
+  if (!(await isCurrent())) throw new Error("response_superseded");
+  const marker = await responseMarker(issueId, response);
+  const existing = await findCommentByMarker(env, repo, number, marker);
+  if (!existing) {
+    if (!(await isCurrent())) throw new Error("response_superseded");
+    await addComment(env, repo, number, `<!-- ${marker} -->\n${response}`);
+  }
+  if (resolve) {
+    if (!(await isCurrent())) throw new Error("response_superseded");
+    await updateIssue(env, repo, number, { state: "closed" });
+  }
+  const finalized =
+    expectedVersion === undefined
+      ? await env.DB.prepare(
+          "UPDATE issues SET github_sync_state = 'synced', github_sync_error = NULL WHERE id = ?",
+        )
+          .bind(issueId)
+          .run()
+      : await env.DB.prepare(
+          "UPDATE issues SET github_sync_state = 'synced', github_sync_error = NULL, response_sync_lease_until = NULL WHERE id = ? AND response_version = ?",
+        )
+          .bind(issueId, expectedVersion)
+          .run();
+  if (expectedVersion !== undefined && finalized.meta.changes === 0)
+    throw new Error("response_superseded");
+}
+
+/** Publica ou reconcilia uma issue da Company no repositório público. */
+export async function syncCreatedIssue(
+  env: Env,
+  issueId: string,
+  title: string,
+  category: string,
+  description: string | undefined,
+): Promise<void> {
+  if (!env.GITHUB_ISSUES_TOKEN && !env.GITHUB_TOKEN) return;
+  let existing: {
+    github_repo: string | null;
+    github_number: number | null;
+    github_url: string | null;
+    github_sync_state: string;
+    response: string | null;
+    status: string;
+  } | null;
+  try {
+    existing = await env.DB.prepare(
+      "SELECT github_repo, github_number, github_url, github_sync_state, response, status FROM issues WHERE id = ?",
+    )
+      .bind(issueId)
+      .first<{
+        github_repo: string | null;
+        github_number: number | null;
+        github_url: string | null;
+        github_sync_state: string;
+        response: string | null;
+        status: string;
+      }>();
+  } catch (error) {
+    console.error("issue_github_initial_read_failed", {
+      issueId,
+      message: error instanceof Error ? error.message : "database_error",
+    });
+    return;
+  }
+  if (existing?.github_repo && existing.github_number && existing.github_url) {
+    try {
+      await reconcileIssueComments(
+        env,
+        issueId,
+        existing.github_repo,
+        existing.github_number,
+      );
+      if (
+        existing.response &&
+        ["response_pending", "response_error"].includes(
+          existing.github_sync_state,
+        )
+      ) {
+        await syncIssueResponse(
+          env,
+          issueId,
+          existing.github_repo,
+          existing.github_number,
+          existing.response,
+          existing.status === "resolved",
+        );
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "github_sync_failed";
+      await env.DB.prepare(
+        "UPDATE issues SET github_sync_state = CASE WHEN response IS NOT NULL THEN 'response_pending' ELSE github_sync_state END, github_sync_error = ? WHERE id = ?",
+      )
+        .bind(message.slice(0, 200), issueId)
+        .run();
+      console.error("issue_github_reconcile_failed", { issueId, message });
+    }
+    return;
+  }
+  let operationToken: string | undefined;
+  try {
+    const repo = intakeRepo(env);
+    const marker = `vectora-company-issue:${issueId}`;
+    const body = githubBody(category, description, issueId);
+    // A reserva durável inclui um token e prazo no estado existente. Assim
+    // uma execução concorrente não passa pelo POST, e uma execução que morreu
+    // pode ser retomada depois do lease sem ficar presa para sempre.
+    operationToken = `${new Date().toISOString().slice(0, 19).replace("T", " ")}|${crypto.randomUUID()}`;
+    const claimed = await env.DB.prepare(
+      "UPDATE issues SET github_sync_state = 'sync_pending', github_sync_error = ? WHERE id = ? AND github_number IS NULL AND (github_sync_state != 'sync_pending' OR github_sync_error IS NULL OR substr(github_sync_error, 1, 19) <= datetime('now', '-10 minutes'))",
+    )
+      .bind(operationToken, issueId)
+      .run();
+    if (claimed.meta.changes === 0) {
+      const current = await env.DB.prepare(
+        "SELECT github_repo, github_number, github_url FROM issues WHERE id = ?",
+      )
+        .bind(issueId)
+        .first<{
+          github_repo: string | null;
+          github_number: number | null;
+          github_url: string | null;
+        }>();
+      if (current?.github_repo && current.github_number && current.github_url) {
+        await reconcileIssueComments(
+          env,
+          issueId,
+          current.github_repo,
+          current.github_number,
+        );
+      }
+      return;
+    }
+    const existingRemote = await findIssueByMarker(env, repo, marker);
+    const created =
+      existingRemote ?? (await createIssue(env, repo, title, body));
+    const persisted = await env.DB.prepare(
+      "UPDATE issues SET github_repo = ?, github_number = ?, github_url = ?, github_sync_state = 'synced', github_sync_error = NULL WHERE id = ? AND github_sync_error = ?",
+    )
+      .bind(repo, created.number, created.html_url, issueId, operationToken)
+      .run();
+    if (persisted.meta.changes === 0) return;
+    await reconcileIssueComments(env, issueId, repo, created.number);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "github_sync_failed";
+    await env.DB.prepare(
+      "UPDATE issues SET github_sync_state = 'error', github_sync_error = ? WHERE id = ? AND github_sync_state = 'sync_pending' AND github_sync_error = ?",
+    )
+      .bind(message.slice(0, 200), issueId, operationToken)
+      .run();
+    console.error("issue_github_sync_failed", { issueId, message });
+  }
+}
+
+/** Reconcilia comentários para recuperar entregas de webhook perdidas. */
+export async function reconcileIssueComments(
+  env: Env,
+  issueId: string,
+  repo: string,
+  number: number,
+): Promise<void> {
+  const comments = await listComments(env, repo, number);
+  const remoteIds = comments.map((comment) => comment.id);
+  for (const comment of comments) {
+    await env.DB.prepare(
+      `INSERT INTO issue_comments (id, issue_id, github_comment_id, author, body, html_url, created_at, updated_at, deleted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+       ON CONFLICT(issue_id, github_comment_id) DO UPDATE SET author = excluded.author, body = excluded.body, html_url = excluded.html_url, updated_at = excluded.updated_at, deleted_at = NULL`,
+    )
+      .bind(
+        crypto.randomUUID(),
+        issueId,
+        comment.id,
+        comment.user?.login ?? "github-user",
+        comment.body,
+        comment.html_url,
+        comment.created_at,
+        comment.updated_at ?? comment.created_at,
+      )
+      .run();
+  }
+  if (remoteIds.length > 0) {
+    const placeholders = remoteIds.map(() => "?").join(", ");
+    await env.DB.prepare(
+      `UPDATE issue_comments SET deleted_at = datetime('now') WHERE issue_id = ? AND github_comment_id NOT IN (${placeholders}) AND deleted_at IS NULL`,
+    )
+      .bind(issueId, ...remoteIds)
+      .run();
+  } else {
+    await env.DB.prepare(
+      "UPDATE issue_comments SET deleted_at = datetime('now') WHERE issue_id = ? AND deleted_at IS NULL",
+    )
+      .bind(issueId)
+      .run();
+  }
+}
+
+/** Retoma respostas públicas persistidas após falhas transitórias do GitHub. */
+export async function reconcilePendingIssueResponses(env: Env): Promise<void> {
+  const { results } = await env.DB.prepare(
+    "SELECT id, response, status, response_version, github_repo, github_number FROM issues WHERE response IS NOT NULL AND github_repo IS NOT NULL AND github_number IS NOT NULL AND (github_sync_state = 'response_pending' OR (github_sync_state = 'response_syncing' AND response_sync_lease_until <= datetime('now'))) ORDER BY responded_at ASC LIMIT 25",
+  ).all<{
+    id: string;
+    response: string;
+    status: string;
+    response_version: number;
+    github_repo: string;
+    github_number: number;
+  }>();
+  for (const issue of results) {
+    try {
+      await syncIssueResponse(
+        env,
+        issue.id,
+        issue.github_repo,
+        issue.github_number,
+        issue.response,
+        issue.status === "resolved",
+        issue.response_version,
+      );
+    } catch (error) {
+      await env.DB.prepare(
+        "UPDATE issues SET github_sync_state = 'response_pending', response_sync_lease_until = NULL WHERE id = ? AND response_version = ? AND github_sync_state = 'response_syncing'",
+      )
+        .bind(issue.id, issue.response_version)
+        .run();
+      console.error("issue_github_response_retry_failed", {
+        issueId: issue.id,
+        message: error instanceof Error ? error.message : "github_sync_failed",
+      });
+    }
+  }
 }
 
 async function readIssueBody(c: {
@@ -111,6 +415,20 @@ issues.post("/", async (c) => {
     )
     .run();
 
+  const syncPromise = syncCreatedIssue(
+    c.env,
+    issueId,
+    body.title,
+    body.category,
+    body.description,
+  );
+  try {
+    c.executionCtx.waitUntil(syncPromise);
+  } catch {
+    // O runtime de testes não fornece ExecutionContext; aguarde nesse caso.
+    await syncPromise;
+  }
+
   const filesHtml =
     fileKeys.length > 0
       ? `<p><strong>Anexos:</strong> ${fileKeys
@@ -149,6 +467,228 @@ issues.get("/", async (c) => {
   );
 });
 
+/**
+ * GitHub webhook for the public intake repository.
+ * The signature is mandatory when a secret is configured; an unconfigured
+ * production endpoint fails closed instead of accepting unsigned events.
+ */
+issues.post("/github/webhook", async (c) => {
+  const secret = c.env.GITHUB_ISSUES_WEBHOOK_SECRET?.trim();
+  if (!secret) return c.json({ error: "github_webhook_not_configured" }, 503);
+
+  const body = await c.req.raw.clone().arrayBuffer();
+  const deliveryId = c.req.header("x-github-delivery")?.trim();
+  if (!deliveryId) return c.json({ error: "delivery_id_required" }, 400);
+  const signature = c.req.header("x-hub-signature-256") ?? "";
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["verify"],
+  );
+  const providedHex = signature.startsWith("sha256=") ? signature.slice(7) : "";
+  const provided =
+    providedHex.length === 64 && /^[0-9a-f]+$/i.test(providedHex)
+      ? Uint8Array.from(providedHex.match(/.{2}/g)!, (byte) =>
+          parseInt(byte, 16),
+        )
+      : new Uint8Array();
+  const valid = await crypto.subtle.verify("HMAC", key, provided, body);
+  if (!valid) {
+    return c.json({ error: "invalid_signature" }, 401);
+  }
+
+  const attemptToken = crypto.randomUUID();
+  const leaseUntil = new Date(Date.now() + 5 * 60 * 1000)
+    .toISOString()
+    .slice(0, 19)
+    .replace("T", " ");
+  const delivery = await c.env.DB.prepare(
+    `INSERT INTO github_webhook_deliveries
+       (delivery_id, state, attempt_token, lease_until)
+     VALUES (?, 'processing', ?, ?)
+     ON CONFLICT(delivery_id) DO UPDATE SET
+       state = 'processing', error = NULL, attempt_token = excluded.attempt_token,
+       lease_until = excluded.lease_until, updated_at = datetime('now')
+     WHERE github_webhook_deliveries.state = 'failed'
+        OR (github_webhook_deliveries.state = 'processing'
+            AND (github_webhook_deliveries.lease_until IS NULL
+                 OR github_webhook_deliveries.lease_until <= datetime('now')))`,
+  )
+    .bind(deliveryId, attemptToken, leaseUntil)
+    .run();
+  if (delivery.meta.changes === 0) return c.json({ ok: true, duplicate: true });
+
+  let payload: {
+    action?: string;
+    issue?: GitHubIssue & { labels?: Array<{ name?: string }> };
+    comment?: {
+      id: number;
+      body?: string;
+      html_url?: string;
+      created_at?: string;
+      user?: { login?: string };
+    };
+    repository?: { full_name?: string };
+    sender?: { login?: string };
+    label?: { name?: string };
+  };
+  try {
+    payload = JSON.parse(new TextDecoder().decode(body)) as typeof payload;
+  } catch {
+    await c.env.DB.prepare(
+      "UPDATE github_webhook_deliveries SET state = 'failed', error = ?, updated_at = datetime('now') WHERE delivery_id = ? AND state = 'processing' AND attempt_token = ?",
+    )
+      .bind("invalid_json", deliveryId, attemptToken)
+      .run();
+    return c.json({ error: "invalid_json" }, 400);
+  }
+  try {
+    const repo = payload.repository?.full_name;
+    const issue = payload.issue;
+    if (repo !== intakeRepo(c.env) || !issue?.number) {
+      await c.env.DB.prepare(
+        "UPDATE github_webhook_deliveries SET state = 'done', updated_at = datetime('now') WHERE delivery_id = ? AND state = 'processing' AND attempt_token = ?",
+      )
+        .bind(deliveryId, attemptToken)
+        .run();
+      return c.json({ ok: true, ignored: true });
+    }
+
+    const existing = await c.env.DB.prepare(
+      "SELECT id FROM issues WHERE github_repo = ? AND github_number = ?",
+    )
+      .bind(repo, issue.number)
+      .first<{ id: string }>();
+    let issueId = existing?.id;
+    if (!issueId && payload.action === "opened") {
+      issueId = crypto.randomUUID();
+      await c.env.DB.prepare(
+        "INSERT OR IGNORE INTO issues (id, title, category, description, status, github_repo, github_number, github_url, github_sync_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced')",
+      )
+        .bind(
+          issueId,
+          issue.title,
+          "feedback",
+          issue.body ?? null,
+          issue.state === "closed" ? "resolved" : "open",
+          repo,
+          issue.number,
+          issue.html_url,
+        )
+        .run();
+    }
+    if (!issueId) {
+      await c.env.DB.prepare(
+        "UPDATE github_webhook_deliveries SET state = 'done', updated_at = datetime('now') WHERE delivery_id = ? AND state = 'processing' AND attempt_token = ?",
+      )
+        .bind(deliveryId, attemptToken)
+        .run();
+      return c.json({ ok: true, ignored: true });
+    }
+
+    if (
+      ["edited", "reopened", "closed", "labeled", "unlabeled"].includes(
+        payload.action ?? "",
+      )
+    ) {
+      const approved = issue.labels?.some(
+        (label) => label.name === "approved-for-core",
+      );
+      await c.env.DB.prepare(
+        "UPDATE issues SET title = ?, description = ?, status = ?, github_url = ?, github_sync_state = CASE WHEN github_sync_state IN ('promotion_pending', 'promotion_failed', 'approval_error', 'promoted') THEN github_sync_state ELSE 'synced' END, github_sync_error = CASE WHEN github_sync_state IN ('promotion_pending', 'promotion_failed', 'approval_error', 'promoted') THEN github_sync_error ELSE NULL END WHERE id = ?",
+      )
+        .bind(
+          issue.title,
+          issue.body ?? null,
+          issue.state === "closed" ? "resolved" : "open",
+          issue.html_url,
+          issueId,
+        )
+        .run();
+      if (
+        payload.action === "labeled" &&
+        payload.label?.name === "approved-for-core" &&
+        approved &&
+        payload.sender?.login &&
+        githubApprovalAllowed(c.env, payload.sender.login)
+      ) {
+        try {
+          await promoteIssue(c.env, issueId, payload.sender.login);
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "promotion_failed";
+          if (message === "promotion_in_progress") {
+            await c.env.DB.prepare(
+              "UPDATE github_webhook_deliveries SET state = 'done', updated_at = datetime('now') WHERE delivery_id = ? AND state = 'processing' AND attempt_token = ?",
+            )
+              .bind(deliveryId, attemptToken)
+              .run();
+            return c.json({ ok: true, promotion: "in_progress" }, 202);
+          }
+          await c.env.DB.prepare(
+            "UPDATE issues SET github_sync_state = 'promotion_pending', github_sync_error = ?, approved_by = COALESCE(approved_by, ?) WHERE id = ?",
+          )
+            .bind(message.slice(0, 200), payload.sender.login, issueId)
+            .run();
+          await c.env.DB.prepare(
+            "UPDATE github_webhook_deliveries SET state = 'failed', error = ?, updated_at = datetime('now') WHERE delivery_id = ? AND state = 'processing' AND attempt_token = ?",
+          )
+            .bind(message.slice(0, 200), deliveryId, attemptToken)
+            .run();
+          console.error("issue_github_approval_failed", { issueId, message });
+          return c.json({ error: "promotion_failed" }, 502);
+        }
+      } else if (approved) {
+        await c.env.DB.prepare(
+          "UPDATE issues SET github_sync_state = 'approval_pending' WHERE id = ? AND core_number IS NULL AND github_sync_state NOT IN ('promotion_pending', 'promotion_failed', 'approval_error', 'promoted')",
+        )
+          .bind(issueId)
+          .run();
+      }
+    }
+    if (
+      ["created", "edited", "deleted"].includes(payload.action ?? "") &&
+      payload.comment
+    ) {
+      await c.env.DB.prepare(
+        `INSERT INTO issue_comments (id, issue_id, github_comment_id, author, body, html_url, created_at, updated_at, deleted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(issue_id, github_comment_id) DO UPDATE SET author = excluded.author, body = excluded.body, html_url = excluded.html_url, updated_at = excluded.updated_at, deleted_at = excluded.deleted_at`,
+      )
+        .bind(
+          crypto.randomUUID(),
+          issueId,
+          payload.comment.id,
+          payload.comment.user?.login ?? "github-user",
+          payload.comment.body ?? "",
+          payload.comment.html_url ?? null,
+          payload.comment.created_at ?? new Date().toISOString(),
+          new Date().toISOString(),
+          payload.action === "deleted" ? new Date().toISOString() : null,
+        )
+        .run();
+    }
+    await c.env.DB.prepare(
+      "UPDATE github_webhook_deliveries SET state = 'done', updated_at = datetime('now') WHERE delivery_id = ? AND state = 'processing' AND attempt_token = ?",
+    )
+      .bind(deliveryId, attemptToken)
+      .run();
+    return c.json({ ok: true });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "webhook_processing_failed";
+    await c.env.DB.prepare(
+      "UPDATE github_webhook_deliveries SET state = 'failed', error = ?, updated_at = datetime('now') WHERE delivery_id = ? AND state = 'processing' AND attempt_token = ?",
+    )
+      .bind(message.slice(0, 200), deliveryId, attemptToken)
+      .run();
+    console.error("github_webhook_processing_failed", { deliveryId, message });
+    return c.json({ error: "webhook_processing_failed" }, 500);
+  }
+});
+
 // Serve um anexo do R2. Público por design: a key contém UUID e não é
 // enumerável; quem tem a key veio da listagem pública da issue. Declarado
 // ANTES de GET /:id — "files" nunca deve casar com o param de id.
@@ -173,14 +713,20 @@ issues.get("/files/*", async (c) => {
 // arquivada é admin, via GET /admin/issues/:id.
 issues.get("/:id", async (c) => {
   const row = await c.env.DB.prepare(
-    "SELECT id, title, category, description, files, status, created_at FROM issues WHERE id = ? AND archived_at IS NULL",
+    "SELECT id, title, category, description, files, status, created_at, github_url, github_sync_state FROM issues WHERE id = ? AND archived_at IS NULL",
   )
     .bind(c.req.param("id"))
     .first<{ files: string | null } & Record<string, unknown>>();
   if (!row) return c.json({ error: "not_found" }, 404);
+  const { results: comments } = await c.env.DB.prepare(
+    "SELECT github_comment_id, author, body, html_url, created_at, updated_at FROM issue_comments WHERE issue_id = ? AND deleted_at IS NULL ORDER BY created_at ASC",
+  )
+    .bind(c.req.param("id"))
+    .all();
   return c.json({
     ...row,
     files: row.files ? (JSON.parse(row.files) as string[]) : [],
+    comments,
   });
 });
 

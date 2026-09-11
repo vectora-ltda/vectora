@@ -52,6 +52,16 @@ export interface Env {
   // registry/discovery.ts — sem token, discovery de skills via GitHub code
   // search fica desligada (não é erro, ver discoverSkills).
   GITHUB_TOKEN?: string;
+  /** Token of the GitHub App/PAT used by the Company issue bridge. */
+  GITHUB_ISSUES_TOKEN?: string;
+  /** HMAC secret configured on the public intake repository webhook. */
+  GITHUB_ISSUES_WEBHOOK_SECRET?: string;
+  /** Defaults to vectora-ltda/vectora-issues. */
+  GITHUB_ISSUES_REPO?: string;
+  /** Defaults to vectora-ltda/vectora. */
+  GITHUB_CORE_REPO?: string;
+  /** Comma-separated GitHub logins allowed to approve intake issues. */
+  GITHUB_ISSUES_APPROVERS?: string;
   // gha-bot/ — chave mestra AES-256-GCM (base64) pra cifrar/decifrar a
   // chave de provider de cada usuário (gha-bot/crypto.ts). Cloudflare
   // Secrets Store não serve aqui — ver comentário em crypto.ts.

@@ -88,7 +88,19 @@ export const listOpenIssues = createServerFn({ method: "GET" }).handler(
   },
 );
 
-export type IssueDetail = IssueListItem & { status: "open" | "resolved" };
+export type IssueDetail = IssueListItem & {
+  status: "open" | "resolved";
+  github_url?: string | null;
+  github_sync_state?: string;
+  core_url?: string | null;
+  comments?: Array<{
+    author: string;
+    body: string;
+    html_url: string | null;
+    created_at: string;
+    github_comment_id: number;
+  }>;
+};
 
 // servicesFetch lança em qualquer resposta não-2xx (incl. 404) — null aqui
 // significa "não existe", tratado pela rota como not-found.
