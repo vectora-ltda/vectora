@@ -399,7 +399,7 @@ admin.post("/issues/:id/respond", async (c) => {
   }
 
   const issue = await c.env.DB.prepare(
-    "SELECT title, email, github_repo, github_number, response_version FROM issues WHERE id = ?",
+    "SELECT title, email, github_repo, github_number, response_version, github_sync_state, response_sync_lease_until, (response_sync_lease_until IS NOT NULL AND response_sync_lease_until > datetime('now')) AS response_sync_lease_active FROM issues WHERE id = ?",
   )
     .bind(id)
     .first<{
@@ -408,8 +408,18 @@ admin.post("/issues/:id/respond", async (c) => {
       github_repo: string | null;
       github_number: number | null;
       response_version: number;
+      github_sync_state: string;
+      response_sync_lease_until: string | null;
+      response_sync_lease_active: number;
     }>();
   if (!issue) return c.json({ error: "not_found" }, 404);
+
+  if (
+    issue.github_sync_state === "response_syncing" &&
+    issue.response_sync_lease_active
+  ) {
+    return c.json({ error: "response_superseded" }, 409);
+  }
 
   const newStatus = body.resolve ? "resolved" : "open";
   await c.env.DB.prepare(
