@@ -93,6 +93,13 @@ const ToolPolicyPanel = lazyWithRetry(
     })),
   "settings-tool-policy-tab",
 );
+const HitlAllowlistPanel = lazyWithRetry(
+  () =>
+    import("./environment/tabs/hitl-allowlist-panel").then((mod) => ({
+      default: mod.HitlAllowlistPanel,
+    })),
+  "settings-hitl-allowlist-tab",
+);
 const UsersPanel = lazyWithRetry(
   () =>
     import("./administracao/admin-tab").then((mod) => ({
@@ -259,6 +266,12 @@ export function buildSettingsCategoryGroups({
       group: "ambiente",
       label: m.settings_category_tool_policy(),
       Component: ToolPolicyPanel,
+    },
+    {
+      id: "hitl_allowlist",
+      group: "ambiente",
+      label: m.settings_category_hitl_allowlist(),
+      Component: HitlAllowlistPanel,
     },
   ];
 
