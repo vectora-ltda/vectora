@@ -364,3 +364,13 @@ CREATE INDEX IF NOT EXISTS idx_thread_activity_user_thread
 -- (`get_or_create_default_board`) na primeira vez que o usuário abre a
 -- visão de boards, não numa migração de dados em massa.
 ALTER TABLE vectora_background_tasks ADD COLUMN board_id TEXT;
+
+CREATE TABLE IF NOT EXISTS tool_usage_events (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tool_usage_user_time_name
+    ON tool_usage_events(user_id, created_at, tool_name);

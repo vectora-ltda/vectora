@@ -83,6 +83,15 @@ CREATE TABLE IF NOT EXISTS vectora_embedding_queue (
 
 CREATE INDEX IF NOT EXISTS ix_veq_status ON vectora_embedding_queue(status);
 
+CREATE TABLE IF NOT EXISTS tool_usage_events (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_tool_usage_user_time_name
+    ON tool_usage_events(user_id, created_at, tool_name);
 -- Agregados técnicos semanais, sem conteúdo de conversas.
 CREATE TABLE IF NOT EXISTS usage_insight_events (
     id BIGSERIAL PRIMARY KEY,
