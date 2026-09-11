@@ -225,7 +225,12 @@ def create_backup(
     }
     for category, (source, archive_name) in optional.items():
         if source.is_file():
-            sources[category] = [(archive_name, source.read_bytes())]
+            data = (
+                _sqlite_snapshot(source)
+                if category == "threads"
+                else source.read_bytes()
+            )
+            sources[category] = [(archive_name, data)]
     manifest: dict[str, Any] = {
         "format_version": FORMAT_VERSION,
         "app_version": app_version,
@@ -380,11 +385,7 @@ def restore_backup(
         "threads": _sessions_path(destination),
         "memories": destination.parent.parent / "memories.json",
     }
-    snapshots: dict[Path, bytes | None] = {
-        path: path.read_bytes() if path.is_file() else None
-        for category, path in targets.items()
-        if category in selected
-    }
+    snapshots = snapshot_targets(destination, selected)
     try:
         with zipfile.ZipFile(archive_file) as archive:
             manifest = json.loads(archive.read(MANIFEST))
@@ -469,3 +470,30 @@ def restore_backup(
         preview.storage_mode,
         results,
     )
+
+
+def snapshot_targets(
+    db_path: str | Path, categories: set[str]
+) -> dict[Path, bytes | None]:
+    """Captura os arquivos selecionados para rollback de uma promoção externa."""
+    destination = Path(db_path)
+    targets = {
+        "database": destination,
+        "workspaces": _workspace_path(destination),
+        "threads": _sessions_path(destination),
+        "memories": destination.parent.parent / "memories.json",
+    }
+    return {
+        path: path.read_bytes() if path.is_file() else None
+        for category, path in targets.items()
+        if category in categories
+    }
+
+
+def restore_snapshots(snapshots: dict[Path, bytes | None]) -> None:
+    """Reaplica snapshots capturados antes de uma promoção malsucedida."""
+    for path, previous in snapshots.items():
+        if previous is None:
+            path.unlink(missing_ok=True)
+        else:
+            _atomic_write(path, previous)

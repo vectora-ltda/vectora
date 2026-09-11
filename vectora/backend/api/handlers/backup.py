@@ -8,6 +8,7 @@ destino e a confirmação é obrigatória para publicar dados.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hmac
 import os
 from typing import Annotated
@@ -20,6 +21,8 @@ from backend.storage.backup_manifest import (
     BackupPreview,
     inspect_backup,
     restore_backup,
+    restore_snapshots,
+    snapshot_targets,
 )
 
 router = APIRouter(prefix="/storage/backup", tags=["backup"])
@@ -86,11 +89,26 @@ async def restore_local_backup(
         await agent_factory.aclose()
         await threads.close_db()
         await auth.close_db()
-        try:
-            preview = restore_backup(payload.archive_path, db_path, selected)
-            return _preview_payload(preview)
-        finally:
-            # Reabre cada consumidor antes de liberar o lock de manutenção.
+        snapshots = snapshot_targets(
+            db_path, set(selected or {"database", "workspaces", "threads", "memories"})
+        )
+
+        async def reopen_consumers() -> None:
             await threads.ensure_sessions_table()
             await auth._get_db()
             await agent_factory.awarm()
+
+        try:
+            preview = restore_backup(payload.archive_path, db_path, selected)
+            await reopen_consumers()
+            return _preview_payload(preview)
+        except Exception:
+            # Se a promoção terminou, mas algum consumidor não reabriu, volta
+            # todos os arquivos ao snapshot anterior antes de reabrir o estado.
+            await agent_factory.aclose()
+            await threads.close_db()
+            await auth.close_db()
+            restore_snapshots(snapshots)
+            with contextlib.suppress(Exception):
+                await reopen_consumers()
+            raise

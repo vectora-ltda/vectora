@@ -161,3 +161,30 @@ def test_restore_promove_banco_de_staging_ja_migrado(tmp_path: Path) -> None:
     connection.close()
     assert "status" in columns
     assert "priority" in columns
+
+
+def test_create_backup_copia_sessions_com_snapshot_sqlite(tmp_path: Path) -> None:
+    database = tmp_path / "vectora.db"
+    database.write_bytes(b"sqlite-placeholder")
+    sessions = tmp_path / "sessions.db"
+    connection = sqlite3.connect(sessions)
+    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("CREATE TABLE messages (id TEXT PRIMARY KEY, body TEXT)")
+    connection.execute("INSERT INTO messages VALUES ('m1', 'confirmado')")
+    connection.commit()
+    archive = tmp_path / "backup.zip"
+    # O arquivo principal não contém a linha enquanto o WAL estiver ativo;
+    # create_backup deve usar a API de backup do SQLite.
+    preview = create_backup(database, archive)
+    assert preview.categories["database"] == 1
+    connection.close()
+    with zipfile.ZipFile(archive) as handle:
+        assert "sessions.db" in handle.namelist()
+        restored = tmp_path / "sessions-restored.db"
+        restored.write_bytes(handle.read("sessions.db"))
+    restored_connection = sqlite3.connect(restored)
+    assert (
+        restored_connection.execute("SELECT body FROM messages").fetchone()[0]
+        == "confirmado"
+    )
+    restored_connection.close()
