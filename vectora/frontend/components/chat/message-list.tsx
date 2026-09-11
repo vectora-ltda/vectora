@@ -36,8 +36,16 @@ const messageCatalog = m as typeof m & {
 messageCatalog.chat_messages ??= (() => "Messages") as typeof m.chat_messages;
 messageCatalog.scroll_back_to_bottom ??= (() =>
   "Voltar ao fim") as typeof m.scroll_back_to_bottom;
-messageCatalog.chat_branch_comparison_segments ??= (args) =>
-  `comum: ${args.common}; ativa: ${args.active}; candidata: ${args.selected}`;
+function formatComparisonSegments(args: {
+  common: string;
+  active: string;
+  selected: string;
+}): string {
+  const localized = messageCatalog.chat_branch_comparison_segments;
+  return localized
+    ? String(localized(args))
+    : `comum: ${args.common}; ativa: ${args.active}; candidata: ${args.selected}`;
+}
 
 // Ativa virtualização quando a thread tem mais que este número de mensagens.
 // Abaixo do threshold, renderização direta é mais simples e igualmente rápida.
@@ -192,7 +200,7 @@ function ConversationBranchBar({ threadId }: { threadId?: string }) {
           role="status"
           aria-label={`${m.chat_branch_compare()} ${comparisonCandidateId}`}
         >
-          {messageCatalog.chat_branch_comparison_segments({
+          {formatComparisonSegments({
             common: String(comparison.common ?? "—"),
             active: comparison.active.join(", ") || "—",
             selected: comparison.selected.join(", ") || "—",
