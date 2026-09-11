@@ -218,6 +218,9 @@ async def _migrate_pinned_column(db: Any) -> None:
 
 
 async def _get_db() -> Any:
+    from backend.services.maintenance import wait_until_available
+
+    await wait_until_available()
     """Retorna conexão aiosqlite com o banco de checkpoints/sessões."""
     global _db_conn
     if _db_conn is None:
@@ -254,6 +257,16 @@ async def ensure_sessions_table() -> None:
     """Cria a tabela ``vectora_sessions`` ao boot (chamada do lifespan)."""
     db = await _get_db()
     await _ensure_schema(db)
+
+
+async def close_db() -> None:
+    """Fecha a conexão persistente antes de promover um backup SQLite."""
+    global _db_conn
+    async with _db_conn_lock:
+        connection = _db_conn
+        _db_conn = None
+        if connection is not None:
+            await connection.close()
 
 
 async def _get_session_store() -> Any:

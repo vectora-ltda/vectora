@@ -34,12 +34,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.responses import Response as FastAPIResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import RequestResponseEndpoint
 
 from backend.api.handlers.admin import router as admin_router
 from backend.api.handlers.agent_profiles import router as agent_profiles_router
 from backend.api.handlers.artifacts import router as artifacts_router
 from backend.api.handlers.auth import router as auth_router
 from backend.api.handlers.background import router as background_router
+from backend.api.handlers.backup import router as backup_router
 from backend.api.handlers.boards import router as boards_router
 from backend.api.handlers.chat import router as chat_router
 from backend.api.handlers.connect import router as connect_router
@@ -545,6 +547,20 @@ def create_app(serve_static: bool = True) -> FastAPI:
         redoc_url=None,
     )
 
+    @app.middleware("http")
+    async def _track_storage_operation(
+        request: Request, call_next: RequestResponseEndpoint
+    ) -> FastAPIResponse:
+        """Keep the restore barrier active for the full HTTP operation."""
+        from backend.services.maintenance import storage_operation
+
+        # The restore endpoint owns the maintenance window itself; counting
+        # that request would make it wait for its own operation to finish.
+        if request.url.path == "/storage/backup/restore":
+            return await call_next(request)
+        async with storage_operation():
+            return await call_next(request)
+
     # ── Exceção não tratada: loga antes do 500 genérico ────────────────────────
     # Sem isso, uma exceção em qualquer handler vira "500 Internal Server
     # Error" sem rastro nenhum no log — Starlette imprime via
@@ -619,6 +635,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
     app.include_router(gateway_router)
     app.include_router(webhooks_router)
     app.include_router(admin_router)
+    app.include_router(backup_router)
     app.include_router(usage_router)
     app.include_router(workspace_router)
     app.include_router(workspace_view_router)
