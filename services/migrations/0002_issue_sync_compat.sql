@@ -2,10 +2,6 @@
 -- shape final de 0001_schema.sql; o upgrade operacional adiciona-as apenas a
 -- bancos legados que já existiam antes desse shape.
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_issues_github_identity
-  ON issues(github_repo, github_number)
-  WHERE github_repo IS NOT NULL AND github_number IS NOT NULL;
-
 CREATE TABLE IF NOT EXISTS issue_comments (
   id TEXT PRIMARY KEY,
   issue_id TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,

@@ -270,11 +270,12 @@ export async function reconcileIssueComments(
 /** Retoma respostas públicas persistidas após falhas transitórias do GitHub. */
 export async function reconcilePendingIssueResponses(env: Env): Promise<void> {
   const { results } = await env.DB.prepare(
-    "SELECT id, response, status, github_repo, github_number FROM issues WHERE github_sync_state = 'response_pending' AND response IS NOT NULL AND github_repo IS NOT NULL AND github_number IS NOT NULL ORDER BY responded_at ASC LIMIT 25",
+    "SELECT id, response, status, response_version, github_repo, github_number FROM issues WHERE github_sync_state = 'response_pending' AND response IS NOT NULL AND github_repo IS NOT NULL AND github_number IS NOT NULL ORDER BY responded_at ASC LIMIT 25",
   ).all<{
     id: string;
     response: string;
     status: string;
+    response_version: number;
     github_repo: string;
     github_number: number;
   }>();
@@ -287,6 +288,7 @@ export async function reconcilePendingIssueResponses(env: Env): Promise<void> {
         issue.github_number,
         issue.response,
         issue.status === "resolved",
+        issue.response_version,
       );
     } catch (error) {
       console.error("issue_github_response_retry_failed", {

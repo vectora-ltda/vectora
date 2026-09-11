@@ -1029,6 +1029,19 @@ def _action_prod(target, source, env):
         # O upgrade aditivo só roda depois das migrations, que criam as
         # tabelas auxiliares consultadas pelo preflight.
         _upgrade_d1_schema(log)
+        _run(
+            [
+                WRANGLER,
+                "d1",
+                "execute",
+                "vectora-db",
+                "--remote",
+                "--command",
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_issues_github_identity ON issues(github_repo, github_number) WHERE github_repo IS NOT NULL AND github_number IS NOT NULL",
+            ],
+            log=log,
+            cwd=SERVICES,
+        )
         _run([WRANGLER, "deploy"], log=log, cwd=SERVICES)
     print(
         "\n>> deploy de produção concluído: "
