@@ -18,6 +18,15 @@
   "sidebar_documentation_caption": "Guía de uso y API · Vectora",
   "sidebar_docs": "Docs",
   "sidebar_feedback": "Comentarios",
+  "feedback_title": "Enviar comentarios",
+  "feedback_bug": "Error",
+  "feedback_suggestion": "Sugerencia",
+  "feedback_cancel": "Cancelar",
+  "feedback_send": "Enviar",
+  "feedback_sent": "Comentarios enviados.",
+  "feedback_rate_limited": "Inténtalo de nuevo en un momento.",
+  "feedback_error": "No se pudieron enviar los comentarios.",
+  "feedback_required": "Describe el problema o la sugerencia.",
   "sidebar_report_issue": "Reportar problema",
   "sidebar_open": "Abrir sesiones",
   "sidebar_collapse": "Contraer",
@@ -1537,6 +1546,7 @@
   "about_panel_mode_label": "Modo",
   "about_panel_mode_desktop": "Escritorio (Electron)",
   "about_panel_mode_web": "Web",
+  "feedback_include_context": "Incluir contexto técnico",
   "sidebar_ctx_resume": "Abrir en este dispositivo",
   "sidebar_remote_activity_tooltip": "Activo en otro dispositivo {time}"
 }
