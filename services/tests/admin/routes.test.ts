@@ -510,6 +510,73 @@ describe("POST /admin/issues/:id/respond", () => {
     expect(row?.response_version).toBe(1);
     expect(row?.response_sync_lease_until).toBeTruthy();
   });
+
+  it("reserva a issue antes da publicação externa e rejeita resposta sobreposta", async () => {
+    const { token } = await createUser("admin");
+    const id = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO issues (id, title, category, description, github_repo, github_number, github_url, github_sync_state) VALUES (?, 'Resposta concorrente', 'bug', 'Descrição', ?, 9912, ?, 'synced')",
+    )
+      .bind(
+        id,
+        "vectora-ltda/vectora-issues",
+        "https://github.com/vectora-ltda/vectora-issues/issues/9912",
+      )
+      .run();
+
+    let releaseCommentLookup!: (response: Response) => void;
+    const commentLookup = new Promise<Response>((resolve) => {
+      releaseCommentLookup = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (url.includes("/issues/9912/comments") && method === "GET") {
+          return commentLookup;
+        }
+        if (url.includes("/issues/9912/comments") && method === "POST") {
+          return new Response(JSON.stringify({ id: 1 }), { status: 201 });
+        }
+        return new Response("{}", { status: 200 });
+      }),
+    );
+    const githubEnv = { ...env, GITHUB_TOKEN: "test-token" };
+
+    const firstResponse = admin.request(
+      `/issues/${id}/respond`,
+      authed(token, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ response: "Primeira resposta", resolve: true }),
+      }),
+      githubEnv,
+    );
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const row = await env.DB.prepare(
+        "SELECT github_sync_state FROM issues WHERE id = ?",
+      )
+        .bind(id)
+        .first<{ github_sync_state: string }>();
+      if (row?.github_sync_state === "response_syncing") break;
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+
+    const secondResponse = await admin.request(
+      `/issues/${id}/respond`,
+      authed(token, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ response: "Segunda resposta", resolve: false }),
+      }),
+      githubEnv,
+    );
+    expect(secondResponse.status).toBe(409);
+
+    releaseCommentLookup(new Response("[]", { status: 200 }));
+    expect((await firstResponse).status).toBe(200);
+  });
 });
 
 describe("POST /admin/issues/:id/archive", () => {

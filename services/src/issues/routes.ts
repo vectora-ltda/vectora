@@ -82,8 +82,9 @@ export async function syncIssueResponse(
   response: string,
   resolve: boolean,
   expectedVersion?: number,
+  leaseAlreadyClaimed = false,
 ): Promise<void> {
-  if (expectedVersion !== undefined) {
+  if (expectedVersion !== undefined && !leaseAlreadyClaimed) {
     const claimed = await env.DB.prepare(
       "UPDATE issues SET github_sync_state = 'response_syncing', response_sync_lease_until = datetime('now', '+5 minutes') WHERE id = ? AND response_version = ? AND response = ? AND (github_sync_state = 'response_pending' OR (github_sync_state = 'response_syncing' AND response_sync_lease_until <= datetime('now'))) ",
     )

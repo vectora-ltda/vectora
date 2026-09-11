@@ -423,7 +423,7 @@ admin.post("/issues/:id/respond", async (c) => {
 
   const newStatus = body.resolve ? "resolved" : "open";
   await c.env.DB.prepare(
-    "UPDATE issues SET response = ?, responded_at = datetime('now'), status = ?, response_version = response_version + 1, github_sync_state = CASE WHEN github_repo IS NOT NULL AND github_number IS NOT NULL THEN 'response_pending' ELSE github_sync_state END, response_sync_lease_until = NULL, github_sync_error = NULL WHERE id = ?",
+    "UPDATE issues SET response = ?, responded_at = datetime('now'), status = ?, response_version = response_version + 1, github_sync_state = CASE WHEN github_repo IS NOT NULL AND github_number IS NOT NULL THEN 'response_syncing' ELSE github_sync_state END, response_sync_lease_until = CASE WHEN github_repo IS NOT NULL AND github_number IS NOT NULL THEN datetime('now', '+5 minutes') ELSE NULL END, github_sync_error = NULL WHERE id = ?",
   )
     .bind(body.response, newStatus, id)
     .run();
@@ -438,6 +438,7 @@ admin.post("/issues/:id/respond", async (c) => {
         body.response,
         Boolean(body.resolve),
         issue.response_version + 1,
+        true,
       );
     } catch (error) {
       const message =
