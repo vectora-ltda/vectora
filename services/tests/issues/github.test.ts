@@ -67,6 +67,49 @@ describe("GitHub comments pagination", () => {
 });
 
 describe("GitHub issue marker pagination", () => {
+  it("restringe a busca ao bot antes do limite de mil resultados", async () => {
+    const queries: string[] = [];
+    const trusted = {
+      number: 2001,
+      title: "confiável",
+      body: "<!-- vectora-company-issue:issue-large -->",
+      state: "open" as const,
+      html_url: "https://github.com/vectora/2001",
+      user: { login: "vectora-bot" },
+    };
+    const forged = Array.from({ length: 1000 }, (_, index) => ({
+      ...trusted,
+      number: index + 1,
+      title: "forjada",
+      html_url: `https://github.com/forged/${index + 1}`,
+      user: { login: "attacker" },
+    }));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const query = new URL(String(input)).searchParams.get("q") ?? "";
+        queries.push(query);
+        return new Response(
+          JSON.stringify({
+            items: query.includes("author:vectora-bot") ? [trusted] : forged,
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    const candidates = await findIssueByMarker(
+      { ...env, GITHUB_TOKEN: "test-token" },
+      "vectora-ltda/vectora-issues",
+      "vectora-company-issue:issue-large",
+      "vectora-bot",
+    );
+
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toContain("author:vectora-bot");
+    expect(candidates).toEqual([trusted]);
+  });
+
   it("alcança o candidato confiável em uma página posterior", async () => {
     const pages: number[] = [];
     const queries: string[] = [];

@@ -7,6 +7,7 @@ import {
   reconcileIssueComments,
   reconcilePendingIssueResponses,
   syncCreatedIssue,
+  syncIssueResponse,
 } from "../../src/issues/routes";
 import {
   promoteIssue,
@@ -808,6 +809,92 @@ describe("POST /issues/github/webhook", () => {
         GITHUB_TOKEN: "test-token",
       }),
     ]);
+
+    expect(commentPosts).toBe(1);
+    const row = await env.DB.prepare(
+      "SELECT github_sync_state, response_sync_operation_token FROM issues WHERE id = ?",
+    )
+      .bind(issueId)
+      .first<{
+        github_sync_state: string;
+        response_sync_operation_token: string | null;
+      }>();
+    expect(row).toEqual({
+      github_sync_state: "synced",
+      response_sync_operation_token: null,
+    });
+  });
+
+  it("abandona a publicação antiga quando o reconciliador substitui o token após expiração", async () => {
+    const issueId = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO issues (id, title, category, description, response, status, github_repo, github_number, github_url, github_sync_state, response_version, response_sync_operation_token, response_sync_lease_until) VALUES (?, 'resposta expirada', 'bug', 'descrição', 'Resposta publicada', 'open', ?, 9919, ?, 'response_syncing', 4, 'token-antigo', datetime('now', '+5 minutes'))",
+    )
+      .bind(
+        issueId,
+        "vectora-ltda/vectora",
+        "https://github.com/vectora-ltda/vectora/issues/9919",
+      )
+      .run();
+
+    let releaseFirstLookup!: (response: Response) => void;
+    const firstLookup = new Promise<Response>((resolve) => {
+      releaseFirstLookup = resolve;
+    });
+    let commentLookups = 0;
+    let commentPosts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/comments") && (init?.method ?? "GET") === "GET") {
+          commentLookups += 1;
+          if (commentLookups === 1) return firstLookup;
+          return new Response("[]");
+        }
+        if (url.includes("/comments") && init?.method === "POST") {
+          commentPosts += 1;
+          return new Response(
+            JSON.stringify({
+              id: 991901,
+              body: "Resposta publicada",
+              html_url: "https://github.com/comment/991901",
+              created_at: new Date().toISOString(),
+            }),
+            { status: 201 },
+          );
+        }
+        return new Response("{}", { status: 200 });
+      }),
+    );
+
+    const oldPublication = syncIssueResponse(
+      { ...env, GITHUB_TOKEN: "test-token" },
+      issueId,
+      "vectora-ltda/vectora",
+      9919,
+      "Resposta publicada",
+      false,
+      4,
+      "token-antigo",
+      true,
+    );
+    for (let attempt = 0; attempt < 100 && commentLookups === 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    expect(commentLookups).toBe(1);
+
+    await env.DB.prepare(
+      "UPDATE issues SET response_sync_lease_until = datetime('now', '-1 minute') WHERE id = ?",
+    )
+      .bind(issueId)
+      .run();
+    await reconcilePendingIssueResponses({
+      ...env,
+      GITHUB_TOKEN: "test-token",
+    });
+    releaseFirstLookup(new Response("[]"));
+    await Promise.allSettled([oldPublication]);
 
     expect(commentPosts).toBe(1);
     const row = await env.DB.prepare(
