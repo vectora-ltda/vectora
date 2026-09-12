@@ -5,6 +5,7 @@ import {
   MAX_ISSUE_FILES,
   ISSUE_FILE_LIMITS,
   reconcileIssueComments,
+  reconcilePendingIssueResponses,
   syncCreatedIssue,
 } from "../../src/issues/routes";
 import {
@@ -759,6 +760,68 @@ describe("POST /issues/github/webhook", () => {
     expect(oldResult[0]?.status).toBe("rejected");
     expect(commentPosts).toBe(1);
     expect(issueCloses).toBe(0);
+  });
+
+  it("reivindica uma única publicação quando dois reconciliadores disputam o lease", async () => {
+    const issueId = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO issues (id, title, category, description, response, status, github_repo, github_number, github_url, github_sync_state, response_version, response_sync_operation_token, response_sync_lease_until) VALUES (?, 'resposta concorrente', 'bug', 'descrição', 'Resposta publicada', 'open', ?, 9918, ?, 'response_syncing', 3, 'token-antigo', datetime('now', '-1 minute'))",
+    )
+      .bind(
+        issueId,
+        "vectora-ltda/vectora",
+        "https://github.com/vectora-ltda/vectora/issues/9918",
+      )
+      .run();
+
+    let commentPosts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/comments") && (init?.method ?? "GET") === "GET") {
+          return new Response("[]", { status: 200 });
+        }
+        if (url.includes("/comments") && init?.method === "POST") {
+          commentPosts += 1;
+          return new Response(
+            JSON.stringify({
+              id: 991801,
+              body: "Resposta publicada",
+              html_url: "https://github.com/comment/991801",
+              created_at: new Date().toISOString(),
+            }),
+            { status: 201 },
+          );
+        }
+        return new Response("{}", { status: 200 });
+      }),
+    );
+
+    await Promise.all([
+      reconcilePendingIssueResponses({
+        ...env,
+        GITHUB_TOKEN: "test-token",
+      }),
+      reconcilePendingIssueResponses({
+        ...env,
+        GITHUB_TOKEN: "test-token",
+      }),
+    ]);
+
+    expect(commentPosts).toBe(1);
+    const row = await env.DB.prepare(
+      "SELECT github_sync_state, response_sync_operation_token FROM issues WHERE id = ?",
+    )
+      .bind(issueId)
+      .first<{
+        github_sync_state: string;
+        response_sync_operation_token: string | null;
+      }>();
+    expect(row).toEqual({
+      github_sync_state: "synced",
+      response_sync_operation_token: null,
+    });
   });
 
   it("marca comentários ativos como removidos quando o GitHub retorna uma lista vazia", async () => {
