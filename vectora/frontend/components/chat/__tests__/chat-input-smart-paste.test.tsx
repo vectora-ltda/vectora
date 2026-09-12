@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
@@ -80,53 +81,92 @@ function renderStructuredPaste() {
     text: vi.fn(),
     cancel: vi.fn(),
   };
-  render(
-    <ChatInput
-      input="texto existente"
-      onInputChange={vi.fn()}
-      onSend={vi.fn()}
-      onKeyDown={vi.fn()}
-      isLoading={false}
-      isStopping={false}
-      onStop={vi.fn()}
-      userId="user-1"
-      attachedFiles={[]}
-      uploadError={null}
-      inputError={null}
-      isDragging={false}
-      onDragOver={vi.fn()}
-      onDragLeave={vi.fn()}
-      onDrop={vi.fn()}
-      onPaste={vi.fn()}
-      onRemoveFile={vi.fn()}
-      onFileButtonClick={vi.fn()}
-      fileInputRef={{ current: null }}
-      onFileSelect={vi.fn()}
-      structuredPaste={{
-        content: '{"ok":true}',
-        extension: "json",
-        mimeType: "application/json",
-      }}
-      onStructuredPasteAttach={callbacks.attach}
-      onStructuredPasteText={callbacks.text}
-      onStructuredPasteCancel={callbacks.cancel}
-    />,
-  );
+
+  function StructuredPasteHarness() {
+    const [input, setInput] = useState("texto existente");
+    const [structuredPaste, setStructuredPaste] = useState<{
+      content: string;
+      extension: string;
+      mimeType: string;
+    } | null>({
+      content: '{"ok":true}',
+      extension: "json",
+      mimeType: "application/json",
+    });
+
+    return (
+      <ChatInput
+        input={input}
+        onInputChange={setInput}
+        onSend={vi.fn()}
+        onKeyDown={vi.fn()}
+        isLoading={false}
+        isStopping={false}
+        onStop={vi.fn()}
+        userId="user-1"
+        attachedFiles={[]}
+        uploadError={null}
+        inputError={null}
+        isDragging={false}
+        onDragOver={vi.fn()}
+        onDragLeave={vi.fn()}
+        onDrop={vi.fn()}
+        onPaste={vi.fn()}
+        onRemoveFile={vi.fn()}
+        onFileButtonClick={vi.fn()}
+        fileInputRef={{ current: null }}
+        onFileSelect={vi.fn()}
+        structuredPaste={structuredPaste}
+        onStructuredPasteAttach={async () => {
+          callbacks.attach();
+          setStructuredPaste(null);
+        }}
+        onStructuredPasteText={() => {
+          if (!structuredPaste) return;
+          callbacks.text();
+          setInput((current) => `${current}\n${structuredPaste.content}`);
+          setStructuredPaste(null);
+        }}
+        onStructuredPasteCancel={() => {
+          callbacks.cancel();
+          setStructuredPaste(null);
+        }}
+      />
+    );
+  }
+
+  render(<StructuredPasteHarness />);
   return callbacks;
 }
 
 describe("ChatInput structured paste contract", () => {
-  it("offers attach, text and cancel while preserving the textarea value", () => {
+  it("preserves the draft when the user attaches the structured paste", () => {
     const callbacks = renderStructuredPaste();
 
     expect(screen.getByTestId("chat-input")).toHaveValue("texto existente");
     fireEvent.click(screen.getByText("chat_structured_paste_attach"));
-    fireEvent.click(screen.getByText("chat_structured_paste_text"));
-    fireEvent.click(screen.getByText("chat_structured_paste_cancel"));
 
     expect(callbacks.attach).toHaveBeenCalledOnce();
-    expect(callbacks.text).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("chat-input")).toHaveValue("texto existente");
+  });
+
+  it("preserves the draft when the user cancels the structured paste", () => {
+    const callbacks = renderStructuredPaste();
+
+    fireEvent.click(screen.getByText("chat_structured_paste_cancel"));
+
     expect(callbacks.cancel).toHaveBeenCalledOnce();
     expect(screen.getByTestId("chat-input")).toHaveValue("texto existente");
+  });
+
+  it("appends the structured paste when the user chooses text", () => {
+    const callbacks = renderStructuredPaste();
+
+    fireEvent.click(screen.getByText("chat_structured_paste_text"));
+
+    expect(callbacks.text).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("chat-input")).toHaveValue(
+      'texto existente\n{"ok":true}',
+    );
   });
 });

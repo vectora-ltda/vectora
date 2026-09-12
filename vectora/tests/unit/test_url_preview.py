@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import socket
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import TypedDict, cast
 
 import httpx
 import pytest
@@ -26,7 +26,7 @@ class _FakeResponse:
         self.headers = headers or {"content-type": "text/html"}
         self._chunks = chunks if chunks is not None else [body]
 
-    async def __aenter__(self) -> "_FakeResponse":
+    async def __aenter__(self) -> _FakeResponse:
         return self
 
     async def __aexit__(self, *_args: object) -> None:
@@ -37,21 +37,35 @@ class _FakeResponse:
             yield chunk
 
 
+class _RequestCall(TypedDict):
+    method: str
+    url: str
+    headers: dict[str, str]
+    extensions: dict[str, str]
+
+
 class _FakeClient:
     response: _FakeResponse | None = None
-    calls: list[dict[str, Any]] = []
+    calls: list[_RequestCall] = []
 
     def __init__(self, **_kwargs: object) -> None:
         self.__class__.calls = []
 
-    async def __aenter__(self) -> "_FakeClient":
+    async def __aenter__(self) -> _FakeClient:
         return self
 
     async def __aexit__(self, *_args: object) -> None:
         return None
 
     def stream(self, method: str, url: str, **kwargs: object) -> _FakeResponse:
-        self.calls.append({"method": method, "url": url, **kwargs})
+        self.calls.append(
+            {
+                "method": method,
+                "url": url,
+                "headers": cast("dict[str, str]", kwargs["headers"]),
+                "extensions": cast("dict[str, str]", kwargs["extensions"]),
+            }
+        )
         assert self.response is not None
         return self.response
 
@@ -160,6 +174,7 @@ async def test_preview_sanitizes_metadata_and_uses_validated_ip(
         (200, {"content-type": "application/json"}, 415),
         (200, {"content-type": "text/html", "content-length": "600000"}, 413),
         (200, {"content-type": "text/html", "content-length": "invalid"}, 502),
+        (200, {"content-type": "text/html", "content-length": "-1"}, 502),
     ],
 )
 async def test_preview_rejects_unsafe_response_headers(
@@ -208,15 +223,24 @@ async def test_preview_maps_network_timeout_to_unavailable(
         lambda _host: "93.184.216.34",
     )
 
-    class _TimeoutClient(_FakeClient):
-        def stream(self, method: str, url: str, **kwargs: object) -> Any:
-            class _TimeoutStream:
-                async def __aenter__(self) -> Any:
-                    raise httpx.ReadTimeout("timed out")
+    class _TimeoutStream:
+        async def __aenter__(self) -> _TimeoutStream:
+            raise httpx.ReadTimeout("timed out")
 
-                async def __aexit__(self, *_args: object) -> None:
-                    return None
+        async def __aexit__(self, *_args: object) -> None:
+            return None
 
+    class _TimeoutClient:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        async def __aenter__(self) -> _TimeoutClient:
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        def stream(self, method: str, url: str, **kwargs: object) -> _TimeoutStream:
             return _TimeoutStream()
 
     monkeypatch.setattr(httpx, "AsyncClient", _TimeoutClient)
