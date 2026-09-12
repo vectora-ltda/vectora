@@ -447,6 +447,67 @@ describe("POST /admin/issues/:id/respond", () => {
     expect(body.status).toBe("open");
   });
 
+  it("preserva como pendente quando a publicação no GitHub falha", async () => {
+    const { token } = await createUser("admin");
+    const id = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO issues (id, title, category, description, github_repo, github_number, github_url, github_sync_state) VALUES (?, 'Falha GitHub', 'bug', 'Descrição', ?, 9920, ?, 'synced')",
+    )
+      .bind(
+        id,
+        "vectora-ltda/vectora-issues",
+        "https://github.com/vectora-ltda/vectora-issues/issues/9920",
+      )
+      .run();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/issues/9920/comments") && !init?.method) {
+          return new Response("[]", { status: 200 });
+        }
+        if (url.includes("/issues/9920/comments") && init?.method === "POST") {
+          return new Response(
+            JSON.stringify({ message: "temporary failure" }),
+            {
+              status: 500,
+            },
+          );
+        }
+        return new Response("{}", { status: 200 });
+      }),
+    );
+
+    const response = await admin.request(
+      `/issues/${id}/respond`,
+      authed(token, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ response: "Resposta pendente", resolve: false }),
+      }),
+      { ...env, GITHUB_TOKEN: "test-token" },
+    );
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: "github_sync_pending" });
+
+    const row = await env.DB.prepare(
+      "SELECT github_sync_state, response_sync_lease_until, response_sync_operation_token, github_sync_error FROM issues WHERE id = ?",
+    )
+      .bind(id)
+      .first<{
+        github_sync_state: string;
+        response_sync_lease_until: string | null;
+        response_sync_operation_token: string | null;
+        github_sync_error: string | null;
+      }>();
+    expect(row).toMatchObject({
+      github_sync_state: "response_pending",
+      response_sync_lease_until: null,
+      response_sync_operation_token: null,
+    });
+    expect(row?.github_sync_error).toContain("temporary failure");
+  });
+
   it("aceita somente uma resposta concorrente sem vínculo GitHub", async () => {
     const { token } = await createUser("admin");
     const id = await createIssue({ email: null });

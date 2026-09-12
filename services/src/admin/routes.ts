@@ -466,7 +466,7 @@ admin.post("/issues/:id/respond", async (c) => {
         return c.json({ error: message }, 409);
       }
       await c.env.DB.prepare(
-        "UPDATE issues SET github_sync_state = 'response_pending', response_sync_lease_until = NULL, response_sync_operation_token = NULL, github_sync_error = ? WHERE id = ? AND response_version = ? AND github_sync_operation_token = ? AND github_sync_state = 'response_syncing'",
+        "UPDATE issues SET github_sync_state = 'response_pending', response_sync_lease_until = NULL, response_sync_operation_token = NULL, github_sync_error = ? WHERE id = ? AND response_version = ? AND response_sync_operation_token = ? AND github_sync_state = 'response_syncing'",
       )
         .bind(
           message.slice(0, 200),
