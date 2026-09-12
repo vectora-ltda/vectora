@@ -108,8 +108,21 @@ async def preview_url(
                         status_code=415, detail="conteúdo não suportado"
                     )
                 content_length = response.headers.get("content-length")
-                if content_length and int(content_length) > MAX_PREVIEW_BYTES:
-                    raise HTTPException(status_code=413, detail="resposta muito grande")
+                if content_length:
+                    try:
+                        declared_length = int(content_length)
+                    except ValueError as exc:
+                        raise HTTPException(
+                            status_code=502, detail="preview indisponível"
+                        ) from exc
+                    if declared_length < 0:
+                        raise HTTPException(
+                            status_code=502, detail="preview indisponível"
+                        )
+                    if declared_length > MAX_PREVIEW_BYTES:
+                        raise HTTPException(
+                            status_code=413, detail="resposta muito grande"
+                        )
                 chunks: list[bytes] = []
                 total = 0
                 async for chunk in response.aiter_bytes():
