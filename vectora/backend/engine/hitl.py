@@ -187,6 +187,9 @@ def should_require_approval(
             # Custos acima do limiar exigem aprovação em qualquer modo,
             # inclusive `auto` e `bypass`.
             return True
+          # Sem um limiar confiável, falha fechada: o custo deve ser
+          # apresentado ao usuário antes da execução.
+          return True
     if tool_name in _JAILED_BYPASS_TOOLS and _workspace_is_jailed(ctx.workspace_id):
         return False
     mode = ctx.permission_mode or "ask"
