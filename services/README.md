@@ -107,7 +107,8 @@ handler):
   `update_telemetry`, `telemetry_ingest`, `rag_reindex`; DLQ
   `vectora-jobs-dlq`.
 
-O deploy valida o schema existente antes de iniciar os serviços de sincronização, permitindo atualizar instalações legadas de forma aditiva e idempotente.
+The deployment upgrade below keeps existing issue-synchronization databases
+compatible when columns are added after the base schema.
 
 ### Atualização do schema da sincronização de issues
 

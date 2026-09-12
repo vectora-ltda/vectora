@@ -184,7 +184,8 @@ CREATE TABLE IF NOT EXISTS issues (
   promotion_lease_until TEXT,
   promotion_operation_token TEXT,
   response_version INTEGER NOT NULL DEFAULT 0,
-  response_sync_lease_until TEXT
+  response_sync_lease_until TEXT,
+  response_sync_operation_token TEXT
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_issues_github_identity

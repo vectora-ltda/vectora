@@ -452,6 +452,66 @@ describe("MessageList — comparação e seleção de branches", () => {
     ).toHaveAttribute("aria-pressed", "true");
   });
 
+  it("ignora uma comparação antiga que termina depois da candidata atual", async () => {
+    const pending = new Map<
+      number,
+      (result: {
+        active_head_message_id: number;
+        selected_head_message_id: number;
+        common_message_ids: number[];
+        active_divergent_message_ids: number[];
+        selected_divergent_message_ids: number[];
+      }) => void
+    >();
+    branchMocks.listConversationBranches.mockResolvedValue({
+      ...branches,
+      branches: [
+        ...branches.branches,
+        { head_message_id: 4, created_at: "", active: false, message_count: 2 },
+      ],
+    });
+    branchMocks.compareConversationBranch.mockImplementation(
+      (_threadId: string, headMessageId: number) =>
+        new Promise((resolve) => pending.set(headMessageId, resolve)),
+    );
+
+    render(
+      <MessageList {...baseProps([msg("m1", "olá")])} threadId="t-race" />,
+    );
+    await screen.findByRole("button", { name: "Compare 3" });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Compare 3" }));
+      fireEvent.click(screen.getByRole("button", { name: "Compare 4" }));
+    });
+
+    await act(async () => {
+      pending.get(4)?.({
+        active_head_message_id: 2,
+        selected_head_message_id: 4,
+        common_message_ids: [1],
+        active_divergent_message_ids: [2],
+        selected_divergent_message_ids: [4],
+      });
+    });
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "comum: 1; ativa: 2; candidata: 4",
+    );
+
+    await act(async () => {
+      pending.get(3)?.({
+        active_head_message_id: 2,
+        selected_head_message_id: 3,
+        common_message_ids: [1],
+        active_divergent_message_ids: [2],
+        selected_divergent_message_ids: [3],
+      });
+    });
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "comum: 1; ativa: 2; candidata: 4",
+    );
+  });
+
   it("seleciona explicitamente uma branch e recarrega o estado ativo", async () => {
     branchMocks.listConversationBranches.mockResolvedValue(branches);
     branchMocks.selectConversationBranch.mockResolvedValue({

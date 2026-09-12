@@ -113,6 +113,7 @@ function ConversationBranchBar({ threadId }: { threadId?: string }) {
   const [comparisonCandidateId, setComparisonCandidateId] = useState<
     number | null
   >(null);
+  const comparisonCandidateRef = useRef<number | null>(null);
   const [comparison, setComparison] = useState<{
     common: number | null;
     active: number[];
@@ -128,6 +129,7 @@ function ConversationBranchBar({ threadId }: { threadId?: string }) {
         setBranches(result.branches);
         setActiveBranchId(result.active_head_message_id);
         setComparisonCandidateId(null);
+        comparisonCandidateRef.current = null;
         setComparison(null);
       })
       .catch(() => {
@@ -159,6 +161,7 @@ function ConversationBranchBar({ threadId }: { threadId?: string }) {
                 setBranches(result.branches);
                 setActiveBranchId(result.active_head_message_id);
                 setComparisonCandidateId(null);
+                comparisonCandidateRef.current = null;
                 setComparison(null);
                 window.dispatchEvent(
                   new CustomEvent("vectora:branch-selected", {
@@ -183,16 +186,23 @@ function ConversationBranchBar({ threadId }: { threadId?: string }) {
             aria-label={`${m.chat_branch_compare()} ${branch.head_message_id}`}
             className="rounded border px-2 py-1 hover:bg-accent"
             onClick={() => {
-              setComparisonCandidateId(branch.head_message_id);
-              void compareConversationBranch(threadId, branch.head_message_id)
-                .then((result) =>
+              const requestedHeadMessageId = branch.head_message_id;
+              comparisonCandidateRef.current = requestedHeadMessageId;
+              setComparisonCandidateId(requestedHeadMessageId);
+              void compareConversationBranch(threadId, requestedHeadMessageId)
+                .then((result) => {
+                  if (comparisonCandidateRef.current !== requestedHeadMessageId)
+                    return;
                   setComparison({
                     common: result.common_message_ids.at(-1) ?? null,
                     active: result.active_divergent_message_ids,
                     selected: result.selected_divergent_message_ids,
-                  }),
-                )
-                .catch(() => setComparison(null));
+                  });
+                })
+                .catch(() => {
+                  if (comparisonCandidateRef.current === requestedHeadMessageId)
+                    setComparison(null);
+                });
             }}
           >
             {m.chat_branch_compare()}

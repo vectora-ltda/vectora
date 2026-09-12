@@ -4,7 +4,7 @@
   "description": "Site institucional e infra de billing da Vectora — vectora.company",
   "private": true,
   "engines": {
-    "node": ">=26.0.0 <27"
+    "node": "24.x"
   },
   "type": "module",
   "imports": {

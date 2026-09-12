@@ -34,7 +34,9 @@ permissions:
   contents: read
 
 env:
-  NODE_VERSION: "26"
+  # Vercel production no longer accepts Node 26; keep CI and deploy on the
+  # supported LTS runtime used by the company project.
+  NODE_VERSION: "24"
   PNPM_VERSION: "11.5.0"
 
 jobs:
@@ -227,7 +229,17 @@ jobs:
         working-directory: services
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: pnpm exec wrangler d1 execute vectora-db --remote --file=migrations/0001_schema.sql
+        run: |
+          for attempt in 1 2 3; do
+            if pnpm exec wrangler d1 execute vectora-db --remote --file=migrations/0001_schema.sql; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "D1 schema execution failed (attempt $attempt/3); retrying..."
+              sleep $((attempt * 10))
+            fi
+          done
+          exit 1
 
       # O schema base é deliberadamente um único arquivo idempotente e não é
       # reaplicado pelo rastreador de migrations. Faça aqui o upgrade aditivo
@@ -240,7 +252,17 @@ jobs:
         working-directory: services
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: pnpm exec wrangler d1 migrations apply vectora-db --remote
+        run: |
+          for attempt in 1 2 3; do
+            if pnpm exec wrangler d1 migrations apply vectora-db --remote; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "D1 migrations failed (attempt $attempt/3); retrying..."
+              sleep $((attempt * 10))
+            fi
+          done
+          exit 1
 
       # Migrations ANTES do deploy do worker: o código deployado assume o
       # schema mais novo — publicar sem aplicar quebra rotas em produção.
@@ -287,6 +309,7 @@ jobs:
           ensure_column issues promotion_operation_token "TEXT"
           ensure_column issues response_version "INTEGER NOT NULL DEFAULT 0"
           ensure_column issues response_sync_lease_until "TEXT"
+          ensure_column issues response_sync_operation_token "TEXT"
           ensure_column rag_packages package_name "TEXT"
           ensure_column rag_packages version "TEXT NOT NULL DEFAULT '0.0.1'"
           ensure_column rag_packages status "TEXT NOT NULL DEFAULT 'ready'"
