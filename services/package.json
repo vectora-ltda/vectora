@@ -3,7 +3,7 @@
   "version": "0.1.20",
   "private": true,
   "engines": {
-    "node": ">=26.0.0 <27"
+    "node": "24.x"
   },
   "description": "Cloudflare Worker único: gateway (OAuth/webhooks pro desktop, ex-relay) + updates (distribuição de releases) + auth/billing/license/gdpr/rag-library/registry (próximas fases).",
   "main": "src/index.ts",

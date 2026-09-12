@@ -132,13 +132,21 @@ export class BrowserViewManager {
   goBack(id: number): void {
     const wc = this.entries.get(id)?.view.webContents;
     if (!wc) return;
-    wc.navigationHistory?.goBack() ?? wc.goBack();
+    if (wc.navigationHistory) {
+      wc.navigationHistory.goBack();
+    } else {
+      wc.goBack();
+    }
   }
 
   goForward(id: number): void {
     const wc = this.entries.get(id)?.view.webContents;
     if (!wc) return;
-    wc.navigationHistory?.goForward() ?? wc.goForward();
+    if (wc.navigationHistory) {
+      wc.navigationHistory.goForward();
+    } else {
+      wc.goForward();
+    }
   }
 
   reload(id: number): void {
