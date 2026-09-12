@@ -14,7 +14,21 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import Request, Response
+from fastapi import HTTPException, Request, Response
+
+
+async def get_current_user(request: Request) -> Any:
+    """Return the authenticated user attached by :class:`AuthMiddleware`."""
+    user = getattr(request.state, "user", None)
+    if user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Não autenticado. Forneça um Bearer token válido.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user
+
+
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 logger = logging.getLogger(__name__)

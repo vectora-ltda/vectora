@@ -19,8 +19,10 @@ import logging
 import time
 from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
+
+from backend.api.middleware.auth import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -194,13 +196,14 @@ async def get_provider_usage() -> dict[str, Any]:
 
 
 @router.get("/media")
-async def get_media_quota(request: Request) -> JSONResponse:
+async def get_media_quota(
+    request: Request, user: Annotated[Any, Depends(get_current_user)]
+) -> JSONResponse:
     """Retorna a quota mensal de mídia do usuário autenticado."""
-    from backend.api.handlers.threads import _user_id
     from backend.services.media_quota import media_quota
 
     return JSONResponse(
-        content=await media_quota.summary(_user_id(request)),
+        content=await media_quota.summary(str(user.id)),
         headers={"Cache-Control": "no-store"},
     )
 
