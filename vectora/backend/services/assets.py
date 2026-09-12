@@ -6,6 +6,8 @@ import importlib
 import json
 import os
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -115,6 +117,41 @@ class AssetStore:
         with _PROCESS_LOCKS_GUARD:
             return _PROCESS_LOCKS.setdefault(self.index.resolve(), Lock())
 
+    @contextmanager
+    def _locked_index(self) -> Iterator[None]:
+        """Serialize index reads and writes across threads and processes."""
+        self.root.mkdir(parents=True, exist_ok=True)
+        try:
+            lock_file = self._lock.open("r+b")
+        except FileNotFoundError:
+            lock_file = self._lock.open("w+b")
+        with self._process_lock(), lock_file as lock:
+            if _fcntl is not None:
+                _fcntl.flock(lock.fileno(), _fcntl.LOCK_EX)
+            elif _msvcrt is not None:
+                lock.seek(0)
+                lock.write(b"0")
+                lock.flush()
+                lock.seek(0)
+                _msvcrt.locking(lock.fileno(), _msvcrt.LK_LOCK, 1)
+            else:
+                raise RuntimeError("lock interprocesso de assets indisponível")
+            yield
+
+    def _write_records(self, records: dict[str, dict[str, object]]) -> None:
+        """Atomically replace the metadata index with validated records."""
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=self.root, delete=False
+        ) as temporary:
+            temporary.write(json.dumps(records, ensure_ascii=False))
+            temporary.flush()
+            os.fsync(temporary.fileno())
+            temporary_path = Path(temporary.name)
+        try:
+            temporary_path.replace(self.index)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+
     def create(
         self,
         *,
@@ -126,7 +163,15 @@ class AssetStore:
         source: str,
     ) -> Asset:
         mime_type = "image/jpeg" if mime_type == "image/jpg" else mime_type
-        if mime_type not in ALLOWED_MIME or not path.is_file() or path.is_symlink():
+        original_path = path
+        storage_root = self.root.parent.resolve()
+        path = path.resolve()
+        if (
+            mime_type not in ALLOWED_MIME
+            or not path.is_relative_to(storage_root)
+            or not path.is_file()
+            or original_path.is_symlink()
+        ):
             raise ValueError("asset inválido")
         size = path.stat().st_size
         if size > MAX_ASSET_BYTES:
@@ -144,36 +189,10 @@ class AssetStore:
             source,
             datetime.now(UTC).isoformat(),
         )
-        self.root.mkdir(parents=True, exist_ok=True)
-        try:
-            lock_file = self._lock.open("r+b")
-        except FileNotFoundError:
-            lock_file = self._lock.open("w+b")
-        with self._process_lock(), lock_file as lock:
-            if _fcntl is not None:
-                _fcntl.flock(lock.fileno(), _fcntl.LOCK_EX)
-            elif _msvcrt is not None:
-                lock.seek(0)
-                lock.write(b"0")
-                lock.flush()
-                lock.seek(0)
-                _msvcrt.locking(lock.fileno(), _msvcrt.LK_LOCK, 1)
-            else:
-                raise RuntimeError("lock interprocesso de assets indisponível")
+        with self._locked_index():
             records = self._read()
             records[item.id] = asdict(item)
-            with tempfile.NamedTemporaryFile(
-                mode="w", encoding="utf-8", dir=self.root, delete=False
-            ) as temporary:
-                temporary.write(json.dumps(records, ensure_ascii=False))
-                temporary.flush()
-                os.fsync(temporary.fileno())
-                temporary_path = Path(temporary.name)
-            try:
-                temporary_path.replace(self.index)
-            finally:
-                temporary_path.unlink(missing_ok=True)
-            # O fechamento do descritor libera o lock no Windows.
+            self._write_records(records)
         return item
 
     def get(
@@ -207,11 +226,26 @@ class AssetStore:
         )
         if any(key not in raw for key in required):
             return None
-        path = Path(str(raw["path"]))
-        if path.is_symlink() or not path.is_file():
+        storage_root = self.root.parent.resolve()
+        stored_path = Path(str(raw["path"]))
+        path = stored_path.resolve()
+        if (
+            not path.is_relative_to(storage_root)
+            or stored_path.is_symlink()
+            or not path.is_file()
+        ):
             return None
         size_value = raw["size_bytes"]
-        if not isinstance(size_value, int):
+        if not isinstance(size_value, int) or size_value < 0:
+            return None
+        try:
+            if path.stat().st_size != size_value or size_value > MAX_ASSET_BYTES:
+                return None
+            if not validate_asset_bytes(
+                path.read_bytes(), str(raw["mime_type"]), path.name
+            ):
+                return None
+        except OSError:
             return None
         return Asset(
             id=str(raw["id"]),
@@ -251,10 +285,9 @@ class AssetStore:
 
     def delete_thread_assets(self, thread_id: str) -> None:
         """Remove assets da thread sem apagar arquivos ainda referenciados."""
-        if not thread_id.strip() or not self.index.exists():
+        if not thread_id.strip():
             return
-        self.root.mkdir(parents=True, exist_ok=True)
-        with self._process_lock():
+        with self._locked_index():
             records = self._read()
             removed = [
                 record
@@ -268,9 +301,7 @@ class AssetStore:
                 for asset_id, record in records.items()
                 if str(record.get("thread_id", "")) != thread_id
             }
-            self.index.write_text(
-                json.dumps(kept, ensure_ascii=False), encoding="utf-8"
-            )
+            self._write_records(kept)
             kept_paths = {str(record.get("path")) for record in kept.values()}
             root_path = self.root.parent.resolve()
             for record in removed:

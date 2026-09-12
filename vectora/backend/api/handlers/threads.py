@@ -1762,8 +1762,9 @@ async def get_thread_attachment(
 
     safe_thread = thread_id.replace("/", "").replace("\\", "").replace("..", "")
     safe_filename = filename.replace("/", "").replace("\\", "").replace("..", "")
-    path = settings.vectora_home / "chat-attachments" / safe_thread / safe_filename
-    if not path.is_file():
+    root = (settings.vectora_home / "chat-attachments" / safe_thread).resolve()
+    path = (root / safe_filename).resolve()
+    if path.parent != root or path.is_symlink() or not path.is_file():
         raise HTTPException(status_code=404, detail="Anexo não encontrado.")
     return FileResponse(path, headers={"Cache-Control": "no-store"})
 

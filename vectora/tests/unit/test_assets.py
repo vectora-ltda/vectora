@@ -1,3 +1,4 @@
+import json
 import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -171,4 +172,31 @@ def test_asset_store_no_windows_reposiciona_descritor_antes_do_lock(
         source="upload",
     )
 
-    assert fake_msvcrt.positions == [0]
+    store = AssetStore(tmp_path / "metadata")
+    store.delete_thread_assets("t1")
+
+    assert fake_msvcrt.positions == [0, 0]
+
+
+def test_asset_store_rejeita_caminho_indexado_fora_do_storage_root(
+    tmp_path: Path,
+) -> None:
+    media = tmp_path / "image.png"
+    media.write_bytes(b"\x89PNG\r\n\x1a\n")
+    store = AssetStore(tmp_path / "metadata")
+    asset = store.create(
+        path=media,
+        owner_id="u1",
+        workspace_id="w1",
+        thread_id="t1",
+        mime_type="image/png",
+        source="upload",
+    )
+
+    outside = tmp_path.parent / "outside.png"
+    outside.write_bytes(media.read_bytes())
+    records = store._read()
+    records[asset.id]["path"] = str(outside)
+    store.index.write_text(json.dumps(records), encoding="utf-8")
+
+    assert store.get(asset.id, owner_id="u1", workspace_id="w1") is None
