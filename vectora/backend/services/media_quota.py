@@ -14,8 +14,8 @@ from backend.settings import settings
 
 logger = logging.getLogger(__name__)
 
-MONTHLY_LIMITS = {"free": 10, "pro": 100}
-UNIT_COSTS = {"generate_image": 1, "text_to_speech": 1, "generate_video": 10}
+MONTHLY_LIMITS: dict[str, int] = {"free": 10, "pro": 100}
+UNIT_COSTS: dict[str, int] = {"generate_image": 1, "text_to_speech": 1, "generate_video": 10}
 QuotaState = Literal["reserved", "finalized", "failed", "unknown", "cancelled"]
 
 
