@@ -69,6 +69,7 @@ describe("GitHub comments pagination", () => {
 describe("GitHub issue marker pagination", () => {
   it("alcança o candidato confiável em uma página posterior", async () => {
     const pages: number[] = [];
+    const queries: string[] = [];
     const forged = Array.from({ length: 100 }, (_, index) => ({
       number: index + 1,
       title: "forjada",
@@ -91,6 +92,7 @@ describe("GitHub issue marker pagination", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const page = Number(new URL(String(input)).searchParams.get("page"));
         pages.push(page);
+        queries.push(new URL(String(input)).searchParams.get("q") ?? "");
         return new Response(
           JSON.stringify({ items: page === 1 ? forged : [trusted] }),
           { status: 200 },
@@ -102,10 +104,39 @@ describe("GitHub issue marker pagination", () => {
       { ...env, GITHUB_TOKEN: "test-token" },
       "vectora-ltda/vectora-issues",
       "vectora-company-issue:issue-1",
+      "vectora-bot",
     );
 
     expect(pages).toEqual([1, 2]);
+    expect(queries[0]).toContain("author:vectora-bot");
     expect(candidates).toHaveLength(101);
     expect(candidates.at(-1)?.user?.login).toBe("vectora-bot");
+  });
+
+  it("retries a transient network failure with a fresh abort signal", async () => {
+    let attempts = 0;
+    const signals: AbortSignal[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toContain("search/issues");
+        expect(init?.signal).toBeInstanceOf(AbortSignal);
+        signals.push(init?.signal as AbortSignal);
+        attempts += 1;
+        if (attempts === 1) throw new TypeError("temporary network failure");
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      }),
+    );
+
+    await expect(
+      findIssueByMarker(
+        { ...env, GITHUB_TOKEN: "test-token" },
+        "vectora-ltda/vectora-issues",
+        "vectora-company-issue:retry",
+        "vectora-bot",
+      ),
+    ).resolves.toEqual([]);
+    expect(attempts).toBe(2);
+    expect(signals[0]).not.toBe(signals[1]);
   });
 });

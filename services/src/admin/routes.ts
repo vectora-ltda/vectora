@@ -288,7 +288,7 @@ admin.get("/issues/:id", async (c) => {
   if (!row) return c.json({ error: "not_found" }, 404);
 
   const { results: comments } = await c.env.DB.prepare(
-    "SELECT author, body, html_url, created_at, updated_at FROM issue_comments WHERE issue_id = ? AND deleted_at IS NULL ORDER BY created_at ASC",
+    "SELECT github_comment_id, author, body, html_url, created_at, updated_at FROM issue_comments WHERE issue_id = ? AND deleted_at IS NULL ORDER BY created_at ASC",
   )
     .bind(c.req.param("id"))
     .all();

@@ -193,11 +193,16 @@ export async function promoteIssue(
     issue.core_number && issue.core_url
       ? { number: issue.core_number, html_url: issue.core_url }
       : await withPromotionLease(env, issueId, operationToken, async () => {
-          const candidates = await findIssueByMarker(env, targetRepo, marker);
-          if (candidates.length === 0) return null;
           const authenticated =
             env.GITHUB_ISSUES_BOT_LOGIN?.trim() ||
             (await authenticatedLogin(env));
+          const candidates = await findIssueByMarker(
+            env,
+            targetRepo,
+            marker,
+            authenticated,
+          );
+          if (candidates.length === 0) return null;
           return (
             candidates.find(
               (candidate) =>
