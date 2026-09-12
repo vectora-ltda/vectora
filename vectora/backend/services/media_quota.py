@@ -83,6 +83,10 @@ class MediaQuota:
             tier = get_current_tier() if user_id == "local" else None
         return tier if tier in MONTHLY_LIMITS else None
 
+    async def _current_tier_async(self, user_id: str) -> str | None:
+        """Resolve entitlements without blocking the event loop."""
+        return await asyncio.to_thread(self._current_tier, user_id)
+
     def _connect(self) -> sqlite3.Connection:
         self.database.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(self.database)
@@ -158,7 +162,7 @@ class MediaQuota:
             )
         except Exception:
             logger.debug("media_quota: falha ao registrar estimativa", exc_info=True)
-        tier = self._current_tier(user_id)
+        tier = await self._current_tier_async(user_id)
         if tier is None:
             logger.info(
                 "media_quota.blocked",
@@ -560,7 +564,7 @@ class MediaQuota:
         return await asyncio.to_thread(self._summary, user_id)
 
     async def _summary_postgres(self, user_id: str) -> dict[str, int | str]:
-        tier = self._current_tier(user_id)
+        tier = await self._current_tier_async(user_id)
         period = self.period()
         if tier is None:
             return {"period": period, "used": 0, "limit": 0, "remaining": 0}
