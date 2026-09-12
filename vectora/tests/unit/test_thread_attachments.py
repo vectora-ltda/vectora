@@ -192,6 +192,32 @@ class TestGetThreadAttachment:
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
+    async def test_rejeita_symlink_dentro_da_pasta_da_thread(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from backend.api.handlers import threads as threads_mod
+        from backend.settings import settings
+
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        monkeypatch.setattr(
+            threads_mod, "_assert_existing_thread_ownership", AsyncMock()
+        )
+        target_dir = tmp_path / "chat-attachments" / "t1"
+        target_dir.mkdir(parents=True)
+        target = target_dir / "real.png"
+        target.write_bytes(b"image")
+        link = target_dir / "link.png"
+        try:
+            link.symlink_to(target)
+        except OSError:
+            pytest.skip("symlink creation is unavailable on this platform")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await threads_mod.get_thread_attachment("t1", "link.png", self._request())
+
+        assert exc_info.value.status_code == 404
+
+    @pytest.mark.asyncio
     async def test_path_traversal_no_thread_id_e_sanitizado(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
