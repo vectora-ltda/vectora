@@ -416,11 +416,14 @@ async def generate_image(ctx: ToolContext, prompt: str) -> str:
         raise
     except Exception as exc:
         await _finalize_media(
-              reservation,
-              "unknown"
-              if submitted and not isinstance(exc, (ImportError, ModuleNotFoundError, NotImplementedError, ValueError))
-              else "failed",
-          )
+            reservation,
+            "unknown"
+            if submitted
+            and not isinstance(
+                exc, (ImportError, ModuleNotFoundError, NotImplementedError, ValueError)
+            )
+            else "failed",
+        )
         logger.exception("generate_image: falha", extra={"provider": provider})
         return json.dumps(
             {"error": f"falha ao gerar imagem: {exc}"}, ensure_ascii=False
@@ -498,11 +501,14 @@ async def text_to_speech(ctx: ToolContext, text: str, voice: str = "") -> str:
         raise
     except Exception as exc:
         await _finalize_media(
-              reservation,
-              "unknown"
-              if submitted and not isinstance(exc, (ImportError, ModuleNotFoundError, NotImplementedError, ValueError))
-              else "failed",
-          )
+            reservation,
+            "unknown"
+            if submitted
+            and not isinstance(
+                exc, (ImportError, ModuleNotFoundError, NotImplementedError, ValueError)
+            )
+            else "failed",
+        )
         logger.exception("text_to_speech: falha", extra={"provider": provider})
         return json.dumps({"error": f"falha ao gerar áudio: {exc}"}, ensure_ascii=False)
 
@@ -716,11 +722,14 @@ async def generate_video(ctx: ToolContext, prompt: str) -> str:
         raise
     except Exception as exc:
         await _finalize_media(
-              reservation,
-              "unknown"
-              if submitted and not isinstance(exc, (ImportError, ModuleNotFoundError, NotImplementedError, ValueError))
-              else "failed",
-          )
+            reservation,
+            "unknown"
+            if submitted
+            and not isinstance(
+                exc, (ImportError, ModuleNotFoundError, NotImplementedError, ValueError)
+            )
+            else "failed",
+        )
         logger.exception("generate_video: falha", extra={"provider": provider})
         return json.dumps({"error": f"falha ao gerar vídeo: {exc}"}, ensure_ascii=False)
 

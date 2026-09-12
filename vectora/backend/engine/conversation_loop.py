@@ -700,7 +700,12 @@ async def resume_conversation(
                 if tc.name in REQUIRE_APPROVAL:
                     resultado = VMessage(
                         role=MessageRole.TOOL,
-                        content=[ContentBlock(kind="text", text="Esta ação exige uma aprovação separada.")],
+                        content=[
+                            ContentBlock(
+                                kind="text",
+                                text="Esta ação exige uma aprovação separada.",
+                            )
+                        ],
                         tool_call_id=tc.id,
                         name=tc.name,
                         is_error=True,
