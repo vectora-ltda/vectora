@@ -11,6 +11,12 @@ on:
   push:
     branches: [master]
 
+# Apenas uma execução pode atualizar o PR de release e suas labels por vez.
+# Isso evita que duas execuções removam a mesma label simultaneamente.
+concurrency:
+  group: release-please-master
+  cancel-in-progress: false
+
 permissions:
   contents: write
   pull-requests: write
@@ -29,3 +35,6 @@ jobs:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          # Labels are optional metadata; do not fail the release update when
+          # a concurrent or manually edited PR already removed one.
+          skip-labeling: true
