@@ -109,9 +109,16 @@ class AssetStore:
     """Small local metadata store; the storage key never leaves this module."""
 
     def __init__(self, root: Path | None = None) -> None:
+        self._uses_default_root = root is None
         self.root = root or settings.vectora_home / "assets"
         self.index = self.root / "index.json"
         self._lock = self.root / "index.lock"
+
+    def _storage_root(self) -> Path:
+        """Return the media root corresponding to this metadata store."""
+        if self._uses_default_root:
+            return settings.vectora_home.resolve()
+        return self.root.parent.resolve()
 
     def _process_lock(self) -> Lock:
         with _PROCESS_LOCKS_GUARD:
@@ -164,7 +171,7 @@ class AssetStore:
     ) -> Asset:
         mime_type = "image/jpeg" if mime_type == "image/jpg" else mime_type
         original_path = path
-        storage_root = self.root.parent.resolve()
+        storage_root = self._storage_root()
         path = path.resolve()
         if (
             mime_type not in ALLOWED_MIME
@@ -225,7 +232,7 @@ class AssetStore:
             or any(key not in raw for key in required)
         ):
             return None
-        storage_root = self.root.parent.resolve()
+        storage_root = self._storage_root()
         stored_path = Path(str(raw["path"]))
         path = stored_path.resolve()
         valid = (
@@ -305,7 +312,7 @@ class AssetStore:
             }
             self._write_records(kept)
             kept_paths = {str(record.get("path")) for record in kept.values()}
-            root_path = self.root.parent.resolve()
+            root_path = self._storage_root()
             for record in removed:
                 path = str(record.get("path", ""))
                 candidate = Path(path)
