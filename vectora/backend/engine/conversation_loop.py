@@ -225,6 +225,14 @@ async def run_conversation(
     | None = None,
     approval_gate: ApprovalGate | None = None,
 ) -> LoopResult:
+    # A origem de cobrança vem exclusivamente da credencial persistida do
+    # usuário autenticado. O marcador é refeito a cada execução para impedir
+    # que um contexto reidratado ou argumento de tool carregue uma isenção
+    # não confirmada.
+    from backend.services.media_billing import apply_media_billing_source
+
+    await apply_media_billing_source(ctx)
+
     emit = on_event or _noop_event
     tools = tool_registry.all()
     parent_id = await session_store.get_branch_head_id(thread_id)
