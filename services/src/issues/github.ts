@@ -152,11 +152,17 @@ export async function findIssueByMarker(
   marker: string,
 ): Promise<GitHubIssue[]> {
   const query = encodeURIComponent(`repo:${repo} in:body "${marker}"`);
-  const result = await request<SearchResponse>(
-    env,
-    `search/issues?q=${query}&per_page=100`,
-  );
-  return result.items ?? [];
+  const candidates: GitHubIssue[] = [];
+  for (let page = 1; ; page += 1) {
+    const result = await request<SearchResponse>(
+      env,
+      `search/issues?q=${query}&per_page=100&page=${page}`,
+    );
+    const items = result.items ?? [];
+    candidates.push(...items);
+    if (items.length < 100) break;
+  }
+  return candidates;
 }
 
 /** Atualiza uma issue existente no GitHub. */
