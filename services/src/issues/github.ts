@@ -198,10 +198,14 @@ export async function listComments(
 ): Promise<GitHubComment[]> {
   const all: GitHubComment[] = [];
   for (let page = 1; ; page += 1) {
-    const batch = await request<GitHubComment[]>(
+    const payload = await request<unknown>(
       env,
       `${repoPath(repo)}/issues/${number}/comments?per_page=100&page=${page}`,
     );
+    if (!Array.isArray(payload)) {
+      throw new GitHubIssueError(502, "github_comments_invalid");
+    }
+    const batch = payload as GitHubComment[];
     all.push(...batch);
     if (batch.length < 100) break;
   }

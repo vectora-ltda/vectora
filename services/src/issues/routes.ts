@@ -193,6 +193,13 @@ export async function syncCreatedIssue(
       status: string;
     }>();
   if (existing?.github_repo && existing.github_number && existing.github_url) {
+    const responseOperationToken =
+      existing.response &&
+      ["response_pending", "response_error"].includes(
+        existing.github_sync_state,
+      )
+        ? crypto.randomUUID()
+        : undefined;
     try {
       await reconcileIssueComments(
         env,
@@ -214,16 +221,21 @@ export async function syncCreatedIssue(
           existing.response,
           existing.status === "resolved",
           existing.response_version,
-          existing.response_sync_operation_token ?? undefined,
+          responseOperationToken,
         );
       }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "github_sync_failed";
       await env.DB.prepare(
-        "UPDATE issues SET github_sync_state = CASE WHEN response IS NOT NULL THEN 'response_pending' ELSE github_sync_state END, github_sync_error = ? WHERE id = ?",
+        "UPDATE issues SET github_sync_state = CASE WHEN response IS NOT NULL THEN 'response_pending' ELSE github_sync_state END, github_sync_error = ? WHERE id = ? AND response_version = ? AND response_sync_operation_token = ? AND github_sync_state = 'response_syncing'",
       )
-        .bind(message.slice(0, 200), issueId)
+        .bind(
+          message.slice(0, 200),
+          issueId,
+          existing.response_version,
+          responseOperationToken,
+        )
         .run();
       console.error("issue_github_reconcile_failed", { issueId, message });
     }
