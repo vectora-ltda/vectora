@@ -5,6 +5,7 @@ import {
   createIssue,
   findCommentByMarker,
   findIssueByMarker,
+  authenticatedLogin,
   intakeRepo,
   updateIssue,
 } from "./github";
@@ -191,9 +192,20 @@ export async function promoteIssue(
   let created =
     issue.core_number && issue.core_url
       ? { number: issue.core_number, html_url: issue.core_url }
-      : await withPromotionLease(env, issueId, operationToken, () =>
-          findIssueByMarker(env, targetRepo, marker),
-        );
+      : await withPromotionLease(env, issueId, operationToken, async () => {
+          const candidates = await findIssueByMarker(env, targetRepo, marker);
+          if (candidates.length === 0) return null;
+          const authenticated =
+            env.GITHUB_ISSUES_BOT_LOGIN?.trim() ||
+            (await authenticatedLogin(env));
+          return (
+            candidates.find(
+              (candidate) =>
+                candidate.user?.login?.toLowerCase() ===
+                authenticated.toLowerCase(),
+            ) ?? null
+          );
+        });
   if (!created) {
     created = await withPromotionLease(env, issueId, operationToken, () =>
       createIssue(env, targetRepo, issue.title, body),

@@ -150,13 +150,13 @@ export async function findIssueByMarker(
   env: Env,
   repo: string,
   marker: string,
-): Promise<GitHubIssue | null> {
+): Promise<GitHubIssue[]> {
   const query = encodeURIComponent(`repo:${repo} in:body "${marker}"`);
   const result = await request<SearchResponse>(
     env,
-    `search/issues?q=${query}&per_page=2`,
+    `search/issues?q=${query}&per_page=100`,
   );
-  return result.items?.[0] ?? null;
+  return result.items ?? [];
 }
 
 /** Atualiza uma issue existente no GitHub. */

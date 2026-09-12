@@ -422,12 +422,20 @@ admin.post("/issues/:id/respond", async (c) => {
   }
 
   const newStatus = body.resolve ? "resolved" : "open";
+  const responseOperationToken =
+    issue.github_repo && issue.github_number ? crypto.randomUUID() : null;
   const responseUpdate =
     issue.github_repo && issue.github_number
       ? await c.env.DB.prepare(
-          "UPDATE issues SET response = ?, responded_at = datetime('now'), status = ?, response_version = response_version + 1, github_sync_state = 'response_syncing', response_sync_lease_until = datetime('now', '+5 minutes'), github_sync_error = NULL WHERE id = ? AND response_version = ? AND (github_sync_state != 'response_syncing' OR response_sync_lease_until IS NULL OR response_sync_lease_until <= datetime('now'))",
+          "UPDATE issues SET response = ?, responded_at = datetime('now'), status = ?, response_version = response_version + 1, github_sync_state = 'response_syncing', response_sync_lease_until = datetime('now', '+5 minutes'), response_sync_operation_token = ?, github_sync_error = NULL WHERE id = ? AND response_version = ? AND (github_sync_state != 'response_syncing' OR response_sync_lease_until IS NULL OR response_sync_lease_until <= datetime('now'))",
         )
-          .bind(body.response, newStatus, id, issue.response_version)
+          .bind(
+            body.response,
+            newStatus,
+            responseOperationToken,
+            id,
+            issue.response_version,
+          )
           .run()
       : await c.env.DB.prepare(
           "UPDATE issues SET response = ?, responded_at = datetime('now'), status = ?, response_version = response_version + 1, github_sync_error = NULL WHERE id = ?",
@@ -452,6 +460,7 @@ admin.post("/issues/:id/respond", async (c) => {
         body.response,
         Boolean(body.resolve),
         issue.response_version + 1,
+        responseOperationToken ?? undefined,
         true,
       );
     } catch (error) {
@@ -461,9 +470,10 @@ admin.post("/issues/:id/respond", async (c) => {
         return c.json({ error: message }, 409);
       }
       await c.env.DB.prepare(
-        "UPDATE issues SET github_sync_state = CASE WHEN response_version = ? THEN 'response_pending' ELSE github_sync_state END, response_sync_lease_until = CASE WHEN response_version = ? THEN NULL ELSE response_sync_lease_until END, github_sync_error = CASE WHEN response_version = ? THEN ? ELSE github_sync_error END WHERE id = ?",
+        "UPDATE issues SET github_sync_state = CASE WHEN response_version = ? THEN 'response_pending' ELSE github_sync_state END, response_sync_lease_until = CASE WHEN response_version = ? THEN NULL ELSE response_sync_lease_until END, response_sync_operation_token = CASE WHEN response_version = ? THEN NULL ELSE response_sync_operation_token END, github_sync_error = CASE WHEN response_version = ? THEN ? ELSE github_sync_error END WHERE id = ?",
       )
         .bind(
+          issue.response_version + 1,
           issue.response_version + 1,
           issue.response_version + 1,
           issue.response_version + 1,

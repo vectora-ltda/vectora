@@ -919,6 +919,7 @@ def _upgrade_d1_schema(log) -> None:
         ("issues", "promotion_operation_token", "TEXT"),
         ("issues", "response_version", "INTEGER NOT NULL DEFAULT 0"),
         ("issues", "response_sync_lease_until", "TEXT"),
+        ("issues", "response_sync_operation_token", "TEXT"),
         ("issue_comments", "updated_at", "TEXT"),
         ("issue_comments", "deleted_at", "TEXT"),
         ("github_webhook_deliveries", "attempt_token", "TEXT"),

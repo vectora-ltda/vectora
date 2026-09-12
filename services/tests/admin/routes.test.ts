@@ -624,6 +624,74 @@ describe("POST /admin/issues/:id/respond", () => {
     ]);
     expect(results.map((result) => result.status).sort()).toEqual([200, 409]);
   });
+
+  it("abandona a publicação antiga quando o lease de resposta expira", async () => {
+    const { token } = await createUser("admin");
+    const id = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO issues (id, title, category, description, github_repo, github_number, github_url, github_sync_state) VALUES (?, 'Lease', 'bug', 'Descrição', ?, 9914, ?, 'synced')",
+    )
+      .bind(
+        id,
+        "vectora-ltda/vectora-issues",
+        "https://github.com/vectora-ltda/vectora-issues/issues/9914",
+      )
+      .run();
+    let releaseFirstLookup!: (response: Response) => void;
+    const firstLookup = new Promise<Response>((resolve) => {
+      releaseFirstLookup = resolve;
+    });
+    let commentLookups = 0;
+    let commentPosts = 0;
+    let issueCloses = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        if (url.includes("/issues/9914/comments") && method === "GET") {
+          commentLookups += 1;
+          if (commentLookups === 1) return firstLookup;
+          return new Response("[]");
+        }
+        if (url.includes("/issues/9914/comments") && method === "POST") {
+          commentPosts += 1;
+          return new Response(JSON.stringify({ id: commentPosts }), {
+            status: 201,
+          });
+        }
+        if (method === "PATCH") issueCloses += 1;
+        return new Response("{}", { status: 200 });
+      }),
+    );
+    const githubEnv = { ...env, GITHUB_TOKEN: "test-token" };
+    const request = (response: string) =>
+      admin.request(
+        `/issues/${id}/respond`,
+        authed(token, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ response, resolve: true }),
+        }),
+        githubEnv,
+      );
+
+    const firstResponse = request("Resposta antiga");
+    for (let attempt = 0; attempt < 100 && commentLookups < 1; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    await env.DB.prepare(
+      "UPDATE issues SET response_sync_lease_until = datetime('now', '-1 minute') WHERE id = ?",
+    )
+      .bind(id)
+      .run();
+    const secondResponse = request("Resposta nova");
+    expect(await secondResponse).toHaveProperty("status", 200);
+    releaseFirstLookup(new Response("[]"));
+    expect((await firstResponse).status).toBe(409);
+    expect(commentPosts).toBe(1);
+    expect(issueCloses).toBe(1);
+  });
 });
 
 describe("POST /admin/issues/:id/archive", () => {

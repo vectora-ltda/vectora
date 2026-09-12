@@ -5,6 +5,7 @@ import {
   MAX_ISSUE_FILES,
   ISSUE_FILE_LIMITS,
   reconcileIssueComments,
+  syncCreatedIssue,
 } from "../../src/issues/routes";
 import {
   promoteIssue,
@@ -400,6 +401,126 @@ describe("POST /issues/github/webhook", () => {
       .first<{ core_number: number | null; github_sync_state: string }>();
     expect(row).toEqual({ core_number: 4321, github_sync_state: "promoted" });
     expect(requests.some((request) => request.startsWith("POST "))).toBe(true);
+  });
+
+  it("escolhe a issue de intake do bot quando um marcador forjado vem primeiro", async () => {
+    const issueId = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO issues (id, title, category, description) VALUES (?, 'duplicata', 'bug', 'descrição')",
+    )
+      .bind(issueId)
+      .run();
+    const requests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        requests.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.includes("search/issues")) {
+          return new Response(
+            JSON.stringify({
+              items: [
+                {
+                  number: 9890,
+                  html_url:
+                    "https://github.com/vectora-ltda/vectora-issues/issues/9890",
+                  user: { login: "attacker" },
+                },
+                {
+                  number: 9891,
+                  html_url:
+                    "https://github.com/vectora-ltda/vectora-issues/issues/9891",
+                  user: { login: "vectora-bot" },
+                },
+              ],
+            }),
+          );
+        }
+        if (url.includes("comments")) return new Response("[]");
+        return new Response("{}", { status: 200 });
+      }),
+    );
+
+    await syncCreatedIssue(
+      {
+        ...env,
+        GITHUB_TOKEN: "test-token",
+        GITHUB_ISSUES_BOT_LOGIN: "vectora-bot",
+      },
+      issueId,
+      "duplicata",
+      "bug",
+      "descrição",
+    );
+
+    const row = await env.DB.prepare(
+      "SELECT github_number, github_sync_state FROM issues WHERE id = ?",
+    )
+      .bind(issueId)
+      .first<{ github_number: number; github_sync_state: string }>();
+    expect(row).toEqual({ github_number: 9891, github_sync_state: "synced" });
+    expect(
+      requests.filter((request) => request.startsWith("POST ")),
+    ).toHaveLength(0);
+  });
+
+  it("ignora issue core forjada antes da issue do bot na promoção", async () => {
+    const issueId = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO issues (id, title, category, description, github_sync_state, approved_by) VALUES (?, 'promoção', 'bug', 'descrição', 'approval_error', 'admin')",
+    )
+      .bind(issueId)
+      .run();
+    const requests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        requests.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.includes("search/issues")) {
+          return new Response(
+            JSON.stringify({
+              items: [
+                {
+                  number: 9892,
+                  html_url:
+                    "https://github.com/vectora-ltda/vectora/issues/9892",
+                  user: { login: "attacker" },
+                },
+                {
+                  number: 9893,
+                  html_url:
+                    "https://github.com/vectora-ltda/vectora/issues/9893",
+                  user: { login: "vectora-bot" },
+                },
+              ],
+            }),
+          );
+        }
+        if (url.includes("comments")) return new Response("[]");
+        return new Response("{}", { status: 200 });
+      }),
+    );
+
+    await promoteIssue(
+      {
+        ...env,
+        GITHUB_TOKEN: "test-token",
+        GITHUB_ISSUES_BOT_LOGIN: "vectora-bot",
+      },
+      issueId,
+      "admin",
+    );
+
+    const row = await env.DB.prepare(
+      "SELECT core_number, github_sync_state FROM issues WHERE id = ?",
+    )
+      .bind(issueId)
+      .first<{ core_number: number; github_sync_state: string }>();
+    expect(row).toEqual({ core_number: 9893, github_sync_state: "promoted" });
+    expect(
+      requests.filter((request) => request.startsWith("POST ")),
+    ).toHaveLength(0);
   });
 
   it("não toma uma reserva de promoção ainda dentro do lease", async () => {
