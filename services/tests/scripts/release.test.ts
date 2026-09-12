@@ -7,6 +7,7 @@ import {
   parseArgs,
   extOf,
   INSTALLER_RE,
+  normalizeInstallerArch,
   MANIFEST_OS,
   MANIFEST_ARCHES,
   RETENTION_COUNT,
@@ -79,6 +80,17 @@ describe("INSTALLER_RE", () => {
     expect(
       INSTALLER_RE.exec("Vectora-1.0.0-linux-arm64.AppImage")?.groups?.os,
     ).toBe("linux");
+  });
+
+  it("aceita e normaliza os nomes de arquitetura emitidos no Linux", () => {
+    expect(normalizeInstallerArch("x86_64")).toBe("x64");
+    expect(normalizeInstallerArch("amd64")).toBe("x64");
+    expect(
+      INSTALLER_RE.exec("Vectora-0.1.19-linux-x86_64.AppImage")?.groups?.arch,
+    ).toBe("x86_64");
+    expect(
+      INSTALLER_RE.exec("Vectora-0.1.19-linux-amd64.deb")?.groups?.arch,
+    ).toBe("amd64");
   });
 
   it("aceita todos os formatos publicados pela página de downloads", () => {
