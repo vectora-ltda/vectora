@@ -206,13 +206,6 @@ class AssetStore:
         raw = self._read().get(asset_id)
         if not isinstance(raw, dict):
             return None
-        if (
-            not raw
-            or raw.get("owner_id") != owner_id
-            or raw.get("workspace_id") != workspace_id
-            or (thread_id and raw.get("thread_id") != thread_id)
-        ):
-            return None
         required = (
             "id",
             "path",
@@ -224,28 +217,37 @@ class AssetStore:
             "source",
             "created_at",
         )
-        if any(key not in raw for key in required):
+        if (
+            not raw
+            or raw.get("owner_id") != owner_id
+            or raw.get("workspace_id") != workspace_id
+            or (thread_id and raw.get("thread_id") != thread_id)
+            or any(key not in raw for key in required)
+        ):
             return None
         storage_root = self.root.parent.resolve()
         stored_path = Path(str(raw["path"]))
         path = stored_path.resolve()
-        if (
+        valid = (
             not path.is_relative_to(storage_root)
             or stored_path.is_symlink()
             or not path.is_file()
-        ):
-            return None
+        )
         size_value = raw["size_bytes"]
-        if not isinstance(size_value, int) or size_value < 0:
-            return None
+        size_bytes = size_value if isinstance(size_value, int) else -1
+        valid = valid or size_bytes < 0
         try:
-            if path.stat().st_size != size_value or size_value > MAX_ASSET_BYTES:
-                return None
-            if not validate_asset_bytes(
-                path.read_bytes(), str(raw["mime_type"]), path.name
-            ):
-                return None
+            if not valid:
+                valid = (
+                    path.stat().st_size != size_bytes or size_bytes > MAX_ASSET_BYTES
+                )
+            if not valid:
+                valid = not validate_asset_bytes(
+                    path.read_bytes(), str(raw["mime_type"]), path.name
+                )
         except OSError:
+            valid = True
+        if valid:
             return None
         return Asset(
             id=str(raw["id"]),
@@ -254,7 +256,7 @@ class AssetStore:
             workspace_id=str(raw["workspace_id"]),
             thread_id=str(raw["thread_id"]),
             mime_type=str(raw["mime_type"]),
-            size_bytes=size_value,
+            size_bytes=size_bytes,
             source=str(raw["source"]),
             created_at=str(raw["created_at"]),
         )
