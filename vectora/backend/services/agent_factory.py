@@ -807,7 +807,11 @@ async def aget_thread_messages(
                 "url": (
                     f"/threads/{thread_id}/assets/{block.asset_id}"
                     if block.asset_id
-                    else f"/threads/{thread_id}/attachments/{block.attachment_name}"
+                    else (
+                        f"/threads/{thread_id}/attachments/{block.attachment_name}"
+                        if block.attachment_name
+                        else block.image_url
+                    )
                 ),
                 **({"asset_id": block.asset_id} if block.asset_id else {}),
                 **(
@@ -818,7 +822,14 @@ async def aget_thread_messages(
             }
             for block in msg.content
             if block.kind == "image_url"
-            and (block.asset_id is not None or block.attachment_name is not None)
+            and (
+                block.asset_id is not None
+                or block.attachment_name is not None
+                or (
+                    block.image_url is not None
+                    and not block.image_url.startswith("data:")
+                )
+            )
         ]
         text = msg.text().strip()
         if not text and not attachments:

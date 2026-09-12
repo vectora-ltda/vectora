@@ -9,7 +9,7 @@ from backend.services.assets import Asset, AssetStore
 
 def test_asset_store_returns_only_owned_non_symlink_assets(tmp_path: Path) -> None:
     media = tmp_path / "image.png"
-    media.write_bytes(b"png")
+    media.write_bytes(b"\x89PNG\r\n\x1a\n")
     store = AssetStore(tmp_path / "metadata")
     asset = store.create(
         path=media,
@@ -42,11 +42,60 @@ def test_asset_store_rejects_unknown_mime(tmp_path: Path) -> None:
         )
 
 
+def test_asset_store_rejects_bytes_with_wrong_signature(tmp_path: Path) -> None:
+    path = tmp_path / "payload.png"
+    path.write_bytes(b"not a png")
+    with pytest.raises(ValueError, match="assinatura"):
+        AssetStore(tmp_path / "metadata").create(
+            path=path,
+            owner_id="u1",
+            workspace_id="w1",
+            thread_id="t1",
+            mime_type="image/png",
+            source="upload",
+        )
+
+
+def test_asset_store_remove_assets_da_thread_sem_apagar_referencias(
+    tmp_path: Path,
+) -> None:
+    media_one = tmp_path / "one.png"
+    media_two = tmp_path / "two.png"
+    png = b"\x89PNG\r\n\x1a\n"
+    media_one.write_bytes(png)
+    media_two.write_bytes(png)
+    store = AssetStore(tmp_path / "metadata")
+    first = store.create(
+        path=media_one,
+        owner_id="u1",
+        workspace_id="w1",
+        thread_id="t1",
+        mime_type="image/png",
+        source="upload",
+    )
+    second = store.create(
+        path=media_two,
+        owner_id="u1",
+        workspace_id="w1",
+        thread_id="t2",
+        mime_type="image/png",
+        source="upload",
+    )
+
+    store.delete_thread_assets("t1")
+    store.delete_thread_assets("t1")
+
+    assert store.get(first.id, owner_id="u1", workspace_id="w1") is None
+    assert store.get(second.id, owner_id="u1", workspace_id="w1") == second
+    assert not media_one.exists()
+    assert media_two.exists()
+
+
 def test_asset_store_preserva_registros_em_criacoes_concorrentes(
     tmp_path: Path,
 ) -> None:
     media = tmp_path / "image.png"
-    media.write_bytes(b"png")
+    media.write_bytes(b"\x89PNG\r\n\x1a\n")
     store = AssetStore(tmp_path / "metadata")
 
     def create(index: int) -> Asset:
@@ -111,7 +160,7 @@ def test_asset_store_no_windows_reposiciona_descritor_antes_do_lock(
     monkeypatch.setattr(assets_module, "_fcntl", None)
     monkeypatch.setattr(assets_module, "_msvcrt", fake_msvcrt)
     path = tmp_path / "image.png"
-    path.write_bytes(b"png")
+    path.write_bytes(b"\x89PNG\r\n\x1a\n")
 
     AssetStore(tmp_path / "metadata").create(
         path=path,

@@ -74,6 +74,17 @@ class TestAppendMessageEGetHistory:
         assert raw not in content_json
         assert '"image_url": null' in content_json
 
+    def test_persistencia_preserva_url_legada_sem_metadados(self) -> None:
+        legacy = "https://cdn.example.test/legacy.png"
+        _, content_json, *_ = _message_to_row(
+            VMessage(
+                role=MessageRole.USER,
+                content=[ContentBlock(kind="image_url", image_url=legacy)],
+            )
+        )
+
+        assert legacy in content_json
+
     async def test_lista_compara_e_seleciona_branches(self, store: SessionStore):
         await store.create_session("thread-branches", user_id="alice")
         root = await store.append_message(

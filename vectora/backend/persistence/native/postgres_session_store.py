@@ -94,7 +94,11 @@ def _message_to_row(
 ) -> tuple[str, str, str | None, str | None, str | None]:
     data = msg.to_dict()
     for block in data["content"]:
-        if block.get("kind") == "image_url":
+        if block.get("kind") == "image_url" and (
+            block.get("asset_id")
+            or block.get("attachment_name")
+            or str(block.get("image_url") or "").startswith("data:")
+        ):
             block["image_url"] = None
     content_json = json.dumps(data["content"], ensure_ascii=False)
     tool_calls_json = (

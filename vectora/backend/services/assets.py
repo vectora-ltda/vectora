@@ -53,6 +53,43 @@ ALLOWED_MIME = {
 MAX_ASSET_BYTES = 100 * 1024 * 1024
 
 
+def _has_valid_signature(data: bytes, mime_type: str) -> bool:
+    signatures: dict[str, tuple[bytes, ...]] = {
+        "image/png": (b"\x89PNG\r\n\x1a\n",),
+        "image/jpeg": (b"\xff\xd8\xff",),
+        "image/gif": (b"GIF87a", b"GIF89a"),
+        "audio/mpeg": (b"ID3", b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"),
+    }
+    if mime_type == "image/webp":
+        return len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+    if mime_type == "video/mp4":
+        return len(data) >= 8 and data[4:8] == b"ftyp"
+    return any(
+        data.startswith(signature) for signature in signatures.get(mime_type, ())
+    )
+
+
+def validate_asset_bytes(
+    data: bytes, mime_type: str, filename: str | None = None
+) -> bool:
+    normalized = "image/jpeg" if mime_type == "image/jpg" else mime_type
+    if normalized not in ALLOWED_MIME or not _has_valid_signature(data, normalized):
+        return False
+    if filename:
+        extensions = {
+            "image/png": {".png"},
+            "image/jpeg": {".jpg", ".jpeg"},
+            "image/gif": {".gif"},
+            "image/webp": {".webp"},
+            "audio/mpeg": {".mp3"},
+            "video/mp4": {".mp4"},
+        }
+        suffix = Path(filename).suffix.lower()
+        if suffix and suffix not in extensions.get(normalized, set()):
+            return False
+    return True
+
+
 @dataclass(frozen=True)
 class Asset:
     id: str
@@ -94,6 +131,8 @@ class AssetStore:
         size = path.stat().st_size
         if size > MAX_ASSET_BYTES:
             raise ValueError("asset excede o tamanho máximo")
+        if not validate_asset_bytes(path.read_bytes(), mime_type, path.name):
+            raise ValueError("assinatura do asset inválida")
         item = Asset(
             uuid4().hex,
             str(path),
@@ -193,11 +232,56 @@ class AssetStore:
             return {}
         if not isinstance(value, dict):
             return {}
+        required = {
+            "id",
+            "path",
+            "owner_id",
+            "workspace_id",
+            "thread_id",
+            "mime_type",
+            "size_bytes",
+            "source",
+            "created_at",
+        }
         return {
             str(key): record
             for key, record in value.items()
-            if isinstance(record, dict)
+            if isinstance(record, dict) and required.issubset(record)
         }
+
+    def delete_thread_assets(self, thread_id: str) -> None:
+        """Remove assets da thread sem apagar arquivos ainda referenciados."""
+        if not thread_id.strip() or not self.index.exists():
+            return
+        self.root.mkdir(parents=True, exist_ok=True)
+        with self._process_lock():
+            records = self._read()
+            removed = [
+                record
+                for record in records.values()
+                if str(record.get("thread_id", "")) == thread_id
+            ]
+            if not removed:
+                return
+            kept = {
+                asset_id: record
+                for asset_id, record in records.items()
+                if str(record.get("thread_id", "")) != thread_id
+            }
+            self.index.write_text(
+                json.dumps(kept, ensure_ascii=False), encoding="utf-8"
+            )
+            kept_paths = {str(record.get("path")) for record in kept.values()}
+            root_path = self.root.parent.resolve()
+            for record in removed:
+                path = str(record.get("path", ""))
+                candidate = Path(path)
+                if (
+                    path
+                    and path not in kept_paths
+                    and candidate.resolve().is_relative_to(root_path)
+                ):
+                    candidate.unlink(missing_ok=True)
 
 
 asset_store = AssetStore()

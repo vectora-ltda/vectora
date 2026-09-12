@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 from contextlib import ExitStack
+from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -45,7 +46,7 @@ def _b64_bytes(data: bytes) -> str:
 
 class TestAttachmentSchema:
     def test_image_attachment_valid(self) -> None:
-        att = Attachment.model_construct(
+        att = Attachment(
             kind=AttachmentKind.IMAGE,
             name="photo.png",
             mime_type="image/png",
@@ -225,7 +226,9 @@ class TestStreamChatRequestAttachments:
 
 class TestBuildUserVMessage:
     @pytest.fixture(autouse=True)
-    def _isolated_vectora_home(self, tmp_path, monkeypatch):
+    def _isolated_vectora_home(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """``_build_user_vmessage`` com imagem grava em ``settings.vectora_home``
         (``_persist_image_attachment``) — nunca aponta pro ``~/.vectora`` real
         do ambiente rodando o teste."""
@@ -274,7 +277,7 @@ class TestBuildUserVMessage:
 
     @pytest.mark.asyncio
     async def test_image_attachment_e_persistida_em_disco_pra_sobreviver_a_restart(
-        self, tmp_path
+        self, tmp_path: Path
     ) -> None:
         """A imagem é persistida em disco (via ``_persist_image_attachment``)
         pra sobreviver a um restart do backend — o VMessage não carrega
@@ -299,11 +302,13 @@ class TestBuildUserVMessage:
         assert persisted[0].read_bytes() == raw_bytes
 
     @pytest.mark.asyncio
-    async def test_falha_ao_criar_asset_remove_arquivo_persistido(self, monkeypatch):
+    async def test_falha_ao_criar_asset_remove_arquivo_persistido(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from backend.api.handlers.chat import _build_user_vmessage
         from backend.services.assets import asset_store
 
-        def fail_create(**_kwargs):
+        def fail_create(**_kwargs: object) -> None:
             raise ValueError("asset inválido")
 
         monkeypatch.setattr(asset_store, "create", fail_create)
@@ -326,7 +331,9 @@ class TestBuildUserVMessage:
         ]
 
     @pytest.mark.asyncio
-    async def test_mime_invalido_nao_grava_arquivo(self, monkeypatch):
+    async def test_mime_invalido_nao_grava_arquivo(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from backend.api.handlers.chat import _persist_image_file
 
         att = Attachment(
@@ -339,6 +346,19 @@ class TestBuildUserVMessage:
 
         monkeypatch.setattr(assets, "ALLOWED_MIME", {"audio/mpeg"})
         assert _persist_image_file("thread-invalid", att) is None
+
+    @pytest.mark.asyncio
+    async def test_assinatura_invalida_nao_grava_asset(self) -> None:
+        from backend.api.handlers.chat import _persist_image_file
+
+        att = Attachment(
+            kind=AttachmentKind.IMAGE,
+            name="invalid.png",
+            mime_type="image/png",
+            base64_data=_b64_bytes(b"bytes que nao sao png"),
+        )
+
+        assert _persist_image_file("thread-invalid-signature", att) is None
 
     @pytest.mark.asyncio
     async def test_base64_invalido_nao_gera_bloco_de_imagem(self):

@@ -1121,6 +1121,9 @@ async def delete_thread(
     # recria em `vectora_sessions`, ressuscitando uma conversa apagada.
     session_store = await _get_session_store()
     await session_store.delete_session(request.thread_id)
+    from backend.services.assets import asset_store
+
+    asset_store.delete_thread_assets(request.thread_id)
     from backend.services.desktop_windows import desktop_window_registry
 
     desktop_window_registry.invalidate(request.thread_id)
@@ -1672,7 +1675,11 @@ async def get_thread_history_paginated(
     recentes), em ordem cronológica. ``has_more=True`` quando existem mensagens
     mais antigas além das retornadas.
     """
-    await _assert_owns_thread(thread_id, request)
+    await _assert_owns_thread(
+        thread_id,
+        request,
+        require_existing=_user_id(request) != "local",
+    )
     try:
         from backend.services import agent_factory
 
@@ -1758,7 +1765,7 @@ async def get_thread_attachment(
     path = settings.vectora_home / "chat-attachments" / safe_thread / safe_filename
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Anexo não encontrado.")
-    return FileResponse(path)
+    return FileResponse(path, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/threads/{thread_id}/assets/{asset_id}")
@@ -1766,7 +1773,7 @@ async def get_thread_asset(
     thread_id: str, asset_id: str, request: Request
 ) -> FileResponse:
     """Serve um asset multimodal após validar dono, workspace e thread."""
-    await _assert_owns_thread(thread_id, request)
+    await _assert_existing_thread_ownership(thread_id, request)
     db = await _get_db()
     async with db.execute(
         "SELECT extra FROM vectora_sessions WHERE thread_id = ?", (thread_id,)
@@ -1788,7 +1795,9 @@ async def get_thread_asset(
     )
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset não encontrado")
-    return FileResponse(asset.path, media_type=asset.mime_type)
+    return FileResponse(
+        asset.path, media_type=asset.mime_type, headers={"Cache-Control": "no-store"}
+    )
 
 
 # ---------------------------------------------------------------------------

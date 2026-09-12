@@ -181,7 +181,7 @@ class TestAgetThreadMessagesNativePrimeiro:
 
     async def test_preserva_mensagem_com_apenas_imagem_e_asset(
         self, session_store: SessionStore
-    ):
+    ) -> None:
         await session_store.create_session("thread-image", user_id="alice")
         await session_store.append_message(
             "thread-image",
@@ -216,7 +216,7 @@ class TestAgetThreadMessagesNativePrimeiro:
 
     async def test_reidrata_anexo_legado_por_filename(
         self, session_store: SessionStore
-    ):
+    ) -> None:
         await session_store.create_session("thread-legacy-image", user_id="alice")
         await session_store.append_message(
             "thread-legacy-image",
@@ -241,6 +241,30 @@ class TestAgetThreadMessagesNativePrimeiro:
                 "attachment_name": "old.png",
             }
         ]
+
+    async def test_preserva_url_legada_sem_metadados(
+        self, session_store: SessionStore
+    ) -> None:
+        await session_store.create_session("thread-legacy-url", user_id="alice")
+        await session_store.append_message(
+            "thread-legacy-url",
+            VMessage(
+                role=MessageRole.USER,
+                content=[
+                    ContentBlock(
+                        kind="image_url",
+                        image_url="https://cdn.example.test/legacy.png",
+                    )
+                ],
+            ),
+        )
+
+        with patch.object(
+            af, "get_session_store", AsyncMock(return_value=session_store)
+        ):
+            pairs = await af.aget_thread_messages("thread-legacy-url")
+
+        assert pairs[0][3][0]["url"] == "https://cdn.example.test/legacy.png"
 
     async def test_thread_sem_mensagem_nativa_devolve_lista_vazia(
         self, session_store: SessionStore

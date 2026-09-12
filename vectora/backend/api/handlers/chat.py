@@ -330,15 +330,23 @@ def _persist_image_file(thread_id: str, att: Attachment) -> Path | None:
     já foi enviada ao provider via base64 inline; só a reexibição depois de
     um restart fica indisponível, o que é preferível a quebrar o chat.
     """
-    from backend.services.assets import ALLOWED_MIME, MAX_ASSET_BYTES
+    from backend.services.assets import (
+        ALLOWED_MIME,
+        MAX_ASSET_BYTES,
+        validate_asset_bytes,
+    )
     from backend.settings import settings
 
     try:
-        raw = base64.b64decode(att.base64_data)
+        raw = base64.b64decode(att.base64_data, validate=True)
         normalized_mime = (
             "image/jpeg" if att.mime_type == "image/jpg" else att.mime_type
         )
-        if normalized_mime not in ALLOWED_MIME or len(raw) > MAX_ASSET_BYTES:
+        if (
+            normalized_mime not in ALLOWED_MIME
+            or len(raw) > MAX_ASSET_BYTES
+            or not validate_asset_bytes(raw, normalized_mime, att.name)
+        ):
             logger.warning("chat: imagem rejeitada antes de persistir: %s", att.name)
             return None
         ext = Path(att.name).suffix or _EXT_BY_MIME.get(att.mime_type, "")
@@ -395,7 +403,7 @@ async def _build_user_vmessage(
         if att.kind == AttachmentKind.IMAGE:
             # Log de diagnóstico para imagens grandes
             try:
-                img_size = len(base64.b64decode(att.base64_data))
+                img_size = len(base64.b64decode(att.base64_data, validate=True))
                 if img_size > 5 * 1024 * 1024:
                     logger.error(
                         "chat: imagem MUITO grande recebida: %s (%d bytes). "
