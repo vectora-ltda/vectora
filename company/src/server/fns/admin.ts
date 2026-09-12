@@ -108,11 +108,11 @@ export interface AdminIssueRow {
   approved_at: string | null;
   approved_by: string | null;
   comments?: Array<{
+    github_comment_id: number;
     author: string;
     body: string;
     html_url: string | null;
     created_at: string;
-    github_comment_id: number;
   }>;
 }
 

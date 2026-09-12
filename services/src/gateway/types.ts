@@ -58,6 +58,7 @@ export interface Env {
   GITHUB_ISSUES_WEBHOOK_SECRET?: string;
   /** Defaults to vectora-ltda/vectora-issues. */
   GITHUB_ISSUES_REPO?: string;
+  GITHUB_ISSUES_BOT_LOGIN?: string;
   /** Defaults to vectora-ltda/vectora. */
   GITHUB_CORE_REPO?: string;
   /** Comma-separated GitHub logins allowed to approve intake issues. */
