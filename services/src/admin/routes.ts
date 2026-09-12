@@ -438,15 +438,11 @@ admin.post("/issues/:id/respond", async (c) => {
           )
           .run()
       : await c.env.DB.prepare(
-          "UPDATE issues SET response = ?, responded_at = datetime('now'), status = ?, response_version = response_version + 1, github_sync_error = NULL WHERE id = ?",
+          "UPDATE issues SET response = ?, responded_at = datetime('now'), status = ?, response_version = response_version + 1, github_sync_error = NULL WHERE id = ? AND response_version = ? AND (github_sync_state != 'response_syncing' OR response_sync_lease_until IS NULL OR response_sync_lease_until <= datetime('now'))",
         )
-          .bind(body.response, newStatus, id)
+          .bind(body.response, newStatus, id, issue.response_version)
           .run();
-  if (
-    issue.github_repo &&
-    issue.github_number &&
-    responseUpdate.meta.changes === 0
-  ) {
+  if (responseUpdate.meta.changes === 0) {
     return c.json({ error: "response_superseded" }, 409);
   }
 

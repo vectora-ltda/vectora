@@ -370,8 +370,13 @@ export async function reconcilePendingIssueResponses(env: Env): Promise<void> {
     github_number: number;
   }>();
   for (const issue of results) {
-    const operationToken =
-      issue.response_sync_operation_token ?? crypto.randomUUID();
+    const operationToken = crypto.randomUUID();
+    const claimed = await env.DB.prepare(
+      "UPDATE issues SET github_sync_state = 'response_syncing', response_sync_lease_until = datetime('now', '+5 minutes'), response_sync_operation_token = ? WHERE id = ? AND response_version = ? AND response = ? AND ((github_sync_state = 'response_pending') OR (github_sync_state = 'response_syncing' AND response_sync_lease_until <= datetime('now')))",
+    )
+      .bind(operationToken, issue.id, issue.response_version, issue.response)
+      .run();
+    if (claimed.meta.changes === 0) continue;
     try {
       await syncIssueResponse(
         env,
@@ -382,6 +387,7 @@ export async function reconcilePendingIssueResponses(env: Env): Promise<void> {
         issue.status === "resolved",
         issue.response_version,
         operationToken,
+        true,
       );
     } catch (error) {
       await env.DB.prepare(
