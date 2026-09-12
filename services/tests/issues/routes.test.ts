@@ -392,6 +392,7 @@ describe("POST /issues/github/webhook", () => {
     await reconcilePendingPromotions({
       ...env,
       GITHUB_TOKEN: "test-token",
+      GITHUB_ISSUES_BOT_LOGIN: "vectora-bot",
     });
 
     const row = await env.DB.prepare(
@@ -530,7 +531,11 @@ describe("POST /issues/github/webhook", () => {
     )
       .bind(issueId)
       .run();
-    await reconcilePendingPromotions({ ...env, GITHUB_TOKEN: "test-token" });
+    await reconcilePendingPromotions({
+      ...env,
+      GITHUB_TOKEN: "test-token",
+      GITHUB_ISSUES_BOT_LOGIN: "vectora-bot",
+    });
     const row = await env.DB.prepare(
       "SELECT github_sync_state, github_sync_error FROM issues WHERE id = ?",
     )
@@ -618,8 +623,24 @@ describe("POST /issues/github/webhook", () => {
       }),
     );
     const results = await Promise.allSettled([
-      promoteIssue({ ...env, GITHUB_TOKEN: "test-token" }, issueId, "admin"),
-      promoteIssue({ ...env, GITHUB_TOKEN: "test-token" }, issueId, "admin"),
+      promoteIssue(
+        {
+          ...env,
+          GITHUB_TOKEN: "test-token",
+          GITHUB_ISSUES_BOT_LOGIN: "vectora-bot",
+        },
+        issueId,
+        "admin",
+      ),
+      promoteIssue(
+        {
+          ...env,
+          GITHUB_TOKEN: "test-token",
+          GITHUB_ISSUES_BOT_LOGIN: "vectora-bot",
+        },
+        issueId,
+        "admin",
+      ),
     ]);
     expect(
       results.filter((result) => result.status === "fulfilled"),
@@ -699,7 +720,11 @@ describe("POST /issues/github/webhook", () => {
     );
 
     const oldPromotion = promoteIssue(
-      { ...env, GITHUB_TOKEN: "test-token" },
+      {
+        ...env,
+        GITHUB_TOKEN: "test-token",
+        GITHUB_ISSUES_BOT_LOGIN: "vectora-bot",
+      },
       issueId,
       "admin",
     );
@@ -713,7 +738,11 @@ describe("POST /issues/github/webhook", () => {
     )
       .bind(issueId)
       .run();
-    await reconcilePendingPromotions({ ...env, GITHUB_TOKEN: "test-token" });
+    await reconcilePendingPromotions({
+      ...env,
+      GITHUB_TOKEN: "test-token",
+      GITHUB_ISSUES_BOT_LOGIN: "vectora-bot",
+    });
     releaseFirstPost(
       new Response(
         JSON.stringify({

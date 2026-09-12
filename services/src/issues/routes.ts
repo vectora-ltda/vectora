@@ -263,11 +263,16 @@ export async function syncCreatedIssue(
       }
       return;
     }
-    const existingRemotes = await findIssueByMarker(env, repo, marker);
+    const authenticated =
+      env.GITHUB_ISSUES_BOT_LOGIN?.trim() || (await authenticatedLogin(env));
+    const existingRemotes = await findIssueByMarker(
+      env,
+      repo,
+      marker,
+      authenticated,
+    );
     let trustedRemote: GitHubIssue | null = null;
     if (existingRemotes.length > 0) {
-      const authenticated =
-        env.GITHUB_ISSUES_BOT_LOGIN?.trim() || (await authenticatedLogin(env));
       trustedRemote =
         existingRemotes.find(
           (candidate) =>
@@ -353,6 +358,8 @@ export async function reconcilePendingIssueResponses(env: Env): Promise<void> {
     github_number: number;
   }>();
   for (const issue of results) {
+    const operationToken =
+      issue.response_sync_operation_token ?? crypto.randomUUID();
     try {
       await syncIssueResponse(
         env,
@@ -362,17 +369,13 @@ export async function reconcilePendingIssueResponses(env: Env): Promise<void> {
         issue.response,
         issue.status === "resolved",
         issue.response_version,
-        issue.response_sync_operation_token ?? undefined,
+        operationToken,
       );
     } catch (error) {
       await env.DB.prepare(
         "UPDATE issues SET github_sync_state = 'response_pending', response_sync_lease_until = NULL, response_sync_operation_token = NULL WHERE id = ? AND response_version = ? AND response_sync_operation_token = ? AND github_sync_state = 'response_syncing'",
       )
-        .bind(
-          issue.id,
-          issue.response_version,
-          issue.response_sync_operation_token,
-        )
+        .bind(issue.id, issue.response_version, operationToken)
         .run();
       console.error("issue_github_response_retry_failed", {
         issueId: issue.id,
@@ -767,7 +770,7 @@ issues.get("/:id", async (c) => {
     .first<{ files: string | null } & Record<string, unknown>>();
   if (!row) return c.json({ error: "not_found" }, 404);
   const { results: comments } = await c.env.DB.prepare(
-    "SELECT author, body, html_url, created_at, updated_at FROM issue_comments WHERE issue_id = ? AND deleted_at IS NULL ORDER BY created_at ASC",
+    "SELECT github_comment_id, author, body, html_url, created_at, updated_at FROM issue_comments WHERE issue_id = ? AND deleted_at IS NULL ORDER BY created_at ASC",
   )
     .bind(c.req.param("id"))
     .all();

@@ -96,7 +96,20 @@ async function request<T>(
   const canRetry = retryTransient && (method === "GET" || method === "PATCH");
   let response: Response | undefined;
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    response = await fetch(`${API}/${path}`, { ...init, headers });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15_000);
+    try {
+      response = await fetch(`${API}/${path}`, {
+        ...init,
+        headers,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (attempt === 2 || !canRetry) throw error;
+      continue;
+    } finally {
+      clearTimeout(timeout);
+    }
     if (
       !canRetry ||
       ![429, 500, 502, 503, 504].includes(response.status) ||
@@ -150,10 +163,14 @@ export async function findIssueByMarker(
   env: Env,
   repo: string,
   marker: string,
+  authorLogin?: string,
 ): Promise<GitHubIssue[]> {
-  const query = encodeURIComponent(`repo:${repo} in:body "${marker}"`);
+  const author = authorLogin?.trim();
+  const query = encodeURIComponent(
+    `repo:${repo} is:issue in:body "${marker}"${author ? ` author:${author}` : ""}`,
+  );
   const candidates: GitHubIssue[] = [];
-  for (let page = 1; ; page += 1) {
+  for (let page = 1; page <= 10; page += 1) {
     const result = await request<SearchResponse>(
       env,
       `search/issues?q=${query}&per_page=100&page=${page}`,

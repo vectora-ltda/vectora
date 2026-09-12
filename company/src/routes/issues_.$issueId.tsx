@@ -225,7 +225,7 @@ function IssueDetailPage() {
           </h2>
           {issue.comments.map((comment) => (
             <div
-              key={`${comment.author}-${comment.created_at}`}
+              key={comment.github_comment_id}
               className="rounded-xl border border-border bg-card/30 p-4"
             >
               <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">

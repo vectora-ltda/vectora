@@ -94,6 +94,7 @@ export type IssueDetail = IssueListItem & {
   github_sync_state?: string;
   core_url?: string | null;
   comments?: Array<{
+    github_comment_id: number;
     author: string;
     body: string;
     html_url: string | null;
