@@ -413,7 +413,7 @@ async def generate_image(ctx: ToolContext, prompt: str) -> str:
         )
     except asyncio.CancelledError:
         await _finalize_media(reservation, "unknown" if submitted else "cancelled")
-        raise
+        return json.dumps({"error": "operação cancelada"}, ensure_ascii=False)
     except Exception as exc:
         await _finalize_media(
             reservation,
@@ -498,7 +498,7 @@ async def text_to_speech(ctx: ToolContext, text: str, voice: str = "") -> str:
         )
     except asyncio.CancelledError:
         await _finalize_media(reservation, "unknown" if submitted else "cancelled")
-        raise
+        return json.dumps({"error": "operação cancelada"}, ensure_ascii=False)
     except Exception as exc:
         await _finalize_media(
             reservation,
@@ -719,7 +719,7 @@ async def generate_video(ctx: ToolContext, prompt: str) -> str:
         )
     except asyncio.CancelledError:
         await _finalize_media(reservation, "unknown" if submitted else "cancelled")
-        raise
+        return json.dumps({"error": "operação cancelada"}, ensure_ascii=False)
     except Exception as exc:
         await _finalize_media(
             reservation,
