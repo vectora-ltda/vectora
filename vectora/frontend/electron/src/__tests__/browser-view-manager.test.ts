@@ -112,6 +112,38 @@ describe("BrowserViewManager", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("usa navigationHistory sem chamar a API legada", () => {
+    const id = manager.createView();
+    const view = views[0];
+    const historyBack = vi.fn();
+    const historyForward = vi.fn();
+    view.webContents.navigationHistory = {
+      canGoBack: vi.fn(() => true),
+      canGoForward: vi.fn(() => true),
+      goBack: historyBack,
+      goForward: historyForward,
+    };
+
+    manager.goBack(id);
+    manager.goForward(id);
+
+    expect(historyBack).toHaveBeenCalledOnce();
+    expect(historyForward).toHaveBeenCalledOnce();
+    expect(view.webContents.goBack).not.toHaveBeenCalled();
+    expect(view.webContents.goForward).not.toHaveBeenCalled();
+  });
+
+  it("mantém o fallback legado quando navigationHistory não existe", () => {
+    const id = manager.createView();
+    const view = views[0];
+
+    manager.goBack(id);
+    manager.goForward(id);
+
+    expect(view.webContents.goBack).toHaveBeenCalledOnce();
+    expect(view.webContents.goForward).toHaveBeenCalledOnce();
+  });
+
   it("setVisible(false) zera bounds; setVisible(true) restaura o último bound real", () => {
     const id = manager.createView();
     manager.setBounds(id, { x: 1, y: 2, width: 300, height: 400 });

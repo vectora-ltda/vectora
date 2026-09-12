@@ -49,7 +49,16 @@ const CONTENT_TYPES: Record<string, string> = {
 // Manifests (`latest.yml`, `latest-mac.yml`, `latest-linux.yml`) não seguem
 // esse padrão — tratados à parte via MANIFEST_OS abaixo.
 export const INSTALLER_RE =
-  /^Vectora-(?<version>[^-]+)-(?<os>win|mac|linux)-(?<arch>x64|arm64|universal)\.(?<ext>exe|msi|dmg|AppImage|deb|rpm)$/;
+  /^Vectora-(?<version>[^-]+)-(?<os>win|mac|linux)-(?<arch>x64|x86_64|amd64|arm64|universal)\.(?<ext>exe|msi|dmg|AppImage|deb|rpm)$/;
+
+/** Electron-builder uses several spellings for the x64 Linux architecture. */
+export function normalizeInstallerArch(
+  arch: string,
+): "x64" | "arm64" | "universal" {
+  if (arch === "x86_64" || arch === "amd64") return "x64";
+  if (arch === "x64" || arch === "arm64" || arch === "universal") return arch;
+  throw new Error(`Arquitetura de instalador não suportada: ${arch}`);
+}
 
 /** Todos os formatos de instalador aceitos pelo canal de distribuição. */
 export const INSTALLER_EXTENSIONS = [
@@ -389,9 +398,9 @@ export function indexInstallersByOsArch(
   for (const file of files) {
     const match = INSTALLER_RE.exec(file);
     if (!match?.groups) continue;
-    const { version: installerVersion, os, arch } = match.groups;
+    const { version: installerVersion, os, arch: rawArch } = match.groups;
     if (installerVersion !== version) continue;
-    const key = `${os}/${arch}`;
+    const key = `${os}/${normalizeInstallerArch(rawArch)}`;
     const already = installersByOsArch.get(key);
     if (already) {
       // Uma combinação pode ter vários formatos (por exemplo, Linux x64 tem
@@ -493,7 +502,8 @@ async function main(): Promise<void> {
 
     const match = INSTALLER_RE.exec(file);
     if (!match?.groups) continue; // blockmap e outros artefatos auxiliares — não distribuídos
-    const { version: installerVersion, os, arch } = match.groups;
+    const { version: installerVersion, os, arch: rawArch } = match.groups;
+    const arch = normalizeInstallerArch(rawArch);
     // Mesmo filtro de indexInstallersByOsArch — um instalador de release
     // anterior sobrando em dist/ não pode ser publicado sob a key da
     // versão atual só porque casa o regex. Cada formato válido entra em
