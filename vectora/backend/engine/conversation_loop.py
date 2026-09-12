@@ -562,13 +562,18 @@ async def _execute_single_call(
         # Cada chamada recebe seu próprio contexto correlacionado. Isso evita
         # que eventos de duas tools executadas em lote compartilhem o mesmo
         # ID e permite que delegações internas atualizem o card correto.
+        from backend.services.media_billing import apply_media_billing_source
+
+        call_context = replace(
+            ctx,
+            tool_call_id=tool_call.id,
+            _extra={**ctx._extra, "event_sink": on_event},
+        )
+        if spec.extras.category == "media":
+            call_context = await apply_media_billing_source(call_context)
         texto = await spec.ainvoke(
             tool_call.args,
-            replace(
-                ctx,
-                tool_call_id=tool_call.id,
-                _extra={**ctx._extra, "event_sink": on_event},
-            ),
+            call_context,
         )
         is_error = _is_tool_error(texto)
         from backend.services.tool_usage import record_tool_usage
