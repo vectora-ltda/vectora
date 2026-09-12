@@ -292,6 +292,11 @@ class TestAuthMiddlewareIntegration:
 
         assert response.status_code == 401
 
+    def test_url_preview_requires_authentication(self, auth_client: TestClient) -> None:
+        response = auth_client.get("/url-preview?url=https://example.com")
+
+        assert response.status_code == 401
+
     def test_tool_usage_contract_is_user_scoped_and_redacted(
         self, auth_client, monkeypatch
     ):
