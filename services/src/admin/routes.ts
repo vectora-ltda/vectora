@@ -466,15 +466,13 @@ admin.post("/issues/:id/respond", async (c) => {
         return c.json({ error: message }, 409);
       }
       await c.env.DB.prepare(
-        "UPDATE issues SET github_sync_state = CASE WHEN response_version = ? THEN 'response_pending' ELSE github_sync_state END, response_sync_lease_until = CASE WHEN response_version = ? THEN NULL ELSE response_sync_lease_until END, response_sync_operation_token = CASE WHEN response_version = ? THEN NULL ELSE response_sync_operation_token END, github_sync_error = CASE WHEN response_version = ? THEN ? ELSE github_sync_error END WHERE id = ?",
+        "UPDATE issues SET github_sync_state = 'response_pending', response_sync_lease_until = NULL, response_sync_operation_token = NULL, github_sync_error = ? WHERE id = ? AND response_version = ? AND github_sync_operation_token = ? AND github_sync_state = 'response_syncing'",
       )
         .bind(
-          issue.response_version + 1,
-          issue.response_version + 1,
-          issue.response_version + 1,
-          issue.response_version + 1,
           message.slice(0, 200),
           id,
+          issue.response_version + 1,
+          responseOperationToken,
         )
         .run();
       console.error("issue_github_response_sync_failed", {

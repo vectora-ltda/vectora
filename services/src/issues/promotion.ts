@@ -305,7 +305,7 @@ export function githubApprovalAllowed(env: Env, login: string): boolean {
 /** Retoma promoções que criaram a issue principal mas ainda não fecharam a pública. */
 export async function reconcilePendingPromotions(env: Env): Promise<void> {
   const { results } = await env.DB.prepare(
-    "SELECT id, approved_by, core_number, github_sync_state FROM issues " +
+    "SELECT id, approved_by, core_number, github_sync_state, promotion_operation_token FROM issues " +
       "WHERE github_sync_state IN ('promotion_pending', 'approval_error', 'promotion_failed') " +
       "AND approved_by IS NOT NULL " +
       "AND (github_sync_state IN ('approval_error', 'promotion_failed') OR promotion_lease_until IS NULL OR promotion_lease_until <= datetime('now')) " +
@@ -315,6 +315,7 @@ export async function reconcilePendingPromotions(env: Env): Promise<void> {
     approved_by: string;
     core_number: number | null;
     github_sync_state: string;
+    promotion_operation_token: string | null;
   }>();
   for (const issue of results) {
     try {
@@ -322,9 +323,16 @@ export async function reconcilePendingPromotions(env: Env): Promise<void> {
       const claimed = await env.DB.prepare(
         "UPDATE issues SET github_sync_state = 'promotion_failed', promotion_operation_token = ?, github_sync_error = NULL " +
           "WHERE id = ? AND github_sync_state = ? " +
+          "AND (promotion_operation_token = ? OR (promotion_operation_token IS NULL AND ? IS NULL)) " +
           "AND (github_sync_state IN ('approval_error', 'promotion_failed') OR promotion_lease_until IS NULL OR promotion_lease_until <= datetime('now'))",
       )
-        .bind(claimToken, issue.id, issue.github_sync_state)
+        .bind(
+          claimToken,
+          issue.id,
+          issue.github_sync_state,
+          issue.promotion_operation_token,
+          issue.promotion_operation_token,
+        )
         .run();
       if (claimed.meta.changes === 0) continue;
       await promoteIssue(env, issue.id, issue.approved_by, claimToken);
