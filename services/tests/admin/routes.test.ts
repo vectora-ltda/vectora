@@ -447,6 +447,29 @@ describe("POST /admin/issues/:id/respond", () => {
     expect(body.status).toBe("open");
   });
 
+  it("aceita somente uma resposta concorrente sem vínculo GitHub", async () => {
+    const { token } = await createUser("admin");
+    const id = await createIssue({ email: null });
+    const request = (response: string) =>
+      admin.request(
+        `/issues/${id}/respond`,
+        authed(token, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ response, resolve: false }),
+        }),
+        env,
+      );
+
+    const responses = await Promise.all([
+      request("Primeira resposta"),
+      request("Segunda resposta"),
+    ]);
+    expect(responses.map((response) => response.status).sort()).toEqual([
+      200, 409,
+    ]);
+  });
+
   it("rejeita resposta vazia/curta (400) e id inexistente (404)", async () => {
     const { token } = await createUser("admin");
     const id = await createIssue();

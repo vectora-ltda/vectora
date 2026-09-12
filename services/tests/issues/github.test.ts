@@ -118,4 +118,18 @@ describe("GitHub issue marker pagination", () => {
     expect(attempts).toBe(2);
     expect(signals[0]).not.toBe(signals[1]);
   });
+
+  it("rejeita repositório ou marcador vazios antes da busca", async () => {
+    const request = vi.fn();
+    vi.stubGlobal("fetch", request);
+    const githubEnv = { ...env, GITHUB_TOKEN: "test-token" };
+
+    await expect(
+      findIssueByMarker(githubEnv, "", "marker"),
+    ).rejects.toMatchObject({ status: 400, message: "github_repo_invalid" });
+    await expect(
+      findIssueByMarker(githubEnv, "vectora-ltda/vectora", ""),
+    ).rejects.toMatchObject({ status: 400, message: "github_marker_invalid" });
+    expect(request).not.toHaveBeenCalled();
+  });
 });

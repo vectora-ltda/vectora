@@ -165,6 +165,8 @@ export async function findIssueByMarker(
   marker: string,
   authorLogin?: string,
 ): Promise<GitHubIssue[]> {
+  if (!repo.trim()) throw new GitHubIssueError(400, "github_repo_invalid");
+  if (!marker.trim()) throw new GitHubIssueError(400, "github_marker_invalid");
   const author = authorLogin?.trim();
   const query = encodeURIComponent(
     `repo:${repo} is:issue in:body "${marker}"${author ? ` author:${author}` : ""}`,
