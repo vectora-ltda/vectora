@@ -553,15 +553,20 @@ describe("POST /admin/issues/:id/respond", () => {
       }),
       githubEnv,
     );
+    let reachedSyncing = false;
     for (let attempt = 0; attempt < 100; attempt += 1) {
       const row = await env.DB.prepare(
         "SELECT github_sync_state FROM issues WHERE id = ?",
       )
         .bind(id)
         .first<{ github_sync_state: string }>();
-      if (row?.github_sync_state === "response_syncing") break;
+      if (row?.github_sync_state === "response_syncing") {
+        reachedSyncing = true;
+        break;
+      }
       await new Promise((resolve) => setTimeout(resolve, 1));
     }
+    expect(reachedSyncing).toBe(true);
 
     const secondResponse = await admin.request(
       `/issues/${id}/respond`,
@@ -680,6 +685,7 @@ describe("POST /admin/issues/:id/respond", () => {
     for (let attempt = 0; attempt < 100 && commentLookups < 1; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 1));
     }
+    expect(commentLookups).toBeGreaterThanOrEqual(1);
     await env.DB.prepare(
       "UPDATE issues SET response_sync_lease_until = datetime('now', '-1 minute') WHERE id = ?",
     )
