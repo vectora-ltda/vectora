@@ -5,6 +5,7 @@ import {
   createIssue,
   findCommentByMarker,
   findIssueByMarker,
+  authenticatedLogin,
   intakeRepo,
   updateIssue,
 } from "./github";
@@ -176,9 +177,9 @@ export async function promoteIssue(
   const operationToken = claimToken ?? crypto.randomUUID();
   const claimed = claimToken
     ? await env.DB.prepare(
-        "UPDATE issues SET github_sync_state = 'promotion_pending', promotion_operation_token = ?, promotion_lease_until = datetime('now', '+10 minutes') WHERE id = ? AND github_sync_state = 'promotion_failed' AND github_sync_error = ?",
+        "UPDATE issues SET github_sync_state = 'promotion_pending', promotion_lease_until = datetime('now', '+10 minutes') WHERE id = ? AND github_sync_state = 'promotion_failed' AND promotion_operation_token = ?",
       )
-        .bind(operationToken, issueId, claimToken)
+        .bind(issueId, claimToken)
         .run()
     : await env.DB.prepare(
         "UPDATE issues SET github_sync_state = 'promotion_pending', promotion_operation_token = ?, github_sync_error = NULL, approved_at = COALESCE(approved_at, datetime('now')), promotion_lease_until = datetime('now', '+10 minutes'), approved_by = COALESCE(approved_by, ?) WHERE id = ? AND github_sync_state NOT IN ('promotion_pending', 'promoted')",
@@ -191,9 +192,25 @@ export async function promoteIssue(
   let created =
     issue.core_number && issue.core_url
       ? { number: issue.core_number, html_url: issue.core_url }
-      : await withPromotionLease(env, issueId, operationToken, () =>
-          findIssueByMarker(env, targetRepo, marker),
-        );
+      : await withPromotionLease(env, issueId, operationToken, async () => {
+          const authenticated =
+            env.GITHUB_ISSUES_BOT_LOGIN?.trim() ||
+            (await authenticatedLogin(env));
+          const candidates = await findIssueByMarker(
+            env,
+            targetRepo,
+            marker,
+            authenticated,
+          );
+          if (candidates.length === 0) return null;
+          return (
+            candidates.find(
+              (candidate) =>
+                candidate.user?.login?.toLowerCase() ===
+                authenticated.toLowerCase(),
+            ) ?? null
+          );
+        });
   if (!created) {
     created = await withPromotionLease(env, issueId, operationToken, () =>
       createIssue(env, targetRepo, issue.title, body),
@@ -288,7 +305,7 @@ export function githubApprovalAllowed(env: Env, login: string): boolean {
 /** Retoma promoções que criaram a issue principal mas ainda não fecharam a pública. */
 export async function reconcilePendingPromotions(env: Env): Promise<void> {
   const { results } = await env.DB.prepare(
-    "SELECT id, approved_by, core_number, github_sync_state FROM issues " +
+    "SELECT id, approved_by, core_number, github_sync_state, promotion_operation_token FROM issues " +
       "WHERE github_sync_state IN ('promotion_pending', 'approval_error', 'promotion_failed') " +
       "AND approved_by IS NOT NULL " +
       "AND (github_sync_state IN ('approval_error', 'promotion_failed') OR promotion_lease_until IS NULL OR promotion_lease_until <= datetime('now')) " +
@@ -298,16 +315,24 @@ export async function reconcilePendingPromotions(env: Env): Promise<void> {
     approved_by: string;
     core_number: number | null;
     github_sync_state: string;
+    promotion_operation_token: string | null;
   }>();
   for (const issue of results) {
     try {
       const claimToken = crypto.randomUUID();
       const claimed = await env.DB.prepare(
-        "UPDATE issues SET github_sync_state = 'promotion_failed', promotion_operation_token = ?, github_sync_error = ? " +
+        "UPDATE issues SET github_sync_state = 'promotion_failed', promotion_operation_token = ?, github_sync_error = NULL " +
           "WHERE id = ? AND github_sync_state = ? " +
+          "AND (promotion_operation_token = ? OR (promotion_operation_token IS NULL AND ? IS NULL)) " +
           "AND (github_sync_state IN ('approval_error', 'promotion_failed') OR promotion_lease_until IS NULL OR promotion_lease_until <= datetime('now'))",
       )
-        .bind(claimToken, claimToken, issue.id, issue.github_sync_state)
+        .bind(
+          claimToken,
+          issue.id,
+          issue.github_sync_state,
+          issue.promotion_operation_token,
+          issue.promotion_operation_token,
+        )
         .run();
       if (claimed.meta.changes === 0) continue;
       await promoteIssue(env, issue.id, issue.approved_by, claimToken);

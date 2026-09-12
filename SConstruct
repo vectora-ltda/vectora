@@ -919,6 +919,7 @@ def _upgrade_d1_schema(log) -> None:
         ("issues", "promotion_operation_token", "TEXT"),
         ("issues", "response_version", "INTEGER NOT NULL DEFAULT 0"),
         ("issues", "response_sync_lease_until", "TEXT"),
+        ("issues", "response_sync_operation_token", "TEXT"),
         ("rag_packages", "package_name", "TEXT"),
         ("rag_packages", "version", "TEXT NOT NULL DEFAULT '0.0.1'"),
         ("rag_packages", "status", "TEXT NOT NULL DEFAULT 'ready'"),

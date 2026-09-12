@@ -6,6 +6,7 @@ import { SUPPORT_EMAIL, waitlistJoinedHtml } from "../lib/email";
 import { enqueueEmail } from "../lib/queue";
 import {
   addComment,
+  authenticatedLogin,
   createIssue,
   findCommentByMarker,
   findIssueByMarker,
@@ -19,6 +20,7 @@ import { githubApprovalAllowed, promoteIssue } from "./promotion";
 export const issues = new Hono<{ Bindings: Env }>();
 
 const CATEGORIES = new Set(["bug", "feedback", "feature"]);
+const RESPONSE_LEASE_HEARTBEAT_MS = 30_000;
 
 export const MAX_ISSUE_FILES = 3;
 
@@ -81,34 +83,75 @@ export async function syncIssueResponse(
   response: string,
   resolve: boolean,
   expectedVersion?: number,
+  operationToken?: string,
+  leaseAlreadyClaimed = false,
 ): Promise<void> {
-  if (expectedVersion !== undefined) {
+  let activeOperationToken = operationToken;
+  if (expectedVersion !== undefined && !leaseAlreadyClaimed) {
+    activeOperationToken = activeOperationToken ?? crypto.randomUUID();
     const claimed = await env.DB.prepare(
-      "UPDATE issues SET github_sync_state = 'response_syncing', response_sync_lease_until = datetime('now', '+5 minutes') WHERE id = ? AND response_version = ? AND response = ? AND (github_sync_state = 'response_pending' OR (github_sync_state = 'response_syncing' AND response_sync_lease_until <= datetime('now'))) ",
+      "UPDATE issues SET github_sync_state = 'response_syncing', response_sync_lease_until = datetime('now', '+5 minutes'), response_sync_operation_token = ? WHERE id = ? AND response_version = ? AND response = ? AND (github_sync_state = 'response_pending' OR (github_sync_state = 'response_syncing' AND response_sync_lease_until <= datetime('now'))) ",
     )
-      .bind(issueId, expectedVersion, response)
+      .bind(activeOperationToken, issueId, expectedVersion, response)
       .run();
     if (claimed.meta.changes === 0) throw new Error("response_superseded");
   }
+  if (expectedVersion !== undefined && !activeOperationToken)
+    throw new Error("response_superseded");
+  const renewLease = async (): Promise<void> => {
+    if (expectedVersion === undefined) return;
+    const renewed = await env.DB.prepare(
+      "UPDATE issues SET response_sync_lease_until = datetime('now', '+5 minutes') WHERE id = ? AND response_version = ? AND response_sync_operation_token = ? AND github_sync_state = 'response_syncing' AND response_sync_lease_until > datetime('now')",
+    )
+      .bind(issueId, expectedVersion, activeOperationToken)
+      .run();
+    if (renewed.meta.changes === 0) throw new Error("response_superseded");
+  };
+  const withResponseLease = async <T>(
+    operation: () => Promise<T>,
+  ): Promise<T> => {
+    await renewLease();
+    let leaseError: Error | undefined;
+    const heartbeat = setInterval(() => {
+      void renewLease().catch((error: unknown) => {
+        leaseError =
+          error instanceof Error ? error : new Error("response_superseded");
+      });
+    }, RESPONSE_LEASE_HEARTBEAT_MS);
+    try {
+      const result = await operation();
+      if (leaseError) throw leaseError;
+      await renewLease();
+      return result;
+    } finally {
+      clearInterval(heartbeat);
+    }
+  };
   const isCurrent = async (): Promise<boolean> => {
     if (expectedVersion === undefined) return true;
     const current = await env.DB.prepare(
-      "SELECT response_version FROM issues WHERE id = ? AND response_version = ? AND response = ?",
+      "SELECT response_version FROM issues WHERE id = ? AND response_version = ? AND response = ? AND response_sync_operation_token = ? AND github_sync_state = 'response_syncing' AND response_sync_lease_until > datetime('now')",
     )
-      .bind(issueId, expectedVersion, response)
+      .bind(issueId, expectedVersion, response, activeOperationToken)
       .first();
     return Boolean(current);
   };
   if (!(await isCurrent())) throw new Error("response_superseded");
   const marker = await responseMarker(issueId, response);
-  const existing = await findCommentByMarker(env, repo, number, marker);
+  const existing = await withResponseLease(() =>
+    findCommentByMarker(env, repo, number, marker),
+  );
   if (!existing) {
-    if (!(await isCurrent())) throw new Error("response_superseded");
-    await addComment(env, repo, number, `<!-- ${marker} -->\n${response}`);
+    await withResponseLease(async () => {
+      if (!(await isCurrent())) throw new Error("response_superseded");
+      await addComment(env, repo, number, `<!-- ${marker} -->\n${response}`);
+    });
   }
   if (resolve) {
-    if (!(await isCurrent())) throw new Error("response_superseded");
-    await updateIssue(env, repo, number, { state: "closed" });
+    await withResponseLease(async () => {
+      if (!(await isCurrent())) throw new Error("response_superseded");
+      await updateIssue(env, repo, number, { state: "closed" });
+    });
   }
   const finalized =
     expectedVersion === undefined
@@ -118,9 +161,9 @@ export async function syncIssueResponse(
           .bind(issueId)
           .run()
       : await env.DB.prepare(
-          "UPDATE issues SET github_sync_state = 'synced', github_sync_error = NULL, response_sync_lease_until = NULL WHERE id = ? AND response_version = ?",
+          "UPDATE issues SET github_sync_state = 'synced', github_sync_error = NULL, response_sync_lease_until = NULL, response_sync_operation_token = NULL WHERE id = ? AND response_version = ? AND response_sync_operation_token = ?",
         )
-          .bind(issueId, expectedVersion)
+          .bind(issueId, expectedVersion, activeOperationToken)
           .run();
   if (expectedVersion !== undefined && finalized.meta.changes === 0)
     throw new Error("response_superseded");
@@ -135,35 +178,28 @@ export async function syncCreatedIssue(
   description: string | undefined,
 ): Promise<void> {
   if (!env.GITHUB_ISSUES_TOKEN && !env.GITHUB_TOKEN) return;
-  let existing: {
-    github_repo: string | null;
-    github_number: number | null;
-    github_url: string | null;
-    github_sync_state: string;
-    response: string | null;
-    status: string;
-  } | null;
-  try {
-    existing = await env.DB.prepare(
-      "SELECT github_repo, github_number, github_url, github_sync_state, response, status FROM issues WHERE id = ?",
-    )
-      .bind(issueId)
-      .first<{
-        github_repo: string | null;
-        github_number: number | null;
-        github_url: string | null;
-        github_sync_state: string;
-        response: string | null;
-        status: string;
-      }>();
-  } catch (error) {
-    console.error("issue_github_initial_read_failed", {
-      issueId,
-      message: error instanceof Error ? error.message : "database_error",
-    });
-    return;
-  }
+  const existing = await env.DB.prepare(
+    "SELECT github_repo, github_number, github_url, github_sync_state, response, response_version, response_sync_operation_token, status FROM issues WHERE id = ?",
+  )
+    .bind(issueId)
+    .first<{
+      github_repo: string | null;
+      github_number: number | null;
+      github_url: string | null;
+      github_sync_state: string;
+      response: string | null;
+      response_version: number;
+      response_sync_operation_token: string | null;
+      status: string;
+    }>();
   if (existing?.github_repo && existing.github_number && existing.github_url) {
+    const responseOperationToken =
+      existing.response &&
+      ["response_pending", "response_error"].includes(
+        existing.github_sync_state,
+      )
+        ? crypto.randomUUID()
+        : undefined;
     try {
       await reconcileIssueComments(
         env,
@@ -184,15 +220,22 @@ export async function syncCreatedIssue(
           existing.github_number,
           existing.response,
           existing.status === "resolved",
+          existing.response_version,
+          responseOperationToken,
         );
       }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "github_sync_failed";
       await env.DB.prepare(
-        "UPDATE issues SET github_sync_state = CASE WHEN response IS NOT NULL THEN 'response_pending' ELSE github_sync_state END, github_sync_error = ? WHERE id = ?",
+        "UPDATE issues SET github_sync_state = CASE WHEN response IS NOT NULL THEN 'response_pending' ELSE github_sync_state END, github_sync_error = ? WHERE id = ? AND response_version = ? AND response_sync_operation_token = ? AND github_sync_state = 'response_syncing'",
       )
-        .bind(message.slice(0, 200), issueId)
+        .bind(
+          message.slice(0, 200),
+          issueId,
+          existing.response_version,
+          responseOperationToken,
+        )
         .run();
       console.error("issue_github_reconcile_failed", { issueId, message });
     }
@@ -232,9 +275,25 @@ export async function syncCreatedIssue(
       }
       return;
     }
-    const existingRemote = await findIssueByMarker(env, repo, marker);
+    const authenticated =
+      env.GITHUB_ISSUES_BOT_LOGIN?.trim() || (await authenticatedLogin(env));
+    const existingRemotes = await findIssueByMarker(
+      env,
+      repo,
+      marker,
+      authenticated,
+    );
+    let trustedRemote: GitHubIssue | null = null;
+    if (existingRemotes.length > 0) {
+      trustedRemote =
+        existingRemotes.find(
+          (candidate) =>
+            candidate.user?.login?.toLowerCase() ===
+            authenticated.toLowerCase(),
+        ) ?? null;
+    }
     const created =
-      existingRemote ?? (await createIssue(env, repo, title, body));
+      trustedRemote ?? (await createIssue(env, repo, title, body));
     const persisted = await env.DB.prepare(
       "UPDATE issues SET github_repo = ?, github_number = ?, github_url = ?, github_sync_state = 'synced', github_sync_error = NULL WHERE id = ? AND github_sync_error = ?",
     )
@@ -300,16 +359,24 @@ export async function reconcileIssueComments(
 /** Retoma respostas públicas persistidas após falhas transitórias do GitHub. */
 export async function reconcilePendingIssueResponses(env: Env): Promise<void> {
   const { results } = await env.DB.prepare(
-    "SELECT id, response, status, response_version, github_repo, github_number FROM issues WHERE response IS NOT NULL AND github_repo IS NOT NULL AND github_number IS NOT NULL AND (github_sync_state = 'response_pending' OR (github_sync_state = 'response_syncing' AND response_sync_lease_until <= datetime('now'))) ORDER BY responded_at ASC LIMIT 25",
+    "SELECT id, response, status, response_version, response_sync_operation_token, github_repo, github_number FROM issues WHERE response IS NOT NULL AND github_repo IS NOT NULL AND github_number IS NOT NULL AND (github_sync_state = 'response_pending' OR (github_sync_state = 'response_syncing' AND response_sync_lease_until <= datetime('now'))) ORDER BY responded_at ASC LIMIT 25",
   ).all<{
     id: string;
     response: string;
     status: string;
     response_version: number;
+    response_sync_operation_token: string | null;
     github_repo: string;
     github_number: number;
   }>();
   for (const issue of results) {
+    const operationToken = crypto.randomUUID();
+    const claimed = await env.DB.prepare(
+      "UPDATE issues SET github_sync_state = 'response_syncing', response_sync_lease_until = datetime('now', '+5 minutes'), response_sync_operation_token = ? WHERE id = ? AND response_version = ? AND response = ? AND ((github_sync_state = 'response_pending') OR (github_sync_state = 'response_syncing' AND response_sync_lease_until <= datetime('now')))",
+    )
+      .bind(operationToken, issue.id, issue.response_version, issue.response)
+      .run();
+    if (claimed.meta.changes === 0) continue;
     try {
       await syncIssueResponse(
         env,
@@ -319,12 +386,14 @@ export async function reconcilePendingIssueResponses(env: Env): Promise<void> {
         issue.response,
         issue.status === "resolved",
         issue.response_version,
+        operationToken,
+        true,
       );
     } catch (error) {
       await env.DB.prepare(
-        "UPDATE issues SET github_sync_state = 'response_pending', response_sync_lease_until = NULL WHERE id = ? AND response_version = ? AND github_sync_state = 'response_syncing'",
+        "UPDATE issues SET github_sync_state = 'response_pending', response_sync_lease_until = NULL, response_sync_operation_token = NULL WHERE id = ? AND response_version = ? AND response_sync_operation_token = ? AND github_sync_state = 'response_syncing'",
       )
-        .bind(issue.id, issue.response_version)
+        .bind(issue.id, issue.response_version, operationToken)
         .run();
       console.error("issue_github_response_retry_failed", {
         issueId: issue.id,
@@ -713,7 +782,7 @@ issues.get("/files/*", async (c) => {
 // arquivada é admin, via GET /admin/issues/:id.
 issues.get("/:id", async (c) => {
   const row = await c.env.DB.prepare(
-    "SELECT id, title, category, description, files, status, created_at, github_url, github_sync_state FROM issues WHERE id = ? AND archived_at IS NULL",
+    "SELECT id, title, category, description, files, status, created_at, github_url, github_sync_state, core_url FROM issues WHERE id = ? AND archived_at IS NULL",
   )
     .bind(c.req.param("id"))
     .first<{ files: string | null } & Record<string, unknown>>();

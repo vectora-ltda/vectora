@@ -51,6 +51,14 @@ export function coreRepo(env: Env): string {
   return env.GITHUB_CORE_REPO?.trim() || DEFAULT_CORE_REPO;
 }
 
+/** Retorna o login da identidade autenticada pelo token do GitHub. */
+export async function authenticatedLogin(env: Env): Promise<string> {
+  const identity = await request<{ login?: string }>(env, "user");
+  if (!identity.login)
+    throw new GitHubIssueError(502, "github_identity_invalid");
+  return identity.login;
+}
+
 function token(env: Env): string {
   return env.GITHUB_ISSUES_TOKEN?.trim() || env.GITHUB_TOKEN?.trim() || "";
 }
@@ -155,13 +163,25 @@ export async function findIssueByMarker(
   env: Env,
   repo: string,
   marker: string,
-): Promise<GitHubIssue | null> {
-  const query = encodeURIComponent(`repo:${repo} in:body "${marker}"`);
-  const result = await request<SearchResponse>(
-    env,
-    `search/issues?q=${query}&per_page=2`,
+  authorLogin?: string,
+): Promise<GitHubIssue[]> {
+  if (!repo.trim()) throw new GitHubIssueError(400, "github_repo_invalid");
+  if (!marker.trim()) throw new GitHubIssueError(400, "github_marker_invalid");
+  const author = authorLogin?.trim();
+  const query = encodeURIComponent(
+    `repo:${repo} is:issue in:body "${marker}"${author ? ` author:${author}` : ""}`,
   );
-  return result.items?.[0] ?? null;
+  const candidates: GitHubIssue[] = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const result = await request<SearchResponse>(
+      env,
+      `search/issues?q=${query}&per_page=100&page=${page}`,
+    );
+    const items = result.items ?? [];
+    candidates.push(...items);
+    if (items.length < 100) break;
+  }
+  return candidates;
 }
 
 /** Atualiza uma issue existente no GitHub. */
@@ -203,12 +223,14 @@ export async function listComments(
 ): Promise<GitHubComment[]> {
   const all: GitHubComment[] = [];
   for (let page = 1; ; page += 1) {
-    const batch = await request<GitHubComment[]>(
+    const payload = await request<unknown>(
       env,
       `${repoPath(repo)}/issues/${number}/comments?per_page=100&page=${page}`,
     );
-    if (!Array.isArray(batch))
+    if (!Array.isArray(payload)) {
       throw new GitHubIssueError(502, "github_comments_invalid");
+    }
+    const batch = payload as GitHubComment[];
     all.push(...batch);
     if (batch.length < 100) break;
   }
