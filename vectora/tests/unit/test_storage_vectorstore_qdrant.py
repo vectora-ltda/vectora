@@ -18,7 +18,7 @@ from qdrant_client.http.models import (
 )
 
 from backend.storage.vectorstore.base import VectorRow
-from backend.storage.vectorstore.qdrant_backend import QdrantBackend
+from backend.storage.vectorstore.qdrant_backend import QdrantBackend, _point_id
 
 
 @pytest.fixture
@@ -152,7 +152,7 @@ class TestQdrantBackendUpsert:
         mock_client.upsert.assert_awaited_once()
         _, kwargs = mock_client.upsert.call_args
         assert kwargs["collection_name"] == "articles"
-        assert kwargs["points"][0].id == "p1"
+        assert kwargs["points"][0].id == _point_id("articles", "p1")
 
     @pytest.mark.asyncio
     async def test_upsert_lista_vazia_nao_chama_cliente(self, backend, mock_client):
@@ -209,7 +209,10 @@ class TestQdrantBackendDelete:
         assert count == 2
         _, kwargs = mock_client.delete.call_args
         assert kwargs["collection_name"] == "articles"
-        assert kwargs["points_selector"].points == ["p1", "p2"]
+        assert kwargs["points_selector"].points == [
+            _point_id("articles", "p1"),
+            _point_id("articles", "p2"),
+        ]
 
     @pytest.mark.asyncio
     async def test_delete_lista_vazia_nao_chama_cliente(self, backend, mock_client):

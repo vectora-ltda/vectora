@@ -205,10 +205,13 @@ class TestNatsReconnectDoesNotCrashBackend:
         mq_module.reset_mq()
 
         # Simula NATS indisponível (ensure_nats_sidecar retorna None)
-        with patch(
-            "backend.scheduling.nats_sidecar.ensure_nats_sidecar",
-            new_callable=AsyncMock,
-            return_value=None,
+        with (
+            patch(
+                "backend.scheduling.nats_sidecar.ensure_nats_sidecar",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch("backend.persistence.kv.redis_reachable", return_value=False),
         ):
             result = await mq_module.get_mq()
 

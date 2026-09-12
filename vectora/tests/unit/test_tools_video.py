@@ -16,17 +16,43 @@ Cada caminho feliz tem o par de erro/borda no mesmo teste.
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
-from backend.settings import provider_supports
+from backend.services.media_quota import media_quota
+from backend.settings import provider_supports, settings
 from backend.tools import media
 from backend.tools.context import ToolContext
 
 
 def _ctx(model: str) -> ToolContext:
-    return ToolContext(model=model, thread_id="t-video")
+    return ToolContext(
+        model=model,
+        thread_id="t-video",
+        user_id=f"test-video-{uuid4().hex}",
+        tool_call_id=uuid4().hex,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _database_schema(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Inicializa o schema oficial para as reservas de quota dos testes."""
+    database = tmp_path / "vectora.sqlite3"
+    schema = (
+        Path(__file__).parents[2]
+        / "backend"
+        / "storage"
+        / "migrations"
+        / "sqlite"
+        / "schema.sql"
+    )
+    with sqlite3.connect(database) as connection:
+        connection.executescript(schema.read_text(encoding="utf-8"))
+    monkeypatch.setattr(settings, "db_file", database)
+    monkeypatch.setattr(media_quota, "database", database)
 
 
 # ---------------------------------------------------------------------------

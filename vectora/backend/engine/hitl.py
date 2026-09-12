@@ -52,6 +52,11 @@ REQUIRE_APPROVAL: frozenset[str] = frozenset(
         "kanban_create",
         "kanban_update_status",
         "apply_memory_consolidation",
+        # Operações com custo variável: a quota e o preço estimado são
+        # apresentados ao usuário antes da execução do provider.
+        "generate_image",
+        "text_to_speech",
+        "generate_video",
     }
 )
 
@@ -130,17 +135,21 @@ def _plan_mode_ja_passou_neste_turno(history: list[VMessage]) -> bool:
 
 def _mode_should_interrupt(mode: str, tool_name: str, history: list[VMessage]) -> bool:
     """Política canônica dos 5 modos — fonte única de verdade do HITL nativo."""
-    if tool_name not in REQUIRE_APPROVAL:
-        return False
-    if tool_name in _ALWAYS_INTERRUPT:
-        return True
+    requires_approval = tool_name in REQUIRE_APPROVAL
+    always_interrupt = tool_name in _ALWAYS_INTERRUPT
     if mode in _NON_INTERRUPTING_MODES:
-        return False
-    if mode == "accept_edits":
-        return tool_name not in _ACCEPT_EDITS_AUTO
-    if mode == "plan":
-        return not _plan_mode_ja_passou_neste_turno(history)
-    return True  # "ask" ou desconhecido → mais restritivo
+        decision = False
+    elif mode == "accept_edits":
+        decision = tool_name not in _ACCEPT_EDITS_AUTO
+    elif mode == "plan":
+        # Cada operação de mídia acima do limite precisa de sua própria
+        # aprovação; um resultado anterior nunca autoriza outra cobrança.
+        decision = tool_name in {"generate_image", "text_to_speech", "generate_video"}
+        if not decision:
+            decision = not _plan_mode_ja_passou_neste_turno(history)
+    else:
+        decision = True  # "ask" ou desconhecido → mais restritivo
+    return requires_approval and (always_interrupt or decision)
 
 
 def should_require_approval(
@@ -153,10 +162,40 @@ def should_require_approval(
     já aceita opcionalmente em `should_require_approval`."""
     if _is_self_kanban_update(ctx, tool_name, args):
         return False
+    if tool_name in {"generate_image", "text_to_speech", "generate_video"}:
+        # O limiar é definido pelo backend autenticado no contexto. Ausência
+        # do campo mantém o comportamento seguro: toda operação pede revisão.
+        threshold = getattr(ctx, "_extra", {}).get("media_approval_threshold")
+        if isinstance(threshold, (int, float)):
+            from backend.services.media_quota import media_estimate_record
+
+            provider, _, model = ctx.model.partition(":")
+            estimate = media_estimate_record(tool_name, provider=provider, model=model)
+            if estimate.units <= threshold:
+                from backend.persistence.telemetry import telemetry
+
+                telemetry.record_media_quota(
+                    "hitl_decision",
+                    operation=estimate.operation,
+                    provider=estimate.provider,
+                    model=estimate.model,
+                    estimate_version=estimate.version,
+                    units=estimate.units,
+                    result="auto_approved",
+                )
+                return False
+            # Custos acima do limiar exigem aprovação em qualquer modo,
+            # inclusive `auto` e `bypass`.
+            return True
     if tool_name in _JAILED_BYPASS_TOOLS and _workspace_is_jailed(ctx.workspace_id):
         return False
     mode = ctx.permission_mode or "ask"
-    return _mode_should_interrupt(mode, tool_name, history)
+    decision = _mode_should_interrupt(mode, tool_name, history)
+    logger.info(
+        "hitl.decision",
+        extra={"tool_name": tool_name, "decision": decision, "mode": mode},
+    )
+    return decision
 
 
 class ApprovalGate:
@@ -184,6 +223,7 @@ class ApprovalGate:
         options: list[dict[str, str]] | None = None,
         priority: int = 0,
         expires_at: str | None = None,
+        approval_metadata: dict[str, Any] | None = None,
     ) -> None:
         import asyncio
 
@@ -193,6 +233,29 @@ class ApprovalGate:
             safe_args["input_preview"] = "<redacted>"
             safe_args["input_length"] = len(raw_input.encode("utf-8"))
             self._ephemeral_args[interrupt_id] = dict(args)
+        elif tool_name in {"generate_image", "text_to_speech", "generate_video"}:
+            self._ephemeral_args[interrupt_id] = dict(args)
+            safe_args = dict(approval_metadata or {})
+        logger.info(
+            "hitl.request",
+            extra={
+                "tool_name": tool_name,
+                "priority": priority,
+                "has_options": bool(options),
+            },
+        )
+        if tool_name in {"generate_image", "text_to_speech", "generate_video"}:
+            from backend.persistence.telemetry import telemetry
+
+            telemetry.record_media_quota(
+                "hitl_requested",
+                operation=str((approval_metadata or {}).get("operation", tool_name)),
+                provider=str((approval_metadata or {}).get("provider", "")),
+                model=str((approval_metadata or {}).get("model", "")),
+                units=(approval_metadata or {}).get("estimated_units"),
+                idempotency_key=(approval_metadata or {}).get("idempotency_key"),
+                result="pending",
+            )
         await self._session_store.put_pending_approval(
             thread_id,
             interrupt_id=interrupt_id,
@@ -228,12 +291,14 @@ class ApprovalGate:
         except TimeoutError:
             return False
 
-    async def resolve(self, thread_id: str) -> None:
+    async def resolve(self, thread_id: str, *, interrupt_id: str | None = None) -> None:
         """Libera o fast-path local e limpa a aprovação pendente
         persistida — chamado depois que a decisão (approve/reject/edit) já
         foi processada e o resultado já foi persistido no histórico."""
+        if interrupt_id is not None:
+            self._ephemeral_args.pop(interrupt_id, None)
         pending = await self._session_store.get_pending_approval(thread_id)
-        if pending is not None:
+        if pending is not None and interrupt_id is None:
             self._ephemeral_args.pop(pending["interrupt_id"], None)
         await self._session_store.clear_pending_approval(thread_id)
         event = self._events.pop(thread_id, None)

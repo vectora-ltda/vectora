@@ -98,13 +98,18 @@ async def _run_one(
     else:
         # O contexto é por chamada para que uma delegação paralela mantenha
         # sua correlação própria sem sobrescrever a de outra tool.
+        from backend.services.media_billing import apply_media_billing_source
+
+        call_context = replace(
+            ctx,
+            tool_call_id=tool_call.id,
+            _extra={**ctx._extra, "event_sink": on_event},
+        )
+        if spec.extras.category == "media":
+            call_context = await apply_media_billing_source(call_context)
         texto = await spec.ainvoke(
             tool_call.args,
-            replace(
-                ctx,
-                tool_call_id=tool_call.id,
-                _extra={**ctx._extra, "event_sink": on_event},
-            ),
+            call_context,
         )
         texto = _apply_post_execute(texto)
         is_error = _is_tool_error(texto)

@@ -7,6 +7,7 @@ paralelos não-destrutivos, e interrupção HITL no meio de um lote misto.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -32,6 +33,7 @@ from backend.engine.stream_events import (
 )
 from backend.persistence.native.session_store import SessionStore
 from backend.storage.sqlite.pool import AsyncConnectionPool
+from backend.tools import media as _media_module
 from backend.tools import planning as _planning_module
 from backend.tools.context import ToolContext
 from backend.tools.registry import TOOL_REGISTRY, ToolExtras, ToolRegistry, vtool
@@ -1203,3 +1205,185 @@ class TestResumeConversation:
 
         assert resumiu is False
         assert await session_store.get_history("thread-1") == []
+
+    @pytest.mark.parametrize(
+        ("tool_name", "args"),
+        [
+            ("generate_image", {"prompt": "segredo da imagem"}),
+            ("text_to_speech", {"text": "segredo do áudio", "voice": "alloy"}),
+            ("generate_video", {"prompt": "segredo do vídeo"}),
+        ],
+    )
+    async def test_midia_aprovada_no_loop_preserva_payload_somente_em_memoria(
+        self,
+        session_store: SessionStore,
+        ctx: ToolContext,
+        monkeypatch: pytest.MonkeyPatch,
+        tool_name: str,
+        args: dict[str, str],
+    ) -> None:
+        """O loop persiste apenas metadados e executa o payload efêmero após aprovação."""
+        from backend.persistence.telemetry import telemetry
+        from backend.services.media_quota import media_quota
+
+        chamadas: list[dict[str, object]] = []
+        eventos_quota: list[tuple[str, dict[str, object]]] = []
+
+        async def fake_summary(_user_id: str) -> dict[str, int]:
+            return {"remaining": 100, "used": 0, "limit": 100}
+
+        def record_quota(event: str, **fields: object) -> None:
+            eventos_quota.append((event, fields))
+
+        async def fake_media_handler(**kwargs: object) -> str:
+            chamadas.append(kwargs)
+            return "mídia gerada"
+
+        monkeypatch.setattr(media_quota, "summary", fake_summary)
+        monkeypatch.setattr(telemetry, "record_media_quota", record_quota)
+        spec = TOOL_REGISTRY.get(tool_name)
+        assert spec is not None
+        registry = ToolRegistry()
+        registry.register(replace(spec, handler=fake_media_handler))
+        client = _ScriptedChatClient(
+            [
+                [
+                    _tool_call_chunk(
+                        index=0, id="media-call", name=tool_name, args=json.dumps(args)
+                    )
+                ]
+            ]
+        )
+        gate = ApprovalGate(session_store)
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=replace(ctx, model="openai:gpt-image"),
+            thread_id="thread-1",
+            config=LoopConfig(),
+            should_require_approval=lambda *_args: True,
+            approval_gate=gate,
+        )
+
+        assert resultado.stopped_reason == "interrupted"
+        historico = await session_store.get_history("thread-1")
+        persisted_calls = [
+            call.args for message in historico for call in message.tool_calls
+        ]
+        assert args["prompt" if "prompt" in args else "text"] not in json.dumps(
+            persisted_calls, ensure_ascii=False
+        )
+        pending = await session_store.get_pending_approval("thread-1")
+        assert pending is not None
+        assert all(
+            secret not in json.dumps(pending["args"], ensure_ascii=False)
+            for secret in args.values()
+        )
+        assert set(pending["args"]) <= {
+            "operation",
+            "provider",
+            "model",
+            "estimate_version",
+            "billable_unit",
+            "currency",
+            "estimated_units",
+            "idempotency_key",
+            "balance_after_reservation",
+        }
+
+        assert await resume_conversation(
+            session_store=session_store,
+            tool_registry=registry,
+            ctx=replace(ctx, model="openai:gpt-image"),
+            thread_id="thread-1",
+            decision="approve",
+            approval_gate=gate,
+        )
+        assert len(chamadas) == 1
+        assert {
+            key: value for key, value in chamadas[0].items() if key != "ctx"
+        } == args
+        assert await session_store.get_pending_approval("thread-1") is None
+        decisoes = [
+            fields for event, fields in eventos_quota if event == "hitl_decision"
+        ]
+        assert len(decisoes) == 1
+        assert set(decisoes[0]) <= {
+            "operation",
+            "provider",
+            "model",
+            "units",
+            "idempotency_key",
+            "result",
+        }
+
+    @pytest.mark.parametrize(
+        ("tool_name", "args"),
+        [
+            ("generate_image", {"prompt": "segredo da imagem"}),
+            ("text_to_speech", {"text": "segredo do áudio"}),
+            ("generate_video", {"prompt": "segredo do vídeo"}),
+        ],
+    )
+    async def test_midia_aprovacao_apos_restart_nao_executa_payload(
+        self,
+        session_store: SessionStore,
+        ctx: ToolContext,
+        monkeypatch: pytest.MonkeyPatch,
+        tool_name: str,
+        args: dict[str, str],
+    ) -> None:
+        """Após restart, a pendência continua segura e não reidrata o payload."""
+        from backend.services.media_quota import media_quota
+
+        chamadas: list[dict[str, object]] = []
+
+        async def fake_summary(_user_id: str) -> dict[str, int]:
+            return {"remaining": 100, "used": 0, "limit": 100}
+
+        async def fake_media_handler(**kwargs: object) -> str:
+            chamadas.append(kwargs)
+            return "mídia gerada"
+
+        monkeypatch.setattr(media_quota, "summary", fake_summary)
+        spec = TOOL_REGISTRY.get(tool_name)
+        assert spec is not None
+        registry = ToolRegistry()
+        registry.register(replace(spec, handler=fake_media_handler))
+        gate = ApprovalGate(session_store)
+        client = _ScriptedChatClient(
+            [
+                [
+                    _tool_call_chunk(
+                        index=0,
+                        id="media-restart",
+                        name=tool_name,
+                        args=json.dumps(args),
+                    )
+                ]
+            ]
+        )
+        await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=replace(ctx, model="openai:gpt-image"),
+            thread_id="thread-1",
+            config=LoopConfig(),
+            should_require_approval=lambda *_args: True,
+            approval_gate=gate,
+        )
+
+        restarted_gate = ApprovalGate(session_store)
+        assert not await resume_conversation(
+            session_store=session_store,
+            tool_registry=registry,
+            ctx=replace(ctx, model="openai:gpt-image"),
+            thread_id="thread-1",
+            decision="approve",
+            approval_gate=restarted_gate,
+        )
+        assert chamadas == []
+        assert await session_store.get_pending_approval("thread-1") is None

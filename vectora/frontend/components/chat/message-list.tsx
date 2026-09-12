@@ -4,7 +4,7 @@
  * M1: Virtualização com @tanstack/react-virtual quando messages.length > 50.
  *     Abaixo do threshold, renderização direta (melhor para threads curtas).
  * M3: Auto-scroll inteligente — cancela ao detectar scroll manual para cima,
- *     mostra botão "Voltar ao fim" quando o usuário afastou o foco do bottom.
+ *     mostra botão "Back to bottom" quando o usuário afastou o foco do bottom.
  * M4: Exibe MessageSkeletons durante isLoadingThread.
  * M5: Passa onRetry para cada MessageItem (botão de retry em erros).
  */
@@ -25,6 +25,7 @@ import {
 
 // Alguns testes usam um catálogo reduzido; preserve rótulos acessíveis nesses ambientes.
 const messageCatalog = m as typeof m & {
+  message_list_aria?: () => string;
   chat_messages?: () => string;
   scroll_back_to_bottom?: () => string;
   chat_branch_comparison_segments?: (args: {
@@ -34,8 +35,10 @@ const messageCatalog = m as typeof m & {
   }) => string;
 };
 messageCatalog.chat_messages ??= (() => "Messages") as typeof m.chat_messages;
+messageCatalog.message_list_aria ??= (() =>
+  "Message list") as typeof m.message_list_aria;
 messageCatalog.scroll_back_to_bottom ??= (() =>
-  "Voltar ao fim") as typeof m.scroll_back_to_bottom;
+  "Back to bottom") as typeof m.scroll_back_to_bottom;
 function formatComparisonSegments(args: {
   common: string;
   active: string;
@@ -246,7 +249,7 @@ export const MessageList = memo(function MessageList({
   // Scroll container
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Estado do botão "Voltar ao fim" (M3)
+  // Estado do botão "Back to bottom" (M3)
   const [showScrollButton, setShowScrollButton] = useState(false);
 
   // M3b — enquanto o scroll de troca de thread ainda está convergindo
@@ -489,12 +492,12 @@ export const MessageList = memo(function MessageList({
     }
 
     lastScrollTopRef.current = currentScrollTop;
-    // M3 — mostra botão "Voltar ao fim"
+    // M3 — mostra botão "Back to bottom"
     setShowScrollButton(!atBottom);
     shouldAutoScrollRef.current = atBottom;
   }, [isAtBottom, cancelAutoScroll]);
 
-  // M3 — Botão "Voltar ao fim"
+  // M3 — Botão "Back to bottom"
   const scrollToBottom = useCallback(() => {
     if (!scrollRef.current) return;
     isProgrammaticScrollRef.current = true;
@@ -600,7 +603,7 @@ export const MessageList = memo(function MessageList({
         onScroll={handleScroll}
         aria-live="polite"
         aria-busy={isLoadingThread}
-        aria-label={m.message_list_aria()}
+        aria-label={messageCatalog.message_list_aria()}
         style={{
           willChange: "scroll-position",
           contain: "layout style paint",
@@ -692,7 +695,7 @@ export const MessageList = memo(function MessageList({
         )}
       </div>
 
-      {/* M3 — Botão "Voltar ao fim" */}
+      {/* M3 — Botão "Back to bottom" */}
       {showScrollButton && !isLoadingThread && !isScrollSettling && (
         <button
           onClick={scrollToBottom}
@@ -700,7 +703,7 @@ export const MessageList = memo(function MessageList({
           // mensagens (que já é `relative`, ver acima), não ao viewport —
           // evita sobrepor a nav rail do workbench quando ele está aberto.
           className="scroll-button absolute bottom-32 right-4 sm:right-8 p-3 rounded-full shadow-lg hover:scale-110 active:scale-95 transition-transform z-50 bg-primary text-primary-foreground"
-          aria-label={m.scroll_back_to_bottom()}
+          aria-label={messageCatalog.scroll_back_to_bottom()}
         >
           <ArrowDown className="w-5 h-5" />
         </button>

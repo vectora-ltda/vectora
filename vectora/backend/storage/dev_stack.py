@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import socket
 import subprocess  # nosec B404 — apenas comandos docker montados internamente
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -203,6 +205,16 @@ def stack_up() -> StackResult:
         if rc == 0:
             result.messages.append(f"docker compose up -d ({compose})")
         else:
+            if os.getenv("CI") and all(
+                _tcp_ready(host, port)
+                for host, port in (
+                    ("127.0.0.1", 5432),
+                    ("127.0.0.1", 6379),
+                    ("127.0.0.1", 6333),
+                )
+            ):
+                result.messages.append("CI services already running")
+                return result
             result.ok = False
             result.messages.append("docker compose up -d falhou")
         return result
@@ -229,6 +241,15 @@ def stack_up() -> StackResult:
             result.ok = False
             result.messages.append(f"{spec.name}: falha no docker {action}")
     return result
+
+
+def _tcp_ready(host: str, port: int) -> bool:
+    """Return whether a local TCP service is already accepting connections."""
+    try:
+        with socket.create_connection((host, port), timeout=1):
+            return True
+    except OSError:
+        return False
 
 
 def stack_down() -> StackResult:

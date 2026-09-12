@@ -20,7 +20,7 @@ import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from backend.settings import settings
@@ -28,6 +28,9 @@ from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from backend.services.media_quota import QuotaReservation, QuotaState
 
 
 def _session_id(ctx: ToolContext) -> str:
@@ -61,6 +64,125 @@ def _active_model(ctx: ToolContext) -> str:
     mandar o spec inteiro vira 404 de modelo inexistente.
     """
     return ctx.model.split(":", 1)[1] if ":" in ctx.model else ctx.model
+
+
+async def _reserve_media(
+    ctx: ToolContext, operation: str
+) -> tuple[QuotaReservation | None, str | None]:
+    """Reserva quota antes de tocar um provider gerenciado.
+
+    Credenciais BYOK são marcadas pelo contexto autenticado do backend; elas
+    não consomem a quota interna. O texto do prompt e argumentos da tool nunca
+    podem escolher essa origem.
+    """
+    if getattr(ctx, "_extra", {}).get("media_billing_source") == "byok":
+        return None, None
+    from backend.persistence.telemetry import telemetry
+    from backend.services.media_quota import (
+        media_estimate_record,
+        media_quota,
+        new_idempotency_key,
+    )
+
+    # A cobrança precisa estar vinculada a uma identidade estável do ciclo de
+    # tool. Sem ela não há como distinguir retry de uma nova operação; falhar
+    # fechado evita uma segunda cobrança acidental.
+    stable_call_id = ctx.tool_call_id
+    if not stable_call_id:
+        return None, json.dumps(
+            {
+                "error": "identidade estável ausente para operação gerenciada",
+                "operation": operation,
+            },
+            ensure_ascii=False,
+        )
+    try:
+        idempotency_key = new_idempotency_key(stable_call_id, operation)
+    except ValueError:
+        return None, json.dumps(
+            {
+                "error": "identidade estável ausente para operação gerenciada",
+                "operation": operation,
+            },
+            ensure_ascii=False,
+        )
+    provider = _active_provider(ctx)
+    model = _active_model(ctx)
+    estimate = media_estimate_record(operation, provider=provider, model=model)
+    telemetry.record_media_quota(
+        "estimate",
+        operation=estimate.operation,
+        provider=estimate.provider,
+        model=estimate.model,
+        estimate_version=estimate.version,
+        billable_unit=estimate.billable_unit,
+        currency=estimate.currency,
+        units=estimate.units,
+        idempotency_key=idempotency_key,
+    )
+    reservation = await media_quota.reserve(
+        user_id=ctx.user_id,
+        operation=operation,
+        idempotency_key=idempotency_key,
+        units=estimate.units,
+    )
+    if reservation is None:
+        quota_summary = await media_quota.summary(ctx.user_id)
+        telemetry.record_media_quota(
+            "blocked",
+            operation=operation,
+            provider=provider,
+            model=model,
+            result="quota_exceeded",
+            idempotency_key=idempotency_key,
+        )
+        return None, json.dumps(
+            {
+                "error": "quota mensal de mídia esgotada",
+                "operation": operation,
+                "remaining": int(quota_summary.get("remaining", 0)),
+                "limit": int(quota_summary.get("limit", 0)),
+                "period": str(quota_summary.get("period", "")),
+                "next_step": "aguarde a renovação do período ou atualize seu plano",
+            },
+            ensure_ascii=False,
+        )
+    if reservation.state in {"finalized", "unknown"}:
+        return None, json.dumps(
+            {
+                "error": "operação já concluída ou em estado incerto; não será repetida",
+                "operation": operation,
+            },
+            ensure_ascii=False,
+        )
+    telemetry.record_media_quota(
+        "reserved",
+        operation=operation,
+        provider=provider,
+        model=model,
+        units=reservation.units,
+        state=reservation.state,
+        idempotency_key=idempotency_key,
+    )
+    return reservation, None
+
+
+async def _finalize_media(
+    reservation: QuotaReservation | None, state: QuotaState
+) -> None:
+    if reservation is None:
+        return
+    from backend.persistence.telemetry import telemetry
+    from backend.services.media_quota import media_quota
+
+    await media_quota.finalize(reservation, state=state)
+    telemetry.record_media_quota(
+        "finalized",
+        operation=reservation.operation,
+        units=reservation.units,
+        state=state,
+        idempotency_key=reservation.id,
+    )
 
 
 def _media_dir(session_id: str) -> Path:
@@ -252,6 +374,8 @@ async def generate_image(ctx: ToolContext, prompt: str) -> str:
         ativo não gera imagem.
     """
     provider = _active_provider(ctx)
+    reservation = None
+    submitted = False
     try:
         from backend.settings import configured_gateway_model, provider_supports
 
@@ -265,12 +389,19 @@ async def generate_image(ctx: ToolContext, prompt: str) -> str:
         if not prompt.strip():
             return json.dumps({"error": "prompt vazio — descreva a imagem"})
 
+        reservation, quota_error = await _reserve_media(ctx, "generate_image")
+        if quota_error:
+            return quota_error
+
+        submitted = True
         data = await asyncio.to_thread(_generate_image_bytes, provider, prompt)
         if not data:
+            await _finalize_media(reservation, "unknown")
             return json.dumps({"error": "provider devolveu imagem vazia"})
         session_id = _session_id(ctx)
         path = await asyncio.to_thread(_persist, session_id, data, ".png")
         logger.info("generate_image: %s bytes → %s", len(data), path)
+        await _finalize_media(reservation, "finalized")
         return json.dumps(
             {
                 "path": str(path),
@@ -280,7 +411,11 @@ async def generate_image(ctx: ToolContext, prompt: str) -> str:
             },
             ensure_ascii=False,
         )
+    except asyncio.CancelledError:
+        await _finalize_media(reservation, "unknown" if submitted else "cancelled")
+        raise
     except Exception as exc:
+        await _finalize_media(reservation, "unknown" if submitted else "failed")
         logger.exception("generate_image: falha", extra={"provider": provider})
         return json.dumps(
             {"error": f"falha ao gerar imagem: {exc}"}, ensure_ascii=False
@@ -314,6 +449,8 @@ async def text_to_speech(ctx: ToolContext, text: str, voice: str = "") -> str:
         JSON com o path do áudio gerado, ou com `error`.
     """
     provider = _active_provider(ctx)
+    reservation = None
+    submitted = False
     try:
         from backend.settings import configured_gateway_model, provider_supports
 
@@ -327,12 +464,19 @@ async def text_to_speech(ctx: ToolContext, text: str, voice: str = "") -> str:
         if not text.strip():
             return json.dumps({"error": "texto vazio — nada a falar"})
 
+        reservation, quota_error = await _reserve_media(ctx, "text_to_speech")
+        if quota_error:
+            return quota_error
+
+        submitted = True
         data = await asyncio.to_thread(_synthesize_speech_bytes, provider, text, voice)
         if not data:
+            await _finalize_media(reservation, "unknown")
             return json.dumps({"error": "provider devolveu áudio vazio"})
         session_id = _session_id(ctx)
         path = await asyncio.to_thread(_persist, session_id, data, ".mp3")
         logger.info("text_to_speech: %s bytes → %s", len(data), path)
+        await _finalize_media(reservation, "finalized")
         return json.dumps(
             {
                 "title": path.name,
@@ -344,7 +488,11 @@ async def text_to_speech(ctx: ToolContext, text: str, voice: str = "") -> str:
             },
             ensure_ascii=False,
         )
+    except asyncio.CancelledError:
+        await _finalize_media(reservation, "unknown" if submitted else "cancelled")
+        raise
     except Exception as exc:
+        await _finalize_media(reservation, "unknown" if submitted else "failed")
         logger.exception("text_to_speech: falha", extra={"provider": provider})
         return json.dumps({"error": f"falha ao gerar áudio: {exc}"}, ensure_ascii=False)
 
@@ -514,6 +662,8 @@ async def generate_video(ctx: ToolContext, prompt: str) -> str:
         JSON com o path do vídeo gerado, ou com `error`.
     """
     provider = _active_provider(ctx)
+    reservation = None
+    submitted = False
     try:
         from backend.settings import provider_supports
 
@@ -527,12 +677,19 @@ async def generate_video(ctx: ToolContext, prompt: str) -> str:
         if not prompt.strip():
             return json.dumps({"error": "prompt vazio — descreva a cena"})
 
+        reservation, quota_error = await _reserve_media(ctx, "generate_video")
+        if quota_error:
+            return quota_error
+
+        submitted = True
         data = await _generate_video_bytes(provider, prompt)
         if not data:
+            await _finalize_media(reservation, "unknown")
             return json.dumps({"error": "provider devolveu vídeo vazio"})
         session_id = _session_id(ctx)
         path = await asyncio.to_thread(_persist, session_id, data, ".mp4")
         logger.info("generate_video: %s bytes → %s", len(data), path)
+        await _finalize_media(reservation, "finalized")
         return json.dumps(
             {
                 "title": path.name,
@@ -544,7 +701,11 @@ async def generate_video(ctx: ToolContext, prompt: str) -> str:
             },
             ensure_ascii=False,
         )
+    except asyncio.CancelledError:
+        await _finalize_media(reservation, "unknown" if submitted else "cancelled")
+        raise
     except Exception as exc:
+        await _finalize_media(reservation, "unknown" if submitted else "failed")
         logger.exception("generate_video: falha", extra={"provider": provider})
         return json.dumps({"error": f"falha ao gerar vídeo: {exc}"}, ensure_ascii=False)
 

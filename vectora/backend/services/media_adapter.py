@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.rbac.tool_policy import is_allowed
+from backend.services.media_billing import apply_media_billing_source
 from backend.settings import settings
 from backend.tools.context import ToolContext
 from backend.tools.registry import TOOL_REGISTRY, ToolSpec
@@ -64,4 +65,5 @@ async def invoke_media(
     spec = TOOL_REGISTRY.get(name)
     if spec is None:
         return f"Error: tool de mídia indisponível: {name}"
+    context = await apply_media_billing_source(context)
     return await spec.ainvoke(arguments, context)

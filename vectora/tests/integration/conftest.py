@@ -99,22 +99,42 @@ def integration_cleanup() -> None:  # type: ignore[return]
 
 @pytest.fixture(scope="session")
 def _storage_stack_ok() -> bool:
-    """True se Postgres (5432), Redis (6379) e Qdrant (6333) respondem na porta."""
+    """True quando os endpoints configurados dos três serviços respondem."""
     import socket
+    from urllib.parse import urlparse
 
-    if os.getenv("CI"):
-        return False
+    from backend.storage.dev_stack import (
+        DEFAULT_POSTGRES_DSN,
+        DEFAULT_QDRANT_URL,
+        DEFAULT_REDIS_URL,
+        _docker_available,
+        stack_up,
+    )
 
-    from backend.storage.dev_stack import _docker_available, stack_up
-
-    if _docker_available():
+    if _docker_available() and not os.getenv("CI"):
         stack_up()  # best-effort: sobe se parado, ignora erros
 
-    for port in (5432, 6379, 6333):
+    endpoints = (
+        (
+            os.getenv("VECTORA_TEST_POSTGRES_DSN", DEFAULT_POSTGRES_DSN),
+            5432,
+        ),
+        (os.getenv("VECTORA_TEST_REDIS_URL", DEFAULT_REDIS_URL), 6379),
+        (os.getenv("VECTORA_TEST_QDRANT_URL", DEFAULT_QDRANT_URL), 6333),
+    )
+    for endpoint, default_port in endpoints:
+        parsed = urlparse(endpoint.replace("postgresql+asyncpg://", "postgresql://"))
+        host = parsed.hostname or "127.0.0.1"
+        port = parsed.port or default_port
         try:
-            with socket.create_connection(("127.0.0.1", port), timeout=3):
+            with socket.create_connection((host, port), timeout=3):
                 pass
         except OSError:
+            if os.getenv("CI"):
+                pytest.fail(
+                    f"Storage service unavailable in CI: {host}:{port}; "
+                    "integration tests must not be skipped"
+                )
             return False
     return True
 
@@ -123,27 +143,32 @@ def _storage_stack_ok() -> bool:
 def pg_dsn() -> str:
     from backend.storage.dev_stack import DEFAULT_POSTGRES_DSN
 
-    return DEFAULT_POSTGRES_DSN.replace("postgresql+asyncpg://", "postgresql://")
+    return os.getenv(
+        "VECTORA_TEST_POSTGRES_DSN",
+        DEFAULT_POSTGRES_DSN.replace("postgresql+asyncpg://", "postgresql://"),
+    )
 
 
 @pytest.fixture(scope="session")
 def redis_url() -> str:
     from backend.storage.dev_stack import DEFAULT_REDIS_URL
 
-    return DEFAULT_REDIS_URL
+    return os.getenv("VECTORA_TEST_REDIS_URL", DEFAULT_REDIS_URL)
 
 
 @pytest.fixture(scope="session")
 def qdrant_url() -> str:
     from backend.storage.dev_stack import DEFAULT_QDRANT_URL
 
-    return DEFAULT_QDRANT_URL
+    return os.getenv("VECTORA_TEST_QDRANT_URL", DEFAULT_QDRANT_URL)
 
 
 @pytest.fixture
 async def pg_pool(_storage_stack_ok: bool, pg_dsn: str):
-    """Pool asyncpg para testes de integração. Skip se Postgres indisponível."""
+    """Pool asyncpg para testes de integração."""
     if not _storage_stack_ok:
+        if os.getenv("CI"):
+            pytest.fail("Postgres unavailable in CI; refusing to skip storage tests")
         pytest.skip("Docker indisponível — Postgres não iniciado")
 
     import asyncio
@@ -159,6 +184,8 @@ async def pg_pool(_storage_stack_ok: bool, pg_dsn: str):
             break
         except Exception:
             if attempt == 14:
+                if os.getenv("CI"):
+                    pytest.fail("Postgres did not become ready in CI")
                 pytest.skip("Postgres não respondeu após 15 tentativas")
             await asyncio.sleep(1)
 
@@ -188,8 +215,10 @@ async def pg_conn(pg_pool):
 
 @pytest.fixture
 async def redis_client(_storage_stack_ok: bool, redis_url: str):
-    """Cliente redis.asyncio para testes de integração. Skip se Redis indisponível."""
+    """Cliente redis.asyncio para testes de integração."""
     if not _storage_stack_ok:
+        if os.getenv("CI"):
+            pytest.fail("Redis unavailable in CI; refusing to skip storage tests")
         pytest.skip("Docker indisponível — Redis não iniciado")
 
     import asyncio
@@ -204,6 +233,8 @@ async def redis_client(_storage_stack_ok: bool, redis_url: str):
         except Exception:
             if attempt == 14:
                 await client.aclose()
+                if os.getenv("CI"):
+                    pytest.fail("Redis did not become ready in CI")
                 pytest.skip("Redis não respondeu após 15 tentativas")
             await asyncio.sleep(1)
 
@@ -213,8 +244,10 @@ async def redis_client(_storage_stack_ok: bool, redis_url: str):
 
 @pytest.fixture
 def qdrant_client(_storage_stack_ok: bool, qdrant_url: str):
-    """QdrantClient síncrono para testes de integração. Skip se Qdrant indisponível."""
+    """QdrantClient síncrono para testes de integração."""
     if not _storage_stack_ok:
+        if os.getenv("CI"):
+            pytest.fail("Qdrant unavailable in CI; refusing to skip storage tests")
         pytest.skip("Docker indisponível — Qdrant não iniciado")
 
     import time
@@ -228,6 +261,8 @@ def qdrant_client(_storage_stack_ok: bool, qdrant_url: str):
             break
         except Exception:
             if attempt == 14:
+                if os.getenv("CI"):
+                    pytest.fail("Qdrant did not become ready in CI")
                 pytest.skip("Qdrant não respondeu após 15 tentativas")
             time.sleep(1)
 

@@ -103,8 +103,31 @@ _ARGS_PREVIEW_MAX_CHARS = 80
 _ARGS_PREVIEW_SEMANTIC_KEYS = ("path", "file_path", "query", "command", "url", "name")
 
 
-def _sanitize_tool_call(tc: ToolCall) -> ToolCall:
-    """Remove terminal input from persisted assistant messages."""
+def _sanitize_tool_call(tc: ToolCall, ctx: ToolContext) -> ToolCall:
+    """Remove payloads sensíveis das chamadas persistidas no histórico."""
+    if tc.name in {"generate_image", "text_to_speech", "generate_video"}:
+        from backend.services.media_quota import (
+            media_estimate_record,
+            new_idempotency_key,
+        )
+
+        provider, _, model = ctx.model.partition(":")
+        estimate = media_estimate_record(tc.name, provider=provider, model=model)
+        try:
+            idempotency_key = new_idempotency_key(tc.id or uuid4().hex, tc.name)
+        except ValueError:
+            idempotency_key = None
+        args = {
+            "operation": estimate.operation,
+            "provider": estimate.provider,
+            "model": estimate.model,
+            "estimate_version": estimate.version,
+            "billable_unit": estimate.billable_unit,
+            "currency": estimate.currency,
+            "estimated_units": estimate.units,
+            "idempotency_key": idempotency_key,
+        }
+        return replace(tc, args=args)
     if tc.name != "write_terminal" or "input_data" not in tc.args:
         return tc
     args = dict(tc.args)
@@ -269,7 +292,7 @@ async def run_conversation(
         tool_calls = _resolve_tool_calls(tool_call_chunks_por_indice)
         observed_tools.update(tc.name for tc in tool_calls if tc.name)
 
-        tool_calls_for_history = [_sanitize_tool_call(tc) for tc in tool_calls]
+        tool_calls_for_history = [_sanitize_tool_call(tc, ctx) for tc in tool_calls]
         assistant_msg = VMessage(
             role=MessageRole.ASSISTANT,
             content=[ContentBlock(kind="text", text=texto_final)]
@@ -323,11 +346,47 @@ async def run_conversation(
             )
             if pendente is not None:
                 interrupt_id = str(uuid4())
+                stable_call_id = (pendente.id or "").strip() or interrupt_id
                 approval_args = dict(pendente.args)
+                approval_metadata: dict[str, Any] | None = None
                 if pendente.name == "write_terminal":
                     raw_input = str(approval_args.pop("input_data", ""))
                     approval_args["input_preview"] = "<redacted>"
                     approval_args["input_length"] = len(raw_input.encode("utf-8"))
+                elif pendente.name in {
+                    "generate_image",
+                    "text_to_speech",
+                    "generate_video",
+                }:
+                    from backend.services.media_quota import (
+                        media_estimate_record,
+                        media_quota,
+                        new_idempotency_key,
+                    )
+
+                    provider, _, model = ctx.model.partition(":")
+                    estimate = media_estimate_record(
+                        pendente.name, provider=provider, model=model
+                    )
+                    quota_summary = await media_quota.summary(ctx.user_id)
+                    remaining = int(quota_summary.get("remaining", 0))
+                    approval_metadata = {
+                        "operation": estimate.operation,
+                        "provider": estimate.provider,
+                        "model": estimate.model,
+                        "estimate_version": estimate.version,
+                        "billable_unit": estimate.billable_unit,
+                        "currency": estimate.currency,
+                        "estimated_units": estimate.units,
+                        "idempotency_key": new_idempotency_key(
+                            stable_call_id, pendente.name
+                        ),
+                        # A reserva acontece somente após a aprovação. Este valor
+                        # representa o saldo projetado e permite à UI mostrar o
+                        # impacto sem expor argumentos sensíveis.
+                        "balance_after_reservation": max(0, remaining - estimate.units),
+                    }
+                    approval_args = dict(approval_metadata)
                 args_json = json.dumps(approval_args, ensure_ascii=False)
                 raw_options = pendente.args.get("options", [])
                 options = (
@@ -354,11 +413,12 @@ async def run_conversation(
                         thread_id,
                         interrupt_id=interrupt_id,
                         tool_name=pendente.name,
-                        tool_call_id=pendente.id,
+                        tool_call_id=stable_call_id,
                         args=pendente.args,
                         options=options,
                         priority=priority,
                         expires_at=str(expires_at) if expires_at else None,
+                        approval_metadata=approval_metadata,
                     )
                 await emit(
                     HitlRequested(
@@ -502,13 +562,18 @@ async def _execute_single_call(
         # Cada chamada recebe seu próprio contexto correlacionado. Isso evita
         # que eventos de duas tools executadas em lote compartilhem o mesmo
         # ID e permite que delegações internas atualizem o card correto.
+        from backend.services.media_billing import apply_media_billing_source
+
+        call_context = replace(
+            ctx,
+            tool_call_id=tool_call.id,
+            _extra={**ctx._extra, "event_sink": on_event},
+        )
+        if spec.extras.category == "media":
+            call_context = await apply_media_billing_source(call_context)
         texto = await spec.ainvoke(
             tool_call.args,
-            replace(
-                ctx,
-                tool_call_id=tool_call.id,
-                _extra={**ctx._extra, "event_sink": on_event},
-            ),
+            call_context,
         )
         is_error = _is_tool_error(texto)
         from backend.services.tool_usage import record_tool_usage
@@ -588,16 +653,44 @@ async def resume_conversation(
         if approval_gate is not None
         else None
     )
-    if ephemeral_args is None and pending["tool_name"] == "write_terminal":
+    media_tool = pending["tool_name"] in {
+        "generate_image",
+        "text_to_speech",
+        "generate_video",
+    }
+    if ephemeral_args is None and (
+        pending["tool_name"] == "write_terminal"
+        or (media_tool and decision != "reject")
+    ):
+        # Conteúdo de mídia não é recuperável com segurança após restart:
+        # encerra a pendência sem executar o provider nem persistir o payload.
         await session_store.clear_pending_approval(thread_id)
         return False
 
     parent_id = await session_store.get_branch_head_id(thread_id)
     for tc in tool_calls:
         if tc.id != flagged_id:
-            resultado = await _execute_single_call(
-                tc, tool_registry=tool_registry, ctx=ctx
-            )
+            spec = tool_registry.get(tc.name)
+            if spec is not None and spec.extras.category == "media":
+                resultado = VMessage(
+                    role=MessageRole.TOOL,
+                    content=[
+                        ContentBlock(
+                            kind="text",
+                            text=(
+                                "Esta operação de mídia exige uma aprovação "
+                                "separada antes de ser executada."
+                            ),
+                        )
+                    ],
+                    tool_call_id=tc.id,
+                    name=tc.name,
+                    is_error=True,
+                )
+            else:
+                resultado = await _execute_single_call(
+                    tc, tool_registry=tool_registry, ctx=ctx
+                )
         elif decision == "reject":
             resultado = VMessage(
                 role=MessageRole.TOOL,
@@ -652,8 +745,23 @@ async def resume_conversation(
             priority=int(pending.get("priority", 0)),
             expires_at=pending.get("expires_at"),
         )
+    if media_tool:
+        from backend.persistence.telemetry import telemetry
+
+        persisted_args = pending.get("args", {})
+        telemetry.record_media_quota(
+            "hitl_decision",
+            operation=str(persisted_args.get("operation", pending["tool_name"])),
+            provider=str(persisted_args.get("provider", "")),
+            model=str(persisted_args.get("model", "")),
+            units=persisted_args.get("estimated_units"),
+            idempotency_key=persisted_args.get("idempotency_key"),
+            result=decision,
+        )
     if approval_gate is not None:
-        await approval_gate.resolve(thread_id)
+        await approval_gate.resolve(
+            thread_id, interrupt_id=str(pending["interrupt_id"])
+        )
     elif claim_pending is None:
         await session_store.clear_pending_approval(thread_id)
     return True

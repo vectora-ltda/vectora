@@ -152,11 +152,48 @@ jobs:
     name: Unit Tests
     runs-on: ubuntu-latest
     needs: build_verification
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: vectora
+          POSTGRES_PASSWORD: vectora
+          POSTGRES_DB: vectora_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vectora -d vectora_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      qdrant:
+        image: qdrant/qdrant@sha256:12364fe851b9f17356fc88189fc06d1b521262e04659ec7345975b00c9246a10
+        ports:
+          - 6333:6333
+          - 6334:6334
+        env:
+          QDRANT__SERVICE__API_KEY: vectora
+          QDRANT__SERVICE__GRPC_PORT: 6334
+        options: >-
+          --health-cmd "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/6333'"
+          --health-interval 10s --health-timeout 5s --health-retries 12
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-uv
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+      - name: Verify Qdrant readiness
+        run: >-
+          curl --fail --retry 15 --retry-delay 1 -H "api-key: vectora" http://localhost:6333/readyz
       - name: Create .env from Secrets
         run: |
           cat <<'EOF' > .env
@@ -196,6 +233,9 @@ jobs:
         env:
           LANCE_IO_THREADS: "1"
           LANCE_CPU_THREADS: "1"
+          VECTORA_TEST_POSTGRES_DSN: postgresql://vectora:vectora@localhost:5432/vectora_test
+          VECTORA_TEST_REDIS_URL: redis://localhost:6379/0
+          VECTORA_TEST_QDRANT_URL: http://localhost:6333
         run: |
           echo "nproc: $(nproc)"
           uv run pytest tests/unit/ -v -m "not live and not real_lancedb" &
@@ -260,11 +300,41 @@ jobs:
     name: Integration + E2E Tests
     runs-on: ubuntu-latest
     needs: build_verification
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: vectora
+          POSTGRES_PASSWORD: vectora
+          POSTGRES_DB: vectora_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vectora -d vectora_test"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: [6379:6379]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s
+          --health-timeout 5s --health-retries 5
+      qdrant:
+        image: qdrant/qdrant@sha256:12364fe851b9f17356fc88189fc06d1b521262e04659ec7345975b00c9246a10
+        ports: [6333:6333, 6334:6334]
+        env:
+          QDRANT__SERVICE__API_KEY: vectora
+          QDRANT__SERVICE__GRPC_PORT: 6334
+        options: >-
+          --health-cmd "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/6333'"
+          --health-interval 10s --health-timeout 5s --health-retries 12
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-uv
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+      - name: Verify Qdrant readiness
+        run: >-
+          curl --fail --retry 15 --retry-delay 1 -H "api-key: vectora" http://localhost:6333/readyz
       - name: Create .env from Secrets
         run: |
           cat <<'EOF' > .env
@@ -277,7 +347,11 @@ jobs:
           ENABLE_WEB_FETCH=true
           EOF
       - name: Integration tests
-        run: uv run pytest tests/integration/ -v --timeout=120 -p no:randomly --tb=short -m "not storage and not singularity"
+        env:
+          VECTORA_TEST_POSTGRES_DSN: postgresql://vectora:vectora@localhost:5432/vectora_test
+          VECTORA_TEST_REDIS_URL: redis://localhost:6379/0
+          VECTORA_TEST_QDRANT_URL: http://localhost:6333
+        run: uv run pytest tests/integration/ -v --timeout=120 -p no:randomly --tb=short -m "not singularity"
       - name: E2E tests
         run: uv run pytest tests/e2e/ -v --timeout=180 --tb=short
 
