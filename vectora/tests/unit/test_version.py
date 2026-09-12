@@ -92,7 +92,27 @@ def test_release_please_config_sincroniza_todos_os_arquivos_de_versao() -> None:
     )
     assert uv_entry.get("type") == "generic"
     lock_text = (_MONOREPO_ROOT / "vectora" / "uv.lock").read_text(encoding="utf-8")
-    assert "# x-release-please-version" in lock_text
+    package_blocks = re.split(
+        r"(?=^\[\[package\]\]\s*$)", lock_text, flags=re.MULTILINE
+    )
+    vectora_block = next(
+        block
+        for block in package_blocks
+        if re.search(r'^name = "vectora"\s*$', block, re.MULTILINE)
+    )
+    lock_version = re.search(
+        r'^version = "([^"]+)"\s+# x-release-please-version\s*$',
+        vectora_block,
+        re.MULTILINE,
+    )
+    assert lock_version is not None, (
+        'O bloco [[package]] de "vectora" precisa marcar sua própria linha '
+        "version com # x-release-please-version."
+    )
+    pyproject = tomllib.loads(
+        (_MONOREPO_ROOT / "vectora" / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    assert lock_version.group(1) == pyproject["project"]["version"]
     assert paths == {
         "vectora/pyproject.toml",
         "vectora/frontend/package.json",
