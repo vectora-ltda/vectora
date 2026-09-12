@@ -5,6 +5,9 @@ import {
   MAX_ISSUE_FILES,
   ISSUE_FILE_LIMITS,
   reconcileIssueComments,
+  reconcilePendingIssueResponses,
+  syncCreatedIssue,
+  syncIssueResponse,
 } from "../../src/issues/routes";
 import {
   promoteIssue,
@@ -391,6 +394,7 @@ describe("POST /issues/github/webhook", () => {
     await reconcilePendingPromotions({
       ...env,
       GITHUB_TOKEN: "test-token",
+      GITHUB_ISSUES_BOT_LOGIN: "vectora-bot",
     });
 
     const row = await env.DB.prepare(
@@ -402,6 +406,126 @@ describe("POST /issues/github/webhook", () => {
     expect(requests.some((request) => request.startsWith("POST "))).toBe(true);
   });
 
+  it("escolhe a issue de intake do bot quando um marcador forjado vem primeiro", async () => {
+    const issueId = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO issues (id, title, category, description) VALUES (?, 'duplicata', 'bug', 'descrição')",
+    )
+      .bind(issueId)
+      .run();
+    const requests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        requests.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.includes("search/issues")) {
+          return new Response(
+            JSON.stringify({
+              items: [
+                {
+                  number: 9890,
+                  html_url:
+                    "https://github.com/vectora-ltda/vectora-issues/issues/9890",
+                  user: { login: "attacker" },
+                },
+                {
+                  number: 9891,
+                  html_url:
+                    "https://github.com/vectora-ltda/vectora-issues/issues/9891",
+                  user: { login: "vectora-bot" },
+                },
+              ],
+            }),
+          );
+        }
+        if (url.includes("comments")) return new Response("[]");
+        return new Response("{}", { status: 200 });
+      }),
+    );
+
+    await syncCreatedIssue(
+      {
+        ...env,
+        GITHUB_TOKEN: "test-token",
+        GITHUB_ISSUES_BOT_LOGIN: "vectora-bot",
+      },
+      issueId,
+      "duplicata",
+      "bug",
+      "descrição",
+    );
+
+    const row = await env.DB.prepare(
+      "SELECT github_number, github_sync_state FROM issues WHERE id = ?",
+    )
+      .bind(issueId)
+      .first<{ github_number: number; github_sync_state: string }>();
+    expect(row).toEqual({ github_number: 9891, github_sync_state: "synced" });
+    expect(
+      requests.filter((request) => request.startsWith("POST ")),
+    ).toHaveLength(0);
+  });
+
+  it("ignora issue core forjada antes da issue do bot na promoção", async () => {
+    const issueId = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO issues (id, title, category, description, github_sync_state, approved_by) VALUES (?, 'promoção', 'bug', 'descrição', 'approval_error', 'admin')",
+    )
+      .bind(issueId)
+      .run();
+    const requests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        requests.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.includes("search/issues")) {
+          return new Response(
+            JSON.stringify({
+              items: [
+                {
+                  number: 9892,
+                  html_url:
+                    "https://github.com/vectora-ltda/vectora/issues/9892",
+                  user: { login: "attacker" },
+                },
+                {
+                  number: 9893,
+                  html_url:
+                    "https://github.com/vectora-ltda/vectora/issues/9893",
+                  user: { login: "vectora-bot" },
+                },
+              ],
+            }),
+          );
+        }
+        if (url.includes("comments")) return new Response("[]");
+        return new Response("{}", { status: 200 });
+      }),
+    );
+
+    await promoteIssue(
+      {
+        ...env,
+        GITHUB_TOKEN: "test-token",
+        GITHUB_ISSUES_BOT_LOGIN: "vectora-bot",
+      },
+      issueId,
+      "admin",
+    );
+
+    const row = await env.DB.prepare(
+      "SELECT core_number, github_sync_state FROM issues WHERE id = ?",
+    )
+      .bind(issueId)
+      .first<{ core_number: number; github_sync_state: string }>();
+    expect(row).toEqual({ core_number: 9893, github_sync_state: "promoted" });
+    expect(
+      requests.filter((request) => request.startsWith("POST ")),
+    ).toHaveLength(0);
+  });
+
   it("não toma uma reserva de promoção ainda dentro do lease", async () => {
     const issueId = crypto.randomUUID();
     await env.DB.prepare(
@@ -409,7 +533,11 @@ describe("POST /issues/github/webhook", () => {
     )
       .bind(issueId)
       .run();
-    await reconcilePendingPromotions({ ...env, GITHUB_TOKEN: "test-token" });
+    await reconcilePendingPromotions({
+      ...env,
+      GITHUB_TOKEN: "test-token",
+      GITHUB_ISSUES_BOT_LOGIN: "vectora-bot",
+    });
     const row = await env.DB.prepare(
       "SELECT github_sync_state, github_sync_error FROM issues WHERE id = ?",
     )
@@ -497,8 +625,24 @@ describe("POST /issues/github/webhook", () => {
       }),
     );
     const results = await Promise.allSettled([
-      promoteIssue({ ...env, GITHUB_TOKEN: "test-token" }, issueId, "admin"),
-      promoteIssue({ ...env, GITHUB_TOKEN: "test-token" }, issueId, "admin"),
+      promoteIssue(
+        {
+          ...env,
+          GITHUB_TOKEN: "test-token",
+          GITHUB_ISSUES_BOT_LOGIN: "vectora-bot",
+        },
+        issueId,
+        "admin",
+      ),
+      promoteIssue(
+        {
+          ...env,
+          GITHUB_TOKEN: "test-token",
+          GITHUB_ISSUES_BOT_LOGIN: "vectora-bot",
+        },
+        issueId,
+        "admin",
+      ),
     ]);
     expect(
       results.filter((result) => result.status === "fulfilled"),
@@ -578,13 +722,16 @@ describe("POST /issues/github/webhook", () => {
     );
 
     const oldPromotion = promoteIssue(
-      { ...env, GITHUB_TOKEN: "test-token" },
+      {
+        ...env,
+        GITHUB_TOKEN: "test-token",
+        GITHUB_ISSUES_BOT_LOGIN: "vectora-bot",
+      },
       issueId,
       "admin",
     );
-    const deadline = Date.now() + 10_000;
-    while (commentPosts === 0 && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 5));
+    for (let attempt = 0; attempt < 100 && commentPosts === 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
     }
     expect(commentPosts).toBe(1);
 
@@ -593,7 +740,11 @@ describe("POST /issues/github/webhook", () => {
     )
       .bind(issueId)
       .run();
-    await reconcilePendingPromotions({ ...env, GITHUB_TOKEN: "test-token" });
+    await reconcilePendingPromotions({
+      ...env,
+      GITHUB_TOKEN: "test-token",
+      GITHUB_ISSUES_BOT_LOGIN: "vectora-bot",
+    });
     releaseFirstPost(
       new Response(
         JSON.stringify({
@@ -610,6 +761,154 @@ describe("POST /issues/github/webhook", () => {
     expect(oldResult[0]?.status).toBe("rejected");
     expect(commentPosts).toBe(1);
     expect(issueCloses).toBe(0);
+  });
+
+  it("reivindica uma única publicação quando dois reconciliadores disputam o lease", async () => {
+    const issueId = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO issues (id, title, category, description, response, status, github_repo, github_number, github_url, github_sync_state, response_version, response_sync_operation_token, response_sync_lease_until) VALUES (?, 'resposta concorrente', 'bug', 'descrição', 'Resposta publicada', 'open', ?, 9918, ?, 'response_syncing', 3, 'token-antigo', datetime('now', '-1 minute'))",
+    )
+      .bind(
+        issueId,
+        "vectora-ltda/vectora",
+        "https://github.com/vectora-ltda/vectora/issues/9918",
+      )
+      .run();
+
+    let commentPosts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/comments") && (init?.method ?? "GET") === "GET") {
+          return new Response("[]", { status: 200 });
+        }
+        if (url.includes("/comments") && init?.method === "POST") {
+          commentPosts += 1;
+          return new Response(
+            JSON.stringify({
+              id: 991801,
+              body: "Resposta publicada",
+              html_url: "https://github.com/comment/991801",
+              created_at: new Date().toISOString(),
+            }),
+            { status: 201 },
+          );
+        }
+        return new Response("{}", { status: 200 });
+      }),
+    );
+
+    await Promise.all([
+      reconcilePendingIssueResponses({
+        ...env,
+        GITHUB_TOKEN: "test-token",
+      }),
+      reconcilePendingIssueResponses({
+        ...env,
+        GITHUB_TOKEN: "test-token",
+      }),
+    ]);
+
+    expect(commentPosts).toBe(1);
+    const row = await env.DB.prepare(
+      "SELECT github_sync_state, response_sync_operation_token FROM issues WHERE id = ?",
+    )
+      .bind(issueId)
+      .first<{
+        github_sync_state: string;
+        response_sync_operation_token: string | null;
+      }>();
+    expect(row).toEqual({
+      github_sync_state: "synced",
+      response_sync_operation_token: null,
+    });
+  });
+
+  it("abandona a publicação antiga quando o reconciliador substitui o token após expiração", async () => {
+    const issueId = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO issues (id, title, category, description, response, status, github_repo, github_number, github_url, github_sync_state, response_version, response_sync_operation_token, response_sync_lease_until) VALUES (?, 'resposta expirada', 'bug', 'descrição', 'Resposta publicada', 'open', ?, 9919, ?, 'response_syncing', 4, 'token-antigo', datetime('now', '+5 minutes'))",
+    )
+      .bind(
+        issueId,
+        "vectora-ltda/vectora",
+        "https://github.com/vectora-ltda/vectora/issues/9919",
+      )
+      .run();
+
+    let releaseFirstLookup!: (response: Response) => void;
+    const firstLookup = new Promise<Response>((resolve) => {
+      releaseFirstLookup = resolve;
+    });
+    let commentLookups = 0;
+    let commentPosts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/comments") && (init?.method ?? "GET") === "GET") {
+          commentLookups += 1;
+          if (commentLookups === 1) return firstLookup;
+          return new Response("[]");
+        }
+        if (url.includes("/comments") && init?.method === "POST") {
+          commentPosts += 1;
+          return new Response(
+            JSON.stringify({
+              id: 991901,
+              body: "Resposta publicada",
+              html_url: "https://github.com/comment/991901",
+              created_at: new Date().toISOString(),
+            }),
+            { status: 201 },
+          );
+        }
+        return new Response("{}", { status: 200 });
+      }),
+    );
+
+    const oldPublication = syncIssueResponse(
+      { ...env, GITHUB_TOKEN: "test-token" },
+      issueId,
+      "vectora-ltda/vectora",
+      9919,
+      "Resposta publicada",
+      false,
+      4,
+      "token-antigo",
+      true,
+    );
+    for (let attempt = 0; attempt < 100 && commentLookups === 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    expect(commentLookups).toBe(1);
+
+    await env.DB.prepare(
+      "UPDATE issues SET response_sync_lease_until = datetime('now', '-1 minute') WHERE id = ?",
+    )
+      .bind(issueId)
+      .run();
+    await reconcilePendingIssueResponses({
+      ...env,
+      GITHUB_TOKEN: "test-token",
+    });
+    releaseFirstLookup(new Response("[]"));
+    await Promise.allSettled([oldPublication]);
+
+    expect(commentPosts).toBe(1);
+    const row = await env.DB.prepare(
+      "SELECT github_sync_state, response_sync_operation_token FROM issues WHERE id = ?",
+    )
+      .bind(issueId)
+      .first<{
+        github_sync_state: string;
+        response_sync_operation_token: string | null;
+      }>();
+    expect(row).toEqual({
+      github_sync_state: "synced",
+      response_sync_operation_token: null,
+    });
   });
 
   it("marca comentários ativos como removidos quando o GitHub retorna uma lista vazia", async () => {
