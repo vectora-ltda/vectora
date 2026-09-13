@@ -24,9 +24,12 @@ export function useMediaQuery(query: string): boolean {
   return matches;
 }
 
-/** Breakpoint `md` do Tailwind (768px) — abaixo dele, layouts multi-painel
- * colapsam para um único painel visível por vez. */
-export const MD_BREAKPOINT_QUERY = "(max-width: 767px)";
+/**
+ * IDE multi-panel minimum width, including the persistent session sidebar and
+ * the navigation, editor, and chat columns. Below 988px, show one panel at a
+ * time so the workbench is not clipped by the session page overflow boundary.
+ */
+export const MD_BREAKPOINT_QUERY = "(max-width: 987px)";
 
 export function useIsNarrowViewport(): boolean {
   return useMediaQuery(MD_BREAKPOINT_QUERY);

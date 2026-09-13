@@ -129,7 +129,7 @@ function SessionPage() {
   // Painel do workbench: visível e redimensionável via workbench-store. O gate
   // de hidratação evita divergência SSR/cliente do estado persistido.
   const hydrated = useHydrated();
-  // Abaixo do breakpoint `md`, o modo IDE não cabe com todos os painéis lado
+  // Abaixo da largura mínima do IDE (incluindo a sidebar de sessões), os painéis não cabem lado
   // a lado — IdeModeLayout colapsa para um só painel visível por vez.
   const isNarrowViewport = useIsNarrowViewport();
   const workbenchOpen = useWorkbenchStore((s) => s.isOpen(threadId));

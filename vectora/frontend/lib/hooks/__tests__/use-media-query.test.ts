@@ -78,11 +78,12 @@ describe("useMediaQuery", () => {
     expect(fake.mql.listeners.size).toBe(0);
   });
 
-  it("useIsNarrowViewport reflete o breakpoint md (768px)", () => {
+  it("useIsNarrowViewport colapsa o IDE abaixo de 988px", () => {
     const fake = installFakeMatchMedia(true);
     const { result } = renderHook(() => useIsNarrowViewport());
 
     expect(result.current).toBe(true);
+    expect(window.matchMedia).toHaveBeenCalledWith("(max-width: 987px)");
 
     act(() => fake.setMatches(false));
     expect(result.current).toBe(false);
