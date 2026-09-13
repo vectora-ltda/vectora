@@ -39,6 +39,10 @@ _spawn_lock = LazyLock()
 # explicitamente (mesmo padrão de `backend/scheduling/nats_sidecar.py`).
 _job_handle: int | None = None
 
+# Exit status used by Electron to request a backend-managed restart. A normal
+# exit remains an intentional shutdown signal (for example, tray "Sair").
+ELECTRON_RESTART_EXIT_CODE = 42
+
 
 def should_spawn_electron() -> bool:
     """True quando este processo deve se autoeleger e subir o Electron:
@@ -135,11 +139,11 @@ def _assign_to_job_object_best_effort(pid: int) -> None:
 async def _watch_for_unexpected_exit(proc: asyncio.subprocess.Process) -> None:
     """Reage ao encerramento do Electron sem derrubar um backend reutilizável.
 
-    Uma saída normal (código 0) acontece durante o reinício pelo tray. O
-    backend deve permanecer vivo para que a nova instância do Electron possa
-    reconectar ao mesmo named pipe/porta. Apenas uma saída anormal encerra o
-    processo pai; isso mantém o diagnóstico de crashes sem transformar um
-    reinício normal em ``ETIMEDOUT`` no frontend.
+    O Electron usa ``ELECTRON_RESTART_EXIT_CODE`` durante o reinício pelo
+    tray. O backend permanece vivo e registra a nova instância para que ela
+    possa reconectar ao mesmo named pipe/porta. Uma saída normal (código 0),
+    como o comando tray ``Sair``, e qualquer saída anormal encerram o processo
+    pai.
 
     Não dispara se a saída foi pedida por ``stop_electron_sidecar()`` (que já
     zera ``_proc`` antes de terminar o processo, então este proc deixa de ser
@@ -150,12 +154,10 @@ async def _watch_for_unexpected_exit(proc: asyncio.subprocess.Process) -> None:
     await proc.wait()
     if _proc is not proc:
         return
-    if proc.returncode == 0:
-        logger.info(
-            "electron_sidecar: Electron encerrou normalmente — "
-            "mantendo backend disponível para reconexão"
-        )
+    if proc.returncode == ELECTRON_RESTART_EXIT_CODE:
+        logger.info("electron_sidecar: reinício solicitado pelo Electron")
         _proc = None
+        await ensure_electron_sidecar()
         return
     logger.info(
         "electron_sidecar: Electron saiu anormalmente (code=%s) — "

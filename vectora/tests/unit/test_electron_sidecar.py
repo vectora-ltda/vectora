@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -352,19 +353,23 @@ class TestJobObjectIntegration:
 
 
 class TestWatchForUnexpectedExit:
-    """Saída normal do Electron permite reconexão; crash encerra o backend."""
+    """Reinícios explícitos reconectam; saídas normais e crashes encerram."""
 
     @pytest.mark.asyncio
-    async def test_saida_normal_do_electron_preserva_backend_para_reconexao(
-        self,
-    ):
+    async def test_reinicio_solicitado_recria_electron_sob_supervisao(
+        self: TestWatchForUnexpectedExit,
+    ) -> None:
         fake_proc = MagicMock()
         fake_proc.pid = 4242
         fake_proc.returncode = None
         fake_proc.stdout = None
-        wait_future: asyncio.Future = asyncio.get_event_loop().create_future()
+        replacement_proc = MagicMock()
+        replacement_proc.pid = 4343
+        replacement_proc.returncode = None
+        replacement_proc.stdout = None
+        wait_future: asyncio.Future[None] = asyncio.get_event_loop().create_future()
 
-        async def _wait():
+        async def _wait() -> None:
             return await wait_future
 
         fake_proc.wait = AsyncMock(side_effect=_wait)
@@ -376,28 +381,55 @@ class TestWatchForUnexpectedExit:
             ),
             patch(
                 "asyncio.create_subprocess_exec",
-                new=AsyncMock(return_value=fake_proc),
+                new=AsyncMock(side_effect=[fake_proc, replacement_proc]),
             ),
             patch("backend.services.electron_sidecar.os.kill") as kill_mock,
         ):
             await electron_sidecar.ensure_electron_sidecar()
             await asyncio.sleep(0)
 
-            fake_proc.returncode = 0
+            fake_proc.returncode = electron_sidecar.ELECTRON_RESTART_EXIT_CODE
             wait_future.set_result(None)
             assert electron_sidecar._watch_task is not None
             await electron_sidecar._watch_task
+            await asyncio.sleep(0)
 
         kill_mock.assert_not_called()
-        assert electron_sidecar._proc is None
+        assert electron_sidecar._proc is replacement_proc
 
     @pytest.mark.asyncio
-    async def test_saida_anormal_do_electron_envia_sigterm_ao_backend(self):
+    async def test_saida_normal_do_electron_envia_sigterm_ao_backend(
+        self: TestWatchForUnexpectedExit,
+    ) -> None:
+        fake_proc = MagicMock()
+        fake_proc.returncode = None
+        wait_future: asyncio.Future[None] = asyncio.get_event_loop().create_future()
+
+        async def _wait() -> None:
+            return await wait_future
+
+        fake_proc.wait = AsyncMock(side_effect=_wait)
+
+        with patch("backend.services.electron_sidecar.os.kill") as kill_mock:
+            electron_sidecar._proc = fake_proc
+            watcher = asyncio.create_task(
+                electron_sidecar._watch_for_unexpected_exit(fake_proc)
+            )
+            fake_proc.returncode = 0
+            wait_future.set_result(None)
+            await watcher
+
+        kill_mock.assert_called_once_with(os.getpid(), electron_sidecar.signal.SIGTERM)
+
+    @pytest.mark.asyncio
+    async def test_saida_anormal_do_electron_envia_sigterm_ao_backend(
+        self: TestWatchForUnexpectedExit,
+    ) -> None:
         fake_proc = MagicMock()
         fake_proc.pid = 4242
-        wait_future: asyncio.Future = asyncio.get_event_loop().create_future()
+        wait_future: asyncio.Future[None] = asyncio.get_event_loop().create_future()
 
-        async def _wait():
+        async def _wait() -> None:
             return await wait_future
 
         fake_proc.wait = AsyncMock(side_effect=_wait)
@@ -415,7 +447,9 @@ class TestWatchForUnexpectedExit:
         assert kill_mock.call_args.args[1] == electron_sidecar.signal.SIGTERM
 
     @pytest.mark.asyncio
-    async def test_stop_deliberado_nao_dispara_sigterm(self):
+    async def test_stop_deliberado_nao_dispara_sigterm(
+        self: TestWatchForUnexpectedExit,
+    ) -> None:
         # Par de erro/borda: `stop_electron_sidecar()` (shutdown gracioso
         # do FastAPI) zera `_proc` antes de terminar o processo — o watcher
         # não deve confundir isso com uma saída espontânea do Electron.
@@ -424,10 +458,10 @@ class TestWatchForUnexpectedExit:
         fake_proc.returncode = None
         fake_proc.stdout = None
         fake_proc.terminate = MagicMock()
-        wait_future: asyncio.Future = asyncio.get_event_loop().create_future()
+        wait_future: asyncio.Future[None] = asyncio.get_event_loop().create_future()
         call_count = 0
 
-        async def _wait():
+        async def _wait() -> None:
             # 1ª chamada: o watcher, esperando a saída "espontânea" (nunca
             # resolvida aqui). 2ª chamada: `terminate_gracefully`, depois do
             # watcher já ter sido cancelado — resolve na hora, como um

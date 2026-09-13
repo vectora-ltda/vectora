@@ -51,6 +51,7 @@ describe("isNavigableUrl", () => {
   });
 
   it("rejeita esquemas não-http e URLs malformadas", () => {
+    expect(isNavigableUrl("")).toBe(false);
     expect(isNavigableUrl("file:///etc/passwd")).toBe(false);
     expect(isNavigableUrl("javascript:alert(1)")).toBe(false);
     expect(isNavigableUrl("não é uma url")).toBe(false);

@@ -250,6 +250,18 @@ describe("BrowserTab — navegação livre (sem depender de servidor configurado
     expect(iframe.getAttribute("src")).toBe("https://google.com");
   });
 
+  it("preserva a URL interna do Chromium ao navegar pela barra", async () => {
+    mockFetch({ configurations: [] });
+    render(<BrowserTab threadId="t1" />);
+
+    const urlBar = await screen.findByTestId("browser-url-bar");
+    fireEvent.change(urlBar, { target: { value: "chrome://settings" } });
+    fireEvent.keyDown(urlBar, { key: "Enter" });
+
+    const iframe = await screen.findByTitle("Browser");
+    expect(iframe.getAttribute("src")).toBe("chrome://settings");
+  });
+
   it("sem nenhuma URL navegada e sem servidores configurados, mostra o estado vazio com onboarding (pedir ao agente / adicionar manualmente)", async () => {
     mockFetch({ configurations: [] });
     render(<BrowserTab threadId="t1" />);
