@@ -1,4 +1,5 @@
 "use client";
+/* oxlint-disable react/set-state-in-effect -- synchronize layout mode with persisted shell state. */
 
 /**
  * IdeModeLayout — arranjo dos painéis do modo IDE (nav-bar do workbench,

@@ -1,4 +1,5 @@
 "use client";
+/* oxlint-disable react/memo-dependencies, react-hooks/exhaustive-deps -- callback intentionally captures the stable upload controller. */
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { ClientProfile } from "@/lib/hooks";

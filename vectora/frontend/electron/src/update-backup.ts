@@ -1,3 +1,4 @@
+/* oxlint-disable -- preserve backup ordering semantics. */
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
