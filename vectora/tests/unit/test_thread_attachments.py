@@ -45,7 +45,7 @@ async def test_history_paginated_propaga_attachments(
     do histórico nunca chegavam no frontend, mesmo já persistidos."""
     from backend.api.handlers import threads as threads_mod
 
-    async def _fake_get_thread(request, **_kwargs):
+    async def _fake_get_thread(request: Any, **_kwargs: object) -> Thread:
         return Thread(id=request.thread_id, created_at="", updated_at="")
 
     monkeypatch.setattr(threads_mod, "get_thread", _fake_get_thread)
@@ -78,7 +78,7 @@ async def test_history_paginated_mensagem_sem_attachments_fica_vazia(
 ) -> None:
     from backend.api.handlers import threads as threads_mod
 
-    async def _fake_get_thread(request, **_kwargs):
+    async def _fake_get_thread(request: Any, **_kwargs: object) -> Thread:
         return Thread(id=request.thread_id, created_at="", updated_at="")
 
     monkeypatch.setattr(threads_mod, "get_thread", _fake_get_thread)
@@ -99,7 +99,9 @@ async def test_reidrata_metadados_completos_do_anexo(
     from backend.services import agent_factory
 
     class Store:
-        async def get_history_with_ids(self, _thread_id):
+        async def get_history_with_ids(
+            self, _thread_id: str
+        ) -> list[tuple[str, VMessage]]:
             return [
                 (
                     "msg-1",
@@ -118,7 +120,10 @@ async def test_reidrata_metadados_completos_do_anexo(
                 )
             ]
 
-    monkeypatch.setattr(agent_factory, "get_session_store", lambda: _store(Store()))
+    async def _get_store() -> Store:
+        return Store()
+
+    monkeypatch.setattr(agent_factory, "get_session_store", _get_store)
     result = await agent_factory.aget_thread_messages("thread-1")
     assert result[0][3][0] == {
         "kind": "image",
@@ -129,10 +134,6 @@ async def test_reidrata_metadados_completos_do_anexo(
         "asset_id": "asset-1",
         "attachment_name": "foto.png",
     }
-
-
-async def _store(value: Any) -> Any:
-    return value
 
 
 class TestGetThreadAttachment:
@@ -288,7 +289,9 @@ class TestGetThreadAttachment:
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_rejeita_usuario_sem_posse(self, monkeypatch):
+    async def test_rejeita_usuario_sem_posse(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from backend.api.handlers import threads as threads_mod
 
         async def reject(_thread_id: str, _request: Request) -> NoReturn:
@@ -300,7 +303,9 @@ class TestGetThreadAttachment:
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_rejeita_anexo_sem_sessao_registrada(self, monkeypatch):
+    async def test_rejeita_anexo_sem_sessao_registrada(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from backend.api.handlers import threads as threads_mod
 
         class EmptyStore:

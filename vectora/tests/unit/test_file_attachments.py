@@ -366,7 +366,7 @@ class TestBuildUserVMessage:
         assert _persist_image_file("thread-invalid-signature", att) is None
 
     @pytest.mark.asyncio
-    async def test_base64_invalido_nao_gera_bloco_de_imagem(self):
+    async def test_base64_invalido_nao_gera_bloco_de_imagem(self) -> None:
         from backend.api.handlers.chat import _build_user_vmessage
 
         att = Attachment.model_construct(
