@@ -141,7 +141,40 @@ class TestShouldRequireApproval:
 
 
 class TestApprovalGate:
-    async def test_request_approval_persiste_no_session_store(self, session_store):
+    async def test_midia_persiste_apenas_metadados_e_mantem_payload_efemero(
+        self, session_store: SessionStore
+    ) -> None:
+        gate = ApprovalGate(session_store)
+        args = {"prompt": "segredo", "size": "1024x1024"}
+        metadata = {
+            "operation": "generate_image",
+            "provider": "openai",
+            "model": "gpt-image-1",
+            "estimate_version": "v1",
+            "billable_unit": "quota_units",
+            "currency": "quota_units",
+            "estimated_units": 1,
+            "idempotency_key": "idem-1",
+        }
+
+        await gate.request_approval(
+            "thread-1",
+            interrupt_id="int-1",
+            tool_name="generate_image",
+            tool_call_id="call_1",
+            args=args,
+            approval_metadata=metadata,
+        )
+
+        pending = await session_store.get_pending_approval("thread-1")
+        assert pending is not None
+        assert pending["args"] == metadata
+        assert "prompt" not in pending["args"]
+        assert gate.ephemeral_args("int-1") == args
+
+    async def test_request_approval_persiste_no_session_store(
+        self, session_store: SessionStore
+    ) -> None:
         gate = ApprovalGate(session_store)
 
         await gate.request_approval(
@@ -171,6 +204,27 @@ class TestApprovalGate:
         await gate.resolve("thread-1")
 
         assert await session_store.get_pending_approval("thread-1") is None
+
+    async def test_resolve_limpa_args_efemeros_apos_claim(self, session_store) -> None:
+        """A limpeza usa o interrupt_id mesmo depois de a pendência ser consumida."""
+        gate = ApprovalGate(session_store)
+        await gate.request_approval(
+            "thread-1",
+            interrupt_id="int-media",
+            tool_name="generate_image",
+            tool_call_id="call-media",
+            args={"prompt": "segredo"},
+        )
+
+        claimed = await session_store.claim_pending_approval(
+            "thread-1", interrupt_id="int-media"
+        )
+        assert claimed is not None
+        assert gate.ephemeral_args("int-media") == {"prompt": "segredo"}
+
+        await gate.resolve("thread-1", interrupt_id="int-media")
+
+        assert gate.ephemeral_args("int-media") is None
 
     async def test_wait_for_resume_retorna_true_quando_resolve_e_chamado(
         self, session_store

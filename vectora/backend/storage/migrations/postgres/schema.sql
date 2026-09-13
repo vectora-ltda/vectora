@@ -13,6 +13,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE IF NOT EXISTS vectora_sessions (
     thread_id     TEXT         PRIMARY KEY,
+    user_id       TEXT         NOT NULL DEFAULT '',
     user_type     TEXT         NOT NULL DEFAULT 'human',
     created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
     last_activity TIMESTAMPTZ  NOT NULL DEFAULT now(),
@@ -20,7 +21,8 @@ CREATE TABLE IF NOT EXISTS vectora_sessions (
     extra         JSONB        NOT NULL DEFAULT '{}',
     -- Modo da sessão (chat/code) como coluna de 1ª classe — antes vivia em
     -- extra->>'mode'; o modo "dev" foi renomeado para "code".
-    mode          TEXT         NOT NULL DEFAULT 'code'
+    mode          TEXT         NOT NULL DEFAULT 'code',
+    permission_mode TEXT      NOT NULL DEFAULT 'ask'
 );
 
 -- ADD COLUMN IF NOT EXISTS explícito (não só o CREATE TABLE acima) — cobre
@@ -28,6 +30,8 @@ CREATE TABLE IF NOT EXISTS vectora_sessions (
 -- partir de extra é idempotente (determinístico) e roda sempre: seguro
 -- reaplicar em qualquer estado do banco.
 ALTER TABLE vectora_sessions ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'code';
+ALTER TABLE vectora_sessions ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE vectora_sessions ADD COLUMN IF NOT EXISTS permission_mode TEXT NOT NULL DEFAULT 'ask';
 UPDATE vectora_sessions
 SET mode = CASE WHEN extra->>'mode' = 'chat' THEN 'chat' ELSE 'code' END;
 
@@ -110,3 +114,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_insight_event_id
     ON usage_insight_events(user_id, event_id);
 CREATE INDEX IF NOT EXISTS idx_usage_insight_user_time
     ON usage_insight_events(user_id, occurred_at);
+
+
+-- Cotas mensais de mídia e reservas idempotentes.
+CREATE TABLE IF NOT EXISTS media_quota_usage (
+    user_id TEXT NOT NULL, period TEXT NOT NULL, used_units INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, period)
+);
+CREATE TABLE IF NOT EXISTS media_quota_reservations (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, period TEXT NOT NULL, operation TEXT NOT NULL,
+    units INTEGER NOT NULL, state TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Entitlements por usuário, separadas do cache global de licença.
+CREATE TABLE IF NOT EXISTS vectora_user_entitlements (
+    user_id TEXT PRIMARY KEY, tier TEXT NOT NULL CHECK (tier IN ('free', 'pro')),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

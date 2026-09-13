@@ -7,7 +7,18 @@ disponível; do contrário, todos os testes são pulados.
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import TYPE_CHECKING
+from uuid import uuid4
+
 import pytest
+
+if TYPE_CHECKING:
+    import asyncpg
+
+
+async def _resolved(value: object) -> object:
+    return value
 
 
 class TestPostgresMigrationRunner:
@@ -70,14 +81,90 @@ class TestPostgresMigrationRunner:
         assert applied.drift is False
         assert applied.applied_at is not None
 
+
+class TestMediaQuotaPostgres:
+    """Garante transições de reativação no backend PostgreSQL."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.storage
+    @pytest.mark.parametrize("previous_state", ["failed", "cancelled"])
+    async def test_reativa_estado_e_registra_transicao(
+        self,
+        pg_pool: asyncpg.Pool,
+        monkeypatch: pytest.MonkeyPatch,
+        previous_state: str,
+    ) -> None:
+        from backend.services.media_quota import MediaQuota
+
+        user_id = f"quota-{uuid4().hex}"
+        key = f"retry-{uuid4().hex}"
+        quota = MediaQuota()
+        events: list[dict[str, object]] = []
+        monkeypatch.setattr(quota, "_postgres_pool", lambda: _resolved(pg_pool))
+        monkeypatch.setattr(quota, "_current_tier", lambda _user_id: "pro")
+        monkeypatch.setattr(quota, "_postgres_enabled", lambda: True)
+        monkeypatch.setattr(
+            quota,
+            "_record_transition",
+            lambda **fields: events.append(fields),
+        )
+        async with pg_pool.acquire() as connection:
+            schema = (
+                Path(__file__).resolve().parents[2]
+                / "backend"
+                / "storage"
+                / "migrations"
+                / "postgres"
+                / "schema.sql"
+            )
+            await connection.execute(schema.read_text(encoding="utf-8"))
+            period = quota.period()
+            await connection.execute(
+                "INSERT INTO media_quota_usage VALUES ($1,$2,0)", user_id, period
+            )
+            await connection.execute(
+                "INSERT INTO media_quota_reservations (id,user_id,period,operation,units,state) VALUES ($1,$2,$3,$4,$5,$6)",
+                key,
+                user_id,
+                period,
+                "generate_image",
+                1,
+                previous_state,
+            )
+        try:
+            reservation = await quota.reserve(
+                user_id=user_id, operation="generate_image", idempotency_key=key
+            )
+            assert reservation is not None and reservation.state == "reserved"
+            assert events == [
+                {
+                    "operation": "generate_image",
+                    "units": 1,
+                    "previous_state": previous_state,
+                    "new_state": "reserved",
+                }
+            ]
+            async with pg_pool.acquire() as connection:
+                usage = await connection.fetchval(
+                    "SELECT used_units FROM media_quota_usage WHERE user_id = $1",
+                    user_id,
+                )
+                assert usage == 1
+        finally:
+            async with pg_pool.acquire() as connection:
+                await connection.execute(
+                    "DELETE FROM media_quota_reservations WHERE id=$1", key
+                )
+                await connection.execute(
+                    "DELETE FROM media_quota_usage WHERE user_id=$1", user_id
+                )
+
     @pytest.mark.asyncio
     @pytest.mark.storage
     async def test_reapply_after_content_change_updates_checksum(
         self, pg_conn, tmp_path
     ):
         """Editar o schema.sql muda o checksum: upgrade() reaplica e status() reflete."""
-        from pathlib import Path
-
         from backend.storage.migrations.postgres_runner import PostgresMigrationRunner
 
         original = (

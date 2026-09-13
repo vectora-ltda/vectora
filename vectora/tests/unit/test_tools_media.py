@@ -9,16 +9,84 @@ Cada caminho feliz tem o par de erro/borda no mesmo teste.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Coroutine
+from typing import Any
+from uuid import uuid4
 
 import pytest
 
+from backend.services.media_quota import media_quota
 from backend.settings import provider_supports
 from backend.tools import media
 from backend.tools.context import ToolContext
 
 
 def _ctx(model: str) -> ToolContext:
-    return ToolContext(model=model, thread_id="t-media")
+    return ToolContext(model=model, thread_id="t-media", tool_call_id=uuid4().hex)
+
+
+def _quota_ctx(model: str) -> ToolContext:
+    return ToolContext(
+        model=model,
+        thread_id="t-media-quota",
+        user_id="media-quota-user",
+        tool_call_id="quota-call",
+    )
+
+
+@pytest.mark.parametrize(
+    ("operation", "call"),
+    [
+        (
+            "generate_image",
+            lambda: media.generate_image(
+                ctx=_quota_ctx("openai:gpt-5"), prompt="segredo"
+            ),
+        ),
+        (
+            "text_to_speech",
+            lambda: media.text_to_speech(
+                ctx=_quota_ctx("openai:gpt-5"), text="segredo"
+            ),
+        ),
+        (
+            "generate_video",
+            lambda: media.generate_video(
+                ctx=_quota_ctx("google-genai:veo-3"), prompt="segredo"
+            ),
+        ),
+    ],
+)
+async def test_quota_esgotada_devolve_resumo_sem_chamar_provider(
+    operation: str,
+    call: Callable[[], Coroutine[Any, Any, str]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """O bloqueio de quota informa saldo e renovação sem enviar o payload."""
+
+    async def reject_reservation(**_kwargs: object) -> None:
+        return None
+
+    async def quota_summary(_user_id: str) -> dict[str, int | str]:
+        return {"remaining": 0, "limit": 10, "period": "2026-09", "used": 10}
+
+    async def provider_called(*_args: object, **_kwargs: object) -> bytes:
+        raise AssertionError(f"provider chamado para {operation}")
+
+    monkeypatch.setattr(media_quota, "reserve", reject_reservation)
+    monkeypatch.setattr(media_quota, "summary", quota_summary)
+    monkeypatch.setattr(media, "_generate_image_bytes", provider_called)
+    monkeypatch.setattr(media, "_synthesize_speech_bytes", provider_called)
+    monkeypatch.setattr(media, "_generate_video_bytes", provider_called)
+
+    result = json.loads(await call())
+
+    assert result["error"] == "quota mensal de mídia esgotada"
+    assert result["operation"] == operation
+    assert result["remaining"] == 0
+    assert result["limit"] == 10
+    assert result["period"] == "2026-09"
+    assert result["next_step"] == "aguarde a renovação do período ou atualize seu plano"
 
 
 # ---------------------------------------------------------------------------

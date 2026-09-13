@@ -365,6 +365,23 @@ CREATE INDEX IF NOT EXISTS idx_thread_activity_user_thread
 -- visão de boards, não numa migração de dados em massa.
 ALTER TABLE vectora_background_tasks ADD COLUMN board_id TEXT;
 
+
+-- Cotas mensais de mídia e reservas idempotentes. Aplicadas pelo runner no boot.
+CREATE TABLE IF NOT EXISTS media_quota_usage (
+    user_id TEXT NOT NULL, period TEXT NOT NULL, used_units INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, period)
+);
+CREATE TABLE IF NOT EXISTS media_quota_reservations (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, period TEXT NOT NULL, operation TEXT NOT NULL,
+    units INTEGER NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL
+);
+
+-- Entitlements por usuário, separadas do cache global de licença.
+CREATE TABLE IF NOT EXISTS vectora_user_entitlements (
+    user_id TEXT PRIMARY KEY, tier TEXT NOT NULL CHECK (tier IN ('free', 'pro')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS tool_usage_events (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,

@@ -131,6 +131,8 @@
   "thinking_coding": "Escrevendo código",
   "tool_executing": "executando…",
   "scroll_back_to_bottom": "Voltar ao fim",
+  "meter_media_quota": "Quota mensal de mídia",
+  "meter_media_remaining": "{count} unidades restantes",
   "settings_chat_tooltip": "Configurações",
   "settings_chat_tools_section": "Ferramentas",
   "settings_chat_show_tool_calls": "Mostrar tool calls no chat",
