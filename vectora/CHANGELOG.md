@@ -2,6 +2,23 @@
 
 Esta vers�o consolida as altera��es publicadas desde a vers�o 0.1.17.
 
+## [0.1.21](https://github.com/vectora-ltda/vectora/compare/v0.1.20...v0.1.21) (2026-09-13)
+
+
+### Features
+
+* add durable media quota reservations ([#172](https://github.com/vectora-ltda/vectora/issues/172)) ([e05c54b](https://github.com/vectora-ltda/vectora/commit/e05c54b47f3ce377cc91d1e62f64a186d5d66898))
+* add owned multimodal asset metadata ([#173](https://github.com/vectora-ltda/vectora/issues/173)) ([5478381](https://github.com/vectora-ltda/vectora/commit/5478381905c13dfbfee1e09e3550112bec4f5d25))
+* sincronizar issues da company com o github ([#185](https://github.com/vectora-ltda/vectora/issues/185)) ([d9c6d1c](https://github.com/vectora-ltda/vectora/commit/d9c6d1cd18968381851e9fea4e88c56134690be2))
+
+
+### Bug Fixes
+
+* **ci:** harden edge deploy and release artifact publishing ([#192](https://github.com/vectora-ltda/vectora/issues/192)) ([5cb1989](https://github.com/vectora-ltda/vectora/commit/5cb19895a218a84d58c0839188aadca0103d27f1))
+* **electron:** avoid deprecated navigation fallback calls ([#195](https://github.com/vectora-ltda/vectora/issues/195)) ([c482d59](https://github.com/vectora-ltda/vectora/commit/c482d59a9bf2a74ef14e7c96dd81e55e524cce47))
+* **frontend:** ignore stale branch comparison responses ([#194](https://github.com/vectora-ltda/vectora/issues/194)) ([d12af54](https://github.com/vectora-ltda/vectora/commit/d12af548c2dddd1d520a780f830cd3ba47bb9600))
+* propagate trusted BYOK media billing source ([#201](https://github.com/vectora-ltda/vectora/issues/201)) ([5ef05fb](https://github.com/vectora-ltda/vectora/commit/5ef05fbd4c5e57559100598b8e085bfb6cc4a6cf))
+
 ## [0.1.20](https://github.com/vectora-ltda/vectora/compare/v0.1.19...v0.1.20) (2026-09-11)
 
 ### Features
