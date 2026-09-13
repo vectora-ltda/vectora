@@ -365,11 +365,9 @@ def _persist_image_file(thread_id: str, att: Attachment) -> Path | None:
                 return None
             target_dir.mkdir(parents=True, exist_ok=True)
             destination = target_dir / filename
-            destination_fd = os.open(
-                destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
-            )
-            with os.fdopen(destination_fd, "wb") as output:
-                output.write(raw)
+            temporary = attachment_root / f".{filename}.tmp"
+            temporary.write_bytes(raw)
+            os.replace(temporary, destination)
             return destination
         directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
         nofollow = getattr(os, "O_NOFOLLOW", 0)

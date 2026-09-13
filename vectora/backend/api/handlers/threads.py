@@ -25,10 +25,11 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from backend.api.schemas import (
@@ -1752,7 +1753,7 @@ async def get_thread_attachment(
     thread_id: str,
     filename: str,
     request: Request,
-) -> FileResponse:
+) -> Response:
     """Serve um anexo de imagem persistido por `_persist_image_attachment`
     (`chat.py`) — `attachments[].url` no histórico aponta pra cá. Sanitiza
     os dois segmentos (sem `..`/separador) antes de tocar o filesystem."""
@@ -1770,13 +1771,19 @@ async def get_thread_attachment(
     path = candidate.resolve()
     if candidate.is_symlink() or path.parent != root or not path.is_file():
         raise HTTPException(status_code=404, detail="Anexo não encontrado.")
-    return FileResponse(path, headers={"Cache-Control": "no-store"})
+    try:
+        payload = await asyncio.to_thread(path.read_bytes)
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail="Anexo não encontrado.") from exc
+    return Response(
+        payload,
+        media_type="application/octet-stream",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.get("/threads/{thread_id}/assets/{asset_id}")
-async def get_thread_asset(
-    thread_id: str, asset_id: str, request: Request
-) -> FileResponse:
+async def get_thread_asset(thread_id: str, asset_id: str, request: Request) -> Response:
     """Serve um asset multimodal após validar dono, workspace e thread."""
     await _assert_existing_thread_ownership(thread_id, request)
     db = await _get_db()
@@ -1800,8 +1807,12 @@ async def get_thread_asset(
     )
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset não encontrado")
-    return FileResponse(
-        asset.path, media_type=asset.mime_type, headers={"Cache-Control": "no-store"}
+    try:
+        payload = await asyncio.to_thread(Path(asset.path).read_bytes)
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail="Asset não encontrado") from exc
+    return Response(
+        payload, media_type=asset.mime_type, headers={"Cache-Control": "no-store"}
     )
 
 

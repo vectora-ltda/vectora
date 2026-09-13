@@ -169,7 +169,7 @@ class TestGetThreadAttachment:
             "t1", "abc123.png", self._request()
         )
 
-        assert str(response.path) == str(target_dir / "abc123.png")
+        assert response.body == b"\x89PNG-fake-bytes"
         assert response.headers["cache-control"] == "no-store"
 
     @pytest.mark.asyncio
