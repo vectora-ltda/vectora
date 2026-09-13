@@ -66,6 +66,14 @@ def _active_model(ctx: ToolContext) -> str:
     return ctx.model.split(":", 1)[1] if ":" in ctx.model else ctx.model
 
 
+def _media_api_key(ctx: ToolContext, provider: str) -> str | None:
+    """Use the authenticated credential only when billing marked it BYOK."""
+    if getattr(ctx, "_extra", {}).get("media_billing_source") != "byok":
+        return None
+    key = getattr(ctx, "_extra", {}).get("media_api_key")
+    return key if isinstance(key, str) and key.strip() else None
+
+
 async def _reserve_media(
     ctx: ToolContext, operation: str
 ) -> tuple[QuotaReservation | None, str | None]:
@@ -245,7 +253,9 @@ def _persist(session_id: str, data: bytes, suffix: str) -> Path:
     return path
 
 
-def _generate_image_bytes(provider: str, prompt: str) -> bytes:
+def _generate_image_bytes(
+    provider: str, prompt: str, api_key: str | None = None
+) -> bytes:
     """Chama o SDK do provider ativo. Cada provider expõe geração de imagem
     de um jeito diferente — o mapeamento fica aqui, isolado da tool."""
     from backend.settings import configured_gateway_model, settings
@@ -253,7 +263,7 @@ def _generate_image_bytes(provider: str, prompt: str) -> bytes:
     if provider == "openai":
         from openai import OpenAI
 
-        client = OpenAI(api_key=settings.openai_api_key)
+        client = OpenAI(api_key=api_key or settings.openai_api_key)
         result = client.images.generate(model="gpt-image-1", prompt=prompt, n=1)
         # O SDK tipa `data` como opcional: resposta sem imagem é possível
         # (filtro de conteúdo, por exemplo) e vira erro claro no caller.
@@ -264,7 +274,7 @@ def _generate_image_bytes(provider: str, prompt: str) -> bytes:
     if provider == "google-genai":
         from google import genai
 
-        client = genai.Client(api_key=settings.google_api_key)
+        client = genai.Client(api_key=api_key or settings.google_api_key)
         result = client.models.generate_images(
             model="imagen-4.0-generate-001", prompt=prompt
         )
@@ -285,7 +295,7 @@ def _generate_image_bytes(provider: str, prompt: str) -> bytes:
         from backend.llm.openrouter.client import OpenRouterClient
         from backend.llm.openrouter.media import generate_image_bytes
 
-        client = OpenRouterClient(api_key=settings.openrouter_api_key or "")
+        client = OpenRouterClient(api_key=api_key or settings.openrouter_api_key or "")
         return asyncio.run(generate_image_bytes(client, model=model, prompt=prompt))
 
     raise NotImplementedError(
@@ -294,13 +304,15 @@ def _generate_image_bytes(provider: str, prompt: str) -> bytes:
     )
 
 
-def _synthesize_speech_bytes(provider: str, text: str, voice: str) -> bytes:
+def _synthesize_speech_bytes(
+    provider: str, text: str, voice: str, api_key: str | None = None
+) -> bytes:
     from backend.settings import configured_gateway_model, settings
 
     if provider == "openai":
         from openai import OpenAI
 
-        client = OpenAI(api_key=settings.openai_api_key)
+        client = OpenAI(api_key=api_key or settings.openai_api_key)
         response = client.audio.speech.create(
             model="gpt-4o-mini-tts", voice=voice or "alloy", input=text
         )
@@ -309,7 +321,7 @@ def _synthesize_speech_bytes(provider: str, text: str, voice: str) -> bytes:
     if provider == "google-genai":
         from google import genai
 
-        client = genai.Client(api_key=settings.google_api_key)
+        client = genai.Client(api_key=api_key or settings.google_api_key)
         result = client.models.generate_content(
             model="gemini-2.5-flash-preview-tts", contents=text
         )
@@ -330,7 +342,7 @@ def _synthesize_speech_bytes(provider: str, text: str, voice: str) -> bytes:
         from backend.llm.openrouter.client import OpenRouterClient
         from backend.llm.openrouter.media import synthesize_speech_bytes
 
-        client = OpenRouterClient(api_key=settings.openrouter_api_key or "")
+        client = OpenRouterClient(api_key=api_key or settings.openrouter_api_key or "")
         return asyncio.run(
             synthesize_speech_bytes(
                 client, model=model, text=text, voice=voice or "alloy"
@@ -394,7 +406,9 @@ async def generate_image(ctx: ToolContext, prompt: str) -> str:
             return quota_error
 
         submitted = True
-        data = await asyncio.to_thread(_generate_image_bytes, provider, prompt)
+        data = await asyncio.to_thread(
+            _generate_image_bytes, provider, prompt, _media_api_key(ctx, provider)
+        )
         if not data:
             await _finalize_media(reservation, "unknown")
             return json.dumps({"error": "provider devolveu imagem vazia"})
@@ -413,7 +427,7 @@ async def generate_image(ctx: ToolContext, prompt: str) -> str:
         )
     except asyncio.CancelledError:
         await _finalize_media(reservation, "unknown" if submitted else "cancelled")
-        raise
+        return json.dumps({"error": "operação de mídia cancelada"}, ensure_ascii=False)
     except Exception as exc:
         await _finalize_media(
             reservation,
@@ -477,7 +491,13 @@ async def text_to_speech(ctx: ToolContext, text: str, voice: str = "") -> str:
             return quota_error
 
         submitted = True
-        data = await asyncio.to_thread(_synthesize_speech_bytes, provider, text, voice)
+        data = await asyncio.to_thread(
+            _synthesize_speech_bytes,
+            provider,
+            text,
+            voice,
+            _media_api_key(ctx, provider),
+        )
         if not data:
             await _finalize_media(reservation, "unknown")
             return json.dumps({"error": "provider devolveu áudio vazio"})
@@ -498,7 +518,7 @@ async def text_to_speech(ctx: ToolContext, text: str, voice: str = "") -> str:
         )
     except asyncio.CancelledError:
         await _finalize_media(reservation, "unknown" if submitted else "cancelled")
-        raise
+        return json.dumps({"error": "operação de mídia cancelada"}, ensure_ascii=False)
     except Exception as exc:
         await _finalize_media(
             reservation,
@@ -601,13 +621,15 @@ def _bytes_do_output_openrouter(output: Any) -> bytes:
     return b""
 
 
-async def _generate_video_bytes(provider: str, prompt: str) -> bytes:
+async def _generate_video_bytes(
+    provider: str, prompt: str, api_key: str | None = None
+) -> bytes:
     from backend.settings import configured_gateway_model, settings
 
     if provider == "google-genai":
         from google import genai
 
-        client = genai.Client(api_key=settings.google_api_key)
+        client = genai.Client(api_key=api_key or settings.google_api_key)
         return await _gemini_video_bytes(
             client, model=_GEMINI_VIDEO_MODEL, prompt=prompt
         )
@@ -618,7 +640,7 @@ async def _generate_video_bytes(provider: str, prompt: str) -> bytes:
         from backend.llm.openrouter.client import OpenRouterClient
         from backend.llm.openrouter.video import VideoTimeoutError, generate_video
 
-        client = OpenRouterClient(api_key=settings.openrouter_api_key or "")
+        client = OpenRouterClient(api_key=api_key or settings.openrouter_api_key or "")
         try:
             estado = await generate_video(client, model=model, prompt=prompt)
         except VideoTimeoutError as exc:
@@ -698,7 +720,9 @@ async def generate_video(ctx: ToolContext, prompt: str) -> str:
             return quota_error
 
         submitted = True
-        data = await _generate_video_bytes(provider, prompt)
+        data = await _generate_video_bytes(
+            provider, prompt, _media_api_key(ctx, provider)
+        )
         if not data:
             await _finalize_media(reservation, "unknown")
             return json.dumps({"error": "provider devolveu vídeo vazio"})
@@ -719,7 +743,7 @@ async def generate_video(ctx: ToolContext, prompt: str) -> str:
         )
     except asyncio.CancelledError:
         await _finalize_media(reservation, "unknown" if submitted else "cancelled")
-        raise
+        return json.dumps({"error": "operação de mídia cancelada"}, ensure_ascii=False)
     except Exception as exc:
         await _finalize_media(
             reservation,
