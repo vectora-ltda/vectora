@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import stat
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -30,6 +31,32 @@ class _Msvcrt(Protocol):
     def locking(
         self, file_descriptor: int, mode: int, number_of_bytes: int
     ) -> None: ...
+
+
+def _read_relative_nofollow(root: Path, parts: list[str]) -> bytes:
+    """Read a regular file through no-follow directory descriptors."""
+    if os.name == "nt":
+        return root.joinpath(*parts).read_bytes()
+    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(root, directory_flags | nofollow)
+    try:
+        for component in parts[:-1]:
+            child = os.open(component, directory_flags | nofollow, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        file_fd = os.open(parts[-1], os.O_RDONLY | nofollow, dir_fd=fd)
+        try:
+            if not stat.S_ISREG(os.fstat(file_fd).st_mode):
+                raise OSError("not a regular file")
+            with os.fdopen(file_fd, "rb") as stream:
+                file_fd = -1
+                return stream.read()
+        finally:
+            if file_fd >= 0:
+                os.close(file_fd)
+    finally:
+        os.close(fd)
 
 
 try:
@@ -210,6 +237,22 @@ class AssetStore:
         workspace_id: str,
         thread_id: str = "",
     ) -> Asset | None:
+        result = self.read(
+            asset_id,
+            owner_id=owner_id,
+            workspace_id=workspace_id,
+            thread_id=thread_id,
+        )
+        return result[0] if result is not None else None
+
+    def read(
+        self,
+        asset_id: str,
+        *,
+        owner_id: str,
+        workspace_id: str,
+        thread_id: str = "",
+    ) -> tuple[Asset, bytes] | None:
         raw = self._read().get(asset_id)
         if not isinstance(raw, dict):
             return None
@@ -245,18 +288,18 @@ class AssetStore:
         valid = valid or size_bytes < 0
         try:
             if not valid:
-                valid = (
-                    path.stat().st_size != size_bytes or size_bytes > MAX_ASSET_BYTES
-                )
+                relative = path.relative_to(storage_root)
+                payload = _read_relative_nofollow(storage_root, list(relative.parts))
+                valid = len(payload) != size_bytes or len(payload) > MAX_ASSET_BYTES
             if not valid:
                 valid = not validate_asset_bytes(
-                    path.read_bytes(), str(raw["mime_type"]), path.name
+                    payload, str(raw["mime_type"]), path.name
                 )
         except OSError:
             valid = True
         if valid:
             return None
-        return Asset(
+        asset = Asset(
             id=str(raw["id"]),
             path=str(raw["path"]),
             owner_id=str(raw["owner_id"]),
@@ -267,6 +310,7 @@ class AssetStore:
             source=str(raw["source"]),
             created_at=str(raw["created_at"]),
         )
+        return asset, payload
 
     def _read(self, *, strict: bool = False) -> dict[str, dict[str, object]]:
         try:

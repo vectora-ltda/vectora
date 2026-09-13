@@ -1834,22 +1834,15 @@ async def get_thread_asset(thread_id: str, asset_id: str, request: Request) -> R
         workspace_id = ""
     from backend.services.assets import asset_store
 
-    asset = asset_store.get(
+    loaded = asset_store.read(
         asset_id,
         owner_id=_user_id(request),
         workspace_id=workspace_id,
         thread_id=thread_id,
     )
-    if asset is None:
+    if loaded is None:
         raise HTTPException(status_code=404, detail="Asset não encontrado")
-    try:
-        storage_root = asset_store._storage_root()
-        relative_asset = Path(asset.path).resolve().relative_to(storage_root)
-        payload = await asyncio.to_thread(
-            _read_relative_nofollow, storage_root, list(relative_asset.parts)
-        )
-    except OSError as exc:
-        raise HTTPException(status_code=404, detail="Asset não encontrado") from exc
+    asset, payload = loaded
     return Response(
         payload, media_type=asset.mime_type, headers={"Cache-Control": "no-store"}
     )
