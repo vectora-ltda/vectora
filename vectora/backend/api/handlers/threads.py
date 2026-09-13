@@ -35,17 +35,28 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 
-def _read_nofollow(path: Path) -> bytes:
-    """Read one regular file through a descriptor, rejecting final symlinks."""
+def _read_relative_nofollow(root: Path, parts: list[str]) -> bytes:
+    """Read a file through directory descriptors without following symlinks."""
     if os.name == "nt":
-        return path.read_bytes()
-    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        return (root.joinpath(*parts)).read_bytes()
+    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(root, directory_flags | nofollow)
     try:
-        if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise OSError("not a regular file")
-        with os.fdopen(fd, "rb") as stream:
-            fd = -1
-            return stream.read()
+        for component in parts[:-1]:
+            child = os.open(component, directory_flags | nofollow, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        file_fd = os.open(parts[-1], os.O_RDONLY | nofollow, dir_fd=fd)
+        try:
+            if not stat.S_ISREG(os.fstat(file_fd).st_mode):
+                raise OSError("not a regular file")
+            with os.fdopen(file_fd, "rb") as stream:
+                file_fd = -1
+                return stream.read()
+        finally:
+            if file_fd >= 0:
+                os.close(file_fd)
     finally:
         if fd >= 0:
             os.close(fd)
@@ -1784,8 +1795,9 @@ async def get_thread_attachment(
     safe_filename = filename.replace("/", "").replace("\\", "").replace("..", "")
     if safe_thread != thread_id or safe_filename != filename:
         raise HTTPException(status_code=404, detail="Anexo não encontrado.")
-    raw_root = settings.vectora_home / "chat-attachments" / safe_thread
-    if raw_root.is_symlink():
+    attachment_root = settings.vectora_home / "chat-attachments"
+    raw_root = attachment_root / safe_thread
+    if attachment_root.is_symlink() or raw_root.is_symlink():
         raise HTTPException(status_code=404, detail="Anexo não encontrado.")
     root = raw_root.resolve()
     candidate = root / safe_filename
@@ -1793,7 +1805,9 @@ async def get_thread_attachment(
     if candidate.is_symlink() or path.parent != root or not path.is_file():
         raise HTTPException(status_code=404, detail="Anexo não encontrado.")
     try:
-        payload = await asyncio.to_thread(_read_nofollow, path)
+        payload = await asyncio.to_thread(
+            _read_relative_nofollow, attachment_root, [safe_thread, safe_filename]
+        )
     except OSError as exc:
         raise HTTPException(status_code=404, detail="Anexo não encontrado.") from exc
     return Response(
@@ -1829,7 +1843,11 @@ async def get_thread_asset(thread_id: str, asset_id: str, request: Request) -> R
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset não encontrado")
     try:
-        payload = await asyncio.to_thread(_read_nofollow, Path(asset.path))
+        storage_root = asset_store._storage_root()
+        relative_asset = Path(asset.path).resolve().relative_to(storage_root)
+        payload = await asyncio.to_thread(
+            _read_relative_nofollow, storage_root, list(relative_asset.parts)
+        )
     except OSError as exc:
         raise HTTPException(status_code=404, detail="Asset não encontrado") from exc
     return Response(
