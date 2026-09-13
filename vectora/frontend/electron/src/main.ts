@@ -62,7 +62,6 @@ import {
   type ViewBounds,
 } from "./browser-view-manager.js";
 
-const ELECTRON_RESTART_EXIT_CODE = 42;
 import { computeDefaultWindowSize } from "./window-size.js";
 import {
   fetchMarketplaceThemes,
@@ -73,6 +72,8 @@ import {
   listUpdateBackups,
   restoreUpdateBackup,
 } from "./update-backup.js";
+
+const ELECTRON_RESTART_EXIT_CODE = 42;
 
 interface UpdateStatus {
   state:
