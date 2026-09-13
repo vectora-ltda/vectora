@@ -16,13 +16,16 @@ vi.mock("@/lib/stores/toast-store", () => ({
 }));
 
 const mockSelectTab = vi.fn();
+const mockSetPanelOpen = vi.fn();
+let mockIsOpen = true;
 vi.mock("@/lib/stores/workbench-store", () => ({
   WORKBENCH_TABS: ["files", "context_graph", "terminal"],
   useWorkbenchStore: (sel: (s: object) => unknown) =>
     sel({
       getActiveTab: () => "files",
-      isOpen: () => true,
+      isOpen: () => mockIsOpen,
       selectTab: mockSelectTab,
+      setPanelOpen: mockSetPanelOpen,
       list: () => [],
       pinnedFiles: {},
       getPlan: () => ({ items: [] }),
@@ -73,6 +76,7 @@ import { WorkbenchNavBar, WorkbenchContent } from "../workbench-panel";
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  mockIsOpen = true;
 });
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -84,12 +88,30 @@ function renderNav() {
 // Localiza o botão pelo ícone SVG que está dentro dele (via data-testid do lucide).
 // Como não temos data-testid nos botões, pegamos pelo índice da lista.
 function getButtons(container: HTMLElement) {
-  return Array.from(container.querySelectorAll("button"));
+  return Array.from(
+    container.querySelectorAll('[data-testid^="workbench-nav-"]'),
+  ) as HTMLButtonElement[];
 }
 
 // ── Testes ───────────────────────────────────────────────────────────────────
 
 describe("WorkbenchNavBar — Todas as abas estáveis", () => {
+  it("alterna a rail e reabre a última tab preservada", () => {
+    const view = renderNav();
+    const toggle = screen.getByTestId("workbench-collapse");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(toggle);
+    expect(mockSetPanelOpen).toHaveBeenCalledWith("t1", false);
+
+    mockIsOpen = false;
+    view.rerender(<WorkbenchNavBar threadId="t1" />);
+    const collapsedToggle = screen.getByTestId("workbench-collapse");
+    expect(collapsedToggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(collapsedToggle);
+    expect(mockSetPanelOpen).toHaveBeenLastCalledWith("t1", true);
+  });
+
   it("context_graph renderiza como NavTabButton normal (sem aria-disabled)", () => {
     const { container } = renderNav();
     const btns = getButtons(container);
@@ -151,12 +173,12 @@ describe("WorkbenchNavBar — prop side (layout IDE vs Assistente)", () => {
     const { container } = render(
       <WorkbenchNavBar threadId="t1" side="right" />,
     );
-    expect(container.querySelector(".h-16")).not.toBeNull();
+    expect(screen.getByTestId("workbench-header-spacer")).toBeInTheDocument();
   });
 
   it('side="left" TAMBÉM renderiza spacer h-16 (WorkbenchContent sempre tem header h-16, independente do side, pra manter os ícones da NavBar alinhados no modo IDE)', () => {
     const { container } = render(<WorkbenchNavBar threadId="t1" side="left" />);
-    expect(container.querySelector(".h-16")).not.toBeNull();
+    expect(screen.getByTestId("workbench-header-spacer")).toBeInTheDocument();
   });
 });
 

@@ -14,6 +14,7 @@
 
 /* ── Tema escuro (padrão) — "Dark" (baseado em miguelsolorio.min-theme, adaptado) ── */
 :root {
+  --app-header-height: 4rem;
   /* Safe-area tokens: use these semantic classes on viewport-edge UI. */
   --safe-area-top: env(safe-area-inset-top, 0px);
   --safe-area-right: env(safe-area-inset-right, 0px);
@@ -113,7 +114,7 @@
   padding-top: calc(var(--safe-area-top) + 0.375rem);
 }
 .safe-area-top-header {
-  min-height: calc(4rem + var(--safe-area-top));
+  min-height: calc(var(--app-header-height) + var(--safe-area-top));
   padding-top: var(--safe-area-top);
 }
 .safe-area-bottom-snackbar {
@@ -300,14 +301,44 @@
   }
 }
 
+/* Todo container rolável da aplicação usa a mesma geometria visual. Classes
+   específicas (`custom-scrollbar`/`app-scrollbar`) podem ajustar a opacidade,
+   mas nenhum painel volta à scrollbar larga padrão do Chromium. */
+[class~="overflow-auto"],
+[class~="overflow-y-auto"],
+[class~="overflow-x-auto"] {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+  scrollbar-gutter: stable;
+}
+[class~="overflow-auto"]::-webkit-scrollbar,
+[class~="overflow-y-auto"]::-webkit-scrollbar,
+[class~="overflow-x-auto"]::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+[class~="overflow-auto"]::-webkit-scrollbar-track,
+[class~="overflow-y-auto"]::-webkit-scrollbar-track,
+[class~="overflow-x-auto"]::-webkit-scrollbar-track {
+  background: transparent;
+}
+[class~="overflow-auto"]::-webkit-scrollbar-thumb,
+[class~="overflow-y-auto"]::-webkit-scrollbar-thumb,
+[class~="overflow-x-auto"]::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+
 /* Scrollbar customizada (chat, thread-list, collapsed-sidebar) — regra
    única global e escopada, evita colisão de especificidade entre
    componentes que aplicam a mesma classe. Fica invisível até o hover,
    cor vinda de --scrollbar-thumb/--scrollbar-thumb-hover (derivados por
    tema, ver presets.ts). */
+.app-scrollbar,
 .custom-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
+  scrollbar-gutter: stable;
   /* Sem `scroll-behavior: smooth`: ele transforma QUALQUER escrita de
      scrollTop numa animação de velocidade constante, então ir ao fim de
      uma conversa longa levava tempo proporcional ao tamanho dela e
@@ -315,22 +346,28 @@
      no fim precisa ser um salto direto. */
   will-change: scroll-position;
 }
+.app-scrollbar:hover,
 .custom-scrollbar:hover {
   scrollbar-color: var(--scrollbar-thumb) transparent;
 }
+.app-scrollbar::-webkit-scrollbar,
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
 }
+.app-scrollbar::-webkit-scrollbar-track,
 .custom-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
+.app-scrollbar::-webkit-scrollbar-thumb,
 .custom-scrollbar::-webkit-scrollbar-thumb {
   background: transparent;
   border-radius: 3px;
 }
+.app-scrollbar:hover::-webkit-scrollbar-thumb,
 .custom-scrollbar:hover::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
 }
+.app-scrollbar::-webkit-scrollbar-thumb:hover,
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
 }

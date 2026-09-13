@@ -11,12 +11,19 @@ import { useSettingsStore } from "@/lib/stores/settings-store";
 import { useSwitchMode } from "@/lib/hooks/use-switch-mode";
 import { m } from "@/lib/paraglide/messages";
 
-export const SidebarModeToggle = memo(function SidebarModeToggle() {
+interface SidebarModeToggleProps {
+  /** Reserves space for the compact sidebar collapse control. */
+  compact?: boolean;
+}
+
+export const SidebarModeToggle = memo(function SidebarModeToggle({
+  compact = false,
+}: SidebarModeToggleProps) {
   const chatMode = useSettingsStore((s) => s.chatMode);
   const switchMode = useSwitchMode();
 
   return (
-    <div className="px-3 pt-2 pb-1.5">
+    <div className={compact ? "px-3 pt-2 pb-1.5 pr-12" : "px-3 pt-2 pb-1.5"}>
       <div className="flex rounded-lg border border-border/40 overflow-hidden">
         <Tooltip>
           <TooltipTrigger asChild>

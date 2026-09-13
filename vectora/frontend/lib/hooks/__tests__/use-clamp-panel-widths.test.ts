@@ -13,10 +13,19 @@ import { useSettingsStore } from "@/lib/stores/settings-store";
 import { useWorkbenchStore } from "@/lib/stores/workbench-store";
 
 function setInnerWidth(width: number) {
-  Object.defineProperty(window, "innerWidth", {
-    configurable: true,
-    writable: true,
-    value: width,
+  Object.defineProperties(window, {
+    innerWidth: {
+      configurable: true,
+      writable: true,
+      value: width,
+    },
+    // getUnscaledViewportWidth intentionally uses outerWidth first so the
+    // tests must update both values when simulating a resized window.
+    outerWidth: {
+      configurable: true,
+      writable: true,
+      value: width,
+    },
   });
 }
 

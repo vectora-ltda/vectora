@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
- * IdeModeLayout — acima do breakpoint `md` os quatro painéis do modo IDE
+ * IdeModeLayout — no estado wide os quatro painéis do modo IDE
  * (nav-bar, workbench, editor, chat) renderizam lado a lado sem mudança de
- * comportamento. Abaixo dele, só o painel selecionado fica montado, e a
+ * comportamento. No estado mobile, só o painel selecionado fica montado, e a
  * faixa de abas no topo troca qual está visível.
  */
 
@@ -11,10 +11,10 @@ import { render, screen, within, fireEvent } from "@testing-library/react";
 
 import { IdeModeLayout } from "@/components/layout/ide-mode-layout";
 
-function renderLayout(isNarrow: boolean) {
+function renderLayout(layoutState: "wide" | "mobile") {
   return render(
     <IdeModeLayout
-      isNarrow={isNarrow}
+      layoutState={layoutState}
       header={<div data-testid="panel-header">Header</div>}
       navBar={<div data-testid="panel-navbar">NavBar</div>}
       workbenchContent={<div data-testid="panel-workbench">Workbench</div>}
@@ -26,7 +26,7 @@ function renderLayout(isNarrow: boolean) {
 
 describe("IdeModeLayout", () => {
   it("viewport larga: os quatro painéis renderizam lado a lado (regressão do layout atual)", () => {
-    renderLayout(false);
+    renderLayout("wide");
 
     expect(screen.getByTestId("panel-navbar")).toBeInTheDocument();
     expect(screen.getByTestId("panel-workbench")).toBeInTheDocument();
@@ -36,8 +36,32 @@ describe("IdeModeLayout", () => {
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
   });
 
+  it.each(["ltr", "rtl"] as const)(
+    "inclui a rail fixa na largura da coluna do Workbench (%s)",
+    (direction) => {
+      render(
+        <IdeModeLayout
+          layoutState="wide"
+          direction={direction}
+          workbenchWidth={268}
+          workbenchMinWidth={268}
+          workbenchMaxWidth={528}
+          header={<div />}
+          navBar={<div data-testid="panel-navbar" />}
+          workbenchContent={<div data-testid="panel-workbench" />}
+          editor={<div data-testid="panel-editor" />}
+          chat={<div data-testid="panel-chat" />}
+        />,
+      );
+
+      expect(
+        screen.getByRole("complementary", { name: "Workbench" }),
+      ).toHaveStyle({ width: "268px", minWidth: "268px" });
+    },
+  );
+
   it("viewport estreita: só o painel ativo aparece no DOM; trocar de aba muda qual está visível", () => {
-    renderLayout(true);
+    renderLayout("mobile");
 
     // Default: editor.
     expect(screen.getByTestId("panel-editor")).toBeInTheDocument();
@@ -63,7 +87,7 @@ describe("IdeModeLayout", () => {
   it("borda: viewport estreita sem workbenchContent (painel fechado) não quebra ao selecionar a aba workbench", () => {
     render(
       <IdeModeLayout
-        isNarrow
+        layoutState="mobile"
         header={<div data-testid="panel-header">Header</div>}
         navBar={<div data-testid="panel-navbar">NavBar</div>}
         workbenchContent={null}
@@ -79,21 +103,23 @@ describe("IdeModeLayout", () => {
     expect(() => screen.getByTestId("panel-workbench")).toThrow();
   });
 
-  it("viewport larga: header vive na coluna central junto de navBar/workbench/editor, nunca dentro da coluna de chat", () => {
-    renderLayout(false);
+  it("viewport larga: header ocupa o slot físico e editor permanece na coluna central", () => {
+    renderLayout("wide");
 
     const header = screen.getByTestId("panel-header");
     const chat = screen.getByTestId("panel-chat");
-    // Mesmo ancestral comum de header+navbar+editor, mas não do chat —
-    // prova que chat é uma coluna irmã, fora do bloco que o header cobre.
-    const centerColumn = header.parentElement!;
-    expect(centerColumn).toContainElement(screen.getByTestId("panel-navbar"));
+    const headerSlot = header.parentElement!;
+    const centerColumn = screen.getByRole("main");
+    expect(headerSlot).not.toContainElement(screen.getByTestId("panel-editor"));
     expect(centerColumn).toContainElement(screen.getByTestId("panel-editor"));
+    expect(centerColumn).not.toContainElement(
+      screen.getByTestId("panel-navbar"),
+    );
     expect(centerColumn).not.toContainElement(chat);
   });
 
   it("viewport estreita: header aparece acima da faixa de abas, independente de qual painel está ativo", () => {
-    renderLayout(true);
+    renderLayout("mobile");
 
     expect(screen.getByTestId("panel-header")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("ide-mobile-tab-chat"));
@@ -103,7 +129,7 @@ describe("IdeModeLayout", () => {
   it("viewport estreita: fechar a workbench troca automaticamente para o editor", () => {
     const { rerender } = render(
       <IdeModeLayout
-        isNarrow
+        layoutState="mobile"
         workbenchOpen
         header={<div data-testid="panel-header">Header</div>}
         navBar={<div data-testid="panel-navbar">NavBar</div>}
@@ -117,7 +143,7 @@ describe("IdeModeLayout", () => {
 
     rerender(
       <IdeModeLayout
-        isNarrow
+        layoutState="mobile"
         workbenchOpen={false}
         header={<div data-testid="panel-header">Header</div>}
         navBar={<div data-testid="panel-navbar">NavBar</div>}

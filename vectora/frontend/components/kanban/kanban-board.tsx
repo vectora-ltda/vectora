@@ -1232,7 +1232,7 @@ export function KanbanBoard({ threadId }: { threadId: string }) {
             2.25rem), nunca scroll horizontal. Só o trilho de lanes rola
             verticalmente quando não cabem todas na altura disponível; cada
             lane aberta também rola por dentro (ver Column). */}
-        <div className="flex min-h-0 flex-1 flex-wrap content-start gap-3 overflow-y-auto lg:max-h-[38rem]">
+        <div className="app-scrollbar flex min-h-0 flex-1 flex-wrap content-start gap-3 overflow-y-auto lg:max-h-[38rem]">
           {lanes.map((coluna) => {
             const daColuna = visiveis.filter((t) =>
               coluna.status === FALLBACK_STATUS

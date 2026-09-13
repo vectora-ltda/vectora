@@ -56,7 +56,7 @@ describe("lint-i18n", () => {
     }
   });
 
-  it("reports exit status and diagnostics through the package command", async () => {
+  it("reports exit status and diagnostics through the package CLI entrypoint", async () => {
     const directory = await mkdtemp(join(tmpdir(), "lint-i18n-command-"));
     try {
       const valid = join(directory, "valid.tsx");
@@ -64,19 +64,24 @@ describe("lint-i18n", () => {
       await writeFile(valid, "<button>{m.save()}</button>");
       await writeFile(invalid, "<button>Salvar</button>");
 
-      const command = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-      const result = await execFileAsync(command, ["lint:i18n", "--", valid], {
-        cwd: process.cwd(),
-        shell: true,
-      });
-      expect(result.stdout).toBe("");
+      const runPackageLint = (file: string) =>
+        execFileAsync(
+          process.execPath,
+          [
+            join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs"),
+            join("scripts", "lint-i18n.ts"),
+            "--",
+            file,
+          ],
+          { cwd: process.cwd() },
+        );
 
-      await expect(
-        execFileAsync(command, ["lint:i18n", "--", invalid], {
-          cwd: process.cwd(),
-          shell: true,
-        }),
-      ).rejects.toMatchObject({
+      const result = await runPackageLint(valid);
+      expect(`${result.stdout}\n${result.stderr}`).not.toContain(
+        "Visible JSX text must use a Paraglide message",
+      );
+
+      await expect(runPackageLint(invalid)).rejects.toMatchObject({
         code: 1,
         stderr: expect.stringContaining("invalid.tsx:1:9"),
       });

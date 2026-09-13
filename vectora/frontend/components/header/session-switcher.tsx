@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { ChevronDown, Plus } from "lucide-react";
 import type { Thread } from "@/lib/hooks/threads";
 import { m } from "@/lib/paraglide/messages";
+import { MOTION_INSTANT, PANEL_TRANSITION } from "@/lib/motion/transitions";
 
 interface SessionSwitcherProps {
   threads: Thread[];
@@ -18,12 +19,13 @@ export function SessionSwitcher({
   onNewSession,
 }: SessionSwitcherProps) {
   const [open, setOpen] = useState(false);
+  const reducedMotion = useReducedMotion();
 
   const current = threads.find((t) => t.thread_id === currentThreadId);
   const label = current?.metadata?.title || m.ide_session_untitled();
 
   return (
-    <div className="relative min-w-0 flex-1">
+    <div className="relative min-w-0 flex-1 min-h-[var(--app-header-height)] flex items-center">
       <button
         onClick={() => setOpen((v) => !v)}
         aria-label={m.ide_session_switcher_label()}
@@ -49,12 +51,7 @@ export function SessionSwitcher({
               initial={{ opacity: 0, scale: 0.95, y: -4 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: -4 }}
-              transition={{
-                type: "spring",
-                damping: 22,
-                stiffness: 380,
-                mass: 0.7,
-              }}
+              transition={reducedMotion ? MOTION_INSTANT : PANEL_TRANSITION}
               style={{ transformOrigin: "top left" }}
               className="absolute top-full left-0 mt-1 z-50 w-56 rounded-md border border-border/60 bg-popover shadow-md overflow-hidden"
             >

@@ -528,8 +528,8 @@ export function ChatInput({
               barra de contexto acima do input (poluição visual
               desnecessária). Grupo esquerdo: workspace (onde) → modo de
               permissão; direita: modelo e medidor de uso. */}
-          <div className="flex flex-wrap @sm/composer:flex-nowrap items-center justify-between gap-x-2 gap-y-1 mt-1 px-1">
-            <div className="flex items-center gap-1 min-w-0">
+          <div className="flex min-w-0 w-full flex-nowrap items-center justify-between gap-x-2 gap-y-1 mt-1 px-1 overflow-hidden">
+            <div className="flex min-w-0 flex-1 shrink items-center gap-1 overflow-hidden">
               <PlusMenu
                 disabled={!userId || offline}
                 onAddFiles={onFileButtonClick}
@@ -552,11 +552,15 @@ export function ChatInput({
                   <div className="hidden @sm/composer:block h-4 w-px bg-border/60" />
                 </>
               )}
-              <PermissionModeMenu />
+              <div className="min-w-0 max-w-full shrink overflow-hidden">
+                <PermissionModeMenu />
+              </div>
             </div>
 
-            <div className="flex flex-1 items-center gap-1 min-w-0 justify-end">
-              <EffortMenu />
+            <div className="flex min-w-0 shrink items-center justify-end gap-1 overflow-hidden">
+              <div className="shrink-0">
+                <EffortMenu />
+              </div>
               {agentConfig && onAgentConfigChange && (
                 <ModelSelector
                   value={agentConfig.model}
@@ -566,7 +570,12 @@ export function ChatInput({
                 />
               )}
               {modelId && (
-                <UsagePopover tokensUsed={tokensUsed ?? 0} modelId={modelId} />
+                <div className="shrink-0">
+                  <UsagePopover
+                    tokensUsed={tokensUsed ?? 0}
+                    modelId={modelId}
+                  />
+                </div>
               )}
             </div>
           </div>

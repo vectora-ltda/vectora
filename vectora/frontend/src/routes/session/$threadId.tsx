@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 
 import { Sidebar } from "@/components/sidebar/sidebar";
@@ -10,8 +10,10 @@ import {
   WorkbenchContent,
   WorkbenchNavBar,
 } from "@/components/workbench/workbench-panel";
-import { HorizontalSplit } from "@/components/layout/horizontal-split";
 import { IdeModeLayout } from "@/components/layout/ide-mode-layout";
+import { CenterCanvas } from "@/components/layout/center-canvas";
+import { getModeComposition } from "@/components/layout/mode-composition";
+import { ThreeColumnShell } from "@/components/layout/three-column-shell";
 import { LicenseBanner } from "@/components/layout/license-banner";
 import { m } from "@/lib/paraglide/messages";
 import { KeyboardShortcutsDialog } from "@/components/layout/keyboard-shortcuts-dialog";
@@ -24,10 +26,23 @@ import { WindowLayer } from "@/components/workbench/windows/window-layer";
 import { WindowDock } from "@/components/workbench/windows/window-dock";
 import { DockedEditor } from "@/components/workbench/windows/docked-editor";
 import { SessionSwitcher } from "@/components/header/session-switcher";
+import { ColumnHeader } from "@/components/layout/column-header";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useHydrated } from "@/lib/hooks/use-hydrated";
-import { useIsNarrowViewport } from "@/lib/hooks/use-media-query";
-import { PANEL_TRANSITION } from "@/lib/motion/transitions";
+import {
+  useIdeLayoutState,
+  useIsNarrowViewport,
+} from "@/lib/hooks/use-media-query";
+import { MOTION_INSTANT, PANEL_TRANSITION } from "@/lib/motion/transitions";
+import {
+  getPanelWidthFromPointer,
+  getResizeDelta,
+} from "@/lib/layout/resize-geometry";
+import {
+  WORKBENCH_CONTENT_MAX_WIDTH,
+  WORKBENCH_CONTENT_MIN_WIDTH,
+  WORKBENCH_RAIL_WIDTH,
+} from "@/lib/layout/workbench-geometry";
 import { useWebhookWorkbench } from "@/lib/hooks/use-webhook-workbench";
 import { useClampPanelWidths } from "@/lib/hooks/use-clamp-panel-widths";
 import { useWorkbenchStore } from "@/lib/stores/workbench-store";
@@ -129,9 +144,11 @@ function SessionPage() {
   // Painel do workbench: visível e redimensionável via workbench-store. O gate
   // de hidratação evita divergência SSR/cliente do estado persistido.
   const hydrated = useHydrated();
-  // Abaixo do breakpoint `md`, o modo IDE não cabe com todos os painéis lado
-  // a lado — IdeModeLayout colapsa para um só painel visível por vez.
+  // Abaixo de Tailwind `sm`, o modo IDE usa o estado mobile e mostra um painel
+  // por vez. A largura é medida sem a escala visual do Electron.
   const isNarrowViewport = useIsNarrowViewport();
+  const ideLayoutState = useIdeLayoutState();
+  const isNarrowIdeViewport = ideLayoutState === "mobile";
   const workbenchOpen = useWorkbenchStore((s) => s.isOpen(threadId));
   const splitSize = useWorkbenchStore((s) => s.splitSize);
   const setSplitSize = useWorkbenchStore((s) => s.setSplitSize);
@@ -148,7 +165,11 @@ function SessionPage() {
   const setSidebarWidth = useSettingsStore((s) => s.setSidebarWidth);
   const sidebarPosition = useSettingsStore((s) => s.sidebarPosition);
   const sidebarOnRight = sidebarPosition === "right";
+  const assistantWorkbenchSide = sidebarOnRight ? "left" : "right";
+  const ideWorkbenchSide = sidebarOnRight ? "right" : "left";
   const chatMode = useSettingsStore((s) => s.chatMode);
+  const reducedMotion = useReducedMotion();
+  const assistantWorkbenchVisible = hydrated && !chatMode && workbenchOpen;
   const setChatMode = useSettingsStore((s) => s.setChatMode);
   const uiMode = useSettingsStore((s) => s.uiMode);
   const chatSidebarWidth = useSettingsStore((s) => s.chatSidebarWidth);
@@ -176,9 +197,29 @@ function SessionPage() {
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (!draggingWorkbench.current) return;
       const rect = workbenchResizeRef.current?.getBoundingClientRect();
-      if (rect) setSplitSize(Math.max(150, e.clientX - rect.left));
+      if (rect) {
+        const width = getPanelWidthFromPointer(
+          e.clientX,
+          rect,
+          ideWorkbenchSide,
+        );
+        setSplitSize(Math.min(480, Math.max(220, width)));
+      }
     },
-    [setSplitSize],
+    [ideWorkbenchSide, setSplitSize],
+  );
+  const onWorkbenchResizeKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+      setSplitSize(
+        Math.min(
+          480,
+          Math.max(220, splitSize + getResizeDelta(e.key, ideWorkbenchSide)),
+        ),
+      );
+    },
+    [ideWorkbenchSide, setSplitSize, splitSize],
   );
   const onWorkbenchResizeUp = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -208,9 +249,33 @@ function SessionPage() {
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (!draggingChatSidebar.current) return;
       const rect = chatSidebarRef.current?.getBoundingClientRect();
-      if (rect) setChatSidebarWidth(rect.right - e.clientX);
+      if (rect) {
+        const width = getPanelWidthFromPointer(
+          e.clientX,
+          rect,
+          sidebarOnRight ? "right" : "left",
+        );
+        setChatSidebarWidth(Math.min(520, Math.max(240, width)));
+      }
     },
-    [setChatSidebarWidth],
+    [setChatSidebarWidth, sidebarOnRight],
+  );
+  const onChatSidebarResizeKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      e.preventDefault();
+      setChatSidebarWidth(
+        Math.min(
+          520,
+          Math.max(
+            240,
+            chatSidebarWidth +
+              getResizeDelta(e.key, sidebarOnRight ? "right" : "left"),
+          ),
+        ),
+      );
+    },
+    [chatSidebarWidth, setChatSidebarWidth, sidebarOnRight],
   );
   const onChatSidebarResizeUp = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -594,6 +659,7 @@ function SessionPage() {
         onNewChat={handleNewChat}
         isLoading={isLoading}
         isNewSession={isNewSession}
+        showHeader
         onRefreshThreads={async () => {
           const result = await refetchThreads();
           if (result.isError || result.error) {
@@ -603,7 +669,15 @@ function SessionPage() {
       />
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [threads, threadId, isLoading, isSidebarCollapsed, isNewSession],
+    [
+      threads,
+      threadId,
+      isLoading,
+      isSidebarCollapsed,
+      isNewSession,
+      uiMode,
+      chatMode,
+    ],
   );
 
   // Painel da sidebar (largura arrastável + handle de resize) — extraído do
@@ -613,7 +687,7 @@ function SessionPage() {
     () => (
       <motion.div
         ref={sidebarWrapRef}
-        className={`hidden md:flex shrink-0 relative ${sidebarOnRight ? "order-last" : ""}`}
+        className="hidden md:flex shrink-0 relative"
         animate={{
           width: isSidebarCollapsed
             ? SIDEBAR_COLLAPSED_WIDTH
@@ -656,11 +730,11 @@ function SessionPage() {
     [showToolCalls, chatMode],
   );
 
-  // A sidebar de sessões fica visualmente parada entre Kanban e Assistente
-  // (mesma posição de tela nos dois) — só não existe no modo IDE, que usa a
-  // navBar do workbench como navegação. Renderizada uma vez, fora do bloco
-  // que troca de modo, pra não remontar junto com o conteúdo.
-  const showSidebarPanel = !(uiMode === "ide" && !chatMode);
+  // Cada modo escolhe explicitamente a coluna esquerda. Assistente e Kanban
+  // usam a lista de sessões; IDE usa a workbench. Manter a sidebar de sessões
+  // fora do IDE evitava que o shell tivesse quatro colunas concorrentes.
+  const showSidebarPanel = uiMode !== "ide";
+  const modeComposition = getModeComposition(uiMode);
 
   // Chat renderizado no fluxo normal do layout de cada modo. `compact`
   // (IDE) muda densidade e liga o SessionSwitcher acima dele; a posição
@@ -673,14 +747,14 @@ function SessionPage() {
       return (
         <div className="flex flex-col h-full min-h-0 overflow-hidden">
           {compact && (
-            <div className="flex items-center gap-1 px-2 py-1.5 border-b border-border/40 shrink-0 min-w-0">
+            <ColumnHeader className="gap-1 px-2 border-border/40 min-w-0">
               <SessionSwitcher
                 threads={wsThreads}
                 currentThreadId={threadId}
                 onSelectThread={handleSelectThread}
                 onNewSession={handleNewChat}
               />
-            </div>
+            </ColumnHeader>
           )}
           <div className="flex-1 min-h-0">
             <ChatInterface
@@ -724,11 +798,15 @@ function SessionPage() {
   );
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-background">
+    <div
+      className="flex flex-col h-full overflow-hidden bg-background"
+      data-mode-left={modeComposition.left}
+      data-mode-center={modeComposition.center}
+      data-mode-right={modeComposition.right ?? "hidden"}
+    >
       <LicenseBanner fullWidth onBlockingChange={setInputLocked} />
 
       <div className="relative flex flex-1 min-h-0 overflow-hidden">
-        {showSidebarPanel && sidebarPanel}
         {showSidebarPanel && (
           <Sheet
             open={isMobileSidebarOpen}
@@ -744,50 +822,89 @@ function SessionPage() {
         )}
 
         <div className="flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden">
-          {/* `headerEl` é montado uma única vez (mesmo objeto memoizado),
-              mas cada modo abaixo decide ONDE ele entra — sempre na coluna
-              central (chat em Assistente, editor+workbench em IDE, board em
-              Kanban), nunca esparramado por cima da coluna lateral direita
-              (workbench em Assistente, chat em IDE). O seletor Assistente/
-              IDE/Kanban (dentro do Header) fica preso à mesma faixa
-              horizontal que o conteúdo que ele controla, nunca por cima de
-              painéis que ele não controla. */}
+          {/* `headerEl` é montado uma única vez e entregue ao slot físico
+              central de ThreeColumnShell. Cada modo troca apenas os slots de
+              conteúdo ao redor dele; o Header nunca entra na animação das
+              colunas externas. */}
 
-          {/* Troca de modo é unmount/mount instantâneo — sem
-              AnimatePresence mode="wait". Depender da animação de saída
-              completar deixava o modo anterior desenhado por cima do novo
-              quando o callback não disparava (janela sem foco pausa
-              requestAnimationFrame). Mesmo motivo e mesma solução já
-              aplicados em workbench-panel.tsx. */}
           {uiMode === "kanban" && !chatMode ? (
             // min-w-[360px]: piso mínimo pro conteúdo continuar legível
             // quando a janela encolhe. Kanban não tem coluna lateral
             // direita — header cobre a largura toda por não ter nada ao
             // lado com quem competir.
-            <div className="flex flex-col flex-1 min-w-[360px] min-h-0 overflow-hidden">
-              {headerEl}
-              <div className="flex-1 min-h-0 overflow-hidden">
-                <KanbanBoard threadId={threadId} />
-              </div>
-            </div>
+            <motion.div
+              key="kanban-mode"
+              initial={reducedMotion ? false : { opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={reducedMotion ? MOTION_INSTANT : PANEL_TRANSITION}
+              className="flex flex-1 min-h-0 min-w-0 overflow-hidden"
+            >
+              <ThreeColumnShell
+                centerHeader={headerEl}
+                left={sidebarPanel}
+                center={
+                  <div className="flex min-w-[360px] flex-1 min-h-0 overflow-hidden">
+                    <KanbanBoard threadId={threadId} />
+                  </div>
+                }
+                right={null}
+                columns={{
+                  left: { label: "Sessões" },
+                  center: { label: "Kanban" },
+                  right: { label: "Workbench", visibility: "hidden" },
+                }}
+                direction={sidebarOnRight ? "rtl" : "ltr"}
+              />
+            </motion.div>
           ) : uiMode === "ide" && !chatMode ? (
             // ── Layout IDE ──────────────────────────────────────────────
-            <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+            <motion.div
+              key="ide-mode"
+              initial={reducedMotion ? false : { opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={reducedMotion ? MOTION_INSTANT : PANEL_TRANSITION}
+              className="flex flex-col flex-1 min-h-0 overflow-hidden"
+            >
               <IdeModeLayout
                 workbenchOpen={workbenchOpen}
-                isNarrow={isNarrowViewport}
+                layoutState={ideLayoutState}
+                direction={sidebarOnRight ? "rtl" : "ltr"}
+                workbenchSide={ideWorkbenchSide}
+                // The shell column includes the fixed 48px rail. splitSize
+                // remains the width of the resizable content panel itself.
+                workbenchWidth={
+                  hydrated && workbenchOpen
+                    ? splitSize + WORKBENCH_RAIL_WIDTH
+                    : WORKBENCH_RAIL_WIDTH
+                }
+                workbenchMinWidth={
+                  workbenchOpen
+                    ? WORKBENCH_CONTENT_MIN_WIDTH + WORKBENCH_RAIL_WIDTH
+                    : WORKBENCH_RAIL_WIDTH
+                }
+                workbenchMaxWidth={
+                  WORKBENCH_CONTENT_MAX_WIDTH + WORKBENCH_RAIL_WIDTH
+                }
+                chatWidth={hydrated ? chatSidebarWidth : 256}
+                chatMinWidth={240}
+                chatMaxWidth={520}
                 header={headerEl}
-                navBar={<WorkbenchNavBar threadId={threadId} side="left" />}
+                navBar={
+                  <WorkbenchNavBar
+                    threadId={threadId}
+                    side={ideWorkbenchSide}
+                  />
+                }
                 workbenchContent={
                   <div
                     ref={workbenchResizeRef}
                     className={
-                      isNarrowViewport
+                      isNarrowIdeViewport
                         ? "relative flex-1 min-w-0"
                         : "relative shrink-0 overflow-hidden"
                     }
                     style={
-                      isNarrowViewport
+                      isNarrowIdeViewport
                         ? undefined
                         : { width: hydrated && workbenchOpen ? splitSize : 0 }
                     }
@@ -795,21 +912,26 @@ function SessionPage() {
                   >
                     <WorkbenchContent
                       threadId={threadId}
-                      side="left"
+                      side={ideWorkbenchSide}
                       visible={hydrated && workbenchOpen}
                       onAddToContext={pushMention}
                       onSendPrompt={pushDraft}
                     />
-                    {!isNarrowViewport && workbenchOpen && (
+                    {!isNarrowIdeViewport && workbenchOpen && (
                       <div
                         role="separator"
                         aria-orientation="vertical"
                         aria-label={m.resize_workbench()}
+                        aria-valuemin={220}
+                        aria-valuemax={480}
+                        aria-valuenow={splitSize}
+                        tabIndex={0}
+                        onKeyDown={onWorkbenchResizeKeyDown}
                         onPointerDown={onWorkbenchResizeDown}
                         onPointerMove={onWorkbenchResizeMove}
                         onPointerUp={onWorkbenchResizeUp}
                         onPointerCancel={onWorkbenchResizeUp}
-                        className="absolute right-0 top-0 z-10 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors"
+                        className={`absolute ${ideWorkbenchSide === "left" ? "right-0" : "left-0"} top-0 z-10 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors`}
                       />
                     )}
                   </div>
@@ -817,34 +939,41 @@ function SessionPage() {
                 editor={
                   // min-w-[360px]: piso mínimo pro editor continuar usável
                   // ao encolher a janela ou puxar o painel do workbench largo.
-                  <div className="flex flex-col flex-1 min-w-[360px] h-full overflow-hidden">
-                    <DockedEditor activeWorkspaceId={activeWorkspaceId} />
+                  <div className="flex flex-col flex-1 min-w-0 h-full overflow-hidden">
+                    <CenterCanvas>
+                      <DockedEditor activeWorkspaceId={activeWorkspaceId} />
+                    </CenterCanvas>
                   </div>
                 }
                 chat={
                   <div
                     ref={chatSidebarRef}
                     className={
-                      isNarrowViewport
+                      isNarrowIdeViewport
                         ? "relative flex flex-col h-full bg-sidebar"
-                        : "relative shrink-0 flex flex-col h-full border-l border-border/60 bg-sidebar"
+                        : `relative shrink-0 flex flex-col h-full border-border/60 bg-sidebar ${sidebarOnRight ? "border-r" : "border-l"}`
                     }
                     style={
-                      isNarrowViewport
+                      isNarrowIdeViewport
                         ? undefined
                         : { width: hydrated ? chatSidebarWidth : 256 }
                     }
                   >
-                    {!isNarrowViewport && (
+                    {!isNarrowIdeViewport && (
                       <div
                         role="separator"
                         aria-orientation="vertical"
                         aria-label={m.resize_chat()}
+                        aria-valuemin={240}
+                        aria-valuemax={520}
+                        aria-valuenow={chatSidebarWidth}
+                        tabIndex={0}
+                        onKeyDown={onChatSidebarResizeKeyDown}
                         onPointerDown={onChatSidebarResizeDown}
                         onPointerMove={onChatSidebarResizeMove}
                         onPointerUp={onChatSidebarResizeUp}
                         onPointerCancel={onChatSidebarResizeUp}
-                        className="absolute left-0 top-0 z-10 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors"
+                        className={`absolute ${sidebarOnRight ? "left-0" : "right-0"} top-0 z-10 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors`}
                       />
                     )}
                     <div className="flex-1 min-h-0 min-w-0">
@@ -870,73 +999,95 @@ function SessionPage() {
                   void handleConfirmNewChat(workspaceId)
                 }
               />
-            </div>
+            </motion.div>
           ) : (
             // ── Layout Assistente/Chat (atual) ─────────────────────────────────
-            <div className="flex flex-1 min-h-0 overflow-visible">
-              {/* Área principal — split ocupa altura total para que o painel do
-                workbench (right) vá do topo ao rodapé; a nav-bar do workbench
-                (faixa de 48px, sempre visível) fica fora do split, à direita —
-                não é redimensionável; só o painel de conteúdo é. */}
-              <div className="flex-1 min-w-0 flex h-full">
-                {/* Viewport estreita + workbench aberto: chat some por
-                    completo e o workbench ocupa o espaço inteiro — dois
-                    painéis lado a lado (split redimensionável) não cabem
-                    numa tela pequena. Mesmo padrão de "um painel por vez"
-                    que IdeModeLayout já usa pro modo IDE; a nav-bar (fora
-                    deste bloco, sempre visível) continua o jeito de
-                    trocar/fechar o painel. */}
-                {isNarrowViewport && hydrated && workbenchOpen && !chatMode ? (
-                  // Viewport estreita colapsa pra um único painel visível —
-                  // não há coluna lateral concorrente aqui, então o header
-                  // fica junto sem risco de esparramar por cima de outra
-                  // coluna (mesma lógica do IDE mobile).
-                  <div className="flex flex-col flex-1 min-h-0 min-w-0 h-full overflow-visible">
-                    {headerEl}
-                    <div className="flex-1 min-h-0 min-w-0 overflow-visible">
-                      <WorkbenchContent
-                        threadId={threadId}
-                        visible={hydrated && workbenchOpen}
-                        onAddToContext={pushMention}
-                        onSendPrompt={pushDraft}
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <HorizontalSplit
-                    className="flex-1 min-w-0"
-                    side={sidebarOnRight ? "left" : "right"}
-                    showRight={hydrated && workbenchOpen && !chatMode}
-                    rightSize={splitSize}
-                    onResize={setSplitSize}
-                    left={
-                      // Header mora AQUI — dentro da coluna central (chat),
-                      // nunca em `right` (workbench, coluna lateral).
-                      <div className="flex flex-col flex-1 min-h-0 min-w-0 h-full overflow-visible">
-                        {headerEl}
-                        <div className="flex-1 min-h-0 min-w-0 overflow-visible">
-                          {renderChatPanel(false)}
+            <motion.div
+              key="assistant-mode"
+              initial={reducedMotion ? false : { opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={reducedMotion ? MOTION_INSTANT : PANEL_TRANSITION}
+              className="flex flex-1 min-h-0 overflow-hidden"
+            >
+              <ThreeColumnShell
+                centerHeader={headerEl}
+                left={sidebarPanel}
+                center={
+                  <div className="flex flex-1 min-w-0 min-h-0 flex-col overflow-hidden">
+                    {isNarrowViewport && assistantWorkbenchVisible ? (
+                      <div className="flex h-full min-w-0">
+                        {assistantWorkbenchSide === "left" && (
+                          <WorkbenchNavBar
+                            threadId={threadId}
+                            side={assistantWorkbenchSide}
+                          />
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <WorkbenchContent
+                            threadId={threadId}
+                            side={assistantWorkbenchSide}
+                            visible
+                            onAddToContext={pushMention}
+                            onSendPrompt={pushDraft}
+                          />
                         </div>
+                        {assistantWorkbenchSide === "right" && (
+                          <WorkbenchNavBar
+                            threadId={threadId}
+                            side={assistantWorkbenchSide}
+                          />
+                        )}
                       </div>
-                    }
-                    right={
+                    ) : (
+                      renderChatPanel(false)
+                    )}
+                  </div>
+                }
+                right={
+                  <div
+                    className={`relative flex min-w-0 shrink-0 min-h-0 flex-row overflow-hidden border-border/60 ${assistantWorkbenchSide === "right" ? "border-l" : "border-r"}`}
+                    style={{
+                      width: assistantWorkbenchVisible
+                        ? splitSize + WORKBENCH_RAIL_WIDTH
+                        : WORKBENCH_RAIL_WIDTH,
+                      minWidth: assistantWorkbenchVisible
+                        ? WORKBENCH_CONTENT_MIN_WIDTH + WORKBENCH_RAIL_WIDTH
+                        : WORKBENCH_RAIL_WIDTH,
+                      maxWidth:
+                        WORKBENCH_CONTENT_MAX_WIDTH + WORKBENCH_RAIL_WIDTH,
+                    }}
+                  >
+                    {assistantWorkbenchSide === "left" && (
+                      <WorkbenchNavBar
+                        threadId={threadId}
+                        side={assistantWorkbenchSide}
+                      />
+                    )}
+                    {assistantWorkbenchVisible && (
                       <WorkbenchContent
                         threadId={threadId}
-                        visible={hydrated && workbenchOpen && !chatMode}
+                        side={assistantWorkbenchSide}
+                        visible
                         onAddToContext={pushMention}
                         onSendPrompt={pushDraft}
                       />
-                    }
-                  />
-                )}
-                {!chatMode && (
-                  <div
-                    className={`shrink-0 ${sidebarOnRight ? "order-first" : ""}`}
-                  >
-                    <WorkbenchNavBar threadId={threadId} />
+                    )}
+                    {assistantWorkbenchSide === "right" && (
+                      <WorkbenchNavBar
+                        threadId={threadId}
+                        side={assistantWorkbenchSide}
+                      />
+                    )}
                   </div>
-                )}
-              </div>
+                }
+                showRight={hydrated && !chatMode && !isNarrowViewport}
+                direction={sidebarOnRight ? "rtl" : "ltr"}
+                columns={{
+                  left: { label: "Sessões" },
+                  center: { label: "Chat" },
+                  right: { label: "Workbench" },
+                }}
+              />
 
               {/* Dialogs globais */}
               <KeyboardShortcutsDialog
@@ -959,7 +1110,7 @@ function SessionPage() {
               {/* Workstation: janelas flutuantes de arquivos + dock de minimizadas */}
               <WindowLayer />
               <WindowDock />
-            </div>
+            </motion.div>
           )}
         </div>
       </div>

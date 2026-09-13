@@ -33,7 +33,7 @@ import {
   Waypoints,
   Library,
 } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useWorkspaceWatcher } from "@/lib/hooks/use-workspace-watcher";
 import { useHydrated } from "@/lib/hooks/use-hydrated";
 import {
@@ -58,7 +58,12 @@ import { ContextGraphTab } from "./tabs/context-graph-tab";
 import { LibraryTab } from "./tabs/library-tab";
 import { m } from "@/lib/paraglide/messages";
 import { mDyn } from "@/lib/i18n-dyn";
-import { PANEL_TRANSITION } from "@/lib/motion/transitions";
+import { ColumnHeader } from "@/components/layout/column-header";
+import { RailToggleButton } from "@/components/layout/rail-toggle-button";
+import {
+  PANEL_TRANSITION,
+  PENDING_BADGE_TRANSITION,
+} from "@/lib/motion/transitions";
 
 interface WorkbenchPanelProps {
   threadId: string;
@@ -134,6 +139,7 @@ function NavTabButton({
   hydrated: boolean;
   onSelect: () => void;
 }) {
+  const reducedMotion = useReducedMotion();
   const badge = useTabBadge(threadId, workspaceId, tab, hydrated);
   const pending = useWorkbenchStore((s) =>
     tab === "files"
@@ -167,7 +173,9 @@ function NavTabButton({
                 initial={{ scale: 0, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0, opacity: 0 }}
-                transition={{ type: "spring", damping: 18, stiffness: 380 }}
+                transition={
+                  reducedMotion ? { duration: 0 } : PENDING_BADGE_TRANSITION
+                }
                 className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-amber-500"
                 aria-label={m.workbench_tab_pending()}
               />
@@ -209,6 +217,7 @@ export function WorkbenchNavBar({
   const activeTab = useWorkbenchStore((s) => s.getActiveTab(threadId));
   const isOpen = useWorkbenchStore((s) => s.isOpen(threadId));
   const selectTab = useWorkbenchStore((s) => s.selectTab);
+  const setPanelOpen = useWorkbenchStore((s) => s.setPanelOpen);
 
   return (
     <div
@@ -218,7 +227,25 @@ export function WorkbenchNavBar({
     >
       {/* Spacer h-16: alinha os ícones com a base do header de WorkbenchContent
           (sempre h-16, nos dois modos — ver comentário do JSDoc acima). */}
-      <div className="h-16 w-full shrink-0 border-b border-border/60" />
+      <div
+        data-testid="workbench-header-spacer"
+        className="h-[var(--app-header-height)] w-full shrink-0 border-b border-border/60 flex items-center justify-center"
+      >
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <RailToggleButton
+              side={side}
+              onClick={() => setPanelOpen(threadId, !isOpen)}
+              data-testid="workbench-collapse"
+              ariaLabel={m.workbench_toggle()}
+              ariaExpanded={isOpen}
+            />
+          </TooltipTrigger>
+          <TooltipContent side={side === "left" ? "right" : "left"}>
+            {m.workbench_toggle()}
+          </TooltipContent>
+        </Tooltip>
+      </div>
       <div className="flex flex-col items-center gap-1 pt-2">
         {WORKBENCH_TABS.map((tab) => (
           <NavTabButton
@@ -256,17 +283,18 @@ export function WorkbenchContent({
   const activeTab = useWorkbenchStore((s) => s.getActiveTab(threadId));
   const setPanelOpen = useWorkbenchStore((s) => s.setPanelOpen);
   const ActiveIcon = TAB_ICON[activeTab];
+  const reducedMotion = useReducedMotion();
 
   // A.17 — file watcher SSE: dispara markPending quando arquivos mudam
   useWorkspaceWatcher(wsId || undefined);
 
   return (
     <div
-      className={`h-full flex flex-col bg-sidebar ${
+      className={`h-full flex flex-1 min-w-0 flex-col bg-sidebar ${
         side === "left" ? "border-r" : "border-l"
       } border-border/60`}
     >
-      <div className="flex h-16 items-center justify-between px-3 border-b border-border/60 bg-sidebar">
+      <ColumnHeader className="justify-between px-3">
         <span
           className="flex items-center gap-2 text-sm font-medium"
           data-testid="workbench-header-title"
@@ -275,19 +303,21 @@ export function WorkbenchContent({
           <ActiveIcon className="w-4 h-4 text-muted-foreground" />
           {mDyn(`workbench.tab.${activeTab}`)}
         </span>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => setPanelOpen(threadId, false)}
-              aria-label={m.workbench_toggle()}
-              className="flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="left">{m.workbench_toggle()}</TooltipContent>
-        </Tooltip>
-      </div>
+        <div className="flex items-center gap-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setPanelOpen(threadId, false)}
+                aria-label={m.workbench_close()}
+                className="flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="left">{m.workbench_close()}</TooltipContent>
+          </Tooltip>
+        </div>
+      </ColumnHeader>
 
       {/* Body — só monta a aba ativa (poupa recurso); entrada com slide suave.
           Sem AnimatePresence: a troca de aba não pode depender de uma
@@ -299,9 +329,9 @@ export function WorkbenchContent({
       <div className="flex-1 min-h-0 overflow-hidden relative">
         <motion.div
           key={activeTab}
-          initial={{ opacity: 0, x: 6 }}
+          initial={reducedMotion ? false : { opacity: 0, x: 6 }}
           animate={{ opacity: 1, x: 0 }}
-          transition={PANEL_TRANSITION}
+          transition={reducedMotion ? { duration: 0 } : PANEL_TRANSITION}
           className="absolute inset-0"
           data-testid="workbench-tab-content"
           data-tab={activeTab}

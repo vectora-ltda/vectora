@@ -533,6 +533,13 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
 
     from backend.api.server import create_app
 
+    # `vectora web` is an explicit browser-only mode. Clear desktop flags that
+    # could have been inherited from a launcher and never auto-start Electron,
+    # including when the installed Electron binary is discoverable.
+    if force_web:
+        os.environ.pop("VECTORA_DESKTOP", None)
+        os.environ.pop("VECTORA_SPAWN_ELECTRON", None)
+
     headless = force_web or getattr(args, "headless", False)
     if headless:
         os.environ["VECTORA_HEADLESS"] = "1"
@@ -554,7 +561,7 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
     # sozinho, no seu próprio startup, se faz sentido subir uma janela.
     from backend.services.electron_sidecar import should_spawn_electron
 
-    if should_spawn_electron():
+    if not force_web and should_spawn_electron():
         os.environ["VECTORA_DESKTOP"] = "1"
         os.environ["VECTORA_SPAWN_ELECTRON"] = "1"
         logger.info(

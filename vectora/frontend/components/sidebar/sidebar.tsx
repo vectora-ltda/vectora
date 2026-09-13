@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useMemo, memo, useCallback } from "react";
-import { AnimatePresence, motion } from "motion/react";
-import { PANEL_TRANSITION } from "@/lib/motion/transitions";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { MOTION_INSTANT, PANEL_TRANSITION } from "@/lib/motion/transitions";
 import type { Thread } from "@/lib/hooks/threads";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { useSettingsStore } from "@/lib/stores/settings-store";
@@ -32,6 +32,8 @@ interface SidebarProps {
   /** true quando a sessão atual é nova/vazia — destaca "Nova sessão". */
   isNewSession?: boolean;
   onRefreshThreads?: () => Promise<unknown>;
+  /** Oculta a barra de título local quando o app header já ocupa a coluna central. */
+  showHeader?: boolean;
 }
 
 export const Sidebar = memo(function Sidebar({
@@ -45,7 +47,10 @@ export const Sidebar = memo(function Sidebar({
   isLoading = false,
   isNewSession = false,
   onRefreshThreads,
+  showHeader = true,
 }: SidebarProps) {
+  const reducedMotion = useReducedMotion();
+  const panelTransition = reducedMotion ? MOTION_INSTANT : PANEL_TRANSITION;
   const [searchQuery, setSearchQuery] = useState("");
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Set<string>>(
     () => new Set(),
@@ -177,7 +182,7 @@ export const Sidebar = memo(function Sidebar({
             initial={{ opacity: 0, x: -8 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -8 }}
-            transition={PANEL_TRANSITION}
+            transition={panelTransition}
             className="contents"
           >
             <CollapsedSidebar
@@ -194,13 +199,13 @@ export const Sidebar = memo(function Sidebar({
             initial={{ opacity: 0, x: -8 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -8 }}
-            transition={PANEL_TRANSITION}
+            transition={panelTransition}
             className="contents"
           >
             <aside className="fixed md:relative inset-y-0 left-0 z-40 flex w-72 md:w-full bg-sidebar border-r border-border/40 flex-col">
-              <SidebarHeader onToggle={onToggle} />
+              <SidebarHeader onToggle={onToggle} compact={!showHeader} />
 
-              <SidebarModeToggle />
+              <SidebarModeToggle compact={!showHeader} />
 
               {onNewChat && (
                 <NewChatButton onClick={onNewChat} active={isNewSession} />

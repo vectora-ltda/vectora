@@ -35,9 +35,10 @@ export function EffortMenu() {
         <button
           className="flex items-center gap-1.5 min-w-0 px-2.5 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors select-none"
           title={msg.effort_title()}
+          aria-label={msg.effort_title()}
           aria-expanded={open}
         >
-          <span className="truncate font-medium">
+          <span className="hidden truncate font-medium @sm/composer:inline">
             {mDyn(`effort.${effort}`)}
           </span>
           <ChevronDown className="w-3 h-3 shrink-0" />
