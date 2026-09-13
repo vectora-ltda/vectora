@@ -133,22 +133,33 @@ def _assign_to_job_object_best_effort(pid: int) -> None:
 
 
 async def _watch_for_unexpected_exit(proc: asyncio.subprocess.Process) -> None:
-    """Sinaliza o próprio processo Python (SIGTERM, mesmo caminho de
-    Ctrl+C — ver `backend/main.py::_install_terminal_signals`) quando o
-    Electron sai por conta própria (ex.: usuário clicou "Sair" no tray).
+    """Reage ao encerramento do Electron sem derrubar um backend reutilizável.
 
-    Sem isso, no modo backend-primário em dev, fechar o Electron pelo
-    tray derruba só a janela — o processo `vectora start` que o spawnou
-    continua rodando pra sempre no terminal. Não dispara se a saída foi
-    pedida por `stop_electron_sidecar()` (que já zera `_proc` antes de
-    terminar o processo, então este `proc` deixa de ser o `_proc` atual).
+    Uma saída normal (código 0) acontece durante o reinício pelo tray. O
+    backend deve permanecer vivo para que a nova instância do Electron possa
+    reconectar ao mesmo named pipe/porta. Apenas uma saída anormal encerra o
+    processo pai; isso mantém o diagnóstico de crashes sem transformar um
+    reinício normal em ``ETIMEDOUT`` no frontend.
+
+    Não dispara se a saída foi pedida por ``stop_electron_sidecar()`` (que já
+    zera ``_proc`` antes de terminar o processo, então este proc deixa de ser
+    o atual).
     """
+    global _proc
+
     await proc.wait()
     if _proc is not proc:
         return
+    if proc.returncode == 0:
+        logger.info(
+            "electron_sidecar: Electron encerrou normalmente — "
+            "mantendo backend disponível para reconexão"
+        )
+        _proc = None
+        return
     logger.info(
-        "electron_sidecar: Electron saiu por conta própria (code=%s) — "
-        "encerrando o processo backend junto",
+        "electron_sidecar: Electron saiu anormalmente (code=%s) — "
+        "encerrando o processo backend",
         proc.returncode,
     )
     os.kill(os.getpid(), signal.SIGTERM)

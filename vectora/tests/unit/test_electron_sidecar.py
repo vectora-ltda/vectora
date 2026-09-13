@@ -352,12 +352,10 @@ class TestJobObjectIntegration:
 
 
 class TestWatchForUnexpectedExit:
-    """Fechar o Electron pelo tray ("Sair") deve encerrar também o processo
-    `vectora start` que o spawnou — sem isso, o terminal fica vivo pra
-    sempre no modo backend-primário em dev."""
+    """Saída normal do Electron permite reconexão; crash encerra o backend."""
 
     @pytest.mark.asyncio
-    async def test_saida_espontanea_do_electron_envia_sigterm_ao_proprio_processo(
+    async def test_saida_normal_do_electron_preserva_backend_para_reconexao(
         self,
     ):
         fake_proc = MagicMock()
@@ -387,11 +385,34 @@ class TestWatchForUnexpectedExit:
 
             fake_proc.returncode = 0
             wait_future.set_result(None)
-            await asyncio.sleep(0)
+            assert electron_sidecar._watch_task is not None
+            await electron_sidecar._watch_task
+
+        kill_mock.assert_not_called()
+        assert electron_sidecar._proc is None
+
+    @pytest.mark.asyncio
+    async def test_saida_anormal_do_electron_envia_sigterm_ao_backend(self):
+        fake_proc = MagicMock()
+        fake_proc.pid = 4242
+        wait_future: asyncio.Future = asyncio.get_event_loop().create_future()
+
+        async def _wait():
+            return await wait_future
+
+        fake_proc.wait = AsyncMock(side_effect=_wait)
+
+        with patch("backend.services.electron_sidecar.os.kill") as kill_mock:
+            electron_sidecar._proc = fake_proc
+            watcher = asyncio.create_task(
+                electron_sidecar._watch_for_unexpected_exit(fake_proc)
+            )
+            fake_proc.returncode = 1
+            wait_future.set_result(None)
+            await watcher
 
         kill_mock.assert_called_once()
-        args = kill_mock.call_args[0]
-        assert args[1] == electron_sidecar.signal.SIGTERM
+        assert kill_mock.call_args.args[1] == electron_sidecar.signal.SIGTERM
 
     @pytest.mark.asyncio
     async def test_stop_deliberado_nao_dispara_sigterm(self):
