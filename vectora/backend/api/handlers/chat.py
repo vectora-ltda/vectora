@@ -367,17 +367,15 @@ def _persist_image_file(thread_id: str, att: Attachment) -> Path | None:
             destination = target_dir / filename
             temporary = attachment_root / f".{filename}.tmp"
             temporary.write_bytes(raw)
-            os.replace(temporary, destination)
+            temporary.replace(destination)
             return destination
         directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
         nofollow = getattr(os, "O_NOFOLLOW", 0)
         root_fd = os.open(attachment_root, directory_flags | nofollow)
         thread_fd: int | None = None
         try:
-            try:
+            with contextlib.suppress(FileExistsError):
                 os.mkdir(safe_thread, 0o700, dir_fd=root_fd)
-            except FileExistsError:
-                pass
             thread_fd = os.open(safe_thread, directory_flags | nofollow, dir_fd=root_fd)
             fd = os.open(
                 filename,

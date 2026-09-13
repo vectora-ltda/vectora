@@ -23,6 +23,8 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
+import stat
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -31,6 +33,23 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
+
+
+def _read_nofollow(path: Path) -> bytes:
+    """Read one regular file through a descriptor, rejecting final symlinks."""
+    if os.name == "nt":
+        return path.read_bytes()
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError("not a regular file")
+        with os.fdopen(fd, "rb") as stream:
+            fd = -1
+            return stream.read()
+    finally:
+        if fd >= 0:
+            os.close(fd)
+
 
 from backend.api.schemas import (
     ConversationBranch,
@@ -1763,6 +1782,8 @@ async def get_thread_attachment(
 
     safe_thread = thread_id.replace("/", "").replace("\\", "").replace("..", "")
     safe_filename = filename.replace("/", "").replace("\\", "").replace("..", "")
+    if safe_thread != thread_id or safe_filename != filename:
+        raise HTTPException(status_code=404, detail="Anexo não encontrado.")
     raw_root = settings.vectora_home / "chat-attachments" / safe_thread
     if raw_root.is_symlink():
         raise HTTPException(status_code=404, detail="Anexo não encontrado.")
@@ -1772,7 +1793,7 @@ async def get_thread_attachment(
     if candidate.is_symlink() or path.parent != root or not path.is_file():
         raise HTTPException(status_code=404, detail="Anexo não encontrado.")
     try:
-        payload = await asyncio.to_thread(path.read_bytes)
+        payload = await asyncio.to_thread(_read_nofollow, path)
     except OSError as exc:
         raise HTTPException(status_code=404, detail="Anexo não encontrado.") from exc
     return Response(
@@ -1808,7 +1829,7 @@ async def get_thread_asset(thread_id: str, asset_id: str, request: Request) -> R
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset não encontrado")
     try:
-        payload = await asyncio.to_thread(Path(asset.path).read_bytes)
+        payload = await asyncio.to_thread(_read_nofollow, Path(asset.path))
     except OSError as exc:
         raise HTTPException(status_code=404, detail="Asset não encontrado") from exc
     return Response(

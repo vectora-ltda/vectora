@@ -25,7 +25,7 @@ def test_maintenance_barrier_blocks_until_release() -> None:
 async def test_maintenance_window_waits_for_active_storage_operation() -> None:
     import asyncio
 
-    import backend.services.maintenance as maintenance
+    from backend.services import maintenance
 
     maintenance._condition = asyncio.Condition()
     maintenance._active_operations = 0

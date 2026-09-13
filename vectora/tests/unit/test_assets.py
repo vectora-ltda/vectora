@@ -127,6 +127,30 @@ def test_asset_store_recupera_indice_incompleto_sem_excecao(tmp_path: Path) -> N
     assert AssetStore(metadata)._read() == {}
 
 
+def test_asset_store_nao_substitui_indice_corrompido_ao_criar(
+    tmp_path: Path,
+) -> None:
+    metadata = tmp_path / "metadata"
+    metadata.mkdir()
+    index = metadata / "index.json"
+    original = '{"truncated":'
+    index.write_text(original, encoding="utf-8")
+    media = tmp_path / "image.png"
+    media.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    with pytest.raises(RuntimeError, match="índice de assets corrompido"):
+        AssetStore(metadata).create(
+            path=media,
+            owner_id="u1",
+            workspace_id="w1",
+            thread_id="t1",
+            mime_type="image/png",
+            source="upload",
+        )
+
+    assert index.read_text(encoding="utf-8") == original
+
+
 @pytest.mark.parametrize("payload", ["[]", "null", '{"bad": []}'])
 def test_asset_store_ignora_raiz_ou_registros_malformados(
     tmp_path: Path, payload: str

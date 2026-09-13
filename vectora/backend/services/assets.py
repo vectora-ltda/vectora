@@ -197,7 +197,7 @@ class AssetStore:
             datetime.now(UTC).isoformat(),
         )
         with self._locked_index():
-            records = self._read()
+            records = self._read(strict=True)
             records[item.id] = asdict(item)
             self._write_records(records)
         return item
@@ -268,12 +268,18 @@ class AssetStore:
             created_at=str(raw["created_at"]),
         )
 
-    def _read(self) -> dict[str, dict[str, object]]:
+    def _read(self, *, strict: bool = False) -> dict[str, dict[str, object]]:
         try:
             value = json.loads(self.index.read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError):
+        except FileNotFoundError:
+            return {}
+        except (OSError, json.JSONDecodeError) as exc:
+            if strict:
+                raise RuntimeError("índice de assets corrompido") from exc
             return {}
         if not isinstance(value, dict):
+            if strict:
+                raise RuntimeError("índice de assets corrompido")
             return {}
         required = {
             "id",
