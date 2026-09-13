@@ -61,6 +61,7 @@ import {
   type ManagedView,
   type ViewBounds,
 } from "./browser-view-manager.js";
+
 import { computeDefaultWindowSize } from "./window-size.js";
 import {
   fetchMarketplaceThemes,
@@ -71,6 +72,8 @@ import {
   listUpdateBackups,
   restoreUpdateBackup,
 } from "./update-backup.js";
+
+const ELECTRON_RESTART_EXIT_CODE = 42;
 
 interface UpdateStatus {
   state:
@@ -505,7 +508,7 @@ async function restartBackend(): Promise<void> {
   } catch (err) {
     if (await rollbackPendingUpdate()) {
       app.relaunch();
-      app.exit(0);
+      app.exit(ELECTRON_RESTART_EXIT_CODE);
       return;
     }
     dialog.showErrorBox(
@@ -684,7 +687,7 @@ function refreshTrayMenu(): void {
       label: "Reiniciar Vectora",
       click: () => {
         app.relaunch();
-        app.exit(0);
+        app.exit(ELECTRON_RESTART_EXIT_CODE);
       },
     },
     ...(updateReady
@@ -1100,7 +1103,7 @@ app.whenReady().then(async () => {
   } catch (err) {
     if (await rollbackPendingUpdate()) {
       app.relaunch();
-      app.exit(0);
+      app.exit(ELECTRON_RESTART_EXIT_CODE);
       return;
     }
     dialog.showErrorBox(
