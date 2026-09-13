@@ -34,6 +34,66 @@ def _quota_ctx(model: str) -> ToolContext:
     )
 
 
+@pytest.mark.asyncio
+async def test_byok_nao_reserva_quota_nem_altera_uso(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Chave BYOK confirmada isenta a reserva, sem mudar o contrato da tool."""
+    ctx = _quota_ctx("openai:gpt-5")
+    ctx._extra["media_billing_source"] = "byok"
+    called = False
+    summary_called = False
+
+    async def _reserve(**_kwargs: object) -> object:
+        nonlocal called
+        called = True
+        return object()
+
+    async def _summary(_user_id: str) -> dict[str, int | str]:
+        nonlocal summary_called
+        summary_called = True
+        return {"remaining": 10, "limit": 10, "period": "2026-09", "used": 0}
+
+    monkeypatch.setattr(media_quota, "reserve", _reserve)
+    monkeypatch.setattr(media_quota, "summary", _summary)
+    result, error = await media._reserve_media(ctx, "generate_image")
+
+    assert result is None
+    assert error is None
+    assert called is False
+    assert summary_called is False
+
+
+@pytest.mark.asyncio
+async def test_credencial_ausente_nao_recebe_isencao(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sem marcador confiável, a tool segue o fluxo normal de quota."""
+    ctx = _quota_ctx("openai:gpt-5")
+    called = False
+
+    async def _reserve(**_kwargs: object) -> object:
+        nonlocal called
+        called = True
+        return None
+
+    monkeypatch.setattr(media_quota, "reserve", _reserve)
+    monkeypatch.setattr(
+        media_quota,
+        "summary",
+        lambda _user_id: _summary_zero(),
+    )
+    result, error = await media._reserve_media(ctx, "generate_image")
+
+    assert called is True
+    assert result is None
+    assert error is not None
+
+
+async def _summary_zero() -> dict[str, int | str]:
+    return {"remaining": 0, "limit": 10, "period": "2026-09", "used": 0}
+
+
 @pytest.mark.parametrize(
     ("operation", "call"),
     [

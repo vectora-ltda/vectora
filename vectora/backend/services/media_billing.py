@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 from backend.settings import PROVIDER_API_KEY_ENV
 from backend.tools.context import ToolContext
 
 
-def _provider_for_context(context: ToolContext) -> str:
-    """Retorna o provider ativo normalizado para o mapa de credenciais."""
-    raw_provider = context.model.partition(":")[0].strip()
+def _provider_for_model(model: str) -> str:
+    """Return the normalized provider prefix from a model identifier."""
+    raw_provider = model.partition(":")[0].strip()
     if not raw_provider:
         try:
             from backend.workspace.runtime_settings import runtime_settings
@@ -22,6 +20,35 @@ def _provider_for_context(context: ToolContext) -> str:
     return normalized if normalized in PROVIDER_API_KEY_ENV else raw_provider
 
 
+async def resolve_media_billing_source(user_id: str, model: str) -> str | None:
+    """Resolve a trusted BYOK marker for a user and model pair."""
+    if user_id == "local":
+        return None
+    provider = _provider_for_model(model)
+    key_name = PROVIDER_API_KEY_ENV.get(provider)
+    if not key_name:
+        return None
+    return "byok" if await resolve_media_credential(user_id, model) else None
+
+
+async def resolve_media_credential(user_id: str, model: str) -> str | None:
+    """Return the authenticated user's provider credential, if configured."""
+    if user_id == "local":
+        return None
+    provider = _provider_for_model(model)
+    key_name = PROVIDER_API_KEY_ENV.get(provider)
+    if not key_name:
+        return None
+    try:
+        from backend.rbac.auth import get_env_overrides
+
+        overrides = await get_env_overrides(user_id)
+    except Exception:
+        return None
+    credential = overrides.get(key_name, "").strip()
+    return credential or None
+
+
 async def apply_media_billing_source(context: ToolContext) -> ToolContext:
     """Marca BYOK somente quando a credencial do usuário é confiável.
 
@@ -31,18 +58,13 @@ async def apply_media_billing_source(context: ToolContext) -> ToolContext:
     """
     extra = dict(context._extra)
     extra.pop("media_billing_source", None)
-    if context.user_id == "local":
-        return replace(context, _extra=extra)
-
-    provider = _provider_for_context(context)
-    key_name = PROVIDER_API_KEY_ENV.get(provider)
-    if key_name:
-        try:
-            from backend.rbac.auth import get_env_overrides
-
-            overrides = await get_env_overrides(context.user_id)
-        except Exception:
-            overrides = {}
-        if overrides.get(key_name):
-            extra["media_billing_source"] = "byok"
-    return replace(context, _extra=extra)
+    credential = await resolve_media_credential(context.user_id, context.model)
+    if credential is not None:
+        source = "byok"
+        extra["media_billing_source"] = source
+        extra["media_api_key"] = credential
+    else:
+        extra.pop("media_api_key", None)
+    context._extra.clear()
+    context._extra.update(extra)
+    return context
