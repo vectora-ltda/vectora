@@ -150,18 +150,12 @@ function SessionPage() {
   const ideLayoutState = useIdeLayoutState();
   const isNarrowIdeViewport = ideLayoutState === "mobile";
   const workbenchOpen = useWorkbenchStore((s) => s.isOpen(threadId));
-  const splitSize = useWorkbenchStore((s) => s.splitSize);
   const setSplitSize = useWorkbenchStore((s) => s.setSplitSize);
 
   // CI em tempo real: webhook do GitHub → toast + badge no git-tab (sem F5).
   useWebhookWorkbench();
 
-  // Painéis resizáveis persistem largura em px — sem clamp, uma largura
-  // salva numa tela larga causa overflow horizontal ao abrir numa estreita.
-  useClampPanelWidths();
-
   // Largura da sidebar (desktop) arrastável pela borda direita.
-  const sidebarWidth = useSettingsStore((s) => s.sidebarWidth);
   const setSidebarWidth = useSettingsStore((s) => s.setSidebarWidth);
   const sidebarPosition = useSettingsStore((s) => s.sidebarPosition);
   const sidebarOnRight = sidebarPosition === "right";
@@ -172,8 +166,8 @@ function SessionPage() {
   const assistantWorkbenchVisible = hydrated && !chatMode && workbenchOpen;
   const setChatMode = useSettingsStore((s) => s.setChatMode);
   const uiMode = useSettingsStore((s) => s.uiMode);
-  const chatSidebarWidth = useSettingsStore((s) => s.chatSidebarWidth);
   const setChatSidebarWidth = useSettingsStore((s) => s.setChatSidebarWidth);
+  const { sidebarWidth, chatSidebarWidth, splitSize } = useClampPanelWidths();
   // Modelo do chat — lido do store persistido (sobrevive a restart/reload).
   const selectedModel = useSettingsStore((s) => s.selectedModel);
   const setSelectedModel = useSettingsStore((s) => s.setSelectedModel);
@@ -696,7 +690,9 @@ function SessionPage() {
               : 224,
         }}
         transition={
-          draggingSidebar.current ? { duration: 0 } : PANEL_TRANSITION
+          draggingSidebar.current || reducedMotion
+            ? MOTION_INSTANT
+            : PANEL_TRANSITION
         }
       >
         {sidebar}

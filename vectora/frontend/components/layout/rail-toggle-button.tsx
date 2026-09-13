@@ -1,5 +1,10 @@
 import { forwardRef } from "react";
-import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
+import {
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
+} from "lucide-react";
 
 interface RailToggleButtonProps {
   side: "left" | "right";
@@ -17,7 +22,14 @@ export const RailToggleButton = forwardRef<
   { side, onClick, ariaLabel, ariaExpanded, "data-testid": dataTestId },
   ref,
 ) {
-  const Icon = side === "left" ? PanelLeftOpen : PanelRightOpen;
+  const Icon =
+    side === "left"
+      ? ariaExpanded
+        ? PanelLeftClose
+        : PanelLeftOpen
+      : ariaExpanded
+        ? PanelRightClose
+        : PanelRightOpen;
 
   return (
     <button

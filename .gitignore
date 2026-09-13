@@ -389,4 +389,5 @@ env.gha
 /lancedb
 /github-desktop
 /pr-agent
+!.vectora/
 !.vectora/skills.lock.json

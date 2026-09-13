@@ -42,7 +42,9 @@ export function useIsNarrowViewport(): boolean {
  */
 export function getUnscaledViewportWidth(): number {
   if (typeof window === "undefined") return Number.POSITIVE_INFINITY;
-  return window.outerWidth > 0 ? window.outerWidth : window.innerWidth;
+  const isElectron = Boolean(window.vectora?.windowControls);
+  if (isElectron && window.outerWidth > 0) return window.outerWidth;
+  return window.visualViewport?.width ?? window.innerWidth;
 }
 
 /** Tailwind `sm` breakpoint: below 640px is the smartphone layout. */

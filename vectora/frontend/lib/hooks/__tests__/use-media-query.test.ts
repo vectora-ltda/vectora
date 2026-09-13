@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, renderHook } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getIdeLayoutState,
   getUnscaledViewportWidth,
@@ -24,7 +24,11 @@ describe("getIdeLayoutState", () => {
 });
 
 describe("getUnscaledViewportWidth", () => {
-  it("ignora a redução dos CSS pixels causada pela escala visual", () => {
+  afterEach(() => {
+    delete (window as Window & { vectora?: unknown }).vectora;
+  });
+
+  it("usa a largura da janela Electron para ignorar a escala visual", () => {
     const originalOuterWidth = window.outerWidth;
     const originalInnerWidth = window.innerWidth;
     Object.defineProperties(window, {
@@ -32,12 +36,22 @@ describe("getUnscaledViewportWidth", () => {
       innerWidth: { configurable: true, value: 722 },
     });
 
+    window.vectora = { windowControls: {} } as typeof window.vectora;
     expect(getUnscaledViewportWidth()).toBe(1444);
 
     Object.defineProperties(window, {
       outerWidth: { configurable: true, value: originalOuterWidth },
       innerWidth: { configurable: true, value: originalInnerWidth },
     });
+  });
+
+  it("usa a viewport útil no navegador, sem confiar em outerWidth", () => {
+    Object.defineProperties(window, {
+      outerWidth: { configurable: true, value: 1444 },
+      innerWidth: { configurable: true, value: 722 },
+    });
+
+    expect(getUnscaledViewportWidth()).toBe(722);
   });
 });
 

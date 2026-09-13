@@ -39,7 +39,7 @@ export function PermissionModeMenu() {
         <button
           className="flex min-w-0 max-w-full shrink items-center gap-1.5 overflow-hidden px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors select-none"
           title={msg.permission_title()}
-          aria-label={msg.permission_title()}
+          aria-label={`${msg.permission_title()}: ${mDyn(`permission.mode.${mode}`)}`}
           aria-expanded={open}
         >
           <span className="hidden min-w-0 truncate font-medium @sm/composer:inline">

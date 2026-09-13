@@ -30,6 +30,11 @@ describe("getMaxPanelWidth", () => {
       chatSidebarWidth: 320,
       splitSize: 320,
     });
+    expect(getResponsivePanelWidths(preferred, 1100)).toEqual({
+      sidebarWidth: 400,
+      chatSidebarWidth: 400,
+      splitSize: 400,
+    });
     expect(getResponsivePanelWidths(preferred, 1444)).toEqual(preferred);
   });
 });

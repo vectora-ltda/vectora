@@ -170,7 +170,7 @@ export function ModelSelector({
               : "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-sm text-foreground/80 hover:text-foreground hover:bg-muted/50 transition-colors select-none max-w-[200px]"
           }
           title={m.model_select_title()}
-          aria-label={m.model_select_title()}
+          aria-label={`${m.model_select_title()}: ${activeLabel}`}
         >
           <ProviderIcon
             provider={getModelProvider(value as ModelOption)}

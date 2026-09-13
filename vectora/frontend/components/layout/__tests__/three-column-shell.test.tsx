@@ -45,7 +45,7 @@ describe("ThreeColumnShell", () => {
     const header = screen.getByTestId("header");
     const center = screen.getByRole("main");
     expect(screen.getByTestId("shell-header-slot")).toContainElement(header);
-    expect(center).not.toContainElement(header);
+    expect(center).toContainElement(header);
     expect(
       screen.getByRole("complementary", { name: "Sessões" }),
     ).not.toContainElement(header);
@@ -93,12 +93,11 @@ describe("ThreeColumnShell", () => {
     // RTL changes the visual order through flexbox; the DOM order remains
     // stable for accessibility and keyboard navigation.
     const landmarks = shell?.children;
+    const center = screen.getByRole("main");
     expect(landmarks?.[0]).toHaveAttribute("aria-label", "Sessões");
     expect(landmarks?.[1]).toHaveAttribute("aria-label", "Canvas");
     expect(landmarks?.[2]).toHaveAttribute("aria-label", "Workbench");
-    expect(screen.getByTestId("shell-header-slot")).toContainElement(
-      screen.getByTestId("header"),
-    );
+    expect(center).toContainElement(screen.getByTestId("header"));
   });
 
   it("oferece controle acessível para reabrir coluna colapsada", async () => {
@@ -154,7 +153,7 @@ describe("ThreeColumnShell", () => {
       });
       expect(workbench).toHaveStyle({ width: "48px" });
       expect(screen.queryByTestId("workbench-content")).not.toBeInTheDocument();
-      expect(screen.getByTestId("shell-header-slot")).toContainElement(
+      expect(screen.getByRole("main")).toContainElement(
         screen.getByTestId("header"),
       );
     },

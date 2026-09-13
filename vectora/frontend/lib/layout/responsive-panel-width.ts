@@ -29,7 +29,9 @@ export function getResponsivePanelWidths(
     viewportWidth - 320,
     getMaxPanelWidth(viewportWidth),
   );
-  if (maxWidth <= 0 || viewportWidth >= 1024) return preferred;
+  if (maxWidth <= 0 || viewportWidth >= RESPONSIVE_PANEL_BREAKPOINTS.xl) {
+    return preferred;
+  }
   return {
     sidebarWidth: Math.max(180, Math.min(preferred.sidebarWidth, maxWidth)),
     chatSidebarWidth: Math.max(

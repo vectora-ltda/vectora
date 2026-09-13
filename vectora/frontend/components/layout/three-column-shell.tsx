@@ -91,14 +91,6 @@ export function ThreeColumnShell({
       className={`relative flex flex-1 min-h-0 min-w-0 overflow-hidden ${className ?? ""}`}
     >
       <div
-        data-testid="shell-header-slot"
-        className="pointer-events-none absolute inset-x-0 top-0 z-20 h-[var(--app-header-height)]"
-      >
-        <div className="pointer-events-auto mx-auto h-full w-full max-w-[900px]">
-          {centerHeader}
-        </div>
-      </div>
-      <div
         className={`flex flex-1 min-h-0 min-w-0 overflow-hidden pt-0 ${direction === "rtl" ? "flex-row-reverse" : ""}`}
       >
         {leftVisibility !== "hidden" && (
@@ -145,9 +137,11 @@ export function ThreeColumnShell({
           className="flex flex-[1_1_0%] min-h-0 min-w-0 flex-col overflow-hidden"
         >
           <div
-            aria-hidden="true"
-            className="h-[var(--app-header-height)] shrink-0"
-          />
+            data-testid="shell-header-slot"
+            className="z-20 h-[var(--app-header-height)] shrink-0"
+          >
+            {centerHeader}
+          </div>
           <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
             {center}
           </div>
