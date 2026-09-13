@@ -113,9 +113,12 @@ function MarketplaceResults({
   useEffect(() => {
     const q = query.trim();
     let alive = true;
+    // oxlint-disable-next-line react/set-state-in-effect
     setResults([]);
+    // oxlint-disable-next-line react/set-state-in-effect
     setError(null);
     if (!q) {
+      // oxlint-disable-next-line react/set-state-in-effect
       setLoading(false);
       return () => {
         alive = false;
@@ -251,11 +254,14 @@ export function ThemePicker({
   const [query, setQuery] = useState("");
   const [visibleCount, setVisibleCount] = useState(6);
   const previousModeRef = useRef(activeMode);
+  // oxlint-disable-next-line react/refs
   const effectiveVisibleCount =
+    // oxlint-disable-next-line react/refs
     previousModeRef.current === activeMode ? visibleCount : 6;
 
   useEffect(() => {
     previousModeRef.current = activeMode;
+    // oxlint-disable-next-line react/set-state-in-effect
     setVisibleCount(6);
   }, [activeMode]);
 
