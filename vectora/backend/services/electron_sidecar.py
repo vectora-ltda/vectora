@@ -39,6 +39,9 @@ _spawn_lock = LazyLock()
 # explicitamente (mesmo padrão de `backend/scheduling/nats_sidecar.py`).
 _job_handle: int | None = None
 
+# Exit status used by Electron to request a backend-managed restart.
+_ELECTRON_RESTART_EXIT_CODE = 42
+
 
 def should_spawn_electron() -> bool:
     """True quando este processo deve se autoeleger e subir o Electron:
@@ -150,12 +153,10 @@ async def _watch_for_unexpected_exit(proc: asyncio.subprocess.Process) -> None:
     await proc.wait()
     if _proc is not proc:
         return
-    if proc.returncode == 0:
-        logger.info(
-            "electron_sidecar: Electron encerrou normalmente — "
-            "mantendo backend disponível para reconexão"
-        )
+    if proc.returncode == _ELECTRON_RESTART_EXIT_CODE:
+        logger.info("electron_sidecar: reinício solicitado pelo Electron")
         _proc = None
+        await ensure_electron_sidecar()
         return
     logger.info(
         "electron_sidecar: Electron saiu anormalmente (code=%s) — "
