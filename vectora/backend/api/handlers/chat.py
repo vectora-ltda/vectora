@@ -14,6 +14,7 @@ Formato de resposta:
 from __future__ import annotations
 
 import base64
+import binascii
 import contextlib
 import json
 import logging
@@ -321,7 +322,7 @@ async def _transcribe_attachment(att: Attachment) -> str:
 _CHAT_ATTACHMENTS_DIRNAME = "chat-attachments"
 
 
-def _persist_image_attachment(thread_id: str, att: Attachment) -> str | None:
+def _persist_image_file(thread_id: str, att: Attachment) -> Path | None:
     """Copia o anexo de imagem pra ``~/.vectora/chat-attachments/<thread_id>/``
     e devolve a URL servível por `GET /threads/{thread_id}/attachments/{name}`.
 
@@ -329,17 +330,71 @@ def _persist_image_attachment(thread_id: str, att: Attachment) -> str | None:
     já foi enviada ao provider via base64 inline; só a reexibição depois de
     um restart fica indisponível, o que é preferível a quebrar o chat.
     """
+    from backend.services.assets import (
+        ALLOWED_MIME,
+        MAX_ASSET_BYTES,
+        validate_asset_bytes,
+    )
     from backend.settings import settings
 
     try:
-        raw = base64.b64decode(att.base64_data)
+        raw = base64.b64decode(att.base64_data, validate=True)
+        normalized_mime = (
+            "image/jpeg" if att.mime_type == "image/jpg" else att.mime_type
+        )
+        if (
+            normalized_mime not in ALLOWED_MIME
+            or len(raw) > MAX_ASSET_BYTES
+            or not validate_asset_bytes(raw, normalized_mime, att.name)
+        ):
+            logger.warning("chat: imagem rejeitada antes de persistir: %s", att.name)
+            return None
         ext = Path(att.name).suffix or _EXT_BY_MIME.get(att.mime_type, "")
         filename = f"{uuid.uuid4().hex}{ext}"
         safe_thread = thread_id.replace("/", "").replace("\\", "").replace("..", "")
-        target_dir = settings.vectora_home / _CHAT_ATTACHMENTS_DIRNAME / safe_thread
-        target_dir.mkdir(parents=True, exist_ok=True)
-        (target_dir / filename).write_bytes(raw)
-        return f"/threads/{safe_thread}/attachments/{filename}"
+        attachment_root = settings.vectora_home / _CHAT_ATTACHMENTS_DIRNAME
+        if not attachment_root.exists():
+            attachment_root.mkdir(parents=True, exist_ok=True)
+        if attachment_root.is_symlink() or not attachment_root.is_dir():
+            return None
+        if os.name == "nt":
+            target_dir = attachment_root / safe_thread
+            if target_dir.exists() and (
+                target_dir.is_symlink() or not target_dir.is_dir()
+            ):
+                return None
+            target_dir.mkdir(parents=True, exist_ok=True)
+            destination = target_dir / filename
+            temporary = attachment_root / f".{filename}.tmp"
+            temporary.write_bytes(raw)
+            temporary.replace(destination)
+            return destination
+        directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        nofollow = getattr(os, "O_NOFOLLOW", 0)
+        root_fd = os.open(attachment_root, directory_flags | nofollow)
+        thread_fd: int | None = None
+        try:
+            with contextlib.suppress(FileExistsError):
+                os.mkdir(safe_thread, 0o700, dir_fd=root_fd)
+            thread_fd = os.open(safe_thread, directory_flags | nofollow, dir_fd=root_fd)
+            fd = os.open(
+                filename,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow,
+                0o600,
+                dir_fd=thread_fd,
+            )
+            with os.fdopen(fd, "wb") as output:
+                output.write(raw)
+        except Exception:
+            if thread_fd is not None:
+                with contextlib.suppress(OSError):
+                    os.unlink(filename, dir_fd=thread_fd)
+            raise
+        finally:
+            if thread_fd is not None:
+                os.close(thread_fd)
+            os.close(root_fd)
+        return attachment_root / safe_thread / filename
     except Exception:
         logger.exception(
             "chat: falha ao persistir anexo de imagem %s (thread=%s)",
@@ -349,8 +404,21 @@ def _persist_image_attachment(thread_id: str, att: Attachment) -> str | None:
         return None
 
 
+def _persist_image_attachment(thread_id: str, att: Attachment) -> str | None:
+    """Persiste a imagem legada e retorna a URL compatível do histórico."""
+    path = _persist_image_file(thread_id, att)
+    if path is None:
+        return None
+    safe_thread = thread_id.replace("/", "").replace("\\", "").replace("..", "")
+    return f"/threads/{safe_thread}/attachments/{path.name}"
+
+
 async def _build_user_vmessage(
-    content: str, attachments: list[Attachment], thread_id: str
+    content: str,
+    attachments: list[Attachment],
+    thread_id: str,
+    user_id: str = "local",
+    workspace_id: str = "",
 ) -> VMessage:
     """Constrói VMessage com suporte a conteúdo multimodal.
 
@@ -374,7 +442,7 @@ async def _build_user_vmessage(
         if att.kind == AttachmentKind.IMAGE:
             # Log de diagnóstico para imagens grandes
             try:
-                img_size = len(base64.b64decode(att.base64_data))
+                img_size = len(base64.b64decode(att.base64_data, validate=True))
                 if img_size > 5 * 1024 * 1024:
                     logger.error(
                         "chat: imagem MUITO grande recebida: %s (%d bytes). "
@@ -388,15 +456,57 @@ async def _build_user_vmessage(
                         att.name,
                         img_size,
                     )
-            except Exception:
-                pass
+            except (ValueError, binascii.Error):
+                logger.warning("chat: imagem Base64 inválida rejeitada: %s", att.name)
+                continue
 
-            _persist_image_attachment(thread_id, att)
+            from backend.services.assets import (
+                ALLOWED_MIME,
+                MAX_ASSET_BYTES,
+                validate_asset_bytes,
+            )
+
+            normalized_mime = (
+                "image/jpeg" if att.mime_type == "image/jpg" else att.mime_type
+            )
+            raw_image = base64.b64decode(att.base64_data, validate=True)
+            if (
+                normalized_mime not in ALLOWED_MIME
+                or len(raw_image) > MAX_ASSET_BYTES
+                or not validate_asset_bytes(raw_image, normalized_mime, att.name)
+            ):
+                logger.warning("chat: imagem rejeitada antes do provider: %s", att.name)
+                continue
+
+            persisted = _persist_image_file(thread_id, att)
+            asset_id = None
+            if persisted is not None:
+                try:
+                    from backend.services.assets import asset_store
+
+                    asset_id = asset_store.create(
+                        path=persisted,
+                        owner_id=user_id,
+                        workspace_id=workspace_id,
+                        thread_id=thread_id,
+                        mime_type=att.mime_type,
+                        source="chat_attachment",
+                    ).id
+                except Exception:
+                    logger.exception("chat: falha ao registrar asset multimodal")
+                    persisted.unlink(missing_ok=True)
+                    persisted = None
 
             blocks.append(
                 ContentBlock(
                     kind="image_url",
                     image_url=f"data:{att.mime_type};base64,{att.base64_data}",
+                    asset_id=asset_id,
+                    attachment_name=persisted.name
+                    if asset_id and persisted is not None
+                    else None,
+                    attachment_mime_type=att.mime_type,
+                    attachment_size_bytes=img_size,
                 )
             )
         elif att.kind == AttachmentKind.AUDIO:
@@ -856,7 +966,11 @@ async def stream_chat(
     }
 
     user_vmsg = await _build_user_vmessage(
-        request.content, request.attachments, thread_id
+        request.content,
+        request.attachments,
+        thread_id,
+        user_id=user_id,
+        workspace_id=workspace_id or "",
     )
 
     # Planning mode: injeta instrução de planejamento no VMessage

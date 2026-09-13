@@ -39,17 +39,24 @@ export function HitlAllowlistPanel() {
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    if (workspaceId && !selectedWorkspace) setSelectedWorkspace(workspaceId);
+    if (workspaceId && !selectedWorkspace) {
+      // oxlint-disable-next-line react/set-state-in-effect
+      setSelectedWorkspace(workspaceId);
+    }
   }, [workspaceId, selectedWorkspace]);
 
   useEffect(() => {
     if (!selectedWorkspace) {
+      // oxlint-disable-next-line react/set-state-in-effect
       setRules([]);
       return;
     }
     const controller = new AbortController();
+    // oxlint-disable-next-line react/set-state-in-effect
     setLoading(true);
+    // oxlint-disable-next-line react/set-state-in-effect
     setError(null);
+    // oxlint-disable-next-line react/set-state-in-effect
     setNotice(null);
     void fetch(
       `/smart-approval/allowlist?workspace_id=${encodeURIComponent(selectedWorkspace)}`,

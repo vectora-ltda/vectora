@@ -197,10 +197,10 @@ async def evaluate_command(
 __all__ = [
     "add_to_allowlist",
     "allowlist_id",
-    "rule_id",
     "evaluate_command",
     "get_allowlist",
     "is_allowlisted",
     "remove_from_allowlist",
     "remove_from_allowlist_by_id",
+    "rule_id",
 ]

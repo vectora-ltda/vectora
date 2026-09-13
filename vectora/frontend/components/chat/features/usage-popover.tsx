@@ -154,6 +154,8 @@ export function UsagePopover({ tokensUsed, modelId }: UsagePopoverProps) {
       .catch(() => {
         // Sem consumo remoto o popover ainda mostra a janela de contexto.
       });
+    // The opened popover synchronizes its remote snapshot with local state.
+    // oxlint-disable-next-line react/set-state-in-effect
     setMediaQuota(null);
     void fetch("/usage/media", { credentials: "include", cache: "no-store" })
       .then((r) => (r.ok ? r.json() : null))

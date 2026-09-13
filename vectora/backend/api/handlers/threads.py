@@ -23,13 +23,44 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
+import stat
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
+
+
+def _read_relative_nofollow(root: Path, parts: list[str]) -> bytes:
+    """Read a file through directory descriptors without following symlinks."""
+    if os.name == "nt":
+        return (root.joinpath(*parts)).read_bytes()
+    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(root, directory_flags | nofollow)
+    try:
+        for component in parts[:-1]:
+            child = os.open(component, directory_flags | nofollow, dir_fd=fd)
+            os.close(fd)
+            fd = child
+        file_fd = os.open(parts[-1], os.O_RDONLY | nofollow, dir_fd=fd)
+        try:
+            if not stat.S_ISREG(os.fstat(file_fd).st_mode):
+                raise OSError("not a regular file")
+            with os.fdopen(file_fd, "rb") as stream:
+                file_fd = -1
+                return stream.read()
+        finally:
+            if file_fd >= 0:
+                os.close(file_fd)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+
 
 from backend.api.schemas import (
     ConversationBranch,
@@ -711,7 +742,9 @@ async def create_thread(body: CreateThreadRequest, http_request: Request) -> Thr
 # ---------------------------------------------------------------------------
 
 
-async def _assert_owns_thread(thread_id: str, http_request: Request | None) -> None:
+async def _assert_owns_thread(
+    thread_id: str, http_request: Request | None, *, require_existing: bool = False
+) -> None:
     """Confirma em ``SessionStore`` (fonte de verdade sobre posse) que
     ``thread_id``, SE registrada lá, pertence ao usuário autenticado em
     ``http_request``.
@@ -720,8 +753,8 @@ async def _assert_owns_thread(thread_id: str, http_request: Request | None) -> N
     checagem — mantém o comportamento pré-existente dos callers internos de
     ``get_thread`` (GetHistory, GenerateTitle, histórico paginado), que já
     resolvem a thread por outros meios. Thread sem registro nenhum em
-    ``SessionStore`` (legado, criada antes da posse ser rastreada lá) também
-    passa — ausência de registro não é prova de posse alheia. Levanta 404
+    ``SessionStore`` também retorna 404 para chamadas HTTP autenticadas,
+    evitando que uma rota legada vire um bypass. Levanta 404
     (nunca 403) quando HÁ registro e o dono não bate — não distingue
     "não existe" de "não é sua" pro caller, pra não vazar a existência de
     threads de outro usuário."""
@@ -734,6 +767,10 @@ async def _assert_owns_thread(thread_id: str, http_request: Request | None) -> N
     session_store = await _get_session_store()
     session = await session_store.get_session(thread_id)
     if session is None:
+        if require_existing:
+            raise HTTPException(
+                status_code=404, detail=f"Thread {thread_id!r} not found"
+            )
         return
     user_id = _user_id(http_request)
     if session["user_id"] != user_id:
@@ -742,6 +779,14 @@ async def _assert_owns_thread(thread_id: str, http_request: Request | None) -> N
 
 async def _require_existing_thread(thread_id: str, request: Request) -> None:
     """Exige posse e registro existente para os endpoints de branches."""
+    await _assert_owns_thread(thread_id, request, require_existing=True)
+    store = await _get_session_store()
+    if await store.get_session(thread_id) is None:
+        raise HTTPException(status_code=404, detail="Thread não encontrada")
+
+
+async def _assert_existing_thread_ownership(thread_id: str, request: Request) -> None:
+    """Apply ownership checks and reject authenticated requests without a session."""
     await _assert_owns_thread(thread_id, request)
     store = await _get_session_store()
     if await store.get_session(thread_id) is None:
@@ -1107,6 +1152,9 @@ async def delete_thread(
     # recria em `vectora_sessions`, ressuscitando uma conversa apagada.
     session_store = await _get_session_store()
     await session_store.delete_session(request.thread_id)
+    from backend.services.assets import asset_store
+
+    asset_store.delete_thread_assets(request.thread_id)
     from backend.services.desktop_windows import desktop_window_registry
 
     desktop_window_registry.invalidate(request.thread_id)
@@ -1648,6 +1696,7 @@ MESSAGES_CAP = 200
 @router.get("/threads/{thread_id}/history", response_model=PagedHistoryResponse)
 async def get_thread_history_paginated(
     thread_id: str,
+    request: Request,
     limit: int = MESSAGES_CAP,
     offset: int = 0,
 ) -> PagedHistoryResponse:
@@ -1657,14 +1706,23 @@ async def get_thread_history_paginated(
     recentes), em ordem cronológica. ``has_more=True`` quando existem mensagens
     mais antigas além das retornadas.
     """
+    await _assert_owns_thread(
+        thread_id,
+        request,
+        require_existing=_user_id(request) != "local",
+    )
     try:
         from backend.services import agent_factory
 
-        thread = await get_thread(GetThreadRequest(thread_id=thread_id))
+        thread = await get_thread(
+            GetThreadRequest(thread_id=thread_id), http_request=request
+        )
         pairs = await agent_factory.aget_thread_messages(
             thread_id,
             workspace_id=thread.workspace_id or None,
         )
+    except HTTPException:
+        raise
     except Exception:
         logger.exception("api/threads: erro ao carregar histórico paginado")
         return PagedHistoryResponse(messages=[], has_more=False, total_count=0)
@@ -1721,18 +1779,73 @@ async def get_thread_history_paginated(
 
 
 @router.get("/threads/{thread_id}/attachments/{filename}")
-async def get_thread_attachment(thread_id: str, filename: str) -> FileResponse:
+async def get_thread_attachment(
+    thread_id: str,
+    filename: str,
+    request: Request,
+) -> Response:
     """Serve um anexo de imagem persistido por `_persist_image_attachment`
     (`chat.py`) — `attachments[].url` no histórico aponta pra cá. Sanitiza
     os dois segmentos (sem `..`/separador) antes de tocar o filesystem."""
     from backend.settings import settings
 
+    await _assert_existing_thread_ownership(thread_id, request)
+
     safe_thread = thread_id.replace("/", "").replace("\\", "").replace("..", "")
     safe_filename = filename.replace("/", "").replace("\\", "").replace("..", "")
-    path = settings.vectora_home / "chat-attachments" / safe_thread / safe_filename
-    if not path.is_file():
+    if safe_thread != thread_id or safe_filename != filename:
         raise HTTPException(status_code=404, detail="Anexo não encontrado.")
-    return FileResponse(path)
+    attachment_root = settings.vectora_home / "chat-attachments"
+    raw_root = attachment_root / safe_thread
+    if attachment_root.is_symlink() or raw_root.is_symlink():
+        raise HTTPException(status_code=404, detail="Anexo não encontrado.")
+    root = raw_root.resolve()
+    candidate = root / safe_filename
+    path = candidate.resolve()
+    if candidate.is_symlink() or path.parent != root or not path.is_file():
+        raise HTTPException(status_code=404, detail="Anexo não encontrado.")
+    try:
+        payload = await asyncio.to_thread(
+            _read_relative_nofollow, attachment_root, [safe_thread, safe_filename]
+        )
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail="Anexo não encontrado.") from exc
+    return Response(
+        payload,
+        media_type="application/octet-stream",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get("/threads/{thread_id}/assets/{asset_id}")
+async def get_thread_asset(thread_id: str, asset_id: str, request: Request) -> Response:
+    """Serve um asset multimodal após validar dono, workspace e thread."""
+    await _assert_existing_thread_ownership(thread_id, request)
+    db = await _get_db()
+    async with db.execute(
+        "SELECT extra FROM vectora_sessions WHERE thread_id = ?", (thread_id,)
+    ) as cursor:
+        row = await cursor.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Thread não encontrada")
+    try:
+        workspace_id = str((json.loads(row[0] or "{}")).get("workspace_id") or "")
+    except (TypeError, json.JSONDecodeError):
+        workspace_id = ""
+    from backend.services.assets import asset_store
+
+    loaded = asset_store.read(
+        asset_id,
+        owner_id=_user_id(request),
+        workspace_id=workspace_id,
+        thread_id=thread_id,
+    )
+    if loaded is None:
+        raise HTTPException(status_code=404, detail="Asset não encontrado")
+    asset, payload = loaded
+    return Response(
+        payload, media_type=asset.mime_type, headers={"Cache-Control": "no-store"}
+    )
 
 
 # ---------------------------------------------------------------------------

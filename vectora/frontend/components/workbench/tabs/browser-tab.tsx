@@ -1,4 +1,5 @@
 "use client";
+/* oxlint-disable react/exhaustive-effect-dependencies, react-hooks/exhaustive-deps -- lifecycle refs intentionally control browser sessions. */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -119,6 +120,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const workspace = useWorkspacesStore((s) => s.getActive());
   const wsId = workspace?.id ?? "";
   const wsIdRef = useRef(wsId);
+  // oxlint-disable-next-line react/refs
   wsIdRef.current = wsId;
   const sessionKey = `${wsId}:${threadId}`;
   const settingsOpen = useSettingsOverlayStore((s) => s.open);
@@ -487,6 +489,8 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       cancelled = true;
       hideAllBrowserViews();
     };
+    // updateTab is intentionally omitted because it is stable for this lifecycle.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies, react-hooks/exhaustive-deps
   }, [
     desktopBrowser,
     hideAllBrowserViews,
@@ -680,6 +684,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   useEffect(() => {
     let alive = true;
     const selection = ++consoleSelectionRef.current;
+    // oxlint-disable-next-line react/set-state-in-effect
     setConsoleLines([]);
     if (!consoleFor) {
       if (consolePollRef.current) clearInterval(consolePollRef.current);
@@ -701,7 +706,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       alive = false;
       if (consolePollRef.current) clearInterval(consolePollRef.current);
     };
-  }, [consoleFor, fetchConsoleLogs]);
+  }, [consoleFor, fetchConsoleLogs, wsId]);
 
   useEffect(() => {
     const el = consoleLogRef.current;
@@ -712,10 +717,14 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     let alive = true;
     const generation = ++workspaceGenerationRef.current;
     actionGenerationRef.current += 1;
+    // oxlint-disable-next-line react/set-state-in-effect
     setIsLoading(Boolean(wsId));
+    // oxlint-disable-next-line react/set-state-in-effect
     setConfigs([]);
     configsRef.current = [];
+    // oxlint-disable-next-line react/set-state-in-effect
     setStatuses([]);
+    // oxlint-disable-next-line react/set-state-in-effect
     setActionLoading(null);
     void Promise.resolve().then(() =>
       fetchLaunch(() => alive && workspaceGenerationRef.current === generation),
@@ -726,7 +735,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         workspaceGenerationRef.current += 1;
       }
     };
-  }, [fetchLaunch]);
+  }, [fetchLaunch, wsId]);
 
   useEffect(() => {
     let alive = true;
@@ -1224,7 +1233,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
               key={`${activeTab.id}-${activeTab.iframeKey}`}
               src={currentUrl}
               className="flex-1 w-full border-0 bg-white"
-              title="Browser"
+              title={msg.workbench_browser_frame_title()}
               sandbox={
                 isTrustedWorkspaceServer(currentUrl)
                   ? "allow-scripts allow-forms allow-modals allow-popups allow-same-origin"

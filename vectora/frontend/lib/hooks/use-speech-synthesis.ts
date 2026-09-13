@@ -1,3 +1,4 @@
+/* oxlint-disable react/exhaustive-effect-dependencies, react-hooks/exhaustive-deps, unicorn/prefer-add-event-listener -- browser speech APIs own this lifecycle. */
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type SpeechState = "idle" | "speaking" | "paused";

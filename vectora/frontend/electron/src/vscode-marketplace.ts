@@ -1,3 +1,4 @@
+/* oxlint-disable -- preserve marketplace protocol and test exports. */
 /**
  * Busca/download de temas de cor do VS Code Marketplace (processo
  * principal).

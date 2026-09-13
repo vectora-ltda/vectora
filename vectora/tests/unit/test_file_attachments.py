@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 from contextlib import ExitStack
+from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -225,7 +226,9 @@ class TestStreamChatRequestAttachments:
 
 class TestBuildUserVMessage:
     @pytest.fixture(autouse=True)
-    def _isolated_vectora_home(self, tmp_path, monkeypatch):
+    def _isolated_vectora_home(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """``_build_user_vmessage`` com imagem grava em ``settings.vectora_home``
         (``_persist_image_attachment``) — nunca aponta pro ``~/.vectora`` real
         do ambiente rodando o teste."""
@@ -255,7 +258,7 @@ class TestBuildUserVMessage:
     async def test_image_attachment_produces_multimodal(self) -> None:
         from backend.api.handlers.chat import _build_user_vmessage
 
-        raw = _b64_bytes(b"fake_image_bytes")
+        raw = _b64_bytes(b"\x89PNG\r\n\x1a\nfake_image_bytes")
         att = Attachment(
             kind=AttachmentKind.IMAGE,
             name="img.png",
@@ -274,7 +277,7 @@ class TestBuildUserVMessage:
 
     @pytest.mark.asyncio
     async def test_image_attachment_e_persistida_em_disco_pra_sobreviver_a_restart(
-        self, tmp_path
+        self, tmp_path: Path
     ) -> None:
         """A imagem é persistida em disco (via ``_persist_image_attachment``)
         pra sobreviver a um restart do backend — o VMessage não carrega
@@ -297,6 +300,84 @@ class TestBuildUserVMessage:
         assert len(persisted) == 1
         assert persisted[0].is_file()
         assert persisted[0].read_bytes() == raw_bytes
+
+    @pytest.mark.asyncio
+    async def test_falha_ao_criar_asset_remove_arquivo_persistido(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from backend.api.handlers.chat import _build_user_vmessage
+        from backend.services.assets import asset_store
+
+        called = False
+
+        def fail_create(**_kwargs: object) -> None:
+            nonlocal called
+            called = True
+            raise ValueError("asset inválido")
+
+        monkeypatch.setattr(asset_store, "create", fail_create)
+        att = Attachment(
+            kind=AttachmentKind.IMAGE,
+            name="invalid.png",
+            mime_type="image/png",
+            base64_data=_b64_bytes(b"\x89PNG\r\n\x1a\nfake-image-content"),
+        )
+        msg = await _build_user_vmessage("veja", [att], "thread-invalid")
+
+        assert called is True
+        assert msg.content[1].asset_id is None
+        assert msg.content[1].attachment_name is None
+        from backend.settings import settings
+
+        assert not [
+            path
+            for path in (settings.vectora_home / "chat-attachments").rglob("*")
+            if path.is_file()
+        ]
+
+    @pytest.mark.asyncio
+    async def test_mime_invalido_nao_grava_arquivo(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from backend.api.handlers.chat import _persist_image_file
+
+        att = Attachment(
+            kind=AttachmentKind.IMAGE,
+            name="invalid.png",
+            mime_type="image/png",
+            base64_data=_b64_bytes(b"image"),
+        )
+        from backend.services import assets
+
+        monkeypatch.setattr(assets, "ALLOWED_MIME", {"audio/mpeg"})
+        assert _persist_image_file("thread-invalid", att) is None
+
+    @pytest.mark.asyncio
+    async def test_assinatura_invalida_nao_grava_asset(self) -> None:
+        from backend.api.handlers.chat import _persist_image_file
+
+        att = Attachment(
+            kind=AttachmentKind.IMAGE,
+            name="invalid.png",
+            mime_type="image/png",
+            base64_data=_b64_bytes(b"bytes que nao sao png"),
+        )
+
+        assert _persist_image_file("thread-invalid-signature", att) is None
+
+    @pytest.mark.asyncio
+    async def test_base64_invalido_nao_gera_bloco_de_imagem(self) -> None:
+        from backend.api.handlers.chat import _build_user_vmessage
+
+        att = Attachment.model_construct(
+            kind=AttachmentKind.IMAGE,
+            name="invalid.png",
+            mime_type="image/png",
+            base64_data="not-base64",
+        )
+        msg = await _build_user_vmessage("veja", [att], "thread-invalid")
+
+        assert [block.kind for block in msg.content] == ["text"]
 
     @pytest.mark.asyncio
     async def test_falha_ao_persistir_nao_aborta_o_turno(self, monkeypatch) -> None:
@@ -385,7 +466,7 @@ class TestBuildUserVMessage:
             kind=AttachmentKind.IMAGE,
             name="img.png",
             mime_type="image/png",
-            base64_data=_b64_bytes(b"img"),
+            base64_data=_b64_bytes(b"\x89PNG\r\n\x1a\nimg"),
         )
         code_att = Attachment(
             kind=AttachmentKind.CODE,
@@ -407,13 +488,13 @@ class TestBuildUserVMessage:
             kind=AttachmentKind.IMAGE,
             name="a.png",
             mime_type="image/png",
-            base64_data=_b64_bytes(b"img1"),
+            base64_data=_b64_bytes(b"\x89PNG\r\n\x1a\nimg1"),
         )
         att2 = Attachment(
             kind=AttachmentKind.IMAGE,
             name="b.jpg",
             mime_type="image/jpeg",
-            base64_data=_b64_bytes(b"img2"),
+            base64_data=_b64_bytes(b"\xff\xd8\xff\xd9img2"),
         )
         msg = await _build_user_vmessage("compare", [att1, att2], "t1")
 

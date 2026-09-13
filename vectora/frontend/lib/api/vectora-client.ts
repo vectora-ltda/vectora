@@ -720,7 +720,7 @@ export async function submitFeedback(
     );
   } catch (error) {
     if (error instanceof Error && error.message.includes("(429)")) {
-      throw new Error("rate_limited");
+      throw new Error("rate_limited", { cause: error });
     }
     throw error;
   }

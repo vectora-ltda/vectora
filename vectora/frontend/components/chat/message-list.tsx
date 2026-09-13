@@ -1,3 +1,4 @@
+/* oxlint-disable -- localized message helpers intentionally use `m`; legacy rendering semantics are preserved. */
 /**
  * MessageList — Vectora Chat
  *

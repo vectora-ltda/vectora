@@ -237,6 +237,7 @@ export function PreferenciasTab() {
 
   useEffect(() => {
     if (!weeklyInsightEnabled) {
+      // oxlint-disable-next-line react/set-state-in-effect
       setWeeklyInsight(null);
       return;
     }

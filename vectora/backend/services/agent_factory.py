@@ -786,10 +786,8 @@ async def aget_thread_messages(
     ``SessionStore.set_branch_head`` pra "editar e reenviar"/"regenerar".
     Thread sem nenhum registro no ``SessionStore`` devolve lista vazia — sem
     dado de conversa pré-existente em produto público, não há checkpointer
-    legado a consultar. ``attachments_meta`` sempre ``[]``: ``VMessage``
-    ainda não carrega metadados de anexo (gap documentado — thumbnails de
-    imagem não reaparecem num reload de thread; o anexo em si continua
-    enviado ao provider e persistido em disco).
+    legado a consultar. ``attachments_meta`` contém URLs autenticadas para
+    assets novos e para anexos legados que ainda não têm ``asset_id``.
     """
     from backend.vtypes.message import MessageRole
 
@@ -799,11 +797,44 @@ async def aget_thread_messages(
     for msg_id, msg in pares:
         if msg.role in (MessageRole.TOOL, MessageRole.SYSTEM):
             continue
-        text = msg.text().strip()
-        if not text:
-            continue
         role = "human" if msg.role == MessageRole.USER else "assistant"
-        out.append((role, text, str(msg_id), []))
+        attachments = [
+            {
+                "kind": "image",
+                "name": block.attachment_name or block.asset_id or "image",
+                "mimeType": block.attachment_mime_type or "image/png",
+                "size": block.attachment_size_bytes or 0,
+                "url": (
+                    f"/threads/{thread_id}/assets/{block.asset_id}"
+                    if block.asset_id
+                    else (
+                        f"/threads/{thread_id}/attachments/{block.attachment_name}"
+                        if block.attachment_name
+                        else block.image_url
+                    )
+                ),
+                **({"asset_id": block.asset_id} if block.asset_id else {}),
+                **(
+                    {"attachment_name": block.attachment_name}
+                    if block.attachment_name
+                    else {}
+                ),
+            }
+            for block in msg.content
+            if block.kind == "image_url"
+            and (
+                block.asset_id is not None
+                or block.attachment_name is not None
+                or (
+                    block.image_url is not None
+                    and not block.image_url.casefold().startswith("data:")
+                )
+            )
+        ]
+        text = msg.text().strip()
+        if not text and not attachments:
+            continue
+        out.append((role, text, str(msg_id), attachments))
     return out
 
 
