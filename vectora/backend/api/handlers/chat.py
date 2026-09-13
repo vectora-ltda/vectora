@@ -353,29 +353,52 @@ def _persist_image_file(thread_id: str, att: Attachment) -> Path | None:
         filename = f"{uuid.uuid4().hex}{ext}"
         safe_thread = thread_id.replace("/", "").replace("\\", "").replace("..", "")
         attachment_root = settings.vectora_home / _CHAT_ATTACHMENTS_DIRNAME
-        if attachment_root.exists() and (
-            attachment_root.is_symlink() or not attachment_root.is_dir()
-        ):
+        if not attachment_root.exists():
+            attachment_root.mkdir(parents=True, exist_ok=True)
+        if attachment_root.is_symlink() or not attachment_root.is_dir():
             return None
-        attachment_root.mkdir(parents=True, exist_ok=True)
-        target_dir = attachment_root / safe_thread
-        if target_dir.exists() and (target_dir.is_symlink() or not target_dir.is_dir()):
-            return None
-        target_dir.mkdir(parents=True, exist_ok=True)
-        destination = target_dir / filename
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        if os.name == "nt":
+            target_dir = attachment_root / safe_thread
+            if target_dir.exists() and (
+                target_dir.is_symlink() or not target_dir.is_dir()
+            ):
+                return None
+            target_dir.mkdir(parents=True, exist_ok=True)
+            destination = target_dir / filename
+            destination_fd = os.open(
+                destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+            )
+            with os.fdopen(destination_fd, "wb") as output:
+                output.write(raw)
+            return destination
+        directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
         nofollow = getattr(os, "O_NOFOLLOW", 0)
-        fd = os.open(destination, flags | nofollow, 0o600)
+        root_fd = os.open(attachment_root, directory_flags | nofollow)
+        thread_fd: int | None = None
         try:
+            try:
+                os.mkdir(safe_thread, 0o700, dir_fd=root_fd)
+            except FileExistsError:
+                pass
+            thread_fd = os.open(safe_thread, directory_flags | nofollow, dir_fd=root_fd)
+            fd = os.open(
+                filename,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | nofollow,
+                0o600,
+                dir_fd=thread_fd,
+            )
             with os.fdopen(fd, "wb") as output:
                 output.write(raw)
         except Exception:
-            with contextlib.suppress(OSError):
-                os.close(fd)
-            with contextlib.suppress(OSError):
-                destination.unlink()
+            if thread_fd is not None:
+                with contextlib.suppress(OSError):
+                    os.unlink(filename, dir_fd=thread_fd)
             raise
-        return destination
+        finally:
+            if thread_fd is not None:
+                os.close(thread_fd)
+            os.close(root_fd)
+        return attachment_root / safe_thread / filename
     except Exception:
         logger.exception(
             "chat: falha ao persistir anexo de imagem %s (thread=%s)",
