@@ -33,7 +33,9 @@ vi.mock("@/lib/paraglide/messages", () => ({
         (...args: unknown[]) =>
           args.length
             ? `${String(prop)}(${JSON.stringify(args[0])})`
-            : String(prop),
+            : prop === "workbench_browser_frame_title"
+              ? "Browser"
+              : String(prop),
     },
   ),
 }));
@@ -200,10 +202,14 @@ describe("BrowserTab — servidores de dev (paridade com o antigo Preview)", () 
     await screen.findByTitle("workbench_browser_start");
     expect(screen.getByText("web")).toBeTruthy();
 
-    fireEvent.click(screen.getByTitle("workbench_browser_servers_collapse"));
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("workbench_browser_servers_collapse"));
+    });
     expect(screen.queryByText("web")).toBeNull();
 
-    fireEvent.click(screen.getByTitle("workbench_browser_servers_expand"));
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("workbench_browser_servers_expand"));
+    });
     expect(screen.getByText("web")).toBeTruthy();
   });
 

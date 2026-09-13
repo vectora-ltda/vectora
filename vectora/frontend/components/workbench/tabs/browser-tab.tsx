@@ -1233,7 +1233,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
               key={`${activeTab.id}-${activeTab.iframeKey}`}
               src={currentUrl}
               className="flex-1 w-full border-0 bg-white"
-              title={msg.workbench_browser_empty_title()}
+              title={msg.workbench_browser_frame_title()}
               sandbox={
                 isTrustedWorkspaceServer(currentUrl)
                   ? "allow-scripts allow-forms allow-modals allow-popups allow-same-origin"

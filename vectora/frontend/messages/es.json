@@ -964,6 +964,7 @@
   "workbench_ci_passed": "CI pasó",
   "workbench_ci_failed": "CI falló",
   "workbench_browser_empty_title": "Ninguna URL abierta",
+  "workbench_browser_frame_title": "Browser",
   "workbench_browser_empty_description": "Escribe una URL arriba para navegar, o configura un dev server del workspace.",
   "workbench_browser_start": "Iniciar servidor",
   "workbench_browser_stop": "Detener servidor",
