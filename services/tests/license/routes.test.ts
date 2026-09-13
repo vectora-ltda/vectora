@@ -137,8 +137,8 @@ describe("POST /validate rate limiting", () => {
 
   it("does not rate-limit a different IP independently of an exhausted one", async () => {
     const { rawToken } = await makeUserWithToken();
-    const busyIp = `198.51.100.${Math.floor(Math.random() * 254) + 1}`;
-    const freshIp = `198.51.100.${Math.floor(Math.random() * 254) + 1}`;
+    const busyIp = "198.51.100.10";
+    const freshIp = "198.51.100.11";
     const testEnv = envWithDeterministicLicenseLimiter();
     const requestWithIp = (ip: string) =>
       license.request(
