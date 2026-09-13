@@ -88,8 +88,13 @@ interface Entry {
 }
 
 const ALLOWED_SCHEMES = new Set(["http:", "https:"]);
+const CHROME_SETTINGS_URL = /^chrome:\/\/settings(?:\/.*)?$/i;
 
 export function isNavigableUrl(raw: string): boolean {
+  // ``chrome://settings`` is an Electron-owned page. It must stay intact;
+  // passing it through the generic URL normalizer turns it into the invalid
+  // ``https://chrome//settings`` URL seen after a tray restart.
+  if (CHROME_SETTINGS_URL.test(raw.trim())) return true;
   try {
     return ALLOWED_SCHEMES.has(new URL(raw).protocol);
   } catch {

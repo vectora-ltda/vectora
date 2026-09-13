@@ -44,7 +44,14 @@ describe("isNavigableUrl", () => {
     expect(isNavigableUrl("http://localhost:3000")).toBe(true);
   });
 
+  it("preserva a página interna de configurações do Chromium", () => {
+    expect(isNavigableUrl("chrome://settings")).toBe(true);
+    expect(isNavigableUrl("chrome://settings/passwords")).toBe(true);
+    expect(isNavigableUrl("https://chrome//settings/")).toBe(true);
+  });
+
   it("rejeita esquemas não-http e URLs malformadas", () => {
+    expect(isNavigableUrl("")).toBe(false);
     expect(isNavigableUrl("file:///etc/passwd")).toBe(false);
     expect(isNavigableUrl("javascript:alert(1)")).toBe(false);
     expect(isNavigableUrl("não é uma url")).toBe(false);
@@ -96,6 +103,15 @@ describe("BrowserViewManager", () => {
     expect(result.ok).toBe(true);
     expect(views[0].webContents.loadURL).toHaveBeenCalledWith(
       "https://example.com",
+    );
+  });
+
+  it("navigate mantém a URL interna de settings sem convertê-la em HTTPS", () => {
+    const id = manager.createView();
+    const result = manager.navigate(id, "chrome://settings/");
+    expect(result.ok).toBe(true);
+    expect(views[0].webContents.loadURL).toHaveBeenCalledWith(
+      "chrome://settings/",
     );
   });
 
