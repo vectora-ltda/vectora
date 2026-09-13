@@ -260,7 +260,7 @@ describe("SessionPage — posição do Header por modo", () => {
 });
 
 describe("SessionPage — sidebar de sessões", () => {
-  it("aparece em Assistente e Kanban, some no IDE (que usa a navBar do workbench)", () => {
+  it("permanece nas três colunas, inclusive no IDE, sem duplicar o header do app", () => {
     setMode("assistant");
     render(<SessionPage />);
     expect(screen.getAllByTestId("sidebar").length).toBeGreaterThan(0);
@@ -273,7 +273,7 @@ describe("SessionPage — sidebar de sessões", () => {
     cleanup();
     setMode("ide");
     render(<SessionPage />);
-    expect(screen.queryByTestId("sidebar")).not.toBeInTheDocument();
+    expect(screen.getByTestId("sidebar")).toBeInTheDocument();
   });
 });
 

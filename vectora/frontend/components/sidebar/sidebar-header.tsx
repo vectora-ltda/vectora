@@ -12,17 +12,24 @@ import { m } from "@/lib/paraglide/messages";
 
 interface SidebarHeaderProps {
   onToggle: () => void;
+  compact?: boolean;
 }
 
 export const SidebarHeader = memo(function SidebarHeader({
   onToggle,
+  compact = false,
 }: SidebarHeaderProps) {
   return (
-    // h-16: mesma altura fixa do header principal (components/header/header.tsx)
-    // — com padding em vez de altura fixa, a linha divisória desalinhava
-    // entre sidebar e área principal quando a sidebar estava expandida.
-    <div className="h-16 px-2 flex items-center border-b border-border/40">
-      <div className="flex items-center justify-between w-full">
+    <div
+      className={
+        compact
+          ? "absolute top-2 right-2 z-10"
+          : "h-16 px-2 flex items-center border-b border-border/40"
+      }
+    >
+      <div
+        className={compact ? "" : "flex items-center justify-between w-full"}
+      >
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -38,11 +45,14 @@ export const SidebarHeader = memo(function SidebarHeader({
           <TooltipContent side="right">{m.sidebar_collapse()}</TooltipContent>
         </Tooltip>
 
-        <span className="text-xs font-medium text-muted-foreground/70 uppercase tracking-widest select-none">
-          {m.sidebar_title()}
-        </span>
-
-        <div className="w-7" />
+        {!compact && (
+          <>
+            <span className="text-xs font-medium text-muted-foreground/70 uppercase tracking-widest select-none">
+              {m.sidebar_title()}
+            </span>
+            <div className="w-7" />
+          </>
+        )}
       </div>
     </div>
   );

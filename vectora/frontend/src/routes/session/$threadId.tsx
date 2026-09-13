@@ -594,6 +594,7 @@ function SessionPage() {
         onNewChat={handleNewChat}
         isLoading={isLoading}
         isNewSession={isNewSession}
+        showHeader={!(uiMode === "ide" && !chatMode)}
         onRefreshThreads={async () => {
           const result = await refetchThreads();
           if (result.isError || result.error) {
@@ -603,7 +604,15 @@ function SessionPage() {
       />
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [threads, threadId, isLoading, isSidebarCollapsed, isNewSession],
+    [
+      threads,
+      threadId,
+      isLoading,
+      isSidebarCollapsed,
+      isNewSession,
+      uiMode,
+      chatMode,
+    ],
   );
 
   // Painel da sidebar (largura arrastável + handle de resize) — extraído do
@@ -660,7 +669,11 @@ function SessionPage() {
   // (mesma posição de tela nos dois) — só não existe no modo IDE, que usa a
   // navBar do workbench como navegação. Renderizada uma vez, fora do bloco
   // que troca de modo, pra não remontar junto com o conteúdo.
-  const showSidebarPanel = !(uiMode === "ide" && !chatMode);
+  // O IDE continua sendo um layout de três colunas: a lista de sessões pode
+  // ser recolhida como qualquer painel, mas não desaparece ao trocar de modo.
+  // A barra de título local da sidebar é ocultada nesse modo para que o Header
+  // do app exista somente na coluna central.
+  const showSidebarPanel = true;
 
   // Chat renderizado no fluxo normal do layout de cada modo. `compact`
   // (IDE) muda densidade e liga o SessionSwitcher acima dele; a posição

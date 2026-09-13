@@ -32,6 +32,8 @@ interface SidebarProps {
   /** true quando a sessão atual é nova/vazia — destaca "Nova sessão". */
   isNewSession?: boolean;
   onRefreshThreads?: () => Promise<unknown>;
+  /** Oculta a barra de título local quando o app header já ocupa a coluna central. */
+  showHeader?: boolean;
 }
 
 export const Sidebar = memo(function Sidebar({
@@ -45,6 +47,7 @@ export const Sidebar = memo(function Sidebar({
   isLoading = false,
   isNewSession = false,
   onRefreshThreads,
+  showHeader = true,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState<Set<string>>(
@@ -198,7 +201,7 @@ export const Sidebar = memo(function Sidebar({
             className="contents"
           >
             <aside className="fixed md:relative inset-y-0 left-0 z-40 flex w-72 md:w-full bg-sidebar border-r border-border/40 flex-col">
-              <SidebarHeader onToggle={onToggle} />
+              <SidebarHeader onToggle={onToggle} compact={!showHeader} />
 
               <SidebarModeToggle />
 
