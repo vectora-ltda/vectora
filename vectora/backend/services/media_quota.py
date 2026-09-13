@@ -14,8 +14,12 @@ from backend.settings import settings
 
 logger = logging.getLogger(__name__)
 
-MONTHLY_LIMITS = {"free": 10, "pro": 100}
-UNIT_COSTS = {"generate_image": 1, "text_to_speech": 1, "generate_video": 10}
+MONTHLY_LIMITS: dict[str, int] = {"free": 10, "pro": 100}
+UNIT_COSTS: dict[str, int] = {
+    "generate_image": 1,
+    "text_to_speech": 1,
+    "generate_video": 10,
+}
 QuotaState = Literal["reserved", "finalized", "failed", "unknown", "cancelled"]
 
 
@@ -158,7 +162,7 @@ class MediaQuota:
             )
         except Exception:
             logger.debug("media_quota: falha ao registrar estimativa", exc_info=True)
-        tier = self._current_tier(user_id)
+        tier = await asyncio.to_thread(self._current_tier, user_id)
         if tier is None:
             logger.info(
                 "media_quota.blocked",
@@ -560,7 +564,7 @@ class MediaQuota:
         return await asyncio.to_thread(self._summary, user_id)
 
     async def _summary_postgres(self, user_id: str) -> dict[str, int | str]:
-        tier = self._current_tier(user_id)
+        tier = await asyncio.to_thread(self._current_tier, user_id)
         period = self.period()
         if tier is None:
             return {"period": period, "used": 0, "limit": 0, "remaining": 0}

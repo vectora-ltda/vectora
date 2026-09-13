@@ -19,12 +19,28 @@ import logging
 import time
 from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/usage", tags=["usage"])
+
+
+class MediaQuotaResponse(BaseModel):
+    period: str
+    used: int
+    limit: int
+    remaining: int
+
+
+def _require_user(request: Request) -> str:
+    user = getattr(request.state, "user", None)
+    if user is None or not getattr(user, "id", None):
+        raise HTTPException(status_code=401, detail="Não autenticado.")
+    return str(user.id)
+
 
 #: O popover abre a cada mensagem; sem cache seria uma chamada por abertura.
 _CACHE_TTL_S = 180.0
@@ -193,16 +209,16 @@ async def get_provider_usage() -> dict[str, Any]:
     return {"providers": await collect_provider_usage()}
 
 
-@router.get("/media")
-async def get_media_quota(request: Request) -> JSONResponse:
+@router.get("/media", response_model=MediaQuotaResponse)
+async def get_media_quota(
+    response: Response,
+    user_id: Annotated[str, Depends(_require_user)],
+) -> MediaQuotaResponse:
     """Retorna a quota mensal de mídia do usuário autenticado."""
-    from backend.api.handlers.threads import _user_id
     from backend.services.media_quota import media_quota
 
-    return JSONResponse(
-        content=await media_quota.summary(_user_id(request)),
-        headers={"Cache-Control": "no-store"},
-    )
+    response.headers["Cache-Control"] = "no-store"
+    return MediaQuotaResponse.model_validate(await media_quota.summary(user_id))
 
 
 @router.get("/insights/weekly")

@@ -225,6 +225,14 @@ async def run_conversation(
     | None = None,
     approval_gate: ApprovalGate | None = None,
 ) -> LoopResult:
+    # A origem de cobrança vem exclusivamente da credencial persistida do
+    # usuário autenticado. O marcador é refeito a cada execução para impedir
+    # que um contexto reidratado ou argumento de tool carregue uma isenção
+    # não confirmada.
+    from backend.services.media_billing import apply_media_billing_source
+
+    await apply_media_billing_source(ctx)
+
     emit = on_event or _noop_event
     tools = tool_registry.all()
     parent_id = await session_store.get_branch_head_id(thread_id)
@@ -620,6 +628,10 @@ async def resume_conversation(
     ``thread_id`` — resume idempotente diante de um duplo-clique/retry do
     cliente. ``True`` quando o lote foi executado e a pendência resolvida.
     """
+    from backend.services.media_billing import apply_media_billing_source
+
+    await apply_media_billing_source(ctx)
+
     emit = on_event or _noop_event
     requested_interrupt_id = interrupt_id
     if requested_interrupt_id is None:
@@ -688,9 +700,25 @@ async def resume_conversation(
                     is_error=True,
                 )
             else:
-                resultado = await _execute_single_call(
-                    tc, tool_registry=tool_registry, ctx=ctx
-                )
+                from backend.engine.hitl import REQUIRE_APPROVAL
+
+                if tc.name in REQUIRE_APPROVAL:
+                    resultado = VMessage(
+                        role=MessageRole.TOOL,
+                        content=[
+                            ContentBlock(
+                                kind="text",
+                                text="Esta ação exige uma aprovação separada.",
+                            )
+                        ],
+                        tool_call_id=tc.id,
+                        name=tc.name,
+                        is_error=True,
+                    )
+                else:
+                    resultado = await _execute_single_call(
+                        tc, tool_registry=tool_registry, ctx=ctx
+                    )
         elif decision == "reject":
             resultado = VMessage(
                 role=MessageRole.TOOL,

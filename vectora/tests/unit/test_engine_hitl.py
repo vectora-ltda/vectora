@@ -70,6 +70,13 @@ class TestShouldRequireApproval:
             ctx = _ctx(permission_mode=modo)
             assert should_require_approval("file_write", ctx, {}, []) is False
 
+    def test_midia_falha_fechada_com_limiar_ausente_ou_invalido(self):
+        for threshold in (None, True, "1"):
+            ctx = _ctx(permission_mode="auto", model="openai:gpt-image-1")
+            if threshold is not None:
+                ctx._extra["media_approval_threshold"] = threshold
+            assert should_require_approval("generate_image", ctx, {}, []) is True
+
     def test_computer_use_sempre_interrompe_mesmo_em_bypass(self):
         ctx = _ctx(permission_mode="bypass")
         assert should_require_approval("computer_use", ctx, {}, []) is True
