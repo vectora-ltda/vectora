@@ -211,7 +211,8 @@ async def get_provider_usage() -> dict[str, Any]:
 
 @router.get("/media", response_model=MediaQuotaResponse)
 async def get_media_quota(
-    response: Response, user_id: str = Depends(_require_user)
+    response: Response,
+    user_id: Annotated[str, Depends(_require_user)],
 ) -> MediaQuotaResponse:
     """Retorna a quota mensal de mídia do usuário autenticado."""
     from backend.services.media_quota import media_quota
