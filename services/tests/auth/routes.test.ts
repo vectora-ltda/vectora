@@ -298,7 +298,7 @@ describe("POST /login and GET /me", () => {
 
 describe("POST /login rate limiting", () => {
   it("blocks with 429 after exceeding the per-IP limit — brute force sem defesa antes desse fix", async () => {
-    const ip = `203.0.113.${Math.floor(Math.random() * 254) + 1}`;
+    const ip = "203.0.113.12";
     const attempt = () =>
       post(
         "/login",

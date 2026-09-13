@@ -101,7 +101,7 @@ async function makeUserWithTokenNoSubscription() {
 describe("POST /validate rate limiting", () => {
   it("blocks with 429 after exceeding the per-IP limit, keyed independently per IP", async () => {
     const { rawToken } = await makeUserWithToken();
-    const ip = `203.0.113.${Math.floor(Math.random() * 254) + 1}`;
+    const ip = "203.0.113.10";
     const testEnv = envWithDeterministicLicenseLimiter();
     const requestWithIp = () =>
       license.request(
@@ -125,7 +125,8 @@ describe("POST /validate rate limiting", () => {
       const res = await requestWithIp();
       results.push(res.status);
     }
-    expect(results.filter((s) => s === 429).length).toBeGreaterThan(0);
+    expect(results.slice(0, 30)).toEqual(Array(30).fill(200));
+    expect(results[30]).toBe(429);
 
     const limited = await requestWithIp();
     expect(limited.status).toBe(429);
@@ -393,7 +394,7 @@ describe("POST /agent-login", () => {
 
 describe("POST /agent-login rate limiting", () => {
   it("blocks with 429 after exceeding the per-IP limit — brute force sem defesa antes desse fix", async () => {
-    const ip = `203.0.113.${Math.floor(Math.random() * 254) + 1}`;
+    const ip = "203.0.113.11";
     const attempt = () =>
       license.request(
         "/agent-login",
