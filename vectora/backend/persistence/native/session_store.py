@@ -97,7 +97,7 @@ def _message_to_row(
         if block.get("kind") == "image_url" and (
             block.get("asset_id")
             or block.get("attachment_name")
-            or str(block.get("image_url") or "").startswith("data:")
+            or str(block.get("image_url") or "").casefold().startswith("data:")
         ):
             block["image_url"] = None
     content_json = json.dumps(data["content"], ensure_ascii=False)

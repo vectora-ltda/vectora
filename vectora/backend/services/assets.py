@@ -299,8 +299,8 @@ class AssetStore:
         with self._locked_index():
             records = self._read()
             removed = [
-                record
-                for record in records.values()
+                (asset_id, record)
+                for asset_id, record in records.items()
                 if str(record.get("thread_id", "")) == thread_id
             ]
             if not removed:
@@ -310,18 +310,22 @@ class AssetStore:
                 for asset_id, record in records.items()
                 if str(record.get("thread_id", "")) != thread_id
             }
-            self._write_records(kept)
             kept_paths = {str(record.get("path")) for record in kept.values()}
             root_path = self._storage_root()
-            for record in removed:
+            for asset_id, record in removed:
                 path = str(record.get("path", ""))
                 candidate = Path(path)
-                if (
-                    path
-                    and path not in kept_paths
-                    and candidate.resolve().is_relative_to(root_path)
-                ):
-                    candidate.unlink(missing_ok=True)
+                removed_ok = False
+                if path and path not in kept_paths:
+                    try:
+                        if candidate.resolve().is_relative_to(root_path):
+                            candidate.unlink(missing_ok=True)
+                            removed_ok = True
+                    except OSError:
+                        removed_ok = False
+                if not removed_ok:
+                    kept[asset_id] = record
+            self._write_records(kept)
 
 
 asset_store = AssetStore()

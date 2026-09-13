@@ -352,10 +352,30 @@ def _persist_image_file(thread_id: str, att: Attachment) -> Path | None:
         ext = Path(att.name).suffix or _EXT_BY_MIME.get(att.mime_type, "")
         filename = f"{uuid.uuid4().hex}{ext}"
         safe_thread = thread_id.replace("/", "").replace("\\", "").replace("..", "")
-        target_dir = settings.vectora_home / _CHAT_ATTACHMENTS_DIRNAME / safe_thread
+        attachment_root = settings.vectora_home / _CHAT_ATTACHMENTS_DIRNAME
+        if attachment_root.exists() and (
+            attachment_root.is_symlink() or not attachment_root.is_dir()
+        ):
+            return None
+        attachment_root.mkdir(parents=True, exist_ok=True)
+        target_dir = attachment_root / safe_thread
+        if target_dir.exists() and (target_dir.is_symlink() or not target_dir.is_dir()):
+            return None
         target_dir.mkdir(parents=True, exist_ok=True)
-        (target_dir / filename).write_bytes(raw)
-        return target_dir / filename
+        destination = target_dir / filename
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        nofollow = getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(destination, flags | nofollow, 0o600)
+        try:
+            with os.fdopen(fd, "wb") as output:
+                output.write(raw)
+        except Exception:
+            with contextlib.suppress(OSError):
+                os.close(fd)
+            with contextlib.suppress(OSError):
+                destination.unlink()
+            raise
+        return destination
     except Exception:
         logger.exception(
             "chat: falha ao persistir anexo de imagem %s (thread=%s)",
@@ -419,6 +439,24 @@ async def _build_user_vmessage(
                     )
             except (ValueError, binascii.Error):
                 logger.warning("chat: imagem Base64 inválida rejeitada: %s", att.name)
+                continue
+
+            from backend.services.assets import (
+                ALLOWED_MIME,
+                MAX_ASSET_BYTES,
+                validate_asset_bytes,
+            )
+
+            normalized_mime = (
+                "image/jpeg" if att.mime_type == "image/jpg" else att.mime_type
+            )
+            raw_image = base64.b64decode(att.base64_data, validate=True)
+            if (
+                normalized_mime not in ALLOWED_MIME
+                or len(raw_image) > MAX_ASSET_BYTES
+                or not validate_asset_bytes(raw_image, normalized_mime, att.name)
+            ):
+                logger.warning("chat: imagem rejeitada antes do provider: %s", att.name)
                 continue
 
             persisted = _persist_image_file(thread_id, att)

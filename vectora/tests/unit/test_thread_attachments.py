@@ -259,6 +259,7 @@ class TestGetThreadAttachment:
             await threads_mod.get_thread_attachment(
                 "t1", "../../secret.txt", self._request()
             )
+        assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
     async def test_rejeita_anexo_que_seja_symlink(

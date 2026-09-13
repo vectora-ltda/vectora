@@ -258,7 +258,7 @@ class TestBuildUserVMessage:
     async def test_image_attachment_produces_multimodal(self) -> None:
         from backend.api.handlers.chat import _build_user_vmessage
 
-        raw = _b64_bytes(b"fake_image_bytes")
+        raw = _b64_bytes(b"\x89PNG\r\n\x1a\nfake_image_bytes")
         att = Attachment(
             kind=AttachmentKind.IMAGE,
             name="img.png",
@@ -308,7 +308,11 @@ class TestBuildUserVMessage:
         from backend.api.handlers.chat import _build_user_vmessage
         from backend.services.assets import asset_store
 
+        called = False
+
         def fail_create(**_kwargs: object) -> None:
+            nonlocal called
+            called = True
             raise ValueError("asset inválido")
 
         monkeypatch.setattr(asset_store, "create", fail_create)
@@ -316,10 +320,11 @@ class TestBuildUserVMessage:
             kind=AttachmentKind.IMAGE,
             name="invalid.png",
             mime_type="image/png",
-            base64_data=_b64_bytes(b"image"),
+            base64_data=_b64_bytes(b"\x89PNG\r\n\x1a\nfake-image-content"),
         )
         msg = await _build_user_vmessage("veja", [att], "thread-invalid")
 
+        assert called is True
         assert msg.content[1].asset_id is None
         assert msg.content[1].attachment_name is None
         from backend.settings import settings
@@ -461,7 +466,7 @@ class TestBuildUserVMessage:
             kind=AttachmentKind.IMAGE,
             name="img.png",
             mime_type="image/png",
-            base64_data=_b64_bytes(b"img"),
+            base64_data=_b64_bytes(b"\x89PNG\r\n\x1a\nimg"),
         )
         code_att = Attachment(
             kind=AttachmentKind.CODE,
@@ -483,13 +488,13 @@ class TestBuildUserVMessage:
             kind=AttachmentKind.IMAGE,
             name="a.png",
             mime_type="image/png",
-            base64_data=_b64_bytes(b"img1"),
+            base64_data=_b64_bytes(b"\x89PNG\r\n\x1a\nimg1"),
         )
         att2 = Attachment(
             kind=AttachmentKind.IMAGE,
             name="b.jpg",
             mime_type="image/jpeg",
-            base64_data=_b64_bytes(b"img2"),
+            base64_data=_b64_bytes(b"\xff\xd8\xff\xd9img2"),
         )
         msg = await _build_user_vmessage("compare", [att1, att2], "t1")
 

@@ -827,7 +827,7 @@ async def aget_thread_messages(
                 or block.attachment_name is not None
                 or (
                     block.image_url is not None
-                    and not block.image_url.startswith("data:")
+                    and not block.image_url.casefold().startswith("data:")
                 )
             )
         ]

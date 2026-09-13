@@ -85,6 +85,20 @@ class TestAppendMessageEGetHistory:
 
         assert legacy in content_json
 
+    def test_persistencia_remove_data_uri_case_insensitive(self) -> None:
+        _, content_json, *_ = _message_to_row(
+            VMessage(
+                role=MessageRole.USER,
+                content=[
+                    ContentBlock(
+                        kind="image_url", image_url="DATA:image/png;base64,secret"
+                    )
+                ],
+            )
+        )
+        assert "DATA:image/png" not in content_json
+        assert '"image_url": null' in content_json
+
     async def test_lista_compara_e_seleciona_branches(self, store: SessionStore):
         await store.create_session("thread-branches", user_id="alice")
         root = await store.append_message(
