@@ -726,7 +726,7 @@ async def generate_video(ctx: ToolContext, prompt: str) -> str:
             "unknown"
             if submitted
             and not isinstance(
-                exc, (ImportError, ModuleNotFoundError, NotImplementedError, ValueError)
+                exc, (ImportError, ModuleNotFoundError, NotImplementedError)
             )
             else "failed",
         )

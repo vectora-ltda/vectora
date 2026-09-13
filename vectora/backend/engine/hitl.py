@@ -166,7 +166,7 @@ def should_require_approval(
         # O limiar é definido pelo backend autenticado no contexto. Ausência
         # do campo mantém o comportamento seguro: toda operação pede revisão.
         threshold = getattr(ctx, "_extra", {}).get("media_approval_threshold")
-        if isinstance(threshold, (int, float)):
+        if isinstance(threshold, int | float) and not isinstance(threshold, bool):
             from backend.services.media_quota import media_estimate_record
 
             provider, _, model = ctx.model.partition(":")
@@ -187,9 +187,9 @@ def should_require_approval(
             # Custos acima do limiar exigem aprovação em qualquer modo,
             # inclusive `auto` e `bypass`.
             return True
-            # Sem um limiar confiável, falha fechada: o custo deve ser
-            # apresentado ao usuário antes da execução.
-            return True
+        # Sem um limiar confiável, falha fechada: o custo deve ser
+        # apresentado ao usuário antes da execução.
+        return True
     if tool_name in _JAILED_BYPASS_TOOLS and _workspace_is_jailed(ctx.workspace_id):
         return False
     mode = ctx.permission_mode or "ask"

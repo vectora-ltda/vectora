@@ -9,6 +9,13 @@ from backend.tools.context import ToolContext
 def _provider_for_model(model: str) -> str:
     """Return the normalized provider prefix from a model identifier."""
     raw_provider = model.partition(":")[0].strip()
+    if not raw_provider:
+        try:
+            from backend.workspace.runtime_settings import runtime_settings
+
+            raw_provider = runtime_settings.active_provider
+        except Exception:
+            raw_provider = ""
     normalized = raw_provider.replace("_", "-")
     return normalized if normalized in PROVIDER_API_KEY_ENV else raw_provider
 
