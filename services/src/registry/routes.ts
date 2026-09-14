@@ -127,7 +127,150 @@ registry.get("/skills/:name/versions", async (c) => {
   return c.json({ entries: sorted });
 });
 
-registry.get("/extensions", (c) => c.json({ entries: [] }));
+const EXTENSION_COLUMNS = `e.id, e.name, e.description, e.homepage,
+  e.vectora_verified, e.revoked AS extension_revoked, p.name AS publisher,
+  p.fingerprint, v.id AS version_id, v.version, v.api_version,
+  v.protocol_version, v.runtime, v.platforms, v.permissions, v.dependencies,
+  v.changelog, v.size_bytes, v.digest, v.status, v.created_at`;
+
+registry.get("/extensions", async (c) => {
+  const q = c.req.query("q");
+  const like = q ? `%${q}%` : null;
+  const { results } = await c.env.DB.prepare(
+    `SELECT ${EXTENSION_COLUMNS} FROM vext_extensions e
+      JOIN vext_publishers p ON p.id = e.publisher_id
+      JOIN vext_versions v ON v.extension_id = e.id
+      WHERE v.status = 'published' AND e.revoked = 0 AND p.revoked = 0
+        AND (? IS NULL OR e.name LIKE ? COLLATE NOCASE OR e.description LIKE ? COLLATE NOCASE)
+        AND v.created_at = (SELECT MAX(v2.created_at) FROM vext_versions v2 WHERE v2.extension_id = e.id AND v2.status = 'published')
+      ORDER BY e.name COLLATE NOCASE`,
+  )
+    .bind(like, like, like)
+    .all();
+  return c.json({ entries: results ?? [] });
+});
+
+registry.get("/extensions/:id/versions", async (c) => {
+  const { results } = await c.env.DB.prepare(
+    `SELECT ${EXTENSION_COLUMNS} FROM vext_extensions e
+      JOIN vext_publishers p ON p.id = e.publisher_id
+      JOIN vext_versions v ON v.extension_id = e.id
+      WHERE e.id = ? AND v.status = 'published' AND e.revoked = 0 AND p.revoked = 0
+      ORDER BY v.created_at DESC`,
+  )
+    .bind(c.req.param("id"))
+    .all();
+  return c.json({ entries: results ?? [] });
+});
+
+registry.get("/extensions/:id/download/:version", async (c) => {
+  const row = await c.env.DB.prepare(
+    `SELECT v.r2_key, v.digest FROM vext_versions v
+      JOIN vext_extensions e ON e.id = v.extension_id
+      JOIN vext_publishers p ON p.id = e.publisher_id
+      WHERE e.id = ? AND v.version = ? AND v.status = 'published'
+        AND e.revoked = 0 AND p.revoked = 0`,
+  )
+    .bind(c.req.param("id"), c.req.param("version"))
+    .first<{ r2_key: string; digest: string }>();
+  if (!row) return c.json({ error: "not_found" }, 404);
+  const object = await c.env.R2.get(row.r2_key);
+  if (!object) return c.json({ error: "artifact_unavailable" }, 503);
+  return new Response(object.body, {
+    headers: {
+      "Content-Type": "application/vnd.vectora.vext+zip",
+      "Content-Length": String(object.size),
+      ETag: object.httpEtag,
+      "X-VEXT-Digest": row.digest,
+      "Cache-Control": "public, max-age=31536000, immutable",
+    },
+  });
+});
+
+registry.post("/extensions/publish", async (c) => {
+  const userId = await requireUserId(c);
+  if (!userId) return c.json({ error: "unauthorized" }, 401);
+  if (!(c.req.header("Content-Type") ?? "").includes("multipart/form-data"))
+    return c.json({ error: "invalid_content_type" }, 400);
+  const body = await c.req.parseBody();
+  const artifact = body.artifact;
+  const text = (key: string) =>
+    typeof body[key] === "string" ? body[key].trim() : "";
+  if (!(artifact instanceof File) || artifact.size === 0)
+    return c.json({ error: "artifact_required" }, 400);
+  const name = text("name"),
+    description = text("description"),
+    version = text("version");
+  const fingerprint = text("fingerprint"),
+    signature = text("signature"),
+    digest = text("digest");
+  const runtime = text("runtime");
+  if (
+    !name ||
+    !description ||
+    !version ||
+    !fingerprint ||
+    !signature ||
+    !digest ||
+    !["node", "python", "none"].includes(runtime)
+  )
+    return c.json({ error: "invalid_metadata" }, 400);
+  const bytes = await artifact.arrayBuffer();
+  const actualDigest = Array.from(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+    (value) => value.toString(16).padStart(2, "0"),
+  ).join("");
+  if (actualDigest !== digest) return c.json({ error: "digest_mismatch" }, 422);
+  const publisher = await c.env.DB.prepare(
+    "SELECT id, revoked FROM vext_publishers WHERE owner_user_id = ? AND fingerprint = ?",
+  )
+    .bind(userId, fingerprint)
+    .first<{ id: string; revoked: number }>();
+  if (!publisher || publisher.revoked)
+    return c.json({ error: "publisher_untrusted" }, 403);
+  const extensionId = crypto.randomUUID();
+  const versionId = crypto.randomUUID();
+  const r2Key = `vext/${publisher.id}/${name}/${version}/${digest}.vext`;
+  await c.env.R2.put(r2Key, bytes, {
+    httpMetadata: { contentType: "application/vnd.vectora.vext+zip" },
+    customMetadata: { digest, publisher: publisher.id },
+  });
+  try {
+    await c.env.DB.batch([
+      c.env.DB.prepare(
+        "INSERT INTO vext_extensions (id, publisher_id, name, description) VALUES (?, ?, ?, ?) ON CONFLICT(publisher_id, name) DO UPDATE SET description = excluded.description, updated_at = datetime('now')",
+      ).bind(extensionId, publisher.id, name, description),
+      c.env.DB.prepare(
+        "INSERT INTO vext_versions (id, extension_id, version, api_version, protocol_version, runtime, platforms, permissions, size_bytes, digest, r2_key, signature, status) VALUES (?, (SELECT id FROM vext_extensions WHERE publisher_id = ? AND name = ?), ?, 1, 1, ?, ?, ?, ?, ?, ?, ?, 'pending')",
+      ).bind(
+        versionId,
+        publisher.id,
+        name,
+        version,
+        runtime,
+        text("platforms") || '["any"]',
+        text("permissions") || "[]",
+        artifact.size,
+        digest,
+        r2Key,
+        signature,
+      ),
+    ]);
+  } catch (error) {
+    await c.env.R2.delete(r2Key);
+    throw error;
+  }
+  return c.json(
+    {
+      ok: true,
+      id: extensionId,
+      version_id: versionId,
+      digest,
+      status: "pending",
+    },
+    201,
+  );
+});
 
 /**
  * Publica uma skill pra o catálogo comunitário — `source` é sempre uma URL
