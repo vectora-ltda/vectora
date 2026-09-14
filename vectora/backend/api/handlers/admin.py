@@ -26,6 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from backend.settings import settings
+from backend.vtypes.safe_root import SafeRoot
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +133,13 @@ class CreateSafeRootBody(BaseModel):
 
 class UpdateSafeRootBody(BaseModel):
     label: str
+
+
+class SafeRootActionResponse(BaseModel):
+    """Resultado validado de uma ação administrativa sobre uma safe-root."""
+
+    status: str
+    root: SafeRoot
 
 
 # ---------------------------------------------------------------------------
@@ -917,11 +925,11 @@ async def delete_safe_root(request: Request, root_id: str) -> dict:
     return {"status": "archived", "root": archived.model_dump()}
 
 
-@router.post("/safe-roots/{root_id}/restore")
+@router.post("/safe-roots/{root_id}/restore", response_model=SafeRootActionResponse)
 async def restore_safe_root(
     root_id: str,
     user: Annotated[Any, Depends(_get_user)],
-) -> dict:
+) -> SafeRootActionResponse:
     """Restaura uma raiz arquivada sem alterar seu ID ou histórico."""
     require_admin(user)
     from backend.rbac.safe_roots import (
@@ -935,7 +943,7 @@ async def restore_safe_root(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     if restored is None:
         raise HTTPException(status_code=404, detail="Raiz não encontrada")
-    return {"status": "restored", "root": restored.model_dump()}
+    return SafeRootActionResponse(status="restored", root=restored)
 
 
 # ---------------------------------------------------------------------------

@@ -17,6 +17,7 @@ em modo CLI/root local, usa ``"local"``.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hashlib
 import json
@@ -349,13 +350,19 @@ async def create_workspace(
     uid = _user_id(request)
     safe_roots = get_safe_root_registry()
     privileged = _is_privileged(request)
-    if not privileged and safe_roots.is_under_safe_root(str(resolved_path)) is None:
+    if (
+        not privileged
+        and await asyncio.to_thread(safe_roots.is_under_safe_root, str(resolved_path))
+        is None
+    ):
         raise HTTPException(
             status_code=403,
             detail="Caminho fora das pastas seguras configuradas.",
         )
     if privileged:
-        safe_roots.add(str(resolved_path), resolved_path.name, str(uid))
+        await asyncio.to_thread(
+            safe_roots.add, str(resolved_path), resolved_path.name, str(uid)
+        )
     ws = workspace_registry.create(
         str(resolved_path), trust=body.trust, git_init=body.git_init, user_id=uid
     )
