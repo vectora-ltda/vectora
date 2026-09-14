@@ -16,7 +16,7 @@ O export principal contém tipos de manifesto, capabilities, JSON-RPC e contexto
 
 ## Desenvolvimento
 
-Execute `npm run check` neste diretório para verificar tipos e gerar o pacote. O protocolo está documentado na [documentação VEXT](../../docs/content/extensions/vext.pt.md).
+Execute `npm run check` neste diretório para verificar tipos e gerar o pacote. O protocolo está documentado na [documentação VEXT](../docs/content/extensions/vext.pt.md).
 
 ## Suporte e licença
 

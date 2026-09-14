@@ -34,7 +34,7 @@ The root export contains manifest, capability, JSON-RPC and context types. The `
 
 ## Development
 
-Run `npm install` once and then `npm run check` from this directory to typecheck and build every package. Each package emits to its own ignored `dist/` directory and can be published independently with `npm publish --workspace=@vext/<name>`. The package follows the [VEXT protocol](../../docs/content/extensions/vext.en.md).
+Run `npm install` once and then `npm run check` from this directory to typecheck and build every package. Each package emits to its own ignored `dist/` directory and can be published independently with `npm publish --workspace=@vext/<name>`. The package follows the [VEXT protocol](../docs/content/extensions/vext.en.md).
 
 ## Support and license
 

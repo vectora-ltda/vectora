@@ -16,7 +16,7 @@ La exportación principal contiene tipos de manifiesto, capacidades, JSON-RPC y 
 
 ## Desarrollo
 
-Ejecuta `npm run check` en este directorio para comprobar tipos y generar el paquete. El protocolo está documentado en la [documentación VEXT](../../docs/content/extensions/vext.es.md).
+Ejecuta `npm run check` en este directorio para comprobar tipos y generar el paquete. El protocolo está documentado en la [documentación VEXT](../docs/content/extensions/vext.es.md).
 
 ## Soporte y licencia
 
