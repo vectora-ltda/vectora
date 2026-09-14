@@ -190,6 +190,40 @@ describe("GET /registry/extensions", () => {
   });
 });
 
+describe("POST /registry/extensions/publish", () => {
+  it("rejeita manifesto cuja identidade não coincide com os metadados", async () => {
+    const { token } = await createUser("user");
+    const form = new FormData();
+    form.set("artifact", new File(["payload"], "extension.vext"));
+    form.set("name", "declared-name");
+    form.set("description", "description");
+    form.set("version", "1.0.0");
+    form.set("runtime", "node");
+    form.set("fingerprint", "0".repeat(64));
+    form.set("signature", "AA==");
+    form.set("digest", "0".repeat(64));
+    form.set("integrity", "{}");
+    form.set(
+      "manifest",
+      JSON.stringify({
+        id: "different-id",
+        name: "different-name",
+        version: "1.0.0",
+        runtime: "node",
+      }),
+    );
+
+    const res = await registry.request(
+      "/extensions/publish",
+      authed(token, { method: "POST", body: form }),
+      env,
+    );
+
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({ error: "manifest_mismatch" });
+  });
+});
+
 describe("POST /registry/skills", () => {
   it("publica uma skill autenticada — grava community/publisher_id/verified=0", async () => {
     const { userId, token } = await createUser("user");
