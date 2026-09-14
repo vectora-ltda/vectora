@@ -86,6 +86,9 @@ describe("WorkspaceTrustDialog — reload e nova pasta", () => {
 
   it("cria uma pasta nova e relista (feliz); nome em conflito mostra erro sem travar o formulário (edge)", async () => {
     let createdPath: string | null = null;
+    const originalCreate = useWorkspacesStore.getState().create;
+    const createSpy = vi.fn().mockResolvedValue({ ok: true, data: null });
+    useWorkspacesStore.setState({ create: createSpy });
     FETCH.mockImplementation((url: string, init?: RequestInit) => {
       if (url === "/workspaces/browse/mkdir" && init?.method === "POST") {
         const body = JSON.parse(init.body as string) as {
@@ -137,6 +140,13 @@ describe("WorkspaceTrustDialog — reload e nova pasta", () => {
     );
     // Formulário fecha após sucesso.
     expect(screen.queryByPlaceholderText("Folder name")).toBeNull();
+    fireEvent.click(screen.getByTestId("workspace-trust-confirm-btn"));
+    await waitFor(() =>
+      expect(createSpy).toHaveBeenCalledWith(createdPath, {
+        trust: true,
+        git_init: true,
+      }),
+    );
 
     // Edge — conflito: reabre o formulário e tenta um nome já existente.
     fireEvent.click(screen.getByTitle("New folder"));
@@ -149,6 +159,7 @@ describe("WorkspaceTrustDialog — reload e nova pasta", () => {
     );
     // Formulário continua aberto — usuário pode corrigir o nome.
     expect(screen.getByPlaceholderText("Folder name")).toBeTruthy();
+    useWorkspacesStore.setState({ create: originalCreate });
   });
 });
 
