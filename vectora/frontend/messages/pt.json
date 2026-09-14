@@ -678,6 +678,8 @@
   "admin_saferoots_remove_title": "Remover",
   "admin_saferoots_confirm_title": "Remover pasta segura?",
   "admin_saferoots_confirm_desc": "Workspaces existentes não são afetados.",
+  "admin_saferoots_archived_badge": "arquivada",
+  "admin_saferoots_restore_title": "Restaurar",
   "admin_storage_test_ok": "Conexão OK",
   "admin_storage_test_fail": "Falha na conexão",
   "admin_storage_test_button": "Testar",

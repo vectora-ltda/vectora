@@ -20,12 +20,13 @@ import os
 import platform
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from backend.settings import settings
+from backend.vtypes.safe_root import SafeRoot
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +133,13 @@ class CreateSafeRootBody(BaseModel):
 
 class UpdateSafeRootBody(BaseModel):
     label: str
+
+
+class SafeRootActionResponse(BaseModel):
+    """Resultado validado de uma ação administrativa sobre uma safe-root."""
+
+    status: str
+    root: SafeRoot
 
 
 # ---------------------------------------------------------------------------
@@ -822,11 +830,14 @@ async def list_safe_roots_admin(request: Request) -> dict:
     """Lista as raízes confiáveis configuradas (admin)."""
     user = _get_user(request)
     require_admin(user)
-    from backend.rbac.safe_roots import get_safe_root_registry
+    from backend.rbac.safe_roots import (
+        SafeRootPersistenceError,
+        get_safe_root_registry,
+    )
 
     registry = get_safe_root_registry()
     return {
-        "roots": [r.model_dump() for r in registry.all_roots()],
+        "roots": [r.model_dump() for r in registry.all_roots(include_archived=True)],
     }
 
 
@@ -837,7 +848,10 @@ async def create_safe_root(request: Request, body: CreateSafeRootBody) -> dict:
     require_admin(user)
     from pathlib import Path as _Path
 
-    from backend.rbac.safe_roots import get_safe_root_registry
+    from backend.rbac.safe_roots import (
+        SafeRootPersistenceError,
+        get_safe_root_registry,
+    )
 
     target = _Path(body.path).expanduser()
     try:
@@ -851,7 +865,10 @@ async def create_safe_root(request: Request, body: CreateSafeRootBody) -> dict:
         )
 
     registry = get_safe_root_registry()
-    root = registry.add(str(target), body.label, str(user.id))
+    try:
+        root = registry.add(str(target), body.label, str(user.id))
+    except SafeRootPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     logger.info(
         "admin: safe-root adicionado por user_id=%s path=%s label=%s",
         user.id,
@@ -884,7 +901,10 @@ async def delete_safe_root(request: Request, root_id: str) -> dict:
     """Remove uma raiz confiável. Recusa se for builtin."""
     user = _get_user(request)
     require_admin(user)
-    from backend.rbac.safe_roots import get_safe_root_registry
+    from backend.rbac.safe_roots import (
+        SafeRootPersistenceError,
+        get_safe_root_registry,
+    )
 
     registry = get_safe_root_registry()
     root = registry.get(root_id)
@@ -895,11 +915,35 @@ async def delete_safe_root(request: Request, root_id: str) -> dict:
             status_code=400,
             detail="Raiz builtin não pode ser removida.",
         )
-    ok = registry.remove(root_id)
-    if not ok:
-        raise HTTPException(status_code=500, detail="Falha ao remover")
+    try:
+        archived = registry.archive(root_id)
+    except SafeRootPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if archived is None:
+        raise HTTPException(status_code=500, detail="Falha ao arquivar")
     logger.info("admin: safe-root removido por user_id=%s path=%s", user.id, root.path)
-    return {"status": "deleted"}
+    return {"status": "archived", "root": archived.model_dump()}
+
+
+@router.post("/safe-roots/{root_id}/restore", response_model=SafeRootActionResponse)
+async def restore_safe_root(
+    root_id: str,
+    user: Annotated[Any, Depends(_get_user)],
+) -> SafeRootActionResponse:
+    """Restaura uma raiz arquivada sem alterar seu ID ou histórico."""
+    require_admin(user)
+    from backend.rbac.safe_roots import (
+        SafeRootPersistenceError,
+        get_safe_root_registry,
+    )
+
+    try:
+        restored = get_safe_root_registry().restore(root_id)
+    except SafeRootPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if restored is None:
+        raise HTTPException(status_code=404, detail="Raiz não encontrada")
+    return SafeRootActionResponse(status="restored", root=restored)
 
 
 # ---------------------------------------------------------------------------
