@@ -105,6 +105,24 @@ class GitService:
             return None
         return max(operations, key=lambda operation: operation.created_at).snapshot()
 
+    async def history(
+        self, workspace_id: str, *, limit: int = 50
+    ) -> list[dict[str, object]]:
+        """Retorna operações recentes para reconexão e diagnóstico."""
+        bounded_limit = max(1, min(limit, 200))
+        async with self._guard:
+            operations = [
+                operation
+                for operation in self._operations.values()
+                if operation.workspace_id == workspace_id
+            ]
+        return [
+            operation.snapshot()
+            for operation in sorted(
+                operations, key=lambda item: item.created_at, reverse=True
+            )[:bounded_limit]
+        ]
+
     async def execute(
         self,
         workspace_id: str,
@@ -121,12 +139,18 @@ class GitService:
             operation=operation_name,
         )
         async with self._guard:
-            self._operations = {
-                operation_id: previous
-                for operation_id, previous in self._operations.items()
-                if previous.workspace_id != workspace_id
-            }
             self._operations[operation.operation_id] = operation
+            workspace_operations = sorted(
+                (
+                    previous
+                    for previous in self._operations.values()
+                    if previous.workspace_id == workspace_id
+                ),
+                key=lambda item: item.created_at,
+                reverse=True,
+            )
+            for stale in workspace_operations[50:]:
+                self._operations.pop(stale.operation_id, None)
         lock = await self._lock_for(repo)
         try:
             operation.phase = "waiting_for_repository"

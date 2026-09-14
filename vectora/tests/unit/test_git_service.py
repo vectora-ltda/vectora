@@ -80,7 +80,7 @@ def test_redact_git_output_masks_url_credentials_and_parameters() -> None:
 
 
 @pytest.mark.asyncio
-async def test_latest_retains_only_the_most_recent_operation(tmp_path: Path) -> None:
+async def test_latest_and_history_retain_recent_operations(tmp_path: Path) -> None:
     service = GitService()
     repo = make_repo(tmp_path / "repo")
 
@@ -91,7 +91,8 @@ async def test_latest_retains_only_the_most_recent_operation(tmp_path: Path) -> 
 
     assert latest is not None
     assert latest["operation"] == "pull"
-    assert len(service._operations) == 1
+    history = await service.history("workspace")
+    assert [item["operation"] for item in history] == ["pull", "fetch"]
 
 
 @pytest.mark.asyncio

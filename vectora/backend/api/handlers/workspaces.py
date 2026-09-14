@@ -2010,12 +2010,30 @@ class GitOperationResponse(BaseModel):
     operation: dict[str, object] | None = None
 
 
+class GitOperationHistoryResponse(BaseModel):
+    operations: list[dict[str, object]] = []
+
+
 @workspace_scoped_router.get("/git/operation", response_model=GitOperationResponse)
 async def git_operation(workspace_id: str) -> GitOperationResponse:
     """Retorna o snapshot terminal ou corrente mais recente do Workbench."""
     from backend.services.git import git_service
 
     return GitOperationResponse(operation=await git_service.latest(workspace_id))
+
+
+@workspace_scoped_router.get(
+    "/git/operations", response_model=GitOperationHistoryResponse
+)
+async def git_operations(
+    workspace_id: str, limit: int = 50
+) -> GitOperationHistoryResponse:
+    """Lista operações Git recentes para reconexão e diagnóstico."""
+    from backend.services.git import git_service
+
+    return GitOperationHistoryResponse(
+        operations=await git_service.history(workspace_id, limit=limit)
+    )
 
 
 @workspace_scoped_router.get("/git/status", response_model=GitStatusResponse)
