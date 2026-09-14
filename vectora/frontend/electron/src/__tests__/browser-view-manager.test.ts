@@ -90,6 +90,16 @@ describe("BrowserViewManager", () => {
     expect(deps.attach).toHaveBeenCalledTimes(2);
   });
 
+  it("propaga o perfil ao criar uma view e permite limpar seus dados", async () => {
+    deps.clearData = vi.fn(async () => undefined);
+    const id = manager.createView("profile-a");
+    expect(id).toBe(1);
+    expect(deps.createView).toHaveBeenCalledWith("profile-a");
+
+    await manager.clearData("profile-a");
+    expect(deps.clearData).toHaveBeenCalledWith("persist:browser-profile-a");
+  });
+
   it("destroi a view via deps.destroyView; id inexistente não quebra", () => {
     const id = manager.createView();
     manager.destroyView(id);
@@ -121,6 +131,20 @@ describe("BrowserViewManager", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain("esquema não permitido");
     expect(views[0].webContents.loadURL).not.toHaveBeenCalled();
+  });
+
+  it("cancela redirects e navegações nativas fora da allowlist", () => {
+    const id = manager.createView();
+    const view = views[0];
+    const navigateEvent = { preventDefault: vi.fn() };
+    const redirectEvent = { preventDefault: vi.fn() };
+
+    view.emitFake("will-navigate", navigateEvent, "file:///tmp/secret");
+    view.emitFake("will-redirect", redirectEvent, "javascript:alert(1)");
+
+    expect(navigateEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(redirectEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(id).toBe(1);
   });
 
   it("navigate em view inexistente retorna erro em vez de lançar", () => {

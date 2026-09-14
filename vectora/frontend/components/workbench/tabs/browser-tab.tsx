@@ -13,6 +13,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  Settings2,
   Sparkles,
   Square,
   Terminal,
@@ -26,6 +27,7 @@ import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { useSettingsOverlayStore } from "@/lib/stores/settings-overlay-store";
 import { m as msg } from "@/lib/paraglide/messages";
 import { BrowserDevtoolsPanel } from "./browser-devtools-panel";
+import { WorkbenchSlidePanel } from "@/components/workbench/workbench-slide-panel";
 import {
   getBrowserSessionGeneration,
   getBrowserSession,
@@ -125,6 +127,9 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   wsIdRef.current = wsId;
   const sessionKey = `${wsId}:${threadId}`;
   const settingsOpen = useSettingsOverlayStore((s) => s.open);
+  const [browserSettingsOpen, setBrowserSettingsOpen] = useState(false);
+  const [settingsViewId, setSettingsViewId] = useState<number | null>(null);
+  const settingsViewIdRef = useRef<number | null>(null);
 
   // Presente só no desktop Electron — quando ausente, cai no `<iframe>` de
   // fallback abaixo (sujeito a X-Frame-Options, único caminho possível fora
@@ -179,6 +184,13 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     const restored = getBrowserSession(sessionKey);
     return restored?.activeTabId ?? tabs[0].id;
   });
+  const [profileId, setProfileId] = useState<string>(() => {
+    const restored = getBrowserSession(sessionKey);
+    return (
+      restored?.profileId ??
+      `session-${sessionKey.replace(/[^a-zA-Z0-9_-]/g, "-")}`
+    );
+  });
   const hydratedSessionKeyRef = useRef<string | null>(sessionKey);
   const previousSessionKeyRef = useRef(sessionKey);
   const tabsRef = useRef(tabs);
@@ -210,6 +222,10 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
 
     setTabs(nextTabs);
     setActiveTabId(nextActiveTabId);
+    setProfileId(
+      restored?.profileId ??
+        `session-${sessionKey.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
+    );
     hydratedSessionKeyRef.current = sessionKey;
     setSessionHydrationVersion((version) => version + 1);
   }, [sessionKey]);
@@ -218,9 +234,10 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     if (hydratedSessionKeyRef.current !== sessionKey) return;
     setBrowserSession(sessionKey, {
       activeTabId,
+      profileId,
       tabs: tabs.map(({ loading, loadError, ...tab }) => tab),
     });
-  }, [sessionKey, tabs, activeTabId]);
+  }, [sessionKey, tabs, activeTabId, profileId]);
 
   const [urlInput, setUrlInput] = useState("");
   const [editingUrl, setEditingUrl] = useState(false);
@@ -228,6 +245,26 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const pendingNavigateRef = useRef<Map<string, string>>(new Map());
   const pendingViewCreatesRef = useRef<Set<string>>(new Set());
   const browserViewContainerRef = useRef<HTMLDivElement>(null);
+
+  const toggleBrowserSettings = useCallback(() => {
+    if (browserSettingsOpen) {
+      if (desktopBrowser && settingsViewIdRef.current !== null) {
+        desktopBrowser.setVisible(settingsViewIdRef.current, false);
+        desktopBrowser.destroyView(settingsViewIdRef.current);
+        settingsViewIdRef.current = null;
+        setSettingsViewId(null);
+      }
+      setBrowserSettingsOpen(false);
+      return;
+    }
+    setBrowserSettingsOpen(true);
+    if (!desktopBrowser) return;
+    void desktopBrowser.createView(profileId).then((viewId) => {
+      settingsViewIdRef.current = viewId;
+      setSettingsViewId(viewId);
+      void desktopBrowser.navigate(viewId, "chrome://settings");
+    });
+  }, [browserSettingsOpen, desktopBrowser, profileId]);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -309,7 +346,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       if (!desktopBrowser) return;
       const sessionGeneration = getBrowserSessionGeneration(sessionKey);
       pendingViewCreatesRef.current.add(tabId);
-      void desktopBrowser.createView().then((viewId) => {
+      void desktopBrowser.createView(profileId).then((viewId) => {
         if (
           !pendingViewCreatesRef.current.has(tabId) ||
           getBrowserSessionGeneration(sessionKey) !== sessionGeneration
@@ -337,7 +374,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         }
       });
     },
-    [desktopBrowser, sessionKey, updateTab],
+    [desktopBrowser, profileId, sessionKey, updateTab],
   );
 
   const addTab = useCallback(
@@ -446,7 +483,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     )) {
       pendingViewCreatesRef.current.add(tab.id);
       const sessionGeneration = getBrowserSessionGeneration(sessionKey);
-      void desktopBrowser.createView().then((viewId) => {
+      void desktopBrowser.createView(profileId).then((viewId) => {
         if (
           !pendingViewCreatesRef.current.has(tab.id) ||
           getBrowserSessionGeneration(sessionKey) !== sessionGeneration
@@ -496,6 +533,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     desktopBrowser,
     hideAllBrowserViews,
     sessionKey,
+    profileId,
     sessionHydrationVersion,
   ]);
 
@@ -555,11 +593,21 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       if (t.viewId !== null) {
         desktopBrowser.setVisible(
           t.viewId,
-          visible && !settingsOpen && t.id === activeTabId,
+          visible &&
+            !settingsOpen &&
+            !browserSettingsOpen &&
+            t.id === activeTabId,
         );
       }
     }
-  }, [desktopBrowser, tabs, activeTabId, settingsOpen, visible]);
+  }, [
+    desktopBrowser,
+    tabs,
+    activeTabId,
+    settingsOpen,
+    browserSettingsOpen,
+    visible,
+  ]);
 
   // Reporta os bounds reais do container (ResizeObserver) pro main process
   // posicionar a WebContentsView ATIVA por cima — só existe depois da
@@ -590,6 +638,38 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       window.removeEventListener("resize", report);
     };
   }, [desktopBrowser, activeViewId, hasUrl]);
+
+  useEffect(() => {
+    if (!desktopBrowser || !browserSettingsOpen || settingsViewId === null) {
+      return;
+    }
+    const el = browserViewContainerRef.current;
+    if (!el) return;
+    const report = () => {
+      const rect = el.getBoundingClientRect();
+      desktopBrowser.setBounds(settingsViewId, {
+        x: Math.round(rect.left),
+        y: Math.round(rect.top),
+        width: Math.max(0, Math.round(rect.width)),
+        height: Math.max(0, Math.round(rect.height)),
+      });
+      desktopBrowser.setVisible(settingsViewId, true);
+    };
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [browserSettingsOpen, desktopBrowser, settingsViewId]);
+
+  useEffect(
+    () => () => {
+      if (desktopBrowser && settingsViewIdRef.current !== null) {
+        desktopBrowser.destroyView(settingsViewIdRef.current);
+        settingsViewIdRef.current = null;
+      }
+    },
+    [desktopBrowser],
+  );
 
   const fetchLaunch = useCallback(
     async (isCurrent: () => boolean = () => true) => {
@@ -1098,50 +1178,84 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       {/* Tab strip — favicon/título truncado + fechar por aba, "+" pra nova
           aba. Sempre visível (mesmo com 1 aba só), consistente com um
           browser real. */}
-      <div className="flex shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border/60 bg-card/10 px-1 pt-1">
-        {tabs.map((t) => {
-          const tUrl = desktopBrowser
-            ? t.desktopUrl
-            : t.historyIndex >= 0
-              ? t.history[t.historyIndex]
-              : "";
-          const label = t.title || tUrl || msg.workbench_browser_tab_untitled();
-          const isTabActive = t.id === activeTabId;
-          return (
-            <div
-              key={t.id}
-              data-testid="browser-tab-strip-item"
-              onClick={() => setActiveTabId(t.id)}
-              className={`group flex max-w-[160px] shrink-0 items-center gap-1 rounded-t-md px-2 py-1 text-[11px] cursor-pointer transition-colors ${
-                isTabActive
-                  ? "bg-background text-foreground"
-                  : "text-muted-foreground hover:bg-accent/40"
-              }`}
-            >
-              <span className="min-w-0 flex-1 truncate">{label}</span>
-              <button
-                type="button"
-                className="shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-accent transition-opacity"
-                title={msg.workbench_browser_close_tab()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  closeTab(t.id);
-                }}
+      <div className="flex shrink-0 items-center gap-0.5 border-b border-border/60 bg-card/10 px-1 pt-1">
+        <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
+          {tabs.map((t) => {
+            const tUrl = desktopBrowser
+              ? t.desktopUrl
+              : t.historyIndex >= 0
+                ? t.history[t.historyIndex]
+                : "";
+            const label =
+              t.title || tUrl || msg.workbench_browser_tab_untitled();
+            const isTabActive = t.id === activeTabId;
+            return (
+              <div
+                key={t.id}
+                data-testid="browser-tab-strip-item"
+                onClick={() => setActiveTabId(t.id)}
+                className={`group flex max-w-[160px] shrink-0 items-center gap-1 rounded-t-md px-2 py-1 text-[11px] cursor-pointer transition-colors ${
+                  isTabActive
+                    ? "bg-background text-foreground"
+                    : "text-muted-foreground hover:bg-accent/40"
+                }`}
               >
-                <X className="h-2.5 w-2.5" />
-              </button>
-            </div>
-          );
-        })}
+                <span className="min-w-0 flex-1 truncate">{label}</span>
+                <button
+                  type="button"
+                  className="shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-accent transition-opacity"
+                  title={msg.workbench_browser_close_tab()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeTab(t.id);
+                  }}
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </div>
+            );
+          })}
+          <button
+            type="button"
+            className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            title={msg.workbench_browser_new_tab()}
+            onClick={() => addTab()}
+          >
+            <Plus className="h-3 w-3" />
+          </button>
+        </div>
         <button
           type="button"
-          className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-          title={msg.workbench_browser_new_tab()}
-          onClick={() => addTab()}
+          data-testid="browser-settings-btn"
+          aria-label={msg.workbench_browser_devtools_toggle()}
+          aria-expanded={browserSettingsOpen}
+          title={msg.workbench_browser_devtools_toggle()}
+          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded p-1 transition-colors ${browserSettingsOpen ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
+          onClick={toggleBrowserSettings}
         >
-          <Plus className="h-3 w-3" />
+          <Settings2 className="h-3.5 w-3.5" />
         </button>
       </div>
+
+      <WorkbenchSlidePanel
+        open={browserSettingsOpen && (!desktopBrowser || settingsViewId === null)}
+        onClose={toggleBrowserSettings}
+        title={msg.workbench_browser_devtools_toggle()}
+        testId="browser-settings-panel"
+      >
+        <div className="space-y-3 text-xs text-muted-foreground">
+          <p>{msg.workbench_browser_frame_title()}</p>
+          <button
+            type="button"
+            className="rounded border border-destructive/40 px-2 py-1 text-destructive hover:bg-destructive/10"
+            onClick={() => {
+              void desktopBrowser?.clearProfileData(profileId);
+            }}
+          >
+            {msg.workbench_browser_manual_add()}
+          </button>
+        </div>
+      </WorkbenchSlidePanel>
 
       {/* Barra de navegação — sempre ativa, não depende de nenhum servidor */}
       <div className="flex items-center gap-1 border-b border-border/60 bg-card/20 px-2 py-1">

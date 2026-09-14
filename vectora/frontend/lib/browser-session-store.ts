@@ -13,6 +13,8 @@ export interface PersistedTabState {
 export interface PersistedBrowserSession {
   tabs: PersistedTabState[];
   activeTabId: string;
+  /** Stable Chromium partition key for this browser session. */
+  profileId?: string;
 }
 
 interface BrowserViewBridge {
