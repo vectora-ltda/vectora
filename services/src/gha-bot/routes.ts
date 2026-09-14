@@ -10,6 +10,21 @@ import { timingSafeEqual } from "../gateway/auth";
 export const ghaBot = new Hono<{ Bindings: Env }>();
 
 const VALID_REVIEW_STYLES = new Set(["strict", "balanced", "lenient"]);
+const MAX_REVIEW_JOB_BYTES = 6_000_000;
+
+function validReviewPayload(body: unknown): body is {
+  diff: string;
+  metadata?: Record<string, string>;
+} {
+  if (!body || typeof body !== "object") return false;
+  const value = body as { diff?: unknown; metadata?: unknown };
+  if (typeof value.diff !== "string" || value.diff.length < 1 || value.diff.length > 5_000_000) return false;
+  if (value.metadata !== undefined) {
+    if (!value.metadata || typeof value.metadata !== "object" || Array.isArray(value.metadata)) return false;
+    if (Object.values(value.metadata).some((item) => typeof item !== "string")) return false;
+  }
+  return new TextEncoder().encode(JSON.stringify(body)).byteLength <= MAX_REVIEW_JOB_BYTES;
+}
 
 /** Resolve o user_id de um VECTORA_BOT_TOKEN válido (não revogado) — mesmo
  * padrão de `resolveSession`, mas contra `gha_bot_tokens` em vez de
@@ -288,7 +303,7 @@ ghaBot.post("/review", async (c) => {
   const body = await c.req
     .json<{ diff?: string; metadata?: Record<string, string> }>()
     .catch(() => null);
-  if (!body?.diff) return c.json({ error: "missing_diff" }, 400);
+  if (!validReviewPayload(body)) return c.json({ error: "invalid_review_payload" }, 400);
 
   const tokenRow = await c.env.DB.prepare(
     "SELECT token FROM tokens WHERE user_id = ?",

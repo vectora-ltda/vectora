@@ -236,7 +236,7 @@ class GatewayClient:
             ):
                 try:
                     async with session.ws_connect(
-                        ws_url, headers={"Authorization": f"Bearer {secret}"}
+                        ws_url, headers={"Authorization": f"Bearer {secret}"}, max_msg_size=6_000_000
                     ) as ws:
                         logger.info("gateway: conectado em %s", ws_url)
                         await self._handle_messages(ws, local_session, queue)
@@ -320,6 +320,12 @@ class GatewayClient:
             try:
                 job = ReviewJobRequest.model_validate(message)
             except ValueError:
+                  job_id = message.get("job_id")
+                  callback_secret = message.get("callback_secret")
+                  if isinstance(job_id, str) and isinstance(callback_secret, str):
+                      await self._post_review_result(
+                          job_id, callback_secret, error="payload de review inválido"
+                      )
                 logger.warning("gateway: review_job inválido descartado")
                 return
             # Roda fora da fila de forwards (_MAX_CONCURRENT_FORWARDS é pra

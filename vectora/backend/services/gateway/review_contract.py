@@ -5,6 +5,10 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+# Leave room for JSON field names and UTF-8 encoding around the diff.
+MAX_REVIEW_JOB_BYTES = 6_000_000
+
+
 class ReviewJobRequest(BaseModel):
     """Payload mínimo e estável entre Action, gateway e worker self-hosted."""
 
