@@ -269,8 +269,6 @@ class TestWorkspaceHandlers:
 
     @pytest.mark.asyncio
     async def test_mkdir_creates_subdir_then_relists(self, tmp_path):
-        from fastapi import HTTPException
-
         from backend.api.handlers.workspaces import MkdirRequest, mkdir_dir
 
         fake_request = SimpleNamespace(state=SimpleNamespace(user=None))
@@ -283,8 +281,13 @@ class TestWorkspaceHandlers:
         assert "minha-pasta" in {e.name for e in result.entries}
         assert result.created_path == str(tmp_path / "minha-pasta")
 
-        # Par de erro — nome inválido (traversal) e pasta já existente,
-        # nenhum dos dois cria/altera nada no disco.
+    @pytest.mark.asyncio
+    async def test_mkdir_rejeita_traversal(self, tmp_path):
+        from fastapi import HTTPException
+
+        from backend.api.handlers.workspaces import MkdirRequest, mkdir_dir
+
+        fake_request = SimpleNamespace(state=SimpleNamespace(user=None))
         with pytest.raises(HTTPException) as exc_traversal:
             await mkdir_dir(
                 fake_request,  # ty: ignore[invalid-argument-type]
@@ -292,6 +295,14 @@ class TestWorkspaceHandlers:
             )
         assert exc_traversal.value.status_code == 400
 
+    @pytest.mark.asyncio
+    async def test_mkdir_rejeita_conflito(self, tmp_path):
+        from fastapi import HTTPException
+
+        from backend.api.handlers.workspaces import MkdirRequest, mkdir_dir
+
+        fake_request = SimpleNamespace(state=SimpleNamespace(user=None))
+        (tmp_path / "minha-pasta").mkdir()
         with pytest.raises(HTTPException) as exc_conflict:
             await mkdir_dir(
                 fake_request,  # ty: ignore[invalid-argument-type]

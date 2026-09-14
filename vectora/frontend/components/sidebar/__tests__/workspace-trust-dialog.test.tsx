@@ -84,7 +84,7 @@ describe("WorkspaceTrustDialog — reload e nova pasta", () => {
     expect(lastCall).toContain(encodeURIComponent(listing.path));
   });
 
-  it("cria uma pasta nova e relista (feliz); nome em conflito mostra erro sem travar o formulário (edge)", async () => {
+  it("cria uma pasta nova e relista", async () => {
     let createdPath: string | null = null;
     const originalCreate = useWorkspacesStore.getState().create;
     const createSpy = vi.fn().mockResolvedValue({ ok: true, data: null });
@@ -148,18 +148,31 @@ describe("WorkspaceTrustDialog — reload e nova pasta", () => {
       }),
     );
 
-    // Edge — conflito: reabre o formulário e tenta um nome já existente.
+    useWorkspacesStore.setState({ create: originalCreate });
+  });
+
+  it("mantém o formulário aberto quando a pasta entra em conflito", async () => {
+    FETCH.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/workspaces/browse/mkdir" && init?.method === "POST") {
+        return jsonRes({ detail: "conflict" }, 409);
+      }
+      if (url.startsWith("/workspaces/browse")) return jsonRes(listing);
+      return jsonRes({}, 404);
+    });
+
+    render(<WorkspaceTrustDialog open onOpenChange={() => {}} />);
+    await waitFor(() => screen.getByText("projeto-a"));
     fireEvent.click(screen.getByTitle("New folder"));
-    const input2 = await screen.findByPlaceholderText("Folder name");
-    fireEvent.change(input2, { target: { value: "ja-existe" } });
+    const input = await screen.findByPlaceholderText("Folder name");
+    fireEvent.change(input, { target: { value: "ja-existe" } });
     fireEvent.click(screen.getByText("Create"));
 
     await waitFor(() =>
-      screen.getByText("A folder with that name already exists."),
+      expect(
+        screen.getByText("A folder with that name already exists."),
+      ).toBeTruthy(),
     );
-    // Formulário continua aberto — usuário pode corrigir o nome.
     expect(screen.getByPlaceholderText("Folder name")).toBeTruthy();
-    useWorkspacesStore.setState({ create: originalCreate });
   });
 
   it("usa a entrada criada quando o servidor antigo não retorna created_path", async () => {
