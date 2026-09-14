@@ -96,6 +96,7 @@ describe("LibraryTab", () => {
     fireEvent.click(screen.getByRole("button", { name: "MCP" }));
     fireEvent.click(screen.getByRole("button", { name: "Skills" }));
     fireEvent.click(screen.getByRole("button", { name: "Memory" }));
+    fireEvent.click(screen.getByRole("button", { name: "Extensions" }));
     expect(
       screen.getByText(
         "No filters active — turn on at least one category to search.",

@@ -153,6 +153,11 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
             active={activeFilters.has("memory")}
             onToggle={() => toggleFilter("memory")}
           />
+          <FilterPill
+            label={m.library_filter_extensions()}
+            active={activeFilters.has("extensions")}
+            onToggle={() => toggleFilter("extensions")}
+          />
         </div>
       </div>
 
