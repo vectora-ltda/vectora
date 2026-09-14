@@ -4,7 +4,7 @@ import type { Env } from "../gateway/types";
 import { requireUserId } from "../auth/routes";
 import { bearerToken, sha256Hex } from "../auth/session";
 import { decryptProviderKey, encryptProviderKey } from "./crypto";
-import { checkGatewayHealth, dispatchReviewJob } from "../gateway";
+import { dispatchReviewJob } from "../gateway";
 import { timingSafeEqual } from "../gateway/auth";
 
 export const ghaBot = new Hono<{ Bindings: Env }>();
@@ -233,25 +233,6 @@ ghaBot.get("/config", async (c) => {
   // automaticamente se a instância do usuário estiver offline no momento
   // exato desta checagem (sem retry aqui — a Action já roda de novo no
   // próximo PR).
-  if (row.self_hosted_enabled === 1) {
-    const tokenRow = await c.env.DB.prepare(
-      "SELECT token FROM tokens WHERE user_id = ?",
-    )
-      .bind(userId)
-      .first<{ token: string | null }>();
-    if (tokenRow?.token) {
-      const health = await checkGatewayHealth(c.env, tokenRow.token);
-      if (health.connected) {
-        return c.json({
-          mode: "self-hosted",
-          // services.vectora.company (não APP_URL — esse é o site da
-          // company, um deploy diferente; mesma convenção hardcoded já
-          // usada em rag-library/routes.ts pra auto-referenciar este Worker).
-          job_endpoint: "https://services.vectora.company/gha-bot/review",
-        });
-      }
-    }
-  }
 
   const apiKey = await decryptProviderKey(
     c.env.GHA_BOT_ENCRYPTION_KEY,
