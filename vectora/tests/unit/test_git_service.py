@@ -9,7 +9,12 @@ from pathlib import Path
 import git
 import pytest
 
-from backend.services.git import GitOperationError, GitService, redact_git_output
+from backend.services.git import (
+    GitOperation,
+    GitOperationError,
+    GitService,
+    redact_git_output,
+)
 
 
 def make_repo(path: Path) -> git.Repo:
@@ -77,6 +82,24 @@ def test_redact_git_output_masks_url_credentials_and_parameters() -> None:
     assert "bearer-secret" not in result
     assert "colon-secret" not in result
     assert "basic-secret" not in result
+
+
+def test_redact_git_output_masks_token_only_url_userinfo_in_snapshots() -> None:
+    credential = "TOKEN"
+    operation = GitOperation(
+        operation_id="operation",
+        workspace_id="workspace",
+        operation="fetch",
+        output=f"remote https://{credential}@example.com/repo",
+        error=f"fatal https://{credential}@example.com/repo",
+    )
+
+    snapshot = operation.snapshot()
+
+    assert credential not in snapshot["output"]
+    assert credential not in snapshot["error"]
+    assert "https://***@example.com/repo" in snapshot["output"]
+    assert "https://***@example.com/repo" in snapshot["error"]
 
 
 @pytest.mark.asyncio

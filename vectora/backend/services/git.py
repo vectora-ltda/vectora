@@ -15,6 +15,7 @@ import git
 
 _T = TypeVar("_T")
 _REDACT_USERINFO = re.compile(r"(://[^/@\s:]+):[^/@\s]+@")
+_REDACT_TOKEN_USERINFO = re.compile(r"(://)[^/@\s:]+@")
 _REDACT_SECRET = re.compile(
     r"(?i)(?P<key>token|secret|password)=(?P<value>[^\s&]+)"
     r"|(?P<authorization>authorization)(?P<separator>\s*[=:]\s*)"
@@ -25,6 +26,7 @@ _REDACT_SECRET = re.compile(
 def redact_git_output(value: str) -> str:
     """Remove credenciais de URLs e parâmetros antes de expor saída Git."""
     value = _REDACT_USERINFO.sub(r"\1:***@", value)
+    value = _REDACT_TOKEN_USERINFO.sub(r"\1***@", value)
 
     def replace(match: re.Match[str]) -> str:
         if match.group("authorization"):
