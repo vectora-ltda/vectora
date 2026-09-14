@@ -337,7 +337,11 @@ async def create_workspace(
     from backend.workspace.workspace import workspace_registry
 
     path = Path(body.path).expanduser()
-    if not path.exists() or not path.is_dir():
+    try:
+        resolved_path = path.resolve(strict=True)
+    except OSError:
+        resolved_path = None
+    if resolved_path is None or not resolved_path.is_dir():
         return StatusResponse(
             status="error", message=f"Diretório não encontrado: {body.path}"
         )
@@ -345,15 +349,15 @@ async def create_workspace(
     uid = _user_id(request)
     safe_roots = get_safe_root_registry()
     privileged = _is_privileged(request)
-    if not privileged and safe_roots.is_under_safe_root(str(path)) is None:
+    if not privileged and safe_roots.is_under_safe_root(str(resolved_path)) is None:
         raise HTTPException(
             status_code=403,
             detail="Caminho fora das pastas seguras configuradas.",
         )
     if privileged:
-        safe_roots.add(str(path), path.name, str(uid))
+        safe_roots.add(str(resolved_path), resolved_path.name, str(uid))
     ws = workspace_registry.create(
-        str(path), trust=body.trust, git_init=body.git_init, user_id=uid
+        str(resolved_path), trust=body.trust, git_init=body.git_init, user_id=uid
     )
     workspace_registry.set_active(ws.id, uid)
     return StatusResponse(status="ok", workspace=_to_info(ws))
