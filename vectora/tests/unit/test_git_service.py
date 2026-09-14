@@ -101,13 +101,20 @@ def test_redact_git_output_masks_url_credentials_and_parameters() -> None:
         "Authorization: Basic basic-secret"
     )
     result = redact_git_output(value)
-    assert "user:***@example.com" in result
+    assert "***@example.com" in result
     assert "token=***" in result
     assert "authorization=***" in result
     assert "Authorization: ***" in result
     assert "bearer-secret" not in result
     assert "colon-secret" not in result
     assert "basic-secret" not in result
+
+
+def test_redact_git_output_masks_token_only_url_userinfo() -> None:
+    result = redact_git_output("fatal: https://TOKEN@host.example/repo.git")
+
+    assert "TOKEN" not in result
+    assert "https://***@host.example/repo.git" in result
 
 
 @pytest.mark.asyncio
@@ -124,6 +131,32 @@ async def test_latest_and_history_retain_recent_operations(tmp_path: Path) -> No
     assert latest["operation"] == "pull"
     history = await service.history("workspace")
     assert [item["operation"] for item in history] == ["pull", "fetch"]
+
+
+@pytest.mark.asyncio
+async def test_history_empty_workspace_returns_empty_list(tmp_path: Path) -> None:
+    service = GitService()
+    repo = make_repo(tmp_path / "repo")
+    await service.execute("workspace", repo, "fetch", lambda: "done")
+
+    assert await service.history("") == []
+
+
+@pytest.mark.asyncio
+async def test_history_limit_is_bounded_and_failure_is_retained(tmp_path: Path) -> None:
+    service = GitService()
+    repo = make_repo(tmp_path / "repo")
+
+    def fail() -> None:
+        raise ValueError("https://TOKEN@host/repo")
+
+    with pytest.raises(ValueError):
+        await service.execute("workspace", repo, "fetch", fail)
+
+    history = await service.history("workspace", limit=0)
+    assert len(history) == 1
+    assert history[0]["state"] == "failed"
+    assert "TOKEN" not in str(history[0])
 
 
 @pytest.mark.asyncio

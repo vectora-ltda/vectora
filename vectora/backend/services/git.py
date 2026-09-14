@@ -14,7 +14,7 @@ from typing import TypeVar
 import git
 
 _T = TypeVar("_T")
-_REDACT_USERINFO = re.compile(r"(://[^/@\s:]+):[^/@\s]+@")
+_REDACT_USERINFO = re.compile(r"(://)[^/@\s]+@")
 _REDACT_SECRET = re.compile(
     r"(?i)(?P<key>token|secret|password)=(?P<value>[^\s&]+)"
     r"|(?P<authorization>authorization)(?P<separator>\s*[=:]\s*)"
@@ -24,7 +24,7 @@ _REDACT_SECRET = re.compile(
 
 def redact_git_output(value: str) -> str:
     """Remove credenciais de URLs e parâmetros antes de expor saída Git."""
-    value = _REDACT_USERINFO.sub(r"\1:***@", value)
+    value = _REDACT_USERINFO.sub(r"\1***@", value)
 
     def replace(match: re.Match[str]) -> str:
         if match.group("authorization"):
@@ -49,6 +49,7 @@ class GitOperation:
     error: str | None = None
     created_at: float = field(default_factory=time.time)
     finished_at: float | None = None
+    sequence: int = field(default=0, repr=False)
 
     def snapshot(self) -> dict[str, object]:
         return {
@@ -156,6 +157,7 @@ class GitService:
         self._locks: dict[str, asyncio.Lock] = {}
         self._operations: dict[str, GitOperation] = {}
         self._guard = asyncio.Lock()
+        self._sequence = 0
 
     @staticmethod
     def repository_key(repo: git.Repo) -> str:
@@ -178,7 +180,7 @@ class GitService:
             ]
         if not operations:
             return None
-        return max(operations, key=lambda operation: operation.created_at).snapshot()
+        return max(operations, key=lambda operation: operation.sequence).snapshot()
 
     async def history(
         self, workspace_id: str, *, limit: int = 50
@@ -194,7 +196,7 @@ class GitService:
         return [
             operation.snapshot()
             for operation in sorted(
-                operations, key=lambda item: item.created_at, reverse=True
+                operations, key=lambda item: item.sequence, reverse=True
             )[:bounded_limit]
         ]
 
@@ -226,12 +228,14 @@ class GitService:
                 if command_timeout_seconds is not None
                 else settings.git_command_timeout
             )
-        operation = GitOperation(
-            operation_id=f"git-{time.time_ns()}",
-            workspace_id=workspace_id,
-            operation=operation_name,
-        )
         async with self._guard:
+            self._sequence += 1
+            operation = GitOperation(
+                operation_id=f"git-{time.time_ns()}",
+                workspace_id=workspace_id,
+                operation=operation_name,
+                sequence=self._sequence,
+            )
             self._operations[operation.operation_id] = operation
             workspace_operations = sorted(
                 (
@@ -239,7 +243,7 @@ class GitService:
                     for previous in self._operations.values()
                     if previous.workspace_id == workspace_id
                 ),
-                key=lambda item: item.created_at,
+                key=lambda item: item.sequence,
                 reverse=True,
             )
             for stale in workspace_operations[50:]:

@@ -1999,19 +1999,40 @@ async def git_revert_commit(
 
 
 class GitStatusResponse(BaseModel):
+    """Snapshot validado do estado atual do repositório e da operação ativa."""
+
     is_git_repo: bool = False
     branch: str = ""
     clean: bool = True
     ahead: int = 0
     behind: int = 0
+    operation_in_progress: dict[str, object] | None = None
+
+
+class GitOperationSnapshot(BaseModel):
+    """Snapshot sanitizado de uma operação Git, em estado terminal ou corrente."""
+
+    operation_id: str
+    workspace_id: str
+    operation: str
+    state: Literal["queued", "running", "succeeded", "failed"]
+    phase: str
+    progress: int = Field(ge=0, le=100)
+    output: str = ""
+    error_code: str | None = None
+    error: str | None = None
+    created_at: float
+    finished_at: float | None = None
 
 
 class GitOperationResponse(BaseModel):
-    operation: dict[str, object] | None = None
+    operation: GitOperationSnapshot | None = None
 
 
 class GitOperationHistoryResponse(BaseModel):
-    operations: list[dict[str, object]] = []
+    """Operações recentes em ordem decrescente de criação para reconexão."""
+
+    operations: list[GitOperationSnapshot] = Field(default_factory=list)
 
 
 @workspace_scoped_router.get("/git/operation", response_model=GitOperationResponse)
