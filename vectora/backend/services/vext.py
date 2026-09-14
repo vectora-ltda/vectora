@@ -11,10 +11,27 @@ from __future__ import annotations
 import json
 import re
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Final
 
+from backend.workspace.skills_lock import Version
 from pydantic import BaseModel, Field, field_validator
+
+
+def _validate_package_path(value: str) -> str:
+    """Require an unambiguous, portable relative POSIX archive path."""
+    if (
+        not value
+        or "\\" in value
+        or value.startswith("/")
+        or PureWindowsPath(value).drive
+        or value != PurePosixPath(value).as_posix()
+        or any(part in {"", ".", ".."} for part in value.split("/"))
+    ):
+        raise ValueError("caminho deve ser um caminho POSIX relativo canônico")
+    return value
+
+
 
 MANIFEST_NAME: Final = "vectora-extension.json"
 MAX_PACKAGE_BYTES: Final = 50 * 1024 * 1024
@@ -29,17 +46,21 @@ class VextManifest(BaseModel):
 
     id: str = Field(pattern=r"^[a-z][a-z0-9_.-]{1,63}$")
     name: str = Field(min_length=1, max_length=120)
-    version: str = Field(pattern=r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
+    version: str = Field(min_length=1)
     api_version: int = Field(ge=1)
     entrypoint: str = Field(min_length=1, max_length=240)
     permissions: list[str] = Field(default_factory=list)
 
+    @field_validator("version")
+    @classmethod
+    def validate_version(cls, value: str) -> str:
+        Version.parse(value)
+        return value
+
     @field_validator("entrypoint")
     @classmethod
     def validate_entrypoint(cls, value: str) -> str:
-        if value.startswith("/") or "\\" in value or ".." in Path(value).parts:
-            raise ValueError("entrypoint deve ser um caminho relativo seguro")
-        return value
+        return _validate_package_path(value)
 
     @field_validator("permissions")
     @classmethod
@@ -78,21 +99,21 @@ def inspect_vext(path: str | Path) -> VextPackage:
         if total > MAX_UNCOMPRESSED_BYTES:
             raise ValueError("conteúdo descompactado excede o limite")
         names: list[str] = []
+        entries: dict[str, zipfile.ZipInfo] = {}
         for info in infos:
-            name = info.filename.replace("\\", "/")
-            parts = Path(name).parts
-            if name.startswith("/") or ".." in parts:
-                raise ValueError("pacote contém caminho inseguro")
-            if info.is_dir():
-                continue
-            # Unix mode 0o120000 identifica symlink dentro de ZIPs.
+            # Check mode bits before allowing directory-shaped entries through.
             if ((info.external_attr >> 16) & 0o170000) == 0o120000:
                 raise ValueError("pacote não pode conter links simbólicos")
-            names.append(name)
-        if MANIFEST_NAME not in names:
+            name = _validate_package_path(info.filename)
+            if name in entries:
+                raise ValueError("pacote contém entradas duplicadas")
+            entries[name] = info
+            if not info.is_dir():
+                names.append(name)
+        if MANIFEST_NAME not in entries or MANIFEST_NAME not in names:
             raise ValueError(f"manifesto ausente: {MANIFEST_NAME}")
         try:
-            raw_manifest = json.loads(archive.read(MANIFEST_NAME))
+            raw_manifest = json.loads(archive.read(entries[MANIFEST_NAME]))
             manifest = VextManifest.model_validate(raw_manifest)
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
             raise ValueError("manifesto inválido") from exc
