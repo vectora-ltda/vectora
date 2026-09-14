@@ -69,6 +69,28 @@ export interface VextContext {
   ): Promise<T>;
 }
 
+export interface Disposable {
+  dispose(): void;
+}
+export interface VextLogger {
+  debug(message: string, fields?: Record<string, unknown>): void;
+  info(message: string, fields?: Record<string, unknown>): void;
+  warn(message: string, fields?: Record<string, unknown>): void;
+  error(message: string, fields?: Record<string, unknown>): void;
+}
+export interface VextCommands {
+  register(
+    command: string,
+    handler: (...args: unknown[]) => unknown | Promise<unknown>,
+  ): Disposable;
+  execute<T = unknown>(command: string, ...args: unknown[]): Promise<T>;
+}
+export interface VextState {
+  get<T>(key: string, fallback?: T): T | undefined;
+  set<T>(key: string, value: T): Promise<void>;
+  delete(key: string): Promise<void>;
+}
+
 export const VEXT_PROTOCOL_VERSION = 1;
 
 export function createContext(
@@ -87,6 +109,50 @@ export function createContext(
       );
       if (response.error) throw new Error(response.error);
       return response.result as T;
+    },
+  };
+}
+
+export function createCommandRegistry(): VextCommands {
+  const handlers = new Map<
+    string,
+    (...args: unknown[]) => unknown | Promise<unknown>
+  >();
+  return {
+    register(
+      command: string,
+      handler: (...args: unknown[]) => unknown | Promise<unknown>,
+    ) {
+      if (!/^[a-z][a-z0-9_.-]{1,127}$/.test(command))
+        throw new Error("invalid command id");
+      handlers.set(command, handler);
+      return {
+        dispose: () => {
+          handlers.delete(command);
+        },
+      };
+    },
+    async execute<T = unknown>(
+      command: string,
+      ...args: unknown[]
+    ): Promise<T> {
+      const handler = handlers.get(command);
+      if (!handler) throw new Error(`command not registered: ${command}`);
+      return (await handler(...args)) as T;
+    },
+  };
+}
+
+export function createState(initial: Record<string, unknown> = {}): VextState {
+  const values = new Map(Object.entries(initial));
+  return {
+    get: <T>(key: string, fallback?: T) =>
+      values.has(key) ? (values.get(key) as T) : fallback,
+    set: async <T>(key: string, value: T) => {
+      values.set(key, value);
+    },
+    delete: async (key: string) => {
+      values.delete(key);
     },
   };
 }
