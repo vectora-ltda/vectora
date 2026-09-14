@@ -1593,5 +1593,9 @@
   "about_panel_mode_web": "Web",
   "feedback_include_context": "Incluir contexto técnico",
   "sidebar_ctx_resume": "Abrir en este dispositivo",
-  "sidebar_remote_activity_tooltip": "Activo en otro dispositivo {time}"
+  "sidebar_remote_activity_tooltip": "Activo en otro dispositivo {time}",
+  "library_section_extensions": "Extensiones",
+  "library_extensions_empty": "No se encontraron extensiones.",
+  "library_extensions_download": "Descargar extensión",
+  "library_extensions_error_search": "No se pudieron cargar las extensiones."
 }

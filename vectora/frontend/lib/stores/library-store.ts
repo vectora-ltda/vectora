@@ -69,6 +69,19 @@ export interface MemoryBucket {
   license?: string;
 }
 
+export interface VextExtension {
+  id: string;
+  name: string;
+  description: string;
+  publisher: string;
+  version: string;
+  runtime: "node" | "python" | "none";
+  platforms: string;
+  permissions: string;
+  digest: string;
+  status: "published";
+}
+
 const TTL_MS = 5 * 60 * 1000;
 
 async function fetchMcpRegistry(q: string): Promise<MCPConnector[]> {
@@ -100,6 +113,14 @@ async function fetchMemoryCatalog(q: string): Promise<MemoryBucket[]> {
   return res.json();
 }
 
+async function fetchExtensionsCatalog(q: string): Promise<VextExtension[]> {
+  const qs = q ? `?${new URLSearchParams({ q })}` : "";
+  const res = await fetch(`/registry/extensions${qs}`);
+  if (!res.ok) throw new Error(`Erro ${res.status}`);
+  const data = (await res.json()) as { entries?: VextExtension[] };
+  return data.entries ?? [];
+}
+
 interface LibraryStoreState {
   mcpItems: MCPConnector[];
   mcpInstalledIds: Set<string>;
@@ -120,12 +141,20 @@ interface LibraryStoreState {
   memoryQuery: string;
   memoryError: string | null;
 
+  extensionItems: VextExtension[];
+  extensionLoading: boolean;
+  extensionFetchedAt: number | null;
+  extensionQuery: string;
+  extensionError: string | null;
+
   ensureMcpLoaded: (q?: string) => Promise<void>;
   invalidateMcp: () => void;
   ensureSkillsLoaded: (q?: string) => Promise<void>;
   invalidateSkills: () => void;
   ensureMemoryLoaded: (q?: string) => Promise<void>;
   invalidateMemory: () => void;
+  ensureExtensionsLoaded: (q?: string) => Promise<void>;
+  invalidateExtensions: () => void;
 }
 
 function isFresh(fetchedAt: number | null): boolean {
@@ -151,6 +180,11 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   memoryFetchedAt: null,
   memoryQuery: "",
   memoryError: null,
+  extensionItems: [],
+  extensionLoading: false,
+  extensionFetchedAt: null,
+  extensionQuery: "",
+  extensionError: null,
 
   ensureMcpLoaded: async (q = "") => {
     const s = get();
@@ -220,4 +254,29 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   },
 
   invalidateMemory: () => set({ memoryFetchedAt: null }),
+
+  ensureExtensionsLoaded: async (q = "") => {
+    const s = get();
+    if (
+      s.extensionLoading ||
+      (isFresh(s.extensionFetchedAt) && s.extensionQuery === q)
+    )
+      return;
+    set({ extensionLoading: true });
+    try {
+      const items = await fetchExtensionsCatalog(q);
+      set({
+        extensionItems: items,
+        extensionFetchedAt: Date.now(),
+        extensionQuery: q,
+        extensionError: null,
+      });
+    } catch {
+      set({ extensionError: m.library_extensions_error_search() });
+    } finally {
+      set({ extensionLoading: false });
+    }
+  },
+
+  invalidateExtensions: () => set({ extensionFetchedAt: null }),
 }));
