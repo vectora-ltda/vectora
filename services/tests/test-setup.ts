@@ -4,6 +4,8 @@ import { beforeAll } from "vitest";
 import schemaSql from "../migrations/0001_schema.sql?raw";
 // @ts-expect-error — Vite `?raw` import, resolvido em build/test time (esbuild).
 import issueSyncMigrationSql from "../migrations/0002_issue_sync_compat.sql?raw";
+// @ts-expect-error — Vite `?raw` import, resolvido em build/test time (esbuild).
+import vextRegistryMigrationSql from "../migrations/0003_vext_registry.sql?raw";
 
 // Guarda de rede hermética. O `queueConsumers: ["vectora-email"]` do
 // vitest.config faz o miniflare ENTREGAR de verdade os emails enfileirados
@@ -63,4 +65,5 @@ async function applyMigration(sql: string): Promise<void> {
 beforeAll(async () => {
   await applyMigration(schemaSql as string);
   await applyMigration(issueSyncMigrationSql as string);
+  await applyMigration(vextRegistryMigrationSql as string);
 });

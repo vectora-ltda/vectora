@@ -183,7 +183,7 @@ describe("GET /registry/skills/:name/versions", () => {
 });
 
 describe("GET /registry/extensions", () => {
-  it("returns an empty entries array (fora de escopo — SDK de extensões não existe)", async () => {
+  it("returns a stable entries array when no extensions are published", async () => {
     const res = await registry.request("/extensions", {}, env);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ entries: [] });
