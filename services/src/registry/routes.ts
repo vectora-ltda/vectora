@@ -318,6 +318,44 @@ registry.post("/extensions/publish", async (c) => {
   );
 });
 
+registry.patch("/admin/extensions/:id/:version/publish", async (c) => {
+  const adminId = await requireAdmin(c);
+  if (!adminId) return c.json({ error: "forbidden" }, 403);
+  const row = await c.env.DB.prepare(
+    `SELECT v.id, v.r2_key, v.signature FROM vext_versions v
+      JOIN vext_extensions e ON e.id = v.extension_id
+      WHERE e.id = ? AND v.version = ? AND v.status = 'pending'`,
+  )
+    .bind(c.req.param("id"), c.req.param("version"))
+    .first<{ id: string; r2_key: string; signature: string }>();
+  if (!row) return c.json({ error: "not_found" }, 404);
+  if (!row.signature || !(await c.env.R2.head(row.r2_key)))
+    return c.json({ error: "artifact_unavailable" }, 422);
+  await c.env.DB.prepare(
+    "UPDATE vext_versions SET status = 'published', published_at = datetime('now') WHERE id = ?",
+  )
+    .bind(row.id)
+    .run();
+  return c.json({ ok: true, id: row.id, status: "published" });
+});
+
+registry.patch("/admin/extensions/:id/:version/revoke", async (c) => {
+  const adminId = await requireAdmin(c);
+  if (!adminId) return c.json({ error: "forbidden" }, 403);
+  const result = await c.env.DB.prepare(
+    `UPDATE vext_versions SET status = 'revoked' WHERE id = (SELECT v.id FROM vext_versions v WHERE v.extension_id = ? AND v.version = ?)`,
+  )
+    .bind(c.req.param("id"), c.req.param("version"))
+    .run();
+  if (!result.meta.changes) return c.json({ error: "not_found" }, 404);
+  return c.json({
+    ok: true,
+    id: c.req.param("id"),
+    version: c.req.param("version"),
+    status: "revoked",
+  });
+});
+
 /**
  * Publica uma skill pra o catálogo comunitário — `source` é sempre uma URL
  * git (nunca upload), reaproveitando o mesmo mecanismo de instalação já
