@@ -79,17 +79,27 @@ class VextHost:
 
     def start(self) -> VextManifest:
         """Verify and start the runtime adapter for the artifact."""
-        result = verify_vext(self.artifact)
+        descriptor, private_name = tempfile.mkstemp(
+            prefix="vectora-vext-", suffix=".vext"
+        )
+        os.close(descriptor)
+        private_artifact = Path(private_name)
+        try:
+            shutil.copy2(self.artifact, private_artifact)
+            result = verify_vext(private_artifact)
+        except Exception:
+            private_artifact.unlink(missing_ok=True)
+            raise
         ensure_supported_platform(result.manifest)
         if self.trust_store is not None:
-            self.trust_store.verify(self.artifact)
+            self.trust_store.verify(private_artifact)
         elif not self.allow_unsigned:
             raise PermissionError("artefato VEXT exige publisher confiável")
         self.manifest = result.manifest
         self.policy = CapabilityPolicy.from_manifest(result.manifest)
         self.root = Path(tempfile.mkdtemp(prefix="vectora-vext-"))
         try:
-            with zipfile.ZipFile(self.artifact) as archive:
+            with zipfile.ZipFile(private_artifact) as archive:
                 root = self.root.resolve()
                 for info in archive.infolist():
                     target = (root / info.filename).resolve()
@@ -163,6 +173,8 @@ class VextHost:
         except Exception:
             self.stop()
             raise
+        finally:
+            private_artifact.unlink(missing_ok=True)
 
     @staticmethod
     def _sandbox_command(
@@ -206,8 +218,7 @@ class VextHost:
             "--ro-bind",
             "/lib",
             "/lib",
-            "--ro-bind",
-            "/etc",
+            "--tmpfs",
             "/etc",
             "--bind",
             str(root),
@@ -220,6 +231,10 @@ class VextHost:
         for system_path in (Path("/app"), Path("/opt")):
             if system_path.exists():
                 wrapped.extend(["--ro-bind", str(system_path), str(system_path)])
+        for etc_file in ("hosts", "hostname", "resolv.conf", "nsswitch.conf"):
+            source = Path("/etc") / etc_file
+            if source.exists():
+                wrapped.extend(["--ro-bind", str(source), f"/etc/{etc_file}"])
         if "network" not in manifest.permissions:
             wrapped.append("--unshare-net")
         return [*wrapped, "--", *command]
@@ -332,6 +347,14 @@ class VextHost:
             except subprocess.TimeoutExpired:
                 self.process.kill()
                 self.process.wait(timeout=2)
+        for pipe in (
+            self.process.stdout if self.process is not None else None,
+            self.process.stderr if self.process is not None else None,
+        ):
+            if pipe is not None:
+                pipe.close()
+        for thread in self._reader_threads:
+            thread.join(timeout=2)
         self.process = None
         self._reader_threads.clear()
         self._response_queue = queue.Queue()

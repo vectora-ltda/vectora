@@ -34,7 +34,22 @@ export function mountSandboxedExtension(
   const queued = new Map<number | string, VextRequest>();
   let nextId = 1;
   let loaded = false;
+  let hasLoaded = false;
+  const expectedOrigin = (() => {
+    try {
+      return new URL(entrypoint, window.location.href).origin;
+    } catch {
+      return window.location.origin;
+    }
+  })();
+  let channel: MessageChannel | undefined;
+  let channelPort: MessagePort | undefined;
   frame.setAttribute("sandbox", "allow-scripts");
+  const networkAllowed = manifest.permissions.includes("network");
+  frame.setAttribute(
+    "csp",
+    `default-src 'self'; script-src 'unsafe-inline' 'unsafe-eval'; connect-src ${networkAllowed ? "*" : "'none'"}`,
+  );
   frame.referrerPolicy = "no-referrer";
   frame.setAttribute("title", manifest.name);
   frame.src = entrypoint;
@@ -43,7 +58,13 @@ export function mountSandboxedExtension(
       VextResponse & { method?: string; params?: Record<string, unknown> }
     >,
   ) => {
-    if (event.source !== frame.contentWindow || event.data?.jsonrpc !== "2.0")
+    if (
+      event.source !== frame.contentWindow ||
+      (event.origin !== "" &&
+        event.origin !== "null" &&
+        event.origin !== expectedOrigin) ||
+      event.data?.jsonrpc !== "2.0"
+    )
       return;
     const request = event.data;
     if (typeof request.id !== "number" && typeof request.id !== "string")
@@ -77,10 +98,25 @@ export function mountSandboxedExtension(
   };
   window.addEventListener("message", listener);
   const onLoad = () => {
+    if (hasLoaded) {
+      for (const waiter of pending.values())
+        waiter.reject(new Error("sandbox document navigated"));
+      pending.clear();
+      queued.clear();
+    }
+    channel?.close();
+    channel = new MessageChannel();
+    channelPort = channel.port1;
+    channelPort.onmessage = listener as unknown as (
+      event: MessageEvent,
+    ) => void;
+    channelPort.start();
     loaded = true;
+    hasLoaded = true;
     frame.contentWindow?.postMessage(
       { type: "vectora:vext:init", manifest },
       "*",
+      [channel.port2],
     );
     for (const message of queued.values())
       frame.contentWindow?.postMessage(message, "*");
@@ -114,6 +150,9 @@ export function mountSandboxedExtension(
       frame.removeEventListener("load", onLoad);
       frame.removeEventListener("error", onError);
       loaded = false;
+      channelPort?.close();
+      channelPort = undefined;
+      channel = undefined;
       queued.clear();
       for (const waiter of pending.values())
         waiter.reject(new Error("sandbox disposed"));

@@ -270,6 +270,7 @@ def verify_vext(
     package = inspect_vext(path)
     artifact = Path(path)
     with zipfile.ZipFile(artifact) as archive:
+        signed = False
         try:
             integrity = json.loads(archive.read(INTEGRITY_NAME))
         except (KeyError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -319,6 +320,7 @@ def verify_vext(
                     canonical_json({"manifest": manifest_raw, "integrity": integrity}),
                     signature,
                 )
+                signed = True
             except (KeyError, ValueError, BadSignatureError) as exc:
                 raise ValueError("assinatura inválida") from exc
     return VextBuildResult(
@@ -326,7 +328,7 @@ def verify_vext(
         manifest=package.manifest,
         files=tuple(package.files),
         content_digest=str(integrity["content_digest"]),
-        signed=signature_record is not None,
+        signed=signed,
     )
 
 

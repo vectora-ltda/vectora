@@ -6,7 +6,8 @@ from backend.services.vext_artifact import build_vext
 
 def _source(root: Path) -> None:
     (root / "main.py").write_text(
-        "def handle(method, params):\n    return params\n", encoding="utf-8"
+        "def handle(method: str, params: object) -> object:\n    return params\n",
+        encoding="utf-8",
     )
     (root / "vectora-extension.json").write_text(
         '{"id":"cli.test","publisher":"local","name":"CLI",'
