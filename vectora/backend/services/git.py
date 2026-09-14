@@ -113,6 +113,42 @@ def status_snapshot(repo: git.Repo) -> dict[str, object]:
     }
 
 
+def log_snapshot(
+    repo: git.Repo, n: int = 10, branch: str | None = None
+) -> dict[str, object]:
+    """Retorna histórico de commits para consumo REST e pelas tools."""
+    try:
+        ref = branch or repo.active_branch.name
+    except TypeError:
+        ref = "HEAD"
+    try:
+        commits = list(repo.iter_commits(ref, max_count=n))
+    except git.GitCommandError:
+        return {"status": "ok", "commits": [], "branch": ref}
+    return {
+        "status": "ok",
+        "branch": ref,
+        "commits": [
+            {
+                "hash": commit.hexsha[:7],
+                "author": str(commit.author),
+                "date": commit.authored_datetime.isoformat(),
+                "message": commit.message.strip().splitlines()[0],
+            }
+            for commit in commits
+        ],
+    }
+
+
+def diff_snapshot(repo: git.Repo, ref: str | None = None) -> dict[str, object]:
+    """Retorna o diff atual, opcionalmente comparado a uma referência."""
+    try:
+        diff_text = repo.git.diff(ref) if ref else repo.git.diff()
+        return {"status": "ok", "diff": diff_text}
+    except git.GitCommandError as exc:
+        return {"status": "error", "message": redact_git_output(str(exc))}
+
+
 class GitService:
     """Serializa Git por repositório e executa chamadas fora do event loop."""
 

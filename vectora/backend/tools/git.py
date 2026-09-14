@@ -124,39 +124,16 @@ def _git_status_impl(repo: git.Repo) -> dict:
 
 def _git_log_impl(repo: git.Repo, n: int = 10, branch: str | None = None) -> dict:
     """Retorna histórico de commits."""
-    try:
-        ref = branch or repo.active_branch.name
-    except TypeError:
-        ref = "HEAD"
+    from backend.services.git import log_snapshot
 
-    try:
-        commits = list(repo.iter_commits(ref, max_count=n))
-    except git.GitCommandError:
-        # repo vazio ou branch inválida
-        return {"status": "ok", "commits": [], "branch": ref}
-
-    return {
-        "status": "ok",
-        "branch": ref,
-        "commits": [
-            {
-                "hash": c.hexsha[:7],
-                "author": str(c.author),
-                "date": c.authored_datetime.isoformat(),
-                "message": c.message.strip().splitlines()[0],
-            }
-            for c in commits
-        ],
-    }
+    return log_snapshot(repo, n=n, branch=branch)
 
 
 def _git_diff_impl(repo: git.Repo, ref: str | None = None) -> dict:
     """Retorna diff do working tree (ou em relação a ref)."""
-    try:
-        diff_text = repo.git.diff(ref) if ref else repo.git.diff()
-        return {"status": "ok", "diff": diff_text}
-    except git.GitCommandError as exc:
-        return {"status": "error", "message": str(exc)}
+    from backend.services.git import diff_snapshot
+
+    return diff_snapshot(repo, ref=ref)
 
 
 def _git_branch_impl(
