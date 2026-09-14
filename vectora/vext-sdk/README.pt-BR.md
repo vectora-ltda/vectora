@@ -12,7 +12,7 @@ npm install @vext/sdk
 
 ## Exportações
 
-O export principal contém tipos de manifesto, capabilities, JSON-RPC e contexto. O export `@vectora/extension-sdk/sandbox` contém `mountSandboxedExtension`, que carrega um bundle frontend em iframe com `sandbox="allow-scripts"`.
+O export principal contém tipos de manifesto, capabilities, JSON-RPC e contexto. O export `@vext/sdk/sandbox` contém `mountSandboxedExtension`, que carrega um bundle frontend em iframe com `sandbox="allow-scripts"`.
 
 ## Desenvolvimento
 
