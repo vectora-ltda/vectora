@@ -1,0 +1,23 @@
+name: VEXT official extensions
+
+on:
+  push:
+    paths: ["vext-official-extensions/**"]
+  pull_request:
+    paths: ["vext-official-extensions/**"]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vext-official-extensions
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: vext-official-extensions/package-lock.json
+      - run: npm install
+      - run: npm run check
