@@ -88,7 +88,8 @@ describe("GitToolbar", () => {
       },
     });
 
-    fireEvent.click(screen.getByLabelText("tooltip_git_branch"));
+    const branchTrigger = screen.getByLabelText("tooltip_git_branch");
+    fireEvent.pointerDown(branchTrigger, { button: 0, ctrlKey: false });
 
     const list = screen.getByTestId("git-branch-list");
     expect(list).toHaveClass("overflow-y-auto");
