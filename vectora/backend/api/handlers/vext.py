@@ -78,9 +78,7 @@ async def list_installed() -> dict[str, object]:
 async def activate(extension_id: str, body: LifecycleRequest) -> dict[str, object]:
     """Activate a previously installed and verified version."""
     try:
-        item = _store().activate(
-            extension_id, body.version, trust_store=_trust_store()
-        )
+        item = _store().activate(extension_id, body.version, trust_store=_trust_store())
     except (OSError, PermissionError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"id": item.extension_id, "version": item.version, "active": True}
@@ -98,9 +96,7 @@ async def deactivate(extension_id: str) -> dict[str, object]:
 async def rollback(extension_id: str, body: LifecycleRequest) -> dict[str, object]:
     """Switch to a verified immutable local version."""
     try:
-        item = _store().rollback(
-            extension_id, body.version, trust_store=_trust_store()
-        )
+        item = _store().rollback(extension_id, body.version, trust_store=_trust_store())
     except (OSError, PermissionError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"id": item.extension_id, "version": item.version, "active": True}

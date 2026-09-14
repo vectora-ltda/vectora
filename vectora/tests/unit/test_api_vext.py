@@ -19,7 +19,9 @@ def _source(root: Path) -> None:
     (root / "index.js").write_text("export default {};", encoding="utf-8")
 
 
-def test_vext_lifecycle_lists_deactivates_and_reactivates(monkeypatch, tmp_path: Path) -> None:
+def test_vext_lifecycle_lists_deactivates_and_reactivates(
+    monkeypatch, tmp_path: Path
+) -> None:
     monkeypatch.setenv("VECTORA_AUTH_REQUIRED", "false")
     source = tmp_path / "source"
     source.mkdir()
@@ -56,8 +58,6 @@ def test_vext_lifecycle_lists_deactivates_and_reactivates(monkeypatch, tmp_path:
     assert deactivated.status_code == 200
     assert deactivated.json()["active"] is False
 
-    activated = client.post(
-        "/vext/api.test/activate", json={"version": "1.0.0"}
-    )
+    activated = client.post("/vext/api.test/activate", json={"version": "1.0.0"})
     assert activated.status_code == 200
     assert activated.json()["active"] is True
