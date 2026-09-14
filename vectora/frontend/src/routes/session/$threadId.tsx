@@ -151,7 +151,6 @@ function SessionPage() {
   const sessionLayoutState = useSessionLayoutState();
   const isCompactSession = sessionLayoutState !== "wide";
   const ideLayoutState = useIdeLayoutState();
-  const isNarrowIdeViewport = ideLayoutState === "mobile";
   const workbenchOpen = useWorkbenchStore((s) => s.isOpen(threadId));
   const setSplitSize = useWorkbenchStore((s) => s.setSplitSize);
 
@@ -722,11 +721,13 @@ function SessionPage() {
         showToolCalls={showToolCalls}
         onToggleToolCalls={() => setShowToolCalls((v) => !v)}
         onShowShortcuts={() => setShowShortcutsDialog(true)}
-        onOpenSidebar={() => setIsMobileSidebarOpen(true)}
+        onOpenSidebar={
+          uiMode === "ide" ? undefined : () => setIsMobileSidebarOpen(true)
+        }
         showModeSwitch={!chatMode}
       />
     ),
-    [showToolCalls, chatMode],
+    [showToolCalls, chatMode, uiMode],
   );
 
   // Cada modo escolhe explicitamente a coluna esquerda. Assistente e Kanban
@@ -806,7 +807,7 @@ function SessionPage() {
       <LicenseBanner fullWidth onBlockingChange={setInputLocked} />
 
       <div className="relative flex flex-1 min-h-0 overflow-hidden">
-        {showSidebarPanel && (
+        {uiMode !== "ide" && (
           <Sheet
             open={isMobileSidebarOpen}
             onOpenChange={setIsMobileSidebarOpen}
@@ -901,12 +902,12 @@ function SessionPage() {
                   <div
                     ref={workbenchResizeRef}
                     className={
-                      isNarrowIdeViewport
+                      isCompactSession
                         ? "relative flex-1 min-w-0"
                         : "relative shrink-0 overflow-hidden"
                     }
                     style={
-                      isNarrowIdeViewport
+                      isCompactSession
                         ? undefined
                         : { width: hydrated && workbenchOpen ? splitSize : 0 }
                     }
@@ -919,7 +920,7 @@ function SessionPage() {
                       onAddToContext={pushMention}
                       onSendPrompt={pushDraft}
                     />
-                    {!isNarrowIdeViewport && workbenchOpen && (
+                    {!isCompactSession && workbenchOpen && (
                       <div
                         role="separator"
                         aria-orientation="vertical"
@@ -951,17 +952,17 @@ function SessionPage() {
                   <div
                     ref={chatSidebarRef}
                     className={
-                      isNarrowIdeViewport
+                      isCompactSession
                         ? "relative flex flex-col h-full bg-sidebar"
                         : `relative shrink-0 flex flex-col h-full border-border/60 bg-sidebar ${sidebarOnRight ? "border-r" : "border-l"}`
                     }
                     style={
-                      isNarrowIdeViewport
+                      isCompactSession
                         ? undefined
                         : { width: hydrated ? chatSidebarWidth : 256 }
                     }
                   >
-                    {!isNarrowIdeViewport && (
+                    {!isCompactSession && (
                       <div
                         role="separator"
                         aria-orientation="vertical"
