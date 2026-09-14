@@ -4,9 +4,24 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getIdeLayoutState,
+  getSessionLayoutState,
   getUnscaledViewportWidth,
   useMediaQuery,
 } from "../use-media-query";
+
+describe("getSessionLayoutState", () => {
+  it.each([
+    [320, "mobile"],
+    [639, "mobile"],
+    [640, "tablet"],
+    [767, "tablet"],
+    [1023, "tablet"],
+    [1024, "wide"],
+    [1440, "wide"],
+  ])("classifica %s px como %s", (width, expected) => {
+    expect(getSessionLayoutState(width)).toBe(expected);
+  });
+});
 
 describe("getIdeLayoutState", () => {
   it.each([
