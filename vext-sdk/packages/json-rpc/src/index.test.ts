@@ -1,4 +1,6 @@
 import {
+  createCancel,
+  createNotification,
   createRequest,
   isRpcRequest,
   parseMessage,
@@ -17,3 +19,7 @@ try {
   rejected = true;
 }
 if (!rejected) throw new Error("invalid response accepted");
+if ((parseMessage(JSON.stringify(createCancel(1)) as string) as { method?: string }).method !== "$/cancelRequest")
+  throw new Error("cancel message rejected");
+if ((parseMessage(JSON.stringify(createNotification("progress", { value: 1 }))) as { method?: string }).method !== "progress")
+  throw new Error("notification rejected");

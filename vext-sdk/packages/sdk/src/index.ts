@@ -3,11 +3,15 @@
 export type {
   RpcFailure,
   RpcId,
+  RpcCancel,
+  RpcMessage,
+  RpcNotification,
   RpcRequest,
   RpcResponse,
   RpcSuccess,
+  RpcStreamChunk,
 } from "@vext/json-rpc";
-export { createRequest, isRpcRequest } from "@vext/json-rpc";
+export { createCancel, createNotification, createRequest, isRpcRequest } from "@vext/json-rpc";
 import { createRequest } from "@vext/json-rpc";
 
 export type VextRuntime = "node" | "python" | "none";

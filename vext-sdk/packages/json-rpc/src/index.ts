@@ -15,7 +15,24 @@ export interface RpcFailure {
   id: RpcId | null;
   error: string;
 }
+export interface RpcCancel {
+  jsonrpc: "2.0";
+  method: "$/cancelRequest";
+  params: { id: RpcId };
+}
+export interface RpcNotification<T = Record<string, unknown>> {
+  jsonrpc: "2.0";
+  method: string;
+  params: T;
+}
+export interface RpcStreamChunk<T = unknown> {
+  jsonrpc: "2.0";
+  id: RpcId;
+  result: T;
+  stream: { done: boolean; sequence: number };
+}
 export type RpcResponse<T = unknown> = RpcSuccess<T> | RpcFailure;
+export type RpcMessage = RpcRequest | RpcResponse | RpcCancel | RpcNotification | RpcStreamChunk;
 
 export const MAX_RPC_BYTES = 1024 * 1024;
 
@@ -39,6 +56,16 @@ export function isRpcRequest(value: unknown): value is RpcRequest {
     typeof request.params === "object"
   );
 }
+export function createCancel(id: RpcId): RpcCancel {
+  return { jsonrpc: "2.0", method: "$/cancelRequest", params: { id } };
+}
+export function createNotification<T extends Record<string, unknown>>(
+  method: string,
+  params: T,
+): RpcNotification<T> {
+  if (!method) throw new RpcProtocolError("notification method is required");
+  return { jsonrpc: "2.0", method, params };
+}
 export function createRequest<T extends Record<string, unknown>>(
   id: RpcId,
   method: string,
@@ -50,7 +77,7 @@ export function createRequest<T extends Record<string, unknown>>(
 export function parseMessage(
   value: string,
   maxBytes = MAX_RPC_BYTES,
-): RpcRequest | RpcResponse {
+): RpcMessage {
   if (new TextEncoder().encode(value).byteLength > maxBytes)
     throw new RpcProtocolError(
       "message exceeds maximum size",
@@ -65,6 +92,15 @@ export function parseMessage(
   if (isRpcRequest(parsed)) return parsed;
   if (!parsed || typeof parsed !== "object")
     throw new RpcProtocolError("invalid RPC message");
+  const message = parsed as Partial<RpcNotification> & { params?: unknown };
+  if (
+    message.jsonrpc === "2.0" &&
+    typeof message.method === "string" &&
+    !("id" in message) &&
+    !!message.params &&
+    typeof message.params === "object"
+  )
+    return message as RpcNotification;
   const response = parsed as Partial<RpcResponse>;
   if (
     response.jsonrpc !== "2.0" ||
@@ -83,7 +119,7 @@ export function parseMessage(
 }
 
 export function serializeMessage(
-  message: RpcRequest | RpcResponse,
+  message: RpcMessage,
   maxBytes = MAX_RPC_BYTES,
 ): string {
   const encoded = JSON.stringify(message);
