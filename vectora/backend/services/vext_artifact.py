@@ -92,7 +92,7 @@ def _read_manifest(source_dir: Path) -> tuple[VextManifest, dict[str, object]]:
         manifest = VextManifest.model_validate(raw)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         raise ValueError("manifesto de extensão inválido") from exc
-    if manifest.api_version > 1:
+    if manifest.api_version != 1:
         raise ValueError("versão da API da extensão não suportada")
     return manifest, raw
 
@@ -149,6 +149,10 @@ def _collect_files(source_dir: Path, manifest: VextManifest) -> dict[str, bytes]
         raise ValueError("frontend_entrypoint não foi incluído no artefato")
     if manifest.backend_entrypoint and manifest.backend_entrypoint not in payload:
         raise ValueError("backend_entrypoint não foi incluído no artefato")
+    if manifest.python_wheelhouse:
+        prefix = manifest.python_wheelhouse.rstrip("/") + "/"
+        if not any(name.startswith(prefix) for name in payload):
+            raise ValueError("python_wheelhouse não foi incluído no artefato")
     return payload
 
 

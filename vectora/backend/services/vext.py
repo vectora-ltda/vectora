@@ -58,6 +58,7 @@ class VextManifest(BaseModel):
     runtime: str = Field(default="python", pattern=r"^(node|python|none)$")
     frontend_entrypoint: str | None = Field(default=None, max_length=240)
     backend_entrypoint: str | None = Field(default=None, max_length=240)
+    python_wheelhouse: str | None = Field(default=None, max_length=240)
     platforms: list[str] = Field(default_factory=lambda: ["any"])
     contributions: dict[str, object] = Field(default_factory=dict)
     files: list[str] = Field(default_factory=list)
@@ -73,7 +74,7 @@ class VextManifest(BaseModel):
             raise ValueError("entrypoint deve ser um caminho relativo seguro") from exc
         return value
 
-    @field_validator("frontend_entrypoint", "backend_entrypoint")
+    @field_validator("frontend_entrypoint", "backend_entrypoint", "python_wheelhouse")
     @classmethod
     def validate_optional_entrypoint(
         cls: type[VextManifest], value: str | None

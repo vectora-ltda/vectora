@@ -155,7 +155,18 @@ class VextHost:
                 "VECTORA_VEXT_ID": result.manifest.id,
                 "VECTORA_VEXT_ROOT": str(self.root),
                 "PYTHONPATH": str(Path(__file__).resolve().parents[2]),
+                "PYTHONNOUSERSITE": "1",
             }
+            if runtime == "python" and result.manifest.python_wheelhouse:
+                wheelhouse = (self.root / result.manifest.python_wheelhouse).resolve()
+                if (
+                    self.root.resolve() not in wheelhouse.parents
+                    or not wheelhouse.is_dir()
+                ):
+                    raise ValueError("python_wheelhouse fora do artefato")
+                environment["PYTHONPATH"] = os.pathsep.join(
+                    (str(wheelhouse), str(self.root))
+                )
             self.process = subprocess.Popen(  # noqa: S603  # nosec B603 - validated runtime command
                 command,
                 cwd=self.root,

@@ -27,8 +27,64 @@ class PublisherKey:
 class VextTrustStore:
     """Keep an explicit allowlist of publisher keys and revocations."""
 
-    def __init__(self) -> None:
+    def __init__(self, path: str | Path | None = None) -> None:
         self._keys: dict[tuple[str, str], PublisherKey] = {}
+        self.path = Path(path) if path is not None else None
+        if self.path is not None:
+            self._load()
+
+    def _load(self) -> None:
+        """Load trust records without silently accepting malformed state."""
+        if self.path is None or not self.path.is_file():
+            return
+        try:
+            raw = json.loads(self.path.read_text(encoding="utf-8"))
+            records = raw.get("publishers", [])
+            if not isinstance(records, list):
+                raise ValueError("trust store inválido")
+            for item in records:
+                if not isinstance(item, dict):
+                    raise ValueError("trust store inválido")
+                publisher = item["publisher"]
+                encoded = item["public_key"]
+                revoked = item.get("revoked", False)
+                if (
+                    not isinstance(publisher, str)
+                    or not isinstance(encoded, str)
+                    or not isinstance(revoked, bool)
+                ):
+                    raise ValueError("trust store inválido")
+                key = VerifyKey(base64.b64decode(encoded, validate=True))
+                record = PublisherKey(publisher, self.fingerprint(key), key, revoked)
+                self._keys[(publisher, record.fingerprint)] = record
+        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+            raise ValueError("não foi possível carregar o trust store VEXT") from exc
+
+    def _save(self) -> None:
+        """Atomically persist trust records while retaining revocation history."""
+        if self.path is None:
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "schema_version": 1,
+            "publishers": [
+                {
+                    "publisher": record.publisher,
+                    "fingerprint": record.fingerprint,
+                    "public_key": base64.b64encode(bytes(record.key)).decode("ascii"),
+                    "revoked": record.revoked,
+                }
+                for record in sorted(
+                    self._keys.values(),
+                    key=lambda value: (value.publisher, value.fingerprint),
+                )
+            ],
+        }
+        temporary = self.path.with_suffix(f"{self.path.suffix}.tmp")
+        temporary.write_text(
+            json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+        )
+        temporary.replace(self.path)
 
     @staticmethod
     def fingerprint(key: VerifyKey) -> str:
@@ -39,6 +95,7 @@ class VextTrustStore:
         """Trust a publisher key until it is explicitly revoked."""
         record = PublisherKey(publisher, self.fingerprint(key), key)
         self._keys[(publisher, record.fingerprint)] = record
+        self._save()
         return record
 
     def revoke(self, publisher: str, fingerprint: str) -> None:
@@ -48,6 +105,26 @@ class VextTrustStore:
             self._keys[(publisher, fingerprint)] = PublisherKey(
                 current.publisher, current.fingerprint, current.key, True
             )
+            self._save()
+
+    def records(self, publisher: str | None = None) -> tuple[PublisherKey, ...]:
+        """Return immutable records for audit and key-rotation tooling."""
+        values = (
+            self._keys.values()
+            if publisher is None
+            else (
+                record
+                for record in self._keys.values()
+                if record.publisher == publisher
+            )
+        )
+        return tuple(
+            sorted(values, key=lambda value: (value.publisher, value.fingerprint))
+        )
+
+    def rotate(self, publisher: str, key: VerifyKey) -> PublisherKey:
+        """Add a replacement key while retaining older keys for rollback verification."""
+        return self.add(publisher, key)
 
     def verify(self, artifact: str | Path) -> PublisherKey:
         """Verify a signed artifact against the trusted publisher key."""
