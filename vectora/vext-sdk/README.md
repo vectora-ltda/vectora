@@ -1,6 +1,6 @@
 # Vectora VEXT SDK
 
-The VEXT SDK provides TypeScript contracts and a browser sandbox bridge for Vectora extensions. It is currently developed inside the Vectora monorepo and is published as the standalone npm package `@vectora/extension-sdk`.
+The VEXT SDK provides TypeScript contracts and a browser sandbox bridge for extensions. It is developed as an internal monorepo and publishes `@vext/sdk` plus shared `@vext/*` packages.
 
 [Português](README.pt-BR.md) · [Español](README.es-MX.md)
 
@@ -9,7 +9,7 @@ The VEXT SDK provides TypeScript contracts and a browser sandbox bridge for Vect
 Install the package from npm:
 
 ```bash
-npm install @vectora/extension-sdk
+npm install @vext/sdk
 ```
 
 ## Exports

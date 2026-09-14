@@ -1,10 +1,14 @@
 {
-  "name": "@vectora/extension-sdk",
+  "name": "vext-sdk-workspace",
+  "private": true,
   "version": "0.1.0",
-  "description": "TypeScript SDK and contracts for Vectora VEXT extensions",
+  "description": "Shared packages for the VEXT extension ecosystem",
   "type": "module",
   "license": "Apache-2.0",
   "author": "Vectora Ltda",
+  "workspaces": [
+    "packages/*"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/vectora-ltda/vext-sdk.git"
@@ -13,28 +17,10 @@
     "url": "https://github.com/vectora-ltda/vext-sdk/issues"
   },
   "homepage": "https://github.com/vectora-ltda/vext-sdk/tree/master",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    },
-    "./sandbox": {
-      "types": "./dist/sandbox.d.ts",
-      "import": "./dist/sandbox.js"
-    }
-  },
-  "files": [
-    "dist",
-    "README.md",
-    "README.pt-BR.md",
-    "README.es-MX.md",
-    "LICENSE"
-  ],
-  "sideEffects": false,
   "scripts": {
-    "build": "tsc --project tsconfig.json",
-    "test": "tsc --project tsconfig.json --noEmit",
-    "check": "npm run test && npm run build"
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "check": "npm run build --workspace=@vext/json-rpc && npm run test --workspaces && npm run build --workspaces"
   },
   "engines": {
     "node": ">=20"

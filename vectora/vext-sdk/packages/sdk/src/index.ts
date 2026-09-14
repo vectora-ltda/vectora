@@ -1,5 +1,14 @@
 /** Public TypeScript contracts for Vectora VEXT extensions. */
 
+export type {
+  RpcFailure,
+  RpcId,
+  RpcRequest,
+  RpcResponse,
+  RpcSuccess,
+} from "@vext/json-rpc";
+export { createRequest, isRpcRequest } from "@vext/json-rpc";
+
 export type VextRuntime = "node" | "python" | "none";
 
 export type VextCapability =
