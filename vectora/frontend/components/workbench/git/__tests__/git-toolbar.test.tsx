@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 /**
  * Testes do GitToolbar — branch atual, botão de sync adaptativo (fetch/pull/
- * push) e disparo do PR. O menu dropdown de branches (Radix) não é aberto
- * aqui — cobrimos apenas o trigger e as ações fora do menu.
+ * push), disparo do PR e o layout rolável do menu de branches.
  */
 
 import { describe, it, expect, vi, afterEach } from "vitest";
@@ -70,6 +69,35 @@ describe("GitToolbar", () => {
       branches: { current: "develop", branches: ["develop"], remotes: [] },
     });
     expect(screen.getByText("develop")).toBeInTheDocument();
+  });
+
+  it("mantém branches longos na lista rolável e preserva as ações fixas", () => {
+    const branches = [
+      "feature/one",
+      "feature/two",
+      "feature/three",
+      "feature/four",
+      "feature/five",
+    ];
+    renderToolbar({
+      status: null,
+      branches: {
+        current: "main",
+        branches: ["main", ...branches],
+        remotes: [],
+      },
+    });
+
+    fireEvent.click(screen.getByLabelText("tooltip_git_branch"));
+
+    const list = screen.getByTestId("git-branch-list");
+    expect(list).toHaveClass("overflow-y-auto");
+    for (const branch of branches)
+      expect(screen.getByText(branch)).toBeInTheDocument();
+    expect(screen.getByText("workbench_git_branch_create")).toBeInTheDocument();
+    expect(
+      screen.getByText("workbench_git_branch_compare"),
+    ).toBeInTheDocument();
   });
 
   it("quando behind > 0, o botão de sync mostra pull e a ação é pull", async () => {
