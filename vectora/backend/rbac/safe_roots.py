@@ -120,11 +120,15 @@ class SafeRootRegistry:
 
     # ----- API pública --------------------------------------------------
 
-    def all_roots(self) -> list[SafeRoot]:
-        """Retorna todas as raízes confiáveis (builtin primeiro)."""
+    def all_roots(self, *, include_archived: bool = False) -> list[SafeRoot]:
+        """Retorna raízes ativas, ou também arquivadas quando solicitado."""
         self._load()
         return sorted(
-            self._roots.values(),
+            (
+                r
+                for r in self._roots.values()
+                if include_archived or r.archived_at is None
+            ),
             key=lambda r: (not r.builtin, r.label.lower()),
         )
 
@@ -138,7 +142,13 @@ class SafeRootRegistry:
         resolved = str(Path(path).expanduser().resolve())
         root_id = self.derive_id(resolved)
         if root_id in self._roots:
-            return self._roots[root_id]
+            existing = self._roots[root_id]
+            if existing.archived_at is not None:
+                restored = existing.model_copy(update={"archived_at": None})
+                self._roots[root_id] = restored
+                self._save()
+                return restored
+            return existing
         root = SafeRoot(
             id=root_id,
             path=resolved,
@@ -174,6 +184,30 @@ class SafeRootRegistry:
         self._save()
         return True
 
+    def archive(self, root_id: str) -> SafeRoot | None:
+        """Arquiva uma raiz sem apagar o registro ou seu histórico."""
+        self._load()
+        root = self._roots.get(root_id)
+        if root is None or root.builtin:
+            return None
+        archived = root.model_copy(
+            update={"archived_at": datetime.now(UTC).isoformat()}
+        )
+        self._roots[root_id] = archived
+        self._save()
+        return archived
+
+    def restore(self, root_id: str) -> SafeRoot | None:
+        """Restaura uma raiz arquivada."""
+        self._load()
+        root = self._roots.get(root_id)
+        if root is None:
+            return None
+        restored = root.model_copy(update={"archived_at": None})
+        self._roots[root_id] = restored
+        self._save()
+        return restored
+
     # ----- Validação ----------------------------------------------------
 
     def is_under_safe_root(self, path: str) -> SafeRoot | None:
@@ -185,6 +219,8 @@ class SafeRootRegistry:
         self._load()
         target = Path(path).expanduser().resolve()
         for root in self._roots.values():
+            if root.archived_at is not None:
+                continue
             root_path = Path(root.path)
             try:
                 target.relative_to(root_path)

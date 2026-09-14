@@ -826,7 +826,7 @@ async def list_safe_roots_admin(request: Request) -> dict:
 
     registry = get_safe_root_registry()
     return {
-        "roots": [r.model_dump() for r in registry.all_roots()],
+        "roots": [r.model_dump() for r in registry.all_roots(include_archived=True)],
     }
 
 
@@ -895,11 +895,24 @@ async def delete_safe_root(request: Request, root_id: str) -> dict:
             status_code=400,
             detail="Raiz builtin não pode ser removida.",
         )
-    ok = registry.remove(root_id)
-    if not ok:
-        raise HTTPException(status_code=500, detail="Falha ao remover")
+    archived = registry.archive(root_id)
+    if archived is None:
+        raise HTTPException(status_code=500, detail="Falha ao arquivar")
     logger.info("admin: safe-root removido por user_id=%s path=%s", user.id, root.path)
-    return {"status": "deleted"}
+    return {"status": "archived", "root": archived.model_dump()}
+
+
+@router.post("/safe-roots/{root_id}/restore")
+async def restore_safe_root(request: Request, root_id: str) -> dict:
+    """Restaura uma raiz arquivada sem alterar seu ID ou histórico."""
+    user = _get_user(request)
+    require_admin(user)
+    from backend.rbac.safe_roots import get_safe_root_registry
+
+    restored = get_safe_root_registry().restore(root_id)
+    if restored is None:
+        raise HTTPException(status_code=404, detail="Raiz não encontrada")
+    return {"status": "restored", "root": restored.model_dump()}
 
 
 # ---------------------------------------------------------------------------
