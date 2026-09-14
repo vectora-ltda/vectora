@@ -57,12 +57,14 @@ export function mountSandboxedExtension(
     event: MessageEvent<
       VextResponse & { method?: string; params?: Record<string, unknown> }
     >,
+    fromPort = false,
   ) => {
     if (
-      event.source !== frame.contentWindow ||
-      (event.origin !== "" &&
-        event.origin !== "null" &&
-        event.origin !== expectedOrigin) ||
+      (!fromPort &&
+        (event.source !== frame.contentWindow ||
+          (event.origin !== "" &&
+            event.origin !== "null" &&
+            event.origin !== expectedOrigin))) ||
       event.data?.jsonrpc !== "2.0"
     )
       return;
@@ -81,19 +83,17 @@ export function mountSandboxedExtension(
     if (!request.params || typeof request.params !== "object") return;
     try {
       const result = await onRequest(request.method, request.params);
-      frame.contentWindow?.postMessage(
-        { jsonrpc: "2.0", id: request.id, result } satisfies VextResponse,
-        "*",
-      );
+      const response = { jsonrpc: "2.0", id: request.id, result } satisfies VextResponse;
+      if (fromPort) channelPort?.postMessage(response);
+      else frame.contentWindow?.postMessage(response, expectedOrigin);
     } catch (error) {
-      frame.contentWindow?.postMessage(
-        {
+      const response = {
           jsonrpc: "2.0",
           id: request.id,
           error: error instanceof Error ? error.message : String(error),
-        } satisfies VextResponse,
-        "*",
-      );
+        } satisfies VextResponse;
+      if (fromPort) channelPort?.postMessage(response);
+      else frame.contentWindow?.postMessage(response, expectedOrigin);
     }
   };
   window.addEventListener("message", listener);
@@ -108,9 +108,9 @@ export function mountSandboxedExtension(
     channel?.port2.close();
     channel = new MessageChannel();
     channelPort = channel.port1;
-    channelPort.onmessage = listener as unknown as (
-      event: MessageEvent,
-    ) => void;
+    channelPort.onmessage = (event) => {
+      void listener(event, true);
+    };
     channelPort.start();
     loaded = true;
     hasLoaded = true;
@@ -119,8 +119,7 @@ export function mountSandboxedExtension(
       "*",
       [channel.port2],
     );
-    for (const message of queued.values())
-      frame.contentWindow?.postMessage(message, "*");
+    for (const message of queued.values()) channelPort.postMessage(message);
     queued.clear();
   };
   const onError = () => {
@@ -141,7 +140,7 @@ export function mountSandboxedExtension(
         return new Promise<T>((resolve, reject) => {
           pending.set(id, { resolve: (value) => resolve(value as T), reject });
           const message: VextRequest = { jsonrpc: "2.0", id, method, params };
-          if (loaded) frame.contentWindow?.postMessage(message, "*");
+          if (loaded) channelPort?.postMessage(message);
           else queued.set(id, message);
         });
       },
