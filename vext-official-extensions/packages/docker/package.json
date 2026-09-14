@@ -8,5 +8,5 @@
   "files": ["dist", "vectora-extension.json", "README.md"],
   "publishConfig": { "access": "public" },
   "scripts": { "build": "tsc -p tsconfig.json", "test": "node --test test/*.test.mjs", "pack:vext": "npm pack --pack-destination artifacts" },
-  "devDependencies": { "typescript": "^5.8.3" }
+  "devDependencies": { "typescript": "^5.8.3", "@types/node": "^22.15.0" }
 }

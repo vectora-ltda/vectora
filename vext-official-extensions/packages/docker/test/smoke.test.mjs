@@ -7,3 +7,8 @@ test("Docker extension declares both entrypoints", async () => {
   assert.equal(typeof manifest.backend, "string");
 });
 
+test("Docker backend rejects unsupported methods", async () => {
+  const { handle } = await import("../dist/backend.js");
+  await assert.rejects(() => handle({ method: "exec" }), /Unsupported Docker method/);
+});
+

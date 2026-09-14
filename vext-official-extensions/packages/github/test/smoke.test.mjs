@@ -7,3 +7,8 @@ test("GitHub extension declares both entrypoints", async () => {
   assert.equal(typeof manifest.backend, "string");
 });
 
+test("GitHub backend validates repository coordinates before network access", async () => {
+  const { handle } = await import("../dist/backend.js");
+  await assert.rejects(() => handle({ method: "issues", params: { owner: "bad/owner", repo: "repo" } }), /Invalid GitHub owner/);
+});
+
