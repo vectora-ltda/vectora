@@ -70,6 +70,7 @@ vi.mock("@/lib/stores/chat-input-store", () => ({
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   workspaceState.id = "ws1";
   clearBrowserSessionCache();
 });
@@ -516,6 +517,7 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
       reload: vi.fn(),
       setBounds: vi.fn(),
       setVisible: vi.fn(),
+      clearProfileData: vi.fn(async (_profileId: string) => undefined),
     };
     let handler: EventHandler | null = null;
     const bridge = {
@@ -562,6 +564,23 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
     expect(
       screen.getByTestId("browser-webcontentsview-container"),
     ).toBeTruthy();
+  });
+
+  it("confirma e limpa os dados do perfil pelo painel de configurações", async () => {
+    const bridge = mockBrowserView();
+    mockFetch({ configurations: [] });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<BrowserTab threadId="desktop-settings" />);
+    await waitFor(() => expect(bridge.onEvent).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByTestId("browser-settings-btn"));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /workbench_browser_clear_profile_data/i,
+      }),
+    );
+
+    await waitFor(() => expect(bridge.clearProfileData).toHaveBeenCalledOnce());
   });
 
   it("trocar de workspace sem sessão cria a WebContentsView nativa e navega nela", async () => {
