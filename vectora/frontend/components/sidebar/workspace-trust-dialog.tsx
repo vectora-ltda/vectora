@@ -356,7 +356,7 @@ export function WorkspaceTrustDialog({
   };
 
   const handleConfirm = async () => {
-    if (!listing) return;
+    if (loading || folderSubmitting || !listing) return;
     if (mode === "ingest") {
       const wsId = getActive()?.id;
       if (!wsId) {
@@ -958,7 +958,7 @@ export function WorkspaceTrustDialog({
               {tab === "local" && (
                 <Button
                   onClick={handleConfirm}
-                  disabled={!listing || submitting || offline}
+                  disabled={!listing || submitting || folderSubmitting || loading || offline}
                   title={offline ? m.network_disabled_offline() : undefined}
                   data-testid="workspace-trust-confirm-btn"
                 >
