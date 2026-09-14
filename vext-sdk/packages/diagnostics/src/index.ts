@@ -6,7 +6,10 @@ export interface Diagnostic {
   range: { start: number; end: number };
   source?: string;
   code?: string;
+  relatedInformation?: readonly { uri: string; message: string }[];
 }
+export interface CodeAction { title: string; kind?: string; edit?: unknown; command?: string; }
+export interface CodeActionProvider { provideCodeActions(uri: string, range: Diagnostic["range"]): readonly CodeAction[] | Promise<readonly CodeAction[]>; }
 export interface DiagnosticCollection {
   set(uri: string, diagnostics: readonly Diagnostic[]): void;
   clear(): void;

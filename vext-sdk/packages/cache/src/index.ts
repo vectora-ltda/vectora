@@ -3,6 +3,7 @@ export interface Cache {
   set<T>(key: string, value: T, ttlMs?: number): Promise<void>;
   delete(key: string): Promise<void>;
   clearNamespace(namespace: string): Promise<void>;
+  lock?<T>(key: string, work: () => Promise<T>): Promise<T>;
 }
 
 export class MemoryCache implements Cache {
@@ -10,6 +11,7 @@ export class MemoryCache implements Cache {
     string,
     { value: unknown; expiresAt?: number }
   >();
+  private readonly locks = new Map<string, Promise<void>>();
   constructor(private readonly namespace = "default") {}
   private key(key: string): string {
     return `${this.namespace}:${key}`;
@@ -35,5 +37,14 @@ export class MemoryCache implements Cache {
   async clearNamespace(namespace: string): Promise<void> {
     for (const key of this.entries.keys())
       if (key.startsWith(`${namespace}:`)) this.entries.delete(key);
+  }
+  async lock<T>(key: string, work: () => Promise<T>): Promise<T> {
+    const previous = this.locks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => { release = resolve; });
+    const queued = previous.then(() => current);
+    this.locks.set(key, queued);
+    await previous;
+    try { return await work(); } finally { release(); if (this.locks.get(key) === queued) this.locks.delete(key); }
   }
 }
