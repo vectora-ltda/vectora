@@ -289,8 +289,21 @@ export function WorkspaceTrustDialog({
         return;
       }
       const data = (await res.json()) as BrowseResult;
+      const createdPath =
+        data.created_path ??
+        data.entries.find((entry) => entry.is_dir && entry.name === name)?.path;
+      if (createdPath) {
+        setCreatingFolder(false);
+        setNewFolderName("");
+        await load(createdPath);
+        return;
+      }
+
+      // Compatibilidade com servidores antigos que ainda não retornam
+      // created_path nem a entrada criada na resposta.
       setListing(data);
       lastLoadedPathRef.current = data.path;
+      setPathInput(data.path);
       setNewFolderName("");
       setCreatingFolder(false);
     } catch (e) {

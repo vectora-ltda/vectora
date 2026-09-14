@@ -85,6 +85,7 @@ describe("WorkspaceTrustDialog — reload e nova pasta", () => {
   });
 
   it("cria uma pasta nova e relista (feliz); nome em conflito mostra erro sem travar o formulário (edge)", async () => {
+    let createdPath: string | null = null;
     FETCH.mockImplementation((url: string, init?: RequestInit) => {
       if (url === "/workspaces/browse/mkdir" && init?.method === "POST") {
         const body = JSON.parse(init.body as string) as {
@@ -94,8 +95,10 @@ describe("WorkspaceTrustDialog — reload e nova pasta", () => {
         if (body.name === "ja-existe") {
           return jsonRes({ detail: "conflict" }, 409);
         }
+        createdPath = `${body.path}\\${body.name}`;
         return jsonRes({
           ...listing,
+          created_path: createdPath,
           entries: [
             ...listing.entries,
             {
@@ -108,6 +111,14 @@ describe("WorkspaceTrustDialog — reload e nova pasta", () => {
         });
       }
       if (url.startsWith("/workspaces/browse")) {
+        if (createdPath && decodeURIComponent(url).includes(createdPath)) {
+          return jsonRes({
+            ...listing,
+            path: createdPath,
+            parent: listing.path,
+            entries: [],
+          });
+        }
         return jsonRes(listing);
       }
       return jsonRes({}, 404);
@@ -121,7 +132,9 @@ describe("WorkspaceTrustDialog — reload e nova pasta", () => {
     fireEvent.change(input, { target: { value: "minha-pasta" } });
     fireEvent.click(screen.getByText("Create"));
 
-    await waitFor(() => screen.getByText("minha-pasta"));
+    await waitFor(() =>
+      expect(screen.getByDisplayValue(createdPath as string)).toBeTruthy(),
+    );
     // Formulário fecha após sucesso.
     expect(screen.queryByPlaceholderText("Folder name")).toBeNull();
 
