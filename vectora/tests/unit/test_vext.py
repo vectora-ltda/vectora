@@ -35,7 +35,7 @@ def test_inspect_vext_validates_manifest_and_entrypoint(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "files, message",
+    ("files", "message"),
     [
         ({"../escape.py": "x"}, "caminho inseguro"),
         ({"main.py": "x"}, "entrypoint não existe"),
