@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+from collections import deque
 from pathlib import Path
 from typing import TypedDict, cast
 
@@ -92,6 +93,7 @@ class GatewayMessage(TypedDict, total=False):
     diff: str
     metadata: dict[str, str]
     callback_secret: str
+    delivery_id: str
 
 
 #: Item real de trabalho na fila — carrega o `ws`/`local_session` da conexão
@@ -135,6 +137,7 @@ class GatewayClient:
         #: garante a task viva até terminar). `add_done_callback` limpa
         #: sozinho quando a task acaba (sucesso ou erro).
         self._review_tasks: set[asyncio.Task[None]] = set()
+        self._review_delivery_ids: deque[str] = deque(maxlen=1024)
 
     # ------------------------------------------------------------------
     # Public API
@@ -322,6 +325,14 @@ class GatewayClient:
             except ValueError:
                 logger.warning("gateway: review_job inválido descartado")
                 return
+            if job.delivery_id and job.delivery_id in self._review_delivery_ids:
+                logger.info(
+                    "gateway: review_job duplicado descartado: %s",
+                    job.delivery_id,
+                )
+                return
+            if job.delivery_id:
+                self._review_delivery_ids.append(job.delivery_id)
             # Roda fora da fila de forwards (_MAX_CONCURRENT_FORWARDS é pra
             # requests HTTP rápidas; um review job real pode levar minutos —
             # ocupar um worker da fila até terminar atrasaria callbacks
