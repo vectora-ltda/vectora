@@ -2,3 +2,5 @@ node_modules/
 dist/
 **/dist/
 *.tsbuildinfo
+packages/*/src/*.js
+packages/*/src/*.d.ts
