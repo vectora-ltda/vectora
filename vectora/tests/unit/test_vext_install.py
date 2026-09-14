@@ -81,3 +81,21 @@ def test_install_rejeita_plataforma_incompativel(
 
     with pytest.raises(RuntimeError, match="não suporta a plataforma linux"):
         store.install(artifact, allow_unsigned=True)
+
+
+def test_deactivate_preserva_versoes_e_activate_reutiliza_artefato(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    _source(source, "1.0.0")
+    artifact = tmp_path / "first.vext"
+    build_vext(source, artifact)
+    store = VextInstallStore(tmp_path / "extensions")
+    store.install(artifact, allow_unsigned=True)
+
+    assert store.deactivate("install.test") is True
+    assert store.active("install.test") is None
+    assert store.list_installed()[0].active is False
+    restored = store.activate("install.test", "1.0.0", allow_unsigned=True)
+    assert restored.active is True
