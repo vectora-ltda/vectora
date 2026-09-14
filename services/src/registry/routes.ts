@@ -133,6 +133,52 @@ const EXTENSION_COLUMNS = `e.id, e.name, e.description, e.homepage,
   v.protocol_version, v.runtime, v.platforms, v.permissions, v.dependencies,
   v.changelog, v.size_bytes, v.digest, v.status, v.created_at`;
 
+registry.post("/extensions/publishers", async (c) => {
+  const userId = await requireUserId(c);
+  if (!userId) return c.json({ error: "unauthorized" }, 401);
+  const body = (await c.req.json().catch(() => null)) as Record<
+    string,
+    unknown
+  > | null;
+  const name = typeof body?.name === "string" ? body.name.trim() : "";
+  const publicKey =
+    typeof body?.public_key === "string" ? body.public_key.trim() : "";
+  const fingerprint =
+    typeof body?.fingerprint === "string"
+      ? body.fingerprint.trim().toLowerCase()
+      : "";
+  if (!name || !publicKey || !/^[a-f0-9]{64}$/.test(fingerprint))
+    return c.json({ error: "invalid_publisher" }, 400);
+  let keyBytes: Uint8Array;
+  try {
+    const binary = atob(publicKey);
+    keyBytes = Uint8Array.from(binary, (value) => value.charCodeAt(0));
+  } catch {
+    return c.json({ error: "invalid_public_key" }, 400);
+  }
+  if (keyBytes.length !== 32)
+    return c.json({ error: "invalid_public_key" }, 400);
+  const digest = Array.from(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", keyBytes)),
+    (value) => value.toString(16).padStart(2, "0"),
+  ).join("");
+  if (digest !== fingerprint)
+    return c.json({ error: "fingerprint_mismatch" }, 422);
+  const id = crypto.randomUUID();
+  await c.env.DB.prepare(
+    `INSERT INTO vext_publishers (id, owner_user_id, name, public_key, fingerprint)
+     VALUES (?, ?, ?, ?, ?) ON CONFLICT(fingerprint) DO UPDATE SET name = excluded.name, updated_at = datetime('now')`,
+  )
+    .bind(id, userId, name, publicKey, fingerprint)
+    .run();
+  const row = await c.env.DB.prepare(
+    "SELECT id, name, fingerprint, revoked FROM vext_publishers WHERE owner_user_id = ? AND fingerprint = ?",
+  )
+    .bind(userId, fingerprint)
+    .first();
+  return c.json({ publisher: row }, 201);
+});
+
 registry.get("/extensions", async (c) => {
   const q = c.req.query("q");
   const like = q ? `%${q}%` : null;
