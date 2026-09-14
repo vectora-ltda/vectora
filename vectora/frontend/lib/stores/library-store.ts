@@ -121,7 +121,22 @@ async function fetchExtensionsCatalog(q: string): Promise<VextExtension[]> {
   return data.entries ?? [];
 }
 
-async function installExtensionArtifact(extension: VextExtension): Promise<void> {
+async function fetchInstalledExtensions(): Promise<Set<string>> {
+  const res = await fetch("/vext/installed");
+  if (!res.ok) throw new Error(`Erro ${res.status}`);
+  const data = (await res.json()) as {
+    extensions?: { id: string; active?: boolean }[];
+  };
+  return new Set(
+    (data.extensions ?? [])
+      .filter((item) => item.active !== false)
+      .map((item) => item.id),
+  );
+}
+
+async function installExtensionArtifact(
+  extension: VextExtension,
+): Promise<void> {
   const downloadUrl = `/registry/extensions/${encodeURIComponent(extension.id)}/download/${encodeURIComponent(extension.version)}`;
   const response = await fetch(downloadUrl);
   if (!response.ok) throw new Error(`Erro ${response.status}`);
@@ -167,6 +182,7 @@ interface LibraryStoreState {
   ensureMemoryLoaded: (q?: string) => Promise<void>;
   invalidateMemory: () => void;
   ensureExtensionsLoaded: (q?: string) => Promise<void>;
+  refreshInstalledExtensions: () => Promise<void>;
   invalidateExtensions: () => void;
   installExtension: (extension: VextExtension) => Promise<void>;
 }
@@ -280,9 +296,18 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
       return;
     set({ extensionLoading: true });
     try {
-      const items = await fetchExtensionsCatalog(q);
+      const [catalogResult, installedResult] = await Promise.allSettled([
+        fetchExtensionsCatalog(q),
+        fetchInstalledExtensions(),
+      ]);
+      if (catalogResult.status === "rejected") throw catalogResult.reason;
+      const installedIds =
+        installedResult.status === "fulfilled"
+          ? installedResult.value
+          : get().extensionInstalledIds;
       set({
-        extensionItems: items,
+        extensionItems: catalogResult.value,
+        extensionInstalledIds: installedIds,
         extensionFetchedAt: Date.now(),
         extensionQuery: q,
         extensionError: null,
@@ -294,6 +319,15 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
     }
   },
 
+  refreshInstalledExtensions: async () => {
+    try {
+      const installedIds = await fetchInstalledExtensions();
+      set({ extensionInstalledIds: installedIds });
+    } catch {
+      // The catalog remains usable when the local lifecycle endpoint is unavailable.
+    }
+  },
+
   invalidateExtensions: () => set({ extensionFetchedAt: null }),
 
   installExtension: async (extension) => {
@@ -301,7 +335,9 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
     try {
       await installExtensionArtifact(extension);
       set((state) => ({
-        extensionInstalledIds: new Set(state.extensionInstalledIds).add(extension.id),
+        extensionInstalledIds: new Set(state.extensionInstalledIds).add(
+          extension.id,
+        ),
       }));
     } finally {
       set({ extensionInstallingId: null });
