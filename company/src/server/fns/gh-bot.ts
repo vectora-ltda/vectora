@@ -7,7 +7,6 @@ export const GH_BOT_PROVIDERS = [
   "openai",
   "google_genai",
   "openrouter",
-  "ollama",
 ] as const;
 
 export type GhBotProvider = (typeof GH_BOT_PROVIDERS)[number];
