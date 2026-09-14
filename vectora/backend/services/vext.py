@@ -208,14 +208,15 @@ def inspect_vext(path: str | Path | None) -> VextPackage:
             for index in range(1, len(parts)):
                 if "/".join(parts[:index]) in regular_names:
                     raise ValueError("pacote contém conflito entre arquivo e diretório")
-            if name.startswith(("integrity.json/", "sbom.json/")) or (
-                name.startswith("signature/")
-                and name
-                not in {
-                    "signature/manifest.json",
-                    "signature/signature.bin",
-                    "signature/public.key",
-                }
+        allowed_metadata = {
+            "signature/manifest.json",
+            "signature/signature.bin",
+            "signature/public.key",
+        }
+        for name in regular_names:
+            if name == "signature" or (
+                _is_reserved_member(name)
+                and name not in {"integrity.json", "sbom.json", *allowed_metadata}
             ):
                 raise ValueError("pacote contém nome reservado")
         manifest_info = file_infos.get(MANIFEST_NAME)

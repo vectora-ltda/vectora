@@ -11,6 +11,7 @@ from backend.services.vext_host import VextHost
 def _source(root: Path, permissions: list[str]) -> None:
     (root / "main.py").write_text(
         "def handle(method, params):\n"
+        "    if method == 'empty': return None\n"
         "    return {'method': method, 'params': params}\n",
         encoding="utf-8",
     )
@@ -45,6 +46,7 @@ def test_host_runs_python_adapter_out_of_process(tmp_path: Path) -> None:
         assert manifest.id == "host.test"
         response = host.request("ping", {"value": 1})
         assert response["result"] == {"method": "ping", "params": {"value": 1}}
+        assert host.request("empty")["result"] is None
     finally:
         host.stop()
 

@@ -35,13 +35,27 @@ if (rootIndex < 0 || entrypointIndex < 0) {
       ) {
         throw new Error("invalid JSON-RPC request");
       }
-      if (request.jsonrpc !== "2.0" || typeof request.method !== "string" || !request.method) {
+      if (
+        request.jsonrpc !== "2.0" ||
+        typeof request.method !== "string" ||
+        !request.method
+      ) {
         throw new Error("invalid JSON-RPC request");
       }
-      if (request.params !== undefined && (request.params === null || typeof request.params !== "object" || Array.isArray(request.params))) {
+      if (
+        request.params !== undefined &&
+        (request.params === null ||
+          typeof request.params !== "object" ||
+          Array.isArray(request.params))
+      ) {
         throw new Error("invalid JSON-RPC params");
       }
-      if (request.id !== undefined && request.id !== null && typeof request.id !== "string" && typeof request.id !== "number") {
+      if (
+        request.id !== undefined &&
+        request.id !== null &&
+        typeof request.id !== "string" &&
+        typeof request.id !== "number"
+      ) {
         throw new Error("invalid JSON-RPC id");
       }
       requestId = request.id ?? null;
@@ -50,7 +64,7 @@ if (rootIndex < 0 || entrypointIndex < 0) {
         request.params ?? {},
       );
       process.stdout.write(
-        `${JSON.stringify({ jsonrpc: "2.0", id: requestId, result })}\n`,
+        `${JSON.stringify({ jsonrpc: "2.0", id: requestId, result: result ?? null })}\n`,
       );
     } catch (error) {
       process.stdout.write(

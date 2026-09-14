@@ -45,6 +45,7 @@ describe("mountSandboxedExtension", () => {
       new MessageEvent("message", { source: window, data: request }),
     );
     expect(onRequest).not.toHaveBeenCalled();
+    mounted.frame.dispatchEvent(new Event("load"));
     window.dispatchEvent(
       new MessageEvent("message", {
         source: mounted.frame.contentWindow,

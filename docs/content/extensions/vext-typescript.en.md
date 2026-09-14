@@ -16,7 +16,7 @@ import { mountSandboxedExtension } from "@vectora/extension-sdk/sandbox";
 
 const mounted = mountSandboxedExtension(
   container,
-  "/extensions/hello/index.js",
+  "/extensions/hello/index.html",
   manifest,
   (method, params) => hostRequest(method, params),
 );

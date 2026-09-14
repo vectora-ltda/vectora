@@ -18,7 +18,7 @@ The root export contains manifest, capability, JSON-RPC and context types. The `
 
 ## Development
 
-Run `npm run check` from this directory to typecheck and build the package. The package follows the VEXT protocol documented in `../docs/extensions/VEXT.md`.
+Run `npm run check` from this directory to typecheck and build the package. The package follows the [VEXT protocol](../../docs/content/extensions/vext.en.md).
 
 ## Support and license
 

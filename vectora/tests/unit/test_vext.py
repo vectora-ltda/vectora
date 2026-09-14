@@ -61,6 +61,24 @@ def test_inspect_vext_rejeita_conteudo_inseguro(
         inspect_vext(path)
 
 
+@pytest.mark.parametrize("field", ["backend_entrypoint", "frontend_entrypoint"])
+def test_inspect_vext_rejeita_entrypoint_opcional_ausente(
+    tmp_path: Path, field: str
+) -> None:
+    path = tmp_path / f"missing-{field}.vext"
+    manifest: dict[str, object] = {
+        "id": "hello.tool",
+        "name": "Hello",
+        "version": "1.0.0",
+        "api_version": 1,
+        "entrypoint": "main.py",
+        field: "missing.py",
+    }
+    _package(path, manifest, {"main.py": "x"})
+    with pytest.raises(ValueError, match="entrypoint não existe"):
+        inspect_vext(path)
+
+
 def test_inspect_vext_rejeita_permissao_desconhecida(tmp_path: Path) -> None:
     path = tmp_path / "permission.vext"
     _package(

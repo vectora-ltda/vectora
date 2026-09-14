@@ -139,6 +139,16 @@ class VextInstallStore:
                     (temporary / "manifest.json").write_text(
                         result.manifest.model_dump_json(indent=2), encoding="utf-8"
                     )
+                    staged_artifact = temporary / "package.vext"
+                    staged_result = verify_vext(staged_artifact)
+                    if staged_result.content_digest != result.content_digest:
+                        raise ValueError(
+                            "artefato temporário alterado durante instalação"
+                        )
+                    if trust_store is not None:
+                        trust_store.verify(staged_artifact)
+                    elif not allow_unsigned:
+                        raise PermissionError("artefato VEXT exige publisher confiável")
                     temporary.replace(destination)
                 finally:
                     if temporary.exists():

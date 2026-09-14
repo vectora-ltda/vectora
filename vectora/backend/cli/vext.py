@@ -103,7 +103,8 @@ def main(argv: list[str] | None = None) -> int:
             destination.mkdir(parents=True, exist_ok=True)
             (destination / "frontend" / "dist").mkdir(parents=True, exist_ok=True)
             (destination / "main.py").write_text(
-                "def handle(method, params):\n    return {'method': method, 'params': params}\n",
+                "def handle(method: str, params: dict[str, object]) -> dict[str, object]:\n"
+                "    return {'method': method, 'params': params}\n",
                 encoding="utf-8",
             )
             (destination / "vectora-extension.json").write_text(

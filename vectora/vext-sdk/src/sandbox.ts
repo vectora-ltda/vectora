@@ -31,7 +31,9 @@ export function mountSandboxedExtension(
     number | string,
     { resolve: (value: unknown) => void; reject: (error: Error) => void }
   >();
+  const queued = new Map<number | string, VextRequest>();
   let nextId = 1;
+  let loaded = false;
   frame.setAttribute("sandbox", "allow-scripts");
   frame.referrerPolicy = "no-referrer";
   frame.setAttribute("title", manifest.name);
@@ -74,13 +76,25 @@ export function mountSandboxedExtension(
     }
   };
   window.addEventListener("message", listener);
-  container.append(frame);
-  frame.addEventListener("load", () => {
+  const onLoad = () => {
+    loaded = true;
     frame.contentWindow?.postMessage(
       { type: "vectora:vext:init", manifest },
       "*",
     );
-  });
+    for (const message of queued.values())
+      frame.contentWindow?.postMessage(message, "*");
+    queued.clear();
+  };
+  const onError = () => {
+    const error = new Error("sandbox failed to load");
+    for (const waiter of pending.values()) waiter.reject(error);
+    queued.clear();
+    pending.clear();
+  };
+  frame.addEventListener("load", onLoad, { once: true });
+  frame.addEventListener("error", onError, { once: true });
+  container.append(frame);
   return {
     frame,
     context: {
@@ -90,12 +104,17 @@ export function mountSandboxedExtension(
         return new Promise<T>((resolve, reject) => {
           pending.set(id, { resolve: (value) => resolve(value as T), reject });
           const message: VextRequest = { jsonrpc: "2.0", id, method, params };
-          frame.contentWindow?.postMessage(message, "*");
+          if (loaded) frame.contentWindow?.postMessage(message, "*");
+          else queued.set(id, message);
         });
       },
     },
     dispose: () => {
       window.removeEventListener("message", listener);
+      frame.removeEventListener("load", onLoad);
+      frame.removeEventListener("error", onError);
+      loaded = false;
+      queued.clear();
       for (const waiter of pending.values())
         waiter.reject(new Error("sandbox disposed"));
       pending.clear();

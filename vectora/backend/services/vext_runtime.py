@@ -8,7 +8,6 @@ import json
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -21,7 +20,7 @@ class RpcRequest(BaseModel):
     jsonrpc: str = Field(pattern=r"^2\.0$")
     id: int | str | None = None
     method: str = Field(min_length=1, max_length=512)
-    params: dict[str, Any] = Field(default_factory=dict)
+    params: dict[str, object] = Field(default_factory=dict)
 
 
 class RpcResponse(BaseModel):
@@ -29,11 +28,13 @@ class RpcResponse(BaseModel):
 
     jsonrpc: str = "2.0"
     id: int | str | None = None
-    result: Any | None = None
+    result: object | None = None
     error: str | None = None
 
 
-def _load_handler(root: Path, entrypoint: str) -> Callable[..., object]:
+def _load_handler(
+    root: Path, entrypoint: str
+) -> Callable[[str, dict[str, object]], object]:
     path = (root / entrypoint).resolve()
     if root.resolve() not in path.parents:
         raise ValueError("entrypoint fora do diretório isolado")
@@ -69,6 +70,10 @@ def run(root: Path, entrypoint: str) -> int:
             request = RpcRequest.model_validate(json.loads(line))
             result = handler(request.method, request.params)
             response = RpcResponse(id=request.id, result=result)
+            payload = response.model_dump(mode="json", exclude_none=True)
+            payload.setdefault("result", None)
+            print(json.dumps(payload, ensure_ascii=False), flush=True)
+            continue
         except Exception as exc:
             response = RpcResponse(id=request.id if request else None, error=str(exc))
         print(response.model_dump_json(exclude_none=True), flush=True)

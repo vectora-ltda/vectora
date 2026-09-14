@@ -74,7 +74,7 @@ class VextHost:
         self._response_queue: queue.Queue[str] = queue.Queue()
         self._request_lock = threading.Lock()
         self._reader_threads: list[threading.Thread] = []
-        self._stderr_buffer: deque[str] = deque(maxlen=MAX_STDERR_BYTES // 128)
+        self._stderr_buffer: deque[str] = deque(maxlen=1)
         self._next_request_id = 0
 
     def start(self) -> VextManifest:
@@ -118,8 +118,11 @@ class VextHost:
                     entrypoint,
                 ]
             elif runtime == "node":
+                node_executable = shutil.which("node")
+                if node_executable is None:
+                    raise RuntimeError("runtime Node.js não está disponível")
                 command = [
-                    "node",
+                    node_executable,
                     str(Path(__file__).with_name("vext_node_runtime.mjs")),
                     "--root",
                     str(self.root),
@@ -214,6 +217,9 @@ class VextHost:
         ]
         if Path("/lib64").exists():
             wrapped.extend(["--ro-bind", "/lib64", "/lib64"])
+        for system_path in (Path("/app"), Path("/opt")):
+            if system_path.exists():
+                wrapped.extend(["--ro-bind", str(system_path), str(system_path)])
         if "network" not in manifest.permissions:
             wrapped.append("--unshare-net")
         return [*wrapped, "--", *command]
@@ -240,9 +246,20 @@ class VextHost:
                     continue
                 self._response_queue.put(line)
 
+        def append_stderr(chunk: str) -> None:
+            current = self._stderr_buffer[0] if self._stderr_buffer else ""
+            data = (current + chunk).encode("utf-8")
+            if len(data) > MAX_STDERR_BYTES:
+                data = data[-MAX_STDERR_BYTES:]
+            self._stderr_buffer.clear()
+            self._stderr_buffer.append(data.decode("utf-8", errors="replace"))
+
         def read_stderr() -> None:
-            for line in stderr:
-                self._stderr_buffer.append(line)
+            while True:
+                chunk = stderr.read(4096)
+                if not chunk:
+                    return
+                append_stderr(chunk)
 
         for target in (read_stdout, read_stderr):
             thread = threading.Thread(target=target, daemon=True)
