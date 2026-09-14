@@ -281,6 +281,7 @@ class TestWorkspaceHandlers:
         )
         assert (tmp_path / "minha-pasta").is_dir()
         assert "minha-pasta" in {e.name for e in result.entries}
+        assert result.created_path == str(tmp_path / "minha-pasta")
 
         # Par de erro — nome inválido (traversal) e pasta já existente,
         # nenhum dos dois cria/altera nada no disco.

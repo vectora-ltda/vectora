@@ -96,6 +96,7 @@ describe("WorkspaceTrustDialog — reload e nova pasta", () => {
         }
         return jsonRes({
           ...listing,
+          created_path: `${body.path}\\${body.name}`,
           entries: [
             ...listing.entries,
             {
@@ -108,6 +109,14 @@ describe("WorkspaceTrustDialog — reload e nova pasta", () => {
         });
       }
       if (url.startsWith("/workspaces/browse")) {
+        if (url.includes(encodeURIComponent(`${listing.path}\\minha-pasta`))) {
+          return jsonRes({
+            ...listing,
+            path: `${listing.path}\\minha-pasta`,
+            parent: listing.path,
+            entries: [],
+          });
+        }
         return jsonRes(listing);
       }
       return jsonRes({}, 404);
@@ -121,7 +130,11 @@ describe("WorkspaceTrustDialog — reload e nova pasta", () => {
     fireEvent.change(input, { target: { value: "minha-pasta" } });
     fireEvent.click(screen.getByText("Create"));
 
-    await waitFor(() => screen.getByText("minha-pasta"));
+    await waitFor(() =>
+      expect(
+        (screen.getAllByRole("textbox")[0] as HTMLInputElement).value,
+      ).toContain("minha-pasta"),
+    );
     // Formulário fecha após sucesso.
     expect(screen.queryByPlaceholderText("Folder name")).toBeNull();
 

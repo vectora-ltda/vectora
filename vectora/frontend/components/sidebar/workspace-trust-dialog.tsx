@@ -289,10 +289,18 @@ export function WorkspaceTrustDialog({
         return;
       }
       const data = (await res.json()) as BrowseResult;
-      setListing(data);
-      lastLoadedPathRef.current = data.path;
+      const createdPath =
+        data.created_path ??
+        data.entries.find((entry) => entry.name === name)?.path;
       setNewFolderName("");
       setCreatingFolder(false);
+      if (createdPath) {
+        await load(createdPath);
+      } else {
+        setListing(data);
+        lastLoadedPathRef.current = data.path;
+        setPathInput(data.path);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Falha de rede.");
     } finally {
