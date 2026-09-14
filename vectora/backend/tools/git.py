@@ -117,49 +117,9 @@ def _safe_call(fn: Callable[[], dict]) -> dict:
 
 def _git_status_impl(repo: git.Repo) -> dict:
     """Retorna o estado de trabalho do repositório."""
-    try:
-        branch = repo.active_branch.name
-    except TypeError:
-        branch = (
-            str(repo.head.commit.hexsha[:7])
-            if not repo.head.is_detached
-            else "HEAD detached"
-        )
+    from backend.services.git import status_snapshot
 
-    untracked = repo.untracked_files
-    modified = [item.a_path for item in repo.index.diff(None)]
-    # Repo sem nenhum commit (unborn HEAD) não tem "HEAD" resolvível —
-    # `index.diff("HEAD")` estoura `gitdb.exc.BadName`. Nesse caso tudo que
-    # está no index é "staged" para o primeiro commit (diff contra a árvore
-    # vazia); usa as entries do index diretamente.
-    if repo.head.is_valid():
-        staged = [item.a_path for item in repo.index.diff("HEAD")]
-    else:
-        staged = [path for path, _stage in repo.index.entries]
-
-    # ahead/behind quando há remote tracking
-    ahead = behind = 0
-    try:
-        tracking = repo.active_branch.tracking_branch()
-        if tracking:
-            commits = list(repo.iter_commits(f"{tracking.name}..HEAD"))
-            ahead = len(commits)
-            commits_behind = list(repo.iter_commits(f"HEAD..{tracking.name}"))
-            behind = len(commits_behind)
-    except Exception:
-        pass
-
-    clean = not untracked and not modified and not staged
-    return {
-        "status": "ok",
-        "branch": branch,
-        "clean": clean,
-        "untracked": list(untracked),
-        "modified": modified,
-        "staged": staged,
-        "ahead": ahead,
-        "behind": behind,
-    }
+    return status_snapshot(repo)
 
 
 def _git_log_impl(repo: git.Repo, n: int = 10, branch: str | None = None) -> dict:

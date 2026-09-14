@@ -74,6 +74,45 @@ class GitOperationError(RuntimeError):
         self.code = code
 
 
+def status_snapshot(repo: git.Repo) -> dict[str, object]:
+    """Retorna o estado de trabalho do repositório sem tocar no event loop."""
+    try:
+        branch = repo.active_branch.name
+    except TypeError:
+        branch = (
+            str(repo.head.commit.hexsha[:7])
+            if not repo.head.is_detached
+            else "HEAD detached"
+        )
+
+    untracked = repo.untracked_files
+    modified = [item.a_path for item in repo.index.diff(None)]
+    if repo.head.is_valid():
+        staged = [item.a_path for item in repo.index.diff("HEAD")]
+    else:
+        staged = [path for path, _stage in repo.index.entries]
+
+    ahead = behind = 0
+    try:
+        tracking = repo.active_branch.tracking_branch()
+        if tracking:
+            ahead = len(list(repo.iter_commits(f"{tracking.name}..HEAD")))
+            behind = len(list(repo.iter_commits(f"HEAD..{tracking.name}")))
+    except Exception:
+        pass
+
+    return {
+        "status": "ok",
+        "branch": branch,
+        "clean": not untracked and not modified and not staged,
+        "untracked": list(untracked),
+        "modified": modified,
+        "staged": staged,
+        "ahead": ahead,
+        "behind": behind,
+    }
+
+
 class GitService:
     """Serializa Git por repositório e executa chamadas fora do event loop."""
 
@@ -223,9 +262,7 @@ class GitService:
             lock.release()
 
     async def status(self, workspace_id: str, repo: git.Repo) -> dict[str, object]:
-        from backend.tools.git import _git_status_impl
-
-        return await asyncio.to_thread(_git_status_impl, repo)
+        return await asyncio.to_thread(status_snapshot, repo)
 
 
 git_service = GitService()

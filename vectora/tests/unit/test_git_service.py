@@ -9,7 +9,12 @@ from pathlib import Path
 import git
 import pytest
 
-from backend.services.git import GitOperationError, GitService, redact_git_output
+from backend.services.git import (
+    GitOperationError,
+    GitService,
+    redact_git_output,
+    status_snapshot,
+)
 
 
 def make_repo(path: Path) -> git.Repo:
@@ -18,6 +23,17 @@ def make_repo(path: Path) -> git.Repo:
     repo.index.add(["README.md"])
     repo.index.commit("initial")
     return repo
+
+
+def test_status_snapshot_is_available_without_tools_dependency(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path / "repo")
+    (tmp_path / "repo" / "README.md").write_text("changed\n", encoding="utf-8")
+
+    result = status_snapshot(repo)
+
+    assert result["status"] == "ok"
+    assert result["clean"] is False
+    assert result["modified"] == ["README.md"]
 
 
 @pytest.mark.asyncio
