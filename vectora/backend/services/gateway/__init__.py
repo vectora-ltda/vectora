@@ -315,6 +315,13 @@ class GatewayClient:
             return
 
         if kind == "review_job":
+            from backend.services.gateway.review_contract import ReviewJobRequest
+
+            try:
+                job = ReviewJobRequest.model_validate(message)
+            except ValueError:
+                logger.warning("gateway: review_job inválido descartado")
+                return
             # Roda fora da fila de forwards (_MAX_CONCURRENT_FORWARDS é pra
             # requests HTTP rápidas; um review job real pode levar minutos —
             # ocupar um worker da fila até terminar atrasaria callbacks
@@ -323,10 +330,10 @@ class GatewayClient:
             # nunca espera o review terminar).
             task = asyncio.create_task(
                 self._handle_review_job(
-                    message.get("job_id", ""),
-                    message.get("diff", ""),
-                    message.get("metadata", {}),
-                    message.get("callback_secret", ""),
+                    job.job_id,
+                    job.diff,
+                    job.metadata,
+                    job.callback_secret,
                 ),
                 name=f"gha-review-{message.get('job_id', '')}",
             )
