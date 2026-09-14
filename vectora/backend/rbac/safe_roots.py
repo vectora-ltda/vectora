@@ -14,7 +14,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import ClassVar
@@ -127,7 +126,7 @@ class SafeRootRegistry:
             temporary_file.write_text(
                 json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
             )
-            os.replace(temporary_file, safe_roots_file)
+            temporary_file.replace(safe_roots_file)
         except Exception as exc:
             temporary_file.unlink(missing_ok=True)
             logger.warning("Falha ao salvar safe_roots.json", exc_info=True)
