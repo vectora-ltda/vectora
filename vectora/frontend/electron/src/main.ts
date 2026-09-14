@@ -111,12 +111,19 @@ let updateDownloadPromise: Promise<void> | null = null;
 
 function startUpdateDownload(): Promise<void> {
   if (updateDownloadPromise) return updateDownloadPromise;
-  if (!pendingBackupPromise) {
-    return Promise.reject(new Error("backup da atualização não foi preparado"));
-  }
-  updateDownloadPromise = pendingBackupPromise.then(async () => {
-    await autoUpdater.downloadUpdate();
-  });
+  updateDownloadPromise = (pendingBackupPromise ?? Promise.resolve())
+    .catch((error: unknown) => {
+      // A atualização não deve ficar presa em 0% porque um arquivo do
+      // userData está temporariamente bloqueado pelo Windows. O snapshot é
+      // uma proteção adicional; o download ainda pode prosseguir sem ele.
+      console.warn(
+        "[updater] backup local indisponível; prosseguindo sem backup",
+        error,
+      );
+    })
+    .then(async () => {
+      await autoUpdater.downloadUpdate();
+    });
   return updateDownloadPromise;
 }
 
@@ -796,7 +803,7 @@ function setupAutoUpdater(): void {
     void startUpdateDownload().catch((error: unknown) => {
       broadcast({
         state: "error",
-        message: `Backup local falhou: ${String(error)}`,
+        message: `Download da atualização falhou: ${String(error)}`,
       });
     });
   });
