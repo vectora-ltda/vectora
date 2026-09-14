@@ -7,6 +7,17 @@ export interface AuthProvider {
   authorize(scopes: readonly string[]): Promise<AuthToken>;
   revoke(token: AuthToken): Promise<void>;
 }
+export interface OAuthPkceProvider extends AuthProvider {
+  createAuthorizationUrl(scopes: readonly string[], state: string, challenge: string): string;
+  exchangeCode(code: string, verifier: string): Promise<AuthToken>;
+  refresh(token: AuthToken): Promise<AuthToken>;
+}
+export interface AuthAuditEvent {
+  action: "authorize" | "refresh" | "revoke";
+  provider: string;
+  scopes: readonly string[];
+  at: number;
+}
 
 export class MemoryAuthProvider implements AuthProvider {
   private readonly tokens = new Map<string, AuthToken>();
