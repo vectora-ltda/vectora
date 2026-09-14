@@ -239,7 +239,9 @@ class GatewayClient:
             ):
                 try:
                     async with session.ws_connect(
-                        ws_url, headers={"Authorization": f"Bearer {secret}"}
+                        ws_url,
+                        headers={"Authorization": f"Bearer {secret}"},
+                        max_msg_size=8_000_000,
                     ) as ws:
                         logger.info("gateway: conectado em %s", ws_url)
                         await self._handle_messages(ws, local_session, queue)
