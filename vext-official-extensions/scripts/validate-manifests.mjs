@@ -11,8 +11,8 @@ for (const packageName of packageNames) {
       throw new Error(`${packageName}: missing manifest field ${field}`);
     }
   }
-  if (manifest.apiVersion !== 1 || !Array.isArray(manifest.capabilities)) {
-    throw new Error(`${packageName}: invalid API version or capabilities`);
+  if (manifest.api_version !== 1 || !Array.isArray(manifest.permissions)) {
+    throw new Error(`${packageName}: invalid API version or permissions`);
   }
   if (manifest.frontend === manifest.backend) {
     throw new Error(`${packageName}: frontend and backend must be separate entrypoints`);

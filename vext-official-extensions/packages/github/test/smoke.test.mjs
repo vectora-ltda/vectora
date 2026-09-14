@@ -6,3 +6,4 @@ test("GitHub extension declares both entrypoints", async () => {
   assert.equal(typeof manifest.frontend, "string");
   assert.equal(typeof manifest.backend, "string");
 });
+
