@@ -205,9 +205,27 @@ class GitService:
         operation_name: str,
         callback: Callable[[], _T],
         *,
-        timeout_seconds: float = 120.0,
+        timeout_seconds: float | None = None,
+        lock_timeout_seconds: float | None = None,
+        command_timeout_seconds: float | None = None,
     ) -> tuple[GitOperation, _T | None]:
         """Enfileira uma operação e executa o callback em uma thread."""
+        if timeout_seconds is not None:
+            lock_timeout = command_timeout = timeout_seconds
+        else:
+            from backend.settings import get_settings
+
+            settings = get_settings()
+            lock_timeout = (
+                lock_timeout_seconds
+                if lock_timeout_seconds is not None
+                else settings.git_lock_timeout
+            )
+            command_timeout = (
+                command_timeout_seconds
+                if command_timeout_seconds is not None
+                else settings.git_command_timeout
+            )
         operation = GitOperation(
             operation_id=f"git-{time.time_ns()}",
             workspace_id=workspace_id,
@@ -229,7 +247,7 @@ class GitService:
         lock = await self._lock_for(repo)
         try:
             operation.phase = "waiting_for_repository"
-            await asyncio.wait_for(lock.acquire(), timeout=timeout_seconds)
+            await asyncio.wait_for(lock.acquire(), timeout=lock_timeout)
         except TimeoutError as exc:
             operation.state = "failed"
             operation.phase = "terminal"
@@ -244,7 +262,7 @@ class GitService:
             operation.phase = operation_name
             operation.progress = 10
             result = await asyncio.wait_for(
-                asyncio.shield(callback_task), timeout=timeout_seconds
+                asyncio.shield(callback_task), timeout=command_timeout
             )
             operation.state = "succeeded"
             operation.phase = "terminal"

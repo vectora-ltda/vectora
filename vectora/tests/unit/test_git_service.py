@@ -79,6 +79,21 @@ async def test_lock_timeout_is_typed(tmp_path: Path) -> None:
     assert error.value.code == "git_lock_timeout"
 
 
+def test_git_timeout_defaults_are_configurable() -> None:
+    from backend.settings import Settings
+
+    settings = Settings(
+        _env_file=None,
+        git_lock_timeout=7.0,
+        git_command_timeout=11.0,
+        git_cli_timeout=13.0,
+    )
+
+    assert settings.git_lock_timeout == 7.0
+    assert settings.git_command_timeout == 11.0
+    assert settings.git_cli_timeout == 13.0
+
+
 def test_redact_git_output_masks_url_credentials_and_parameters() -> None:
     value = (
         "https://user:token@example.com/repo?token=secret "
