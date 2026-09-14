@@ -8,7 +8,8 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "check": "npm run build && npm run test"
+    "check": "npm run build && npm run test && npm run validate:manifests",
+    "validate:manifests": "node scripts/validate-manifests.mjs"
   },
   "engines": { "node": ">=20" }
 }
