@@ -1998,17 +1998,6 @@ async def git_revert_commit(
 # ---------------------------------------------------------------------------
 
 
-class GitStatusResponse(BaseModel):
-    """Snapshot validado do estado atual do repositório e da operação ativa."""
-
-    is_git_repo: bool = False
-    branch: str = ""
-    clean: bool = True
-    ahead: int = 0
-    behind: int = 0
-    operation_in_progress: dict[str, object] | None = None
-
-
 class GitOperationSnapshot(BaseModel):
     """Snapshot sanitizado de uma operação Git, em estado terminal ou corrente."""
 
@@ -2023,6 +2012,17 @@ class GitOperationSnapshot(BaseModel):
     error: str | None = None
     created_at: float
     finished_at: float | None = None
+
+
+class GitStatusResponse(BaseModel):
+    """Snapshot validado do estado atual do repositório e da operação ativa."""
+
+    is_git_repo: bool = False
+    branch: str = ""
+    clean: bool = True
+    ahead: int = 0
+    behind: int = 0
+    operation_in_progress: GitOperationSnapshot | None = None
 
 
 class GitOperationResponse(BaseModel):
