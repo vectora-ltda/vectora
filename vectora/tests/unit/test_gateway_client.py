@@ -773,6 +773,28 @@ class TestGatewayClientReviewJob:
         )
 
     @pytest.mark.asyncio
+    async def test_dispatch_de_review_job_descarta_delivery_duplicado(self) -> None:
+        client = self._client()
+        ws = AsyncMock()
+        session = AsyncMock()
+        queue = self._queue()
+        message: GatewayMessage = {
+            "type": "review_job",
+            "job_id": "job-1",
+            "diff": "diff x",
+            "metadata": {},
+            "callback_secret": "secret-do-job",
+            "delivery_id": "delivery-1",
+        }
+
+        with patch.object(client, "_handle_review_job", new=AsyncMock()) as mock_handle:
+            await client._dispatch(ws, session, message, queue)
+            await client._dispatch(ws, session, message, queue)
+            await asyncio.sleep(0)
+
+        mock_handle.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_handle_review_job_sucesso_posta_review_text(self) -> None:
         client = self._client()
 
