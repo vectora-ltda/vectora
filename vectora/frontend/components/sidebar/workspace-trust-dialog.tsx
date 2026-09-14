@@ -159,6 +159,7 @@ export function WorkspaceTrustDialog({
   const load = useCallback(async (path?: string) => {
     setLoading(true);
     setError(null);
+    setListing(null);
     // Navegar pra outro diretório fecha um formulário de "nova pasta"
     // pendente — ele se referia ao diretório anterior.
     setCreatingFolder(false);
@@ -289,8 +290,21 @@ export function WorkspaceTrustDialog({
         return;
       }
       const data = (await res.json()) as BrowseResult;
+      const createdPath =
+        data.created_path ??
+        data.entries.find((entry) => entry.is_dir && entry.name === name)?.path;
+      if (createdPath) {
+        setCreatingFolder(false);
+        setNewFolderName("");
+        await load(createdPath);
+        return;
+      }
+
+      // Compatibilidade com servidores antigos que ainda não retornam
+      // created_path nem a entrada criada na resposta.
       setListing(data);
       lastLoadedPathRef.current = data.path;
+      setPathInput(data.path);
       setNewFolderName("");
       setCreatingFolder(false);
     } catch (e) {
@@ -343,7 +357,7 @@ export function WorkspaceTrustDialog({
   };
 
   const handleConfirm = async () => {
-    if (!listing) return;
+    if (!listing || folderSubmitting || loading) return;
     if (mode === "ingest") {
       const wsId = getActive()?.id;
       if (!wsId) {
@@ -503,7 +517,8 @@ export function WorkspaceTrustDialog({
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  <Server className="w-3.5 h-3.5" /> SSH
+                  <Server className="w-3.5 h-3.5" />
+                  {m.workspace_transport_ssh()}
                 </button>
                 <button
                   type="button"
@@ -514,7 +529,8 @@ export function WorkspaceTrustDialog({
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  <Cloud className="w-3.5 h-3.5" /> Codespace
+                  <Cloud className="w-3.5 h-3.5" />
+                  {m.workspace_transport_codespace()}
                 </button>
               </div>
             )}
@@ -800,7 +816,7 @@ export function WorkspaceTrustDialog({
                   <Input
                     value={sshHost}
                     onChange={(e) => setSshHost(e.target.value)}
-                    placeholder="user@host:22"
+                    placeholder={m.workspace_ssh_host_placeholder()}
                     className="h-8 text-xs font-mono"
                     autoComplete="off"
                     spellCheck={false}
@@ -813,7 +829,7 @@ export function WorkspaceTrustDialog({
                   <Input
                     value={sshPath}
                     onChange={(e) => setSshPath(e.target.value)}
-                    placeholder="/home/user/projects/app"
+                    placeholder={m.workspace_ssh_path_placeholder()}
                     className="h-8 text-xs font-mono"
                     autoComplete="off"
                     spellCheck={false}
@@ -945,7 +961,13 @@ export function WorkspaceTrustDialog({
               {tab === "local" && (
                 <Button
                   onClick={handleConfirm}
-                  disabled={!listing || submitting || offline}
+                  disabled={
+                    !listing ||
+                    submitting ||
+                    folderSubmitting ||
+                    loading ||
+                    offline
+                  }
                   title={offline ? m.network_disabled_offline() : undefined}
                   data-testid="workspace-trust-confirm-btn"
                 >
