@@ -1,13 +1,11 @@
 "use client";
 
-import Image from "next/image";
 import { Menu } from "lucide-react";
 
 import { ContextualHelp } from "./contextual-help";
 import { SettingsMenu } from "./settings-menu";
 import { ModeSwitch } from "./mode-switcher";
 import { m } from "@/lib/paraglide/messages";
-import { useIsDesktop } from "@/lib/hooks/use-is-desktop";
 import { useElementWidth } from "@/lib/hooks/use-element-width";
 
 interface HeaderProps {
@@ -30,11 +28,6 @@ export function Header({
   onOpenSidebar,
   showModeSwitch,
 }: HeaderProps) {
-  // No desktop, ícone+título já aparecem na TitleBar (canto superior
-  // esquerdo, ao lado de voltar/recarregar) — repeti-los aqui só ocupa
-  // altura à toa. Na web (sem TitleBar), continuam aqui como identidade
-  // da página.
-  const desktop = useIsDesktop();
   const [rowRef, rowWidth] = useElementWidth<HTMLDivElement>();
 
   return (
@@ -44,7 +37,7 @@ export function Header({
       // do header do workbench (workbench-panel.tsx) — as 3 colunas do
       // layout precisam da mesma linha divisória de topo, senão a borda
       // horizontal desalinha entre elas.
-      className="safe-area-top-header border-b border-border/60 bg-background min-h-16 flex items-center"
+      className="safe-area-top-header border-b border-border/60 bg-background min-h-[var(--app-header-height)] flex items-center"
     >
       <div className="flex items-center justify-between w-full min-w-0 px-4 sm:px-6">
         <div className="flex items-center gap-2 shrink-0">
@@ -58,24 +51,6 @@ export function Header({
             >
               <Menu className="w-5 h-5" />
             </button>
-          )}
-          {!desktop && (
-            <>
-              <Image
-                src="/vectora.svg"
-                alt={m.app_name()}
-                width={28}
-                height={28}
-                priority
-                className="h-7 w-7"
-              />
-              <span
-                className="text-xl font-semibold tracking-tight text-foreground"
-                style={{ fontFamily: "var(--font-aeonik-mono)" }}
-              >
-                {m.app_name()}
-              </span>
-            </>
           )}
         </div>
 

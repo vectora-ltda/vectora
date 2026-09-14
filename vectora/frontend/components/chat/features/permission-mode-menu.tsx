@@ -37,11 +37,12 @@ export function PermissionModeMenu() {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
-          className="flex items-center gap-1.5 min-w-0 max-w-[160px] px-2.5 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors select-none"
+          className="flex min-w-0 max-w-full shrink items-center gap-1.5 overflow-hidden px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors select-none"
           title={msg.permission_title()}
+          aria-label={`${msg.permission_title()}: ${mDyn(`permission.mode.${mode}`)}`}
           aria-expanded={open}
         >
-          <span className="truncate font-medium">
+          <span className="hidden min-w-0 truncate font-medium @sm/composer:inline">
             {mDyn(`permission.mode.${mode}`)}
           </span>
           <ChevronDown className="w-3 h-3 shrink-0" />
@@ -52,7 +53,7 @@ export function PermissionModeMenu() {
         align="end"
         side="top"
         sideOffset={6}
-        className="z-50 w-56 rounded-lg border border-border bg-background shadow-xl p-0 py-1"
+        className="z-50 w-[min(14rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] rounded-lg border border-border bg-background shadow-xl p-0 py-1"
       >
         <div className="px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
           {msg.permission_title()}

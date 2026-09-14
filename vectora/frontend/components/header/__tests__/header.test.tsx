@@ -18,14 +18,14 @@ afterEach(() => {
   delete (window as { vectora?: unknown }).vectora;
 });
 
-describe("Header — ícone/título duplicado no desktop", () => {
-  it("mostra o ícone e o título Vectora fora do desktop (browser puro)", () => {
+describe("Header — marca exibida somente na TitleBar", () => {
+  it("não mostra o ícone nem o título Vectora no navegador", () => {
     const { container } = render(<Header />);
-    expect(screen.getByText("Vectora")).toBeInTheDocument();
+    expect(screen.queryByText("Vectora")).not.toBeInTheDocument();
     expect(container.firstElementChild).toHaveClass("safe-area-top-header");
   });
 
-  it("esconde o ícone e o título quando window.vectora existe (já aparecem na TitleBar)", async () => {
+  it("também não mostra a marca quando o Electron fornece a TitleBar", async () => {
     window.vectora = {
       windowControls: {
         minimize: vi.fn(),
@@ -38,8 +38,8 @@ describe("Header — ícone/título duplicado no desktop", () => {
 
     render(<Header />);
 
-    await waitFor(() => {
-      expect(screen.queryByText("Vectora")).not.toBeInTheDocument();
-    });
+    await waitFor(() =>
+      expect(screen.queryByText("Vectora")).not.toBeInTheDocument(),
+    );
   });
 });

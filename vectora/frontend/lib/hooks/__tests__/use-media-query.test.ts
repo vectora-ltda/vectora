@@ -1,90 +1,86 @@
 // @vitest-environment jsdom
-/**
- * Layouts multi-painel (workbench modo IDE) precisam saber quando a viewport
- * cruza o breakpoint `md` do Tailwind para colapsar em um único painel
- * visível por vez. `useMediaQuery` encapsula esse detector via
- * `matchMedia`, já que jsdom não o implementa nativamente.
- */
 
+import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { renderHook, act } from "@testing-library/react";
-
 import {
+  getIdeLayoutState,
+  getUnscaledViewportWidth,
   useMediaQuery,
-  useIsNarrowViewport,
-} from "@/lib/hooks/use-media-query";
+} from "../use-media-query";
 
-interface FakeMql {
-  matches: boolean;
-  media: string;
-  listeners: Set<(e: MediaQueryListEvent) => void>;
-  addEventListener: (
-    type: "change",
-    cb: (e: MediaQueryListEvent) => void,
-  ) => void;
-  removeEventListener: (
-    type: "change",
-    cb: (e: MediaQueryListEvent) => void,
-  ) => void;
-}
+describe("getIdeLayoutState", () => {
+  it.each([
+    [639, "mobile"],
+    [640, "wide"],
+    [767, "wide"],
+    [900, "wide"],
+    [641, "wide"],
+    [1024, "wide"],
+    [1444, "wide"],
+    [1920, "wide"],
+  ])("classifica %s px como %s", (width, expected) => {
+    expect(getIdeLayoutState(width)).toBe(expected);
+  });
+});
 
-function installFakeMatchMedia(initialMatches: boolean) {
-  const mql: FakeMql = {
-    matches: initialMatches,
-    media: "",
-    listeners: new Set(),
-    addEventListener: (_type, cb) => mql.listeners.add(cb),
-    removeEventListener: (_type, cb) => mql.listeners.delete(cb),
-  };
-  window.matchMedia = vi
-    .fn()
-    .mockReturnValue(mql) as unknown as typeof window.matchMedia;
+describe("getUnscaledViewportWidth", () => {
+  afterEach(() => {
+    delete (window as Window & { vectora?: unknown }).vectora;
+  });
 
-  return {
-    mql,
-    setMatches(next: boolean) {
-      mql.matches = next;
-      for (const cb of mql.listeners) {
-        cb({ matches: next } as MediaQueryListEvent);
-      }
-    },
-  };
-}
+  it("usa a largura da janela Electron para ignorar a escala visual", () => {
+    const originalOuterWidth = window.outerWidth;
+    const originalInnerWidth = window.innerWidth;
+    Object.defineProperties(window, {
+      outerWidth: { configurable: true, value: 1444 },
+      innerWidth: { configurable: true, value: 722 },
+    });
+
+    window.vectora = { windowControls: {} } as typeof window.vectora;
+    expect(getUnscaledViewportWidth()).toBe(1444);
+
+    Object.defineProperties(window, {
+      outerWidth: { configurable: true, value: originalOuterWidth },
+      innerWidth: { configurable: true, value: originalInnerWidth },
+    });
+  });
+
+  it("usa a viewport útil no navegador, sem confiar em outerWidth", () => {
+    Object.defineProperties(window, {
+      outerWidth: { configurable: true, value: 1444 },
+      innerWidth: { configurable: true, value: 722 },
+    });
+
+    expect(getUnscaledViewportWidth()).toBe(722);
+  });
+});
 
 describe("useMediaQuery", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
+  it("acompanha mudanças do matchMedia e remove o listener ao desmontar", () => {
+    const originalMatchMedia = window.matchMedia;
+    let listener: ((event: MediaQueryListEvent) => void) | undefined;
+    const removeEventListener = vi.fn();
+    window.matchMedia = vi.fn(() => ({
+      matches: false,
+      addEventListener: (_type: string, callback: EventListener) => {
+        listener = callback as (event: MediaQueryListEvent) => void;
+      },
+      removeEventListener,
+    })) as unknown as typeof window.matchMedia;
 
-  it("retorna o valor inicial de matches e atualiza quando a media query muda", () => {
-    const fake = installFakeMatchMedia(false);
-    const { result } = renderHook(() => useMediaQuery("(max-width: 767px)"));
+    try {
+      const { result, unmount } = renderHook(() =>
+        useMediaQuery("(min-width: 1px)"),
+      );
+      expect(result.current).toBe(false);
 
-    expect(result.current).toBe(false);
+      act(() => listener?.({ matches: true } as MediaQueryListEvent));
+      expect(result.current).toBe(true);
 
-    act(() => fake.setMatches(true));
-    expect(result.current).toBe(true);
-
-    act(() => fake.setMatches(false));
-    expect(result.current).toBe(false);
-  });
-
-  it("desmonta sem deixar o listener registrado (sem vazamento)", () => {
-    const fake = installFakeMatchMedia(false);
-    const { unmount } = renderHook(() => useMediaQuery("(max-width: 767px)"));
-
-    expect(fake.mql.listeners.size).toBe(1);
-    unmount();
-    expect(fake.mql.listeners.size).toBe(0);
-  });
-
-  it("useIsNarrowViewport reflete o breakpoint md (768px)", () => {
-    const fake = installFakeMatchMedia(true);
-    const { result } = renderHook(() => useIsNarrowViewport());
-
-    expect(result.current).toBe(true);
-
-    act(() => fake.setMatches(false));
-    expect(result.current).toBe(false);
+      unmount();
+      expect(removeEventListener).toHaveBeenCalledOnce();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
   });
 });

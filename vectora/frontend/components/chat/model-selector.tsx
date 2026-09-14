@@ -166,16 +166,19 @@ export function ModelSelector({
         <button
           className={
             compact
-              ? "flex items-center gap-1.5 h-7 px-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors select-none min-w-0 max-w-[160px]"
+              ? "flex min-w-0 max-w-[min(160px,100%)] shrink items-center gap-1.5 overflow-hidden h-7 px-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors select-none"
               : "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-sm text-foreground/80 hover:text-foreground hover:bg-muted/50 transition-colors select-none max-w-[200px]"
           }
           title={m.model_select_title()}
+          aria-label={`${m.model_select_title()}: ${activeLabel}`}
         >
           <ProviderIcon
             provider={getModelProvider(value as ModelOption)}
             className={`shrink-0 text-muted-foreground ${compact ? "w-3.5 h-3.5" : "w-4 h-4"}`}
           />
-          <span className="truncate font-medium">{activeLabel}</span>
+          <span className="hidden min-w-0 truncate font-medium @sm/composer:inline">
+            {activeLabel}
+          </span>
           <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground [&_svg]:opacity-70" />
         </button>
       </PopoverTrigger>

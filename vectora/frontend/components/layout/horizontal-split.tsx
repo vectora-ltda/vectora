@@ -32,7 +32,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
+import { WORKBENCH_WIDTH_TRANSITION } from "@/lib/layout/workbench-geometry";
 
 interface HorizontalSplitProps {
   left: ReactNode;
@@ -76,6 +77,7 @@ export function HorizontalSplit({
   const containerRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
+  const reducedMotion = useReducedMotion();
 
   const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -132,9 +134,11 @@ export function HorizontalSplit({
   // minWidth do flexPanel abaixo, senão sobra 4px de estouro mesmo com o
   // min() aplicado.
   const handleWidth = showRight && !rightCollapsed ? 4 : 0;
-  const springTransition = isDragging
+  const springTransition = reducedMotion
     ? { duration: 0 }
-    : { type: "spring" as const, damping: 26, stiffness: 260 };
+    : isDragging
+      ? { duration: 0 }
+      : WORKBENCH_WIDTH_TRANSITION;
 
   const handle = (
     <div

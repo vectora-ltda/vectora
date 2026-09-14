@@ -5,9 +5,9 @@
  * IdeModeLayout — arranjo dos painéis do modo IDE (nav-bar do workbench,
  * conteúdo do workbench, editor e chat).
  *
- * Acima do breakpoint `md`, os quatro painéis renderizam lado a lado
+ * Em viewport wide, os quatro painéis renderizam lado a lado
  * (comportamento inalterado — o caller já cuida de largura/resize de cada
- * um). Abaixo de `md`, múltiplos painéis lado a lado não cabem na tela:
+ * um). Em viewport mobile, múltiplos painéis lado a lado não cabem na tela:
  * este componente colapsa para mostrar só o painel ativo por vez, com uma
  * faixa de abas no topo para trocar entre eles — o mesmo padrão de "nav
  * strip + view única montada" que `WorkbenchNavBar`/`WorkbenchContent` já
@@ -17,7 +17,11 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { MessageSquare, PanelsTopLeft, Code2 } from "lucide-react";
+import { useReducedMotion } from "motion/react";
 import { mDyn } from "@/lib/i18n-dyn";
+import { ModeColumnLayout } from "@/components/layout/mode-column-layout";
+import { WorkbenchHost } from "@/components/layout/workbench-host";
+import type { IdeLayoutState } from "@/lib/hooks/use-media-query";
 
 export type IdeMobilePanel = "chat" | "workbench" | "editor";
 
@@ -28,8 +32,10 @@ const MOBILE_TABS: { id: IdeMobilePanel; icon: typeof MessageSquare }[] = [
 ];
 
 interface IdeModeLayoutProps {
-  /** true abaixo do breakpoint `md` — só um painel visível por vez. */
-  isNarrow: boolean;
+  /** Explicit responsive state. Mobile is reserved for smartphones. */
+  layoutState?: IdeLayoutState;
+  /** @deprecated use layoutState; kept for callers migrating from the boolean API. */
+  isNarrow?: boolean;
   /** Header do app — vive na coluna central (navBar+workbenchContent+editor),
    * nunca em cima do `chat` (que no modo IDE é a coluna lateral direita). */
   header: ReactNode;
@@ -43,10 +49,19 @@ interface IdeModeLayoutProps {
   defaultMobilePanel?: IdeMobilePanel;
   /** Estado de visibilidade da workbench, usado para evitar selecionar painel fechado. */
   workbenchOpen?: boolean;
+  workbenchSide?: "left" | "right";
+  direction?: "ltr" | "rtl";
+  workbenchWidth?: number;
+  workbenchMinWidth?: number;
+  workbenchMaxWidth?: number;
+  chatWidth?: number;
+  chatMinWidth?: number;
+  chatMaxWidth?: number;
 }
 
 export function IdeModeLayout({
-  isNarrow,
+  layoutState,
+  isNarrow = false,
   header,
   navBar,
   workbenchContent,
@@ -54,31 +69,55 @@ export function IdeModeLayout({
   chat,
   defaultMobilePanel = "editor",
   workbenchOpen = true,
+  workbenchSide = "left",
+  direction = "ltr",
+  workbenchWidth,
+  workbenchMinWidth,
+  workbenchMaxWidth,
+  chatWidth,
+  chatMinWidth,
+  chatMaxWidth,
 }: IdeModeLayoutProps) {
+  const resolvedLayoutState = layoutState ?? (isNarrow ? "mobile" : "wide");
   const [mobilePanel, setMobilePanel] =
     useState<IdeMobilePanel>(defaultMobilePanel);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
-    if (isNarrow && !workbenchOpen && mobilePanel === "workbench") {
+    if (
+      resolvedLayoutState === "mobile" &&
+      !workbenchOpen &&
+      mobilePanel === "workbench"
+    ) {
       setMobilePanel("editor");
     }
-  }, [isNarrow, mobilePanel, workbenchOpen]);
+  }, [resolvedLayoutState, mobilePanel, workbenchOpen]);
 
-  if (!isNarrow) {
+  if (resolvedLayoutState !== "mobile") {
     return (
-      <div className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Coluna central: header + workbench(navBar/content) + editor —
-            `chat` é a coluna lateral direita, fora do header. */}
-        <div className="flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden">
-          {header}
-          <div className="flex flex-1 min-h-0 overflow-hidden">
-            {navBar}
-            {workbenchContent}
-            {editor}
-          </div>
-        </div>
-        {chat}
-      </div>
+      <ModeColumnLayout
+        header={header}
+        left={
+          <WorkbenchHost
+            rail={navBar}
+            panel={workbenchContent}
+            side={workbenchSide}
+          />
+        }
+        center={editor}
+        right={chat}
+        direction={direction}
+        leftColumn={{
+          width: workbenchWidth,
+          minWidth: workbenchMinWidth,
+          maxWidth: workbenchMaxWidth,
+        }}
+        rightColumn={{
+          width: chatWidth,
+          minWidth: chatMinWidth,
+          maxWidth: chatMaxWidth,
+        }}
+      />
     );
   }
 
@@ -115,15 +154,21 @@ export function IdeModeLayout({
           );
         })}
       </div>
-      <div className="flex-1 min-h-0 overflow-hidden">
-        {mobilePanel === "chat" && chat}
-        {mobilePanel === "workbench" && (
-          <div className="flex h-full">
-            {navBar}
-            {workbenchContent}
-          </div>
-        )}
-        {mobilePanel === "editor" && editor}
+      <div className="flex-1 min-h-0 overflow-hidden relative">
+        <div
+          key={mobilePanel}
+          data-motion-disabled={reducedMotion ? "true" : undefined}
+          className="absolute inset-0 min-h-0 min-w-0 overflow-hidden transition-opacity duration-150 motion-reduce:transition-none"
+        >
+          {mobilePanel === "chat" && chat}
+          {mobilePanel === "workbench" && (
+            <div className="flex h-full min-w-0">
+              {navBar}
+              {workbenchContent}
+            </div>
+          )}
+          {mobilePanel === "editor" && editor}
+        </div>
       </div>
     </div>
   );

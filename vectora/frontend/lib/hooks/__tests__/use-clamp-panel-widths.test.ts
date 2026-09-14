@@ -6,17 +6,20 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { renderHook } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
+import { act } from "react";
 
 import { useClampPanelWidths } from "@/lib/hooks/use-clamp-panel-widths";
 import { useSettingsStore } from "@/lib/stores/settings-store";
 import { useWorkbenchStore } from "@/lib/stores/workbench-store";
 
 function setInnerWidth(width: number) {
-  Object.defineProperty(window, "innerWidth", {
-    configurable: true,
-    writable: true,
-    value: width,
+  Object.defineProperties(window, {
+    innerWidth: {
+      configurable: true,
+      writable: true,
+      value: width,
+    },
   });
 }
 
@@ -34,10 +37,13 @@ describe("useClampPanelWidths", () => {
     useSettingsStore.getState().setChatSidebarWidth(300);
     useWorkbenchStore.getState().setSplitSize(300);
 
-    renderHook(() => useClampPanelWidths());
+    const { result } = renderHook(() => useClampPanelWidths());
 
-    expect(useSettingsStore.getState().chatSidebarWidth).toBe(300);
-    expect(useWorkbenchStore.getState().splitSize).toBe(300);
+    expect(result.current).toEqual({
+      sidebarWidth: 280,
+      chatSidebarWidth: 300,
+      splitSize: 300,
+    });
   });
 
   it("clampa chatSidebarWidth/splitSize quando a viewport é menor que a largura salva", () => {
@@ -48,10 +54,11 @@ describe("useClampPanelWidths", () => {
     useSettingsStore.getState().setChatSidebarWidth(480);
     useWorkbenchStore.getState().setSplitSize(700);
 
-    renderHook(() => useClampPanelWidths());
+    const { result } = renderHook(() => useClampPanelWidths());
 
-    expect(useSettingsStore.getState().chatSidebarWidth).toBeLessThan(400);
-    expect(useWorkbenchStore.getState().splitSize).toBeLessThan(400);
+    expect(result.current.chatSidebarWidth).toBeLessThan(400);
+    expect(result.current.splitSize).toBeLessThan(400);
+    expect(useSettingsStore.getState().chatSidebarWidth).toBe(480);
   });
 
   it("viewport extremamente estreita (menor que a reserva mínima) não lança nem zera", () => {
@@ -59,19 +66,24 @@ describe("useClampPanelWidths", () => {
     useSettingsStore.getState().setChatSidebarWidth(480);
 
     expect(() => renderHook(() => useClampPanelWidths())).not.toThrow();
-    // Sem espaço nem pro conteúdo principal — a largura salva não é
-    // sobrescrita por um valor negativo/zero, fica como está.
+    // Sem espaço nem pro conteúdo principal — a largura visível cai de volta
+    // para a preferência salva, sem persistir um valor inválido.
     expect(useSettingsStore.getState().chatSidebarWidth).toBe(480);
   });
 
-  it("re-clampa ao disparar o evento de resize", () => {
+  it("re-clampa ao disparar o evento de resize", async () => {
     useSettingsStore.getState().setChatSidebarWidth(300);
-    renderHook(() => useClampPanelWidths());
+    const { result } = renderHook(() => useClampPanelWidths());
+    expect(result.current.chatSidebarWidth).toBe(300);
+
+    act(() => {
+      setInnerWidth(400);
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    await waitFor(() =>
+      expect(result.current.chatSidebarWidth).toBeLessThan(300),
+    );
     expect(useSettingsStore.getState().chatSidebarWidth).toBe(300);
-
-    setInnerWidth(500);
-    window.dispatchEvent(new Event("resize"));
-
-    expect(useSettingsStore.getState().chatSidebarWidth).toBeLessThan(300);
   });
 });

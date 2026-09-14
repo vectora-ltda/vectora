@@ -25,7 +25,26 @@ beforeEach(() => {
   mockGet.mockReset();
   mockSet.mockReset();
   mockSet.mockResolvedValue({ thread_id: "t", pins: [] });
-  useWorkbenchStore.setState({ pinnedFiles: {} });
+  useWorkbenchStore.setState({
+    pinnedFiles: {},
+    activeTabByThread: {},
+    panelOpen: {},
+  });
+});
+
+describe("Workbench — última aba ao reabrir", () => {
+  it.each(["files", "diff", "plan", "browser", "terminal"] as const)(
+    "preserva %s depois de fechar e reabrir",
+    (tab) => {
+      s().selectTab("t1", tab);
+      s().setPanelOpen("t1", false);
+      expect(s().isOpen("t1")).toBe(false);
+
+      s().setPanelOpen("t1", true);
+      expect(s().getActiveTab("t1")).toBe(tab);
+      expect(s().isOpen("t1")).toBe(true);
+    },
+  );
 });
 
 describe("togglePinned — cache otimista", () => {

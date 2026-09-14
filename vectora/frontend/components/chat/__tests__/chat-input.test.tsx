@@ -321,21 +321,27 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
   // vive numa sidebar estreita enquanto a janela segue larga, então o rodapé
   // precisa reagir à largura do próprio composer via container queries do
   // Tailwind v4, não a breakpoints `sm:` de viewport.
-  it("o rodapé usa container queries (@container/composer + @sm/composer)", () => {
+  it("o rodapé usa o container do composer sem overflow horizontal", () => {
     const { container } = render(<ChatInput {...baseProps()} />);
 
     // O wrapper do composer estabelece o contexto de container nomeado.
     expect(container.querySelector(".\\@container\\/composer")).not.toBeNull();
 
-    // O rodapé quebra por padrão (estreito) e só volta a uma linha quando o
-    // container é largo — reagindo ao composer, não à viewport.
-    const footer = container.querySelector(
-      ".flex-wrap.\\@sm\\/composer\\:flex-nowrap",
-    );
+    // O rodapé mantém uma linha controlada e corta apenas os grupos flexíveis.
+    const footer = container.querySelector(".flex-nowrap.overflow-hidden");
     expect(footer).not.toBeNull();
 
     // Nenhum breakpoint de viewport (`sm:`) deve sobrar no rodapé — só container.
     expect(container.querySelector(".sm\\:flex-nowrap")).toBeNull();
+
+    // Em containers estreitos os rótulos cedem espaço, mas os botões continuam
+    // identificáveis por acessibilidade e tooltip.
+    expect(
+      container.querySelectorAll(".\\@sm\\/composer\\:inline").length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(
+      container.querySelectorAll("button[aria-label]").length,
+    ).toBeGreaterThan(0);
   });
 });
 

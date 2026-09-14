@@ -135,6 +135,7 @@ vi.mock("../../../router", () => ({
 }));
 
 import { useSettingsStore } from "@/lib/stores/settings-store";
+import { useWorkbenchStore } from "@/lib/stores/workbench-store";
 import { Route } from "../$threadId";
 
 const SessionPage = (Route as unknown as { component: () => ReactElement })
@@ -160,16 +161,16 @@ beforeEach(() => {
   );
   vi.stubGlobal(
     "matchMedia",
-    vi.fn().mockReturnValue({
+    vi.fn().mockImplementation((query: string) => ({
       matches: false,
-      media: "",
+      media: query,
       onchange: null,
       addListener: vi.fn(),
       removeListener: vi.fn(),
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
       dispatchEvent: vi.fn(),
-    }),
+    })),
   );
   vi.stubGlobal(
     "fetch",
@@ -231,7 +232,7 @@ describe("SessionPage — posição do Header por modo", () => {
   // coluna central, nunca esparramado por cima da coluna lateral direita
   // (que muda de conteúdo por modo: workbench em Assistente, chat em IDE).
 
-  it("IDE: Header vive na coluna central (navBar+workbench+editor), nunca na coluna de chat (sidebar direita)", () => {
+  it("IDE: Header vive na coluna central, nunca na coluna de chat (sidebar direita)", () => {
     setMode("ide");
     render(<SessionPage />);
 
@@ -245,8 +246,10 @@ describe("SessionPage — posição do Header por modo", () => {
     render(<SessionPage />);
 
     const header = screen.getByTestId("header");
-    expect(screen.getByTestId("split-left")).toContainElement(header);
-    expect(screen.getByTestId("split-right")).not.toContainElement(header);
+    expect(screen.getByTestId("shell-header-slot")).toContainElement(header);
+    for (const rail of screen.getAllByRole("complementary")) {
+      expect(rail).not.toContainElement(header);
+    }
   });
 
   it("erro/borda: só existe um Header montado em qualquer modo", () => {
@@ -260,7 +263,7 @@ describe("SessionPage — posição do Header por modo", () => {
 });
 
 describe("SessionPage — sidebar de sessões", () => {
-  it("aparece em Assistente e Kanban, some no IDE (que usa a navBar do workbench)", () => {
+  it("fica à esquerda em Assistente/Kanban e cede lugar à workbench no IDE", () => {
     setMode("assistant");
     render(<SessionPage />);
     expect(screen.getAllByTestId("sidebar").length).toBeGreaterThan(0);
@@ -274,6 +277,7 @@ describe("SessionPage — sidebar de sessões", () => {
     setMode("ide");
     render(<SessionPage />);
     expect(screen.queryByTestId("sidebar")).not.toBeInTheDocument();
+    expect(screen.getByTestId("workbench-navbar")).toBeInTheDocument();
   });
 });
 
@@ -289,5 +293,36 @@ describe("SessionPage — chat compacto no IDE", () => {
     render(<SessionPage />);
     expect(screen.getByTestId("chat")).toHaveAttribute("data-compact", "false");
     expect(screen.queryByTestId("session-switcher")).not.toBeInTheDocument();
+  });
+});
+
+describe("SessionPage — workbench do Assistente estreito", () => {
+  it("mantém a navegação do workbench no painel central", async () => {
+    useSettingsStore.setState({ uiMode: "assistant", chatMode: false });
+    useWorkbenchStore.setState({ panelOpen: { t1: true } });
+    Object.defineProperty(window, "outerWidth", {
+      configurable: true,
+      value: 639,
+    });
+    vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
+      matches: query.includes("767px"),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+
+    render(<SessionPage />);
+
+    expect(await screen.findByTestId("workbench-navbar")).toBeInTheDocument();
+    expect(await screen.findByTestId("workbench-content")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat")).not.toBeInTheDocument();
+    Object.defineProperty(window, "outerWidth", {
+      configurable: true,
+      value: 1024,
+    });
   });
 });

@@ -64,7 +64,7 @@ def test_force_web_seta_headless_e_pula_bandeja() -> None:
         for k, v in os.environ.items()
         if k not in ("VECTORA_DESKTOP", "VECTORA_HEADLESS")
     }
-    headless_captured: list[str | None] = []
+    env_captured: list[tuple[str | None, str | None, str | None]] = []
 
     with (
         patch.dict(os.environ, env, clear=True),
@@ -89,9 +89,15 @@ def test_force_web_seta_headless_e_pula_bandeja() -> None:
 
         _run_start(args, force_web=True)
         # Checar env DENTRO do patch.dict antes de ser revertido no __exit__.
-        headless_captured.append(os.environ.get("VECTORA_HEADLESS"))
+        env_captured.append(
+            (
+                os.environ.get("VECTORA_HEADLESS"),
+                os.environ.get("VECTORA_DESKTOP"),
+                os.environ.get("VECTORA_SPAWN_ELECTRON"),
+            )
+        )
 
-    assert headless_captured[0] == "1"
+    assert env_captured[0] == ("1", None, None)
     mock_tray.assert_not_called()
     mock_asyncio_run.assert_called_once()
 

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it, afterEach, vi } from "vitest";
-import { render as rtlRender, cleanup } from "@testing-library/react";
+import { render as rtlRender, cleanup, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Sidebar } from "../sidebar";
@@ -36,10 +36,18 @@ vi.mock("../sidebar-utils", () => ({
 vi.mock("@/lib/hooks/use-network-status", () => ({
   useNetworkStatus: () => ({ offline: false }),
 }));
-vi.mock("../sidebar-header", () => ({ SidebarHeader: () => null }));
+vi.mock("../sidebar-header", () => ({
+  SidebarHeader: ({ compact }: { compact?: boolean }) => (
+    <div data-testid={compact ? "sidebar-compact-toggle" : "sidebar-header"} />
+  ),
+}));
 vi.mock("../new-chat-button", () => ({ NewChatButton: () => null }));
 vi.mock("../session-search", () => ({ SessionSearch: () => null }));
-vi.mock("../sidebar-mode-toggle", () => ({ SidebarModeToggle: () => null }));
+vi.mock("../sidebar-mode-toggle", () => ({
+  SidebarModeToggle: ({ compact }: { compact?: boolean }) => (
+    <div data-testid={compact ? "compact-mode-toggle" : "mode-toggle"} />
+  ),
+}));
 vi.mock("../thread-list", () => ({ ThreadList: () => null }));
 vi.mock("../sidebar-footer", () => ({ SidebarFooter: () => null }));
 vi.mock("@/components/ui/confirm-dialog", () => ({
@@ -97,5 +105,40 @@ describe("Sidebar — wrapper de animação não quebra o preenchimento de altur
     expect(aside).toBeTruthy();
     const wrapper = aside.parentElement!;
     expect(wrapper.className).toContain("contents");
+  });
+
+  it("permite ocultar o título local quando o header do app vive na coluna central", () => {
+    render(
+      <Sidebar
+        isCollapsed={false}
+        showHeader={false}
+        onToggle={noop}
+        threads={threads}
+        currentThreadId=""
+        onSelectThread={noop}
+        onDeleteThread={noop}
+      />,
+    );
+
+    expect(screen.queryByTestId("sidebar-header")).not.toBeInTheDocument();
+    expect(screen.getByTestId("sidebar-compact-toggle")).toBeInTheDocument();
+    expect(screen.getByTestId("compact-mode-toggle")).toBeInTheDocument();
+  });
+
+  it("mantém o toggle de modo separado do botão de recolher no modo compacto", () => {
+    render(
+      <Sidebar
+        isCollapsed={false}
+        showHeader={false}
+        onToggle={noop}
+        threads={threads}
+        currentThreadId=""
+        onSelectThread={noop}
+        onDeleteThread={noop}
+      />,
+    );
+
+    expect(screen.getByTestId("sidebar-compact-toggle")).toBeInTheDocument();
+    expect(screen.getByTestId("compact-mode-toggle")).toBeInTheDocument();
   });
 });
