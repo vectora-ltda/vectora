@@ -7,3 +7,8 @@ test("manifest declares full-stack entrypoints", async () => {
   assert.ok(Array.isArray(manifest.permissions));
 });
 
+test("backend validates formatting requests before invoking the tool", async () => {
+  const { handle } = await import("../dist/backend.js");
+  await assert.rejects(() => handle({ method: "format" }), /text is required/);
+});
+
