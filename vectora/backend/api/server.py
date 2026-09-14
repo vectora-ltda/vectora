@@ -66,6 +66,7 @@ from backend.api.handlers.threads import router as thread_router
 from backend.api.handlers.tools import router as tools_router
 from backend.api.handlers.url_preview import router as url_preview_router
 from backend.api.handlers.usage import router as usage_router
+from backend.api.handlers.vext import router as vext_router
 from backend.api.handlers.webhooks import router as webhooks_router
 from backend.api.handlers.workspaces import router as workspace_router
 from backend.api.handlers.workspaces import view_router as workspace_view_router
@@ -637,6 +638,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
     app.include_router(admin_router)
     app.include_router(backup_router)
     app.include_router(usage_router)
+    app.include_router(vext_router)
     app.include_router(workspace_router)
     app.include_router(workspace_view_router)
     app.include_router(workspace_scoped_view_router)

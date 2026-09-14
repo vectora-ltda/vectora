@@ -170,6 +170,32 @@ class VextInstallStore:
             raise ValueError("versão ativa não existe")
         return InstalledExtension(extension_id, version, artifact, True)
 
+    def deactivate(self, extension_id: str) -> bool:
+        """Deactivate an extension while retaining its immutable versions."""
+        with self._lock():
+            state = self._read_state()
+            if extension_id not in state:
+                return False
+            del state[extension_id]
+            self._write_state(state)
+            return True
+
+    def activate(
+        self,
+        extension_id: str,
+        version: str,
+        *,
+        trust_store: VextTrustStore | None = None,
+        allow_unsigned: bool = False,
+    ) -> InstalledExtension:
+        """Activate an installed version without downloading or replacing it."""
+        return self.rollback(
+            extension_id,
+            version,
+            trust_store=trust_store,
+            allow_unsigned=allow_unsigned,
+        )
+
     def rollback(
         self,
         extension_id: str,
