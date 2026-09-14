@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS vext_versions (
   digest TEXT NOT NULL,
   r2_key TEXT NOT NULL UNIQUE,
   signature TEXT NOT NULL,
+  signature_verified INTEGER NOT NULL DEFAULT 0 CHECK (signature_verified IN (0, 1)),
   sbom TEXT,
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'published', 'revoked')),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),

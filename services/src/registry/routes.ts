@@ -22,9 +22,9 @@
  * modelo de confiança mais pesado que instalar um `SKILL.md`; curadoria
  * fechada por design.
  *
- * `extensions` continua placeholder — depende do SDK de autoria
- * (`vectora_ext` Python, `@vectora/extension-sdk` TS) e do Extension Host,
- * nenhum dos dois existe ainda.
+ * `extensions` usa o mesmo Worker, mas mantém bytes imutáveis no R2 e
+ * metadados, estados e publishers no D1. A publicação exige assinatura
+ * Ed25519 verificável antes de entrar na fila de curadoria.
  */
 import { Hono } from "hono";
 import type { Env } from "../gateway/types";
@@ -132,6 +132,56 @@ const EXTENSION_COLUMNS = `e.id, e.name, e.description, e.homepage,
   p.fingerprint, v.id AS version_id, v.version, v.api_version,
   v.protocol_version, v.runtime, v.platforms, v.permissions, v.dependencies,
   v.changelog, v.size_bytes, v.digest, v.status, v.created_at`;
+
+function decodeBase64(value: string): Uint8Array | null {
+  try {
+    const binary = atob(value);
+    return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  } catch {
+    return null;
+  }
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  return `{${Object.entries(value as Record<string, unknown>)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+    .join(",")}}`;
+}
+
+async function verifyPublisherSignature(
+  publicKey: string,
+  signature: string,
+  manifestText: string,
+  integrityText: string,
+): Promise<boolean> {
+  const keyBytes = decodeBase64(publicKey);
+  const signatureBytes = decodeBase64(signature);
+  if (!keyBytes || keyBytes.length !== 32 || !signatureBytes) return false;
+  let manifest: unknown;
+  let integrity: unknown;
+  try {
+    manifest = JSON.parse(manifestText);
+    integrity = JSON.parse(integrityText);
+  } catch {
+    return false;
+  }
+  const key = await crypto.subtle.importKey(
+    "raw",
+    keyBytes,
+    { name: "Ed25519" },
+    false,
+    ["verify"],
+  );
+  return crypto.subtle.verify(
+    { name: "Ed25519" },
+    key,
+    signatureBytes,
+    new TextEncoder().encode(canonicalJson({ integrity, manifest })),
+  );
+}
 
 registry.post("/extensions/publishers", async (c) => {
   const userId = await requireUserId(c);
@@ -249,7 +299,9 @@ registry.post("/extensions/publish", async (c) => {
     version = text("version");
   const fingerprint = text("fingerprint"),
     signature = text("signature"),
-    digest = text("digest");
+    digest = text("digest"),
+    manifest = text("manifest"),
+    integrity = text("integrity");
   const runtime = text("runtime");
   if (
     !name ||
@@ -258,6 +310,8 @@ registry.post("/extensions/publish", async (c) => {
     !fingerprint ||
     !signature ||
     !digest ||
+    !manifest ||
+    !integrity ||
     !["node", "python", "none"].includes(runtime)
   )
     return c.json({ error: "invalid_metadata" }, 400);
@@ -274,6 +328,21 @@ registry.post("/extensions/publish", async (c) => {
     .first<{ id: string; revoked: number }>();
   if (!publisher || publisher.revoked)
     return c.json({ error: "publisher_untrusted" }, 403);
+  const publisherKey = await c.env.DB.prepare(
+    "SELECT public_key FROM vext_publishers WHERE id = ?",
+  )
+    .bind(publisher.id)
+    .first<{ public_key: string }>();
+  if (
+    !publisherKey ||
+    !(await verifyPublisherSignature(
+      publisherKey.public_key,
+      signature,
+      manifest,
+      integrity,
+    ))
+  )
+    return c.json({ error: "invalid_signature" }, 422);
   const extensionId = crypto.randomUUID();
   const versionId = crypto.randomUUID();
   const r2Key = `vext/${publisher.id}/${name}/${version}/${digest}.vext`;
@@ -287,7 +356,7 @@ registry.post("/extensions/publish", async (c) => {
         "INSERT INTO vext_extensions (id, publisher_id, name, description) VALUES (?, ?, ?, ?) ON CONFLICT(publisher_id, name) DO UPDATE SET description = excluded.description, updated_at = datetime('now')",
       ).bind(extensionId, publisher.id, name, description),
       c.env.DB.prepare(
-        "INSERT INTO vext_versions (id, extension_id, version, api_version, protocol_version, runtime, platforms, permissions, size_bytes, digest, r2_key, signature, status) VALUES (?, (SELECT id FROM vext_extensions WHERE publisher_id = ? AND name = ?), ?, 1, 1, ?, ?, ?, ?, ?, ?, ?, 'pending')",
+        "INSERT INTO vext_versions (id, extension_id, version, api_version, protocol_version, runtime, platforms, permissions, size_bytes, digest, r2_key, signature, signature_verified, status) VALUES (?, (SELECT id FROM vext_extensions WHERE publisher_id = ? AND name = ?), ?, 1, 1, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
       ).bind(
         versionId,
         publisher.id,
@@ -300,6 +369,7 @@ registry.post("/extensions/publish", async (c) => {
         digest,
         r2Key,
         signature,
+        1,
       ),
     ]);
   } catch (error) {
@@ -322,14 +392,18 @@ registry.patch("/admin/extensions/:id/:version/publish", async (c) => {
   const adminId = await requireAdmin(c);
   if (!adminId) return c.json({ error: "forbidden" }, 403);
   const row = await c.env.DB.prepare(
-    `SELECT v.id, v.r2_key, v.signature FROM vext_versions v
+    `SELECT v.id, v.r2_key, v.signature, v.signature_verified FROM vext_versions v
       JOIN vext_extensions e ON e.id = v.extension_id
       WHERE e.id = ? AND v.version = ? AND v.status = 'pending'`,
   )
     .bind(c.req.param("id"), c.req.param("version"))
-    .first<{ id: string; r2_key: string; signature: string }>();
+    .first<{ id: string; r2_key: string; signature: string; signature_verified: number }>();
   if (!row) return c.json({ error: "not_found" }, 404);
-  if (!row.signature || !(await c.env.R2.head(row.r2_key)))
+  if (
+    !row.signature ||
+    row.signature_verified !== 1 ||
+    !(await c.env.R2.head(row.r2_key))
+  )
     return c.json({ error: "artifact_unavailable" }, 422);
   await c.env.DB.prepare(
     "UPDATE vext_versions SET status = 'published', published_at = datetime('now') WHERE id = ?",
