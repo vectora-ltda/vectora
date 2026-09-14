@@ -208,7 +208,7 @@ export const Sidebar = memo(function Sidebar({
             className="contents"
           >
             <CollapsedSidebar
-              threads={threads}
+              threads={visibleThreads}
               currentThreadId={currentThreadId}
               onToggle={onToggle}
               onSelectThread={onSelectThread}
