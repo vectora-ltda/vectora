@@ -1,0 +1,12 @@
+{
+  "id": "kubernetes",
+  "name": "Kubernetes",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "frontend": "dist/frontend.js",
+  "backend": "dist/backend.js",
+  "capabilities": [
+    "network.kubernetes",
+    "process.execute"
+  ]
+}
