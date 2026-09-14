@@ -2,6 +2,18 @@
 
 Esta vers�o consolida as altera��es publicadas desde a vers�o 0.1.17.
 
+## [0.1.22](https://github.com/vectora-ltda/vectora/compare/v0.1.21...v0.1.22) (2026-09-14)
+
+
+### Features
+
+* **frontend:** complete adaptive session shell, workbench and responsive chat ([#213](https://github.com/vectora-ltda/vectora/issues/213)) ([e3080bd](https://github.com/vectora-ltda/vectora/commit/e3080bd6bef1f587550b5d0bf9356053220805c2))
+
+
+### Bug Fixes
+
+* restore settings and backend connection after tray restart ([#209](https://github.com/vectora-ltda/vectora/issues/209)) ([12217ce](https://github.com/vectora-ltda/vectora/commit/12217ce7054f9202b5000d9845c5fa1426f155fc))
+
 ## [0.1.21](https://github.com/vectora-ltda/vectora/compare/v0.1.20...v0.1.21) (2026-09-13)
 
 
