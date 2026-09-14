@@ -54,13 +54,10 @@ export function ExtensionsSection({
 }
 
 function ExtensionCard({ extension }: { extension: VextExtension }) {
-  const download = () => {
-    window.open(
-      `/registry/extensions/${encodeURIComponent(extension.id)}/download/${encodeURIComponent(extension.version)}`,
-      "_blank",
-      "noopener,noreferrer",
-    );
-  };
+  const installed = useLibraryStore((s) => s.extensionInstalledIds.has(extension.id));
+  const installing = useLibraryStore((s) => s.extensionInstallingId === extension.id);
+  const install = useLibraryStore((s) => s.installExtension);
+  const download = () => void install(extension);
   return (
     <article className="rounded-md border border-border/60 bg-card/30 p-2 min-w-0">
       <div className="flex items-start gap-2">
@@ -74,7 +71,8 @@ function ExtensionCard({ extension }: { extension: VextExtension }) {
         <button
           type="button"
           onClick={download}
-          aria-label={`${m.library_extensions_download()} ${extension.name}`}
+          aria-label={`${installed ? m.library_extensions_installed() : m.library_extensions_install()} ${extension.name}`}
+          disabled={installed || installing}
           className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           <Download className="h-3.5 w-3.5" />

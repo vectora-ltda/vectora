@@ -121,6 +121,17 @@ async function fetchExtensionsCatalog(q: string): Promise<VextExtension[]> {
   return data.entries ?? [];
 }
 
+async function installExtensionArtifact(extension: VextExtension): Promise<void> {
+  const downloadUrl = `/registry/extensions/${encodeURIComponent(extension.id)}/download/${encodeURIComponent(extension.version)}`;
+  const response = await fetch(downloadUrl);
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  const bytes = await response.blob();
+  const form = new FormData();
+  form.append("artifact", bytes, `${extension.id}-${extension.version}.vext`);
+  const install = await fetch("/vext/install", { method: "POST", body: form });
+  if (!install.ok) throw new Error(`Erro ${install.status}`);
+}
+
 interface LibraryStoreState {
   mcpItems: MCPConnector[];
   mcpInstalledIds: Set<string>;
@@ -146,6 +157,8 @@ interface LibraryStoreState {
   extensionFetchedAt: number | null;
   extensionQuery: string;
   extensionError: string | null;
+  extensionInstalledIds: Set<string>;
+  extensionInstallingId: string | null;
 
   ensureMcpLoaded: (q?: string) => Promise<void>;
   invalidateMcp: () => void;
@@ -155,6 +168,7 @@ interface LibraryStoreState {
   invalidateMemory: () => void;
   ensureExtensionsLoaded: (q?: string) => Promise<void>;
   invalidateExtensions: () => void;
+  installExtension: (extension: VextExtension) => Promise<void>;
 }
 
 function isFresh(fetchedAt: number | null): boolean {
@@ -185,6 +199,8 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   extensionFetchedAt: null,
   extensionQuery: "",
   extensionError: null,
+  extensionInstalledIds: new Set(),
+  extensionInstallingId: null,
 
   ensureMcpLoaded: async (q = "") => {
     const s = get();
@@ -279,4 +295,16 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   },
 
   invalidateExtensions: () => set({ extensionFetchedAt: null }),
+
+  installExtension: async (extension) => {
+    set({ extensionInstallingId: extension.id });
+    try {
+      await installExtensionArtifact(extension);
+      set((state) => ({
+        extensionInstalledIds: new Set(state.extensionInstalledIds).add(extension.id),
+      }));
+    } finally {
+      set({ extensionInstallingId: null });
+    }
+  },
 }));

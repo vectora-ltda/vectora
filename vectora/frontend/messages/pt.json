@@ -1597,5 +1597,7 @@
   "library_section_extensions": "Extensões",
   "library_extensions_empty": "Nenhuma extensão encontrada.",
   "library_extensions_download": "Baixar extensão",
-  "library_extensions_error_search": "Não foi possível carregar as extensões."
+  "library_extensions_error_search": "Não foi possível carregar as extensões.",
+  "library_extensions_install": "Instalar extensão",
+  "library_extensions_installed": "Extensão instalada"
 }
