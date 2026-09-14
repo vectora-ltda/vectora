@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mountSandboxedExtension } from "../../vext-sdk/packages/sdk/src/sandbox";
-import type { VextManifest } from "../../vext-sdk/packages/sdk/src/index";
+import { mountSandboxedExtension } from "../../../vext-sdk/packages/sdk/src/sandbox";
+import type { VextManifest } from "../../../vext-sdk/packages/sdk/src/index";
 
 const manifest: VextManifest = {
   id: "example.extension",

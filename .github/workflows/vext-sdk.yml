@@ -2,9 +2,9 @@ name: VEXT SDK
 
 on:
   push:
-    paths: ["vectora/vext-sdk/**"]
+    paths: ["vext-sdk/**"]
   pull_request:
-    paths: ["vectora/vext-sdk/**"]
+    paths: ["vext-sdk/**"]
 
 permissions:
   contents: read
@@ -14,14 +14,14 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: vectora/vext-sdk
+        working-directory: vext-sdk
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: vectora/vext-sdk/package-lock.json
+          cache-dependency-path: vext-sdk/package-lock.json
       - run: npm ci
       - run: npm run check
 
@@ -34,7 +34,7 @@ jobs:
       contents: read
     defaults:
       run:
-        working-directory: vectora/vext-sdk
+        working-directory: vext-sdk
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
