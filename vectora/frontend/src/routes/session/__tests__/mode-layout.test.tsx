@@ -304,6 +304,10 @@ describe("SessionPage — workbench do Assistente estreito", () => {
       configurable: true,
       value: 639,
     });
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 639,
+    });
     vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
       matches: query.includes("767px"),
       media: query,
@@ -321,6 +325,10 @@ describe("SessionPage — workbench do Assistente estreito", () => {
     expect(await screen.findByTestId("workbench-content")).toBeInTheDocument();
     expect(screen.queryByTestId("chat")).not.toBeInTheDocument();
     Object.defineProperty(window, "outerWidth", {
+      configurable: true,
+      value: 1024,
+    });
+    Object.defineProperty(window, "innerWidth", {
       configurable: true,
       value: 1024,
     });
