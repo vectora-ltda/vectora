@@ -156,7 +156,7 @@ export function WorkspaceTrustDialog({
   /** Fetch direto: precisamos distinguir 403 (fora de safe-root) de
    *  outros erros para mostrar mensagem inline. O `browse` do store
    *  achata erros em `null` e perde essa informação. */
-  const load = useCallback(async (path?: string) => {
+  const load = useCallback(async (path?: string): Promise<boolean> => {
     setLoading(true);
     setError(null);
     // Navegar pra outro diretório fecha um formulário de "nova pasta"
@@ -190,6 +190,7 @@ export function WorkspaceTrustDialog({
       setListing(data);
       lastLoadedPathRef.current = data.path;
       setPathInput(data.path);
+        return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Falha de rede.");
     } finally {
@@ -295,11 +296,16 @@ export function WorkspaceTrustDialog({
       setNewFolderName("");
       setCreatingFolder(false);
       if (createdPath) {
-        await load(createdPath);
+        const loaded = await load(createdPath);
+          if (!loaded) {
+            setListing(null);
+            setPathInput(createdPath);
+          }
       } else {
         setListing(data);
         lastLoadedPathRef.current = data.path;
         setPathInput(data.path);
+        return true;
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Falha de rede.");
