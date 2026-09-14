@@ -317,6 +317,31 @@ class TestWorkspaceHandlers:
             )
         assert exc.value.status_code == 403
 
+    @pytest.mark.asyncio
+    async def test_mkdir_rejects_empty_name(self, tmp_path):
+        from fastapi import HTTPException
+
+        from backend.api.handlers.workspaces import MkdirRequest, mkdir_dir
+
+        with pytest.raises(HTTPException) as exc:
+            await mkdir_dir(
+                _req(),
+                MkdirRequest(path=str(tmp_path), name=""),
+            )
+        assert exc.value.status_code == 400
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.asyncio
+    async def test_mkdir_rejects_empty_path(self, tmp_path):
+        from fastapi import HTTPException
+
+        from backend.api.handlers.workspaces import MkdirRequest, mkdir_dir
+
+        with pytest.raises(HTTPException) as exc:
+            await mkdir_dir(_req(), MkdirRequest(path="", name="nova"))
+        assert exc.value.status_code == 400
+        assert not (tmp_path / "nova").exists()
+
 
 # ---------------------------------------------------------------------------
 # owner_id + require_workspace_access (isolamento multi-usuário)

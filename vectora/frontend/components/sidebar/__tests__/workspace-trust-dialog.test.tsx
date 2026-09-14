@@ -161,6 +161,39 @@ describe("WorkspaceTrustDialog — reload e nova pasta", () => {
     expect(screen.getByPlaceholderText("Folder name")).toBeTruthy();
     useWorkspacesStore.setState({ create: originalCreate });
   });
+
+  it("usa a entrada criada quando o servidor antigo não retorna created_path", async () => {
+    const createdPath = `${listing.path}\\legado`;
+    FETCH.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/workspaces/browse/mkdir" && init?.method === "POST") {
+        return jsonRes({
+          ...listing,
+          entries: [
+            ...listing.entries,
+            { name: "legado", path: createdPath, is_dir: true, kind: "dir" },
+          ],
+        });
+      }
+      if (url.startsWith("/workspaces/browse")) {
+        return url.includes(encodeURIComponent(createdPath))
+          ? jsonRes({ ...listing, path: createdPath, entries: [] })
+          : jsonRes(listing);
+      }
+      return jsonRes({}, 404);
+    });
+
+    render(<WorkspaceTrustDialog open onOpenChange={() => {}} />);
+    await waitFor(() => screen.getByText("projeto-a"));
+    fireEvent.click(screen.getByTitle("New folder"));
+    fireEvent.change(await screen.findByPlaceholderText("Folder name"), {
+      target: { value: "legado" },
+    });
+    fireEvent.click(screen.getByText("Create"));
+
+    await waitFor(() =>
+      expect(screen.getByDisplayValue(createdPath)).toBeTruthy(),
+    );
+  });
 });
 
 describe("WorkspaceTrustDialog — mode=ingest, filtro de formato e bucket", () => {

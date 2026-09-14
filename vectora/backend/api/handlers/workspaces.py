@@ -644,6 +644,8 @@ async def mkdir_dir(request: Request, body: MkdirRequest) -> BrowseResponse:
 
     from backend.rbac.safe_roots import get_safe_root_registry
 
+    if not body.path.strip():
+        raise HTTPException(status_code=400, detail="Caminho da pasta é obrigatório.")
     name = body.name.strip()
     if not name or name in {".", ".."} or "/" in name or "\\" in name:
         raise HTTPException(status_code=400, detail="Nome de pasta inválido.")
