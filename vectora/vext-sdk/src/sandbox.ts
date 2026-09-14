@@ -104,7 +104,8 @@ export function mountSandboxedExtension(
       pending.clear();
       queued.clear();
     }
-    channel?.close();
+    channel?.port1.close();
+    channel?.port2.close();
     channel = new MessageChannel();
     channelPort = channel.port1;
     channelPort.onmessage = listener as unknown as (
