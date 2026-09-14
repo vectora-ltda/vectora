@@ -315,6 +315,22 @@ registry.post("/extensions/publish", async (c) => {
     !["node", "python", "none"].includes(runtime)
   )
     return c.json({ error: "invalid_metadata" }, 400);
+  let manifestPayload: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(manifest) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      throw new Error("manifest must be an object");
+    manifestPayload = parsed as Record<string, unknown>;
+    if (
+      manifestPayload.name !== name ||
+      manifestPayload.version !== version ||
+      manifestPayload.runtime !== runtime
+    )
+      return c.json({ error: "manifest_mismatch" }, 422);
+    JSON.parse(integrity);
+  } catch {
+    return c.json({ error: "invalid_manifest" }, 400);
+  }
   const bytes = await artifact.arrayBuffer();
   const actualDigest = Array.from(
     new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
@@ -343,7 +359,6 @@ registry.post("/extensions/publish", async (c) => {
     ))
   )
     return c.json({ error: "invalid_signature" }, 422);
-  const extensionId = crypto.randomUUID();
   const versionId = crypto.randomUUID();
   const r2Key = `vext/${publisher.id}/${name}/${version}/${digest}.vext`;
   await c.env.R2.put(r2Key, bytes, {
@@ -354,7 +369,7 @@ registry.post("/extensions/publish", async (c) => {
     await c.env.DB.batch([
       c.env.DB.prepare(
         "INSERT INTO vext_extensions (id, publisher_id, name, description) VALUES (?, ?, ?, ?) ON CONFLICT(publisher_id, name) DO UPDATE SET description = excluded.description, updated_at = datetime('now')",
-      ).bind(extensionId, publisher.id, name, description),
+      ).bind(crypto.randomUUID(), publisher.id, name, description),
       c.env.DB.prepare(
         "INSERT INTO vext_versions (id, extension_id, version, api_version, protocol_version, runtime, platforms, permissions, size_bytes, digest, r2_key, signature, signature_verified, status) VALUES (?, (SELECT id FROM vext_extensions WHERE publisher_id = ? AND name = ?), ?, 1, 1, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
       ).bind(
@@ -376,10 +391,16 @@ registry.post("/extensions/publish", async (c) => {
     await c.env.R2.delete(r2Key);
     throw error;
   }
+  const extension = await c.env.DB.prepare(
+    "SELECT id FROM vext_extensions WHERE publisher_id = ? AND name = ?",
+  )
+    .bind(publisher.id, name)
+    .first<{ id: string }>();
+  if (!extension) return c.json({ error: "extension_create_failed" }, 500);
   return c.json(
     {
       ok: true,
-      id: extensionId,
+      id: extension.id,
       version_id: versionId,
       digest,
       status: "pending",
