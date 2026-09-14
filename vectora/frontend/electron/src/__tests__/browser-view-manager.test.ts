@@ -12,11 +12,16 @@ function makeFakeView(): ManagedView & {
   emitFake(event: string, ...args: unknown[]): void;
 } {
   const handlers: Record<string, (...args: unknown[]) => void> = {};
+  let windowOpenHandler:
+    ((details: { url: string }) => { action: "allow" | "deny" }) | undefined;
   let url = "";
   return {
     handlers,
     emitFake(event, ...args) {
       handlers[event]?.(...args);
+    },
+    getWindowOpenAction(url: string) {
+      return windowOpenHandler?.({ url });
     },
     webContents: {
       loadURL: vi.fn(async (u: string) => {
@@ -32,6 +37,9 @@ function makeFakeView(): ManagedView & {
       getTitle: vi.fn(() => "título"),
       on: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
         handlers[event] = listener;
+      }),
+      setWindowOpenHandler: vi.fn((handler) => {
+        windowOpenHandler = handler;
       }),
     },
     setBounds: vi.fn(),
@@ -98,6 +106,22 @@ describe("BrowserViewManager", () => {
 
     await manager.clearData("profile-a");
     expect(deps.clearData).toHaveBeenCalledWith("persist:browser-profile-a");
+  });
+
+  it("normaliza identificadores vazios para o perfil padrão", async () => {
+    deps.clearData = vi.fn(async () => undefined);
+    manager.createView("");
+    expect(deps.createView).toHaveBeenCalledWith("default");
+    await manager.clearData("");
+    expect(deps.clearData).toHaveBeenCalledWith("persist:browser-default");
+  });
+
+  it("nega popups para manter toda navegação sob controle do manager", () => {
+    manager.createView();
+    const view = views[0];
+    expect(view.getWindowOpenAction("https://example.com")).toEqual({
+      action: "deny",
+    });
   });
 
   it("destroi a view via deps.destroyView; id inexistente não quebra", () => {

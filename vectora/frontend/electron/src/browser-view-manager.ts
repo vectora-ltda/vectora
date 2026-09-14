@@ -96,6 +96,11 @@ interface Entry {
 const ALLOWED_SCHEMES = new Set(["http:", "https:"]);
 const CHROME_SETTINGS_URL = /^chrome:\/\/settings(?:\/.*)?$/i;
 
+function normalizeProfileId(profileId: string | undefined): string {
+  const normalized = profileId?.trim();
+  return normalized || "default";
+}
+
 export function isNavigableUrl(raw: string): boolean {
   // ``chrome://settings`` is an Electron-owned page. It must stay intact;
   // passing it through the generic URL normalizer turns it into the invalid
@@ -115,7 +120,7 @@ export class BrowserViewManager {
   constructor(private readonly deps: BrowserViewManagerDeps) {}
 
   createView(profileId?: string): number {
-    const view = this.deps.createView(profileId);
+    const view = this.deps.createView(normalizeProfileId(profileId));
     const id = this.nextId++;
     this.entries.set(id, { view, visible: false, bounds: HIDDEN_BOUNDS });
     this.wireEvents(id, view);
@@ -124,7 +129,9 @@ export class BrowserViewManager {
   }
 
   async clearData(profileId = "default"): Promise<void> {
-    await this.deps.clearData?.(`persist:browser-${profileId}`);
+    await this.deps.clearData?.(
+      `persist:browser-${normalizeProfileId(profileId)}`,
+    );
   }
 
   destroyView(id: number): void {
@@ -196,10 +203,9 @@ export class BrowserViewManager {
     };
     wc.on("will-navigate", cancelUnsafeNavigation);
     wc.on("will-redirect", cancelUnsafeNavigation);
-    wc.setWindowOpenHandler?.(({ url }) => {
-      if (isNavigableUrl(url)) return { action: "allow" };
-      return { action: "deny" };
-    });
+    // Popups are denied until they can be created as managed views. Allowing
+    // them would bypass the manager's bounds, lifecycle and navigation guards.
+    wc.setWindowOpenHandler?.(() => ({ action: "deny" }));
     const navigated = () =>
       this.deps.emit(id, {
         type: "navigated",

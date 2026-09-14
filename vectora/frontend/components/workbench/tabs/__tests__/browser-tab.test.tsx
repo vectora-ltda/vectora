@@ -17,7 +17,11 @@ import {
   act,
 } from "@testing-library/react";
 
-import { BrowserTab, clearBrowserSessionCache } from "../browser-tab";
+import {
+  BrowserTab,
+  clearBrowserSessionCache,
+  getBrowserProfileId,
+} from "../browser-tab";
 import {
   disposeBrowserWorkspace,
   disposeBrowserSession,
@@ -91,6 +95,17 @@ const LAUNCH = {
     },
   ],
 };
+
+describe("getBrowserProfileId", () => {
+  it("mantém chaves distintas em partições distintas", () => {
+    expect(getBrowserProfileId("workspace:a!thread")).not.toBe(
+      getBrowserProfileId("workspace:a?thread"),
+    );
+    expect(getBrowserProfileId("workspace:á")).toMatch(
+      /^session-[A-Za-z0-9_-]+$/,
+    );
+  });
+});
 
 function mockFetch({
   configurations = LAUNCH.configurations,

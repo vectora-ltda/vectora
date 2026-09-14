@@ -77,6 +77,18 @@ function genId(): string {
     : `tab-${Math.random().toString(36).slice(2)}`;
 }
 
+/** Derives a collision-free, partition-safe identifier from a session key. */
+export function getBrowserProfileId(sessionKey: string): string {
+  const bytes = new TextEncoder().encode(sessionKey);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  const encoded = btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+  return `session-${encoded}`;
+}
+
 function normalizeUrl(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return "";
@@ -164,6 +176,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   // do console de stdout do dev server acima, que é sobre o processo, não
   // sobre a página que o agente navega via tools de browser.
   const [devtoolsOpen, setDevtoolsOpen] = useState(false);
+  const [clearProfileError, setClearProfileError] = useState(false);
   const [sessionHydrationVersion, setSessionHydrationVersion] = useState(0);
 
   // Múltiplas abas — cada uma com seu próprio histórico (web) ou sua
@@ -186,10 +199,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   });
   const [profileId, setProfileId] = useState<string>(() => {
     const restored = getBrowserSession(sessionKey);
-    return (
-      restored?.profileId ??
-      `session-${sessionKey.replace(/[^a-zA-Z0-9_-]/g, "-")}`
-    );
+    return restored?.profileId ?? getBrowserProfileId(sessionKey);
   });
   const hydratedSessionKeyRef = useRef<string | null>(sessionKey);
   const previousSessionKeyRef = useRef(sessionKey);
@@ -222,10 +232,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
 
     setTabs(nextTabs);
     setActiveTabId(nextActiveTabId);
-    setProfileId(
-      restored?.profileId ??
-        `session-${sessionKey.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
-    );
+    setProfileId(restored?.profileId ?? getBrowserProfileId(sessionKey));
     hydratedSessionKeyRef.current = sessionKey;
     setSessionHydrationVersion((version) => version + 1);
   }, [sessionKey]);
@@ -1227,9 +1234,9 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         <button
           type="button"
           data-testid="browser-settings-btn"
-          aria-label={msg.workbench_browser_devtools_toggle()}
+          aria-label={msg.workbench_browser_settings_toggle()}
           aria-expanded={browserSettingsOpen}
-          title={msg.workbench_browser_devtools_toggle()}
+          title={msg.workbench_browser_settings_toggle()}
           className={`flex h-6 w-6 shrink-0 items-center justify-center rounded p-1 transition-colors ${browserSettingsOpen ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
           onClick={toggleBrowserSettings}
         >
@@ -1238,22 +1245,42 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       </div>
 
       <WorkbenchSlidePanel
-        open={browserSettingsOpen && (!desktopBrowser || settingsViewId === null)}
+        open={browserSettingsOpen}
         onClose={toggleBrowserSettings}
-        title={msg.workbench_browser_devtools_toggle()}
+        title={msg.workbench_browser_settings_title()}
         testId="browser-settings-panel"
       >
         <div className="space-y-3 text-xs text-muted-foreground">
-          <p>{msg.workbench_browser_frame_title()}</p>
-          <button
-            type="button"
-            className="rounded border border-destructive/40 px-2 py-1 text-destructive hover:bg-destructive/10"
-            onClick={() => {
-              void desktopBrowser?.clearProfileData(profileId);
-            }}
-          >
-            {msg.workbench_browser_manual_add()}
-          </button>
+          <p>{msg.workbench_browser_settings_description()}</p>
+          {desktopBrowser ? (
+            <>
+              <button
+                type="button"
+                className="rounded border border-destructive/40 px-2 py-1 text-destructive hover:bg-destructive/10"
+                onClick={() => {
+                  if (
+                    !window.confirm(
+                      msg.workbench_browser_clear_profile_confirm(),
+                    )
+                  )
+                    return;
+                  setClearProfileError(false);
+                  void desktopBrowser.clearProfileData(profileId).catch(() => {
+                    setClearProfileError(true);
+                  });
+                }}
+              >
+                {msg.workbench_browser_clear_profile_data()}
+              </button>
+              {clearProfileError ? (
+                <p role="alert" className="text-destructive">
+                  {msg.workbench_browser_clear_profile_error()}
+                </p>
+              ) : null}
+            </>
+          ) : (
+            <p>{msg.workbench_browser_settings_unavailable()}</p>
+          )}
         </div>
       </WorkbenchSlidePanel>
 
