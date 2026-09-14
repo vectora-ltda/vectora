@@ -316,7 +316,13 @@ class GitService:
             lock.release()
 
     async def status(self, workspace_id: str, repo: git.Repo) -> dict[str, object]:
-        return await asyncio.to_thread(status_snapshot, repo)
+        snapshot = await asyncio.to_thread(status_snapshot, repo)
+        latest = await self.latest(workspace_id)
+        if latest is not None and latest["state"] in {"queued", "running"}:
+            snapshot["operation_in_progress"] = latest
+        else:
+            snapshot["operation_in_progress"] = None
+        return snapshot
 
 
 git_service = GitService()

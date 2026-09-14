@@ -127,6 +127,32 @@ async def test_latest_and_history_retain_recent_operations(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
+async def test_status_exposes_operation_in_progress_for_reconnection(
+    tmp_path: Path,
+) -> None:
+    service = GitService()
+    repo = make_repo(tmp_path / "repo")
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking() -> None:
+        started.set()
+        release.wait()
+
+    running = asyncio.create_task(service.execute("workspace", repo, "fetch", blocking))
+    await asyncio.to_thread(started.wait, 1)
+    try:
+        snapshot = await service.status("workspace", repo)
+        operation = snapshot["operation_in_progress"]
+        assert isinstance(operation, dict)
+        assert operation["state"] == "running"
+        assert operation["operation"] == "fetch"
+    finally:
+        release.set()
+        await running
+
+
+@pytest.mark.asyncio
 async def test_generic_callback_failure_is_terminal(tmp_path: Path) -> None:
     service = GitService()
     repo = make_repo(tmp_path / "repo")
