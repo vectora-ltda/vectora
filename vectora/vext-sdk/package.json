@@ -1,0 +1,48 @@
+{
+  "name": "@vectora/extension-sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK and contracts for Vectora VEXT extensions",
+  "type": "module",
+  "license": "Apache-2.0",
+  "author": "Vectora Ltda",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vectora-ltda/vext-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vectora-ltda/vext-sdk/issues"
+  },
+  "homepage": "https://github.com/vectora-ltda/vext-sdk/tree/master",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./sandbox": {
+      "types": "./dist/sandbox.d.ts",
+      "import": "./dist/sandbox.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.pt-BR.md",
+    "README.es-MX.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "test": "tsc --project tsconfig.json --noEmit",
+    "check": "npm run test && npm run build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
