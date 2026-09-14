@@ -8,6 +8,7 @@ export type {
   RpcSuccess,
 } from "@vext/json-rpc";
 export { createRequest, isRpcRequest } from "@vext/json-rpc";
+import { createRequest } from "@vext/json-rpc";
 
 export type VextRuntime = "node" | "python" | "none";
 
@@ -66,6 +67,28 @@ export interface VextContext {
     method: string,
     params?: Record<string, unknown>,
   ): Promise<T>;
+}
+
+export const VEXT_PROTOCOL_VERSION = 1;
+
+export function createContext(
+  manifest: VextManifest,
+  transport: (request: VextRequest) => Promise<VextResponse>,
+): VextContext {
+  let requestId = 0;
+  return {
+    manifest,
+    async request<T = unknown>(
+      method: string,
+      params: Record<string, unknown> = {},
+    ): Promise<T> {
+      const response = await transport(
+        createRequest(++requestId, method, params),
+      );
+      if (response.error) throw new Error(response.error);
+      return response.result as T;
+    },
+  };
 }
 
 export function defineExtension<T extends VextManifestInput>(manifest: T): T {
