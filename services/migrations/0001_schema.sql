@@ -503,6 +503,7 @@ CREATE TABLE IF NOT EXISTS vext_extensions (
   publisher_id TEXT NOT NULL REFERENCES vext_publishers(id),
   name TEXT NOT NULL,
   description TEXT NOT NULL,
+  readme TEXT NOT NULL DEFAULT '',
   homepage TEXT,
   vectora_verified INTEGER NOT NULL DEFAULT 0 CHECK (vectora_verified IN (0, 1)),
   revoked INTEGER NOT NULL DEFAULT 0 CHECK (revoked IN (0, 1)),
