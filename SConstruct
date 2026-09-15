@@ -815,9 +815,9 @@ def _action_clean(target, source, env):
 
 
 # ── Prod (deploy) ─────────────────────────────────────────────────────────────
-# `scons prod` — deploy de produção da borda web/edge do monorepo: docs
-# (Vercel, docs.vectora.company), company (Vercel, vectora.company) e services
-# (Cloudflare Worker único: gateway + updates). Bump de versão, build do
+# `scons prod` — deploy de produção da borda web/edge do monorepo: services
+# (Cloudflare Worker único: gateway + updates), docs (Vercel,
+# docs.vectora.company) e company (Vercel, vectora.company). Bump de versão, build do
 # instalador e publicação no canal de update rodam só via GitHub Actions
 # (.github/workflows/vectora.yml), disparados por "[up-release]" na mensagem
 # do commit.
@@ -1001,8 +1001,6 @@ def _action_prod(target, source, env):
     _check_vercel_link(DOCS, "vectora-docs")
     _check_vercel_link(COMPANY, "vectora-company")
     with _open_log("prod") as log:
-        _run([VERCEL, "--prod", "--yes"], log=log, cwd=DOCS)
-        _run([VERCEL, "--prod", "--yes"], log=log, cwd=COMPANY)
         # Migrations ANTES do deploy do worker: o código deployado assume o
         # schema mais novo (ex.: users.role) — publicar worker sem aplicar as
         # migrations quebra rotas em produção com SQLITE_ERROR.
@@ -1067,9 +1065,13 @@ def _action_prod(target, source, env):
             cwd=SERVICES,
         )
         _run([WRANGLER, "deploy"], log=log, cwd=SERVICES)
+        # Publica services antes dos frontends, para que os deployments Vercel
+        # já consumam as rotas e o schema de produção atualizados.
+        _run([VERCEL, "--prod", "--yes"], log=log, cwd=DOCS)
+        _run([VERCEL, "--prod", "--yes"], log=log, cwd=COMPANY)
     print(
         "\n>> deploy de produção concluído: "
-        "docs.vectora.company + vectora.company + services (Cloudflare Worker)"
+        "services (Cloudflare Worker) + docs.vectora.company + vectora.company"
     )
     print(">> log completo em .scons-logs/prod.txt")
 
