@@ -1027,25 +1027,10 @@ def _action_prod(target, source, env):
         # significa que `d1 migrations apply` sozinho NUNCA propaga uma tabela
         # nova adicionada ali pra produção — só os arquivos numerados em
         # `migrations/000N_*.sql` entram nesse rastreamento. Sem o `d1
-        # execute` abaixo, uma tabela como `gha_bot_config` (adicionada a
-        # `0001_schema.sql` no código, nunca reaplicada manualmente) fica
-        # inexistente em produção indefinidamente, e a migration numerada que
-        # depende dela (`ALTER TABLE gha_bot_config ADD COLUMN ...`) falha com
-        # `no such table` no primeiro deploy que tentar rodá-la. Reaplicar
-        # aqui, sempre, antes de `migrations apply`, é seguro (só `CREATE
-        # TABLE/INDEX IF NOT EXISTS`) e elimina esse modo de falha de vez.
-        _run(
-            [
-                WRANGLER,
-                "d1",
-                "execute",
-                "vectora-db",
-                "--remote",
-                "--file=migrations/0001_schema.sql",
-            ],
-            log=log,
-            cwd=SERVICES,
-        )
+        # execute` adicional, uma tabela como `gha_bot_config` (adicionada a
+        # `0001_schema.sql`, mas nunca reaplicada manualmente) pode ficar
+        # inexistente em produção. A reaplicação ocorre depois do upgrade
+        # aditivo, para que também seja segura em bancos legados.
         _run(
             [
                 WRANGLER,
@@ -1058,9 +1043,22 @@ def _action_prod(target, source, env):
             log=log,
             cwd=SERVICES,
         )
-        # O upgrade aditivo só roda depois das migrations, que criam as
-        # tabelas auxiliares consultadas pelo preflight.
+        # O upgrade aditivo roda antes da reaplicação do 0001: bancos legados
+        # podem ter as tabelas, mas ainda não possuir as colunas usadas pelos
+        # seeds idempotentes do schema atual.
         _upgrade_d1_schema(log)
+        _run(
+            [
+                WRANGLER,
+                "d1",
+                "execute",
+                "vectora-db",
+                "--remote",
+                "--file=migrations/0001_schema.sql",
+            ],
+            log=log,
+            cwd=SERVICES,
+        )
         _run(
             [
                 WRANGLER,
