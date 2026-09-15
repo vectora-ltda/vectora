@@ -340,13 +340,14 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
         fetchExtensionsCatalog(q),
         fetchInstalledExtensions(),
       ]);
-      if (catalogResult.status === "rejected") throw catalogResult.reason;
+      const catalog =
+        catalogResult.status === "fulfilled" ? catalogResult.value : [];
       const installed =
         installedResult.status === "fulfilled"
           ? installedResult.value
           : { ids: get().extensionInstalledIds, items: [] };
       const byVersion = new Map(
-        [...catalogResult.value, ...installed.items].map((item) => [
+        [...catalog, ...installed.items].map((item) => [
           `${item.id}:${item.version}`,
           item,
         ]),
@@ -356,7 +357,10 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
         extensionInstalledIds: installed.ids,
         extensionFetchedAt: Date.now(),
         extensionQuery: q,
-        extensionError: null,
+        extensionError:
+          catalogResult.status === "rejected" && installed.items.length === 0
+            ? m.library_extensions_error_search()
+            : null,
       });
     } catch {
       set({ extensionError: m.library_extensions_error_search() });
