@@ -15,5 +15,17 @@
     "process.spawn",
     "workspace.read"
   ],
-  "publisher": "official"
+  "publisher": "Vectora",
+  "contributions": {
+    "workbench": [
+      {
+        "id": "ty",
+        "title": "Ty",
+        "icon": "Package",
+        "entrypoint": "dist/frontend.js"
+      }
+    ],
+    "shortcuts": [],
+    "footer": []
+  }
 }

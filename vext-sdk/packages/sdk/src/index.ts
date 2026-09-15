@@ -16,6 +16,34 @@ import { createRequest } from "@vext/json-rpc";
 
 export type VextRuntime = "node" | "python" | "none";
 
+export interface VextWorkbenchContribution {
+  id: string;
+  title: string;
+  icon?: string;
+  entrypoint: string;
+}
+
+export interface VextShortcutContribution {
+  id: string;
+  title: string;
+  command: string;
+  keybinding?: string;
+  when?: string;
+}
+
+export interface VextFooterContribution {
+  id: string;
+  title: string;
+  entrypoint?: string;
+}
+
+export interface VextContributions {
+  workbench?: VextWorkbenchContribution[];
+  shortcuts?: VextShortcutContribution[];
+  footer?: VextFooterContribution[];
+  [key: string]: unknown;
+}
+
 export type VextCapability =
   | "workspace.read"
   | "workspace.write"
@@ -36,7 +64,7 @@ export interface VextManifestInput {
   backend_entrypoint?: string;
   permissions?: VextCapability[];
   platforms?: string[];
-  contributions?: Record<string, unknown>;
+  contributions?: VextContributions;
 }
 
 export interface VextManifest extends VextManifestInput {
@@ -45,7 +73,7 @@ export interface VextManifest extends VextManifestInput {
   runtime: VextRuntime;
   permissions: VextCapability[];
   platforms: string[];
-  contributions: Record<string, unknown>;
+  contributions: VextContributions;
   files: string[];
   integrity: string | null;
   provenance: Record<string, string>;

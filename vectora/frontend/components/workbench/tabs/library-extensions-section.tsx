@@ -1,4 +1,4 @@
-import { Download, Package } from "lucide-react";
+import { Check, Download, Package } from "lucide-react";
 import { useEffect } from "react";
 
 import { m } from "@/lib/paraglide/messages";
@@ -71,7 +71,10 @@ function ExtensionCard({ extension }: { extension: VextExtension }) {
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-xs font-medium">{extension.name}</h3>
           <p className="truncate text-[11px] text-muted-foreground">
-            {extension.publisher} · {extension.version} · {extension.runtime}
+            {extension.publisher === "official"
+              ? "Vectora"
+              : extension.publisher}{" "}
+            · {extension.version}
           </p>
         </div>
         <button
@@ -79,9 +82,20 @@ function ExtensionCard({ extension }: { extension: VextExtension }) {
           onClick={download}
           aria-label={`${installed ? m.library_extensions_installed() : m.library_extensions_install()} ${extension.name}`}
           disabled={installed || installing}
-          className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="inline-flex shrink-0 items-center gap-1 rounded px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-70"
         >
-          <Download className="h-3.5 w-3.5" />
+          {installed ? (
+            <Check className="h-3.5 w-3.5" />
+          ) : (
+            <Download className="h-3.5 w-3.5" />
+          )}
+          <span>
+            {installed
+              ? m.library_extensions_installed()
+              : installing
+                ? m.library_extensions_loading()
+                : m.library_extensions_install()}
+          </span>
         </button>
       </div>
       <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">

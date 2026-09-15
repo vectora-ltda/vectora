@@ -15,5 +15,17 @@
     "network",
     "workspace.read"
   ],
-  "publisher": "official"
+  "publisher": "Vectora",
+  "contributions": {
+    "workbench": [
+      {
+        "id": "rest-client",
+        "title": "REST Client",
+        "icon": "Package",
+        "entrypoint": "dist/frontend.js"
+      }
+    ],
+    "shortcuts": [],
+    "footer": []
+  }
 }

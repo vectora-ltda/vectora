@@ -82,7 +82,22 @@ export interface VextExtension {
   status: "published" | "installed";
   frontend_entrypoint?: string | null;
   backend_entrypoint?: string | null;
-  contributions?: Record<string, unknown>;
+  contributions?: {
+    workbench?: Array<{
+      id: string;
+      title: string;
+      icon?: string;
+      entrypoint?: string;
+    }>;
+    shortcuts?: Array<{
+      id: string;
+      title: string;
+      keybinding?: string;
+      command: string;
+    }>;
+    footer?: Array<{ id: string; title: string; entrypoint?: string }>;
+    [key: string]: unknown;
+  };
 }
 
 const TTL_MS = 5 * 60 * 1000;
@@ -158,7 +173,10 @@ async function fetchInstalledExtensions(): Promise<{
       id: item.id,
       name: item.manifest?.name ?? item.id,
       description: item.manifest?.description ?? "",
-      publisher: item.manifest?.publisher ?? "local",
+      publisher:
+        item.manifest?.publisher === "official"
+          ? "Vectora"
+          : (item.manifest?.publisher ?? "local"),
       version: item.version,
       runtime: item.manifest?.runtime ?? "none",
       platforms: Array.isArray(item.manifest?.platforms)
@@ -169,7 +187,8 @@ async function fetchInstalledExtensions(): Promise<{
       status: "installed",
       frontend_entrypoint: item.manifest?.frontend_entrypoint,
       backend_entrypoint: item.manifest?.backend_entrypoint,
-      contributions: item.manifest?.contributions,
+      contributions: item.manifest
+        ?.contributions as VextExtension["contributions"],
     })),
   };
 }
@@ -400,6 +419,8 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
           extension.id,
         ),
       }));
+    } catch {
+      set({ extensionError: m.library_extensions_error_install() });
     } finally {
       set({ extensionInstallingId: null });
     }

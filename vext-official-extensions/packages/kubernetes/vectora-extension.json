@@ -15,5 +15,17 @@
     "network",
     "process.spawn"
   ],
-  "publisher": "official"
+  "publisher": "Vectora",
+  "contributions": {
+    "workbench": [
+      {
+        "id": "kubernetes",
+        "title": "Kubernetes",
+        "icon": "Package",
+        "entrypoint": "dist/frontend.js"
+      }
+    ],
+    "shortcuts": [],
+    "footer": []
+  }
 }

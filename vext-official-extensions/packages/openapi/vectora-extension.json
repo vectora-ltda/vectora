@@ -14,5 +14,17 @@
   "permissions": [
     "workspace.read"
   ],
-  "publisher": "official"
+  "publisher": "Vectora",
+  "contributions": {
+    "workbench": [
+      {
+        "id": "openapi",
+        "title": "OpenAPI",
+        "icon": "Package",
+        "entrypoint": "dist/frontend.js"
+      }
+    ],
+    "shortcuts": [],
+    "footer": []
+  }
 }

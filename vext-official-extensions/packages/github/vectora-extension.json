@@ -15,5 +15,17 @@
     "network",
     "workspace.read"
   ],
-  "publisher": "official"
+  "publisher": "Vectora",
+  "contributions": {
+    "workbench": [
+      {
+        "id": "github",
+        "title": "GitHub",
+        "icon": "Package",
+        "entrypoint": "dist/frontend.js"
+      }
+    ],
+    "shortcuts": [],
+    "footer": []
+  }
 }

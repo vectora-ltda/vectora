@@ -1604,5 +1604,10 @@
   "library_extensions_loading": "Carregando extensões…",
   "library_extensions_workbench": "Disponibiliza um painel na Workbench",
   "library_mcp_invalid_install": "Este MCP foi rejeitado pela verificação de integridade.",
-  "library_mcp_unverified_confirm": "Este MCP não possui verificação criptográfica. Deseja instalar mesmo assim?"
+  "library_mcp_unverified_confirm": "Este MCP não possui verificação criptográfica. Deseja instalar mesmo assim?",
+  "library_extensions_error_install": "Não foi possível instalar a extensão.",
+  "settings_shortcuts_description": "Veja os atalhos fornecidos pelo Vectora e pelas extensões instaladas.",
+  "settings_shortcuts_title": "Atalhos de teclado",
+  "settings_category_shortcuts": "Atalhos de teclado",
+  "settings_shortcuts_extensions": "Atalhos das extensões"
 }
