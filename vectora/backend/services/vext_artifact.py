@@ -38,6 +38,7 @@ PUBLIC_KEY_NAME: Final = "signature/public.key"
 BUILD_EPOCH: Final = (1980, 1, 1, 0, 0, 0)
 EXCLUDED_PARTS: Final = frozenset({".git", "node_modules", "__pycache__", ".venv"})
 DEFAULT_ROOTS: Final = (
+    "dist",
     "frontend/dist",
     "backend/node/dist",
     "backend/python",
@@ -89,7 +90,22 @@ def _read_manifest(source_dir: Path) -> tuple[VextManifest, dict[str, object]]:
     manifest_path = source_dir / MANIFEST_NAME
     try:
         raw = json.loads(manifest_path.read_text(encoding="utf-8"))
-        manifest = VextManifest.model_validate(raw)
+        if not isinstance(raw, dict):
+            raise ValueError("manifesto deve ser um objeto JSON")
+        # Official packages historically included the public camelCase aliases
+        # alongside the canonical snake_case fields. Normalize those aliases
+        # before strict validation while preserving the original manifest in
+        # the signed artifact for reproducible publication.
+        normalized = dict(raw)
+        for alias, canonical in {
+            "apiVersion": "api_version",
+            "frontend": "frontend_entrypoint",
+            "backend": "backend_entrypoint",
+        }.items():
+            if canonical not in normalized and alias in normalized:
+                normalized[canonical] = normalized[alias]
+            normalized.pop(alias, None)
+        manifest = VextManifest.model_validate(normalized)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         raise ValueError("manifesto de extensão inválido") from exc
     if manifest.api_version != 1:

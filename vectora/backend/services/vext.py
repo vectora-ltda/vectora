@@ -45,22 +45,26 @@ ALLOWED_PERMISSIONS: Final = frozenset(
 class VextManifest(BaseModel):
     """Contrato versionado do manifesto de uma extensão Vectora."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     id: str = Field(pattern=r"^[a-z][a-z0-9_.-]{1,63}$")
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(default="", max_length=500)
     icon: str | None = Field(default=None, max_length=240)
     version: str
-    api_version: int = Field(ge=1)
+    api_version: int = Field(ge=1, alias="apiVersion")
     entrypoint: str = Field(min_length=1, max_length=240)
     permissions: list[str] = Field(default_factory=list)
     publisher: str = Field(default="local", min_length=1, max_length=120)
     native: bool = False
     protocol_version: int = Field(default=1, ge=1, le=SUPPORTED_PROTOCOL_VERSION)
     runtime: str = Field(default="python", pattern=r"^(node|python|none)$")
-    frontend_entrypoint: str | None = Field(default=None, max_length=240)
-    backend_entrypoint: str | None = Field(default=None, max_length=240)
+    frontend_entrypoint: str | None = Field(
+        default=None, max_length=240, alias="frontend"
+    )
+    backend_entrypoint: str | None = Field(
+        default=None, max_length=240, alias="backend"
+    )
     python_wheelhouse: str | None = Field(default=None, max_length=240)
     platforms: list[str] = Field(default_factory=lambda: ["any"])
     contributions: dict[str, object] = Field(default_factory=dict)
@@ -166,6 +170,22 @@ def _is_reserved_member(name: str) -> bool:
     )
 
 
+def normalize_manifest_fields(raw: object) -> object:
+    """Accept legacy public aliases while validating one canonical schema."""
+    if not isinstance(raw, dict):
+        return raw
+    normalized = dict(raw)
+    for alias, canonical in {
+        "apiVersion": "api_version",
+        "frontend": "frontend_entrypoint",
+        "backend": "backend_entrypoint",
+    }.items():
+        if canonical not in normalized and alias in normalized:
+            normalized[canonical] = normalized[alias]
+        normalized.pop(alias, None)
+    return normalized
+
+
 def inspect_vext(path: str | Path | None) -> VextPackage:
     """Valida manifesto, limites e caminhos de um pacote ``.vext``."""
     if path is None or not str(path).strip():
@@ -230,7 +250,9 @@ def inspect_vext(path: str | Path | None) -> VextPackage:
             raise ValueError(f"manifesto ausente: {MANIFEST_NAME}")
         try:
             raw_manifest = json.loads(archive.read(manifest_info))
-            manifest = VextManifest.model_validate(raw_manifest)
+            manifest = VextManifest.model_validate(
+                normalize_manifest_fields(raw_manifest)
+            )
         except (
             UnicodeDecodeError,
             json.JSONDecodeError,
