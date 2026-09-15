@@ -165,7 +165,17 @@ def _run(
             bufsize=1,
         )
         for line in proc.stdout:  # type: ignore[union-attr]
-            sys.stdout.write(line)
+            try:
+                sys.stdout.write(line)
+            except UnicodeEncodeError:
+                # Terminais Windows em code pages legadas não conseguem
+                # imprimir os símbolos Unicode emitidos pelo Wrangler.
+                encoding = sys.stdout.encoding or "utf-8"
+                sys.stdout.write(
+                    line.encode(encoding, errors="replace").decode(
+                        encoding, errors="replace"
+                    )
+                )
             log.write(_ANSI_RE.sub("", line))
         proc.wait()
         rc = proc.returncode
