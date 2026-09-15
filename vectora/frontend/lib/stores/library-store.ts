@@ -13,6 +13,8 @@ export interface MCPConnector {
   id: string;
   name: string;
   description: string;
+  readme?: string;
+  icon?: string | null;
   install_cmd: string;
   env_vars: string[];
   homepage: string;
@@ -69,7 +71,54 @@ export interface MemoryBucket {
   license?: string;
 }
 
+export interface VextExtension {
+  id: string;
+  name: string;
+  description: string;
+  publisher: string;
+  icon?: string | null;
+  native?: boolean;
+  version: string;
+  runtime: "node" | "python" | "none";
+  platforms: string | string[];
+  permissions: string;
+  digest: string;
+  status: "published" | "installed";
+  frontend_entrypoint?: string | null;
+  backend_entrypoint?: string | null;
+  contributions?: {
+    workbench?: Array<{
+      id: string;
+      title: string;
+      icon?: string;
+      entrypoint?: string;
+    }>;
+    shortcuts?: Array<{
+      id: string;
+      title: string;
+      keybinding?: string;
+      command: string;
+    }>;
+    footer?: Array<{ id: string; title: string; entrypoint?: string }>;
+    [key: string]: unknown;
+  };
+}
+
 const TTL_MS = 5 * 60 * 1000;
+
+export const NATIVE_EXTENSION_IDS = new Set(["github", "gitlab"]);
+const EXTENSION_DESCRIPTIONS: Record<string, string> = {
+  eslint:
+    "Run ESLint diagnostics for the current workspace and inspect actionable fixes.",
+  oxlint:
+    "Run Oxlint diagnostics for the current workspace and inspect actionable fixes.",
+  precommit:
+    "Run the workspace pre-commit hooks and inspect their reported changes.",
+  prettier: "Format workspace files with the configured Prettier settings.",
+  pyright: "Run Pyright diagnostics for Python files in the current workspace.",
+  ruff: "Run Ruff diagnostics and formatting for Python files in the current workspace.",
+  ty: "Run Ty diagnostics for Python files in the current workspace.",
+};
 
 async function fetchMcpRegistry(q: string): Promise<MCPConnector[]> {
   const qs = q ? `?${new URLSearchParams({ q })}` : "";
@@ -100,6 +149,88 @@ async function fetchMemoryCatalog(q: string): Promise<MemoryBucket[]> {
   return res.json();
 }
 
+async function fetchExtensionsCatalog(q: string): Promise<VextExtension[]> {
+  const qs = q ? `?${new URLSearchParams({ q })}` : "";
+  const res = await fetch(`/registry/extensions${qs}`);
+  if (!res.ok) throw new Error(`Erro ${res.status}`);
+  const data = (await res.json()) as { entries?: VextExtension[] };
+  return data.entries ?? [];
+}
+
+async function fetchInstalledExtensions(): Promise<{
+  ids: Set<string>;
+  items: VextExtension[];
+}> {
+  const res = await fetch("/vext/installed");
+  if (!res.ok) throw new Error(`Erro ${res.status}`);
+  const data = (await res.json()) as {
+    extensions?: {
+      id: string;
+      version: string;
+      active?: boolean;
+      manifest?: {
+        name?: string;
+        description?: string;
+        icon?: string | null;
+        publisher?: string;
+        native?: boolean;
+        runtime?: VextExtension["runtime"];
+        platforms?: string[];
+        permissions?: string[];
+        integrity?: string | null;
+        frontend_entrypoint?: string | null;
+        backend_entrypoint?: string | null;
+        contributions?: Record<string, unknown>;
+      };
+    }[];
+  };
+  const active = (data.extensions ?? []).filter(
+    (item) => item.active !== false,
+  );
+  return {
+    ids: new Set(active.map((item) => item.id)),
+    items: active.map((item) => ({
+      id: item.id,
+      name: item.manifest?.name ?? item.id,
+      description:
+        item.manifest?.description ?? EXTENSION_DESCRIPTIONS[item.id] ?? "",
+      icon: item.manifest?.icon
+        ? `/vext/${encodeURIComponent(item.id)}/icon`
+        : undefined,
+      publisher:
+        item.manifest?.publisher === "official"
+          ? "Vectora"
+          : (item.manifest?.publisher ?? "local"),
+      native: item.manifest?.native ?? false,
+      version: item.version,
+      runtime: item.manifest?.runtime ?? "none",
+      platforms: Array.isArray(item.manifest?.platforms)
+        ? item.manifest.platforms.join(", ")
+        : (item.manifest?.platforms ?? "any"),
+      permissions: item.manifest?.permissions?.join(", ") ?? "",
+      digest: item.manifest?.integrity ?? "",
+      status: "installed",
+      frontend_entrypoint: item.manifest?.frontend_entrypoint,
+      backend_entrypoint: item.manifest?.backend_entrypoint,
+      contributions: item.manifest
+        ?.contributions as VextExtension["contributions"],
+    })),
+  };
+}
+
+async function installExtensionArtifact(
+  extension: VextExtension,
+): Promise<void> {
+  const downloadUrl = `/registry/extensions/${encodeURIComponent(extension.id)}/download/${encodeURIComponent(extension.version)}`;
+  const response = await fetch(downloadUrl);
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  const bytes = await response.blob();
+  const form = new FormData();
+  form.append("artifact", bytes, `${extension.id}-${extension.version}.vext`);
+  const install = await fetch("/vext/install", { method: "POST", body: form });
+  if (!install.ok) throw new Error(`Erro ${install.status}`);
+}
+
 interface LibraryStoreState {
   mcpItems: MCPConnector[];
   mcpInstalledIds: Set<string>;
@@ -120,12 +251,25 @@ interface LibraryStoreState {
   memoryQuery: string;
   memoryError: string | null;
 
+  extensionItems: VextExtension[];
+  extensionLoading: boolean;
+  extensionFetchedAt: number | null;
+  extensionQuery: string;
+  extensionError: string | null;
+  extensionInstalledIds: Set<string>;
+  extensionInstallingId: string | null;
+
   ensureMcpLoaded: (q?: string) => Promise<void>;
   invalidateMcp: () => void;
   ensureSkillsLoaded: (q?: string) => Promise<void>;
   invalidateSkills: () => void;
   ensureMemoryLoaded: (q?: string) => Promise<void>;
   invalidateMemory: () => void;
+  ensureExtensionsLoaded: (q?: string) => Promise<void>;
+  refreshInstalledExtensions: () => Promise<void>;
+  invalidateExtensions: () => void;
+  installExtension: (extension: VextExtension) => Promise<void>;
+  uninstallExtension: (extensionId: string) => Promise<void>;
 }
 
 function isFresh(fetchedAt: number | null): boolean {
@@ -151,6 +295,13 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   memoryFetchedAt: null,
   memoryQuery: "",
   memoryError: null,
+  extensionItems: [],
+  extensionLoading: false,
+  extensionFetchedAt: null,
+  extensionQuery: "",
+  extensionError: null,
+  extensionInstalledIds: new Set(),
+  extensionInstallingId: null,
 
   ensureMcpLoaded: async (q = "") => {
     const s = get();
@@ -213,11 +364,113 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
         memoryError: null,
       });
     } catch {
-      set({ memoryError: m.library_memory_error_search() });
+      set({ memoryError: m.library_memory_buckets_error_search() });
     } finally {
       set({ memoryLoading: false });
     }
   },
 
   invalidateMemory: () => set({ memoryFetchedAt: null }),
+
+  ensureExtensionsLoaded: async (q = "") => {
+    const s = get();
+    if (
+      s.extensionLoading ||
+      (isFresh(s.extensionFetchedAt) && s.extensionQuery === q)
+    )
+      return;
+    set({ extensionLoading: true });
+    try {
+      const [catalogResult, installedResult] = await Promise.allSettled([
+        fetchExtensionsCatalog(q),
+        fetchInstalledExtensions(),
+      ]);
+      const catalog =
+        catalogResult.status === "fulfilled" ? catalogResult.value : [];
+      const installed =
+        installedResult.status === "fulfilled"
+          ? installedResult.value
+          : { ids: get().extensionInstalledIds, items: [] };
+      const byVersion = new Map(
+        [...catalog, ...installed.items].map((item) => [
+          `${item.id}:${item.version}`,
+          item,
+        ]),
+      );
+      set({
+        extensionItems: [...byVersion.values()],
+        extensionInstalledIds: installed.ids,
+        extensionFetchedAt: Date.now(),
+        extensionQuery: q,
+        extensionError:
+          catalogResult.status === "rejected" && installed.items.length === 0
+            ? m.library_extensions_error_search()
+            : null,
+      });
+    } catch {
+      set({ extensionError: m.library_extensions_error_search() });
+    } finally {
+      set({ extensionLoading: false });
+    }
+  },
+
+  refreshInstalledExtensions: async () => {
+    try {
+      const installed = await fetchInstalledExtensions();
+      set((state) => {
+        const byVersion = new Map(
+          [...state.extensionItems, ...installed.items].map((item) => [
+            `${item.id}:${item.version}`,
+            item,
+          ]),
+        );
+        return {
+          extensionInstalledIds: installed.ids,
+          extensionItems: [...byVersion.values()],
+        };
+      });
+    } catch {
+      // The catalog remains usable when the local lifecycle endpoint is unavailable.
+    }
+  },
+
+  invalidateExtensions: () => set({ extensionFetchedAt: null }),
+
+  installExtension: async (extension) => {
+    set({ extensionInstallingId: extension.id });
+    try {
+      await installExtensionArtifact(extension);
+      set((state) => ({
+        extensionInstalledIds: new Set(state.extensionInstalledIds).add(
+          extension.id,
+        ),
+      }));
+    } catch {
+      set({ extensionError: m.library_extensions_error_install() });
+    } finally {
+      set({ extensionInstallingId: null });
+    }
+  },
+
+  uninstallExtension: async (extensionId) => {
+    set({ extensionInstallingId: extensionId });
+    try {
+      const response = await fetch(`/vext/${encodeURIComponent(extensionId)}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) throw new Error(`Erro ${response.status}`);
+      set((state) => ({
+        extensionInstalledIds: new Set(
+          [...state.extensionInstalledIds].filter((id) => id !== extensionId),
+        ),
+        extensionItems: state.extensionItems.filter(
+          (item) => !(item.id === extensionId && item.status === "installed"),
+        ),
+      }));
+    } catch {
+      set({ extensionError: m.library_extensions_error_uninstall() });
+    } finally {
+      set({ extensionInstallingId: null });
+    }
+  },
 }));

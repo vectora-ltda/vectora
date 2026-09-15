@@ -198,7 +198,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_issues_github_identity
 -- 'pending'/'failed'.
 -- source_lib/source_version são NOT NULL só pra linhas first-party
 -- (bibliotecas de código pré-indexadas, ex. "requests 2.31.0"); publicações
--- da comunidade (Memory Library) usam publisher_id em vez disso
+-- da comunidade (Memory Buckets) usam publisher_id em vez disso
 -- e ficam com source_lib/source_version vazios — não dá pra tornar essas
 -- colunas nullable retroativamente sem quebrar linhas antigas, então o
 -- handler de POST /publish grava string vazia ('') nesses dois campos para
@@ -439,3 +439,103 @@ ON CONFLICT (user_id) DO UPDATE SET
   provider = 'gift',
   current_period_end = NULL,
   updated_at = datetime('now');
+
+-- Unified migration blocks retained for idempotent fresh and existing D1 databases.
+-- BEGIN 0002_issue_sync_compat.sql
+-- Objetos auxiliares da sincronização GitHub. As colunas de `issues` vivem no
+-- shape final de 0001_schema.sql; o upgrade operacional adiciona-as apenas a
+-- bancos legados que já existiam antes desse shape.
+
+CREATE TABLE IF NOT EXISTS issue_comments (
+  id TEXT PRIMARY KEY,
+  issue_id TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+  github_comment_id INTEGER NOT NULL,
+  author TEXT NOT NULL,
+  body TEXT NOT NULL,
+  html_url TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT,
+  deleted_at TEXT,
+  UNIQUE(issue_id, github_comment_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_issue_comments_issue
+  ON issue_comments(issue_id, created_at ASC);
+
+CREATE TABLE IF NOT EXISTS issue_promotion_effects (
+  issue_id       TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+  effect         TEXT NOT NULL CHECK (effect IN ('backlink', 'close')),
+  operation_token TEXT NOT NULL,
+  started_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  completed_at   TEXT,
+  PRIMARY KEY (issue_id, effect)
+);
+
+CREATE TABLE IF NOT EXISTS github_webhook_deliveries (
+  delivery_id TEXT PRIMARY KEY,
+  state TEXT NOT NULL CHECK (state IN ('processing', 'done', 'failed')),
+  error TEXT,
+  attempt_token TEXT,
+  lease_until TEXT,
+  received_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Bancos que já receberam a tabela antes do controle de lease precisam destas
+-- colunas adicionadas pelo upgrade operacional antes do Worker ser publicado.
+-- END 0002_issue_sync_compat.sql
+
+-- Unified migration blocks retained for idempotent fresh and existing D1 databases.
+-- BEGIN 0003_vext_registry.sql
+-- VEXT metadata is stored in D1; immutable package bytes are stored in R2.
+CREATE TABLE IF NOT EXISTS vext_publishers (
+  id TEXT PRIMARY KEY,
+  owner_user_id TEXT NOT NULL REFERENCES users(id),
+  name TEXT NOT NULL,
+  public_key TEXT NOT NULL,
+  fingerprint TEXT NOT NULL UNIQUE,
+  revoked INTEGER NOT NULL DEFAULT 0 CHECK (revoked IN (0, 1)),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS vext_extensions (
+  id TEXT PRIMARY KEY,
+  publisher_id TEXT NOT NULL REFERENCES vext_publishers(id),
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  readme TEXT NOT NULL DEFAULT '',
+  homepage TEXT,
+  vectora_verified INTEGER NOT NULL DEFAULT 0 CHECK (vectora_verified IN (0, 1)),
+  revoked INTEGER NOT NULL DEFAULT 0 CHECK (revoked IN (0, 1)),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(publisher_id, name)
+);
+CREATE TABLE IF NOT EXISTS vext_versions (
+  id TEXT PRIMARY KEY,
+  extension_id TEXT NOT NULL REFERENCES vext_extensions(id) ON DELETE CASCADE,
+  version TEXT NOT NULL,
+  api_version INTEGER NOT NULL,
+  protocol_version INTEGER NOT NULL,
+  runtime TEXT NOT NULL CHECK (runtime IN ('node', 'python', 'none')),
+  platforms TEXT NOT NULL DEFAULT '["any"]',
+  permissions TEXT NOT NULL DEFAULT '[]',
+  dependencies TEXT NOT NULL DEFAULT '[]',
+  changelog TEXT,
+  size_bytes INTEGER NOT NULL,
+  digest TEXT NOT NULL,
+  r2_key TEXT NOT NULL UNIQUE,
+  signature TEXT NOT NULL,
+  signature_verified INTEGER NOT NULL DEFAULT 0 CHECK (signature_verified IN (0, 1)),
+  sbom TEXT,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'published', 'revoked')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  published_at TEXT,
+  UNIQUE(extension_id, version)
+);
+CREATE INDEX IF NOT EXISTS idx_vext_extensions_name ON vext_extensions(name COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_vext_versions_extension ON vext_versions(extension_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_vext_versions_status ON vext_versions(status);
+-- END 0003_vext_registry.sql
+
+-- Unified migration blocks retained for idempotent fresh and existing D1 databases.

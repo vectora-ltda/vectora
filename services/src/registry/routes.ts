@@ -22,9 +22,9 @@
  * modelo de confiança mais pesado que instalar um `SKILL.md`; curadoria
  * fechada por design.
  *
- * `extensions` continua placeholder — depende do SDK de autoria
- * (`vectora_ext` Python, `@vectora/extension-sdk` TS) e do Extension Host,
- * nenhum dos dois existe ainda.
+ * `extensions` usa o mesmo Worker, mas mantém bytes imutáveis no R2 e
+ * metadados, estados e publishers no D1. A publicação exige assinatura
+ * Ed25519 verificável antes de entrar na fila de curadoria.
  */
 import { Hono } from "hono";
 import type { Env } from "../gateway/types";
@@ -127,7 +127,345 @@ registry.get("/skills/:name/versions", async (c) => {
   return c.json({ entries: sorted });
 });
 
-registry.get("/extensions", (c) => c.json({ entries: [] }));
+const EXTENSION_COLUMNS = `e.id, e.name, e.description, e.readme, e.homepage,
+  e.vectora_verified, e.revoked AS extension_revoked, p.name AS publisher,
+  p.fingerprint, v.id AS version_id, v.version, v.api_version,
+  v.protocol_version, v.runtime, v.platforms, v.permissions, v.dependencies,
+  v.changelog, v.size_bytes, v.digest, v.status, v.created_at`;
+
+function decodeBase64(value: string): Uint8Array | null {
+  try {
+    const binary = atob(value);
+    return Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  } catch {
+    return null;
+  }
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  return `{${Object.entries(value as Record<string, unknown>)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+    .join(",")}}`;
+}
+
+async function verifyPublisherSignature(
+  publicKey: string,
+  signature: string,
+  manifestText: string,
+  integrityText: string,
+): Promise<boolean> {
+  const keyBytes = decodeBase64(publicKey);
+  const signatureBytes = decodeBase64(signature);
+  if (!keyBytes || keyBytes.length !== 32 || !signatureBytes) return false;
+  let manifest: unknown;
+  let integrity: unknown;
+  try {
+    manifest = JSON.parse(manifestText);
+    integrity = JSON.parse(integrityText);
+  } catch {
+    return false;
+  }
+  const key = await crypto.subtle.importKey(
+    "raw",
+    keyBytes,
+    { name: "Ed25519" },
+    false,
+    ["verify"],
+  );
+  return crypto.subtle.verify(
+    { name: "Ed25519" },
+    key,
+    signatureBytes,
+    new TextEncoder().encode(canonicalJson({ integrity, manifest })),
+  );
+}
+
+registry.post("/extensions/publishers", async (c) => {
+  const userId = await requireUserId(c);
+  if (!userId) return c.json({ error: "unauthorized" }, 401);
+  const body = (await c.req.json().catch(() => null)) as Record<
+    string,
+    unknown
+  > | null;
+  const name = typeof body?.name === "string" ? body.name.trim() : "";
+  const publicKey =
+    typeof body?.public_key === "string" ? body.public_key.trim() : "";
+  const fingerprint =
+    typeof body?.fingerprint === "string"
+      ? body.fingerprint.trim().toLowerCase()
+      : "";
+  if (!name || !publicKey || !/^[a-f0-9]{64}$/.test(fingerprint))
+    return c.json({ error: "invalid_publisher" }, 400);
+  let keyBytes: Uint8Array;
+  try {
+    const binary = atob(publicKey);
+    keyBytes = Uint8Array.from(binary, (value) => value.charCodeAt(0));
+  } catch {
+    return c.json({ error: "invalid_public_key" }, 400);
+  }
+  if (keyBytes.length !== 32)
+    return c.json({ error: "invalid_public_key" }, 400);
+  const digest = Array.from(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", keyBytes)),
+    (value) => value.toString(16).padStart(2, "0"),
+  ).join("");
+  if (digest !== fingerprint)
+    return c.json({ error: "fingerprint_mismatch" }, 422);
+  const id = crypto.randomUUID();
+  await c.env.DB.prepare(
+    `INSERT INTO vext_publishers (id, owner_user_id, name, public_key, fingerprint)
+     VALUES (?, ?, ?, ?, ?) ON CONFLICT(fingerprint) DO UPDATE SET name = excluded.name, updated_at = datetime('now')`,
+  )
+    .bind(id, userId, name, publicKey, fingerprint)
+    .run();
+  const row = await c.env.DB.prepare(
+    "SELECT id, name, fingerprint, revoked FROM vext_publishers WHERE owner_user_id = ? AND fingerprint = ?",
+  )
+    .bind(userId, fingerprint)
+    .first();
+  return c.json({ publisher: row }, 201);
+});
+
+registry.get("/extensions", async (c) => {
+  const q = c.req.query("q");
+  const like = q ? `%${q}%` : null;
+  const { results } = await c.env.DB.prepare(
+    `SELECT ${EXTENSION_COLUMNS} FROM vext_extensions e
+      JOIN vext_publishers p ON p.id = e.publisher_id
+      JOIN vext_versions v ON v.extension_id = e.id
+      WHERE v.status = 'published' AND e.revoked = 0 AND p.revoked = 0
+        AND (? IS NULL OR e.name LIKE ? COLLATE NOCASE OR e.description LIKE ? COLLATE NOCASE)
+        AND v.created_at = (SELECT MAX(v2.created_at) FROM vext_versions v2 WHERE v2.extension_id = e.id AND v2.status = 'published')
+      ORDER BY e.name COLLATE NOCASE`,
+  )
+    .bind(like, like, like)
+    .all();
+  return c.json({ entries: results ?? [] });
+});
+
+registry.get("/extensions/:id/versions", async (c) => {
+  const { results } = await c.env.DB.prepare(
+    `SELECT ${EXTENSION_COLUMNS} FROM vext_extensions e
+      JOIN vext_publishers p ON p.id = e.publisher_id
+      JOIN vext_versions v ON v.extension_id = e.id
+      WHERE e.id = ? AND v.status = 'published' AND e.revoked = 0 AND p.revoked = 0
+      ORDER BY v.created_at DESC`,
+  )
+    .bind(c.req.param("id"))
+    .all();
+  return c.json({ entries: results ?? [] });
+});
+
+registry.get("/extensions/:id/download/:version", async (c) => {
+  const row = await c.env.DB.prepare(
+    `SELECT v.r2_key, v.digest FROM vext_versions v
+      JOIN vext_extensions e ON e.id = v.extension_id
+      JOIN vext_publishers p ON p.id = e.publisher_id
+      WHERE e.id = ? AND v.version = ? AND v.status = 'published'
+        AND e.revoked = 0 AND p.revoked = 0`,
+  )
+    .bind(c.req.param("id"), c.req.param("version"))
+    .first<{ r2_key: string; digest: string }>();
+  if (!row) return c.json({ error: "not_found" }, 404);
+  const object = await c.env.R2.get(row.r2_key);
+  if (!object) return c.json({ error: "artifact_unavailable" }, 503);
+  return new Response(object.body, {
+    headers: {
+      "Content-Type": "application/vnd.vectora.vext+zip",
+      "Content-Length": String(object.size),
+      ETag: object.httpEtag,
+      "X-VEXT-Digest": row.digest,
+      "Cache-Control": "public, max-age=31536000, immutable",
+    },
+  });
+});
+
+registry.get("/extensions/:id/readme", async (c) => {
+  const row = await c.env.DB.prepare(
+    `SELECT e.id, e.name, e.readme, v.version FROM vext_extensions e
+      JOIN vext_publishers p ON p.id = e.publisher_id
+      JOIN vext_versions v ON v.extension_id = e.id
+      WHERE e.id = ? AND v.status = 'published' AND e.revoked = 0 AND p.revoked = 0
+      ORDER BY v.created_at DESC LIMIT 1`,
+  )
+    .bind(c.req.param("id"))
+    .first<{ id: string; name: string; readme: string; version: string }>();
+  if (!row) return c.json({ error: "not_found" }, 404);
+  return c.json({ id: row.id, name: row.name, version: row.version, content: row.readme });
+});
+
+registry.post("/extensions/publish", async (c) => {
+  const userId = await requireUserId(c);
+  if (!userId) return c.json({ error: "unauthorized" }, 401);
+  if (!(c.req.header("Content-Type") ?? "").includes("multipart/form-data"))
+    return c.json({ error: "invalid_content_type" }, 400);
+  const body = await c.req.parseBody();
+  const artifact = body.artifact;
+  const text = (key: string) =>
+    typeof body[key] === "string" ? body[key].trim() : "";
+  if (!(artifact instanceof File) || artifact.size === 0)
+    return c.json({ error: "artifact_required" }, 400);
+  const name = text("name"),
+    description = text("description"),
+    readme = text("readme"),
+    version = text("version");
+  const fingerprint = text("fingerprint"),
+    signature = text("signature"),
+    digest = text("digest"),
+    manifest = text("manifest"),
+    integrity = text("integrity");
+  const runtime = text("runtime");
+  if (
+    !name ||
+    !description ||
+    !readme ||
+    !version ||
+    !fingerprint ||
+    !signature ||
+    !digest ||
+    !manifest ||
+    !integrity ||
+    !["node", "python", "none"].includes(runtime)
+  )
+    return c.json({ error: "invalid_metadata" }, 400);
+  let manifestPayload: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(manifest) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      throw new Error("manifest must be an object");
+    manifestPayload = parsed as Record<string, unknown>;
+    if (
+      manifestPayload.name !== name ||
+      manifestPayload.version !== version ||
+      manifestPayload.runtime !== runtime
+    )
+      return c.json({ error: "manifest_mismatch" }, 422);
+    JSON.parse(integrity);
+  } catch {
+    return c.json({ error: "invalid_manifest" }, 400);
+  }
+  const bytes = await artifact.arrayBuffer();
+  const actualDigest = Array.from(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)),
+    (value) => value.toString(16).padStart(2, "0"),
+  ).join("");
+  if (actualDigest !== digest) return c.json({ error: "digest_mismatch" }, 422);
+  const publisher = await c.env.DB.prepare(
+    "SELECT id, revoked FROM vext_publishers WHERE owner_user_id = ? AND fingerprint = ?",
+  )
+    .bind(userId, fingerprint)
+    .first<{ id: string; revoked: number }>();
+  if (!publisher || publisher.revoked)
+    return c.json({ error: "publisher_untrusted" }, 403);
+  const publisherKey = await c.env.DB.prepare(
+    "SELECT public_key FROM vext_publishers WHERE id = ?",
+  )
+    .bind(publisher.id)
+    .first<{ public_key: string }>();
+  if (
+    !publisherKey ||
+    !(await verifyPublisherSignature(
+      publisherKey.public_key,
+      signature,
+      manifest,
+      integrity,
+    ))
+  )
+    return c.json({ error: "invalid_signature" }, 422);
+  const versionId = crypto.randomUUID();
+  const r2Key = `vext/${publisher.id}/${name}/${version}/${digest}.vext`;
+  await c.env.R2.put(r2Key, bytes, {
+    httpMetadata: { contentType: "application/vnd.vectora.vext+zip" },
+    customMetadata: { digest, publisher: publisher.id },
+  });
+  try {
+    await c.env.DB.batch([
+      c.env.DB.prepare(
+        "INSERT INTO vext_extensions (id, publisher_id, name, description, readme) VALUES (?, ?, ?, ?, ?) ON CONFLICT(publisher_id, name) DO UPDATE SET description = excluded.description, readme = excluded.readme, updated_at = datetime('now')",
+      ).bind(crypto.randomUUID(), publisher.id, name, description, readme),
+      c.env.DB.prepare(
+        "INSERT INTO vext_versions (id, extension_id, version, api_version, protocol_version, runtime, platforms, permissions, size_bytes, digest, r2_key, signature, signature_verified, status) VALUES (?, (SELECT id FROM vext_extensions WHERE publisher_id = ? AND name = ?), ?, 1, 1, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
+      ).bind(
+        versionId,
+        publisher.id,
+        name,
+        version,
+        runtime,
+        text("platforms") || '["any"]',
+        text("permissions") || "[]",
+        artifact.size,
+        digest,
+        r2Key,
+        signature,
+        1,
+      ),
+    ]);
+  } catch (error) {
+    await c.env.R2.delete(r2Key);
+    throw error;
+  }
+  const extension = await c.env.DB.prepare(
+    "SELECT id FROM vext_extensions WHERE publisher_id = ? AND name = ?",
+  )
+    .bind(publisher.id, name)
+    .first<{ id: string }>();
+  if (!extension) return c.json({ error: "extension_create_failed" }, 500);
+  return c.json(
+    {
+      ok: true,
+      id: extension.id,
+      version_id: versionId,
+      digest,
+      status: "pending",
+    },
+    201,
+  );
+});
+
+registry.patch("/admin/extensions/:id/:version/publish", async (c) => {
+  const adminId = await requireAdmin(c);
+  if (!adminId) return c.json({ error: "forbidden" }, 403);
+  const row = await c.env.DB.prepare(
+    `SELECT v.id, v.r2_key, v.signature, v.signature_verified FROM vext_versions v
+      JOIN vext_extensions e ON e.id = v.extension_id
+      WHERE e.id = ? AND v.version = ? AND v.status = 'pending'`,
+  )
+    .bind(c.req.param("id"), c.req.param("version"))
+    .first<{ id: string; r2_key: string; signature: string; signature_verified: number }>();
+  if (!row) return c.json({ error: "not_found" }, 404);
+  if (
+    !row.signature ||
+    row.signature_verified !== 1 ||
+    !(await c.env.R2.head(row.r2_key))
+  )
+    return c.json({ error: "artifact_unavailable" }, 422);
+  await c.env.DB.prepare(
+    "UPDATE vext_versions SET status = 'published', published_at = datetime('now') WHERE id = ?",
+  )
+    .bind(row.id)
+    .run();
+  return c.json({ ok: true, id: row.id, status: "published" });
+});
+
+registry.patch("/admin/extensions/:id/:version/revoke", async (c) => {
+  const adminId = await requireAdmin(c);
+  if (!adminId) return c.json({ error: "forbidden" }, 403);
+  const result = await c.env.DB.prepare(
+    `UPDATE vext_versions SET status = 'revoked' WHERE id = (SELECT v.id FROM vext_versions v WHERE v.extension_id = ? AND v.version = ?)`,
+  )
+    .bind(c.req.param("id"), c.req.param("version"))
+    .run();
+  if (!result.meta.changes) return c.json({ error: "not_found" }, 404);
+  return c.json({
+    ok: true,
+    id: c.req.param("id"),
+    version: c.req.param("version"),
+    status: "revoked",
+  });
+});
 
 /**
  * Publica uma skill pra o catálogo comunitário — `source` é sempre uma URL

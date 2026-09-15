@@ -165,7 +165,17 @@ def _run(
             bufsize=1,
         )
         for line in proc.stdout:  # type: ignore[union-attr]
-            sys.stdout.write(line)
+            try:
+                sys.stdout.write(line)
+            except UnicodeEncodeError:
+                # Terminais Windows em code pages legadas não conseguem
+                # imprimir os símbolos Unicode emitidos pelo Wrangler.
+                encoding = sys.stdout.encoding or "utf-8"
+                sys.stdout.write(
+                    line.encode(encoding, errors="replace").decode(
+                        encoding, errors="replace"
+                    )
+                )
             log.write(_ANSI_RE.sub("", line))
         proc.wait()
         rc = proc.returncode
@@ -815,9 +825,9 @@ def _action_clean(target, source, env):
 
 
 # ── Prod (deploy) ─────────────────────────────────────────────────────────────
-# `scons prod` — deploy de produção da borda web/edge do monorepo: docs
-# (Vercel, docs.vectora.company), company (Vercel, vectora.company) e services
-# (Cloudflare Worker único: gateway + updates). Bump de versão, build do
+# `scons prod` — deploy de produção da borda web/edge do monorepo: services
+# (Cloudflare Worker único: gateway + updates), docs (Vercel,
+# docs.vectora.company) e company (Vercel, vectora.company). Bump de versão, build do
 # instalador e publicação no canal de update rodam só via GitHub Actions
 # (.github/workflows/vectora.yml), disparados por "[up-release]" na mensagem
 # do commit.
@@ -1001,8 +1011,6 @@ def _action_prod(target, source, env):
     _check_vercel_link(DOCS, "vectora-docs")
     _check_vercel_link(COMPANY, "vectora-company")
     with _open_log("prod") as log:
-        _run([VERCEL, "--prod", "--yes"], log=log, cwd=DOCS)
-        _run([VERCEL, "--prod", "--yes"], log=log, cwd=COMPANY)
         # Migrations ANTES do deploy do worker: o código deployado assume o
         # schema mais novo (ex.: users.role) — publicar worker sem aplicar as
         # migrations quebra rotas em produção com SQLITE_ERROR.
@@ -1019,13 +1027,26 @@ def _action_prod(target, source, env):
         # significa que `d1 migrations apply` sozinho NUNCA propaga uma tabela
         # nova adicionada ali pra produção — só os arquivos numerados em
         # `migrations/000N_*.sql` entram nesse rastreamento. Sem o `d1
-        # execute` abaixo, uma tabela como `gha_bot_config` (adicionada a
-        # `0001_schema.sql` no código, nunca reaplicada manualmente) fica
-        # inexistente em produção indefinidamente, e a migration numerada que
-        # depende dela (`ALTER TABLE gha_bot_config ADD COLUMN ...`) falha com
-        # `no such table` no primeiro deploy que tentar rodá-la. Reaplicar
-        # aqui, sempre, antes de `migrations apply`, é seguro (só `CREATE
-        # TABLE/INDEX IF NOT EXISTS`) e elimina esse modo de falha de vez.
+        # execute` adicional, uma tabela como `gha_bot_config` (adicionada a
+        # `0001_schema.sql`, mas nunca reaplicada manualmente) pode ficar
+        # inexistente em produção. A reaplicação ocorre depois do upgrade
+        # aditivo, para que também seja segura em bancos legados.
+        _run(
+            [
+                WRANGLER,
+                "d1",
+                "migrations",
+                "apply",
+                "vectora-db",
+                "--remote",
+            ],
+            log=log,
+            cwd=SERVICES,
+        )
+        # O upgrade aditivo roda antes da reaplicação do 0001: bancos legados
+        # podem ter as tabelas, mas ainda não possuir as colunas usadas pelos
+        # seeds idempotentes do schema atual.
+        _upgrade_d1_schema(log)
         _run(
             [
                 WRANGLER,
@@ -1042,21 +1063,6 @@ def _action_prod(target, source, env):
             [
                 WRANGLER,
                 "d1",
-                "migrations",
-                "apply",
-                "vectora-db",
-                "--remote",
-            ],
-            log=log,
-            cwd=SERVICES,
-        )
-        # O upgrade aditivo só roda depois das migrations, que criam as
-        # tabelas auxiliares consultadas pelo preflight.
-        _upgrade_d1_schema(log)
-        _run(
-            [
-                WRANGLER,
-                "d1",
                 "execute",
                 "vectora-db",
                 "--remote",
@@ -1067,9 +1073,13 @@ def _action_prod(target, source, env):
             cwd=SERVICES,
         )
         _run([WRANGLER, "deploy"], log=log, cwd=SERVICES)
+        # Publica services antes dos frontends, para que os deployments Vercel
+        # já consumam as rotas e o schema de produção atualizados.
+        _run([VERCEL, "--prod", "--yes"], log=log, cwd=DOCS)
+        _run([VERCEL, "--prod", "--yes"], log=log, cwd=COMPANY)
     print(
         "\n>> deploy de produção concluído: "
-        "docs.vectora.company + vectora.company + services (Cloudflare Worker)"
+        "services (Cloudflare Worker) + docs.vectora.company + vectora.company"
     )
     print(">> log completo em .scons-logs/prod.txt")
 

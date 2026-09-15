@@ -183,10 +183,45 @@ describe("GET /registry/skills/:name/versions", () => {
 });
 
 describe("GET /registry/extensions", () => {
-  it("returns an empty entries array (fora de escopo — SDK de extensões não existe)", async () => {
+  it("returns a stable entries array when no extensions are published", async () => {
     const res = await registry.request("/extensions", {}, env);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ entries: [] });
+  });
+});
+
+describe("POST /registry/extensions/publish", () => {
+  it("rejeita manifesto cuja identidade não coincide com os metadados", async () => {
+    const { token } = await createUser("user");
+    const form = new FormData();
+    form.set("artifact", new File(["payload"], "extension.vext"));
+    form.set("name", "declared-name");
+    form.set("description", "description");
+    form.set("readme", "# Extension\n");
+    form.set("version", "1.0.0");
+    form.set("runtime", "node");
+    form.set("fingerprint", "0".repeat(64));
+    form.set("signature", "AA==");
+    form.set("digest", "0".repeat(64));
+    form.set("integrity", "{}");
+    form.set(
+      "manifest",
+      JSON.stringify({
+        id: "different-id",
+        name: "different-name",
+        version: "1.0.0",
+        runtime: "node",
+      }),
+    );
+
+    const res = await registry.request(
+      "/extensions/publish",
+      authed(token, { method: "POST", body: form }),
+      env,
+    );
+
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({ error: "manifest_mismatch" });
   });
 });
 

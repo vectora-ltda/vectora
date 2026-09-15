@@ -597,7 +597,7 @@ class TestPrEndpoints:
 
 class TestListRagBuckets:
     """GET /workspaces/{id}/rag/buckets — buckets do workspace, usado pelo
-    seletor de publicação da Memory Library e pelo painel de buckets do
+    seletor de publicação da Memory Buckets e pelo painel de buckets do
     Memory tab."""
 
     @pytest.fixture(autouse=True)

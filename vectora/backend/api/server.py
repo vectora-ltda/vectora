@@ -46,13 +46,14 @@ from backend.api.handlers.boards import router as boards_router
 from backend.api.handlers.chat import router as chat_router
 from backend.api.handlers.connect import router as connect_router
 from backend.api.handlers.context_graph import router as graph_router
+from backend.api.handlers.extension_registry import router as extension_registry_router
 from backend.api.handlers.feedback import router as feedback_router
 from backend.api.handlers.flags import router as flags_router
 from backend.api.handlers.gateway import router as gateway_router
 from backend.api.handlers.license import router as license_router
 from backend.api.handlers.mcp_marketplace import router as mcp_marketplace_router
 from backend.api.handlers.memory import router as memory_router
-from backend.api.handlers.memory_library import router as memory_library_router
+from backend.api.handlers.memory_buckets import router as memory_buckets_router
 from backend.api.handlers.models import router as models_router
 from backend.api.handlers.oauth import router as oauth_router
 from backend.api.handlers.oidc import router as oidc_router
@@ -66,6 +67,7 @@ from backend.api.handlers.threads import router as thread_router
 from backend.api.handlers.tools import router as tools_router
 from backend.api.handlers.url_preview import router as url_preview_router
 from backend.api.handlers.usage import router as usage_router
+from backend.api.handlers.vext import router as vext_router
 from backend.api.handlers.webhooks import router as webhooks_router
 from backend.api.handlers.workspaces import router as workspace_router
 from backend.api.handlers.workspaces import view_router as workspace_view_router
@@ -629,7 +631,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
     app.include_router(thread_router)
     app.include_router(share_router)
     app.include_router(memory_router)
-    app.include_router(memory_library_router)
+    app.include_router(memory_buckets_router)
     app.include_router(oauth_router)
     app.include_router(oidc_router)
     app.include_router(gateway_router)
@@ -637,6 +639,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
     app.include_router(admin_router)
     app.include_router(backup_router)
     app.include_router(usage_router)
+    app.include_router(vext_router)
     app.include_router(workspace_router)
     app.include_router(workspace_view_router)
     app.include_router(workspace_scoped_view_router)
@@ -655,6 +658,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
     app.include_router(agent_profiles_router)
     app.include_router(graph_router)
     app.include_router(mcp_marketplace_router)
+    app.include_router(extension_registry_router)
 
     # ── Discovery Layer — schema das tools ─────────────────────────────────
     @app.get("/api/tools/schema")
