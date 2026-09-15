@@ -32,7 +32,9 @@ export function ExtensionsSection({
   );
   if (loading)
     return (
-      <p className="p-3 text-xs text-muted-foreground">{m.library_extensions_loading()}</p>
+      <p className="p-3 text-xs text-muted-foreground">
+        {m.library_extensions_loading()}
+      </p>
     );
   if (error) return <p className="p-3 text-xs text-destructive">{error}</p>;
   if (!filtered.length)
@@ -54,8 +56,12 @@ export function ExtensionsSection({
 }
 
 function ExtensionCard({ extension }: { extension: VextExtension }) {
-  const installed = useLibraryStore((s) => s.extensionInstalledIds.has(extension.id));
-  const installing = useLibraryStore((s) => s.extensionInstallingId === extension.id);
+  const installed = useLibraryStore((s) =>
+    s.extensionInstalledIds.has(extension.id),
+  );
+  const installing = useLibraryStore(
+    (s) => s.extensionInstallingId === extension.id,
+  );
   const install = useLibraryStore((s) => s.installExtension);
   const download = () => void install(extension);
   return (
@@ -82,7 +88,9 @@ function ExtensionCard({ extension }: { extension: VextExtension }) {
         {extension.description}
       </p>
       {extension.frontend_entrypoint && (
-        <p className="mt-1 text-[10px] text-primary">{m.library_extensions_workbench()}</p>
+        <p className="mt-1 text-[10px] text-primary">
+          {m.library_extensions_workbench()}
+        </p>
       )}
     </article>
   );

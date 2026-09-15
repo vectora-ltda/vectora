@@ -339,9 +339,13 @@ function BucketCard({
             {bucket.description}
           </p>
           <p className="text-[10px] text-muted-foreground/80">
-            {m.library_memory_buckets_embed_model({ model: bucket.embed_model })}
+            {m.library_memory_buckets_embed_model({
+              model: bucket.embed_model,
+            })}
             {" · "}
-            {m.library_memory_buckets_downloads({ count: bucket.downloads_count })}
+            {m.library_memory_buckets_downloads({
+              count: bucket.downloads_count,
+            })}
           </p>
         </div>
         <Button

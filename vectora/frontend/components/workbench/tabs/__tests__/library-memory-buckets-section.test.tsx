@@ -220,7 +220,9 @@ describe("MemoryBucketsSection", () => {
     );
     await vi.waitFor(() => expect(screen.getByText("Bucket 1")).toBeTruthy());
 
-    rerender(<MemoryBucketsSection query="bucket 1" onCountChange={() => {}} />);
+    rerender(
+      <MemoryBucketsSection query="bucket 1" onCountChange={() => {}} />,
+    );
     await act(async () => {
       await vi.advanceTimersByTimeAsync(350);
     });

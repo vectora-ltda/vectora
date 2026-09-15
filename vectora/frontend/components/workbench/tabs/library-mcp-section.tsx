@@ -118,9 +118,7 @@ function ConfigureDialog({
       }
       if (
         requiresConfirmation &&
-        !window.confirm(
-          m.library_mcp_unverified_confirm(),
-        )
+        !window.confirm(m.library_mcp_unverified_confirm())
       )
         return;
       const result = await installMcp(connector.id, requiresConfirmation);
@@ -239,9 +237,7 @@ function ConnectorCard({
       }
       if (
         requiresConfirmation &&
-        !window.confirm(
-          m.library_mcp_unverified_confirm(),
-        )
+        !window.confirm(m.library_mcp_unverified_confirm())
       )
         return;
       const result = await installMcp(connector.id, requiresConfirmation);
@@ -281,7 +277,10 @@ function ConnectorCard({
               className="w-full h-full object-cover"
             />
           ) : (
-            <span className="text-sm font-semibold text-muted-foreground" aria-hidden="true">
+            <span
+              className="text-sm font-semibold text-muted-foreground"
+              aria-hidden="true"
+            >
               {connector.name.slice(0, 1).toUpperCase()}
             </span>
           )}
