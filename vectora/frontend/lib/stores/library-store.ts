@@ -135,10 +135,23 @@ async function fetchInstalledExtensions(): Promise<{
       id: string;
       version: string;
       active?: boolean;
-      manifest?: Partial<VextExtension>;
+      manifest?: {
+        name?: string;
+        description?: string;
+        publisher?: string;
+        runtime?: VextExtension["runtime"];
+        platforms?: string[];
+        permissions?: string[];
+        integrity?: string | null;
+        frontend_entrypoint?: string | null;
+        backend_entrypoint?: string | null;
+        contributions?: Record<string, unknown>;
+      };
     }[];
   };
-  const active = (data.extensions ?? []).filter((item) => item.active !== false);
+  const active = (data.extensions ?? []).filter(
+    (item) => item.active !== false,
+  );
   return {
     ids: new Set(active.map((item) => item.id)),
     items: active.map((item) => ({

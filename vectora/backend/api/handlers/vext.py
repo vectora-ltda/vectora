@@ -83,9 +83,7 @@ async def list_installed() -> dict[str, object]:
                 "manifest": manifest,
             }
         )
-    return {
-        "extensions": extensions
-    }
+    return {"extensions": extensions}
 
 
 @router.post("/{extension_id}/activate")
