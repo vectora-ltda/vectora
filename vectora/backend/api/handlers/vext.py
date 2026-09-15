@@ -10,6 +10,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from backend.services.vext import MAX_PACKAGE_BYTES
+from backend.services.vext_artifact import verify_vext
 from backend.services.vext_install import VextInstallStore
 from backend.services.vext_registry import VextTrustStore
 from backend.settings import settings
@@ -60,17 +61,30 @@ async def install(artifact: Annotated[UploadFile, File(...)]) -> dict[str, objec
 
 @router.get("/installed")
 async def list_installed() -> dict[str, object]:
-    """List immutable local versions and their active state."""
+    """List installed versions with manifest metadata for the Library.
+
+    The local store is authoritative for artifacts installed during development
+    and offline use. Returning the manifest lets the frontend render those
+    extensions even when the remote registry has not published them yet.
+    """
     records = _store().list_installed()
-    return {
-        "extensions": [
+    extensions: list[dict[str, object]] = []
+    for item in records:
+        try:
+            manifest = verify_vext(item.artifact).manifest.model_dump(mode="json")
+        except (OSError, ValueError):
+            # A corrupt artifact must not make the whole Library unavailable.
+            continue
+        extensions.append(
             {
                 "id": item.extension_id,
                 "version": item.version,
                 "active": item.active,
+                "manifest": manifest,
             }
-            for item in records
-        ]
+        )
+    return {
+        "extensions": extensions
     }
 
 

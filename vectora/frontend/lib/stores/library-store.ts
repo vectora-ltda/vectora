@@ -76,10 +76,13 @@ export interface VextExtension {
   publisher: string;
   version: string;
   runtime: "node" | "python" | "none";
-  platforms: string;
+  platforms: string | string[];
   permissions: string;
   digest: string;
-  status: "published";
+  status: "published" | "installed";
+  frontend_entrypoint?: string | null;
+  backend_entrypoint?: string | null;
+  contributions?: Record<string, unknown>;
 }
 
 const TTL_MS = 5 * 60 * 1000;
@@ -121,17 +124,41 @@ async function fetchExtensionsCatalog(q: string): Promise<VextExtension[]> {
   return data.entries ?? [];
 }
 
-async function fetchInstalledExtensions(): Promise<Set<string>> {
+async function fetchInstalledExtensions(): Promise<{
+  ids: Set<string>;
+  items: VextExtension[];
+}> {
   const res = await fetch("/vext/installed");
   if (!res.ok) throw new Error(`Erro ${res.status}`);
   const data = (await res.json()) as {
-    extensions?: { id: string; active?: boolean }[];
+    extensions?: {
+      id: string;
+      version: string;
+      active?: boolean;
+      manifest?: Partial<VextExtension>;
+    }[];
   };
-  return new Set(
-    (data.extensions ?? [])
-      .filter((item) => item.active !== false)
-      .map((item) => item.id),
-  );
+  const active = (data.extensions ?? []).filter((item) => item.active !== false);
+  return {
+    ids: new Set(active.map((item) => item.id)),
+    items: active.map((item) => ({
+      id: item.id,
+      name: item.manifest?.name ?? item.id,
+      description: item.manifest?.description ?? "",
+      publisher: item.manifest?.publisher ?? "local",
+      version: item.version,
+      runtime: item.manifest?.runtime ?? "none",
+      platforms: Array.isArray(item.manifest?.platforms)
+        ? item.manifest.platforms.join(", ")
+        : (item.manifest?.platforms ?? "any"),
+      permissions: item.manifest?.permissions?.join(", ") ?? "",
+      digest: item.manifest?.integrity ?? "",
+      status: "installed",
+      frontend_entrypoint: item.manifest?.frontend_entrypoint,
+      backend_entrypoint: item.manifest?.backend_entrypoint,
+      contributions: item.manifest?.contributions,
+    })),
+  };
 }
 
 async function installExtensionArtifact(
@@ -279,7 +306,7 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
         memoryError: null,
       });
     } catch {
-      set({ memoryError: m.library_memory_error_search() });
+      set({ memoryError: m.library_memory_buckets_error_search() });
     } finally {
       set({ memoryLoading: false });
     }
@@ -301,13 +328,19 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
         fetchInstalledExtensions(),
       ]);
       if (catalogResult.status === "rejected") throw catalogResult.reason;
-      const installedIds =
+      const installed =
         installedResult.status === "fulfilled"
           ? installedResult.value
-          : get().extensionInstalledIds;
+          : { ids: get().extensionInstalledIds, items: [] };
+      const byVersion = new Map(
+        [...catalogResult.value, ...installed.items].map((item) => [
+          `${item.id}:${item.version}`,
+          item,
+        ]),
+      );
       set({
-        extensionItems: catalogResult.value,
-        extensionInstalledIds: installedIds,
+        extensionItems: [...byVersion.values()],
+        extensionInstalledIds: installed.ids,
         extensionFetchedAt: Date.now(),
         extensionQuery: q,
         extensionError: null,
@@ -321,8 +354,19 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
 
   refreshInstalledExtensions: async () => {
     try {
-      const installedIds = await fetchInstalledExtensions();
-      set({ extensionInstalledIds: installedIds });
+      const installed = await fetchInstalledExtensions();
+      set((state) => {
+        const byVersion = new Map(
+          [...state.extensionItems, ...installed.items].map((item) => [
+            `${item.id}:${item.version}`,
+            item,
+          ]),
+        );
+        return {
+          extensionInstalledIds: installed.ids,
+          extensionItems: [...byVersion.values()],
+        };
+      });
     } catch {
       // The catalog remains usable when the local lifecycle endpoint is unavailable.
     }

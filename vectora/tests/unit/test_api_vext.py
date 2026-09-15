@@ -50,9 +50,11 @@ def test_vext_lifecycle_lists_deactivates_and_reactivates(
     client = TestClient(create_app(serve_static=False))
     listed = client.get("/vext/installed")
     assert listed.status_code == 200
-    assert listed.json()["extensions"] == [
-        {"id": "api.test", "version": "1.0.0", "active": True}
-    ]
+    extension = listed.json()["extensions"][0]
+    assert extension["id"] == "api.test"
+    assert extension["version"] == "1.0.0"
+    assert extension["active"] is True
+    assert extension["manifest"]["name"] == "API test"
 
     deactivated = client.post("/vext/api.test/deactivate")
     assert deactivated.status_code == 200

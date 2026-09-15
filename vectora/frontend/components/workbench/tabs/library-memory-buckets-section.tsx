@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * MemorySection — Memory Library: GET /rag-library/catalog,
+ * MemoryBucketsSection — Memory Buckets: GET /rag-library/catalog,
  * POST /rag-library/install, POST /rag-library/publish. Buckets RAG
  * pré-vetorizados publicados pela comunidade — download sempre grátis, sem
  * gate de tier.
@@ -142,13 +142,13 @@ function PublishDialog({
         license: license.trim() || "MIT",
       });
       if (result.status === "error") {
-        setError(result.error ?? m.library_memory_error_publish());
+        setError(result.error ?? m.library_memory_buckets_error_publish());
         return;
       }
       onPublished();
       onClose();
     } catch {
-      setError(m.library_memory_error_publish());
+      setError(m.library_memory_buckets_error_publish());
     } finally {
       setSaving(false);
     }
@@ -158,30 +158,30 @@ function PublishDialog({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{m.library_memory_publish_title()}</DialogTitle>
+          <DialogTitle>{m.library_memory_buckets_publish_title()}</DialogTitle>
           <DialogDescription>
-            {m.library_memory_publish_desc()}
+            {m.library_memory_buckets_publish_desc()}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-1">
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">
-              {m.library_memory_publish_bucket()}
+              {m.library_memory_buckets_publish_bucket()}
             </label>
             {bucketsLoading ? (
               <div className="flex items-center gap-2 text-xs text-muted-foreground py-1.5">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                {m.library_memory_publish_bucket_loading()}
+                {m.library_memory_buckets_publish_bucket_loading()}
               </div>
             ) : buckets.length === 0 ? (
               <p className="text-xs text-muted-foreground py-1.5">
-                {m.library_memory_publish_no_buckets()}
+                {m.library_memory_buckets_publish_no_buckets()}
               </p>
             ) : (
               <Select value={bucketId} onValueChange={handleSelectBucket}>
                 <SelectTrigger className="w-full">
                   <SelectValue
-                    placeholder={m.library_memory_publish_bucket_placeholder()}
+                    placeholder={m.library_memory_buckets_publish_bucket_placeholder()}
                   />
                 </SelectTrigger>
                 <SelectContent>
@@ -199,7 +199,7 @@ function PublishDialog({
               htmlFor="publish-memory-name"
               className="text-xs font-medium text-muted-foreground"
             >
-              {m.library_memory_publish_name()}
+              {m.library_memory_buckets_publish_name()}
             </label>
             <Input
               id="publish-memory-name"
@@ -215,7 +215,7 @@ function PublishDialog({
                 htmlFor="publish-memory-description"
                 className="text-xs font-medium text-muted-foreground"
               >
-                {m.library_memory_publish_description()}
+                {m.library_memory_buckets_publish_description()}
               </label>
               <button
                 type="button"
@@ -225,12 +225,12 @@ function PublishDialog({
                 {previewing ? (
                   <>
                     <Pencil className="w-3 h-3" />
-                    {m.library_memory_publish_edit()}
+                    {m.library_memory_buckets_publish_edit()}
                   </>
                 ) : (
                   <>
                     <Eye className="w-3 h-3" />
-                    {m.library_memory_publish_preview()}
+                    {m.library_memory_buckets_publish_preview()}
                   </>
                 )}
               </button>
@@ -245,7 +245,7 @@ function PublishDialog({
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 className="text-sm font-mono"
-                placeholder={m.library_memory_publish_description_placeholder()}
+                placeholder={m.library_memory_buckets_publish_description_placeholder()}
               />
             )}
           </div>
@@ -254,7 +254,7 @@ function PublishDialog({
               htmlFor="publish-memory-license"
               className="text-xs font-medium text-muted-foreground"
             >
-              {m.library_memory_publish_license()}
+              {m.library_memory_buckets_publish_license()}
             </label>
             <Input
               id="publish-memory-license"
@@ -275,7 +275,7 @@ function PublishDialog({
             disabled={saving || !bucketId || !name.trim()}
           >
             {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-            {m.library_memory_publish_confirm()}
+            {m.library_memory_buckets_publish_confirm()}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -305,12 +305,12 @@ function BucketCard({
     try {
       const result = await installBucket(bucket.id);
       if (result.status === "error") {
-        setError(result.error ?? m.library_memory_error_install());
+        setError(result.error ?? m.library_memory_buckets_error_install());
         return;
       }
       setInstalled(true);
     } catch {
-      setError(m.library_memory_error_install());
+      setError(m.library_memory_buckets_error_install());
     } finally {
       setBusy(false);
     }
@@ -331,7 +331,7 @@ function BucketCard({
                 className="text-[10px] h-4 px-1.5 gap-1"
               >
                 <CheckCircle2 className="w-2.5 h-2.5" />
-                {m.library_memory_verified_badge()}
+                {m.library_memory_buckets_verified_badge()}
               </Badge>
             )}
           </div>
@@ -339,9 +339,9 @@ function BucketCard({
             {bucket.description}
           </p>
           <p className="text-[10px] text-muted-foreground/80">
-            {m.library_memory_embed_model({ model: bucket.embed_model })}
+            {m.library_memory_buckets_embed_model({ model: bucket.embed_model })}
             {" · "}
-            {m.library_memory_downloads({ count: bucket.downloads_count })}
+            {m.library_memory_buckets_downloads({ count: bucket.downloads_count })}
           </p>
         </div>
         <Button
@@ -356,19 +356,19 @@ function BucketCard({
           ) : installed ? (
             <>
               <CheckCircle2 className="w-3 h-3 mr-1.5" />
-              {m.library_memory_installed()}
+              {m.library_memory_buckets_installed()}
             </>
           ) : (
             <>
               <Download className="w-3 h-3 mr-1.5" />
-              {m.library_memory_install()}
+              {m.library_memory_buckets_install()}
             </>
           )}
         </Button>
       </div>
       {incompatible && !installed && (
         <p className="text-[10px] text-amber-500">
-          {m.library_memory_incompatible({ model: bucket.embed_model })}
+          {m.library_memory_buckets_incompatible({ model: bucket.embed_model })}
         </p>
       )}
       {error && <p className="text-xs text-destructive">{error}</p>}
@@ -376,7 +376,7 @@ function BucketCard({
   );
 }
 
-export function MemorySection({
+export function MemoryBucketsSection({
   query,
   onCountChange,
   currentEmbedModel = null,
@@ -442,11 +442,11 @@ export function MemorySection({
           onClick={() => setPublishing(true)}
         >
           <Upload className="w-3 h-3 mr-1.5" />
-          {m.library_memory_publish_button()}
+          {m.library_memory_buckets_publish_button()}
         </Button>
       ) : (
         <p className="text-[10px] text-muted-foreground/70 pt-1">
-          {m.library_memory_publish_note()}
+          {m.library_memory_buckets_publish_note()}
         </p>
       )}
       {publishing && workspaceId && (

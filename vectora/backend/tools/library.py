@@ -1,5 +1,5 @@
 """Tools de auto-instalação da Library: MCP marketplace, catálogo de Skills e
-Memory Library — mesma lógica que os handlers HTTP já usam (`_impl`
+Memory Buckets — mesma lógica que os handlers HTTP já usam (`_impl`
 reaproveitado, nunca duplicado). Todas exigem aprovação humana
 (`REQUIRE_APPROVAL`, `backend/engine/hitl.py`): instalar é uma
 mudança persistente no ambiente do usuário.
@@ -117,22 +117,22 @@ async def install_skill_from_catalog(skill_id: str, ctx: ToolContext) -> str:
     )
 )
 async def install_memory_bucket(bucket_id: str) -> str:
-    """Baixa e instala um bucket da Vectora Memory Library como coleção
+    """Baixa e instala um bucket da Vectora Memory Buckets como coleção
     LanceDB isolada (`shared_{bucket_id}`) — mesmo fluxo de
     `POST /rag-library/install`.
 
     Args:
         bucket_id: id do bucket, como aparece em `GET /rag-library/catalog`.
     """
-    from backend.services.memory_library import (
-        MemoryLibraryError,
+    from backend.services.memory_buckets import (
+        MemoryBucketsError,
         download_memory_bucket,
     )
 
     try:
         collection = await download_memory_bucket(bucket_id)
         return json.dumps({"status": "installed", "collection": collection})
-    except MemoryLibraryError as exc:
+    except MemoryBucketsError as exc:
         return json.dumps({"status": "error", "error": str(exc)})
     except Exception as exc:
         logger.exception("install_memory_bucket failed", extra={"bucket_id": bucket_id})
@@ -236,7 +236,7 @@ async def publish_memory_bucket_tool(
     description: str,
     license: str = "CC-BY-4.0",  # noqa: A002 — nome de campo do domínio (licença)
 ) -> str:
-    """Publica um bucket RAG local na Vectora Memory Library remota — exige
+    """Publica um bucket RAG local na Vectora Memory Buckets remota — exige
     conta vectora.company conectada (`VECTORA_TOKEN`).
 
     Args:
@@ -246,8 +246,8 @@ async def publish_memory_bucket_tool(
         license: licença de distribuição (ex.: "CC-BY-4.0", "MIT").
     """
     from backend.services import license as license_service
-    from backend.services.memory_library import (
-        MemoryLibraryError,
+    from backend.services.memory_buckets import (
+        MemoryBucketsError,
         publish_memory_bucket,
     )
 
@@ -264,7 +264,7 @@ async def publish_memory_bucket_tool(
             bucket_id, name, description, license, session_token=token
         )
         return json.dumps({"status": "published", "bucket_id": remote_bucket_id})
-    except MemoryLibraryError as exc:
+    except MemoryBucketsError as exc:
         return json.dumps({"status": "error", "error": str(exc)})
     except Exception as exc:
         logger.exception(
@@ -440,16 +440,16 @@ async def list_skills_catalog(query: str = "") -> str:
 
 @vtool(extras=ToolExtras(category="library", icon="database"))
 async def list_memory_bucket_catalog(query: str = "") -> str:
-    """Lista buckets de memória publicados na Vectora Memory Library, com id,
+    """Lista buckets de memória publicados na Vectora Memory Buckets, com id,
     nome e descrição — use antes de sugerir baixar uma base de conhecimento.
 
     Args:
         query: filtro opcional por nome/descrição.
     """
     try:
-        from backend.services import memory_library
+        from backend.services import memory_buckets
 
-        entries = await memory_library.list_catalog()
+        entries = await memory_buckets.list_catalog()
         items = [
             {
                 "id": e.get("id", ""),

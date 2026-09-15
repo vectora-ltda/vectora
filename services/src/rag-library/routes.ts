@@ -4,7 +4,7 @@
  *
  * - First-party: bibliotecas de código pré-indexadas pela Vectora
  *   (`source_lib`/`source_version`, ex. "requests 2.31.0"), sem publisher.
- * - Comunidade (Memory Library): buckets publicados por usuários via
+ * - Comunidade (Memory Buckets): buckets publicados por usuários via
  *   `POST /publish`, com `publisher_id`/`embed_model`/`license`, curados
  *   via `PATCH /admin/:id/verify` (community aberta + selo first-party).
  *
@@ -123,7 +123,7 @@ ragLibrary.get("/:id/download", async (c) => {
 });
 
 /**
- * Publica um bucket de Memory Library — multipart (name, description,
+ * Publica um bucket de Memory Buckets — multipart (name, description,
  * embed_model, license, file, version opcional). `embed_model` é
  * obrigatório aqui (só pras publicações novas — linhas first-party
  * legadas continuam com o campo NULL, sem quebrar). Grava no R2 (mesmo

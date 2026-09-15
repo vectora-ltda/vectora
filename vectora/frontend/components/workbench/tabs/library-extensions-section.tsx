@@ -32,7 +32,7 @@ export function ExtensionsSection({
   );
   if (loading)
     return (
-      <p className="p-3 text-xs text-muted-foreground">{m.skills_loading()}</p>
+      <p className="p-3 text-xs text-muted-foreground">{m.library_extensions_loading()}</p>
     );
   if (error) return <p className="p-3 text-xs text-destructive">{error}</p>;
   if (!filtered.length)
@@ -81,6 +81,9 @@ function ExtensionCard({ extension }: { extension: VextExtension }) {
       <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
         {extension.description}
       </p>
+      {extension.frontend_entrypoint && (
+        <p className="mt-1 text-[10px] text-primary">{m.library_extensions_workbench()}</p>
+      )}
     </article>
   );
 }

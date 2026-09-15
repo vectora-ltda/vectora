@@ -113,13 +113,13 @@ function ConfigureDialog({
         "verification_unavailable",
       ].includes(connector.trust_state ?? "");
       if (connector.trust_state === "invalid") {
-        setError("Este MCP foi rejeitado pela verificação de integridade.");
+        setError(m.library_mcp_invalid_install());
         return;
       }
       if (
         requiresConfirmation &&
         !window.confirm(
-          "Este MCP não possui verificação criptográfica. Deseja instalar?",
+          m.library_mcp_unverified_confirm(),
         )
       )
         return;
@@ -193,6 +193,28 @@ function ConnectorCard({
   const [busy, setBusy] = useState(false);
   const [configuring, setConfiguring] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const trustLabel = (state: MCPConnector["trust_state"] | undefined) => {
+    switch (state) {
+      case "vectora_verified":
+        return m.library_mcp_verified();
+      case "publisher_signed":
+        return m.library_skills_trust_publisher_signed();
+      case "community_listed":
+        return m.library_skills_trust_community_listed();
+      case "unsigned":
+        return m.library_skills_trust_unsigned();
+      case "invalid":
+        return m.library_skills_trust_invalid();
+      case "verification_unavailable":
+        return m.library_skills_trust_verification_unavailable();
+      default:
+        return null;
+    }
+  };
+  const badgeLabel = trustLabel(
+    connector.trust_state ??
+      (connector.vectora_verified ? "vectora_verified" : undefined),
+  );
 
   const handleInstallClick = () => {
     if (connector.env_vars.length > 0) {
@@ -212,13 +234,13 @@ function ConnectorCard({
         "verification_unavailable",
       ].includes(connector.trust_state ?? "");
       if (connector.trust_state === "invalid") {
-        setError("Este MCP foi rejeitado pela verificação de integridade.");
+        setError(m.library_mcp_invalid_install());
         return;
       }
       if (
         requiresConfirmation &&
         !window.confirm(
-          "Este MCP não possui verificação criptográfica. Deseja instalar?",
+          m.library_mcp_unverified_confirm(),
         )
       )
         return;
@@ -251,7 +273,7 @@ function ConnectorCard({
   return (
     <div className="rounded-lg border bg-card p-3 space-y-2">
       <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center shrink-0 overflow-hidden">
+        <div className="w-9 h-9 rounded-md bg-muted flex items-center justify-center shrink-0 overflow-hidden">
           {connector.icon_url ? (
             <img
               src={connector.icon_url}
@@ -259,7 +281,9 @@ function ConnectorCard({
               className="w-full h-full object-cover"
             />
           ) : (
-            <Puzzle className="w-4 h-4 text-muted-foreground" />
+            <span className="text-sm font-semibold text-muted-foreground" aria-hidden="true">
+              {connector.name.slice(0, 1).toUpperCase()}
+            </span>
           )}
         </div>
         <div className="flex-1 min-w-0">
@@ -276,9 +300,9 @@ function ConnectorCard({
             >
               {connector.category}
             </Badge>
-            {(connector.vectora_verified || connector.trust_state) && (
+            {badgeLabel && (
               <Badge className="text-[10px] h-4 px-1.5 shrink-0">
-                {connector.trust_state ?? "community_listed"}
+                {badgeLabel}
               </Badge>
             )}
           </div>

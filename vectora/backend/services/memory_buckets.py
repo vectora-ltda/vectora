@@ -1,4 +1,4 @@
-"""Memory Library — download/publish de buckets RAG pré-vetorizados
+"""Memory Buckets — download/publish de buckets RAG pré-vetorizados
 publicados pela comunidade (`services/src/rag-library/routes.ts`, estende
 o mesmo catálogo já usado pelas bibliotecas de código first-party).
 
@@ -25,7 +25,7 @@ DEFAULT_RAG_LIBRARY_URL = "https://services.vectora.company/rag-library"
 HTTP_TIMEOUT = 30.0
 
 
-class MemoryLibraryError(RuntimeError):
+class MemoryBucketsError(RuntimeError):
     """Erro tipado — embed_model incompatível, bucket não encontrado, ou
     falha de rede/publicação. Nunca mistura dimensões de vetor silenciosamente."""
 
@@ -35,7 +35,7 @@ def _rag_library_url() -> str:
 
 
 async def list_catalog(q: str | None = None) -> list[dict]:
-    """Lista o catálogo da Memory Library, opcionalmente filtrado por `q`
+    """Lista o catálogo da Memory Buckets, opcionalmente filtrado por `q`
     (repassado direto pro Worker — `services/src/rag-library/routes.ts`
     já faz `LIKE` sobre nome/descrição). Degrada para lista vazia em
     qualquer falha de rede — nunca propaga exceção pro handler HTTP (a
@@ -53,9 +53,9 @@ async def list_catalog(q: str | None = None) -> list[dict]:
                     continue
                 resp.raise_for_status()
                 return resp.json()
-            raise RuntimeError("Memory Library retornou 404 nas duas rotas")
+            raise RuntimeError("Memory Buckets retornou 404 nas duas rotas")
     except Exception as exc:
-        logger.warning("memory_library: falha ao consultar catálogo — %s", exc)
+        logger.warning("memory_buckets: falha ao consultar catálogo — %s", exc)
         return []
 
 
@@ -64,7 +64,7 @@ async def _fetch_bucket_metadata(bucket_id: str) -> dict:
     for entry in entries:
         if entry.get("id") == bucket_id:
             return entry
-    raise MemoryLibraryError(f"Bucket '{bucket_id}' não encontrado na Memory Library.")
+    raise MemoryBucketsError(f"Bucket '{bucket_id}' não encontrado na Memory Buckets.")
 
 
 async def download_memory_bucket(
@@ -74,7 +74,7 @@ async def download_memory_bucket(
     (`shared_{bucket_id}`), isolada das coleções já existentes do usuário.
 
     Valida `embed_model` do bucket contra `settings.embedding_model` **antes**
-    de tocar em qualquer arquivo — incompatível levanta `MemoryLibraryError`
+    de tocar em qualquer arquivo — incompatível levanta `MemoryBucketsError`
     sem baixar nada. Retorna o nome da coleção instalada.
     """
     metadata = await _fetch_bucket_metadata(bucket_id)
@@ -83,7 +83,7 @@ async def download_memory_bucket(
 
     bucket_embed_model = metadata.get("embed_model")
     if bucket_embed_model and bucket_embed_model != settings.embedding_model:
-        raise MemoryLibraryError(
+        raise MemoryBucketsError(
             f"Bucket '{bucket_id}' foi indexado com o embedder "
             f"'{bucket_embed_model}', mas o embedder atual é "
             f"'{settings.embedding_model}'. Buckets compartilhados exigem o "
@@ -98,7 +98,7 @@ async def download_memory_bucket(
             resp.raise_for_status()
             archive_bytes = resp.content
     except Exception as exc:
-        raise MemoryLibraryError(
+        raise MemoryBucketsError(
             f"Falha ao baixar o bucket '{bucket_id}': {exc}"
         ) from exc
 
@@ -112,11 +112,11 @@ async def download_memory_bucket(
         with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz") as tar:
             tar.extractall(target_dir, filter="data")
     except Exception as exc:
-        raise MemoryLibraryError(
+        raise MemoryBucketsError(
             f"Falha ao extrair o bucket '{bucket_id}' (arquivo corrompido?): {exc}"
         ) from exc
 
-    logger.info("memory_library: bucket %s instalado como %s", bucket_id, collection)
+    logger.info("memory_buckets: bucket %s instalado como %s", bucket_id, collection)
     return collection
 
 
@@ -132,7 +132,7 @@ async def publish_memory_bucket(
     """Empacota o bucket local `bucket_id` (uma tabela LanceDB isolada,
     `backend/services/rag_buckets.py`) num tar.gz e publica via
     `POST /rag-library/publish`. Retorna o `id` do bucket recém-publicado
-    na Memory Library (sempre `verified=false` até curadoria manual) —
+    na Memory Buckets (sempre `verified=false` até curadoria manual) —
     distinto do `bucket_id` local que originou a publicação.
     """
     from backend.settings import settings
@@ -141,7 +141,7 @@ async def publish_memory_bucket(
     # LanceDB grava cada tabela num diretório `{collection}.lance`.
     source_dir = Path(lancedb_dir or settings.lancedb_dir or "") / f"{collection}.lance"
     if not source_dir.is_dir():
-        raise MemoryLibraryError(
+        raise MemoryBucketsError(
             f"Bucket '{bucket_id}' não tem tabela LanceDB local pra publicar."
         )
 
@@ -171,16 +171,16 @@ async def publish_memory_bucket(
             resp.raise_for_status()
             data = resp.json()
     except httpx.HTTPStatusError as exc:
-        raise MemoryLibraryError(
+        raise MemoryBucketsError(
             f"Falha ao publicar o bucket: {exc.response.status_code} {exc.response.text}"
         ) from exc
     except Exception as exc:
-        raise MemoryLibraryError(f"Falha ao publicar o bucket: {exc}") from exc
+        raise MemoryBucketsError(f"Falha ao publicar o bucket: {exc}") from exc
 
     remote_bucket_id = data.get("id")
     if not remote_bucket_id:
-        raise MemoryLibraryError("Resposta inesperada do rag-library/publish (sem id).")
+        raise MemoryBucketsError("Resposta inesperada do rag-library/publish (sem id).")
     logger.info(
-        "memory_library: bucket %s publicado como %s", bucket_id, remote_bucket_id
+        "memory_buckets: bucket %s publicado como %s", bucket_id, remote_bucket_id
     )
     return remote_bucket_id

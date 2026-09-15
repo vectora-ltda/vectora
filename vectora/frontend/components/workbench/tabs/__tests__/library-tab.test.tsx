@@ -42,8 +42,8 @@ vi.mock("../library-skills-section", () => ({
   },
 }));
 
-vi.mock("../library-memory-section", () => ({
-  MemorySection: ({
+vi.mock("../library-memory-buckets-section", () => ({
+  MemoryBucketsSection: ({
     onCountChange,
   }: {
     query: string;
@@ -61,11 +61,11 @@ import { LibraryTab } from "../library-tab";
 afterEach(cleanup);
 
 describe("LibraryTab", () => {
-  it("renderiza as 3 seções (MCP, Skills, Memory Library)", () => {
+  it("renderiza as 3 seções (MCP, Skills, Memory Buckets)", () => {
     render(<LibraryTab threadId="t1" />);
     expect(screen.getByText(/MCP \(0\)/)).toBeTruthy();
     expect(screen.getByText(/Skills \(0\)/)).toBeTruthy();
-    expect(screen.getByText(/Memory Library \(0\)/)).toBeTruthy();
+    expect(screen.getByText(/Memory Buckets \(0\)/)).toBeTruthy();
   });
 
   it("cada seção vazia mostra estado vazio específico, sem quebrar", () => {
@@ -88,7 +88,7 @@ describe("LibraryTab", () => {
     fireEvent.click(screen.getByRole("button", { name: "Skills" }));
     expect(screen.queryByText(/Skills \(0\)/)).toBeNull();
     expect(screen.getByText(/MCP \(0\)/)).toBeTruthy();
-    expect(screen.getByText(/Memory Library \(0\)/)).toBeTruthy();
+    expect(screen.getByText(/Memory Buckets \(0\)/)).toBeTruthy();
   });
 
   it("todos os filtros desligados mostra estado vazio específico de 'nenhum filtro ativo'", () => {

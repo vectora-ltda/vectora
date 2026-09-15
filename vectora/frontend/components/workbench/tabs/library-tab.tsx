@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * LibraryTab — 3 seções fecháveis (MCP, Skills, Memory Library) com busca
+ * LibraryTab — 3 seções fecháveis (MCP, Skills, Memory Buckets) com busca
  * e filtros toggle por categoria. A busca é client-side sobre os itens já
  * carregados de cada seção, sem endpoint agregado.
  */
@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/accordion";
 import { m } from "@/lib/paraglide/messages";
 import { McpSection } from "./library-mcp-section";
-import { MemorySection } from "./library-memory-section";
+import { MemoryBucketsSection } from "./library-memory-buckets-section";
 import { SkillsSection } from "./library-skills-section";
 import { ExtensionsSection } from "./library-extensions-section";
 
@@ -149,7 +149,7 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
             onToggle={() => toggleFilter("skills")}
           />
           <FilterPill
-            label={m.library_filter_memory()}
+            label={m.library_filter_memory_buckets()}
             active={activeFilters.has("memory")}
             onToggle={() => toggleFilter("memory")}
           />
@@ -214,12 +214,12 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
                   <span className="flex items-center gap-2 min-w-0">
                     <Archive className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
                     <span className="truncate">
-                      {m.library_section_memory()} ({memoryCount})
+                      {m.library_section_memory_buckets()} ({memoryCount})
                     </span>
                   </span>
                 </AccordionTrigger>
                 <AccordionContent>
-                  <MemorySection
+                  <MemoryBucketsSection
                     query={query}
                     onCountChange={handleMemoryCountChange}
                   />

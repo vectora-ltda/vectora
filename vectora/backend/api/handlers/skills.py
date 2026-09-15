@@ -13,7 +13,7 @@ isoladas por usuário (cada um tem sua pasta ``~/.vectora/skills/<id>/``).
 Publicação exige um ``session_token`` de conta vectora.company — mesmo
 ``VECTORA_TOKEN`` já usado pelo license check (`backend.services.
 license._get_token`), mesmo padrão de `backend/api/handlers/
-memory_library.py::post_publish`.
+memory_buckets.py::post_publish`.
 """
 
 from __future__ import annotations
