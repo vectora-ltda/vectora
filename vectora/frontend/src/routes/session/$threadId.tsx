@@ -159,13 +159,15 @@ function SessionPage() {
   const setSidebarWidth = useSettingsStore((s) => s.setSidebarWidth);
   const sidebarPosition = useSettingsStore((s) => s.sidebarPosition);
   const sidebarOnRight = sidebarPosition === "right";
+  const uiMode = useSettingsStore((s) => s.uiMode);
   const assistantWorkbenchSide = sidebarOnRight ? "left" : "right";
   const ideWorkbenchSide = sidebarOnRight ? "right" : "left";
+  const resizeWorkbenchSide =
+    uiMode === "ide" ? ideWorkbenchSide : assistantWorkbenchSide;
   const chatMode = useSettingsStore((s) => s.chatMode);
   const reducedMotion = useReducedMotion();
   const assistantWorkbenchVisible = hydrated && !chatMode && workbenchOpen;
   const setChatMode = useSettingsStore((s) => s.setChatMode);
-  const uiMode = useSettingsStore((s) => s.uiMode);
   const setChatSidebarWidth = useSettingsStore((s) => s.setChatSidebarWidth);
   const { sidebarWidth, chatSidebarWidth, splitSize } = useClampPanelWidths();
   // Modelo do chat — lido do store persistido (sobrevive a restart/reload).
@@ -195,12 +197,12 @@ function SessionPage() {
         const width = getPanelWidthFromPointer(
           e.clientX,
           rect,
-          ideWorkbenchSide,
+          resizeWorkbenchSide,
         );
         setSplitSize(Math.min(480, Math.max(220, width)));
       }
     },
-    [ideWorkbenchSide, setSplitSize],
+    [resizeWorkbenchSide, setSplitSize],
   );
   const onWorkbenchResizeKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -209,11 +211,11 @@ function SessionPage() {
       setSplitSize(
         Math.min(
           480,
-          Math.max(220, splitSize + getResizeDelta(e.key, ideWorkbenchSide)),
+          Math.max(220, splitSize + getResizeDelta(e.key, resizeWorkbenchSide)),
         ),
       );
     },
-    [ideWorkbenchSide, setSplitSize, splitSize],
+    [resizeWorkbenchSide, setSplitSize, splitSize],
   );
   const onWorkbenchResizeUp = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -1060,13 +1062,34 @@ function SessionPage() {
                       />
                     )}
                     {assistantWorkbenchVisible && (
-                      <WorkbenchContent
-                        threadId={threadId}
-                        side={assistantWorkbenchSide}
-                        visible
-                        onAddToContext={pushMention}
-                        onSendPrompt={pushDraft}
-                      />
+                      <div
+                        ref={workbenchResizeRef}
+                        className="relative min-w-0 shrink-0"
+                        style={{ width: splitSize }}
+                      >
+                        <WorkbenchContent
+                          threadId={threadId}
+                          side={assistantWorkbenchSide}
+                          visible
+                          onAddToContext={pushMention}
+                          onSendPrompt={pushDraft}
+                        />
+                        <div
+                          role="separator"
+                          aria-orientation="vertical"
+                          aria-label={m.resize_workbench()}
+                          aria-valuemin={WORKBENCH_CONTENT_MIN_WIDTH}
+                          aria-valuemax={WORKBENCH_CONTENT_MAX_WIDTH}
+                          aria-valuenow={splitSize}
+                          tabIndex={0}
+                          onKeyDown={onWorkbenchResizeKeyDown}
+                          onPointerDown={onWorkbenchResizeDown}
+                          onPointerMove={onWorkbenchResizeMove}
+                          onPointerUp={onWorkbenchResizeUp}
+                          onPointerCancel={onWorkbenchResizeUp}
+                          className={`absolute ${assistantWorkbenchSide === "left" ? "right-0" : "left-0"} top-0 z-10 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors`}
+                        />
+                      </div>
                     )}
                     {assistantWorkbenchSide === "right" && (
                       <WorkbenchNavBar
