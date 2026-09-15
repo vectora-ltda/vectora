@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import mimetypes
 import tempfile
 import zipfile
 from pathlib import Path
@@ -10,7 +11,7 @@ from typing import Annotated
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel, Field
 
-from backend.services.vext import MAX_PACKAGE_BYTES
+from backend.services.vext import MAX_PACKAGE_BYTES, VextPackage
 from backend.services.vext_artifact import verify_vext
 from backend.services.vext_install import VextInstallStore
 from backend.services.vext_registry import VextTrustStore
@@ -85,6 +86,57 @@ async def list_installed() -> dict[str, object]:
             }
         )
     return {"extensions": extensions}
+
+
+def _active_verified_archive(extension_id: str) -> tuple[VextPackage, zipfile.ZipFile]:
+    item = _store().active(extension_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="extensão não instalada")
+    try:
+        result = verify_vext(item.artifact)
+        return result, zipfile.ZipFile(item.artifact)
+    except (OSError, ValueError, zipfile.BadZipFile) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/{extension_id}/readme", response_class=Response)
+async def readme(extension_id: str) -> Response:
+    """Return the installed extension README as UTF-8 Markdown."""
+    result, archive = _active_verified_archive(extension_id)
+    try:
+        readme_path = next(
+            (name for name in archive.namelist() if name.lower() == "readme.md"),
+            None,
+        )
+        if readme_path is None:
+            raise HTTPException(status_code=404, detail="README não encontrado")
+        content = archive.read(readme_path).decode("utf-8")
+    except (KeyError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=422, detail="README inválido") from exc
+    finally:
+        archive.close()
+    return Response(
+        content=content,
+        media_type="text/markdown",
+        headers={"X-VEXT-Version": result.manifest.version},
+    )
+
+
+@router.get("/{extension_id}/asset/{asset_path:path}", response_class=Response)
+async def asset(extension_id: str, asset_path: str) -> Response:
+    """Serve a relative README asset from the verified installed archive."""
+    normalized = Path(asset_path)
+    if normalized.is_absolute() or ".." in normalized.parts:
+        raise HTTPException(status_code=400, detail="caminho de asset inválido")
+    _, archive = _active_verified_archive(extension_id)
+    try:
+        data = archive.read(normalized.as_posix())
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="asset não encontrado") from exc
+    finally:
+        archive.close()
+    media_type = mimetypes.guess_type(normalized.name)[0] or "application/octet-stream"
+    return Response(content=data, media_type=media_type)
 
 
 @router.get("/{extension_id}/frontend", response_class=Response)
@@ -175,6 +227,27 @@ async def deactivate(extension_id: str) -> dict[str, object]:
     if not _store().deactivate(extension_id):
         raise HTTPException(status_code=404, detail="extensão não instalada")
     return {"id": extension_id, "active": False}
+
+
+@router.delete("/{extension_id}")
+async def uninstall(extension_id: str) -> dict[str, object]:
+    """Remove an extension and all of its local rollback versions."""
+    if not _store().uninstall(extension_id):
+        raise HTTPException(status_code=404, detail="extensão não instalada")
+    return {"id": extension_id, "uninstalled": True}
+
+
+@router.get("/{extension_id}/versions")
+async def versions(extension_id: str) -> dict[str, object]:
+    """List verified local versions available for activation."""
+    records = [
+        item for item in _store().list_installed() if item.extension_id == extension_id
+    ]
+    return {
+        "versions": [
+            {"version": item.version, "active": item.active} for item in records
+        ]
+    }
 
 
 @router.post("/{extension_id}/rollback")

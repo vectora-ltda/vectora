@@ -13,6 +13,7 @@ export interface MCPConnector {
   id: string;
   name: string;
   description: string;
+  readme?: string;
   icon?: string | null;
   install_cmd: string;
   env_vars: string[];
@@ -268,6 +269,7 @@ interface LibraryStoreState {
   refreshInstalledExtensions: () => Promise<void>;
   invalidateExtensions: () => void;
   installExtension: (extension: VextExtension) => Promise<void>;
+  uninstallExtension: (extensionId: string) => Promise<void>;
 }
 
 function isFresh(fetchedAt: number | null): boolean {
@@ -445,6 +447,28 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
       }));
     } catch {
       set({ extensionError: m.library_extensions_error_install() });
+    } finally {
+      set({ extensionInstallingId: null });
+    }
+  },
+
+  uninstallExtension: async (extensionId) => {
+    set({ extensionInstallingId: extensionId });
+    try {
+      const response = await fetch(`/vext/${encodeURIComponent(extensionId)}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) throw new Error(`Erro ${response.status}`);
+      set((state) => ({
+        extensionInstalledIds: new Set(
+          [...state.extensionInstalledIds].filter((id) => id !== extensionId),
+        ),
+        extensionItems: state.extensionItems.filter(
+          (item) => !(item.id === extensionId && item.status === "installed"),
+        ),
+      }));
+    } catch {
+      set({ extensionError: m.library_extensions_error_uninstall() });
     } finally {
       set({ extensionInstallingId: null });
     }

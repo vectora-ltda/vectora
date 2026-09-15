@@ -180,6 +180,19 @@ class VextInstallStore:
             self._write_state(state)
             return True
 
+    def uninstall(self, extension_id: str) -> bool:
+        """Delete an extension and its immutable local versions."""
+        with self._lock():
+            state = self._read_state()
+            directory = self.versions / extension_id
+            if extension_id not in state and not directory.exists():
+                return False
+            state.pop(extension_id, None)
+            self._write_state(state)
+            if directory.exists():
+                shutil.rmtree(directory)
+            return True
+
     def activate(
         self,
         extension_id: str,

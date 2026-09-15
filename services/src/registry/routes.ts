@@ -127,7 +127,7 @@ registry.get("/skills/:name/versions", async (c) => {
   return c.json({ entries: sorted });
 });
 
-const EXTENSION_COLUMNS = `e.id, e.name, e.description, e.homepage,
+const EXTENSION_COLUMNS = `e.id, e.name, e.description, e.readme, e.homepage,
   e.vectora_verified, e.revoked AS extension_revoked, p.name AS publisher,
   p.fingerprint, v.id AS version_id, v.version, v.api_version,
   v.protocol_version, v.runtime, v.platforms, v.permissions, v.dependencies,
@@ -283,6 +283,20 @@ registry.get("/extensions/:id/download/:version", async (c) => {
   });
 });
 
+registry.get("/extensions/:id/readme", async (c) => {
+  const row = await c.env.DB.prepare(
+    `SELECT e.id, e.name, e.readme, v.version FROM vext_extensions e
+      JOIN vext_publishers p ON p.id = e.publisher_id
+      JOIN vext_versions v ON v.extension_id = e.id
+      WHERE e.id = ? AND v.status = 'published' AND e.revoked = 0 AND p.revoked = 0
+      ORDER BY v.created_at DESC LIMIT 1`,
+  )
+    .bind(c.req.param("id"))
+    .first<{ id: string; name: string; readme: string; version: string }>();
+  if (!row) return c.json({ error: "not_found" }, 404);
+  return c.json({ id: row.id, name: row.name, version: row.version, content: row.readme });
+});
+
 registry.post("/extensions/publish", async (c) => {
   const userId = await requireUserId(c);
   if (!userId) return c.json({ error: "unauthorized" }, 401);
@@ -296,6 +310,7 @@ registry.post("/extensions/publish", async (c) => {
     return c.json({ error: "artifact_required" }, 400);
   const name = text("name"),
     description = text("description"),
+    readme = text("readme"),
     version = text("version");
   const fingerprint = text("fingerprint"),
     signature = text("signature"),
@@ -306,6 +321,7 @@ registry.post("/extensions/publish", async (c) => {
   if (
     !name ||
     !description ||
+    !readme ||
     !version ||
     !fingerprint ||
     !signature ||
@@ -368,8 +384,8 @@ registry.post("/extensions/publish", async (c) => {
   try {
     await c.env.DB.batch([
       c.env.DB.prepare(
-        "INSERT INTO vext_extensions (id, publisher_id, name, description) VALUES (?, ?, ?, ?) ON CONFLICT(publisher_id, name) DO UPDATE SET description = excluded.description, updated_at = datetime('now')",
-      ).bind(crypto.randomUUID(), publisher.id, name, description),
+        "INSERT INTO vext_extensions (id, publisher_id, name, description, readme) VALUES (?, ?, ?, ?, ?) ON CONFLICT(publisher_id, name) DO UPDATE SET description = excluded.description, readme = excluded.readme, updated_at = datetime('now')",
+      ).bind(crypto.randomUUID(), publisher.id, name, description, readme),
       c.env.DB.prepare(
         "INSERT INTO vext_versions (id, extension_id, version, api_version, protocol_version, runtime, platforms, permissions, size_bytes, digest, r2_key, signature, signature_verified, status) VALUES (?, (SELECT id FROM vext_extensions WHERE publisher_id = ? AND name = ?), ?, 1, 1, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
       ).bind(

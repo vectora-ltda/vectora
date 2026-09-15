@@ -197,6 +197,7 @@ describe("POST /registry/extensions/publish", () => {
     form.set("artifact", new File(["payload"], "extension.vext"));
     form.set("name", "declared-name");
     form.set("description", "description");
+    form.set("readme", "# Extension\n");
     form.set("version", "1.0.0");
     form.set("runtime", "node");
     form.set("fingerprint", "0".repeat(64));
