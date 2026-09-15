@@ -27,5 +27,7 @@
     ],
     "shortcuts": [],
     "footer": []
-  }
+  },
+  "description": "Open Figma files and bring design context into the current workspace.",
+  "icon": "assets/icon.svg"
 }

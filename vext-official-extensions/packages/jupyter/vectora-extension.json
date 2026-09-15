@@ -27,5 +27,7 @@
     ],
     "shortcuts": [],
     "footer": []
-  }
+  },
+  "description": "Open notebooks and inspect interactive Python results alongside the workspace.",
+  "icon": "assets/icon.svg"
 }

@@ -27,5 +27,7 @@
     ],
     "shortcuts": [],
     "footer": []
-  }
+  },
+  "description": "Create and manage development containers for the current workspace.",
+  "icon": "assets/icon.svg"
 }

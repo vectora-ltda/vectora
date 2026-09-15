@@ -27,5 +27,7 @@
     ],
     "shortcuts": [],
     "footer": []
-  }
+  },
+  "description": "Inspect Docker resources and run container workflows from the workspace.",
+  "icon": "assets/icon.svg"
 }

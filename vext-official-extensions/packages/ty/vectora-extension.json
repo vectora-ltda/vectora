@@ -17,15 +17,10 @@
   ],
   "publisher": "Vectora",
   "contributions": {
-    "workbench": [
-      {
-        "id": "ty",
-        "title": "Ty",
-        "icon": "Package",
-        "entrypoint": "dist/frontend.js"
-      }
-    ],
+    "workbench": [],
     "shortcuts": [],
     "footer": []
-  }
+  },
+  "description": "Run Ty diagnostics for Python files in the current workspace.",
+  "icon": "assets/icon.svg"
 }

@@ -26,5 +26,7 @@
     ],
     "shortcuts": [],
     "footer": []
-  }
+  },
+  "description": "Browse SQLite databases and inspect tables and query results.",
+  "icon": "assets/icon.svg"
 }

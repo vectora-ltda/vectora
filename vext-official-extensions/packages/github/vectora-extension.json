@@ -17,15 +17,11 @@
   ],
   "publisher": "Vectora",
   "contributions": {
-    "workbench": [
-      {
-        "id": "github",
-        "title": "GitHub",
-        "icon": "Package",
-        "entrypoint": "dist/frontend.js"
-      }
-    ],
+    "workbench": [],
     "shortcuts": [],
     "footer": []
-  }
+  },
+  "description": "Use the native Git Workbench and GitHub account connection for repository workflows.",
+  "icon": "assets/icon.svg",
+  "native": true
 }

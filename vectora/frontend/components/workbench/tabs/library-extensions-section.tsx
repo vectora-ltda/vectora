@@ -3,6 +3,7 @@ import { useEffect } from "react";
 
 import { m } from "@/lib/paraglide/messages";
 import {
+  NATIVE_EXTENSION_IDS,
   useLibraryStore,
   type VextExtension,
 } from "@/lib/stores/library-store";
@@ -23,8 +24,10 @@ export function ExtensionsSection({
   }, [ensure, query]);
   const filtered = items.filter(
     (item) =>
-      item.name.toLowerCase().includes(query.toLowerCase()) ||
-      item.description.toLowerCase().includes(query.toLowerCase()),
+      !item.native &&
+      !NATIVE_EXTENSION_IDS.has(item.id) &&
+      (item.name.toLowerCase().includes(query.toLowerCase()) ||
+        item.description.toLowerCase().includes(query.toLowerCase())),
   );
   useEffect(
     () => onCountChange(filtered.length),
@@ -67,7 +70,15 @@ function ExtensionCard({ extension }: { extension: VextExtension }) {
   return (
     <article className="rounded-md border border-border/60 bg-card/30 p-2 min-w-0">
       <div className="flex items-start gap-2">
-        <Package className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+        {extension.icon ? (
+          <img
+            src={extension.icon}
+            alt=""
+            className="mt-0.5 h-5 w-5 shrink-0 object-contain"
+          />
+        ) : (
+          <Package className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+        )}
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-xs font-medium">{extension.name}</h3>
           <p className="truncate text-[11px] text-muted-foreground">
@@ -101,11 +112,6 @@ function ExtensionCard({ extension }: { extension: VextExtension }) {
       <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
         {extension.description}
       </p>
-      {extension.frontend_entrypoint && (
-        <p className="mt-1 text-[10px] text-primary">
-          {m.library_extensions_workbench()}
-        </p>
-      )}
     </article>
   );
 }

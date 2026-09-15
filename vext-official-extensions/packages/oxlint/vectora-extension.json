@@ -17,15 +17,10 @@
   ],
   "publisher": "Vectora",
   "contributions": {
-    "workbench": [
-      {
-        "id": "oxlint",
-        "title": "Oxlint",
-        "icon": "Package",
-        "entrypoint": "dist/frontend.js"
-      }
-    ],
+    "workbench": [],
     "shortcuts": [],
     "footer": []
-  }
+  },
+  "description": "Run Oxlint diagnostics for the current workspace and inspect actionable fixes.",
+  "icon": "assets/icon.svg"
 }

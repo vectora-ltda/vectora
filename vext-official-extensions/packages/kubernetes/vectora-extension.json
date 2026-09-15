@@ -27,5 +27,7 @@
     ],
     "shortcuts": [],
     "footer": []
-  }
+  },
+  "description": "Inspect Kubernetes contexts, workloads, logs, and resource manifests.",
+  "icon": "assets/icon.svg"
 }

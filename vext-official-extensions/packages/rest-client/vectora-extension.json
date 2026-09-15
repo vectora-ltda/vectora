@@ -27,5 +27,7 @@
     ],
     "shortcuts": [],
     "footer": []
-  }
+  },
+  "description": "Compose and execute HTTP requests from files in the current workspace.",
+  "icon": "assets/icon.svg"
 }

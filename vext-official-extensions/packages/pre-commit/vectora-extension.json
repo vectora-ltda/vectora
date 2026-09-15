@@ -17,15 +17,10 @@
   ],
   "publisher": "Vectora",
   "contributions": {
-    "workbench": [
-      {
-        "id": "pre-commit",
-        "title": "Pre-commit",
-        "icon": "Package",
-        "entrypoint": "dist/frontend.js"
-      }
-    ],
+    "workbench": [],
     "shortcuts": [],
     "footer": []
-  }
+  },
+  "description": "Run the workspace pre-commit hooks and inspect their reported changes.",
+  "icon": "assets/icon.svg"
 }

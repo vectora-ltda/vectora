@@ -27,5 +27,7 @@
     ],
     "shortcuts": [],
     "footer": []
-  }
+  },
+  "description": "Explore GraphQL schemas and run documented queries against a configured endpoint.",
+  "icon": "assets/icon.svg"
 }

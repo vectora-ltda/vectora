@@ -27,5 +27,7 @@
     ],
     "shortcuts": [],
     "footer": []
-  }
+  },
+  "description": "Run Playwright browser checks and inspect traces for the current workspace.",
+  "icon": "assets/icon.svg"
 }

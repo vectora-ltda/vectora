@@ -17,15 +17,10 @@
   ],
   "publisher": "Vectora",
   "contributions": {
-    "workbench": [
-      {
-        "id": "ruff",
-        "title": "Ruff",
-        "icon": "Package",
-        "entrypoint": "dist/frontend.js"
-      }
-    ],
+    "workbench": [],
     "shortcuts": [],
     "footer": []
-  }
+  },
+  "description": "Run Ruff diagnostics and formatting for Python files in the current workspace.",
+  "icon": "assets/icon.svg"
 }

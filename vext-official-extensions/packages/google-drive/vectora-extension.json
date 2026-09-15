@@ -27,5 +27,7 @@
     ],
     "shortcuts": [],
     "footer": []
-  }
+  },
+  "description": "Browse and attach Google Drive files to the current workspace.",
+  "icon": "assets/icon.svg"
 }

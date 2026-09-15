@@ -17,15 +17,10 @@
   ],
   "publisher": "Vectora",
   "contributions": {
-    "workbench": [
-      {
-        "id": "eslint",
-        "title": "ESLint",
-        "icon": "Package",
-        "entrypoint": "dist/frontend.js"
-      }
-    ],
+    "workbench": [],
     "shortcuts": [],
     "footer": []
-  }
+  },
+  "description": "Run ESLint diagnostics for the current workspace and inspect actionable fixes.",
+  "icon": "assets/icon.svg"
 }

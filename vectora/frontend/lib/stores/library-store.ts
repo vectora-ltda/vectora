@@ -13,6 +13,7 @@ export interface MCPConnector {
   id: string;
   name: string;
   description: string;
+  icon?: string | null;
   install_cmd: string;
   env_vars: string[];
   homepage: string;
@@ -74,6 +75,8 @@ export interface VextExtension {
   name: string;
   description: string;
   publisher: string;
+  icon?: string | null;
+  native?: boolean;
   version: string;
   runtime: "node" | "python" | "none";
   platforms: string | string[];
@@ -101,6 +104,20 @@ export interface VextExtension {
 }
 
 const TTL_MS = 5 * 60 * 1000;
+
+export const NATIVE_EXTENSION_IDS = new Set(["github", "gitlab"]);
+const EXTENSION_DESCRIPTIONS: Record<string, string> = {
+  eslint:
+    "Run ESLint diagnostics for the current workspace and inspect actionable fixes.",
+  oxlint:
+    "Run Oxlint diagnostics for the current workspace and inspect actionable fixes.",
+  precommit:
+    "Run the workspace pre-commit hooks and inspect their reported changes.",
+  prettier: "Format workspace files with the configured Prettier settings.",
+  pyright: "Run Pyright diagnostics for Python files in the current workspace.",
+  ruff: "Run Ruff diagnostics and formatting for Python files in the current workspace.",
+  ty: "Run Ty diagnostics for Python files in the current workspace.",
+};
 
 async function fetchMcpRegistry(q: string): Promise<MCPConnector[]> {
   const qs = q ? `?${new URLSearchParams({ q })}` : "";
@@ -153,7 +170,9 @@ async function fetchInstalledExtensions(): Promise<{
       manifest?: {
         name?: string;
         description?: string;
+        icon?: string | null;
         publisher?: string;
+        native?: boolean;
         runtime?: VextExtension["runtime"];
         platforms?: string[];
         permissions?: string[];
@@ -172,11 +191,16 @@ async function fetchInstalledExtensions(): Promise<{
     items: active.map((item) => ({
       id: item.id,
       name: item.manifest?.name ?? item.id,
-      description: item.manifest?.description ?? "",
+      description:
+        item.manifest?.description ?? EXTENSION_DESCRIPTIONS[item.id] ?? "",
+      icon: item.manifest?.icon
+        ? `/vext/${encodeURIComponent(item.id)}/icon`
+        : undefined,
       publisher:
         item.manifest?.publisher === "official"
           ? "Vectora"
           : (item.manifest?.publisher ?? "local"),
+      native: item.manifest?.native ?? false,
       version: item.version,
       runtime: item.manifest?.runtime ?? "none",
       platforms: Array.isArray(item.manifest?.platforms)

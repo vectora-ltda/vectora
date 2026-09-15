@@ -26,5 +26,7 @@
     ],
     "shortcuts": [],
     "footer": []
-  }
+  },
+  "description": "Explore OpenAPI documents and send requests against documented operations.",
+  "icon": "assets/icon.svg"
 }

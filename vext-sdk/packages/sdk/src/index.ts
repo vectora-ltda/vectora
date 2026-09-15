@@ -54,10 +54,13 @@ export type VextCapability =
 export interface VextManifestInput {
   id: string;
   name: string;
+  description?: string;
+  icon?: string;
   version: string;
   api_version: number;
   entrypoint: string;
   publisher?: string;
+  native?: boolean;
   protocol_version?: number;
   runtime?: VextRuntime;
   frontend_entrypoint?: string;

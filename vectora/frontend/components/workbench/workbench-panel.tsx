@@ -61,6 +61,7 @@ import { LibraryTab } from "./tabs/library-tab";
 import { m } from "@/lib/paraglide/messages";
 import { mDyn } from "@/lib/i18n-dyn";
 import {
+  NATIVE_EXTENSION_IDS,
   useLibraryStore,
   type VextExtension,
 } from "@/lib/stores/library-store";
@@ -250,6 +251,8 @@ export function WorkbenchNavBar({
   }, [ensureExtensionsLoaded]);
   const workbenchExtensions = extensionItems.filter(
     (item) =>
+      !item.native &&
+      !NATIVE_EXTENSION_IDS.has(item.id) &&
       item.frontend_entrypoint &&
       item.contributions?.workbench?.some(
         (contribution) => contribution.entrypoint,

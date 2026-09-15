@@ -131,6 +131,34 @@ async def frontend(extension_id: str) -> Response:
     return Response(content=html, media_type="text/html")
 
 
+@router.get("/{extension_id}/icon", response_class=Response)
+async def icon(extension_id: str) -> Response:
+    """Serve an extension's declared SVG icon from its verified artifact."""
+    item = _store().active(extension_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="extensão não instalada")
+    try:
+        result = verify_vext(item.artifact)
+        icon_path = result.manifest.icon
+        if not icon_path:
+            raise ValueError("extensão não possui ícone")
+        with zipfile.ZipFile(item.artifact) as archive:
+            data = archive.read(icon_path)
+    except (
+        OSError,
+        KeyError,
+        UnicodeDecodeError,
+        ValueError,
+        zipfile.BadZipFile,
+    ) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return Response(
+        content=data,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
 @router.post("/{extension_id}/activate")
 async def activate(extension_id: str, body: LifecycleRequest) -> dict[str, object]:
     """Activate a previously installed and verified version."""

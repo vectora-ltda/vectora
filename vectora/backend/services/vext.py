@@ -49,11 +49,14 @@ class VextManifest(BaseModel):
 
     id: str = Field(pattern=r"^[a-z][a-z0-9_.-]{1,63}$")
     name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=500)
+    icon: str | None = Field(default=None, max_length=240)
     version: str
     api_version: int = Field(ge=1)
     entrypoint: str = Field(min_length=1, max_length=240)
     permissions: list[str] = Field(default_factory=list)
     publisher: str = Field(default="local", min_length=1, max_length=120)
+    native: bool = False
     protocol_version: int = Field(default=1, ge=1, le=SUPPORTED_PROTOCOL_VERSION)
     runtime: str = Field(default="python", pattern=r"^(node|python|none)$")
     frontend_entrypoint: str | None = Field(default=None, max_length=240)
@@ -74,7 +77,9 @@ class VextManifest(BaseModel):
             raise ValueError("entrypoint deve ser um caminho relativo seguro") from exc
         return value
 
-    @field_validator("frontend_entrypoint", "backend_entrypoint", "python_wheelhouse")
+    @field_validator(
+        "frontend_entrypoint", "backend_entrypoint", "python_wheelhouse", "icon"
+    )
     @classmethod
     def validate_optional_entrypoint(
         cls: type[VextManifest], value: str | None
