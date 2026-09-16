@@ -152,11 +152,17 @@ export function WorkspaceTrustDialog({
   // Evita resetar o input enquanto o usuário digita um path novo —
   // só sincroniza quando a navegação (clique/Enter) muda o listing.path.
   const lastLoadedPathRef = useRef<string | null>(null);
+  const requestEpochRef = useRef(0);
 
   /** Fetch direto: precisamos distinguir 403 (fora de safe-root) de
    *  outros erros para mostrar mensagem inline. O `browse` do store
    *  achata erros em `null` e perde essa informação. */
   const load = useCallback(async (path?: string) => {
+    const epoch = ++requestEpochRef.current;
+    const requestedPath = path ?? lastLoadedPathRef.current;
+    // Keep the path that is currently being requested available for retry,
+    // including when this request fails before a listing is returned.
+    lastLoadedPathRef.current = requestedPath ?? null;
     setLoading(true);
     setError(null);
     setListing(null);
@@ -165,16 +171,18 @@ export function WorkspaceTrustDialog({
     setCreatingFolder(false);
     setNewFolderName("");
     try {
-      const q = path ? `?path=${encodeURIComponent(path)}` : "";
+      const q = requestedPath ? `?path=${encodeURIComponent(requestedPath)}` : "";
       const res = await fetch(`/workspaces/browse${q}`, {
         credentials: "include",
       });
       if (res.status === 403) {
         const data = await res.json().catch(() => ({}));
+        if (epoch !== requestEpochRef.current) return;
         setError(data.detail ?? "Caminho fora das pastas seguras.");
         return;
       }
       if (!res.ok) {
+        if (epoch !== requestEpochRef.current) return;
         setError(`Erro ao listar (${res.status}).`);
         return;
       }
@@ -182,19 +190,22 @@ export function WorkspaceTrustDialog({
       // text/html e o JSON.parse falharia — detectar antes de tentar.
       const ct = res.headers.get("content-type") ?? "";
       if (!ct.includes("application/json")) {
+        if (epoch !== requestEpochRef.current) return;
         setError(
           "Servidor indisponível. Inicie o backend e reabra este diálogo.",
         );
         return;
       }
       const data = (await res.json()) as BrowseResult;
+      if (epoch !== requestEpochRef.current) return;
       setListing(data);
       lastLoadedPathRef.current = data.path;
       setPathInput(data.path);
     } catch (e) {
+      if (epoch !== requestEpochRef.current) return;
       setError(e instanceof Error ? e.message : "Falha de rede.");
     } finally {
-      setLoading(false);
+      if (epoch === requestEpochRef.current) setLoading(false);
     }
   }, []);
 
@@ -261,13 +272,15 @@ export function WorkspaceTrustDialog({
   /** Recarrega o diretório atual — `load` não tem o guard de "path
    * inalterado" de `handleGo`, então chamar direto já força o refetch. */
   const handleReload = () => {
-    if (listing) void load(listing.path);
+    const path = listing?.path ?? lastLoadedPathRef.current ?? pathInput.trim();
+    if (path) void load(path);
   };
 
   const handleCreateFolder = async () => {
     const name = newFolderName.trim();
     if (!listing || !name) return;
     setFolderSubmitting(true);
+    const navigationEpoch = requestEpochRef.current;
     setError(null);
     try {
       const res = await fetch("/workspaces/browse/mkdir", {
@@ -290,6 +303,7 @@ export function WorkspaceTrustDialog({
         return;
       }
       const data = (await res.json()) as BrowseResult;
+      if (navigationEpoch !== requestEpochRef.current) return;
       const createdPath =
         data.created_path ??
         data.entries.find((entry) => entry.is_dir && entry.name === name)?.path;
@@ -302,6 +316,7 @@ export function WorkspaceTrustDialog({
 
       // Compatibilidade com servidores antigos que ainda não retornam
       // created_path nem a entrada criada na resposta.
+      if (navigationEpoch !== requestEpochRef.current) return;
       setListing(data);
       lastLoadedPathRef.current = data.path;
       setPathInput(data.path);
@@ -652,7 +667,7 @@ export function WorkspaceTrustDialog({
                     variant="ghost"
                     className="h-8 px-2"
                     onClick={handleReload}
-                    disabled={loading || offline || !listing}
+                    disabled={loading || offline || (!listing && !lastLoadedPathRef.current && !pathInput.trim())}
                     title={
                       offline
                         ? m.network_disabled_offline()
