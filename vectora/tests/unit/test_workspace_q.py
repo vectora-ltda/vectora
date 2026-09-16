@@ -311,6 +311,35 @@ class TestWorkspaceHandlers:
         assert exc_conflict.value.status_code == 409
 
     @pytest.mark.asyncio
+    async def test_mkdir_rejeita_nome_vazio(self, tmp_path):
+        from fastapi import HTTPException
+
+        from backend.api.handlers.workspaces import MkdirRequest, mkdir_dir
+
+        fake_request = SimpleNamespace(state=SimpleNamespace(user=None))
+        with pytest.raises(HTTPException) as exc:
+            await mkdir_dir(
+                fake_request,  # ty: ignore[invalid-argument-type]
+                MkdirRequest(path=str(tmp_path), name=""),
+            )
+        assert exc.value.status_code == 400
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.asyncio
+    async def test_mkdir_rejeita_caminho_vazio(self, tmp_path):
+        from fastapi import HTTPException
+
+        from backend.api.handlers.workspaces import MkdirRequest, mkdir_dir
+
+        fake_request = SimpleNamespace(state=SimpleNamespace(user=None))
+        with pytest.raises(HTTPException) as exc:
+            await mkdir_dir(
+                fake_request,  # ty: ignore[invalid-argument-type]
+                MkdirRequest(path="", name="nova"),
+            )
+        assert exc.value.status_code == 400
+
+    @pytest.mark.asyncio
     async def test_mkdir_common_user_outside_safe_root_forbidden(self, tmp_path):
         from fastapi import HTTPException
 

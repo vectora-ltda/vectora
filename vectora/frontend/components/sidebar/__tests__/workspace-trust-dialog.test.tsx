@@ -175,6 +175,62 @@ describe("WorkspaceTrustDialog — reload e nova pasta", () => {
     expect(screen.getByPlaceholderText("Folder name")).toBeTruthy();
   });
 
+  it("ignora erro de criação que retorna depois de uma nova navegação", async () => {
+    const otherListing = {
+      ...listing,
+      path: "C:\\Users\\Machi\\Documents\\outro",
+      entries: [
+        {
+          name: "novo-diretorio",
+          path: "C:\\Users\\Machi\\Documents\\outro\\novo-diretorio",
+          is_dir: true,
+          kind: "dir",
+        },
+      ],
+    };
+    let resolveMkdir!: (response: Response) => void;
+    const pendingMkdir = new Promise<Response>((resolve) => {
+      resolveMkdir = resolve;
+    });
+    FETCH.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/workspaces/browse/mkdir" && init?.method === "POST") {
+        return pendingMkdir;
+      }
+      if (url.startsWith("/workspaces/browse")) {
+        return url.includes(encodeURIComponent(otherListing.path))
+          ? jsonRes(otherListing)
+          : jsonRes(listing);
+      }
+      return jsonRes({}, 404);
+    });
+
+    render(<WorkspaceTrustDialog open onOpenChange={() => {}} />);
+    await waitFor(() => screen.getByText("projeto-a"));
+    fireEvent.click(screen.getByTitle("New folder"));
+    fireEvent.change(await screen.findByPlaceholderText("Folder name"), {
+      target: { value: "pasta-pendente" },
+    });
+    fireEvent.click(screen.getByText("Create"));
+
+    const pathInput = screen.getByTestId("workspace-path-input");
+    fireEvent.change(pathInput, { target: { value: otherListing.path } });
+    fireEvent.click(screen.getByTestId("workspace-go-btn"));
+    await waitFor(() => screen.getByText("novo-diretorio"));
+
+    resolveMkdir(
+      new Response(JSON.stringify({ detail: "conflict" }), {
+        status: 409,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByText("A folder with that name already exists."),
+      ).toBeNull(),
+    );
+    expect(screen.getByText("novo-diretorio")).toBeTruthy();
+  });
+
   it("usa a entrada criada quando o servidor antigo não retorna created_path", async () => {
     const createdPath = `${listing.path}\\legado`;
     FETCH.mockImplementation((url: string, init?: RequestInit) => {

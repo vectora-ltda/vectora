@@ -171,7 +171,9 @@ export function WorkspaceTrustDialog({
     setCreatingFolder(false);
     setNewFolderName("");
     try {
-      const q = requestedPath ? `?path=${encodeURIComponent(requestedPath)}` : "";
+      const q = requestedPath
+        ? `?path=${encodeURIComponent(requestedPath)}`
+        : "";
       const res = await fetch(`/workspaces/browse${q}`, {
         credentials: "include",
       });
@@ -290,15 +292,18 @@ export function WorkspaceTrustDialog({
         body: JSON.stringify({ path: listing.path, name }),
       });
       if (res.status === 400) {
+        if (navigationEpoch !== requestEpochRef.current) return;
         setError(m.workspace_new_folder_error_invalid_name());
         return;
       }
       if (res.status === 409) {
+        if (navigationEpoch !== requestEpochRef.current) return;
         setError(m.workspace_new_folder_error_conflict());
         return;
       }
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        if (navigationEpoch !== requestEpochRef.current) return;
         setError(data.detail ?? `Erro ao criar pasta (${res.status}).`);
         return;
       }
@@ -323,6 +328,7 @@ export function WorkspaceTrustDialog({
       setNewFolderName("");
       setCreatingFolder(false);
     } catch (e) {
+      if (navigationEpoch !== requestEpochRef.current) return;
       setError(e instanceof Error ? e.message : "Falha de rede.");
     } finally {
       setFolderSubmitting(false);
@@ -667,7 +673,13 @@ export function WorkspaceTrustDialog({
                     variant="ghost"
                     className="h-8 px-2"
                     onClick={handleReload}
-                    disabled={loading || offline || (!listing && !lastLoadedPathRef.current && !pathInput.trim())}
+                    disabled={
+                      loading ||
+                      offline ||
+                      (!listing &&
+                        !lastLoadedPathRef.current &&
+                        !pathInput.trim())
+                    }
                     title={
                       offline
                         ? m.network_disabled_offline()
