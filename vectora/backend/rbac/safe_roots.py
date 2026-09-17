@@ -24,6 +24,10 @@ from backend.vtypes import SafeRoot
 logger = logging.getLogger(__name__)
 
 
+class SafeRootPersistenceError(RuntimeError):
+    """Raised when the safe-root registry cannot be durably persisted."""
+
+
 def _safe_roots_file() -> Path:
     """Caminho de ``safe_roots.json``, sob ``settings.vectora_home``.
 
@@ -93,11 +97,13 @@ class SafeRootRegistry:
         existing = self._roots.get(builtin_id)
         if existing is not None:
             if not existing.builtin:
-                self._roots[builtin_id] = existing.model_copy(update={"builtin": True})
-                self._save()
+                candidate = dict(self._roots)
+                candidate[builtin_id] = existing.model_copy(update={"builtin": True})
+                self._save_roots(candidate)
+                self._roots = candidate
             return
         now = datetime.now(UTC).isoformat()
-        self._roots[builtin_id] = SafeRoot(
+        builtin = SafeRoot(
             id=builtin_id,
             path=str(builtin_path.resolve()),
             label="Workspaces Vectora",
@@ -105,26 +111,44 @@ class SafeRootRegistry:
             created_by="system",
             builtin=True,
         )
-        self._save()
+        candidate = dict(self._roots)
+        candidate[builtin_id] = builtin
+        self._save_roots(candidate)
+        self._roots = candidate
 
-    def _save(self) -> None:
+    def _save_roots(self, roots: dict[str, SafeRoot]) -> None:
+        """Atomically persist a candidate registry or raise on failure."""
+        safe_roots_file = _safe_roots_file()
+        temporary_file = safe_roots_file.with_name(f".{safe_roots_file.name}.tmp")
+        data = {"roots": [r.model_dump() for r in roots.values()]}
         try:
-            safe_roots_file = _safe_roots_file()
             safe_roots_file.parent.mkdir(parents=True, exist_ok=True)
-            data = {"roots": [r.model_dump() for r in self._roots.values()]}
-            safe_roots_file.write_text(
+            temporary_file.write_text(
                 json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
             )
-        except Exception:
+            temporary_file.replace(safe_roots_file)
+        except Exception as exc:
+            temporary_file.unlink(missing_ok=True)
             logger.warning("Falha ao salvar safe_roots.json", exc_info=True)
+            raise SafeRootPersistenceError(
+                "Não foi possível persistir as pastas seguras."
+            ) from exc
+
+    def _save(self) -> None:
+        """Persist the current registry atomically."""
+        self._save_roots(self._roots)
 
     # ----- API pública --------------------------------------------------
 
-    def all_roots(self) -> list[SafeRoot]:
-        """Retorna todas as raízes confiáveis (builtin primeiro)."""
+    def all_roots(self, *, include_archived: bool = False) -> list[SafeRoot]:
+        """Retorna raízes ativas, ou também arquivadas quando solicitado."""
         self._load()
         return sorted(
-            self._roots.values(),
+            (
+                r
+                for r in self._roots.values()
+                if include_archived or r.archived_at is None
+            ),
             key=lambda r: (not r.builtin, r.label.lower()),
         )
 
@@ -138,7 +162,15 @@ class SafeRootRegistry:
         resolved = str(Path(path).expanduser().resolve())
         root_id = self.derive_id(resolved)
         if root_id in self._roots:
-            return self._roots[root_id]
+            existing = self._roots[root_id]
+            if existing.archived_at is not None:
+                restored = existing.model_copy(update={"archived_at": None})
+                candidate = dict(self._roots)
+                candidate[root_id] = restored
+                self._save_roots(candidate)
+                self._roots = candidate
+                return restored
+            return existing
         root = SafeRoot(
             id=root_id,
             path=resolved,
@@ -147,8 +179,10 @@ class SafeRootRegistry:
             created_by=user_id,
             builtin=False,
         )
-        self._roots[root_id] = root
-        self._save()
+        candidate = dict(self._roots)
+        candidate[root_id] = root
+        self._save_roots(candidate)
+        self._roots = candidate
         return root
 
     def update_label(self, root_id: str, label: str) -> SafeRoot | None:
@@ -158,8 +192,10 @@ class SafeRootRegistry:
         if root is None:
             return None
         updated = root.model_copy(update={"label": label.strip() or root.label})
-        self._roots[root_id] = updated
-        self._save()
+        candidate = dict(self._roots)
+        candidate[root_id] = updated
+        self._save_roots(candidate)
+        self._roots = candidate
         return updated
 
     def remove(self, root_id: str) -> bool:
@@ -170,9 +206,39 @@ class SafeRootRegistry:
             return False
         if root.builtin:
             return False
-        del self._roots[root_id]
-        self._save()
+        candidate = dict(self._roots)
+        del candidate[root_id]
+        self._save_roots(candidate)
+        self._roots = candidate
         return True
+
+    def archive(self, root_id: str) -> SafeRoot | None:
+        """Arquiva uma raiz sem apagar o registro ou seu histórico."""
+        self._load()
+        root = self._roots.get(root_id)
+        if root is None or root.builtin:
+            return None
+        archived = root.model_copy(
+            update={"archived_at": datetime.now(UTC).isoformat()}
+        )
+        candidate = dict(self._roots)
+        candidate[root_id] = archived
+        self._save_roots(candidate)
+        self._roots = candidate
+        return archived
+
+    def restore(self, root_id: str) -> SafeRoot | None:
+        """Restaura uma raiz arquivada."""
+        self._load()
+        root = self._roots.get(root_id)
+        if root is None:
+            return None
+        restored = root.model_copy(update={"archived_at": None})
+        candidate = dict(self._roots)
+        candidate[root_id] = restored
+        self._save_roots(candidate)
+        self._roots = candidate
+        return restored
 
     # ----- Validação ----------------------------------------------------
 
@@ -185,6 +251,8 @@ class SafeRootRegistry:
         self._load()
         target = Path(path).expanduser().resolve()
         for root in self._roots.values():
+            if root.archived_at is not None:
+                continue
             root_path = Path(root.path)
             try:
                 target.relative_to(root_path)

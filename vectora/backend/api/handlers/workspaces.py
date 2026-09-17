@@ -17,6 +17,7 @@ em modo CLI/root local, usa ``"local"``.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hashlib
 import json
@@ -136,6 +137,7 @@ class SafeRootInfo(BaseModel):
     path: str
     label: str
     builtin: bool
+    archived_at: str | None = None
 
 
 class ListSafeRootsResponse(BaseModel):
@@ -332,17 +334,37 @@ async def create_workspace(
     request: Request, body: CreateWorkspaceRequest
 ) -> StatusResponse:
     """Registra uma pasta como workspace, opcionalmente confiando e iniciando git."""
+    from backend.rbac.safe_roots import get_safe_root_registry
     from backend.workspace.workspace import workspace_registry
 
     path = Path(body.path).expanduser()
-    if not path.exists() or not path.is_dir():
+    try:
+        resolved_path = path.resolve(strict=True)
+    except OSError:
+        resolved_path = None
+    if resolved_path is None or not resolved_path.is_dir():
         return StatusResponse(
             status="error", message=f"Diretório não encontrado: {body.path}"
         )
 
     uid = _user_id(request)
+    safe_roots = get_safe_root_registry()
+    privileged = _is_privileged(request)
+    if (
+        not privileged
+        and await asyncio.to_thread(safe_roots.is_under_safe_root, str(resolved_path))
+        is None
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Caminho fora das pastas seguras configuradas.",
+        )
+    if privileged:
+        await asyncio.to_thread(
+            safe_roots.add, str(resolved_path), resolved_path.name, str(uid)
+        )
     ws = workspace_registry.create(
-        str(path), trust=body.trust, git_init=body.git_init, user_id=uid
+        str(resolved_path), trust=body.trust, git_init=body.git_init, user_id=uid
     )
     workspace_registry.set_active(ws.id, uid)
     return StatusResponse(status="ok", workspace=_to_info(ws))
@@ -672,7 +694,13 @@ async def list_safe_roots() -> ListSafeRootsResponse:
     registry = get_safe_root_registry()
     return ListSafeRootsResponse(
         roots=[
-            SafeRootInfo(id=r.id, path=r.path, label=r.label, builtin=r.builtin)
+            SafeRootInfo(
+                id=r.id,
+                path=r.path,
+                label=r.label,
+                builtin=r.builtin,
+                archived_at=r.archived_at,
+            )
             for r in registry.all_roots()
         ],
     )

@@ -23,6 +23,7 @@ import {
   Loader2,
   Pencil,
   RefreshCw,
+  RotateCcw,
   Trash2,
   UserPlus,
   Wrench,
@@ -30,6 +31,12 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+
+const DASHBOARD_URL = "https://vectora.company/dashboard";
+const TOKEN_ENV_NAME = "VECTORA_TOKEN";
+const LATENCY_UNIT = "ms";
+const BASIC_ROLES = ["admin", "member", "viewer"] as const;
+const ALL_ROLES = ["root", "admin", "member", "viewer"] as const;
 
 import { useLicenseStatus } from "@/lib/hooks/use-license-status";
 
@@ -236,9 +243,11 @@ function InvitesSection() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="admin">admin</SelectItem>
-                  <SelectItem value="member">member</SelectItem>
-                  <SelectItem value="viewer">viewer</SelectItem>
+                  {BASIC_ROLES.map((role) => (
+                    <SelectItem key={role} value={role}>
+                      {role}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -511,10 +520,11 @@ export function UsersPanel() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="root">root</SelectItem>
-                <SelectItem value="admin">admin</SelectItem>
-                <SelectItem value="member">member</SelectItem>
-                <SelectItem value="viewer">viewer</SelectItem>
+                {ALL_ROLES.map((role) => (
+                  <SelectItem key={role} value={role}>
+                    {role}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
 
@@ -757,7 +767,7 @@ function ConfigSection() {
     <div className="space-y-4">
       <div className="space-y-1.5 pb-3 border-b">
         <div className="flex items-center gap-2">
-          <p className="text-sm font-medium">VECTORA_TOKEN</p>
+          <p className="text-sm font-medium">{TOKEN_ENV_NAME}</p>
           {config.vectora_token_configured ? (
             <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
               {m.admin_config_token_configured()}
@@ -771,12 +781,12 @@ function ConfigSection() {
         <p className="text-xs text-muted-foreground">
           {m.admin_config_token_desc()}{" "}
           <a
-            href="https://vectora.company/dashboard"
+            href={DASHBOARD_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="text-primary hover:underline"
           >
-            vectora.company/dashboard
+            {DASHBOARD_URL.replace("https://", "")}
           </a>
           .
         </p>
@@ -851,6 +861,7 @@ interface SafeRootRow {
   builtin: boolean;
   created_at: string;
   created_by: string;
+  archived_at: string | null;
 }
 
 export function SafeRootsPanel() {
@@ -939,6 +950,11 @@ export function SafeRootsPanel() {
     await reload();
   };
 
+  const handleRestore = async (id: string) => {
+    await fetch(`/admin/safe-roots/${id}/restore`, { method: "POST" });
+    await reload();
+  };
+
   const handleBrowse = async () => {
     if (!pickDirectory) return;
     const picked = await pickDirectory();
@@ -1018,7 +1034,8 @@ export function SafeRootsPanel() {
           {roots.map((r) => (
             <div
               key={r.id}
-              className="flex items-center gap-2 px-3 py-2 text-xs"
+              className={`flex items-center gap-2 px-3 py-2 text-xs ${r.archived_at ? "opacity-60" : ""}`}
+              data-testid={`safe-root-${r.id}`}
             >
               <FolderLock className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
               <div className="flex-1 min-w-0">
@@ -1043,6 +1060,11 @@ export function SafeRootsPanel() {
                         {m.admin_saferoots_builtin_badge()}
                       </Badge>
                     )}
+                    {r.archived_at && (
+                      <Badge variant="outline" className="text-[10px] py-0">
+                        {m.admin_saferoots_archived_badge()}
+                      </Badge>
+                    )}
                   </div>
                 )}
                 <div className="font-mono text-[10px] text-muted-foreground truncate">
@@ -1057,23 +1079,36 @@ export function SafeRootsPanel() {
                   setEditLabel(r.label);
                 }}
                 title={m.admin_saferoots_rename_title()}
+                disabled={Boolean(r.archived_at)}
               >
                 <Pencil className="w-3.5 h-3.5" />
               </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => handleRemove(r.id)}
-                disabled={r.builtin}
-                title={
-                  r.builtin
-                    ? m.admin_saferoots_builtin_no_remove()
-                    : m.admin_saferoots_remove_title()
-                }
-                className="text-destructive hover:text-destructive disabled:opacity-30"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </Button>
+              {r.archived_at ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void handleRestore(r.id)}
+                  title={m.admin_saferoots_restore_title()}
+                  aria-label={m.admin_saferoots_restore_title()}
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => handleRemove(r.id)}
+                  disabled={r.builtin}
+                  title={
+                    r.builtin
+                      ? m.admin_saferoots_builtin_no_remove()
+                      : m.admin_saferoots_remove_title()
+                  }
+                  className="text-destructive hover:text-destructive disabled:opacity-30"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              )}
             </div>
           ))}
         </div>
@@ -1153,7 +1188,10 @@ function StorageStatusBadge({ status }: { status: StorageBackendStatus }) {
         <CheckCircle2 className="w-3.5 h-3.5" />
         {m.admin_storage_connected()}
         {status.latency_ms !== undefined && (
-          <span className="text-muted-foreground">({status.latency_ms}ms)</span>
+          <span className="text-muted-foreground">
+            ({status.latency_ms}
+            {LATENCY_UNIT})
+          </span>
         )}
       </span>
     );
@@ -1184,7 +1222,8 @@ function StorageTestResultLine({ result }: { result: StorageTestResult }) {
           {m.admin_storage_test_ok()}
           {result.latency_ms !== undefined && (
             <span className="text-muted-foreground">
-              ({result.latency_ms}ms)
+              ({result.latency_ms}
+              {LATENCY_UNIT})
             </span>
           )}
         </>
