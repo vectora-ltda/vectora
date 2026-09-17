@@ -152,28 +152,39 @@ export function WorkspaceTrustDialog({
   // Evita resetar o input enquanto o usuário digita um path novo —
   // só sincroniza quando a navegação (clique/Enter) muda o listing.path.
   const lastLoadedPathRef = useRef<string | null>(null);
+  const requestEpochRef = useRef(0);
 
   /** Fetch direto: precisamos distinguir 403 (fora de safe-root) de
    *  outros erros para mostrar mensagem inline. O `browse` do store
    *  achata erros em `null` e perde essa informação. */
   const load = useCallback(async (path?: string) => {
+    const epoch = ++requestEpochRef.current;
+    const requestedPath = path ?? lastLoadedPathRef.current;
+    // Keep the path that is currently being requested available for retry,
+    // including when this request fails before a listing is returned.
+    lastLoadedPathRef.current = requestedPath ?? null;
     setLoading(true);
     setError(null);
+    setListing(null);
     // Navegar pra outro diretório fecha um formulário de "nova pasta"
     // pendente — ele se referia ao diretório anterior.
     setCreatingFolder(false);
     setNewFolderName("");
     try {
-      const q = path ? `?path=${encodeURIComponent(path)}` : "";
+      const q = requestedPath
+        ? `?path=${encodeURIComponent(requestedPath)}`
+        : "";
       const res = await fetch(`/workspaces/browse${q}`, {
         credentials: "include",
       });
       if (res.status === 403) {
         const data = await res.json().catch(() => ({}));
+        if (epoch !== requestEpochRef.current) return;
         setError(data.detail ?? "Caminho fora das pastas seguras.");
         return;
       }
       if (!res.ok) {
+        if (epoch !== requestEpochRef.current) return;
         setError(`Erro ao listar (${res.status}).`);
         return;
       }
@@ -181,19 +192,22 @@ export function WorkspaceTrustDialog({
       // text/html e o JSON.parse falharia — detectar antes de tentar.
       const ct = res.headers.get("content-type") ?? "";
       if (!ct.includes("application/json")) {
+        if (epoch !== requestEpochRef.current) return;
         setError(
           "Servidor indisponível. Inicie o backend e reabra este diálogo.",
         );
         return;
       }
       const data = (await res.json()) as BrowseResult;
+      if (epoch !== requestEpochRef.current) return;
       setListing(data);
       lastLoadedPathRef.current = data.path;
       setPathInput(data.path);
     } catch (e) {
+      if (epoch !== requestEpochRef.current) return;
       setError(e instanceof Error ? e.message : "Falha de rede.");
     } finally {
-      setLoading(false);
+      if (epoch === requestEpochRef.current) setLoading(false);
     }
   }, []);
 
@@ -260,13 +274,15 @@ export function WorkspaceTrustDialog({
   /** Recarrega o diretório atual — `load` não tem o guard de "path
    * inalterado" de `handleGo`, então chamar direto já força o refetch. */
   const handleReload = () => {
-    if (listing) void load(listing.path);
+    const path = listing?.path ?? lastLoadedPathRef.current ?? pathInput.trim();
+    if (path) void load(path);
   };
 
   const handleCreateFolder = async () => {
     const name = newFolderName.trim();
     if (!listing || !name) return;
     setFolderSubmitting(true);
+    const navigationEpoch = requestEpochRef.current;
     setError(null);
     try {
       const res = await fetch("/workspaces/browse/mkdir", {
@@ -276,24 +292,43 @@ export function WorkspaceTrustDialog({
         body: JSON.stringify({ path: listing.path, name }),
       });
       if (res.status === 400) {
+        if (navigationEpoch !== requestEpochRef.current) return;
         setError(m.workspace_new_folder_error_invalid_name());
         return;
       }
       if (res.status === 409) {
+        if (navigationEpoch !== requestEpochRef.current) return;
         setError(m.workspace_new_folder_error_conflict());
         return;
       }
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        if (navigationEpoch !== requestEpochRef.current) return;
         setError(data.detail ?? `Erro ao criar pasta (${res.status}).`);
         return;
       }
       const data = (await res.json()) as BrowseResult;
+      if (navigationEpoch !== requestEpochRef.current) return;
+      const createdPath =
+        data.created_path ??
+        data.entries.find((entry) => entry.is_dir && entry.name === name)?.path;
+      if (createdPath) {
+        setCreatingFolder(false);
+        setNewFolderName("");
+        await load(createdPath);
+        return;
+      }
+
+      // Compatibilidade com servidores antigos que ainda não retornam
+      // created_path nem a entrada criada na resposta.
+      if (navigationEpoch !== requestEpochRef.current) return;
       setListing(data);
       lastLoadedPathRef.current = data.path;
+      setPathInput(data.path);
       setNewFolderName("");
       setCreatingFolder(false);
     } catch (e) {
+      if (navigationEpoch !== requestEpochRef.current) return;
       setError(e instanceof Error ? e.message : "Falha de rede.");
     } finally {
       setFolderSubmitting(false);
@@ -343,7 +378,7 @@ export function WorkspaceTrustDialog({
   };
 
   const handleConfirm = async () => {
-    if (!listing) return;
+    if (!listing || folderSubmitting || loading) return;
     if (mode === "ingest") {
       const wsId = getActive()?.id;
       if (!wsId) {
@@ -503,7 +538,8 @@ export function WorkspaceTrustDialog({
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  <Server className="w-3.5 h-3.5" /> SSH
+                  <Server className="w-3.5 h-3.5" />
+                  {m.workspace_transport_ssh()}
                 </button>
                 <button
                   type="button"
@@ -514,7 +550,8 @@ export function WorkspaceTrustDialog({
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  <Cloud className="w-3.5 h-3.5" /> Codespace
+                  <Cloud className="w-3.5 h-3.5" />
+                  {m.workspace_transport_codespace()}
                 </button>
               </div>
             )}
@@ -636,7 +673,13 @@ export function WorkspaceTrustDialog({
                     variant="ghost"
                     className="h-8 px-2"
                     onClick={handleReload}
-                    disabled={loading || offline || !listing}
+                    disabled={
+                      loading ||
+                      offline ||
+                      (!listing &&
+                        !lastLoadedPathRef.current &&
+                        !pathInput.trim())
+                    }
                     title={
                       offline
                         ? m.network_disabled_offline()
@@ -800,7 +843,7 @@ export function WorkspaceTrustDialog({
                   <Input
                     value={sshHost}
                     onChange={(e) => setSshHost(e.target.value)}
-                    placeholder="user@host:22"
+                    placeholder={m.workspace_ssh_host_placeholder()}
                     className="h-8 text-xs font-mono"
                     autoComplete="off"
                     spellCheck={false}
@@ -813,7 +856,7 @@ export function WorkspaceTrustDialog({
                   <Input
                     value={sshPath}
                     onChange={(e) => setSshPath(e.target.value)}
-                    placeholder="/home/user/projects/app"
+                    placeholder={m.workspace_ssh_path_placeholder()}
                     className="h-8 text-xs font-mono"
                     autoComplete="off"
                     spellCheck={false}
@@ -945,7 +988,13 @@ export function WorkspaceTrustDialog({
               {tab === "local" && (
                 <Button
                   onClick={handleConfirm}
-                  disabled={!listing || submitting || offline}
+                  disabled={
+                    !listing ||
+                    submitting ||
+                    folderSubmitting ||
+                    loading ||
+                    offline
+                  }
                   title={offline ? m.network_disabled_offline() : undefined}
                   data-testid="workspace-trust-confirm-btn"
                 >

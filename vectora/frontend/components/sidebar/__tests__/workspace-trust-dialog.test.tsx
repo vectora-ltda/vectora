@@ -84,7 +84,11 @@ describe("WorkspaceTrustDialog — reload e nova pasta", () => {
     expect(lastCall).toContain(encodeURIComponent(listing.path));
   });
 
-  it("cria uma pasta nova e relista (feliz); nome em conflito mostra erro sem travar o formulário (edge)", async () => {
+  it("cria uma pasta nova e relista", async () => {
+    let createdPath: string | null = null;
+    const originalCreate = useWorkspacesStore.getState().create;
+    const createSpy = vi.fn().mockResolvedValue({ ok: true, data: null });
+    useWorkspacesStore.setState({ create: createSpy });
     FETCH.mockImplementation((url: string, init?: RequestInit) => {
       if (url === "/workspaces/browse/mkdir" && init?.method === "POST") {
         const body = JSON.parse(init.body as string) as {
@@ -94,8 +98,10 @@ describe("WorkspaceTrustDialog — reload e nova pasta", () => {
         if (body.name === "ja-existe") {
           return jsonRes({ detail: "conflict" }, 409);
         }
+        createdPath = `${body.path}\\${body.name}`;
         return jsonRes({
           ...listing,
+          created_path: createdPath,
           entries: [
             ...listing.entries,
             {
@@ -108,6 +114,14 @@ describe("WorkspaceTrustDialog — reload e nova pasta", () => {
         });
       }
       if (url.startsWith("/workspaces/browse")) {
+        if (createdPath && decodeURIComponent(url).includes(createdPath)) {
+          return jsonRes({
+            ...listing,
+            path: createdPath,
+            parent: listing.path,
+            entries: [],
+          });
+        }
         return jsonRes(listing);
       }
       return jsonRes({}, 404);
@@ -121,21 +135,133 @@ describe("WorkspaceTrustDialog — reload e nova pasta", () => {
     fireEvent.change(input, { target: { value: "minha-pasta" } });
     fireEvent.click(screen.getByText("Create"));
 
-    await waitFor(() => screen.getByText("minha-pasta"));
+    await waitFor(() =>
+      expect(screen.getByDisplayValue(createdPath as string)).toBeTruthy(),
+    );
     // Formulário fecha após sucesso.
     expect(screen.queryByPlaceholderText("Folder name")).toBeNull();
+    fireEvent.click(screen.getByTestId("workspace-trust-confirm-btn"));
+    await waitFor(() =>
+      expect(createSpy).toHaveBeenCalledWith(createdPath, {
+        trust: true,
+        git_init: true,
+      }),
+    );
 
-    // Edge — conflito: reabre o formulário e tenta um nome já existente.
+    useWorkspacesStore.setState({ create: originalCreate });
+  });
+
+  it("mantém o formulário aberto quando a pasta entra em conflito", async () => {
+    FETCH.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/workspaces/browse/mkdir" && init?.method === "POST") {
+        return jsonRes({ detail: "conflict" }, 409);
+      }
+      if (url.startsWith("/workspaces/browse")) return jsonRes(listing);
+      return jsonRes({}, 404);
+    });
+
+    render(<WorkspaceTrustDialog open onOpenChange={() => {}} />);
+    await waitFor(() => screen.getByText("projeto-a"));
     fireEvent.click(screen.getByTitle("New folder"));
-    const input2 = await screen.findByPlaceholderText("Folder name");
-    fireEvent.change(input2, { target: { value: "ja-existe" } });
+    const input = await screen.findByPlaceholderText("Folder name");
+    fireEvent.change(input, { target: { value: "ja-existe" } });
     fireEvent.click(screen.getByText("Create"));
 
     await waitFor(() =>
-      screen.getByText("A folder with that name already exists."),
+      expect(
+        screen.getByText("A folder with that name already exists."),
+      ).toBeTruthy(),
     );
-    // Formulário continua aberto — usuário pode corrigir o nome.
     expect(screen.getByPlaceholderText("Folder name")).toBeTruthy();
+  });
+
+  it("ignora erro de criação que retorna depois de uma nova navegação", async () => {
+    const otherListing = {
+      ...listing,
+      path: "C:\\Users\\Machi\\Documents\\outro",
+      entries: [
+        {
+          name: "novo-diretorio",
+          path: "C:\\Users\\Machi\\Documents\\outro\\novo-diretorio",
+          is_dir: true,
+          kind: "dir",
+        },
+      ],
+    };
+    let resolveMkdir!: (response: Response) => void;
+    const pendingMkdir = new Promise<Response>((resolve) => {
+      resolveMkdir = resolve;
+    });
+    FETCH.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/workspaces/browse/mkdir" && init?.method === "POST") {
+        return pendingMkdir;
+      }
+      if (url.startsWith("/workspaces/browse")) {
+        return url.includes(encodeURIComponent(otherListing.path))
+          ? jsonRes(otherListing)
+          : jsonRes(listing);
+      }
+      return jsonRes({}, 404);
+    });
+
+    render(<WorkspaceTrustDialog open onOpenChange={() => {}} />);
+    await waitFor(() => screen.getByText("projeto-a"));
+    fireEvent.click(screen.getByTitle("New folder"));
+    fireEvent.change(await screen.findByPlaceholderText("Folder name"), {
+      target: { value: "pasta-pendente" },
+    });
+    fireEvent.click(screen.getByText("Create"));
+
+    const pathInput = screen.getByTestId("workspace-path-input");
+    fireEvent.change(pathInput, { target: { value: otherListing.path } });
+    fireEvent.click(screen.getByTestId("workspace-go-btn"));
+    await waitFor(() => screen.getByText("novo-diretorio"));
+
+    resolveMkdir(
+      new Response(JSON.stringify({ detail: "conflict" }), {
+        status: 409,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByText("A folder with that name already exists."),
+      ).toBeNull(),
+    );
+    expect(screen.getByText("novo-diretorio")).toBeTruthy();
+  });
+
+  it("usa a entrada criada quando o servidor antigo não retorna created_path", async () => {
+    const createdPath = `${listing.path}\\legado`;
+    FETCH.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/workspaces/browse/mkdir" && init?.method === "POST") {
+        return jsonRes({
+          ...listing,
+          entries: [
+            ...listing.entries,
+            { name: "legado", path: createdPath, is_dir: true, kind: "dir" },
+          ],
+        });
+      }
+      if (url.startsWith("/workspaces/browse")) {
+        return url.includes(encodeURIComponent(createdPath))
+          ? jsonRes({ ...listing, path: createdPath, entries: [] })
+          : jsonRes(listing);
+      }
+      return jsonRes({}, 404);
+    });
+
+    render(<WorkspaceTrustDialog open onOpenChange={() => {}} />);
+    await waitFor(() => screen.getByText("projeto-a"));
+    fireEvent.click(screen.getByTitle("New folder"));
+    fireEvent.change(await screen.findByPlaceholderText("Folder name"), {
+      target: { value: "legado" },
+    });
+    fireEvent.click(screen.getByText("Create"));
+
+    await waitFor(() =>
+      expect(screen.getByDisplayValue(createdPath)).toBeTruthy(),
+    );
   });
 });
 
