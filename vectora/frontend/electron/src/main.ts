@@ -72,6 +72,7 @@ import {
   listUpdateBackups,
   restoreUpdateBackup,
 } from "./update-backup.js";
+import { startUpdateDownload as startUpdateDownloadAfterBackup } from "./updater-download.js";
 
 const ELECTRON_RESTART_EXIT_CODE = 42;
 
@@ -111,19 +112,12 @@ let updateDownloadPromise: Promise<void> | null = null;
 
 function startUpdateDownload(): Promise<void> {
   if (updateDownloadPromise) return updateDownloadPromise;
-  updateDownloadPromise = (pendingBackupPromise ?? Promise.resolve())
-    .catch((error: unknown) => {
-      // A atualização não deve ficar presa em 0% porque um arquivo do
-      // userData está temporariamente bloqueado pelo Windows. O snapshot é
-      // uma proteção adicional; o download ainda pode prosseguir sem ele.
-      console.warn(
-        "[updater] backup local indisponível; prosseguindo sem backup",
-        error,
-      );
-    })
-    .then(async () => {
+  updateDownloadPromise = startUpdateDownloadAfterBackup(
+    pendingBackupPromise,
+    async () => {
       await autoUpdater.downloadUpdate();
-    });
+    },
+  );
   return updateDownloadPromise;
 }
 

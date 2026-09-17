@@ -32,7 +32,9 @@ function isTransientFileLock(error: unknown): boolean {
   return code === "EBUSY" || code === "EPERM" || code === "EACCES";
 }
 
-async function withFileLockRetry<T>(operation: () => Promise<T>): Promise<T> {
+export async function withFileLockRetry<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
   let attempt = 0;
   while (true) {
     try {
