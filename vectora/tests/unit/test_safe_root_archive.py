@@ -1,7 +1,10 @@
 from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from _pytest.monkeypatch import MonkeyPatch
+from fastapi import Request
 
 from backend.rbac.safe_roots import SafeRootPersistenceError, SafeRootRegistry
 from backend.vtypes import SafeRoot
@@ -65,3 +68,74 @@ def test_archive_failure_does_not_change_effective_state(
     current = registry.get(root.id)
     assert current is not None
     assert current.archived_at is None
+
+
+@pytest.mark.asyncio
+async def test_restore_endpoint_returns_archived_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A restauração administrativa usa o registro e expõe o contrato HTTP."""
+    from backend.api.handlers import admin
+
+    root = SafeRoot(
+        id="root-1",
+        path="/tmp/workspace",
+        label="Workspace",
+        created_at="2026-09-16T00:00:00+00:00",
+        created_by="admin",
+        archived_at="2026-09-17T00:00:00+00:00",
+    )
+    restored = root.model_copy(update={"archived_at": None})
+    registry = SimpleNamespace(
+        restore=lambda root_id: restored if root_id == root.id else None
+    )
+    monkeypatch.setattr(
+        "backend.rbac.safe_roots.get_safe_root_registry", lambda: registry
+    )
+    request = SimpleNamespace(state=SimpleNamespace(user=SimpleNamespace(role="admin")))
+
+    response = await admin.restore_safe_root(root.id, request.state.user)
+
+    assert response.status == "restored"
+    assert response.root.archived_at is None
+
+
+@pytest.mark.asyncio
+async def test_create_workspace_privileged_registers_canonical_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A criação privilegiada registra a mesma pasta canônica autorizada."""
+    from backend.api.handlers import workspaces
+    from backend.workspace import workspace as workspace_module
+
+    workspace_dir = tmp_path / "workspace"
+    workspace_dir.mkdir()
+    calls: list[tuple[str, str, str]] = []
+    registry = SimpleNamespace(
+        add=lambda path, label, owner: calls.append((path, label, owner))
+    )
+    fake_workspace = SimpleNamespace(
+        id="ws-1", name="workspace", cwd=str(workspace_dir)
+    )
+    monkeypatch.setattr(
+        "backend.rbac.safe_roots.get_safe_root_registry", lambda: registry
+    )
+    monkeypatch.setattr(
+        workspace_module.workspace_registry,
+        "create",
+        lambda *args, **kwargs: fake_workspace,
+    )
+    monkeypatch.setattr(
+        workspace_module.workspace_registry, "set_active", lambda *args, **kwargs: True
+    )
+    request = SimpleNamespace(
+        state=SimpleNamespace(user=SimpleNamespace(id="admin", role="admin"))
+    )
+
+    response = await workspaces.create_workspace(
+        cast("Request", request),
+        workspaces.CreateWorkspaceRequest(path=str(workspace_dir)),
+    )
+
+    assert response.status == "ok"
+    assert calls == [(str(workspace_dir.resolve()), "workspace", "admin")]
