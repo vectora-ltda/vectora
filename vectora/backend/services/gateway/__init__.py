@@ -324,8 +324,30 @@ class GatewayClient:
 
             try:
                 job = ReviewJobRequest.model_validate(message)
-            except ValueError:
+            except ValueError as exc:
                 logger.warning("gateway: review_job inválido descartado")
+                # The worker persists a pending job before delivery. If the
+                # payload is malformed, acknowledge the rejection when the
+                # identifying fields are still usable so it cannot remain
+                # pending forever.
+                job_id = message.get("job_id")
+                callback_secret = message.get("callback_secret")
+                if (
+                    isinstance(job_id, str)
+                    and job_id
+                    and isinstance(callback_secret, str)
+                    and callback_secret
+                ):
+                    task = asyncio.create_task(
+                        self._post_review_result(
+                            job_id,
+                            callback_secret,
+                            error=f"invalid review_job payload: {exc}",
+                        ),
+                        name=f"gha-review-invalid-{job_id}",
+                    )
+                    self._review_tasks.add(task)
+                    task.add_done_callback(self._review_tasks.discard)
                 return
             if job.delivery_id and job.delivery_id in self._review_delivery_ids:
                 logger.info(
