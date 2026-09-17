@@ -72,6 +72,7 @@ import {
   listUpdateBackups,
   restoreUpdateBackup,
 } from "./update-backup.js";
+import { startUpdateDownload as startUpdateDownloadAfterBackup } from "./updater-download.js";
 
 const ELECTRON_RESTART_EXIT_CODE = 42;
 
@@ -111,12 +112,12 @@ let updateDownloadPromise: Promise<void> | null = null;
 
 function startUpdateDownload(): Promise<void> {
   if (updateDownloadPromise) return updateDownloadPromise;
-  if (!pendingBackupPromise) {
-    return Promise.reject(new Error("backup da atualização não foi preparado"));
-  }
-  updateDownloadPromise = pendingBackupPromise.then(async () => {
-    await autoUpdater.downloadUpdate();
-  });
+  updateDownloadPromise = startUpdateDownloadAfterBackup(
+    pendingBackupPromise,
+    async () => {
+      await autoUpdater.downloadUpdate();
+    },
+  );
   return updateDownloadPromise;
 }
 
@@ -796,7 +797,7 @@ function setupAutoUpdater(): void {
     void startUpdateDownload().catch((error: unknown) => {
       broadcast({
         state: "error",
-        message: `Backup local falhou: ${String(error)}`,
+        message: `Download da atualização falhou: ${String(error)}`,
       });
     });
   });
