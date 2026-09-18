@@ -220,6 +220,49 @@ jobs:
         working-directory: services
         run: pnpm install --frozen-lockfile
 
+      # O schema base também contém seeds. Em bancos antigos, CREATE TABLE IF
+      # NOT EXISTS preserva a tabela existente sem adicionar colunas novas;
+      # atualize as colunas do catálogo antes do seed para que a reaplicação
+      # idempotente não falhe antes do passo de upgrade completo.
+      - name: Atualiza catálogo legado antes do schema base (services)
+        id: services_schema_legacy_catalog
+        if: >-
+          always() && steps.services_install.outcome == 'success' &&
+          steps.credentials.outputs.has_cloudflare_token == 'true'
+        working-directory: services
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          table_exists() {
+            local table="$1"
+            local result
+            result=$(pnpm exec wrangler d1 execute vectora-db --remote \
+              --command "SELECT name FROM sqlite_master WHERE type='table' AND name='${table}' LIMIT 1" --json)
+            grep -Eq "\\\"name\\\"[[:space:]]*:[[:space:]]*\\\"${table}\\\"" <<< "$result"
+          }
+          ensure_existing_column() {
+            local table="$1" column="$2" definition="$3"
+            table_exists "$table" || return 0
+            local schema
+            schema=$(pnpm exec wrangler d1 execute vectora-db --remote \
+              --command "PRAGMA table_info(${table})" --json)
+            if ! grep -Eq "\\\"name\\\"[[:space:]]*:[[:space:]]*\\\"${column}\\\"" <<< "$schema"; then
+              pnpm exec wrangler d1 execute vectora-db --remote \
+                --command "ALTER TABLE ${table} ADD COLUMN ${column} ${definition}"
+            fi
+          }
+          ensure_existing_column skills_catalog package_name "TEXT"
+          ensure_existing_column skills_catalog version "TEXT NOT NULL DEFAULT '0.0.1'"
+          ensure_existing_column skills_catalog tags "TEXT NOT NULL DEFAULT '[]'"
+          ensure_existing_column skills_catalog category "TEXT"
+          ensure_existing_column skills_catalog catalog_source "TEXT NOT NULL DEFAULT 'curated'"
+          ensure_existing_column skills_catalog vectora_verified "INTEGER NOT NULL DEFAULT 0"
+          ensure_existing_column skills_catalog publisher_id "TEXT"
+          ensure_existing_column skills_catalog verified "INTEGER NOT NULL DEFAULT 0"
+          ensure_existing_column skills_catalog downloads_count "INTEGER NOT NULL DEFAULT 0"
+          ensure_existing_column skills_catalog updated_at "TEXT"
+
       # A base idempotente precisa existir antes das migrations rastreadas.
       - name: Aplica schema base D1 (services)
         id: services_schema
