@@ -46,7 +46,7 @@ export function CenterCanvas({
     document,
     content: renderDocument?.(document) ?? null,
   }));
-  const resolvedTabs = documentTabs.length > 0 ? documentTabs : tabs;
+  const resolvedTabs = documentTabs.length > 0 ? [...tabs, ...documentTabs] : tabs;
   const seenTabIds = new Set<string>();
   for (const tab of resolvedTabs) {
     if (seenTabIds.has(tab.id)) {
