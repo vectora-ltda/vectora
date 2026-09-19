@@ -237,13 +237,13 @@ describe("ChatInput", () => {
     expect(sendButton().disabled).toBe(true);
   });
 
-  it("botão VS Code NÃO aparece no modo IDE mesmo com workspace ativo", () => {
+  it("botão VS Code aparece no modo IDE com workspace ativo", () => {
     mockSettings.chatMode = false;
     mockSettings.uiMode = "ide";
     mockWsState.getActive = () => ({ id: "ws1" }) as never;
     try {
       render(<ChatInput {...baseProps()} />);
-      expect(screen.queryByLabelText(m.workbench_open_vscode())).toBeNull();
+      expect(screen.queryByLabelText(m.workbench_open_vscode())).toBeTruthy();
     } finally {
       mockWsState.getActive = () => null;
       mockSettings.uiMode = "assistant";
@@ -327,8 +327,9 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     // O wrapper do composer estabelece o contexto de container nomeado.
     expect(container.querySelector(".\\@container\\/composer")).not.toBeNull();
 
-    // O rodapé mantém uma linha controlada e corta apenas os grupos flexíveis.
-    const footer = container.querySelector(".flex-nowrap.overflow-hidden");
+    // O rodapé permite quebra controlada para preservar todos os controles
+    // quando a coluna do chat fica estreita.
+    const footer = container.querySelector('[data-testid="chat-input-footer"]');
     expect(footer).not.toBeNull();
 
     // Nenhum breakpoint de viewport (`sm:`) deve sobrar no rodapé — só container.
@@ -337,7 +338,7 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     // Em containers estreitos os rótulos cedem espaço, mas os botões continuam
     // identificáveis por acessibilidade e tooltip.
     expect(
-      container.querySelectorAll(".\\@sm\\/composer\\:inline").length,
+      container.querySelectorAll('[aria-expanded="false"]').length,
     ).toBeGreaterThanOrEqual(2);
     expect(
       container.querySelectorAll("button[aria-label]").length,

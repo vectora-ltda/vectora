@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS messages (
     name TEXT,
     is_error INTEGER NOT NULL DEFAULT 0,
     turn_id TEXT,
+    run_id TEXT,
+    edited_files_json TEXT,
     is_branch_head INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL
 );
@@ -174,6 +176,12 @@ class SessionStore:
             columns = await conn.execute_fetchall("PRAGMA table_info(messages)")
             if not any(str(column[1]) == "turn_id" for column in columns):
                 await conn.execute("ALTER TABLE messages ADD COLUMN turn_id TEXT")
+            if not any(str(column[1]) == "run_id" for column in columns):
+                await conn.execute("ALTER TABLE messages ADD COLUMN run_id TEXT")
+            if not any(str(column[1]) == "edited_files_json" for column in columns):
+                await conn.execute(
+                    "ALTER TABLE messages ADD COLUMN edited_files_json TEXT"
+                )
             await conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS ix_messages_thread_turn "
                 "ON messages(thread_id, turn_id) WHERE turn_id IS NOT NULL"
@@ -222,6 +230,7 @@ class SessionStore:
         *,
         parent_message_id: int | None = None,
         turn_id: str | None = None,
+        run_id: str | None = None,
     ) -> int:
         """Persiste `msg` e devolve o `id` gerado. A mensagem nova vira a
         ponta ativa da branch (`is_branch_head`); se `parent_message_id`
@@ -246,7 +255,8 @@ class SessionStore:
                 cur = await conn.execute(
                     "INSERT INTO messages (thread_id, parent_message_id, role, "
                     "content_json, tool_calls_json, tool_call_id, name, is_error, "
-                    "turn_id, is_branch_head, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
+                    "turn_id, run_id, edited_files_json, is_branch_head, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
                     (
                         thread_id,
                         parent_message_id,
@@ -257,6 +267,8 @@ class SessionStore:
                         name,
                         is_error,
                         turn_id,
+                        run_id,
+                        None,
                         agora,
                     ),
                 )
@@ -278,6 +290,44 @@ class SessionStore:
                 await conn.rollback()
                 raise
         return int(new_id)
+
+    async def attach_edited_files(
+        self, thread_id: str, run_id: str, files: list[dict[str, object]]
+    ) -> None:
+        """Persiste os arquivos finais associados a um run de resposta."""
+        await self.setup()
+        payload = json.dumps(files, ensure_ascii=False)
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE messages SET edited_files_json = ? "
+                "WHERE thread_id = ? AND run_id = ? AND role = 'assistant'",
+                (payload, thread_id, run_id),
+            )
+            await conn.commit()
+
+    async def get_edited_files_for_thread(
+        self, thread_id: str
+    ) -> dict[int, list[dict[str, object]]]:
+        """Retorna os payloads de arquivos persistidos por mensagem."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT id, edited_files_json FROM messages "
+                "WHERE thread_id = ? AND edited_files_json IS NOT NULL",
+                (thread_id,),
+            )
+            rows = await cur.fetchall()
+        result: dict[int, list[dict[str, object]]] = {}
+        for message_id, raw in rows:
+            try:
+                value = json.loads(raw)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if isinstance(value, list):
+                result[int(message_id)] = [
+                    item for item in value if isinstance(item, dict)
+                ]
+        return result
 
     async def get_message_id_by_turn_id(
         self, thread_id: str, turn_id: str

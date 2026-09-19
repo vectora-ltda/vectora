@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion, useReducedMotion } from "motion/react";
+import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 
 import { Sidebar } from "@/components/sidebar/sidebar";
@@ -25,6 +26,13 @@ import { NewChatDialog } from "@/components/sidebar/new-chat-dialog";
 import { WindowLayer } from "@/components/workbench/windows/window-layer";
 import { WindowDock } from "@/components/workbench/windows/window-dock";
 import { DockedEditor } from "@/components/workbench/windows/docked-editor";
+import { FileEditor } from "@/components/workbench/file-editor";
+import { MarkdownView } from "@/components/workbench/markdown-view";
+import { CanvasDocumentDialog } from "@/components/workbench/canvas-document-dialog";
+import {
+  CommitDetails,
+  type GitCommitDetailsState,
+} from "@/components/workbench/git/history-view";
 import { SessionSwitcher } from "@/components/header/session-switcher";
 import { ColumnHeader } from "@/components/layout/column-header";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -56,6 +64,8 @@ import {
   threadsQueryKey,
 } from "@/lib/queries/threads";
 import { useWindowsStore } from "@/lib/stores/windows-store";
+import type { PlanItem } from "@/lib/stores/workbench-store";
+import type { EditedFile } from "@/lib/types";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import {
   listThreads,
@@ -159,6 +169,10 @@ function SessionPage() {
   const setSidebarWidth = useSettingsStore((s) => s.setSidebarWidth);
   const sidebarPosition = useSettingsStore((s) => s.sidebarPosition);
   const sidebarOnRight = sidebarPosition === "right";
+  // The chat column is the physical inverse of the sessions/workbench
+  // sidebar when the desktop shell is mirrored.
+  const chatPhysicalSide = sidebarOnRight ? "left" : "right";
+  const chatResizeEdge = chatPhysicalSide === "right" ? "left" : "right";
   const assistantWorkbenchSide = sidebarOnRight ? "left" : "right";
   const ideWorkbenchSide = sidebarOnRight ? "right" : "left";
   const chatMode = useSettingsStore((s) => s.chatMode);
@@ -176,6 +190,9 @@ function SessionPage() {
 
   // Resize do painel de workbench content no modo IDE (borda direita do painel)
   const workbenchResizeRef = useRef<HTMLDivElement>(null);
+  // No Assistente a alça fica no limite externo do painel (conteúdo + rail),
+  // portanto usa uma referência própria para descontar a largura da rail.
+  const assistantWorkbenchResizeRef = useRef<HTMLDivElement>(null);
   const draggingWorkbench = useRef(false);
   const onWorkbenchResizeDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -202,15 +219,37 @@ function SessionPage() {
     },
     [ideWorkbenchSide, setSplitSize],
   );
+  const onAssistantWorkbenchResizeMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!draggingWorkbench.current) return;
+      const rect = assistantWorkbenchResizeRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const outerWidth = getPanelWidthFromPointer(
+        e.clientX,
+        rect,
+        assistantWorkbenchSide,
+      );
+      setSplitSize(
+        Math.min(
+          WORKBENCH_CONTENT_MAX_WIDTH,
+          Math.max(
+            WORKBENCH_CONTENT_MIN_WIDTH,
+            outerWidth - WORKBENCH_RAIL_WIDTH,
+          ),
+        ),
+      );
+    },
+    [assistantWorkbenchSide, setSplitSize],
+  );
   const onWorkbenchResizeKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLDivElement>) => {
+    (
+      e: React.KeyboardEvent<HTMLDivElement>,
+      side: "left" | "right" = ideWorkbenchSide,
+    ) => {
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
       e.preventDefault();
       setSplitSize(
-        Math.min(
-          480,
-          Math.max(220, splitSize + getResizeDelta(e.key, ideWorkbenchSide)),
-        ),
+        Math.min(480, Math.max(220, splitSize + getResizeDelta(e.key, side))),
       );
     },
     [ideWorkbenchSide, setSplitSize, splitSize],
@@ -247,12 +286,12 @@ function SessionPage() {
         const width = getPanelWidthFromPointer(
           e.clientX,
           rect,
-          sidebarOnRight ? "right" : "left",
+          chatPhysicalSide,
         );
         setChatSidebarWidth(Math.min(520, Math.max(240, width)));
       }
     },
-    [setChatSidebarWidth, sidebarOnRight],
+    [chatPhysicalSide, setChatSidebarWidth],
   );
   const onChatSidebarResizeKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -263,13 +302,12 @@ function SessionPage() {
           520,
           Math.max(
             240,
-            chatSidebarWidth +
-              getResizeDelta(e.key, sidebarOnRight ? "right" : "left"),
+            chatSidebarWidth + getResizeDelta(e.key, chatPhysicalSide),
           ),
         ),
       );
     },
-    [chatSidebarWidth, setChatSidebarWidth, sidebarOnRight],
+    [chatPhysicalSide, chatSidebarWidth, setChatSidebarWidth],
   );
   const onChatSidebarResizeUp = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -356,12 +394,136 @@ function SessionPage() {
 
   // ── UI state local ────────────────────────────────────────────────────────
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [chatSidebarOpen, setChatSidebarOpen] = useState(true);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [showToolCalls, setShowToolCalls] = useState(false);
   const [showShortcutsDialog, setShowShortcutsDialog] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showNewChatDialog, setShowNewChatDialog] = useState(false);
   const [inputLocked, setInputLocked] = useState(false);
+  const activeWorkspaceId = useWorkspacesStore((s) => s.active_id);
+  const [gitCommitDetails, setGitCommitDetails] =
+    useState<GitCommitDetailsState | null>(null);
+  const [editedFileDiff, setEditedFileDiff] = useState<{
+    file: EditedFile;
+    threadId: string;
+    workspaceId: string | null;
+  } | null>(null);
+  const [gitCommitDetailsById, setGitCommitDetailsById] = useState<
+    Record<string, GitCommitDetailsState>
+  >({});
+  const [planDocument, setPlanDocument] = useState<{
+    item: PlanItem;
+    content: string | null;
+  } | null>(null);
+  const [planDocumentsById, setPlanDocumentsById] = useState<
+    Record<string, { item: PlanItem; content: string | null }>
+  >({});
+  const [activeCanvasTab, setActiveCanvasTab] = useState("editor");
+  const canvasDocuments = useWindowsStore((state) => state.canvasDocuments);
+  const activeCanvasDocumentId = useWindowsStore(
+    (state) => state.activeCanvasDocumentId,
+  );
+  const openCanvasDocument = useWindowsStore(
+    (state) => state.openCanvasDocument,
+  );
+  const activateCanvasDocument = useWindowsStore(
+    (state) => state.activateCanvasDocument,
+  );
+  const closeCanvasDocument = useWindowsStore(
+    (state) => state.closeCanvasDocument,
+  );
+  const closeDockedTab = useWindowsStore((state) => state.closeDockedTab);
+  const openEditedFileDiff = useCallback(
+    (file: EditedFile) => {
+      setEditedFileDiff({
+        file,
+        threadId,
+        workspaceId: activeWorkspaceId,
+      });
+    },
+    [activeWorkspaceId, threadId],
+  );
+  const selectedEditedFile =
+    editedFileDiff &&
+    editedFileDiff.threadId === threadId &&
+    editedFileDiff.workspaceId === (activeWorkspaceId ?? null)
+      ? editedFileDiff.file
+      : null;
+  const openGitCommitDetails = useCallback(
+    (details: GitCommitDetailsState) => {
+      setGitCommitDetails(details);
+      if (activeWorkspaceId) {
+        const documentId = `commit:${activeWorkspaceId}:${details.commit.sha}`;
+        setGitCommitDetailsById((previous) => ({
+          ...previous,
+          [documentId]: details,
+        }));
+        setActiveCanvasTab(documentId);
+        openCanvasDocument({
+          id: documentId,
+          kind: "commit-details",
+          workspaceId: activeWorkspaceId,
+          threadId,
+          title: m.workbench_git_commit_details(),
+          commitSha: details.commit.sha,
+        });
+      }
+    },
+    [activeWorkspaceId, openCanvasDocument, threadId],
+  );
+  const openPlanDocument = useCallback(
+    (item: PlanItem, content: string | null) => {
+      if (!activeWorkspaceId) return;
+      const documentId = `plan:${activeWorkspaceId}:${item.path}`;
+      setPlanDocument({ item, content });
+      setPlanDocumentsById((previous) => ({
+        ...previous,
+        [documentId]: { item, content },
+      }));
+      setActiveCanvasTab(documentId);
+      openCanvasDocument({
+        id: documentId,
+        kind: "plan",
+        workspaceId: activeWorkspaceId,
+        threadId,
+        title: item.title,
+        path: item.path,
+      });
+    },
+    [activeWorkspaceId, openCanvasDocument, threadId],
+  );
+
+  useEffect(() => {
+    if (activeCanvasDocumentId) setActiveCanvasTab(activeCanvasDocumentId);
+  }, [activeCanvasDocumentId]);
+
+  useEffect(() => {
+    setEditedFileDiff(null);
+    setPlanDocument(null);
+    setGitCommitDetails(null);
+    setGitCommitDetailsById({});
+    setPlanDocumentsById({});
+    if (!activeWorkspaceId) return;
+    useWindowsStore
+      .getState()
+      .clearCanvasDocumentsForWorkspace(activeWorkspaceId);
+  }, [activeWorkspaceId, threadId]);
+
+  useEffect(() => {
+    if (!activeWorkspaceId || !gitCommitDetails) return;
+    if (
+      !canvasDocuments.some(
+        (document) =>
+          document.id ===
+          `commit:${activeWorkspaceId}:${gitCommitDetails.commit.sha}`,
+      )
+    ) {
+      setGitCommitDetails(null);
+      setPlanDocument(null);
+      setActiveCanvasTab("editor");
+    }
+  }, [activeWorkspaceId, canvasDocuments, gitCommitDetails]);
   // `model` reflete `selectedModel` do settings-store (persistido) — o
   // restante de AgentConfig (repos, etc.) é local/efêmero por thread.
   const [agentConfig, setAgentConfigState] = useState<AgentConfig>(() => ({
@@ -410,6 +572,7 @@ function SessionPage() {
       // docked da thread anterior pra não herdar arquivo de outro
       // workspace (mesma proteção de handleNewChat/handleConfirmNewChat/
       // handleDeleteThread).
+      setEditedFileDiff(null);
       useWindowsStore.getState().closeAll();
       goTo(id);
       setIsMobileSidebarOpen(false);
@@ -421,6 +584,7 @@ function SessionPage() {
     // Chat: cria sessão direto (sem workspace/folders). Dev: dialog de workspace.
     // Reset do fundo: fecha janelas de arquivo da sessão anterior para a nova
     // conversa não herdar o conteúdo visual da atual.
+    setEditedFileDiff(null);
     useWindowsStore.getState().closeAll();
     if (chatMode) {
       void navigate({ to: "/session/$threadId", params: { threadId: "new" } });
@@ -440,6 +604,7 @@ function SessionPage() {
       // Não persiste a thread no backend ainda — isso evita acumular
       // conversas vazias na sidebar. A thread só é criada (via StreamChat)
       // quando a primeira mensagem é enviada.
+      setEditedFileDiff(null);
       useWindowsStore.getState().closeAll();
       if (isNewRoute) {
         // Já em /session/new: apenas marca o workspace como escolhido (sem navegar).
@@ -478,6 +643,7 @@ function SessionPage() {
       await deleteThreadMutation.mutateAsync(id);
       disposeBrowserThread(id);
       if (id !== threadId) return;
+      setEditedFileDiff(null);
       useWindowsStore.getState().closeAll();
       if (chatMode) {
         void navigate({ to: "/" });
@@ -631,7 +797,6 @@ function SessionPage() {
   const isNewSession = isNew(threadId);
 
   // Threads do workspace ativo (para o session switcher do IDE mode).
-  const activeWorkspaceId = useWorkspacesStore((s) => s.active_id);
   const wsThreads = useMemo(
     () =>
       activeWorkspaceId
@@ -737,7 +902,7 @@ function SessionPage() {
   // do scroll sobrevive à troca de modo via `message-list.tsx`, que
   // guarda e restaura por thread — não por manter a instância montada.
   const renderChatPanel = useCallback(
-    (compact: boolean) => {
+    (compact: boolean, onCollapse?: () => void) => {
       const welcomeActions =
         !compact && hydrated && isNewRoute && !isWorkspaceChosen(threadId);
       return (
@@ -750,6 +915,17 @@ function SessionPage() {
                 onSelectThread={handleSelectThread}
                 onNewSession={handleNewChat}
               />
+              {onCollapse && (
+                <button
+                  type="button"
+                  aria-label={m.sidebar_collapse()}
+                  title={m.sidebar_collapse()}
+                  onClick={onCollapse}
+                  className="ml-auto rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <PanelRightClose className="h-4 w-4" />
+                </button>
+              )}
             </ColumnHeader>
           )}
           <div className="flex-1 min-h-0">
@@ -761,6 +937,7 @@ function SessionPage() {
               onThreadUpdate={handleThreadUpdate}
               onThreadPersistFailed={handleThreadPersistFailed}
               onThreadNotFound={handleThreadNotFound}
+              onOpenEditedFile={openEditedFileDiff}
               inputLocked={inputLocked}
               isNewThread={isNew(threadId)}
               compact={compact}
@@ -881,9 +1058,12 @@ function SessionPage() {
                 workbenchMaxWidth={
                   WORKBENCH_CONTENT_MAX_WIDTH + WORKBENCH_RAIL_WIDTH
                 }
-                chatWidth={hydrated ? chatSidebarWidth : 256}
-                chatMinWidth={240}
+                chatWidth={
+                  hydrated ? (chatSidebarOpen ? chatSidebarWidth : 48) : 256
+                }
+                chatMinWidth={chatSidebarOpen ? 240 : 48}
                 chatMaxWidth={520}
+                showChat={chatSidebarOpen}
                 header={headerEl}
                 navBar={
                   <WorkbenchNavBar
@@ -908,6 +1088,8 @@ function SessionPage() {
                   >
                     <WorkbenchContent
                       threadId={threadId}
+                      onOpenCommitDetails={openGitCommitDetails}
+                      onOpenPlanDocument={openPlanDocument}
                       side={ideWorkbenchSide}
                       visible={hydrated && workbenchOpen}
                       onAddToContext={pushMention}
@@ -922,12 +1104,14 @@ function SessionPage() {
                         aria-valuemax={480}
                         aria-valuenow={splitSize}
                         tabIndex={0}
-                        onKeyDown={onWorkbenchResizeKeyDown}
+                        onKeyDown={(event) =>
+                          onWorkbenchResizeKeyDown(event, ideWorkbenchSide)
+                        }
                         onPointerDown={onWorkbenchResizeDown}
                         onPointerMove={onWorkbenchResizeMove}
                         onPointerUp={onWorkbenchResizeUp}
                         onPointerCancel={onWorkbenchResizeUp}
-                        className={`absolute ${ideWorkbenchSide === "left" ? "right-0" : "left-0"} top-0 z-10 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors`}
+                        className={`absolute ${ideWorkbenchSide === "left" ? "right-0" : "left-0"} top-0 z-[100] h-full w-1 cursor-col-resize touch-none select-none bg-border/60 hover:bg-primary/50 transition-colors`}
                       />
                     )}
                   </div>
@@ -936,7 +1120,85 @@ function SessionPage() {
                   // min-w-[360px]: piso mínimo pro editor continuar usável
                   // ao encolher a janela ou puxar o painel do workbench largo.
                   <div className="flex flex-col flex-1 min-w-0 h-full overflow-hidden">
-                    <CenterCanvas>
+                    <CenterCanvas
+                      activeTab={activeCanvasTab}
+                      onTabChange={(id) => {
+                        setActiveCanvasTab(id);
+                        if (
+                          (id.startsWith("commit:") ||
+                            id.startsWith("file:") ||
+                            id.startsWith("plan:")) &&
+                          activeWorkspaceId
+                        ) {
+                          activateCanvasDocument(id);
+                        }
+                      }}
+                      onTabClose={(id) => {
+                        const document = canvasDocuments.find(
+                          (item) => item.id === id,
+                        );
+                        if (document?.kind === "file" && document.path) {
+                          closeDockedTab(document.path);
+                        } else {
+                          closeCanvasDocument(id);
+                        }
+                        if (id === activeCanvasTab)
+                          setActiveCanvasTab("editor");
+                      }}
+                      documents={canvasDocuments.filter(
+                        (document) =>
+                          document.workspaceId === activeWorkspaceId,
+                      )}
+                      renderDocument={(document) => {
+                        if (document.kind === "file" && document.path) {
+                          return (
+                            <FileEditor
+                              workspaceId={document.workspaceId}
+                              path={document.path}
+                            />
+                          );
+                        }
+                        if (document.kind === "commit-details") {
+                          const details = gitCommitDetailsById[document.id];
+                          return details ? (
+                            <CommitDetails
+                              commit={details.commit}
+                              diff={details.diff}
+                              loading={details.loading}
+                            />
+                          ) : (
+                            <CommitDetails
+                              commit={{
+                                sha: document.commitSha ?? "",
+                                sha_short: (document.commitSha ?? "").slice(
+                                  0,
+                                  7,
+                                ),
+                                message: document.title,
+                                body: "",
+                                author: "",
+                                date: "",
+                                refs: [],
+                              }}
+                              diff={null}
+                              loading
+                            />
+                          );
+                        }
+                        const plan = planDocumentsById[document.id];
+                        return (
+                          <div className="h-full overflow-auto p-5">
+                            {plan?.content ? (
+                              <MarkdownView content={plan.content} />
+                            ) : (
+                              <p className="text-sm text-muted-foreground">
+                                {m.workbench_preview_md_loading()}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      }}
+                    >
                       <DockedEditor activeWorkspaceId={activeWorkspaceId} />
                     </CenterCanvas>
                   </div>
@@ -952,7 +1214,13 @@ function SessionPage() {
                     style={
                       isNarrowIdeViewport
                         ? undefined
-                        : { width: hydrated ? chatSidebarWidth : 256 }
+                        : {
+                            width: hydrated
+                              ? chatSidebarOpen
+                                ? chatSidebarWidth
+                                : 48
+                              : 256,
+                          }
                     }
                   >
                     {!isNarrowIdeViewport && (
@@ -969,12 +1237,28 @@ function SessionPage() {
                         onPointerMove={onChatSidebarResizeMove}
                         onPointerUp={onChatSidebarResizeUp}
                         onPointerCancel={onChatSidebarResizeUp}
-                        className={`absolute ${sidebarOnRight ? "left-0" : "right-0"} top-0 z-10 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors`}
+                        className={`absolute ${chatResizeEdge === "left" ? "left-0" : "right-0"} top-0 z-[100] h-full w-1 cursor-col-resize touch-none select-none bg-border/60 hover:bg-primary/50 transition-colors`}
                       />
                     )}
-                    <div className="flex-1 min-h-0 min-w-0">
-                      {renderChatPanel(true)}
-                    </div>
+                    {chatSidebarOpen ? (
+                      <div className="flex-1 min-h-0 min-w-0">
+                        {renderChatPanel(true, () => setChatSidebarOpen(false))}
+                      </div>
+                    ) : (
+                      <div className="flex h-full min-h-0 w-full flex-col">
+                        <div className="flex h-16 min-h-16 shrink-0 items-center justify-center border-b border-border/60 bg-sidebar">
+                          <button
+                            type="button"
+                            aria-label={m.sidebar_open()}
+                            title={m.sidebar_open()}
+                            onClick={() => setChatSidebarOpen(true)}
+                            className="flex h-full w-full items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground"
+                          >
+                            <PanelRightOpen className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 }
               />
@@ -1021,6 +1305,8 @@ function SessionPage() {
                         <div className="min-w-0 flex-1">
                           <WorkbenchContent
                             threadId={threadId}
+                            onOpenCommitDetails={openGitCommitDetails}
+                            onOpenPlanDocument={openPlanDocument}
                             side={assistantWorkbenchSide}
                             visible
                             onAddToContext={pushMention}
@@ -1041,6 +1327,7 @@ function SessionPage() {
                 }
                 right={
                   <div
+                    ref={assistantWorkbenchResizeRef}
                     className={`relative flex min-w-0 shrink-0 min-h-0 flex-row overflow-hidden border-border/60 ${assistantWorkbenchSide === "right" ? "border-l" : "border-r"}`}
                     style={{
                       width: assistantWorkbenchVisible
@@ -1062,10 +1349,34 @@ function SessionPage() {
                     {assistantWorkbenchVisible && (
                       <WorkbenchContent
                         threadId={threadId}
+                        onOpenCommitDetails={openGitCommitDetails}
+                        onOpenPlanDocument={openPlanDocument}
                         side={assistantWorkbenchSide}
                         visible
                         onAddToContext={pushMention}
                         onSendPrompt={pushDraft}
+                      />
+                    )}
+                    {assistantWorkbenchVisible && (
+                      <div
+                        role="separator"
+                        aria-orientation="vertical"
+                        aria-label={m.resize_workbench()}
+                        aria-valuemin={WORKBENCH_CONTENT_MIN_WIDTH}
+                        aria-valuemax={WORKBENCH_CONTENT_MAX_WIDTH}
+                        aria-valuenow={splitSize}
+                        tabIndex={0}
+                        onKeyDown={(event) =>
+                          onWorkbenchResizeKeyDown(
+                            event,
+                            assistantWorkbenchSide,
+                          )
+                        }
+                        onPointerDown={onWorkbenchResizeDown}
+                        onPointerMove={onAssistantWorkbenchResizeMove}
+                        onPointerUp={onWorkbenchResizeUp}
+                        onPointerCancel={onWorkbenchResizeUp}
+                        className={`absolute ${assistantWorkbenchSide === "left" ? "right-0" : "left-0"} top-0 z-[100] h-full w-1 cursor-col-resize touch-none select-none bg-border/60 hover:bg-primary/50 transition-colors`}
                       />
                     )}
                     {assistantWorkbenchSide === "right" && (
@@ -1109,6 +1420,68 @@ function SessionPage() {
             </motion.div>
           )}
         </div>
+        <CanvasDocumentDialog
+          open={uiMode === "assistant" && gitCommitDetails !== null}
+          onOpenChange={(open) => {
+            if (!open) setGitCommitDetails(null);
+          }}
+          title={
+            gitCommitDetails?.commit.message ?? m.workbench_git_commit_details()
+          }
+        >
+          {gitCommitDetails && (
+            <CommitDetails
+              commit={gitCommitDetails.commit}
+              diff={gitCommitDetails.diff}
+              loading={gitCommitDetails.loading}
+            />
+          )}
+        </CanvasDocumentDialog>
+        <CanvasDocumentDialog
+          open={selectedEditedFile !== null}
+          onOpenChange={(open) => {
+            if (!open) setEditedFileDiff(null);
+          }}
+          title={
+            selectedEditedFile
+              ? m.chat_edited_files_diff({ path: selectedEditedFile.path })
+              : "Diff"
+          }
+          titleClassName="truncate font-mono text-sm"
+        >
+          <div className="h-full overflow-auto bg-background p-4">
+            {selectedEditedFile?.hunks.length ? (
+              selectedEditedFile.hunks.map((hunk, index) => (
+                <div key={`${hunk.header}-${index}`} className="mb-4 last:mb-0">
+                  <div className="mb-1 font-mono text-xs text-muted-foreground">
+                    {hunk.header}
+                  </div>
+                  <pre className="overflow-x-auto rounded-md border border-border/50 bg-muted/20 p-3 font-mono text-xs leading-5">
+                    {hunk.lines.map((line, lineIndex) => (
+                      <span
+                        key={`${lineIndex}-${line}`}
+                        className={
+                          line.startsWith("+")
+                            ? "text-git-addition"
+                            : line.startsWith("-")
+                              ? "text-destructive"
+                              : "text-foreground/80"
+                        }
+                      >
+                        {line}
+                        {"\n"}
+                      </span>
+                    ))}
+                  </pre>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {m.chat_edited_files_diff_empty()}
+              </p>
+            )}
+          </div>
+        </CanvasDocumentDialog>
       </div>
     </div>
   );

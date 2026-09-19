@@ -32,6 +32,7 @@ from backend.api.schemas import (
     ErrorEvent,
     TerminalLineEvent,
     ThreadEvent,
+    TurnFilesChangedEvent,
     encode_event,
 )
 from backend.engine.sse_adapter import to_sse_line
@@ -122,6 +123,7 @@ def stream_engine_events(
     workspace_id: str | None = None,
     http_request: Request | None = None,
     user_id: str | None = None,
+    run_id: str | None = None,
 ) -> AsyncGenerator[str]:
     """AsyncGenerator SSE a partir de uma chamada ao motor nativo.
 
@@ -142,14 +144,30 @@ def stream_engine_events(
     import asyncio
 
     async def _gen() -> AsyncGenerator[str]:
+        from backend.api.turn_files import (
+            capture,
+            finalize,
+        )
+        from backend.api.turn_files import (
+            encode as encode_turn_files,
+        )
+
+        resolved_run_id = run_id or uuid.uuid4().hex
+        turn_snapshot = await asyncio.to_thread(
+            capture, workspace_id, thread_id, resolved_run_id
+        )
         yield encode_event(
-            ThreadEvent(thread_id=thread_id, workspace_id=workspace_id or "")
+            ThreadEvent(
+                thread_id=thread_id,
+                workspace_id=workspace_id or "",
+            )
         )
 
         queue: asyncio.Queue[Any] = asyncio.Queue()
         background_tasks: set[asyncio.Task[None]] = set()
         run_error: BaseException | None = None
         stopped_reason = "stop"
+        turn_files_payload: list[dict[str, Any]] = []
 
         async def on_event(event: EngineEvent) -> None:
             await queue.put(event)
@@ -161,6 +179,21 @@ def stream_engine_events(
             except BaseException as exc:
                 run_error = exc
             finally:
+                changes = await asyncio.to_thread(finalize, turn_snapshot)
+                turn_files_payload.extend(encode_turn_files(changes))
+                if changes:
+                    try:
+                        from backend.services import agent_factory
+
+                        store = await agent_factory.get_session_store()
+                        await store.attach_edited_files(
+                            thread_id, resolved_run_id, encode_turn_files(changes)
+                        )
+                    except Exception:
+                        logger.warning(
+                            "native_stream: falha ao persistir arquivos editados",
+                            exc_info=True,
+                        )
                 await queue.put(_SENTINEL)
 
         term_queue: asyncio.Queue[str] = asyncio.Queue()
@@ -283,6 +316,13 @@ def stream_engine_events(
 
                 yield to_sse_line(event)
 
+            if turn_files_payload:
+                yield encode_event(
+                    TurnFilesChangedEvent(
+                        run_id=resolved_run_id, files=turn_files_payload
+                    )
+                )
+
             if run_error is not None:
                 logger.error(
                     "native_stream: erro na execução do agente",
@@ -319,6 +359,10 @@ def stream_engine_events(
                 term_task.cancel()
                 with contextlib.suppress(BaseException):
                     await term_task
+            if not disconnected and not next_task.done():
+                next_task.cancel()
+                with contextlib.suppress(BaseException):
+                    await next_task
             if not run_task.done() and not disconnected:
                 # Só alcançável se o loop saiu por outro caminho que não o
                 # sentinel nem a desconexão do cliente (ex.: exceção no
@@ -330,6 +374,6 @@ def stream_engine_events(
                 run_task.cancel()
                 with contextlib.suppress(BaseException):
                     await run_task
-            yield encode_event(DoneEvent(thread_id=thread_id))
+            yield encode_event(DoneEvent(thread_id=thread_id, run_id=resolved_run_id))
 
     return _gen()
