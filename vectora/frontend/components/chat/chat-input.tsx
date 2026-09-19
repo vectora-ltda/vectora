@@ -5,7 +5,16 @@
  * Includes file upload, drag & drop, and paste support.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Children,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Send, TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -41,6 +50,7 @@ import {
 import { checkOpenRouterModelSupportsImage } from "@/lib/api/openrouter-vision";
 import { m } from "@/lib/paraglide/messages";
 import { classifySmartPaste } from "@/lib/utils/chat/smart-paste";
+import { balanceCompactControlWidths } from "@/lib/layout/compact-control-layout";
 
 interface VscodeOption {
   strategy: string;
@@ -149,6 +159,70 @@ interface ChatInputProps {
 }
 
 const EMPTY_QUEUED_MESSAGES: NonNullable<ChatInputProps["queuedMessages"]> = [];
+
+function CompactControlGroup({ children }: { children: ReactNode }) {
+  const groupRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<Array<HTMLDivElement | null>>([]);
+
+  const measureAndBalance = useCallback(() => {
+    const group = groupRef.current;
+    const items = itemRefs.current.filter(
+      (item): item is HTMLDivElement => item !== null,
+    );
+    if (!group || items.length === 0 || group.clientWidth <= 0) return;
+
+    const previousStyles = items.map((item) => item.style.cssText);
+    items.forEach((item) => {
+      item.style.flex = "0 0 auto";
+      item.style.width = "max-content";
+      item.style.maxWidth = "none";
+      item.style.overflow = "visible";
+    });
+    const naturalWidths = items.map((item) =>
+      Math.ceil(item.getBoundingClientRect().width),
+    );
+    const availableWidth = group.clientWidth;
+    items.forEach((item, index) => {
+      item.style.cssText = previousStyles[index] ?? "";
+    });
+
+    const balancedWidths = balanceCompactControlWidths(
+      naturalWidths,
+      availableWidth,
+    );
+    items.forEach((item, index) => {
+      item.style.width = `${balancedWidths[index]}px`;
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    measureAndBalance();
+    const group = groupRef.current;
+    if (!group || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measureAndBalance);
+    observer.observe(group);
+    return () => observer.disconnect();
+  });
+
+  return (
+    <div
+      ref={groupRef}
+      className="flex min-w-0 flex-1 justify-between overflow-hidden"
+    >
+      {Children.toArray(children).map((child, index) => (
+        <div
+          key={index}
+          ref={(item) => {
+            itemRefs.current[index] = item;
+          }}
+          className="min-w-0 overflow-hidden"
+        >
+          {child}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /**
  * Chat input area with file upload support.
@@ -568,27 +642,37 @@ export function ChatInput({
                 </>
               )}
             </div>
-            <div
-              className={`min-w-0 overflow-hidden ${compact ? "flex-[0_1_auto]" : "flex-[1_1_auto]"}`}
-            >
-              <PermissionModeMenu compact={compact} />
-            </div>
-            <div
-              className={`min-w-0 overflow-hidden ${compact ? "flex-[0_1_auto]" : "flex-[0_1_auto]"}`}
-            >
-              <EffortMenu compact={compact} />
-            </div>
-            {agentConfig && onAgentConfigChange && (
-              <div
-                className={`min-w-0 overflow-hidden ${compact ? "flex-[0_1_auto]" : "flex-[1_1_auto]"}`}
-              >
-                <ModelSelector
-                  value={agentConfig.model}
-                  onChange={handleModelChange}
-                  compact={compact}
-                  codeMode={!chatMode && !!wsId}
-                />
-              </div>
+            {compact ? (
+              <CompactControlGroup>
+                <PermissionModeMenu compact />
+                <EffortMenu compact />
+                {agentConfig && onAgentConfigChange && (
+                  <ModelSelector
+                    value={agentConfig.model}
+                    onChange={handleModelChange}
+                    compact
+                    codeMode={!chatMode && !!wsId}
+                  />
+                )}
+              </CompactControlGroup>
+            ) : (
+              <>
+                <div className="min-w-0 flex-[1_1_auto] overflow-hidden">
+                  <PermissionModeMenu />
+                </div>
+                <div className="min-w-0 flex-[0_1_auto] overflow-hidden">
+                  <EffortMenu />
+                </div>
+                {agentConfig && onAgentConfigChange && (
+                  <div className="min-w-0 flex-[1_1_auto] overflow-hidden">
+                    <ModelSelector
+                      value={agentConfig.model}
+                      onChange={handleModelChange}
+                      codeMode={!chatMode && !!wsId}
+                    />
+                  </div>
+                )}
+              </>
             )}
             {modelId && (
               <div className="shrink-0">
