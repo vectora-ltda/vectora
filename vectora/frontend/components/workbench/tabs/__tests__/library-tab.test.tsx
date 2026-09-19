@@ -70,6 +70,8 @@ describe("LibraryTab", () => {
 
   it("cada seção vazia mostra estado vazio específico, sem quebrar", () => {
     render(<LibraryTab threadId="t1" />);
+    fireEvent.click(screen.getByText(/MCP \(0\)/));
+    fireEvent.click(screen.getByText(/Skills \(0\)/));
     expect(screen.getByText("No MCP servers available yet.")).toBeTruthy();
     expect(screen.getByText("No skills available yet.")).toBeTruthy();
     expect(screen.getByText("No memory buckets available yet.")).toBeTruthy();
@@ -77,8 +79,9 @@ describe("LibraryTab", () => {
 
   it("abrir duas seções ao mesmo tempo mantém ambas abertas (type=multiple)", () => {
     render(<LibraryTab threadId="t1" />);
-    // defaultValue já abre as 3 — clicar numa não fecha as outras.
+    // O protótipo abre Memory por padrão; abrir as demais não fecha a anterior.
     fireEvent.click(screen.getByText(/MCP \(0\)/));
+    fireEvent.click(screen.getByText(/Skills \(0\)/));
     expect(screen.getByText("No skills available yet.")).toBeTruthy();
     expect(screen.getByText("No memory buckets available yet.")).toBeTruthy();
   });

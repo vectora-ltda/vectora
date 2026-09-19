@@ -22,7 +22,6 @@ import {
   Upload,
 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -42,6 +41,7 @@ import {
   useLibraryStore,
   type CatalogSkill,
 } from "@/lib/stores/library-store";
+import { LibraryCard, LibraryTag } from "./library-card";
 
 const TRUST_LABEL = {
   builtin: m.library_skills_trust_builtin,
@@ -222,17 +222,6 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
   const badgeLabel = skill.trust_state
     ? TRUST_STATE_LABEL[skill.trust_state]()
     : TRUST_LABEL[legacyTrust]();
-  const badgeVariant = skill.trust_state
-    ? trustState === "vectora_verified"
-      ? "default"
-      : trustState === "publisher_signed"
-        ? "secondary"
-        : "outline"
-    : legacyTrust === "builtin"
-      ? "default"
-      : legacyTrust === "verified"
-        ? "secondary"
-        : "outline";
 
   const handleInstall = async () => {
     if (invalid) {
@@ -268,52 +257,51 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
   };
 
   return (
-    <div className="rounded-lg border bg-card p-3 space-y-2">
-      <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center shrink-0">
-          <Sparkles className="w-4 h-4 text-muted-foreground" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <span className="text-sm font-medium truncate block">
-            {skill.name}
-          </span>
-          <p className="text-xs text-muted-foreground truncate">
-            {skill.description}
-          </p>
-          <div className="pt-0.5">
-            <Badge
-              variant={badgeVariant}
-              className="text-[10px] h-4 px-1.5 shrink-0"
-              aria-label={`${m.library_skills_trust_aria_prefix()}: ${badgeLabel}`}
-            >
-              {badgeLabel}
-            </Badge>
-          </div>
-        </div>
+    <LibraryCard
+      icon={<Sparkles className="size-3.5" />}
+      title={skill.name}
+      description={skill.description}
+      tags={
+        <LibraryTag
+          verified={legacyTrust !== "community"}
+          aria-label={`${m.library_skills_trust_aria_prefix()}: ${badgeLabel}`}
+        >
+          {badgeLabel}
+        </LibraryTag>
+      }
+      action={
         <Button
           variant={installed ? "outline" : "default"}
           size="sm"
-          className="h-7 text-xs shrink-0"
+          className={
+            installed
+              ? "h-[19px] rounded-md border-[#555] bg-transparent px-1.5 py-1 text-[9px] text-muted-foreground"
+              : "h-[19px] rounded-md border-0 bg-[#d4d4d4] px-1.5 py-1 text-[9px] font-medium text-[#1a1a1a] hover:bg-white"
+          }
           onClick={handleInstall}
           disabled={busy || installed || invalid}
         >
           {busy ? (
-            <Loader2 className="w-3 h-3 animate-spin" />
+            <Loader2 className="size-[11px] animate-spin" />
           ) : (
             <>
-              <Download className="w-3 h-3 mr-1.5" />
+              <Download className="size-[11px]" />
               {m.library_skills_catalog_install()}
             </>
           )}
         </Button>
-      </div>
-      {skill.trust_reason && (
-        <p className="text-xs text-muted-foreground" role="status">
-          {skill.trust_reason}
-        </p>
-      )}
-      {error && <p className="text-xs text-destructive">{error}</p>}
-    </div>
+      }
+      footer={
+        <>
+          {skill.trust_reason && (
+            <p className="text-xs text-muted-foreground" role="status">
+              {skill.trust_reason}
+            </p>
+          )}
+          {error && <p className="text-xs text-destructive">{error}</p>}
+        </>
+      }
+    />
   );
 }
 
