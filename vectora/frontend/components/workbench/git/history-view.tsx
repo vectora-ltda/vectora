@@ -319,6 +319,7 @@ export function HistoryView({
   const [diffLoading, setDiffLoading] = useState(false);
   const [squashBase, setSquashBase] = useState<string | null>(null);
   const detailsRequest = useRef(0);
+  const logRequest = useRef(0);
   const workspaceRequest = useRef(0);
   const updateLoading = useCallback((value: boolean) => setLoading(value), []);
   const resetSelection = useCallback(() => {
@@ -329,26 +330,38 @@ export function HistoryView({
   useEffect(() => {
     if (!workspaceId) return;
     const epoch = ++workspaceRequest.current;
-    const request = ++detailsRequest.current;
+    const request = ++logRequest.current;
     // This effect synchronizes the view with a new workspace request.
     // oxlint's synchronous-effect rule is intentionally suppressed for these
     // reset states because they must happen before the network response.
     queueMicrotask(() => {
       updateLoading(true);
+      setData(null);
       resetSelection();
     });
-    void fetchGitLog(workspaceId, 0).then((next) => {
-      if (
-        epoch !== workspaceRequest.current ||
-        request !== detailsRequest.current
-      )
-        return;
-      // The response is guarded by both workspace and request epochs above.
-      queueMicrotask(() => {
-        updateLoading(false);
+    void fetchGitLog(workspaceId, 0)
+      .then((next) => {
+        if (
+          epoch !== workspaceRequest.current ||
+          request !== logRequest.current
+        )
+          return;
         setData(next);
+      })
+      .catch(() => {
+        if (
+          epoch === workspaceRequest.current &&
+          request === logRequest.current
+        )
+          setData(null);
+      })
+      .finally(() => {
+        if (
+          epoch === workspaceRequest.current &&
+          request === logRequest.current
+        )
+          updateLoading(false);
       });
-    });
   }, [workspaceId, resetSelection, updateLoading]);
 
   const selectCommit = useCallback(

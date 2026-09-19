@@ -322,6 +322,8 @@ class GenerateTitleResponse(BaseModel):
 
 
 class ThreadEvent(BaseModel):
+    """Identifies the thread, workspace and run behind a new stream."""
+
     thread_id: str
     # Workspace resolvido pra essa sessão — populado por stream_engine_events a partir
     # do workspace_id já calculado em stream_chat. Frontend usa isso pra
@@ -329,6 +331,7 @@ class ThreadEvent(BaseModel):
     # (create_new_workspace=True em ChatConfig), já que hoje esse id nunca
     # volta ao cliente por nenhum outro canal.
     workspace_id: str = ""
+    run_id: str | None = None
 
 
 class DiffHunk(BaseModel):
@@ -484,6 +487,8 @@ class TurnFileChange(BaseModel):
 
 
 class TurnFilesChangedEvent(BaseModel):
+    """Publishes the current or finalized edited files for a run."""
+
     run_id: str = ""
     status: Literal["active", "finalized"] = "finalized"
     files: list[TurnFileChange] = Field(default_factory=list)

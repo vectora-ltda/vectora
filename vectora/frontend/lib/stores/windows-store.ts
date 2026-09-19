@@ -128,12 +128,14 @@ export const useWindowsStore = create<WindowsState>()(
 
       openCanvasDocument: (document) =>
         set((s) => {
-          const scoped = s.canvasDocuments.filter(
-            (item) => item.workspaceId === document.workspaceId,
+          const existing = s.canvasDocuments.find(
+            (item) => item.id === document.id,
           );
-          const documents = scoped.some((item) => item.id === document.id)
-            ? scoped.map((item) => (item.id === document.id ? document : item))
-            : [...scoped, document];
+          const documents = existing
+            ? s.canvasDocuments.map((item) =>
+                item.id === document.id ? document : item,
+              )
+            : [...s.canvasDocuments, document];
           return {
             canvasDocuments: documents,
             activeCanvasDocumentId: document.id,
@@ -188,7 +190,7 @@ export const useWindowsStore = create<WindowsState>()(
           const canvasDocuments = [
             ...s.canvasDocuments.filter(
               (item) =>
-                item.workspaceId === workspaceId && item.id !== document.id,
+                item.workspaceId !== workspaceId || item.id !== document.id,
             ),
             document,
           ];
@@ -409,6 +411,8 @@ export const useWindowsStore = create<WindowsState>()(
       partialize: (state) => ({
         windows: state.windows,
         topZ: state.topZ,
+        canvasDocuments: state.canvasDocuments,
+        activeCanvasDocumentId: state.activeCanvasDocumentId,
       }),
     },
   ),

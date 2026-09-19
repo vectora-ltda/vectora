@@ -83,6 +83,7 @@ export type StreamEvent =
       type: "thread";
       thread_id: string;
       workspace_id?: string;
+      run_id?: string;
     }
   | { type: "token"; content: string; node?: string }
   | {

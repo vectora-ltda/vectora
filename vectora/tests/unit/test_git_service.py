@@ -191,10 +191,10 @@ async def test_status_exposes_operation_in_progress_for_reconnection(
     await asyncio.to_thread(started.wait, 1)
     try:
         snapshot = await service.status("workspace", repo)
-        operation = snapshot["operation_in_progress"]
-        assert isinstance(operation, dict)
-        assert operation["state"] == "running"
-        assert operation["operation"] == "fetch"
+        operation = snapshot.operation_in_progress
+        assert operation is not None
+        assert operation.state == "running"
+        assert operation.operation == "fetch"
     finally:
         release.set()
         await running
@@ -217,6 +217,26 @@ async def test_generic_callback_failure_is_terminal(tmp_path: Path) -> None:
     assert latest["state"] == "failed"
     assert latest["error_code"] == "git_operation_failed"
     assert latest["error"] == "token=***"
+
+
+@pytest.mark.asyncio
+async def test_error_result_is_recorded_as_failed_operation(tmp_path: Path) -> None:
+    service = GitService()
+    repo = make_repo(tmp_path / "repo")
+
+    with pytest.raises(GitOperationError) as error:
+        await service.execute(
+            "workspace",
+            repo,
+            "push",
+            lambda: {"status": "error", "message": "rejected: non-fast-forward"},
+        )
+
+    assert error.value.code == "git_branch_diverged"
+    latest = await service.latest("workspace")
+    assert latest is not None
+    assert latest.state == "failed"
+    assert latest.error_code == "git_branch_diverged"
 
 
 @pytest.mark.asyncio

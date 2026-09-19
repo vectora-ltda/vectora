@@ -1237,12 +1237,13 @@ async def get_history(request: GetHistoryRequest) -> GetHistoryResponse:
         )
         history = [
             HistoryMessage(
-                role=role,
-                content=text,
-                checkpoint_id=checkpoint_id,
-                edited_files=edited_files,
+                role=entry.role,
+                content=entry.text,
+                checkpoint_id=entry.checkpoint_id,
+                attachments=entry.attachments,
+                edited_files=[file.model_dump() for file in entry.edited_files],
             )
-            for role, text, checkpoint_id, _att, edited_files in pairs
+            for entry in pairs
         ]
         todos = await agent_factory.aget_thread_todos(
             request.thread_id,
@@ -1746,13 +1747,13 @@ async def get_thread_history_paginated(
 
     messages = [
         HistoryMessage(
-            role=role,
-            content=text,
-            checkpoint_id=checkpoint_id,
-            attachments=att,
-            edited_files=edited_files,
+            role=entry.role,
+            content=entry.text,
+            checkpoint_id=entry.checkpoint_id,
+            attachments=entry.attachments,
+            edited_files=[file.model_dump() for file in entry.edited_files],
         )
-        for role, text, checkpoint_id, att, edited_files in page
+        for entry in page
     ]
 
     if offset == 0:

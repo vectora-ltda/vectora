@@ -53,7 +53,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from backend.agents._identity import VECTORA_IDENTITY
 from backend.rbac import tool_policy
@@ -64,6 +64,7 @@ if TYPE_CHECKING:
     from backend.engine.hitl import ApprovalGate
     from backend.engine.subagents import SubagentSpec
     from backend.persistence.native.session_store import SessionStore
+    from backend.vtypes.history import ThreadHistoryEntry
 from backend.tools.registry import ToolRegistry
 from backend.workspace.skills import list_skill_paths
 
@@ -840,19 +841,30 @@ async def aget_thread_messages(
 
 async def aget_thread_messages_with_files(
     thread_id: str, workspace_id: str | None = None
-) -> list[tuple[str, str, str, list[dict[str, Any]], list[dict[str, object]]]]:
+) -> list[ThreadHistoryEntry]:
     """Histórico com o payload de arquivos editados persistido por mensagem."""
+    from backend.vtypes.history import HistoryEditedFile, ThreadHistoryEntry
+
     store = await get_session_store()
     files_by_id = await store.get_edited_files_for_thread(thread_id)
 
-    def files_for_checkpoint(checkpoint_id: str) -> list[dict[str, object]]:
+    def files_for_checkpoint(checkpoint_id: str) -> list[HistoryEditedFile]:
         try:
-            return files_by_id.get(int(checkpoint_id), [])
+            return [
+                HistoryEditedFile.model_validate(item)
+                for item in files_by_id.get(int(checkpoint_id), [])
+            ]
         except ValueError:
             return []
 
     return [
-        (*item, files_for_checkpoint(item[2]))
+        ThreadHistoryEntry(
+            role=cast(Literal["human", "assistant"], item[0]),
+            text=item[1],
+            checkpoint_id=item[2],
+            attachments=item[3],
+            edited_files=files_for_checkpoint(item[2]),
+        )
         for item in await aget_thread_messages(thread_id, workspace_id)
     ]
 

@@ -19,7 +19,7 @@ import {
   Settings2,
   UserPlus,
 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { useWorkbenchSWR } from "@/lib/hooks/workbench/use-swr";
 import {
@@ -166,6 +166,7 @@ export function ChangesView({
   summary: DiffSummary;
 }) {
   const invalidateDiff = useWorkbenchStore((s) => s.invalidateDiff);
+  const toggleSelection = useWorkbenchStore((s) => s.toggleGitFileSelection);
   const setGitFileSelection = useWorkbenchStore((s) => s.setGitFileSelection);
   const gitOps = useWorkbenchStore(
     (s) =>
@@ -193,6 +194,7 @@ export function ChangesView({
     Array<{ id: string; username?: string; name?: string }>
   >([]);
   const [mentionError, setMentionError] = useState(false);
+  const suggestionRequest = useRef(0);
 
   const handleRefresh = useCallback(() => {
     invalidateDiff(workspaceId);
@@ -289,17 +291,57 @@ export function ChangesView({
     }
   };
 
+  const handleBatchAction = async (action: "stage" | "unstage") => {
+    const selected = summary.files.filter((file) =>
+      gitOps.selectedFiles.includes(file.path),
+    );
+    const eligible = selected.filter((file) =>
+      action === "stage"
+        ? Boolean(file.unstaged_change || file.untracked)
+        : Boolean(file.staged_change),
+    );
+    if (eligible.length === 0) return;
+    let results: Array<{
+      file: DiffFile;
+      result: { status: string; message: string };
+    }>;
+    try {
+      results = await Promise.all(
+        eligible.map(async (file) => ({
+          file,
+          result: await apiGitFileAction(workspaceId, action, file.path),
+        })),
+      );
+    } catch {
+      showError(m.workbench_git_operation_failed());
+      return;
+    }
+    const failed = results.filter(({ result }) => result.status === "error");
+    for (const { file, result } of results) {
+      if (result.status !== "error") toggleSelection(workspaceId, file.path);
+    }
+    if (failed.length > 0) {
+      showError(
+        failed
+          .map(({ file, result }) => `${file.path}: ${result.message}`)
+          .join("\n"),
+      );
+    }
+    handleRefresh();
+  };
+
   const generateSuggestion = async () => {
     if (commitMsg.trim() || commitBody.trim()) {
       showError(m.workbench_git_commit_draft_exists());
       return;
     }
+    const requestId = ++suggestionRequest.current;
     setGenerating(true);
     try {
       const suggestion = await fetchGitCommitSuggestion(workspaceId);
-      if (suggestion?.title) {
-        setCommitMsg(suggestion.title);
-        setCommitBody(suggestion.description);
+      if (suggestion?.title && requestId === suggestionRequest.current) {
+        setCommitMsg((current) => current.trim() || suggestion.title);
+        setCommitBody((current) => current.trim() || suggestion.description);
       }
     } finally {
       setGenerating(false);
@@ -341,8 +383,8 @@ export function ChangesView({
   return (
     <div className="h-full flex flex-col">
       {menu.element}
-      <div className="grid min-h-10 grid-cols-[minmax(0,1fr)_2rem_2rem] items-center gap-0 border-b border-border/60 px-3 py-2">
-        <label className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+      <div className="flex min-h-10 items-center gap-2 border-b border-border/60 px-3 py-2">
+        <label className="flex min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground">
           <input
             type="checkbox"
             checked={allFilesSelected}
@@ -365,10 +407,40 @@ export function ChangesView({
             {m.workbench_git_changed_files({ n: summary.files.length })}
           </span>
         </label>
-        <span className="w-8 text-right text-xs font-mono text-git-addition">
+        {gitOps.selectedFiles.length > 0 && (
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              className="rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+              onClick={() => void handleBatchAction("stage")}
+            >
+              {m.workbench_git_stage_selected({
+                n: summary.files.filter(
+                  (file) =>
+                    gitOps.selectedFiles.includes(file.path) &&
+                    Boolean(file.unstaged_change || file.untracked),
+                ).length,
+              })}
+            </button>
+            <button
+              type="button"
+              className="rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+              onClick={() => void handleBatchAction("unstage")}
+            >
+              {m.workbench_git_unstage_selected({
+                n: summary.files.filter(
+                  (file) =>
+                    gitOps.selectedFiles.includes(file.path) &&
+                    Boolean(file.staged_change),
+                ).length,
+              })}
+            </button>
+          </div>
+        )}
+        <span className="w-8 shrink-0 text-right text-xs font-mono text-git-addition">
           +{summary.total_additions}
         </span>
-        <span className="w-8 text-right text-xs font-mono text-destructive">
+        <span className="w-8 shrink-0 text-right text-xs font-mono text-destructive">
           −{summary.total_deletions}
         </span>
       </div>

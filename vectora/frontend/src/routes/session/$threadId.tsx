@@ -454,7 +454,7 @@ function SessionPage() {
     (details: GitCommitDetailsState) => {
       setGitCommitDetails(details);
       if (activeWorkspaceId) {
-        const documentId = `commit:${activeWorkspaceId}:${details.commit.sha}`;
+        const documentId = `commit:${activeWorkspaceId}:${threadId}:${details.commit.sha}`;
         setGitCommitDetailsById((previous) => ({
           ...previous,
           [documentId]: details,
@@ -475,7 +475,7 @@ function SessionPage() {
   const openPlanDocument = useCallback(
     (item: PlanItem, content: string | null) => {
       if (!activeWorkspaceId) return;
-      const documentId = `plan:${activeWorkspaceId}:${item.path}`;
+      const documentId = `plan:${activeWorkspaceId}:${threadId}:${item.path}`;
       setPlanDocument({ item, content });
       setPlanDocumentsById((previous) => ({
         ...previous,
@@ -495,19 +495,20 @@ function SessionPage() {
   );
 
   useEffect(() => {
-    if (activeCanvasDocumentId) setActiveCanvasTab(activeCanvasDocumentId);
-  }, [activeCanvasDocumentId]);
+    if (!activeCanvasDocumentId) return;
+    const visible = canvasDocuments.some(
+      (document) =>
+        document.id === activeCanvasDocumentId &&
+        document.workspaceId === activeWorkspaceId &&
+        (document.kind === "file" || document.threadId === threadId),
+    );
+    setActiveCanvasTab(visible ? activeCanvasDocumentId : "editor");
+  }, [activeCanvasDocumentId, activeWorkspaceId, canvasDocuments, threadId]);
 
   useEffect(() => {
     setEditedFileDiff(null);
     setPlanDocument(null);
     setGitCommitDetails(null);
-    setGitCommitDetailsById({});
-    setPlanDocumentsById({});
-    if (!activeWorkspaceId) return;
-    useWindowsStore
-      .getState()
-      .clearCanvasDocumentsForWorkspace(activeWorkspaceId);
   }, [activeWorkspaceId, threadId]);
 
   useEffect(() => {
@@ -516,14 +517,14 @@ function SessionPage() {
       !canvasDocuments.some(
         (document) =>
           document.id ===
-          `commit:${activeWorkspaceId}:${gitCommitDetails.commit.sha}`,
+          `commit:${activeWorkspaceId}:${threadId}:${gitCommitDetails.commit.sha}`,
       )
     ) {
       setGitCommitDetails(null);
       setPlanDocument(null);
       setActiveCanvasTab("editor");
     }
-  }, [activeWorkspaceId, canvasDocuments, gitCommitDetails]);
+  }, [activeWorkspaceId, canvasDocuments, gitCommitDetails, threadId]);
   // `model` reflete `selectedModel` do settings-store (persistido) — o
   // restante de AgentConfig (repos, etc.) é local/efêmero por thread.
   const [agentConfig, setAgentConfigState] = useState<AgentConfig>(() => ({
@@ -1147,7 +1148,9 @@ function SessionPage() {
                       }}
                       documents={canvasDocuments.filter(
                         (document) =>
-                          document.workspaceId === activeWorkspaceId,
+                          document.workspaceId === activeWorkspaceId &&
+                          (document.kind === "file" ||
+                            document.threadId === threadId),
                       )}
                       renderDocument={(document) => {
                         if (document.kind === "file" && document.path) {

@@ -87,9 +87,17 @@ async def install_skill_from_catalog(skill_id: str, ctx: ToolContext) -> str:
     """
     try:
         from backend.services import registry_client
-        from backend.workspace.skills import install_skill
+        from backend.workspace.skills import install_skill, list_wellknown_catalog
 
-        entries = await registry_client.fetch_catalog("skills")
+        remote = await registry_client.fetch_catalog("skills")
+        enterprise = await registry_client.fetch_enterprise_catalog("skills")
+        local = list_wellknown_catalog()
+        by_id = {
+            str(entry.get("id")): entry
+            for entry in [*enterprise, *remote, *local]
+            if entry.get("id")
+        }
+        entries = list(by_id.values())
         entry = next((e for e in entries if e.get("id") == skill_id), None)
         if entry is None:
             return json.dumps(
@@ -415,8 +423,17 @@ async def list_skills_catalog(query: str = "") -> str:
     """
     try:
         from backend.services import registry_client
+        from backend.workspace.skills import list_wellknown_catalog
 
-        entries = await registry_client.fetch_catalog("skills")
+        remote = await registry_client.fetch_catalog("skills")
+        enterprise = await registry_client.fetch_enterprise_catalog("skills")
+        local = list_wellknown_catalog()
+        by_id = {
+            str(entry.get("id")): entry
+            for entry in [*enterprise, *remote, *local]
+            if entry.get("id")
+        }
+        entries = list(by_id.values())
         items = [
             {
                 "id": e.get("id", ""),

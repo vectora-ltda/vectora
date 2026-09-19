@@ -17,18 +17,32 @@ class DiffHunk(TypedDict):
 
 
 class GitCommands(Protocol):
-    def status(self, *args: str, **kwargs: object) -> str | bytes: ...
+    """Subset of GitPython commands required by the turn-file tracker."""
 
-    def show(self, ref: str) -> str: ...
+    def status(self, *args: str, **kwargs: object) -> str | bytes:
+        """Return a porcelain working-tree status."""
+        ...
+
+    def show(self, ref: str) -> str:
+        """Read a file from a Git revision."""
+        ...
+
+    def diff(self, *args: str, **kwargs: object) -> str | bytes:
+        """Return a revision diff or a list of changed paths."""
+        ...
 
 
 class RepoLike(Protocol):
+    """Minimal repository surface used by the tracker and its tests."""
+
     git: GitCommands
     working_tree_dir: str | None
 
 
 @dataclass(frozen=True, slots=True)
 class TurnFileChange:
+    """One file changed between the start and end of a turn."""
+
     path: str
     status: str
     additions: int
@@ -38,18 +52,22 @@ class TurnFileChange:
 
 @dataclass(frozen=True, slots=True)
 class TurnWorkspaceSnapshot:
+    """Immutable baseline used to calculate one run's file changes."""
+
     run_id: str
     thread_id: str
     workspace_id: str
     repo_root: Path
     scope_root: Path
     initial: dict[str, bytes | None]
+    initial_head: str | None = None
 
 
-MAX_TRACKED_FILES = 256
-MAX_FILE_BYTES = 512 * 1024
-MAX_RETAINED_RUNS = 16
+MAX_TRACKED_FILES: int = 256
+MAX_FILE_BYTES: int = 512 * 1024
+MAX_RETAINED_RUNS: int = 16
 _active: dict[str, TurnWorkspaceSnapshot] = {}
+_active_by_context: dict[tuple[str, str], str] = {}
 _latest: dict[tuple[str, str], tuple[str, list[TurnFileChange]]] = {}
 _results: dict[str, list[TurnFileChange]] = {}
 _result_context: dict[str, tuple[str, str]] = {}
@@ -94,6 +112,40 @@ def _status_paths(repo: RepoLike, scope_root: Path, repo_root: Path) -> list[str
     return sorted(paths)[:MAX_TRACKED_FILES]
 
 
+def _revision_paths(
+    repo: RepoLike, revision_range: str, scope_root: Path, repo_root: Path
+) -> list[str]:
+    """Return paths changed by ``revision_range`` inside the workspace scope."""
+    try:
+        raw = (
+            repo.git.diff(
+                "--name-only",
+                "-z",
+                revision_range,
+                "--",
+                stdout_as_string=False,
+            )
+            or b""
+        )
+    except Exception:
+        return []
+    raw_text = (
+        raw.decode("utf-8", errors="surrogateescape") if isinstance(raw, bytes) else raw
+    )
+    paths: set[str] = set()
+    for raw_path in raw_text.split("\0"):
+        if not raw_path:
+            continue
+        path = raw_path.replace("\\", "/")
+        candidate = (repo_root / path).resolve()
+        try:
+            candidate.relative_to(scope_root)
+        except ValueError:
+            continue
+        paths.add(path)
+    return sorted(paths)[:MAX_TRACKED_FILES]
+
+
 def _read(repo_root: Path, path: str) -> bytes | None:
     candidate = (repo_root / path).resolve()
     try:
@@ -108,9 +160,10 @@ def _read(repo_root: Path, path: str) -> bytes | None:
         return None
 
 
-def _head_read(repo: RepoLike, path: str) -> bytes | None:
+def _head_read(repo: RepoLike, path: str, ref: str = "HEAD") -> bytes | None:
+    """Read a bounded file from ``ref`` without raising on missing paths."""
     try:
-        return repo.git.show(f"HEAD:{path}").encode("utf-8", errors="replace")
+        return repo.git.show(f"{ref}:{path}").encode("utf-8", errors="replace")
     except Exception:
         return None
 
@@ -144,6 +197,10 @@ def capture(
         if resolved is None:
             return None
         repo, repo_root, scope_root = resolved
+        head = getattr(repo, "head", None)
+        commit = getattr(head, "commit", None)
+        commit_sha = getattr(commit, "hexsha", None)
+        initial_head = str(commit_sha) if commit_sha else None
         initial = {
             path: _read(repo_root, path)
             for path in _status_paths(repo, scope_root, repo_root)
@@ -157,8 +214,10 @@ def capture(
         repo_root=repo_root,
         scope_root=scope_root,
         initial=initial,
+        initial_head=initial_head,
     )
     _active[snapshot.run_id] = snapshot
+    _active_by_context[(thread_id, workspace_id)] = snapshot.run_id
     return snapshot
 
 
@@ -183,10 +242,26 @@ def compute(snapshot: TurnWorkspaceSnapshot) -> list[TurnFileChange]:
         return []
 
     current_paths = _status_paths(repo, snapshot.scope_root, snapshot.repo_root)
-    paths = sorted(set(snapshot.initial) | set(current_paths))[:MAX_TRACKED_FILES]
+    committed_paths = (
+        _revision_paths(
+            repo,
+            f"{snapshot.initial_head}..HEAD",
+            snapshot.scope_root,
+            snapshot.repo_root,
+        )
+        if snapshot.initial_head
+        else []
+    )
+    paths = sorted(set(snapshot.initial) | set(current_paths) | set(committed_paths))[
+        :MAX_TRACKED_FILES
+    ]
     changes: list[TurnFileChange] = []
     for path in paths:
-        before = snapshot.initial.get(path, _head_read(repo, path))
+        before = (
+            snapshot.initial[path]
+            if path in snapshot.initial
+            else _head_read(repo, path, snapshot.initial_head or "HEAD")
+        )
         after = _read(snapshot.repo_root, path)
         if before == after:
             continue
@@ -238,6 +313,9 @@ def finalize(snapshot: TurnWorkspaceSnapshot | None) -> list[TurnFileChange]:
     _results[snapshot.run_id] = changes
     _result_context[snapshot.run_id] = (snapshot.thread_id, snapshot.workspace_id)
     _active.pop(snapshot.run_id, None)
+    context = (snapshot.thread_id, snapshot.workspace_id)
+    if _active_by_context.get(context) == snapshot.run_id:
+        _active_by_context.pop(context, None)
     _latest[(snapshot.thread_id, snapshot.workspace_id)] = (snapshot.run_id, changes)
     if len(_results) > MAX_RETAINED_RUNS:
         for old_run_id in list(_results)[:-MAX_RETAINED_RUNS]:
@@ -261,11 +339,17 @@ def latest(
         if _result_context.get(run_id) == (thread_id, workspace_id):
             return run_id, "finalized", _results[run_id]
         return run_id, "finalized", []
+    active_run = _active_by_context.get((thread_id, workspace_id))
+    if active_run:
+        snapshot = _active.get(active_run)
+        if snapshot is not None:
+            return active_run, "active", compute(snapshot)
     latest_run, changes = _latest.get((thread_id, workspace_id), ("", []))
     return latest_run, "finalized", changes
 
 
 def encode(changes: list[TurnFileChange]) -> list[dict[str, object]]:
+    """Serialize turn-file dataclasses for SSE and persistence boundaries."""
     return [
         {
             "path": change.path,

@@ -300,7 +300,8 @@ class SessionStore:
         async with self._pool.acquire() as conn:
             await conn.execute(
                 "UPDATE messages SET edited_files_json = ? "
-                "WHERE thread_id = ? AND run_id = ? AND role = 'assistant'",
+                "WHERE id = (SELECT MAX(id) FROM messages "
+                "WHERE thread_id = ? AND run_id = ? AND role = 'assistant')",
                 (payload, thread_id, run_id),
             )
             await conn.commit()

@@ -31,6 +31,7 @@ from backend.workspace.skills import (
     InstallSkillRequest,
     install_skill,
     list_skills,
+    list_wellknown_catalog,
     remove_skill,
     verify_skill,
 )
@@ -138,16 +139,16 @@ async def get_skills_catalog(
     q: str | None = None, category: str | None = None, tags: str | None = None
 ) -> dict:
     """Catálogo de skills curadas do registry remoto (D1, `skills_catalog`) —
-    distinto de `GET /skills` (que lista as já instaladas). Sem fallback
-    hardcoded local: até hoje não existe skill oficial pré-curada, então
-    catálogo vazio é um estado válido (registry fora do ar ou sem seed
-    ainda), não erro. `q`/`category`/`tags` filtram em memória sobre o
-    catálogo já cacheado por `registry_client` — não refazem a requisição
-    remota a cada busca."""
+    distinto de `GET /skills` (que lista as já instaladas). Mescla o
+    registry remoto, um registry enterprise opcional e o catálogo local
+    ``~/.vectora/skills-wellknown``. `q`/`category`/`tags` filtram em memória
+    sobre as fontes já cacheadas — não refazem a requisição remota a cada busca."""
     entries = await registry_client.fetch_catalog("skills")
     enterprise = await registry_client.fetch_enterprise_catalog("skills")
+    local = list_wellknown_catalog()
     by_id = {str(entry.get("id")): entry for entry in enterprise if entry.get("id")}
     by_id.update({str(entry.get("id")): entry for entry in entries if entry.get("id")})
+    by_id.update({str(entry.get("id")): entry for entry in local if entry.get("id")})
     entries = list(by_id.values())
     filtered = [
         e for e in entries if _matches_skill_query(e, q=q, category=category, tags=tags)

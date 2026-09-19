@@ -300,7 +300,8 @@ class PostgresSessionStore:
         async with self._pool.acquire() as conn:
             await conn.execute(
                 "UPDATE vectora_native_messages SET edited_files_json = $1 "
-                "WHERE thread_id = $2 AND run_id = $3 AND role = 'assistant'",
+                "WHERE id = (SELECT MAX(id) FROM vectora_native_messages "
+                "WHERE thread_id = $2 AND run_id = $3 AND role = 'assistant')",
                 payload,
                 thread_id,
                 run_id,

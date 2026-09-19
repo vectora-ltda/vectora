@@ -135,7 +135,9 @@ reproduza a consulta antes de cada comando `ALTER TABLE`; nunca execute um
   `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_PRO_USD` (billing INTL);
   `ASAAS_API_KEY`, `ASAAS_API_URL`, `ASAAS_WEBHOOK_SECRET` (billing BR);
   `GHA_BOT_ENCRYPTION_KEY` (gha-bot, chave mestra AES-256-GCM);
-  `GITHUB_TOKEN` (registry discovery, opcional).
+  `GITHUB_TOKEN` (registry discovery de skills no GitHub, necessário para a
+  busca autenticada de `SKILL.md`; sem ele a descoberta de terceiros fica
+  desabilitada e o catálogo ainda pode receber publicações via `POST /skills`).
 
 ## Publicar um release
 

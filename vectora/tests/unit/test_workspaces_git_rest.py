@@ -26,7 +26,7 @@ from backend.api.handlers.workspaces import (
 
 
 @pytest.fixture
-def ws_repo(tmp_path: Path, monkeypatch):
+def ws_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[git.Repo, Path]:
     from backend.vtypes import Workspace
     from backend.workspace import workspace as ws_mod
 
@@ -51,7 +51,7 @@ def ws_repo(tmp_path: Path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_commit_amend_via_rest(ws_repo):
+async def test_commit_amend_via_rest(ws_repo: tuple[git.Repo, Path]) -> None:
     repo, tmp_path = ws_repo
     original_head = repo.head.commit.hexsha
     (tmp_path / "a.txt").write_text("a\nmais\n")
@@ -67,7 +67,7 @@ async def test_commit_amend_via_rest(ws_repo):
 
 
 @pytest.mark.asyncio
-async def test_commit_body_via_rest(ws_repo):
+async def test_commit_body_via_rest(ws_repo: tuple[git.Repo, Path]) -> None:
     repo, tmp_path = ws_repo
     (tmp_path / "b.txt").write_text("b\n")
     repo.index.add(["b.txt"])
@@ -81,7 +81,7 @@ async def test_commit_body_via_rest(ws_repo):
 
 
 @pytest.mark.asyncio
-async def test_commit_signoff_via_rest(ws_repo):
+async def test_commit_signoff_via_rest(ws_repo: tuple[git.Repo, Path]) -> None:
     repo, tmp_path = ws_repo
     (tmp_path / "signed.txt").write_text("signed\n")
     repo.index.add(["signed.txt"])
@@ -95,7 +95,9 @@ async def test_commit_signoff_via_rest(ws_repo):
 
 
 @pytest.mark.asyncio
-async def test_commit_suggestion_uses_staged_files(ws_repo):
+async def test_commit_suggestion_uses_staged_files(
+    ws_repo: tuple[git.Repo, Path],
+) -> None:
     _repo, tmp_path = ws_repo
     (tmp_path / "b.txt").write_text("b\n")
     (tmp_path / "c.txt").write_text("c\n")
@@ -108,7 +110,9 @@ async def test_commit_suggestion_uses_staged_files(ws_repo):
 
 
 @pytest.mark.asyncio
-async def test_commit_suggestion_empty_when_nothing_staged(ws_repo):
+async def test_commit_suggestion_empty_when_nothing_staged(
+    ws_repo: tuple[git.Repo, Path],
+) -> None:
     result = await git_commit_suggestion("ws-git")
 
     assert result.title == ""
@@ -116,7 +120,9 @@ async def test_commit_suggestion_empty_when_nothing_staged(ws_repo):
 
 
 @pytest.mark.asyncio
-async def test_commit_sem_workspace_devolve_erro(monkeypatch):
+async def test_commit_sem_workspace_devolve_erro(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from backend.workspace import workspace as ws_mod
 
     monkeypatch.setattr(ws_mod.workspace_registry, "get", lambda wid: None)
@@ -127,7 +133,7 @@ async def test_commit_sem_workspace_devolve_erro(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_squash_via_rest(ws_repo):
+async def test_squash_via_rest(ws_repo: tuple[git.Repo, Path]) -> None:
     repo, tmp_path = ws_repo
     base = repo.head.commit.hexsha
     (tmp_path / "b.txt").write_text("b\n")
@@ -146,7 +152,9 @@ async def test_squash_via_rest(ws_repo):
 
 
 @pytest.mark.asyncio
-async def test_squash_base_ref_invalida_devolve_erro(ws_repo):
+async def test_squash_base_ref_invalida_devolve_erro(
+    ws_repo: tuple[git.Repo, Path],
+) -> None:
     result = await git_squash_inline(
         "ws-git", GitSquashRequest(base_ref="ref-invalida", message="x")
     )
@@ -155,7 +163,7 @@ async def test_squash_base_ref_invalida_devolve_erro(ws_repo):
 
 
 @pytest.mark.asyncio
-async def test_reorder_via_rest(ws_repo):
+async def test_reorder_via_rest(ws_repo: tuple[git.Repo, Path]) -> None:
     repo, tmp_path = ws_repo
     (tmp_path / "b.txt").write_text("b\n")
     repo.index.add(["b.txt"])
@@ -175,7 +183,9 @@ async def test_reorder_via_rest(ws_repo):
 
 
 @pytest.mark.asyncio
-async def test_reorder_lista_vazia_devolve_erro(ws_repo):
+async def test_reorder_lista_vazia_devolve_erro(
+    ws_repo: tuple[git.Repo, Path],
+) -> None:
     result = await git_reorder_inline("ws-git", GitReorderRequest(commits=[]))
     assert result.status == "error"
 

@@ -164,10 +164,13 @@ function TodoStatusIcon({ status }: { status: TodoItem["status"] }) {
 }
 
 export function PlanTab({ threadId, onOpenPlanDocument }: PlanTabProps) {
+  // A chave inclui a thread e o contador nunca é resetado. Reiniciar o mapa
+  // ao trocar de thread permitia que uma resposta antiga e uma nova usassem
+  // o mesmo epoch para o mesmo slug.
   const contentRequestEpoch = useRef(new Map<string, number>());
+  const activeThreadRef = useRef(threadId);
   useEffect(() => {
-    if (!threadId) return;
-    contentRequestEpoch.current.clear();
+    activeThreadRef.current = threadId;
   }, [threadId]);
   const items = useWorkbenchStore((s) => s.getPlan(threadId).items);
   const todos = useWorkbenchStore((s) => s.getTodos(threadId));
@@ -239,10 +242,17 @@ export function PlanTab({ threadId, onOpenPlanDocument }: PlanTabProps) {
           if (item) onOpenPlanDocument?.(item, contentsBySlug[slug]);
           continue;
         }
-        const requestEpoch = (contentRequestEpoch.current.get(slug) ?? 0) + 1;
-        contentRequestEpoch.current.set(slug, requestEpoch);
+        const requestKey = `${threadId}:${slug}`;
+        const requestEpoch =
+          (contentRequestEpoch.current.get(requestKey) ?? 0) + 1;
+        contentRequestEpoch.current.set(requestKey, requestEpoch);
+        const requestThreadId = threadId;
         void fetchArtifactContent(threadId, slug).then((content) => {
-          if (requestEpoch !== contentRequestEpoch.current.get(slug)) return;
+          if (
+            requestThreadId !== activeThreadRef.current ||
+            requestEpoch !== contentRequestEpoch.current.get(requestKey)
+          )
+            return;
           if (content !== null) setPlanContent(threadId, slug, content);
           if (item) onOpenPlanDocument?.(item, content);
         });

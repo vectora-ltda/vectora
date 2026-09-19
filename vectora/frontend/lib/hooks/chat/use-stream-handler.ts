@@ -239,6 +239,8 @@ async function reconcileTurnFiles(
   workspaceId?: string,
   runId?: string,
 ): Promise<void> {
+  const maxAttempts = 40;
+  const retryDelayMs = 500;
   const resolvedWorkspaceId =
     workspaceId ?? useWorkspacesStore.getState().active_id;
   if (!resolvedWorkspaceId) return;
@@ -259,10 +261,10 @@ async function reconcileTurnFiles(
     let snapshot = await readSnapshot();
     for (
       let attempt = 0;
-      attempt < 7 && snapshot.status === "active";
+      attempt < maxAttempts && snapshot.status === "active";
       attempt++
     ) {
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
       snapshot = await readSnapshot();
     }
     const files = snapshot.files;

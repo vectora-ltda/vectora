@@ -14,12 +14,15 @@ Dependência: gitpython >= 3.1
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import logging
 import os
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
+
+from pydantic import BaseModel
 
 # GitPython roda Git.refresh() em `import git` e levanta ImportError se não
 # achar o executável git no PATH — precisa disso antes do import abaixo.
@@ -29,6 +32,7 @@ import git
 
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
+from backend.vtypes.git import GitDiffSnapshot, GitLogSnapshot, GitStatusSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +93,7 @@ def _open_repo(workspace_id: str | None, ctx: ToolContext) -> Any:
         return None, json.dumps({"status": "error", "message": str(exc)})
 
 
-def _safe_call(fn: Callable[[], dict]) -> dict:
+def _safe_call(fn: Callable[[], object]) -> dict:
     """Executa uma operação git e nunca deixa exceção escapar pra tool.
 
     ``_open_repo`` já blinda a abertura do repositório, mas as operações git
@@ -99,7 +103,10 @@ def _safe_call(fn: Callable[[], dict]) -> dict:
     git ausente do sistema, caso comum numa máquina limpa).
     """
     try:
-        return fn()
+        value = fn()
+        if isinstance(value, BaseModel):
+            return value.model_dump(mode="json")
+        return cast("dict[str, object]", value)
     except git.GitCommandNotFound:
         return {
             "status": "git_not_found",
@@ -115,21 +122,23 @@ def _safe_call(fn: Callable[[], dict]) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _git_status_impl(repo: git.Repo) -> dict:
+def _git_status_impl(repo: git.Repo) -> GitStatusSnapshot:
     """Retorna o estado de trabalho do repositório."""
     from backend.services.git import status_snapshot
 
     return status_snapshot(repo)
 
 
-def _git_log_impl(repo: git.Repo, n: int = 10, branch: str | None = None) -> dict:
+def _git_log_impl(
+    repo: git.Repo, n: int = 10, branch: str | None = None
+) -> GitLogSnapshot:
     """Retorna histórico de commits."""
     from backend.services.git import log_snapshot
 
     return log_snapshot(repo, n=n, branch=branch)
 
 
-def _git_diff_impl(repo: git.Repo, ref: str | None = None) -> dict:
+def _git_diff_impl(repo: git.Repo, ref: str | None = None) -> GitDiffSnapshot:
     """Retorna diff do working tree (ou em relação a ref)."""
     from backend.services.git import diff_snapshot
 
@@ -200,6 +209,7 @@ def _git_commit_impl(
     body: str | None = None,
     amend: bool = False,
     signoff: bool = False,
+    bypass: bool = False,
 ) -> dict:
     """Cria um commit (ou emenda o último, se `amend=True`).
 
@@ -211,6 +221,7 @@ def _git_commit_impl(
               `title\n\nbody`.
         amend: Se True, substitui o último commit em vez de criar um novo —
                falha com mensagem clara se não houver commit anterior.
+        bypass: Se True, adiciona `--no-verify` ao caminho de amend.
     """
     if all:
         repo.git.add("-u")
@@ -239,7 +250,10 @@ def _git_commit_impl(
                 "message": "Não há commit anterior para emendar (repo vazio).",
             }
         try:
-            repo.git.commit("--amend", "-m", full_message)
+            amend_args = ["--amend"]
+            if bypass:
+                amend_args.append("--no-verify")
+            repo.git.commit(*amend_args, "-m", full_message)
             commit = repo.head.commit
             return {
                 "status": "ok",
@@ -1244,7 +1258,8 @@ async def git_check_hooks(ctx: ToolContext, workspace_id: str | None = None) -> 
     repo, err = _open_repo(workspace_id, ctx)
     if err:
         return err
-    return json.dumps(_safe_call(lambda: _run_pre_commit_hooks(repo)))
+    result = await asyncio.to_thread(_run_pre_commit_hooks, repo)
+    return json.dumps(result)
 
 
 @vtool(

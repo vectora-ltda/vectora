@@ -17,6 +17,7 @@ em modo CLI/root local, usa ``"local"``.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hashlib
 import json
@@ -28,6 +29,8 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+
+from backend.vtypes.git import GitOperationSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -815,17 +818,25 @@ workspace_scoped_router = APIRouter(
 
 
 @workspace_scoped_router.get("/git/members", response_model=list[GitMentionUser])
-async def git_members() -> list[GitMentionUser]:
+async def git_members(workspace_id: str, request: Request) -> list[GitMentionUser]:
     """Lista membros disponíveis para menções dentro do workspace autorizado."""
-    from backend.rbac.auth import _get_db
+    from backend.rbac.auth import get_user_by_id, list_users
+    from backend.workspace.workspace import workspace_registry
 
-    db = await _get_db()
-    async with db.execute(
-        "SELECT id, username, name FROM users ORDER BY name, username"
-    ) as cur:
-        rows = await cur.fetchall()
+    if _is_privileged(request):
+        users = await list_users()
+    else:
+        workspace = workspace_registry.get(workspace_id)
+        owner_id = getattr(workspace, "owner_id", None) or _user_id(request)
+        owner = await get_user_by_id(owner_id)
+        users = [owner] if owner is not None else []
     return [
-        GitMentionUser(id=str(row[0]), username=row[1], name=row[2]) for row in rows
+        GitMentionUser(
+            id=user.id,
+            username=user.username or user.email,
+            name=user.name or user.username or user.email,
+        )
+        for user in users
     ]
 
 
@@ -1712,16 +1723,8 @@ class GitCommitSuggestion(BaseModel):
     description: str
 
 
-@workspace_scoped_router.get(
-    "/git/commit/suggestion", response_model=GitCommitSuggestion
-)
-async def git_commit_suggestion(workspace_id: str) -> GitCommitSuggestion:
-    """Gera um rascunho editável a partir das alterações do workspace.
-
-    O compositor de commit exibe alterações staged e unstaged na mesma lista.
-    Portanto, a sugestão precisa considerar ambos os estados (e também arquivos
-    não rastreados) para funcionar antes de o usuário fazer o stage manual.
-    """
+def _git_commit_suggestion_sync(workspace_id: str) -> GitCommitSuggestion:
+    """Build a commit suggestion without blocking the FastAPI event loop."""
     repo = _open_workspace_repo(workspace_id)
     if repo is None:
         return GitCommitSuggestion(title="", description="")
@@ -1748,6 +1751,19 @@ async def git_commit_suggestion(workspace_id: str) -> GitCommitSuggestion:
         title=f"Atualiza {count} {noun}",
         description="Alterações agrupadas a partir do estado staged atual.",
     )
+
+
+@workspace_scoped_router.get(
+    "/git/commit/suggestion", response_model=GitCommitSuggestion
+)
+async def git_commit_suggestion(workspace_id: str) -> GitCommitSuggestion:
+    """Gera um rascunho editável a partir das alterações do workspace.
+
+    O compositor de commit exibe alterações staged e unstaged na mesma lista.
+    Portanto, a sugestão precisa considerar ambos os estados (e também arquivos
+    não rastreados) para funcionar antes de o usuário fazer o stage manual.
+    """
+    return await asyncio.to_thread(_git_commit_suggestion_sync, workspace_id)
 
 
 class GitSquashRequest(BaseModel):
@@ -1817,7 +1833,7 @@ async def git_commit_inline(
     if repo is None:
         return StatusResponse(status="error", message="Repositório git não encontrado.")
     if body.dry_run_hooks:
-        hook_result = _run_pre_commit_hooks(repo)
+        hook_result = await asyncio.to_thread(_run_pre_commit_hooks, repo)
         if hook_result["passed"]:
             return StatusResponse(
                 status="hooks_ok", message=hook_result.get("output", "")
@@ -1825,19 +1841,25 @@ async def git_commit_inline(
         return StatusResponse(
             status="hooks_failed", message=hook_result.get("output", "")
         )
-    if body.run_hooks and not body.bypass:
-        hook_result = _run_pre_commit_hooks(repo)
+    # `git commit --amend` executa o pre-commit por conta própria. Rodar o
+    # hook manualmente antes dele duplicava efeitos e podia alterar o índice
+    # duas vezes. O dry-run continua explícito; no amend deixamos o Git
+    # executar exatamente uma vez.
+    if body.run_hooks and not body.bypass and not body.amend:
+        hook_result = await asyncio.to_thread(_run_pre_commit_hooks, repo)
         if not hook_result["passed"]:
             return StatusResponse(
                 status="hooks_failed", message=hook_result.get("output", "")
             )
-    result = _git_commit_impl(
+    result = await asyncio.to_thread(
+        _git_commit_impl,
         repo,
         body.message,
         body.all,
         body=body.body,
         amend=body.amend,
         signoff=body.signoff,
+        bypass=body.bypass,
     )
     return StatusResponse(status=result["status"], message=result.get("message", ""))
 
@@ -2082,22 +2104,6 @@ async def git_revert_commit(
 # ---------------------------------------------------------------------------
 
 
-class GitOperationSnapshot(BaseModel):
-    """Snapshot sanitizado de uma operação Git, em estado terminal ou corrente."""
-
-    operation_id: str
-    workspace_id: str
-    operation: str
-    state: Literal["queued", "running", "succeeded", "failed"]
-    phase: str
-    progress: int = Field(ge=0, le=100)
-    output: str = ""
-    error_code: str | None = None
-    error: str | None = None
-    created_at: float
-    finished_at: float | None = None
-
-
 class GitStatusResponse(BaseModel):
     """Snapshot validado do estado atual do repositório e da operação ativa."""
 
@@ -2157,23 +2163,16 @@ async def git_status(workspace_id: str) -> GitStatusResponse:
     except Exception:
         logger.exception("api/workspaces: git_status falhou ws=%s", workspace_id)
         return GitStatusResponse(is_git_repo=True)
-    branch = info.get("branch", "")
-    ahead = info.get("ahead", 0)
-    behind = info.get("behind", 0)
-    operation = info.get("operation_in_progress")
-    operation_in_progress = (
-        GitOperationSnapshot.model_validate(operation)
-        if isinstance(operation, Mapping)
-        else operation
-        if isinstance(operation, GitOperationSnapshot)
-        else None
-    )
+    branch = info.branch
+    ahead = info.ahead
+    behind = info.behind
+    operation_in_progress = info.operation_in_progress
     return GitStatusResponse(
         is_git_repo=True,
         branch=branch if isinstance(branch, str) else "",
-        clean=bool(info.get("clean", True)),
-        ahead=int(ahead) if isinstance(ahead, int | float | str) else 0,
-        behind=int(behind) if isinstance(behind, int | float | str) else 0,
+        clean=info.clean,
+        ahead=ahead,
+        behind=behind,
         operation_in_progress=operation_in_progress,
     )
 

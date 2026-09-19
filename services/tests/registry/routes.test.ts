@@ -83,16 +83,11 @@ describe("GET /registry/mcp", () => {
 });
 
 describe("GET /registry/skills", () => {
-  it("returns the four official seeded skills", async () => {
+  it("starts without seeded skills", async () => {
     const res = await registry.request("/skills", {}, env);
     expect(res.status).toBe(200);
     const body = await res.json<{ entries: Array<{ id: string }> }>();
-    expect(body.entries.map((entry) => entry.id)).toEqual([
-      "vectora-code-review",
-      "vectora-adr",
-      "vectora-rfc",
-      "vectora-prd",
-    ]);
+    expect(body.entries).toEqual([]);
   });
 
   it("?q= filtra por nome/descrição", async () => {

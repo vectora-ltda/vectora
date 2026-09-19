@@ -6,12 +6,19 @@ import asyncio
 import os
 import re
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 import git
+
+from backend.vtypes.git import (
+    GitDiffSnapshot,
+    GitLogSnapshot,
+    GitOperationSnapshot,
+    GitStatusSnapshot,
+)
 
 _T = TypeVar("_T")
 _REDACT_USERINFO = re.compile(r"(://)[^/@\s]+@")
@@ -88,7 +95,7 @@ class GitOperation:
     operation_id: str
     workspace_id: str
     operation: str
-    state: str = "queued"
+    state: Literal["queued", "running", "succeeded", "failed"] = "queued"
     phase: str = "queued"
     progress: int = 0
     output: str = ""
@@ -98,20 +105,20 @@ class GitOperation:
     finished_at: float | None = None
     sequence: int = field(default=0, repr=False)
 
-    def snapshot(self) -> dict[str, object]:
-        return {
-            "operation_id": self.operation_id,
-            "workspace_id": self.workspace_id,
-            "operation": self.operation,
-            "state": self.state,
-            "phase": self.phase,
-            "progress": self.progress,
-            "output": redact_git_output(self.output),
-            "error_code": self.error_code,
-            "error": redact_git_output(self.error or "") or None,
-            "created_at": self.created_at,
-            "finished_at": self.finished_at,
-        }
+    def snapshot(self) -> GitOperationSnapshot:
+        return GitOperationSnapshot(
+            operation_id=self.operation_id,
+            workspace_id=self.workspace_id,
+            operation=self.operation,
+            state=self.state,
+            phase=self.phase,
+            progress=self.progress,
+            output=redact_git_output(self.output),
+            error_code=self.error_code,
+            error=redact_git_output(self.error or "") or None,
+            created_at=self.created_at,
+            finished_at=self.finished_at,
+        )
 
 
 class GitOperationError(RuntimeError):
@@ -122,7 +129,7 @@ class GitOperationError(RuntimeError):
         self.code = code
 
 
-def status_snapshot(repo: git.Repo) -> dict[str, object]:
+def status_snapshot(repo: git.Repo) -> GitStatusSnapshot:
     """Retorna o estado de trabalho do repositório sem tocar no event loop."""
     try:
         branch = repo.active_branch.name
@@ -134,11 +141,11 @@ def status_snapshot(repo: git.Repo) -> dict[str, object]:
         )
 
     untracked = repo.untracked_files
-    modified = [item.a_path for item in repo.index.diff(None)]
+    modified = [item.a_path for item in repo.index.diff(None) if item.a_path]
     if repo.head.is_valid():
-        staged = [item.a_path for item in repo.index.diff("HEAD")]
+        staged = [item.a_path for item in repo.index.diff("HEAD") if item.a_path]
     else:
-        staged = [path for path, _stage in repo.index.entries]
+        staged = [str(path) for path, _stage in repo.index.entries]
 
     ahead = behind = 0
     try:
@@ -149,21 +156,21 @@ def status_snapshot(repo: git.Repo) -> dict[str, object]:
     except Exception:
         pass
 
-    return {
-        "status": "ok",
-        "branch": branch,
-        "clean": not untracked and not modified and not staged,
-        "untracked": list(untracked),
-        "modified": modified,
-        "staged": staged,
-        "ahead": ahead,
-        "behind": behind,
-    }
+    return GitStatusSnapshot(
+        status="ok",
+        branch=branch,
+        clean=not untracked and not modified and not staged,
+        untracked=list(untracked),
+        modified=modified,
+        staged=staged,
+        ahead=ahead,
+        behind=behind,
+    )
 
 
 def log_snapshot(
     repo: git.Repo, n: int = 10, branch: str | None = None
-) -> dict[str, object]:
+) -> GitLogSnapshot:
     """Retorna histórico de commits para consumo REST e pelas tools."""
     try:
         ref = branch or repo.active_branch.name
@@ -172,11 +179,11 @@ def log_snapshot(
     try:
         commits = list(repo.iter_commits(ref, max_count=n))
     except git.GitCommandError:
-        return {"status": "ok", "commits": [], "branch": ref}
-    return {
-        "status": "ok",
-        "branch": ref,
-        "commits": [
+        return GitLogSnapshot(status="ok", commits=[], branch=ref)
+    return GitLogSnapshot(
+        status="ok",
+        branch=ref,
+        commits=[
             {
                 "hash": commit.hexsha[:7],
                 "author": str(commit.author),
@@ -185,16 +192,16 @@ def log_snapshot(
             }
             for commit in commits
         ],
-    }
+    )
 
 
-def diff_snapshot(repo: git.Repo, ref: str | None = None) -> dict[str, object]:
+def diff_snapshot(repo: git.Repo, ref: str | None = None) -> GitDiffSnapshot:
     """Retorna o diff atual, opcionalmente comparado a uma referência."""
     try:
         diff_text = repo.git.diff(ref) if ref else repo.git.diff()
-        return {"status": "ok", "diff": diff_text}
+        return GitDiffSnapshot(status="ok", diff=diff_text)
     except git.GitCommandError as exc:
-        return {"status": "error", "message": redact_git_output(str(exc))}
+        return GitDiffSnapshot(status="error", message=redact_git_output(str(exc)))
 
 
 class GitService:
@@ -218,7 +225,7 @@ class GitService:
         async with self._guard:
             return self._locks.setdefault(key, asyncio.Lock())
 
-    async def latest(self, workspace_id: str) -> dict[str, object] | None:
+    async def latest(self, workspace_id: str) -> GitOperationSnapshot | None:
         async with self._guard:
             operations = [
                 operation
@@ -231,7 +238,7 @@ class GitService:
 
     async def history(
         self, workspace_id: str, *, limit: int = 50
-    ) -> list[dict[str, object]]:
+    ) -> list[GitOperationSnapshot]:
         """Retorna operações recentes para reconexão e diagnóstico."""
         bounded_limit = max(1, min(limit, 200))
         async with self._guard:
@@ -315,6 +322,20 @@ class GitService:
             result = await asyncio.wait_for(
                 asyncio.shield(callback_task), timeout=command_timeout
             )
+            if isinstance(result, Mapping) and str(
+                result.get("status", "")
+            ).casefold() in {
+                "error",
+                "failed",
+            }:
+                message = str(result.get("message", "Falha na operação Git"))
+                operation.state = "failed"
+                operation.phase = "terminal"
+                operation.error_code = classify_git_error(message)
+                operation.error = redact_git_output(message)
+                operation.output = operation.error
+                operation.finished_at = time.time()
+                raise GitOperationError(operation.error_code, operation.error)
             operation.state = "succeeded"
             operation.phase = "terminal"
             operation.progress = 100
@@ -355,6 +376,11 @@ class GitService:
             operation.output = operation.error
             operation.finished_at = time.time()
             raise GitOperationError(operation.error_code, operation.error) from exc
+        except GitOperationError:
+            # Resultos estruturados com ``status=error`` já foram registrados
+            # acima com seu código específico; não os reclassifique como uma
+            # falha genérica no bloco seguinte.
+            raise
         except Exception as exc:
             operation.state = "failed"
             operation.phase = "terminal"
@@ -366,14 +392,16 @@ class GitService:
         finally:
             lock.release()
 
-    async def status(self, workspace_id: str, repo: git.Repo) -> dict[str, object]:
+    async def status(self, workspace_id: str, repo: git.Repo) -> GitStatusSnapshot:
         snapshot = await asyncio.to_thread(status_snapshot, repo)
         latest = await self.latest(workspace_id)
-        if latest is not None and latest["state"] in {"queued", "running"}:
-            snapshot["operation_in_progress"] = latest
-        else:
-            snapshot["operation_in_progress"] = None
-        return snapshot
+        return snapshot.model_copy(
+            update={
+                "operation_in_progress": latest
+                if latest is not None and latest.state in {"queued", "running"}
+                else None
+            }
+        )
 
 
 git_service = GitService()

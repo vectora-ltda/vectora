@@ -46,7 +46,7 @@ export function CenterCanvas({
     document,
     content: renderDocument?.(document) ?? null,
   }));
-  const resolvedTabs = documentTabs.length > 0 ? documentTabs : tabs;
+  const resolvedTabs = [...tabs, ...documentTabs];
   const seenTabIds = new Set<string>();
   for (const tab of resolvedTabs) {
     if (seenTabIds.has(tab.id)) {
@@ -54,8 +54,11 @@ export function CenterCanvas({
     }
     seenTabIds.add(tab.id);
   }
-  const selected =
-    resolvedTabs.find((tab) => tab.id === activeTab) ?? resolvedTabs[0];
+  const editorIsImplicit =
+    activeTab === "editor" && !resolvedTabs.some((tab) => tab.id === "editor");
+  const selected = editorIsImplicit
+    ? undefined
+    : (resolvedTabs.find((tab) => tab.id === activeTab) ?? resolvedTabs[0]);
   const selectedIndex = selected ? resolvedTabs.indexOf(selected) : -1;
   const tabpanelId = "vectora-center-canvas-panel";
   return (
