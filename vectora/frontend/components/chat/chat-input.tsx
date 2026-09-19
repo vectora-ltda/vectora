@@ -277,7 +277,7 @@ export function ChatInput({
     el.style.height = compactSingleLine ? "38px" : "auto";
     // oxlint-disable-next-line react/immutability
     el.style.overflowY = compactSingleLine ? "hidden" : "auto";
-    el.style.overflowX = compactSingleLine ? "auto" : "hidden";
+    el.style.overflowX = "hidden";
     if (compactSingleLine) return;
     const next = Math.min(240, el.scrollHeight);
     // oxlint-disable-next-line react/immutability
@@ -464,7 +464,7 @@ export function ChatInput({
                             : m.input_placeholder()
                     }
                     title={offline ? m.network_disabled_offline() : undefined}
-                    className={`relative z-10 min-h-[38px] min-w-0 flex-1 basis-0 resize-none rounded bg-muted/30 border-0 w-full px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus-visible:ring-0 focus-visible:ring-offset-0 transition-[height] duration-150 ${compact && !input.includes("\n") ? "max-h-[38px] overflow-x-auto overflow-y-hidden whitespace-nowrap" : "max-h-[240px] overflow-y-auto break-words custom-scrollbar"}`}
+                    className={`relative z-10 min-h-[38px] min-w-0 flex-1 basis-0 resize-none rounded bg-muted/30 border-0 w-full px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus-visible:ring-0 focus-visible:ring-offset-0 transition-[height] duration-150 ${compact && !input.includes("\n") ? "max-h-[38px] overflow-x-hidden overflow-y-hidden whitespace-nowrap" : "max-h-[240px] overflow-y-auto break-words custom-scrollbar"}`}
                     disabled={!userId || offline}
                     rows={1}
                   />
@@ -535,20 +535,14 @@ export function ChatInput({
             </div>
           )}
 
-          {/* Rodapé do input — dois grupos minimalistas de texto/ícone, sem
-              barra de contexto acima do input (poluição visual
-              desnecessária). O grupo esquerdo mantém os botões operacionais
-              com largura fixa; o grupo direito ocupa apenas o espaço que
-              sobrar. Assim não nasce um espaçador fixo entre permissões e
-              esforço e, quando a sidebar fica estreita, o overflow corta o
-              início do seletor de modelo, mantendo esforço e uso ancorados à
-              direita. */}
+          {/* Rodapé do input — todos os controles compartilham uma única linha
+              flexível e cedem espaço aos rótulos antes de serem ocultados. */}
           <div
             data-testid="chat-input-footer"
-            className={`flex min-h-10 w-full min-w-0 items-center overflow-hidden border-t border-border/60 ${compact ? "flex-nowrap gap-x-1 px-2 py-1" : "flex-wrap gap-x-2 gap-y-1 px-4 py-2"}`}
+            className={`flex min-h-10 w-full min-w-0 items-center overflow-hidden border-t border-border/60 ${compact ? "flex-nowrap justify-between gap-x-0 px-2 py-1" : "flex-wrap gap-x-2 gap-y-1 px-4 py-2"}`}
           >
             <div
-              className={`flex min-w-0 flex-[0_0_auto] items-center overflow-hidden ${compact ? "flex-nowrap gap-0.5" : "flex-wrap gap-1"}`}
+              className={`flex shrink-0 items-center ${compact ? "gap-x-0.5" : "gap-1"}`}
             >
               <PlusMenu
                 disabled={!userId || offline}
@@ -564,43 +558,43 @@ export function ChatInput({
                   compact={compact}
                 />
               )}
-              <div className="hidden @sm/composer:block h-4 w-px bg-border/60" />
+              <div className="hidden @sm/composer:block h-4 w-px shrink-0 bg-border/60" />
               {/* O workspace é escolhido só no modal de nova conversa e é imutável
                   depois disso — por isso não há seletor de workspace na appbar. */}
               {!chatMode && wsId && (
                 <>
                   <VscodeMenu workspaceId={wsId} compact={compact} />
-                  <div className="hidden @sm/composer:block h-4 w-px bg-border/60" />
+                  <div className="hidden @sm/composer:block h-4 w-px shrink-0 bg-border/60" />
                 </>
               )}
-              <div className="min-w-0 max-w-full shrink overflow-visible">
-                <PermissionModeMenu compact={compact} />
-              </div>
             </div>
-
             <div
-              className={`flex min-w-0 flex-[1_1_0%] items-center justify-end overflow-hidden ${compact ? "flex-nowrap gap-0.5" : "flex-wrap gap-1"}`}
+              className={`min-w-0 overflow-hidden ${compact ? "flex-[0_1_auto]" : "flex-[1_1_auto]"}`}
             >
-              <div className="shrink-0">
-                <EffortMenu compact={compact} />
-              </div>
-              {agentConfig && onAgentConfigChange && (
+              <PermissionModeMenu compact={compact} />
+            </div>
+            <div
+              className={`min-w-0 overflow-hidden ${compact ? "flex-[0_1_auto]" : "flex-[0_1_auto]"}`}
+            >
+              <EffortMenu compact={compact} />
+            </div>
+            {agentConfig && onAgentConfigChange && (
+              <div
+                className={`min-w-0 overflow-hidden ${compact ? "flex-[0_1_auto]" : "flex-[1_1_auto]"}`}
+              >
                 <ModelSelector
                   value={agentConfig.model}
                   onChange={handleModelChange}
-                  compact
+                  compact={compact}
                   codeMode={!chatMode && !!wsId}
                 />
-              )}
-              {modelId && (
-                <div className="shrink-0">
-                  <UsagePopover
-                    tokensUsed={tokensUsed ?? 0}
-                    modelId={modelId}
-                  />
-                </div>
-              )}
-            </div>
+              </div>
+            )}
+            {modelId && (
+              <div className="shrink-0">
+                <UsagePopover tokensUsed={tokensUsed ?? 0} modelId={modelId} />
+              </div>
+            )}
           </div>
         </div>
       </div>

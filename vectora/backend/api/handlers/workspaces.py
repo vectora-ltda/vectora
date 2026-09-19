@@ -22,6 +22,7 @@ import contextlib
 import hashlib
 import json
 import logging
+import re
 from collections.abc import AsyncGenerator, Mapping
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -971,7 +972,22 @@ class DiffFile(BaseModel):
 
 class DiffHunk(BaseModel):
     header: str
-    lines: list[str]
+    lines: list[DiffLine]
+
+
+class DiffLine(BaseModel):
+    """Linha de diff com as posições exatas antes e depois da mudança.
+
+    O contrato segue o modelo usado pelo GitHub Desktop: linhas adicionadas
+    só têm posição nova, linhas removidas só têm posição antiga e contexto
+    tem as duas posições.
+    """
+
+    text: str
+    type: Literal["context", "add", "delete"]
+    old_line_number: int | None = None
+    new_line_number: int | None = None
+    no_trailing_newline: bool = False
 
 
 class DiffSummary(BaseModel):
@@ -1218,16 +1234,59 @@ async def workspace_file_raw(
 
 
 def _parse_unified_diff(diff_text: str) -> list[DiffHunk]:
-    """Quebra um diff unificado em hunks (sem a linha 'diff --git' inicial)."""
+    """Quebra um diff unificado em hunks com números de linha reais."""
     hunks: list[DiffHunk] = []
     current: DiffHunk | None = None
+    old_line = 0
+    new_line = 0
+    header_re = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
     for line in diff_text.splitlines():
         if line.startswith("@@"):
             if current is not None:
                 hunks.append(current)
             current = DiffHunk(header=line, lines=[])
+            match = header_re.match(line)
+            if match is None:
+                old_line = 0
+                new_line = 0
+            else:
+                old_line = int(match.group(1))
+                new_line = int(match.group(3))
         elif current is not None:
-            current.lines.append(line)
+            if line.startswith("\\ No newline at end of file"):
+                if current.lines:
+                    current.lines[-1].no_trailing_newline = True
+                continue
+            prefix = line[:1]
+            if prefix == "+":
+                current.lines.append(
+                    DiffLine(
+                        text=line,
+                        type="add",
+                        new_line_number=new_line,
+                    )
+                )
+                new_line += 1
+            elif prefix == "-":
+                current.lines.append(
+                    DiffLine(
+                        text=line,
+                        type="delete",
+                        old_line_number=old_line,
+                    )
+                )
+                old_line += 1
+            elif prefix == " ":
+                current.lines.append(
+                    DiffLine(
+                        text=line,
+                        type="context",
+                        old_line_number=old_line,
+                        new_line_number=new_line,
+                    )
+                )
+                old_line += 1
+                new_line += 1
     if current is not None:
         hunks.append(current)
     return hunks
@@ -1246,7 +1305,10 @@ def _untracked_as_diff(content: str) -> list[DiffHunk]:
     n = len(lines)
     hunk = DiffHunk(
         header=f"@@ -0,0 +1,{n} @@",
-        lines=[f"+{line}" for line in lines],
+        lines=[
+            DiffLine(text=f"+{line}", type="add", new_line_number=index)
+            for index, line in enumerate(lines, start=1)
+        ],
     )
     return [hunk]
 

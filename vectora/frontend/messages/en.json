@@ -1044,6 +1044,7 @@
   "workbench_diff_not_git": "This folder is not a git repository.",
   "workbench_diff_clean": "No pending changes.",
   "workbench_diff_summary": "{n} modified files",
+  "workbench_diff_no_trailing_newline": "\\ No newline at end of file",
   "workbench_plan_empty": "No plans yet — ask Vectora to draft one.",
   "workbench_plan_ask_cta": "Ask Vectora for a plan",
   "workbench_plan_ask_prompt": "Crie um plano de implementação para…",

@@ -166,7 +166,7 @@ export function ModelSelector({
         <button
           className={
             compact
-              ? "flex min-w-0 max-w-[min(140px,100%)] shrink items-center gap-1 overflow-hidden h-7 px-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors select-none"
+              ? "flex h-7 w-max min-w-0 max-w-full shrink items-center gap-1 overflow-hidden rounded-md px-1.5 text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors select-none"
               : "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-sm text-foreground/80 hover:text-foreground hover:bg-muted/50 transition-colors select-none max-w-[200px]"
           }
           title={m.model_select_title()}
@@ -181,9 +181,9 @@ export function ModelSelector({
           >
             {activeLabel}
           </span>
-          <ChevronDown
-            className={`${compact ? "block" : "hidden @sm/composer:block"} h-3.5 w-3.5 shrink-0 text-muted-foreground [&_svg]:opacity-70`}
-          />
+          {!compact && (
+            <ChevronDown className="hidden h-3.5 w-3.5 shrink-0 text-muted-foreground @sm/composer:block [&_svg]:opacity-70" />
+          )}
         </button>
       </PopoverTrigger>
 

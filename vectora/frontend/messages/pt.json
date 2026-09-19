@@ -1044,6 +1044,7 @@
   "workbench_diff_not_git": "Esta pasta não é um repositório git.",
   "workbench_diff_clean": "Sem mudanças pendentes.",
   "workbench_diff_summary": "{n} arquivos modificados",
+  "workbench_diff_no_trailing_newline": "\\ Sem quebra de linha no fim do arquivo",
   "workbench_plan_empty": "Sem planos — peça um ao Vectora.",
   "workbench_plan_ask_cta": "Pedir um plano ao Vectora",
   "workbench_plan_ask_prompt": "Crie um plano de implementação para…",

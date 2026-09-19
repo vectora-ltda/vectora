@@ -1,3 +1,5 @@
+import { SIDE_COLUMN_MIN_WIDTH } from "@/lib/layout/panel-geometry";
+
 /** Tailwind-aligned viewport breakpoints used by resizable side panels. */
 export const RESPONSIVE_PANEL_BREAKPOINTS = {
   sm: 640,
@@ -33,9 +35,12 @@ export function getResponsivePanelWidths(
     return preferred;
   }
   return {
-    sidebarWidth: Math.max(180, Math.min(preferred.sidebarWidth, maxWidth)),
+    sidebarWidth: Math.max(
+      SIDE_COLUMN_MIN_WIDTH,
+      Math.min(preferred.sidebarWidth, maxWidth),
+    ),
     chatSidebarWidth: Math.max(
-      240,
+      SIDE_COLUMN_MIN_WIDTH,
       Math.min(preferred.chatSidebarWidth, maxWidth),
     ),
     splitSize: Math.max(220, Math.min(preferred.splitSize, maxWidth)),

@@ -344,6 +344,14 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
       container.querySelectorAll("button[aria-label]").length,
     ).toBeGreaterThan(0);
   });
+
+  it("não exibe scrollbar horizontal no input compacto vazio", () => {
+    render(<ChatInput {...baseProps({ compact: true })} />);
+
+    const textarea = screen.getByRole("textbox");
+    expect(textarea.className).toContain("overflow-x-hidden");
+    expect(textarea.className).not.toContain("overflow-x-auto");
+  });
 });
 
 describe("ChatInput — capability de imagem no OpenRouter varia por modelo", () => {

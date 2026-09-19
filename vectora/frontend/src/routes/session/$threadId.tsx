@@ -51,6 +51,7 @@ import {
   WORKBENCH_CONTENT_MIN_WIDTH,
   WORKBENCH_RAIL_WIDTH,
 } from "@/lib/layout/workbench-geometry";
+import { SIDE_COLUMN_MIN_WIDTH } from "@/lib/layout/panel-geometry";
 import { useWebhookWorkbench } from "@/lib/hooks/use-webhook-workbench";
 import { useClampPanelWidths } from "@/lib/hooks/use-clamp-panel-widths";
 import { useWorkbenchStore } from "@/lib/stores/workbench-store";
@@ -288,7 +289,9 @@ function SessionPage() {
           rect,
           chatPhysicalSide,
         );
-        setChatSidebarWidth(Math.min(520, Math.max(240, width)));
+        setChatSidebarWidth(
+          Math.min(520, Math.max(SIDE_COLUMN_MIN_WIDTH, width)),
+        );
       }
     },
     [chatPhysicalSide, setChatSidebarWidth],
@@ -301,7 +304,7 @@ function SessionPage() {
         Math.min(
           520,
           Math.max(
-            240,
+            SIDE_COLUMN_MIN_WIDTH,
             chatSidebarWidth + getResizeDelta(e.key, chatPhysicalSide),
           ),
         ),
@@ -847,7 +850,7 @@ function SessionPage() {
     () => (
       <motion.div
         ref={sidebarWrapRef}
-        className="hidden md:flex shrink-0 relative"
+        className={`hidden md:flex shrink-0 relative ${isSidebarCollapsed ? "min-w-16" : "min-w-60"}`}
         animate={{
           width: isSidebarCollapsed
             ? SIDEBAR_COLLAPSED_WIDTH
@@ -1062,7 +1065,7 @@ function SessionPage() {
                 chatWidth={
                   hydrated ? (chatSidebarOpen ? chatSidebarWidth : 48) : 256
                 }
-                chatMinWidth={chatSidebarOpen ? 240 : 48}
+                chatMinWidth={chatSidebarOpen ? SIDE_COLUMN_MIN_WIDTH : 48}
                 chatMaxWidth={520}
                 showChat={chatSidebarOpen}
                 header={headerEl}
@@ -1212,7 +1215,7 @@ function SessionPage() {
                     className={
                       isNarrowIdeViewport
                         ? "relative flex flex-col h-full bg-sidebar"
-                        : `relative shrink-0 flex flex-col h-full border-border/60 bg-sidebar ${sidebarOnRight ? "border-r" : "border-l"}`
+                        : `relative min-w-60 shrink-0 flex flex-col h-full border-border/60 bg-sidebar ${sidebarOnRight ? "border-r" : "border-l"}`
                     }
                     style={
                       isNarrowIdeViewport
@@ -1231,7 +1234,7 @@ function SessionPage() {
                         role="separator"
                         aria-orientation="vertical"
                         aria-label={m.resize_chat()}
-                        aria-valuemin={240}
+                        aria-valuemin={SIDE_COLUMN_MIN_WIDTH}
                         aria-valuemax={520}
                         aria-valuenow={chatSidebarWidth}
                         tabIndex={0}
