@@ -259,7 +259,7 @@ async function reconcileTurnFiles(
     let snapshot = await readSnapshot();
     for (
       let attempt = 0;
-      attempt < 7 && snapshot.status === "active";
+      attempt < 120 && snapshot.status === "active";
       attempt++
     ) {
       await new Promise((resolve) => setTimeout(resolve, 250));
