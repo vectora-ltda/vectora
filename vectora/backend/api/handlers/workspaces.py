@@ -815,13 +815,19 @@ workspace_scoped_router = APIRouter(
 
 
 @workspace_scoped_router.get("/git/members", response_model=list[GitMentionUser])
-async def git_members() -> list[GitMentionUser]:
-    """Lista membros disponíveis para menções dentro do workspace autorizado."""
+async def git_members(workspace_id: str) -> list[GitMentionUser]:
+    """Lista usuários associados ao workspace autorizado."""
     from backend.rbac.auth import _get_db
+    from backend.workspace.workspace import workspace_registry
 
+    workspace = workspace_registry.get(workspace_id)
+    owner_id = getattr(workspace, "owner_id", None) if workspace else None
+    if not owner_id:
+        return []
     db = await _get_db()
     async with db.execute(
-        "SELECT id, username, name FROM users ORDER BY name, username"
+        "SELECT id, email, name FROM users WHERE id = ? ORDER BY name, email",
+        (owner_id,),
     ) as cur:
         rows = await cur.fetchall()
     return [
