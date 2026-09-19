@@ -164,7 +164,12 @@ export async function discoverSkills(
   env: Env,
   maxEntries = 50,
 ): Promise<number> {
-  if (!env.GITHUB_TOKEN) return 0;
+  if (!env.GITHUB_TOKEN) {
+    console.warn(
+      "registry discovery: GITHUB_TOKEN ausente; skills de terceiros não foram descobertas",
+    );
+    return 0;
+  }
 
   let items: GithubCodeSearchItem[] = [];
   try {

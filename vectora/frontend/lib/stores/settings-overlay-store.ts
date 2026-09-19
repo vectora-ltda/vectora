@@ -36,6 +36,7 @@ export type SettingsCategoryId =
   | "admin_system"
   | "admin_storage"
   | "billing"
+  | "git"
   | "about";
 
 interface SettingsOverlayState {

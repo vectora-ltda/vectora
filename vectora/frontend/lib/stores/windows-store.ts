@@ -29,6 +29,19 @@ export interface FileWindowState {
   zIndex: number;
 }
 
+export type CanvasDocumentKind = "file" | "commit-details" | "plan";
+
+/** Serializable document descriptor shared by IDE and assistant canvases. */
+export interface CanvasDocumentDescriptor {
+  id: string;
+  kind: CanvasDocumentKind;
+  workspaceId: string;
+  threadId?: string;
+  title: string;
+  path?: string;
+  commitSha?: string;
+}
+
 interface WindowsState {
   windows: FileWindowState[];
   /** Maior zIndex já atribuído (cresce ao focar). */
@@ -38,6 +51,8 @@ interface WindowsState {
   dockedWorkspaceId: string | null;
   dockedTabs: string[];
   dockedActiveTab: string | null;
+  canvasDocuments: CanvasDocumentDescriptor[];
+  activeCanvasDocumentId: string | null;
 
   /** Abre path na janela do workspace. Cria a janela se não existir, ou
    * adiciona uma aba se a janela já existir. */
@@ -63,6 +78,10 @@ interface WindowsState {
   setDockedActiveTab: (path: string) => void;
   /** Fecha uma tab docked; última tab → zera tudo. */
   closeDockedTab: (path: string) => void;
+  openCanvasDocument: (document: CanvasDocumentDescriptor) => void;
+  activateCanvasDocument: (id: string) => void;
+  closeCanvasDocument: (id: string) => void;
+  clearCanvasDocumentsForWorkspace: (workspaceId: string) => void;
 }
 
 const BASE_Z = 100;
@@ -104,25 +123,107 @@ export const useWindowsStore = create<WindowsState>()(
       dockedWorkspaceId: null,
       dockedTabs: [],
       dockedActiveTab: null,
+      canvasDocuments: [],
+      activeCanvasDocumentId: null,
+
+      openCanvasDocument: (document) =>
+        set((s) => {
+          const existing = s.canvasDocuments.find(
+            (item) => item.id === document.id,
+          );
+          const documents = existing
+            ? s.canvasDocuments.map((item) =>
+                item.id === document.id ? document : item,
+              )
+            : [...s.canvasDocuments, document];
+          return {
+            canvasDocuments: documents,
+            activeCanvasDocumentId: document.id,
+          };
+        }),
+
+      activateCanvasDocument: (id) =>
+        set((s) =>
+          s.canvasDocuments.some((document) => document.id === id)
+            ? { activeCanvasDocumentId: id }
+            : s,
+        ),
+
+      closeCanvasDocument: (id) =>
+        set((s) => {
+          const documents = s.canvasDocuments.filter(
+            (document) => document.id !== id,
+          );
+          return {
+            canvasDocuments: documents,
+            activeCanvasDocumentId:
+              s.activeCanvasDocumentId === id
+                ? (documents.at(-1)?.id ?? null)
+                : s.activeCanvasDocumentId,
+          };
+        }),
+
+      clearCanvasDocumentsForWorkspace: (workspaceId) =>
+        set((s) => {
+          const documents = s.canvasDocuments.filter(
+            (document) => document.workspaceId !== workspaceId,
+          );
+          return {
+            canvasDocuments: documents,
+            activeCanvasDocumentId: documents.some(
+              (document) => document.id === s.activeCanvasDocumentId,
+            )
+              ? s.activeCanvasDocumentId
+              : (documents.at(-1)?.id ?? null),
+          };
+        }),
 
       openDocked: (workspaceId, path) =>
         set((s) => {
+          const document: CanvasDocumentDescriptor = {
+            id: `file:${workspaceId}:${path}`,
+            kind: "file",
+            workspaceId,
+            title: basename(path),
+            path,
+          };
+          const canvasDocuments = [
+            ...s.canvasDocuments.filter(
+              (item) =>
+                item.workspaceId !== workspaceId || item.id !== document.id,
+            ),
+            document,
+          ];
           if (s.dockedWorkspaceId !== workspaceId) {
             return {
               dockedWorkspaceId: workspaceId,
               dockedTabs: [path],
               dockedActiveTab: path,
+              canvasDocuments,
+              activeCanvasDocumentId: document.id,
             };
           }
           const tabs = s.dockedTabs.includes(path)
             ? s.dockedTabs
             : [...s.dockedTabs, path];
-          return { dockedTabs: tabs, dockedActiveTab: path };
+          return {
+            dockedTabs: tabs,
+            dockedActiveTab: path,
+            canvasDocuments,
+            activeCanvasDocumentId: document.id,
+          };
         }),
 
       setDockedActiveTab: (path) =>
         set((s) =>
-          s.dockedTabs.includes(path) ? { dockedActiveTab: path } : s,
+          s.dockedTabs.includes(path)
+            ? {
+                dockedActiveTab: path,
+                activeCanvasDocumentId: s.dockedWorkspaceId
+                  ? `file:${s.dockedWorkspaceId}:${path}`
+                  : s.activeCanvasDocumentId,
+              }
+            : s,
         ),
 
       closeDockedTab: (path) =>
@@ -133,13 +234,36 @@ export const useWindowsStore = create<WindowsState>()(
               dockedWorkspaceId: null,
               dockedTabs: [],
               dockedActiveTab: null,
+              canvasDocuments: s.canvasDocuments.filter(
+                (document) =>
+                  document.workspaceId !== s.dockedWorkspaceId ||
+                  document.kind !== "file",
+              ),
+              activeCanvasDocumentId:
+                s.activeCanvasDocumentId ===
+                `file:${s.dockedWorkspaceId ?? ""}:${path}`
+                  ? null
+                  : s.activeCanvasDocumentId,
             };
           }
           const activeTab =
             s.dockedActiveTab === path
               ? (tabs[Math.max(0, s.dockedTabs.indexOf(path) - 1)] ?? tabs[0])
               : s.dockedActiveTab;
-          return { dockedTabs: tabs, dockedActiveTab: activeTab };
+          return {
+            dockedTabs: tabs,
+            dockedActiveTab: activeTab,
+            canvasDocuments: s.canvasDocuments.filter(
+              (document) =>
+                document.id !== `file:${s.dockedWorkspaceId ?? ""}:${path}`,
+            ),
+            activeCanvasDocumentId:
+              s.activeCanvasDocumentId ===
+                `file:${s.dockedWorkspaceId ?? ""}:${path}` &&
+              s.dockedWorkspaceId
+                ? `file:${s.dockedWorkspaceId}:${activeTab}`
+                : s.activeCanvasDocumentId,
+          };
         }),
 
       open: (workspaceId, path) =>
@@ -196,6 +320,8 @@ export const useWindowsStore = create<WindowsState>()(
           dockedWorkspaceId: null,
           dockedTabs: [],
           dockedActiveTab: null,
+          canvasDocuments: [],
+          activeCanvasDocumentId: null,
         }),
 
       closeTab: (id, path) =>
@@ -285,6 +411,8 @@ export const useWindowsStore = create<WindowsState>()(
       partialize: (state) => ({
         windows: state.windows,
         topZ: state.topZ,
+        canvasDocuments: state.canvasDocuments,
+        activeCanvasDocumentId: state.activeCanvasDocumentId,
       }),
     },
   ),

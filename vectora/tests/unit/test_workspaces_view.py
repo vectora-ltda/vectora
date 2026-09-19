@@ -398,8 +398,16 @@ class TestParseUnifiedDiff:
         hunks = _parse_unified_diff(diff)
         assert len(hunks) == 2
         assert hunks[0].header == "@@ -1,3 +1,3 @@"
-        assert "-velha" in hunks[0].lines
-        assert "+nova" in hunks[0].lines
+        assert any(line.text == "-velha" for line in hunks[0].lines)
+        assert any(line.text == "+nova" for line in hunks[0].lines)
+        assert [
+            (line.old_line_number, line.new_line_number) for line in hunks[0].lines
+        ] == [
+            (1, 1),
+            (2, None),
+            (None, 2),
+            (3, 3),
+        ]
         assert hunks[1].header == "@@ -10,2 +10,2 @@"
 
     def test_returns_empty_for_empty_diff(self):
@@ -422,7 +430,7 @@ class TestParseUnifiedDiff:
         )
         hunks = _parse_unified_diff(diff)
         assert len(hunks) == 1
-        assert "-velha" in hunks[0].lines
+        assert any(line.text == "-velha" for line in hunks[0].lines)
 
 
 # ---------------------------------------------------------------------------

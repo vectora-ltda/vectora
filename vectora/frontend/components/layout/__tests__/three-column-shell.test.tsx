@@ -15,6 +15,30 @@ describe("ThreeColumnShell", () => {
     expect(screen.getByTestId("editor")).toBeInTheDocument();
   });
 
+  it("mantém o editor implícito visível enquanto documentos ficam abertos", () => {
+    render(
+      <CenterCanvas
+        activeTab="editor"
+        documents={[
+          {
+            id: "file:main.ts",
+            kind: "file",
+            workspaceId: "workspace",
+            title: "main.ts",
+            path: "main.ts",
+          },
+        ]}
+        renderDocument={() => <div data-testid="document" />}
+      >
+        <div data-testid="editor" />
+      </CenterCanvas>,
+    );
+
+    expect(screen.getByRole("tab", { name: "main.ts" })).toBeInTheDocument();
+    expect(screen.getByTestId("editor")).toBeInTheDocument();
+    expect(screen.queryByTestId("document")).not.toBeInTheDocument();
+  });
+
   it("rejeita tabs com ids duplicados", () => {
     expect(() =>
       render(

@@ -21,6 +21,8 @@ import {
   streamChat,
   resumeChat,
   getHistory,
+  getLatestTurnFiles,
+  getLatestTurnFilesSnapshot,
   type StreamEvent,
   type ChatConfig,
   type ResumeChatRequest,
@@ -196,20 +198,85 @@ async function reconcileTruncatedMessage(
   threadId: string,
   assistantMessageId: string,
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
+  workspaceId?: string,
+  runId?: string,
 ): Promise<void> {
   try {
     const { messages } = await getHistory(threadId);
     const lastAssistant = messages.findLast((m) => m.role === "assistant");
-    if (!lastAssistant) return;
-    setMessages((prev) =>
-      updateMessageInList(prev, assistantMessageId, (m) => ({
-        ...m,
-        content: lastAssistant.content,
-        isThinking: false,
-      })),
+    if (lastAssistant) {
+      setMessages((prev) =>
+        updateMessageInList(prev, assistantMessageId, (m) => ({
+          ...m,
+          content: lastAssistant.content,
+          isThinking: false,
+        })),
+      );
+    }
+    await reconcileTurnFiles(
+      threadId,
+      assistantMessageId,
+      setMessages,
+      workspaceId,
+      runId,
     );
   } catch (err) {
     console.error("[chat] falha ao reconciliar mensagem truncada:", err);
+    await reconcileTurnFiles(
+      threadId,
+      assistantMessageId,
+      setMessages,
+      workspaceId,
+      runId,
+    );
+  }
+}
+
+async function reconcileTurnFiles(
+  threadId: string,
+  assistantMessageId: string,
+  setMessages: React.Dispatch<React.SetStateAction<Message[]>>,
+  workspaceId?: string,
+  runId?: string,
+): Promise<void> {
+  const maxAttempts = 40;
+  const retryDelayMs = 500;
+  const resolvedWorkspaceId =
+    workspaceId ?? useWorkspacesStore.getState().active_id;
+  if (!resolvedWorkspaceId) return;
+  try {
+    const readSnapshot = async () => {
+      if (typeof getLatestTurnFilesSnapshot === "function") {
+        return getLatestTurnFilesSnapshot(threadId, resolvedWorkspaceId, runId);
+      }
+      if (typeof getLatestTurnFiles === "function") {
+        return {
+          run_id: runId ?? "",
+          status: "finalized" as const,
+          files: await getLatestTurnFiles(threadId, resolvedWorkspaceId, runId),
+        };
+      }
+      return { run_id: runId ?? "", status: "finalized" as const, files: [] };
+    };
+    let snapshot = await readSnapshot();
+    for (
+      let attempt = 0;
+      attempt < maxAttempts && snapshot.status === "active";
+      attempt++
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      snapshot = await readSnapshot();
+    }
+    const files = snapshot.files;
+    if (files.length === 0) return;
+    setMessages((prev) =>
+      updateMessageInList(prev, assistantMessageId, (m) => ({
+        ...m,
+        editedFiles: files,
+      })),
+    );
+  } catch (err) {
+    console.error("[chat] falha ao reconciliar arquivos alterados:", err);
   }
 }
 
@@ -299,6 +366,7 @@ export function useStreamHandler({
 
       let assistantContent = "";
       let resolvedRunId: string | undefined;
+      let resolvedWorkspaceId: string | undefined;
       // Primeiro evento recebido = conexão SSE estabelecida
       let sseConnected = false;
       // true só quando o loop termina por done/error/abort explícitos — se o
@@ -382,6 +450,14 @@ export function useStreamHandler({
             break;
           }
 
+          if (event.type === "thread") {
+            resolvedWorkspaceId = event.workspace_id || resolvedWorkspaceId;
+            resolvedRunId =
+              ("run_id" in event && typeof event.run_id === "string"
+                ? event.run_id
+                : undefined) || resolvedRunId;
+          }
+
           if (event.type === "thread" && event.workspace_id) {
             // Sincroniza o workspace resolvido pelo backend de volta pro
             // store local — sem isso, um workspace criado via
@@ -389,7 +465,12 @@ export function useStreamHandler({
             // (o backend já persistiu como ativo sozinho, isso só espelha
             // localmente, sem POST redundante — ver syncActiveLocal).
             useWorkspacesStore.getState().syncActiveLocal(event.workspace_id);
+            resolvedWorkspaceId = event.workspace_id;
             newWorkspaceConfirmed = true;
+          }
+
+          if (event.type === "turn_files_changed" && event.run_id) {
+            resolvedRunId = event.run_id;
           }
 
           if (event.type === "token") {
@@ -504,7 +585,13 @@ export function useStreamHandler({
         // conteúdo acumulado no client não pode ser considerado definitivo
         // — reconcilia com o que o backend de fato persistiu.
         if (!streamCompletedNormally) {
-          await reconcileTruncatedMessage(threadId, activeId, setMessages);
+          await reconcileTruncatedMessage(
+            threadId,
+            activeId,
+            setMessages,
+            resolvedWorkspaceId,
+            resolvedRunId,
+          );
         }
       } catch (err: unknown) {
         if ((err as { name?: string }).name === "AbortError") {
@@ -519,6 +606,13 @@ export function useStreamHandler({
                   ? Date.now() - m.thinkingStartTime
                   : undefined,
             })),
+          );
+          await reconcileTurnFiles(
+            threadId,
+            activeId,
+            setMessages,
+            resolvedWorkspaceId,
+            resolvedRunId,
           );
         } else {
           // Distingue queda de transporte (badge "Reconectando…") de
@@ -546,7 +640,13 @@ export function useStreamHandler({
           // indefinidamente, sem o reload manual que hoje é o único jeito
           // de ver a versão completa. Reconcilia igual ao caminho de
           // esgotamento silencioso do loop, abaixo.
-          await reconcileTruncatedMessage(threadId, activeId, setMessages);
+          await reconcileTruncatedMessage(
+            threadId,
+            activeId,
+            setMessages,
+            resolvedWorkspaceId,
+            resolvedRunId,
+          );
         }
       } finally {
         // Restaura o sinal "criar novo workspace" se essa tentativa terminou
@@ -612,6 +712,8 @@ export function useStreamHandler({
       );
 
       let assistantContent = "";
+      let resolvedRunId: string | undefined;
+      let resolvedWorkspaceId: string | undefined;
       // Primeiro evento recebido = conexão SSE estabelecida
       let sseConnected = false;
       // Mesma defesa em profundidade de processStream — ver comentário lá.
@@ -634,6 +736,18 @@ export function useStreamHandler({
             abortRef.current?.abort();
             streamCompletedNormally = true;
             break;
+          }
+
+          if (event.type === "thread") {
+            resolvedWorkspaceId = event.workspace_id || resolvedWorkspaceId;
+            resolvedRunId =
+              ("run_id" in event && typeof event.run_id === "string"
+                ? event.run_id
+                : undefined) || resolvedRunId;
+          }
+
+          if (event.type === "turn_files_changed" && event.run_id) {
+            resolvedRunId = event.run_id;
           }
 
           if (event.type === "token") {
@@ -670,6 +784,7 @@ export function useStreamHandler({
             continue;
           }
           if (event.type === "done") {
+            resolvedRunId = event.run_id || resolvedRunId;
             streamCompletedNormally = true;
             break;
           }
@@ -695,11 +810,20 @@ export function useStreamHandler({
             threadId,
             assistantMessageId,
             setMessages,
+            resolvedWorkspaceId,
+            resolvedRunId,
           );
         }
       } catch (err: unknown) {
         if ((err as { name?: string }).name === "AbortError") {
           streamCompletedNormally = true;
+          await reconcileTurnFiles(
+            threadId,
+            assistantMessageId,
+            setMessages,
+            resolvedWorkspaceId,
+            resolvedRunId,
+          );
         } else {
           // Mesma distinção transporte vs. aplicação do processStream
           announceSSEDropped(err);
@@ -717,6 +841,8 @@ export function useStreamHandler({
             threadId,
             assistantMessageId,
             setMessages,
+            resolvedWorkspaceId,
+            resolvedRunId,
           );
         }
       } finally {
@@ -1068,6 +1194,16 @@ async function handleEvent(
           event.tabs,
         );
       }
+      break;
+    }
+
+    case "turn_files_changed": {
+      setMessages((prev) =>
+        updateMessageInList(prev, assistantMessageId, (m) => ({
+          ...m,
+          editedFiles: event.files,
+        })),
+      );
       break;
     }
 

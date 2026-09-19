@@ -23,7 +23,6 @@ import {
   Upload,
 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -47,6 +46,7 @@ import { useLicenseStatus } from "@/lib/hooks/use-license-status";
 import { m } from "@/lib/paraglide/messages";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { useLibraryStore, type MemoryBucket } from "@/lib/stores/library-store";
+import { LibraryCard, LibraryTag } from "./library-card";
 
 interface RagBucketOption {
   id: string;
@@ -317,62 +317,63 @@ function BucketCard({
   };
 
   return (
-    <div className="rounded-lg border bg-card p-3 space-y-2">
-      <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center shrink-0">
-          <Database className="w-4 h-4 text-muted-foreground" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium truncate">{bucket.name}</span>
-            {bucket.verified && (
-              <Badge
-                variant="secondary"
-                className="text-[10px] h-4 px-1.5 gap-1"
-              >
-                <CheckCircle2 className="w-2.5 h-2.5" />
-                {m.library_memory_verified_badge()}
-              </Badge>
-            )}
-          </div>
-          <p className="text-xs text-muted-foreground truncate">
-            {bucket.description}
-          </p>
-          <p className="text-[10px] text-muted-foreground/80">
+    <LibraryCard
+      icon={<Database className="size-3.5" />}
+      title={bucket.name}
+      description={bucket.description}
+      tags={
+        <>
+          <LibraryTag>
             {m.library_memory_embed_model({ model: bucket.embed_model })}
-            {" · "}
-            {m.library_memory_downloads({ count: bucket.downloads_count })}
-          </p>
-        </div>
+          </LibraryTag>
+          {bucket.verified && (
+            <LibraryTag verified>
+              {m.library_memory_verified_badge()}
+            </LibraryTag>
+          )}
+        </>
+      }
+      action={
         <Button
           variant={installed ? "outline" : "default"}
           size="sm"
-          className="h-7 text-xs shrink-0"
+          className={
+            installed
+              ? "h-[19px] rounded-md border-[#555] bg-transparent px-1.5 py-1 text-[9px] text-muted-foreground"
+              : "h-[19px] rounded-md border-0 bg-[#d4d4d4] px-1.5 py-1 text-[9px] font-medium text-[#1a1a1a] hover:bg-white"
+          }
           onClick={handleInstall}
           disabled={busy || installed}
         >
           {busy ? (
-            <Loader2 className="w-3 h-3 animate-spin" />
+            <Loader2 className="size-[11px] animate-spin" />
           ) : installed ? (
             <>
-              <CheckCircle2 className="w-3 h-3 mr-1.5" />
+              <CheckCircle2 className="size-[11px]" />
               {m.library_memory_installed()}
             </>
           ) : (
             <>
-              <Download className="w-3 h-3 mr-1.5" />
+              <Download className="size-[11px]" />
               {m.library_memory_install()}
             </>
           )}
         </Button>
-      </div>
-      {incompatible && !installed && (
-        <p className="text-[10px] text-amber-500">
-          {m.library_memory_incompatible({ model: bucket.embed_model })}
-        </p>
-      )}
-      {error && <p className="text-xs text-destructive">{error}</p>}
-    </div>
+      }
+      footer={
+        <>
+          <p className="text-[10px] leading-4 text-muted-foreground/80">
+            {m.library_memory_downloads({ count: bucket.downloads_count })}
+          </p>
+          {incompatible && !installed && (
+            <p className="text-[10px] leading-4 text-amber-500">
+              {m.library_memory_incompatible({ model: bucket.embed_model })}
+            </p>
+          )}
+          {error && <p className="text-xs text-destructive">{error}</p>}
+        </>
+      }
+    />
   );
 }
 

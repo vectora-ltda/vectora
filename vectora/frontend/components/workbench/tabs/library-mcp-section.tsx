@@ -23,7 +23,6 @@ import {
   Trash2,
 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -38,6 +37,7 @@ import { PluginsTab } from "@/components/settings/environment/tabs/plugins-tab";
 import { m } from "@/lib/paraglide/messages";
 import { useLibraryStore, type MCPConnector } from "@/lib/stores/library-store";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
+import { LibraryCard, LibraryTag } from "./library-card";
 import type { LibraryItem } from "./library-tab";
 
 async function saveEnvVar(key: string, value: string): Promise<void> {
@@ -248,64 +248,64 @@ function ConnectorCard({
     }
   };
 
+  const verified =
+    connector.vectora_verified ||
+    connector.trust_state === "vectora_verified" ||
+    connector.trust_state === "publisher_signed";
+  const trustLabel = verified
+    ? m.library_mcp_verified()
+    : (connector.trust_state ?? "community_listed");
+
   return (
-    <div className="rounded-lg border bg-card p-3 space-y-2">
-      <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center shrink-0 overflow-hidden">
-          {connector.icon_url ? (
-            <img
-              src={connector.icon_url}
-              alt=""
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <Puzzle className="w-4 h-4 text-muted-foreground" />
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          <span className="block text-sm font-medium truncate">
-            {connector.name}
-          </span>
-          <p className="text-xs text-muted-foreground truncate">
-            {connector.description}
-          </p>
-          <div className="flex items-center gap-1.5 min-w-0 pt-0.5">
-            <Badge
-              variant="secondary"
-              className="text-[10px] h-4 px-1.5 shrink-0"
-            >
-              {connector.category}
-            </Badge>
-            {(connector.vectora_verified || connector.trust_state) && (
-              <Badge className="text-[10px] h-4 px-1.5 shrink-0">
-                {connector.trust_state ?? "community_listed"}
-              </Badge>
-            )}
-          </div>
-        </div>
+    <LibraryCard
+      icon={
+        connector.icon_url ? (
+          <img
+            src={connector.icon_url}
+            alt=""
+            className="size-full rounded object-cover"
+          />
+        ) : (
+          <Puzzle className="size-3.5" />
+        )
+      }
+      title={connector.name}
+      description={connector.description}
+      tags={
+        <>
+          <LibraryTag>{connector.category}</LibraryTag>
+          <LibraryTag verified={verified}>{trustLabel}</LibraryTag>
+        </>
+      }
+      action={
         <Button
           variant={installed ? "outline" : "default"}
           size="sm"
-          className="h-7 text-xs shrink-0"
+          className={
+            installed
+              ? "h-[19px] rounded-md border-[#555] bg-transparent px-1.5 py-1 text-[9px] text-muted-foreground"
+              : "h-[19px] rounded-md border-0 bg-[#d4d4d4] px-1.5 py-1 text-[9px] font-medium text-[#1a1a1a] hover:bg-white"
+          }
           onClick={installed ? handleUninstall : handleInstallClick}
           disabled={busy}
         >
           {busy ? (
-            <Loader2 className="w-3 h-3 animate-spin" />
+            <Loader2 className="size-[11px] animate-spin" />
           ) : installed ? (
             <>
-              <Trash2 className="w-3 h-3 mr-1.5" />
+              <Trash2 className="size-[11px]" />
               {m.library_mcp_uninstall()}
             </>
           ) : (
             <>
-              <Download className="w-3 h-3 mr-1.5" />
+              <Download className="size-[11px]" />
               {m.library_mcp_install()}
             </>
           )}
         </Button>
-      </div>
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      }
+      footer={error && <p className="text-xs text-destructive">{error}</p>}
+    >
       {configuring && (
         <ConfigureDialog
           connector={connector}
@@ -313,7 +313,7 @@ function ConnectorCard({
           onInstalled={onChanged}
         />
       )}
-    </div>
+    </LibraryCard>
   );
 }
 

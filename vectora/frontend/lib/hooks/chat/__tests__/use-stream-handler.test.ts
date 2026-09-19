@@ -29,6 +29,11 @@ vi.mock("@/lib/api/vectora-client", () => ({
   streamChat: (...args: unknown[]) => streamChatMock(...args),
   resumeChat: (...args: unknown[]) => resumeChatMock(...args),
   getHistory: (...args: unknown[]) => getHistoryMock(...args),
+  getLatestTurnFilesSnapshot: async () => ({
+    run_id: "",
+    status: "finalized",
+    files: [],
+  }),
 }));
 
 import { useStreamHandler, streamErrorMessage } from "../use-stream-handler";

@@ -79,7 +79,12 @@ export interface ResumeChatRequest {
 
 /** Evento discriminado pelo campo `type` */
 export type StreamEvent =
-  | { type: "thread"; thread_id: string; workspace_id?: string }
+  | {
+      type: "thread";
+      thread_id: string;
+      workspace_id?: string;
+      run_id?: string;
+    }
   | { type: "token"; content: string; node?: string }
   | {
       type: "tool_call";
@@ -160,6 +165,18 @@ export type StreamEvent =
   | { type: "done"; thread_id: string; run_id?: string }
   | { type: "message_break" }
   | { type: "workbench_invalidate"; tabs: string[]; tool_name?: string }
+  | {
+      type: "turn_files_changed";
+      run_id?: string;
+      status?: "active" | "finalized";
+      files: Array<{
+        path: string;
+        status: string;
+        additions: number;
+        deletions: number;
+        hunks: Array<{ header: string; lines: string[] }>;
+      }>;
+    }
   | {
       type: "tool_activity";
       tool_name: string;
@@ -251,6 +268,14 @@ export interface HistoryAttachment {
   url?: string | null;
 }
 
+export interface HistoryEditedFile {
+  path: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  hunks: Array<{ header: string; lines: string[] }>;
+}
+
 export interface HistoryMessage {
   role: "human" | "assistant";
   content: string;
@@ -260,6 +285,7 @@ export interface HistoryMessage {
    * quando o backend não conseguiu resolver. */
   checkpoint_id?: string;
   attachments?: HistoryAttachment[];
+  edited_files?: HistoryEditedFile[];
 }
 
 export interface ToolSchema {
@@ -620,6 +646,47 @@ export interface ThreadActivity {
   files_touched: string[];
   tool_call_counts: Record<string, number>;
   turn_count: number;
+}
+
+export interface TurnFileChange {
+  path: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  hunks: Array<{ header: string; lines: string[] }>;
+}
+
+export interface TurnFilesSnapshot {
+  run_id: string;
+  status: "active" | "finalized";
+  files: TurnFileChange[];
+}
+
+export async function getLatestTurnFilesSnapshot(
+  threadId: string,
+  workspaceId: string,
+  runId?: string,
+): Promise<TurnFilesSnapshot> {
+  const query = runId ? `?run_id=${encodeURIComponent(runId)}` : "";
+  const res = await fetch(
+    `${VECTORA_API_URL}/threads/${encodeURIComponent(threadId)}/turn-files/${encodeURIComponent(workspaceId)}${query}`,
+    { headers: { Accept: "application/json" }, credentials: "include" },
+  );
+  if (!res.ok) return { run_id: runId ?? "", status: "finalized", files: [] };
+  const data = (await res.json()) as Partial<TurnFilesSnapshot>;
+  return {
+    run_id: data.run_id ?? runId ?? "",
+    status: data.status === "active" ? "active" : "finalized",
+    files: data.files ?? [],
+  };
+}
+
+export async function getLatestTurnFiles(
+  threadId: string,
+  workspaceId: string,
+  runId?: string,
+): Promise<TurnFileChange[]> {
+  return (await getLatestTurnFilesSnapshot(threadId, workspaceId, runId)).files;
 }
 
 export async function getThreadActivity(

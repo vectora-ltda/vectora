@@ -126,6 +126,19 @@ describe("api — checkout/sync/merge", () => {
     );
   });
 
+  it("apiSync envia force somente quando solicitado", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ status: "ok", message: "" }),
+    );
+    await apiSync("ws1", "push", { force: true });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/workspaces/ws1/git/push",
+      expect.objectContaining({
+        body: JSON.stringify({ force: true }),
+      }),
+    );
+  });
+
   it("postJson devolve status=error quando o corpo não é JSON válido", async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,

@@ -170,4 +170,5 @@ OAUTH_PUBLIC_URL = "https://services.vectora.company"
 #                            Integrações > Mecanismos de segurança)
 #   GHA_BOT_ENCRYPTION_KEY — gha-bot: chave mestra AES-256-GCM (chave de API
 #                            do provider, criptografada em repouso no D1)
-#   GITHUB_TOKEN           — registry: discovery de skills/MCP (opcional)
+#   GITHUB_TOKEN           — registry: discovery autenticada de skills no
+#                            GitHub (necessário para buscar SKILL.md)

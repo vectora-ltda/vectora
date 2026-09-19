@@ -17,6 +17,8 @@ beforeEach(() => {
     dockedWorkspaceId: null,
     dockedTabs: [],
     dockedActiveTab: null,
+    canvasDocuments: [],
+    activeCanvasDocumentId: null,
   });
   if (typeof localStorage !== "undefined") localStorage.clear();
 });
@@ -354,6 +356,45 @@ describe("windows-store — persistência não vaza estado docked entre workspac
     expect(persisted).not.toHaveProperty("dockedActiveTab");
     expect(persisted).toHaveProperty("windows");
     expect(persisted).toHaveProperty("topZ");
+    expect(persisted).toHaveProperty("canvasDocuments");
+    expect(persisted).toHaveProperty("activeCanvasDocumentId");
+  });
+});
+
+describe("windows-store — documentos do Canvas", () => {
+  it("preserva documentos de outros workspaces ao abrir um documento", () => {
+    s().openCanvasDocument({
+      id: "plan:ws1:t1:a",
+      kind: "plan",
+      workspaceId: "ws1",
+      threadId: "t1",
+      title: "A",
+    });
+    s().openCanvasDocument({
+      id: "plan:ws2:t2:b",
+      kind: "plan",
+      workspaceId: "ws2",
+      threadId: "t2",
+      title: "B",
+    });
+    expect(s().canvasDocuments.map((document) => document.id)).toEqual([
+      "plan:ws1:t1:a",
+      "plan:ws2:t2:b",
+    ]);
+  });
+
+  it("persiste descriptors do Canvas e o documento ativo", () => {
+    s().openCanvasDocument({
+      id: "commit:ws1:t1:abc",
+      kind: "commit-details",
+      workspaceId: "ws1",
+      threadId: "t1",
+      title: "Commit",
+    });
+    const partialize = useWindowsStore.persist.getOptions().partialize;
+    const persisted = partialize?.(s()) as Record<string, unknown>;
+    expect(persisted.canvasDocuments).toEqual(s().canvasDocuments);
+    expect(persisted.activeCanvasDocumentId).toBe("commit:ws1:t1:abc");
   });
 });
 

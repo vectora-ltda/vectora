@@ -36,9 +36,9 @@ const MODE_ACCENT: Record<UiMode, { text: string; bg: string; bar: string }> = {
     bar: "bg-violet-400",
   },
   kanban: {
-    text: "text-amber-400",
-    bg: "bg-amber-500/10",
-    bar: "bg-amber-400",
+    text: "text-git-success",
+    bg: "bg-git-success/10",
+    bar: "bg-git-success",
   },
 };
 
@@ -77,7 +77,7 @@ function ModeButton({
       onClick={onClick}
       aria-pressed={active}
       title={label}
-      className={`flex items-center gap-1.5 px-2.5 h-11 text-xs transition-colors min-w-0 ${
+      className={`flex h-full min-h-11 items-center gap-1.5 px-2.5 text-xs transition-colors min-w-0 ${
         active
           ? `${accent.bg} ${accent.text}`
           : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
@@ -166,7 +166,7 @@ export function ModeSwitch({ show = false, width }: ModeSwitchProps) {
       ref={groupRef}
       role="group"
       aria-label={m.ide_mode_switcher_label()}
-      className="relative flex items-end h-11 min-w-0"
+      className="relative flex h-full min-h-11 items-stretch min-w-0"
     >
       {MODES.map(({ mode, Icon }) => (
         <ModeButton
