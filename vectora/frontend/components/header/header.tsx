@@ -39,7 +39,7 @@ export function Header({
       // horizontal desalinha entre elas.
       className="safe-area-top-header border-b border-border/60 bg-background min-h-[var(--app-header-height)] flex items-center"
     >
-      <div className="flex items-center justify-between w-full min-w-0 px-4 sm:px-6">
+      <div className="flex items-stretch justify-between w-full min-w-0 px-4 sm:px-6 self-stretch">
         <div className="flex items-center gap-2 shrink-0">
           {/* Hamburger só em mobile — reabre o sidebar como overlay. */}
           {onOpenSidebar && (
@@ -55,7 +55,7 @@ export function Header({
         </div>
 
         {showModeSwitch && (
-          <div className="flex-1 flex justify-center min-w-0">
+          <div className="flex-1 flex items-stretch justify-center min-w-0 self-stretch">
             <ModeSwitch show width={rowWidth} />
           </div>
         )}

@@ -104,5 +104,16 @@ export const historyMessageToMessage = (
     timestamp: hist.created_at ? new Date(hist.created_at) : new Date(),
     checkpointId: hist.checkpoint_id,
     ...(images?.length ? { images } : {}),
+    ...(hist.edited_files?.length
+      ? {
+          editedFiles: hist.edited_files.map((file) => ({
+            path: file.path,
+            status: file.status,
+            additions: file.additions,
+            deletions: file.deletions,
+            hunks: file.hunks,
+          })),
+        }
+      : {}),
   } as Message;
 };

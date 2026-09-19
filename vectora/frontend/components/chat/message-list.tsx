@@ -12,7 +12,7 @@
 
 import { memo, useMemo, useEffect, useRef, useState, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import type { Message } from "@/lib/types";
+import type { EditedFile, Message } from "@/lib/types";
 import { m } from "@/lib/paraglide/messages";
 import { MessageItem } from "./message-item";
 import { MessageSkeletons } from "./message-skeleton";
@@ -106,6 +106,7 @@ interface MessageListProps {
   workspaceId?: string;
   /** IDE sidebar: passa para MessageItem ocultar avatar e compactar. */
   compact?: boolean;
+  onOpenEditedFile?: (file: EditedFile) => void;
 }
 
 function ConversationBranchBar({ threadId }: { threadId?: string }) {
@@ -246,6 +247,7 @@ export const MessageList = memo(function MessageList({
   threadId,
   workspaceId,
   compact = false,
+  onOpenEditedFile,
 }: MessageListProps) {
   // Scroll container
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -559,6 +561,7 @@ export const MessageList = memo(function MessageList({
     onRetry,
     workspaceId,
     compact,
+    onOpenEditedFile,
   };
 
   // Modo compacto (IDE): padding lateral reduzido — o chat divide espaço

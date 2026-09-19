@@ -28,7 +28,7 @@ import {
 import { m as msg } from "@/lib/paraglide/messages";
 import { mDyn } from "@/lib/i18n-dyn";
 
-export function PermissionModeMenu() {
+export function PermissionModeMenu({ compact = false }: { compact?: boolean }) {
   const mode = useSettingsStore((s) => s.permissionMode);
   const setMode = useSettingsStore((s) => s.setPermissionMode);
   const [open, setOpen] = useState(false);
@@ -37,15 +37,17 @@ export function PermissionModeMenu() {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
-          className="flex min-w-0 max-w-full shrink items-center gap-1.5 overflow-hidden px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors select-none"
+          className={`flex min-w-0 max-w-full shrink items-center overflow-hidden rounded-md text-xs text-muted-foreground transition-colors select-none hover:bg-muted/50 hover:text-foreground ${compact ? "h-7 gap-0.5 px-1" : "gap-1.5 px-2 py-1.5"}`}
           title={msg.permission_title()}
           aria-label={`${msg.permission_title()}: ${mDyn(`permission.mode.${mode}`)}`}
           aria-expanded={open}
         >
-          <span className="hidden min-w-0 truncate font-medium @sm/composer:inline">
+          <span
+            className={`inline min-w-0 truncate font-medium ${compact ? "max-w-14" : "max-w-20"}`}
+          >
             {mDyn(`permission.mode.${mode}`)}
           </span>
-          <ChevronDown className="w-3 h-3 shrink-0" />
+          <ChevronDown className="block h-3 w-3 shrink-0" />
         </button>
       </PopoverTrigger>
 

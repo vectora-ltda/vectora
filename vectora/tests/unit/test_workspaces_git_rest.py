@@ -19,6 +19,7 @@ from backend.api.handlers.workspaces import (
     GitSquashRequest,
     git_cherry_pick_inline,
     git_commit_inline,
+    git_commit_suggestion,
     git_reorder_inline,
     git_squash_inline,
 )
@@ -77,6 +78,41 @@ async def test_commit_body_via_rest(ws_repo):
 
     assert result.status == "ok"
     assert repo.head.commit.message.strip() == "feat: b\n\ndescricao longa"
+
+
+@pytest.mark.asyncio
+async def test_commit_signoff_via_rest(ws_repo):
+    repo, tmp_path = ws_repo
+    (tmp_path / "signed.txt").write_text("signed\n")
+    repo.index.add(["signed.txt"])
+
+    result = await git_commit_inline(
+        "ws-git", GitCommitRequest(message="feat: signed", signoff=True)
+    )
+
+    assert result.status == "ok"
+    assert "Signed-off-by: Test User <test@test.com>" in repo.head.commit.message
+
+
+@pytest.mark.asyncio
+async def test_commit_suggestion_uses_staged_files(ws_repo):
+    _repo, tmp_path = ws_repo
+    (tmp_path / "b.txt").write_text("b\n")
+    (tmp_path / "c.txt").write_text("c\n")
+    _repo.index.add(["b.txt", "c.txt"])
+
+    result = await git_commit_suggestion("ws-git")
+
+    assert result.title == "Atualiza 2 arquivos"
+    assert result.description == "Alterações agrupadas a partir do estado staged atual."
+
+
+@pytest.mark.asyncio
+async def test_commit_suggestion_empty_when_nothing_staged(ws_repo):
+    result = await git_commit_suggestion("ws-git")
+
+    assert result.title == ""
+    assert result.description == ""
 
 
 @pytest.mark.asyncio

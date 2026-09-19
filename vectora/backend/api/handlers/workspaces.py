@@ -21,7 +21,7 @@ import contextlib
 import hashlib
 import json
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -100,6 +100,14 @@ class ApproveHooksRequest(BaseModel):
 
 class GitInitRequest(BaseModel):
     workspace_id: str
+
+
+class GitMentionUser(BaseModel):
+    """Usuário autorizado a ser mencionado no Git Workbench."""
+
+    id: str
+    username: str | None = None
+    name: str | None = None
 
 
 class StatusResponse(BaseModel):
@@ -804,6 +812,21 @@ workspace_scoped_router = APIRouter(
     tags=["workspaces-view"],
     dependencies=[Depends(_enforce_workspace_ownership)],
 )
+
+
+@workspace_scoped_router.get("/git/members", response_model=list[GitMentionUser])
+async def git_members() -> list[GitMentionUser]:
+    """Lista membros disponíveis para menções dentro do workspace autorizado."""
+    from backend.rbac.auth import _get_db
+
+    db = await _get_db()
+    async with db.execute(
+        "SELECT id, username, name FROM users ORDER BY name, username"
+    ) as cur:
+        rows = await cur.fetchall()
+    return [
+        GitMentionUser(id=str(row[0]), username=row[1], name=row[2]) for row in rows
+    ]
 
 
 @view_router.get("", response_model=ListWorkspacesResponse)
@@ -1539,6 +1562,7 @@ class GitLogCommit(BaseModel):
     author: str
     date: str  # ISO 8601
     message: str
+    body: str = ""
     refs: list[str] = []  # branch/tag/HEAD decorations
 
 
@@ -1614,21 +1638,22 @@ async def git_log(
     has_more = len(commits) > n
     commits = commits[:n]
 
-    return GitLogResponse(
-        branch=ref,
-        has_more=has_more,
-        commits=[
+    log_commits: list[GitLogCommit] = []
+    for commit in commits:
+        lines = commit.message.strip().splitlines()
+        log_commits.append(
             GitLogCommit(
-                sha=c.hexsha,
-                sha_short=c.hexsha[:7],
-                author=str(c.author),
-                date=c.authored_datetime.isoformat(),
-                message=c.message.strip().splitlines()[0],
-                refs=ref_map.get(c.hexsha, []),
+                sha=commit.hexsha,
+                sha_short=commit.hexsha[:7],
+                author=str(commit.author),
+                date=commit.authored_datetime.isoformat(),
+                message=lines[0] if lines else "",
+                body="\n".join(lines[1:]).strip(),
+                refs=ref_map.get(commit.hexsha, []),
             )
-            for c in commits
-        ],
-    )
+        )
+
+    return GitLogResponse(branch=ref, has_more=has_more, commits=log_commits)
 
 
 @workspace_scoped_router.get("/git/commit/diff", response_model=CommitDiffResponse)
@@ -1675,6 +1700,54 @@ class GitCommitRequest(BaseModel):
     dry_run_hooks: bool = False
     body: str | None = None
     amend: bool = False
+    run_hooks: bool = False
+    signoff: bool = False
+    bypass: bool = False
+
+
+class GitCommitSuggestion(BaseModel):
+    """Rascunho editável de título e descrição para um novo commit."""
+
+    title: str
+    description: str
+
+
+@workspace_scoped_router.get(
+    "/git/commit/suggestion", response_model=GitCommitSuggestion
+)
+async def git_commit_suggestion(workspace_id: str) -> GitCommitSuggestion:
+    """Gera um rascunho editável a partir das alterações do workspace.
+
+    O compositor de commit exibe alterações staged e unstaged na mesma lista.
+    Portanto, a sugestão precisa considerar ambos os estados (e também arquivos
+    não rastreados) para funcionar antes de o usuário fazer o stage manual.
+    """
+    repo = _open_workspace_repo(workspace_id)
+    if repo is None:
+        return GitCommitSuggestion(title="", description="")
+    staged_paths = (
+        {
+            path
+            for item in repo.index.diff("HEAD")
+            for path in (item.a_path, item.b_path)
+            if path
+        }
+        if repo.head.is_valid()
+        else {path for path, _stage in repo.index.entries}
+    )
+    unstaged = repo.index.diff(None)
+    paths = staged_paths | {
+        path for item in unstaged for path in (item.a_path, item.b_path) if path
+    }
+    paths.update(path for path in repo.untracked_files if path)
+    count = len(paths)
+    if count == 0:
+        return GitCommitSuggestion(title="", description="")
+    noun = "arquivo" if count == 1 else "arquivos"
+    return GitCommitSuggestion(
+        title=f"Atualiza {count} {noun}",
+        description="Alterações agrupadas a partir do estado staged atual.",
+    )
 
 
 class GitSquashRequest(BaseModel):
@@ -1752,8 +1825,19 @@ async def git_commit_inline(
         return StatusResponse(
             status="hooks_failed", message=hook_result.get("output", "")
         )
+    if body.run_hooks and not body.bypass:
+        hook_result = _run_pre_commit_hooks(repo)
+        if not hook_result["passed"]:
+            return StatusResponse(
+                status="hooks_failed", message=hook_result.get("output", "")
+            )
     result = _git_commit_impl(
-        repo, body.message, body.all, body=body.body, amend=body.amend
+        repo,
+        body.message,
+        body.all,
+        body=body.body,
+        amend=body.amend,
+        signoff=body.signoff,
     )
     return StatusResponse(status=result["status"], message=result.get("message", ""))
 
@@ -1998,16 +2082,41 @@ async def git_revert_commit(
 # ---------------------------------------------------------------------------
 
 
+class GitOperationSnapshot(BaseModel):
+    """Snapshot sanitizado de uma operação Git, em estado terminal ou corrente."""
+
+    operation_id: str
+    workspace_id: str
+    operation: str
+    state: Literal["queued", "running", "succeeded", "failed"]
+    phase: str
+    progress: int = Field(ge=0, le=100)
+    output: str = ""
+    error_code: str | None = None
+    error: str | None = None
+    created_at: float
+    finished_at: float | None = None
+
+
 class GitStatusResponse(BaseModel):
+    """Snapshot validado do estado atual do repositório e da operação ativa."""
+
     is_git_repo: bool = False
     branch: str = ""
     clean: bool = True
     ahead: int = 0
     behind: int = 0
+    operation_in_progress: GitOperationSnapshot | None = None
 
 
 class GitOperationResponse(BaseModel):
-    operation: dict[str, object] | None = None
+    operation: GitOperationSnapshot | None = None
+
+
+class GitOperationHistoryResponse(BaseModel):
+    """Operações recentes em ordem decrescente de criação para reconexão."""
+
+    operations: list[GitOperationSnapshot] = Field(default_factory=list)
 
 
 @workspace_scoped_router.get("/git/operation", response_model=GitOperationResponse)
@@ -2016,6 +2125,20 @@ async def git_operation(workspace_id: str) -> GitOperationResponse:
     from backend.services.git import git_service
 
     return GitOperationResponse(operation=await git_service.latest(workspace_id))
+
+
+@workspace_scoped_router.get(
+    "/git/operations", response_model=GitOperationHistoryResponse
+)
+async def git_operations(
+    workspace_id: str, limit: int = 50
+) -> GitOperationHistoryResponse:
+    """Lista operações Git recentes para reconexão e diagnóstico."""
+    from backend.services.git import git_service
+
+    return GitOperationHistoryResponse(
+        operations=await git_service.history(workspace_id, limit=limit)
+    )
 
 
 @workspace_scoped_router.get("/git/status", response_model=GitStatusResponse)
@@ -2037,12 +2160,21 @@ async def git_status(workspace_id: str) -> GitStatusResponse:
     branch = info.get("branch", "")
     ahead = info.get("ahead", 0)
     behind = info.get("behind", 0)
+    operation = info.get("operation_in_progress")
+    operation_in_progress = (
+        GitOperationSnapshot.model_validate(operation)
+        if isinstance(operation, Mapping)
+        else operation
+        if isinstance(operation, GitOperationSnapshot)
+        else None
+    )
     return GitStatusResponse(
         is_git_repo=True,
         branch=branch if isinstance(branch, str) else "",
         clean=bool(info.get("clean", True)),
         ahead=int(ahead) if isinstance(ahead, int | float | str) else 0,
         behind=int(behind) if isinstance(behind, int | float | str) else 0,
+        operation_in_progress=operation_in_progress,
     )
 
 
@@ -2102,6 +2234,7 @@ async def git_checkout(workspace_id: str, body: GitCheckoutRequest) -> StatusRes
 class GitSyncRequest(BaseModel):
     remote: str = "origin"
     branch: str | None = None
+    force: bool = False
 
 
 @workspace_scoped_router.post("/git/fetch", response_model=StatusResponse)
@@ -2111,6 +2244,11 @@ async def git_fetch(workspace_id: str, body: GitSyncRequest) -> StatusResponse:
     if repo is None:
         return StatusResponse(status="error", message="Repositório git não encontrado.")
     from backend.services.git import GitOperationError, git_service
+
+    if body.force:
+        return StatusResponse(
+            status="invalid_request", message="force só pode ser usado no push."
+        )
 
     try:
         await git_service.execute(
@@ -2135,6 +2273,10 @@ async def git_pull(workspace_id: str, body: GitSyncRequest) -> StatusResponse:
     repo = _open_workspace_repo(workspace_id)
     if repo is None:
         return StatusResponse(status="error", message="Repositório git não encontrado.")
+    if body.force:
+        return StatusResponse(
+            status="invalid_request", message="force só pode ser usado no push."
+        )
     try:
         _, result = await git_service.execute(
             workspace_id,
@@ -2165,7 +2307,7 @@ async def git_push(workspace_id: str, body: GitSyncRequest) -> StatusResponse:
             workspace_id,
             repo,
             "push",
-            lambda: _git_push_impl(repo, body.remote, body.branch),
+            lambda: _git_push_impl(repo, body.remote, body.branch, body.force),
         )
         result = result or {}
         return StatusResponse(

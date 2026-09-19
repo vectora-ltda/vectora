@@ -134,6 +134,12 @@ export interface SettingsState {
   fontScaleMarkdown: number;
   /** Tamanho de fonte (px) do editor Monaco. */
   monacoFontSize: number;
+  /** Executa hooks locais antes do commit. */
+  gitHooksEnabled: boolean;
+  /** Adiciona o trailer Signed-off-by usando a identidade Git configurada. */
+  gitSignoffEnabled: boolean;
+  /** Permite solicitar bypass de proteções Git no Workbench. */
+  gitBypassEnabled: boolean;
 
   // Ações
   setShowToolCalls: (v: boolean) => void;
@@ -162,6 +168,9 @@ export interface SettingsState {
   setFontScaleChat: (v: number) => void;
   setFontScaleMarkdown: (v: number) => void;
   setMonacoFontSize: (v: number) => void;
+  setGitHooksEnabled: (v: boolean) => void;
+  setGitSignoffEnabled: (v: boolean) => void;
+  setGitBypassEnabled: (v: boolean) => void;
   resetSettings: () => void;
 }
 
@@ -335,6 +344,9 @@ const DEFAULTS = {
   fontScaleChat: FONT_SCALE_BASE_PX,
   fontScaleMarkdown: FONT_SCALE_BASE_PX,
   monacoFontSize: 13,
+  gitHooksEnabled: false,
+  gitSignoffEnabled: false,
+  gitBypassEnabled: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -480,6 +492,9 @@ export const useSettingsStore = create<SettingsState>()(
       setFontScaleMarkdown: (v) =>
         set({ fontScaleMarkdown: clampFontScale(v) }),
       setMonacoFontSize: (v) => set({ monacoFontSize: clampMonacoFontSize(v) }),
+      setGitHooksEnabled: (v) => set({ gitHooksEnabled: v }),
+      setGitSignoffEnabled: (v) => set({ gitSignoffEnabled: v }),
+      setGitBypassEnabled: (v) => set({ gitBypassEnabled: v }),
       resetSettings: () =>
         set({
           ...DEFAULTS,
@@ -549,6 +564,9 @@ export const useSettingsStore = create<SettingsState>()(
         fontScaleChat: state.fontScaleChat,
         fontScaleMarkdown: state.fontScaleMarkdown,
         monacoFontSize: state.monacoFontSize,
+        gitHooksEnabled: state.gitHooksEnabled,
+        gitSignoffEnabled: state.gitSignoffEnabled,
+        gitBypassEnabled: state.gitBypassEnabled,
       }),
     },
   ),

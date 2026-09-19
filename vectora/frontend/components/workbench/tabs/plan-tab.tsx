@@ -36,7 +36,7 @@ import {
   Sparkles,
   type LucideIcon,
 } from "lucide-react";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -100,6 +100,7 @@ const TODOS_SLUG = "__todos__";
 
 interface PlanTabProps {
   threadId: string;
+  onOpenPlanDocument?: (item: PlanItem, content: string | null) => void;
 }
 
 function FilesTouchedSection({ threadId }: { threadId: string }) {
@@ -162,7 +163,12 @@ function TodoStatusIcon({ status }: { status: TodoItem["status"] }) {
   }
 }
 
-export function PlanTab({ threadId }: PlanTabProps) {
+export function PlanTab({ threadId, onOpenPlanDocument }: PlanTabProps) {
+  const contentRequestEpoch = useRef(new Map<string, number>());
+  useEffect(() => {
+    if (!threadId) return;
+    contentRequestEpoch.current.clear();
+  }, [threadId]);
   const items = useWorkbenchStore((s) => s.getPlan(threadId).items);
   const todos = useWorkbenchStore((s) => s.getTodos(threadId));
   const fetchedAt = useWorkbenchStore((s) => s.getPlan(threadId).fetchedAt);
@@ -225,13 +231,33 @@ export function PlanTab({ threadId }: PlanTabProps) {
         togglePlanOpenSlug(threadId, slug);
       }
       for (const slug of added) {
-        if (slug === TODOS_SLUG || contentsBySlug[slug] !== undefined) continue;
+        if (slug === TODOS_SLUG) continue;
+        const item = items.find(
+          (candidate) => fileSlug(candidate.path) === slug,
+        );
+        if (contentsBySlug[slug] !== undefined) {
+          if (item) onOpenPlanDocument?.(item, contentsBySlug[slug]);
+          continue;
+        }
+        const requestEpoch = (contentRequestEpoch.current.get(slug) ?? 0) + 1;
+        contentRequestEpoch.current.set(slug, requestEpoch);
         void fetchArtifactContent(threadId, slug).then((content) => {
+          if (requestEpoch !== contentRequestEpoch.current.get(slug)) return;
           if (content !== null) setPlanContent(threadId, slug, content);
+          if (item) onOpenPlanDocument?.(item, content);
         });
+        if (item) onOpenPlanDocument?.(item, contentsBySlug[slug] ?? null);
       }
     },
-    [openSlugs, threadId, togglePlanOpenSlug, contentsBySlug, setPlanContent],
+    [
+      openSlugs,
+      threadId,
+      togglePlanOpenSlug,
+      contentsBySlug,
+      setPlanContent,
+      items,
+      onOpenPlanDocument,
+    ],
   );
 
   // Estado de loading inicial: ainda não fetchamos uma única vez.

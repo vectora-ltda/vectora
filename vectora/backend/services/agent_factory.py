@@ -838,6 +838,25 @@ async def aget_thread_messages(
     return out
 
 
+async def aget_thread_messages_with_files(
+    thread_id: str, workspace_id: str | None = None
+) -> list[tuple[str, str, str, list[dict[str, Any]], list[dict[str, object]]]]:
+    """Histórico com o payload de arquivos editados persistido por mensagem."""
+    store = await get_session_store()
+    files_by_id = await store.get_edited_files_for_thread(thread_id)
+
+    def files_for_checkpoint(checkpoint_id: str) -> list[dict[str, object]]:
+        try:
+            return files_by_id.get(int(checkpoint_id), [])
+        except ValueError:
+            return []
+
+    return [
+        (*item, files_for_checkpoint(item[2]))
+        for item in await aget_thread_messages(thread_id, workspace_id)
+    ]
+
+
 async def aget_thread_todos(
     thread_id: str,
     workspace_id: str | None = None,

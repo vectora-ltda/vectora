@@ -321,6 +321,7 @@ interface WorkbenchState {
 
   getGitOps: (wsId: string) => GitOpsState;
   toggleGitFileSelection: (wsId: string, path: string) => void;
+  setGitFileSelection: (wsId: string, paths: string[]) => void;
   setGitHunkSelection: (wsId: string, path: string, indexes: number[]) => void;
   setGitActiveDocument: (wsId: string, path: string | null) => void;
   setGitOperation: (wsId: string, operation: GitOpsSnapshot | null) => void;
@@ -708,6 +709,16 @@ export const useWorkbenchStore = create<WorkbenchState>()(
               : [...current.selectedFiles, path];
             return {
               gitOps: { ...s.gitOps, [wsId]: { ...current, selectedFiles } },
+            };
+          }),
+        setGitFileSelection: (wsId, paths) =>
+          set((s) => {
+            const current = s.gitOps[wsId] ?? EMPTY_GIT_OPS;
+            return {
+              gitOps: {
+                ...s.gitOps,
+                [wsId]: { ...current, selectedFiles: paths },
+              },
             };
           }),
         setGitHunkSelection: (wsId, path, indexes) =>

@@ -6,7 +6,7 @@
  */
 
 export type { ActionResult } from "./async-state";
-export type { Message } from "./messages";
+export type { EditedFile, Message } from "./messages";
 export type {
   ToolCall,
   SubgraphOutput,
