@@ -160,6 +160,7 @@ def stream_engine_events(
             ThreadEvent(
                 thread_id=thread_id,
                 workspace_id=workspace_id or "",
+                run_id=resolved_run_id,
             )
         )
 

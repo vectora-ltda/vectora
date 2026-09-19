@@ -329,6 +329,7 @@ class ThreadEvent(BaseModel):
     # (create_new_workspace=True em ChatConfig), já que hoje esse id nunca
     # volta ao cliente por nenhum outro canal.
     workspace_id: str = ""
+    run_id: str = ""
 
 
 class DiffHunk(BaseModel):

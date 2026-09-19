@@ -44,6 +44,7 @@ class TurnWorkspaceSnapshot:
     repo_root: Path
     scope_root: Path
     initial: dict[str, bytes | None]
+    initial_head: str | None
 
 
 MAX_TRACKED_FILES = 256
@@ -108,9 +109,9 @@ def _read(repo_root: Path, path: str) -> bytes | None:
         return None
 
 
-def _head_read(repo: RepoLike, path: str) -> bytes | None:
+def _head_read(repo: RepoLike, path: str, ref: str = "HEAD") -> bytes | None:
     try:
-        return repo.git.show(f"HEAD:{path}").encode("utf-8", errors="replace")
+        return repo.git.show(f"{ref}:{path}").encode("utf-8", errors="replace")
     except Exception:
         return None
 
@@ -148,6 +149,7 @@ def capture(
             path: _read(repo_root, path)
             for path in _status_paths(repo, scope_root, repo_root)
         }
+        initial_head = repo.git.rev_parse("HEAD")
     except Exception:
         return None
     snapshot = TurnWorkspaceSnapshot(
@@ -157,6 +159,7 @@ def capture(
         repo_root=repo_root,
         scope_root=scope_root,
         initial=initial,
+        initial_head=initial_head,
     )
     _active[snapshot.run_id] = snapshot
     return snapshot
@@ -183,10 +186,21 @@ def compute(snapshot: TurnWorkspaceSnapshot) -> list[TurnFileChange]:
         return []
 
     current_paths = _status_paths(repo, snapshot.scope_root, snapshot.repo_root)
-    paths = sorted(set(snapshot.initial) | set(current_paths))[:MAX_TRACKED_FILES]
+    committed_paths: list[str] = []
+    if snapshot.initial_head:
+        try:
+            raw = repo.git.diff(
+                "--name-only", f"{snapshot.initial_head}..HEAD", "--", str(snapshot.scope_root)
+            )
+            committed_paths = [p for p in raw.splitlines() if p]
+        except Exception:
+            committed_paths = []
+    paths = sorted(set(snapshot.initial) | set(current_paths) | set(committed_paths))[:MAX_TRACKED_FILES]
     changes: list[TurnFileChange] = []
     for path in paths:
-        before = snapshot.initial.get(path, _head_read(repo, path))
+        before = snapshot.initial.get(
+            path, _head_read(repo, path, snapshot.initial_head or "HEAD")
+        )
         after = _read(snapshot.repo_root, path)
         if before == after:
             continue
@@ -262,7 +276,12 @@ def latest(
             return run_id, "finalized", _results[run_id]
         return run_id, "finalized", []
     latest_run, changes = _latest.get((thread_id, workspace_id), ("", []))
-    return latest_run, "finalized", changes
+    if latest_run:
+        return latest_run, "finalized", changes
+    for active_run, snapshot in _active.items():
+        if snapshot.thread_id == thread_id and snapshot.workspace_id == workspace_id:
+            return active_run, "active", compute(snapshot)
+    return "", "finalized", []
 
 
 def encode(changes: list[TurnFileChange]) -> list[dict[str, object]]:
