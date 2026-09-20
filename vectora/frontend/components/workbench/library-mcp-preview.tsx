@@ -14,6 +14,11 @@ function safeHomepage(value: string): string | null {
   }
 }
 
+/**
+ * Renders an MCP catalog entry in the shared canvas. Homepage links are
+ * limited to HTTP(S), credential names are shown without secret values, and
+ * a neutral puzzle icon is used when the catalog has no image.
+ */
 export function LibraryMcpPreview({ mcp }: { mcp: McpCanvasPreviewData }) {
   const homepage = safeHomepage(mcp.homepage);
 
