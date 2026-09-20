@@ -98,12 +98,12 @@ async function removeManagedContent(
       await removeManagedContent(root, target, backupDirectory);
       // A parent that contains an excluded child must remain; empty parents
       // created only by the previous state can be removed safely.
-      await withFileLockRetry(() =>
-        fs.rm(target, { recursive: false, force: true }),
-      ).catch((error: unknown) => {
-        const code = (error as { code?: unknown }).code;
-        if (code !== "ENOTEMPTY" && code !== "EEXIST") throw error;
-      });
+      await withFileLockRetry(() => fs.rmdir(target)).catch(
+        (error: unknown) => {
+          const code = (error as { code?: unknown }).code;
+          if (code !== "ENOTEMPTY" && code !== "EEXIST") throw error;
+        },
+      );
       continue;
     }
     await withFileLockRetry(() => fs.rm(target, { force: true }));
