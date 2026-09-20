@@ -3,7 +3,7 @@
 import asyncio
 import contextlib
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
@@ -771,6 +771,59 @@ class TestGatewayClientReviewJob:
         mock_handle.assert_awaited_once_with(
             "job-1", "diff x", {"pr": "1"}, "secret-do-job"
         )
+
+    @pytest.mark.asyncio
+    async def test_dispatch_de_review_job_descarta_delivery_duplicado(self) -> None:
+        client = self._client()
+        ws = AsyncMock()
+        session = AsyncMock()
+        queue = self._queue()
+        message: GatewayMessage = {
+            "type": "review_job",
+            "job_id": "job-1",
+            "diff": "diff x",
+            "metadata": {},
+            "callback_secret": "secret-do-job",
+            "delivery_id": "delivery-1",
+        }
+
+        with patch.object(client, "_handle_review_job", new=AsyncMock()) as mock_handle:
+            await client._dispatch(ws, session, message, queue)
+            await client._dispatch(ws, session, message, queue)
+            await asyncio.sleep(0)
+
+        mock_handle.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_dispatch_de_review_job_invalido_falha_job_persistido(self) -> None:
+        client = self._client()
+        ws = AsyncMock()
+        session = AsyncMock()
+        queue = self._queue()
+
+        with patch.object(client, "_post_review_result", new=AsyncMock()) as mock_post:
+            await client._dispatch(
+                ws,
+                session,
+                cast(
+                    GatewayMessage,
+                    {
+                        "type": "review_job",
+                        "job_id": "job-invalid",
+                        "diff": "diff x",
+                        "metadata": {},
+                        "callback_secret": "secret-do-job",
+                        "head_sha": "malformed-sha",
+                    },
+                ),
+                queue,
+            )
+            await asyncio.sleep(0)
+
+        mock_post.assert_awaited_once()
+        assert mock_post.await_args is not None
+        assert mock_post.await_args.args[:2] == ("job-invalid", "secret-do-job")
+        assert "invalid review_job payload" in mock_post.await_args.kwargs["error"]
 
     @pytest.mark.asyncio
     async def test_handle_review_job_sucesso_posta_review_text(self) -> None:
