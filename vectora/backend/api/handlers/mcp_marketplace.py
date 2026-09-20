@@ -121,9 +121,8 @@ class PolicyRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Registry embutido — subconjunto de MCPs da comunidade.
 #
-# Nenhuma entrada é verificada por padrão. A marcação `vectora_verified` fica
-# disponível no contrato para uma futura curadoria explícita, mas não deve ser
-# inferida pelo fato de um conector estar neste fallback.
+# A presença no catálogo não estabelece verificação; as entradas deste
+# fallback usam o valor padrão `vectora_verified=False`.
 # ---------------------------------------------------------------------------
 
 _REGISTRY: list[MCPConnector] = [
@@ -228,8 +227,7 @@ def _remote_entry_to_connector(entry: dict) -> MCPConnector | None:
             env_vars=list(env_vars) if env_vars else [],
             homepage=entry.get("homepage") or "",
             category=entry.get("category", "general"),
-            # O registry remoto pode carregar flags legadas de curadoria.
-            # Elas não valem como verificação até uma curadoria explícita.
+            # Flags do catálogo remoto não estabelecem verificação.
             vectora_verified=False,
             icon_url=entry.get("icon_url") or None,
             trust_state="unsigned",

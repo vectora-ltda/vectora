@@ -201,8 +201,8 @@ async def test_list_registry_merges_official_mcp_registry_entries(
 
 @pytest.mark.asyncio
 async def test_list_registry_ignores_remote_verification_flags_and_sorts_alphabetically(
-    monkeypatch, _no_remote_registry
-):
+    monkeypatch: pytest.MonkeyPatch, _no_remote_registry: None
+) -> None:
     """Flags legadas de curadoria não verificam MCPs e a lista é alfabética."""
     from unittest.mock import AsyncMock
 

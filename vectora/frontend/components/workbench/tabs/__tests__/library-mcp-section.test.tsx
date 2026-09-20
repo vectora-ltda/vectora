@@ -17,6 +17,7 @@ import {
   waitFor,
   fireEvent,
   act,
+  within,
 } from "@testing-library/react";
 
 vi.mock("@/components/settings/environment/tabs/plugins-tab", () => ({
@@ -59,6 +60,7 @@ const REGISTRY = [
     homepage: "https://example.com",
     category: "community",
     vectora_verified: false,
+    trust_state: "unsigned",
   },
 ];
 
@@ -178,6 +180,33 @@ describe("McpSection", () => {
         (c) => c[0] === "/mcp/install",
       ),
     ).toBe(false);
+  });
+
+  it("não persiste env vars quando a confirmação de MCP não verificado é recusada", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<McpSection query="" onCountChange={() => {}} />);
+    await waitFor(() => expect(screen.getByText("Brave Search")).toBeTruthy());
+
+    const braveCard = screen
+      .getByText("Brave Search")
+      .closest("div.rounded-lg")!;
+    fireEvent.click(
+      Array.from(braveCard.querySelectorAll("button")).find((b) =>
+        b.textContent?.includes("Install"),
+      )!,
+    );
+
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(dialog.querySelector("input")!, {
+      target: { value: "secret" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Install" }));
+
+    await waitFor(() => expect(confirm).toHaveBeenCalledOnce());
+    const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.some((c) => c[0] === "/auth/envs")).toBe(false);
+    expect(calls.some((c) => c[0] === "/mcp/install")).toBe(false);
+    confirm.mockRestore();
   });
 
   it("erro/borda: instalar com status 'error' mostra mensagem sem quebrar a lista", async () => {

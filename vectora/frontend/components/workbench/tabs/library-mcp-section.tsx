@@ -101,28 +101,29 @@ function ConfigureDialog({
       setError(m.library_mcp_error_missing_env({ key: missing }));
       return;
     }
-    setSaving(true);
     setError(null);
+    const requiresConfirmation = [
+      "community_listed",
+      "unsigned",
+      "verification_unavailable",
+    ].includes(connector.trust_state ?? "");
+    if (connector.trust_state === "invalid") {
+      setError("Este MCP foi rejeitado pela verificação de integridade.");
+      return;
+    }
+    if (
+      requiresConfirmation &&
+      !window.confirm(
+        "Este MCP não possui verificação criptográfica. Deseja instalar?",
+      )
+    )
+      return;
+
+    setSaving(true);
     try {
       await Promise.all(
         connector.env_vars.map((key) => saveEnvVar(key, values[key].trim())),
       );
-      const requiresConfirmation = [
-        "community_listed",
-        "unsigned",
-        "verification_unavailable",
-      ].includes(connector.trust_state ?? "");
-      if (connector.trust_state === "invalid") {
-        setError("Este MCP foi rejeitado pela verificação de integridade.");
-        return;
-      }
-      if (
-        requiresConfirmation &&
-        !window.confirm(
-          "Este MCP não possui verificação criptográfica. Deseja instalar?",
-        )
-      )
-        return;
       const result = await installMcp(connector.id, requiresConfirmation);
       if (result.status === "error") {
         setError(m.library_mcp_error_install());
