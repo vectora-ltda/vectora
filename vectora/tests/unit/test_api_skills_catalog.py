@@ -4,10 +4,12 @@ distinto de GET /skills (que lista as instaladas)."""
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from types import SimpleNamespace
+from typing import Literal, cast
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import Request
 
 from backend.api.handlers import skills as skills_handler
 from backend.workspace.skills import list_wellknown_catalog
@@ -199,69 +201,66 @@ class TestSkillsCatalogQueryFilters:
         assert result.model_dump() == {"entries": [], "total": 0}
 
 
-class TestPublishUserSkill:
+class TestCatalogSkillInstall:
     @pytest.mark.asyncio
-    async def test_publica_com_token_configurado(self, monkeypatch):
-        from backend.services import license as license_service
-
-        monkeypatch.setattr(license_service, "_get_token", lambda: "tok-123")
+    async def test_instala_apenas_a_fonte_resolvida_pelo_catalogo(self, monkeypatch):
         monkeypatch.setattr(
             skills_handler.registry_client,
-            "publish_skill",
-            AsyncMock(return_value="remote-skill-1"),
-        )
-
-        result = await skills_handler.publish_user_skill(
-            skills_handler.PublishSkillRequest(
-                source="https://github.com/user/skill",
-                name="Minha Skill",
-                description="faz coisas",
-                category="devtools",
-                tags=["cli"],
-            )
-        )
-
-        assert result == {"status": "published", "skill_id": "remote-skill-1"}
-
-    @pytest.mark.asyncio
-    async def test_sem_token_retorna_erro_sem_publicar(self, monkeypatch):
-        from backend.services import license as license_service
-
-        monkeypatch.setattr(license_service, "_get_token", lambda: None)
-        publish_spy = AsyncMock()
-        monkeypatch.setattr(
-            skills_handler.registry_client, "publish_skill", publish_spy
-        )
-
-        result = await skills_handler.publish_user_skill(
-            skills_handler.PublishSkillRequest(
-                source="https://github.com/user/skill",
-                name="x",
-                description="y",
-            )
-        )
-
-        assert result["status"] == "error"
-        publish_spy.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_erro_do_registry_vira_erro_tipado_nao_excecao(self, monkeypatch):
-        from backend.services import license as license_service
-
-        monkeypatch.setattr(license_service, "_get_token", lambda: "tok-123")
-        monkeypatch.setattr(
-            skills_handler.registry_client,
-            "publish_skill",
+            "fetch_catalog",
             AsyncMock(
-                side_effect=skills_handler.RegistryClientError("source inválido")
+                return_value=[
+                    {
+                        "id": "remote-skill-1",
+                        "name": "Minha Skill",
+                        "description": "faz coisas",
+                        "source": "https://github.com/user/skill",
+                    }
+                ]
             ),
         )
+        monkeypatch.setattr(
+            skills_handler.registry_client,
+            "fetch_enterprise_catalog",
+            AsyncMock(return_value=[]),
+        )
+        monkeypatch.setattr(skills_handler, "list_wellknown_catalog", lambda: [])
+        install_spy = lambda user_id, source, scope, target, **kwargs: SimpleNamespace(
+            model_dump=lambda: {"id": "remote-skill-1", "source": source}
+        )
+        monkeypatch.setattr(skills_handler, "install_skill", install_spy)
 
-        result = await skills_handler.publish_user_skill(
-            skills_handler.PublishSkillRequest(
-                source="não é url", name="x", description="y"
-            )
+        request = cast(Request, SimpleNamespace(state=SimpleNamespace(user=None)))
+        result = await skills_handler.install_user_skill(
+            request,
+            skills_handler.CatalogSkillInstallRequest(skill_id="remote-skill-1"),
         )
 
-        assert result["status"] == "error"
-        assert "inválido" in result["error"]
+        assert result == {
+            "status": "ok",
+            "skill": {
+                "id": "remote-skill-1",
+                "source": "https://github.com/user/skill",
+            },
+        }
+
+    @pytest.mark.asyncio
+    async def test_fonte_fora_do_catalogo_e_rejeitada(self, monkeypatch):
+        monkeypatch.setattr(
+            skills_handler.registry_client,
+            "fetch_catalog",
+            AsyncMock(return_value=[]),
+        )
+        monkeypatch.setattr(
+            skills_handler.registry_client,
+            "fetch_enterprise_catalog",
+            AsyncMock(return_value=[]),
+        )
+        monkeypatch.setattr(skills_handler, "list_wellknown_catalog", lambda: [])
+
+        with pytest.raises(skills_handler.HTTPException) as exc_info:
+            request = cast(Request, SimpleNamespace(state=SimpleNamespace(user=None)))
+            await skills_handler.install_user_skill(
+                request,
+                skills_handler.CatalogSkillInstallRequest(skill_id="unknown"),
+            )
+        assert exc_info.value.status_code == 404

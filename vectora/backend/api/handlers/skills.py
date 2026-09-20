@@ -2,18 +2,16 @@
 
 Endpoints (todos exigem autenticação via middleware):
     GET    /skills                 — lista skills instaladas
-    POST   /skills                 — instala skill (body: {source})
+    POST   /skills                 — instala skill publicada (body: {skill_id})
     DELETE /skills/{skill_id}      — remove skill
     POST   /skills/{skill_id}/verify — revalida SKILL.md (após edição manual)
-    POST   /skills/publish         — publica no catálogo remoto
 
 O user_id vem de ``request.state.user`` (CLI/root → ``"local"``). Skills são
 isoladas por usuário (cada um tem sua pasta ``~/.vectora/skills/<id>/``).
 
-Publicação exige um ``session_token`` de conta vectora.company — mesmo
-``VECTORA_TOKEN`` já usado pelo license check (`backend.services.
-license._get_token`), mesmo padrão de `backend/api/handlers/
-memory_library.py::post_publish`.
+Instalações só aceitam identificadores presentes no catálogo validado. A
+fonte efetiva permanece no servidor; o cliente nunca envia uma URL ou caminho
+arbitrário para execução.
 """
 
 from __future__ import annotations
@@ -23,14 +21,12 @@ import logging
 from typing import Literal, TypedDict
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from backend.services import registry_client
 from backend.services.importers import preview_skill_config
-from backend.services.registry_client import RegistryClientError
 from backend.vtypes.skill import SkillCatalogEntry, SkillCatalogResponse
 from backend.workspace.skills import (
-    InstallSkillRequest,
     install_skill,
     list_skills,
     list_wellknown_catalog,
@@ -43,16 +39,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/skills", tags=["skills"])
 
 
-class PublishSkillRequest(BaseModel):
-    source: str
-    name: str
-    description: str
-    category: str | None = None
-    tags: list[str] = []
-
-
 class ImportPreviewRequest(BaseModel):
     payload: object
+
+
+class CatalogSkillInstallRequest(BaseModel):
+    """Referência a uma skill publicada no catálogo agregado."""
+
+    skill_id: str = Field(min_length=1)
+    scope: Literal["user", "workspace", "project", "runtime"] = "user"
+    target: str | None = None
+    workspace_id: str | None = None
+    confirm_unverified: bool = False
 
 
 class SkillsListResponse(TypedDict):
@@ -183,16 +181,36 @@ async def get_skills_catalog(
     return SkillCatalogResponse(entries=filtered, total=len(filtered))
 
 
+async def _resolve_catalog_skill(skill_id: str) -> SkillCatalogEntry | None:
+    """Resolve um identificador nas fontes permitidas do catálogo."""
+    remote_raw, enterprise_raw = await asyncio.gather(
+        registry_client.fetch_catalog("skills"),
+        registry_client.fetch_enterprise_catalog("skills"),
+    )
+    enterprise = _validate_catalog_entries(enterprise_raw, "enterprise")
+    remote = _validate_catalog_entries(remote_raw, "remote")
+    local = await asyncio.to_thread(list_wellknown_catalog)
+    by_id = {entry.id: entry for entry in enterprise}
+    by_id.update({entry.id: entry for entry in remote})
+    by_id.update({entry.id: entry for entry in local})
+    return by_id.get(skill_id.strip())
+
+
 @router.post("")
 async def install_user_skill(
-    request: Request, body: InstallSkillRequest
+    request: Request, body: CatalogSkillInstallRequest
 ) -> SkillResponse:
-    """Instala uma skill (git URL ou path local)."""
+    """Instala uma skill referenciada por um item validado do catálogo."""
     try:
+        entry = await _resolve_catalog_skill(body.skill_id)
+        if entry is None:
+            raise HTTPException(
+                status_code=404, detail="Skill não encontrada no catálogo."
+            )
         target = _authorized_target(request, body.scope, body.target, body.workspace_id)
         skill = install_skill(
             _user_id(request),
-            body.source,
+            entry.source,
             body.scope,
             target,
             confirm_unverified=body.confirm_unverified,
@@ -229,32 +247,6 @@ async def verify_user_skill(
     """Revalida o SKILL.md da skill (útil após edição manual no disco)."""
     target = _authorized_target(request, scope, target, workspace_id)
     return verify_skill(_user_id(request), skill_id, scope, target)
-
-
-@router.post("/publish")
-async def publish_user_skill(req: PublishSkillRequest) -> dict:
-    """Publica `source` (URL git) no catálogo remoto de skills —
-    `verified=false` até curadoria manual de admin."""
-    from backend.services import license
-
-    token = license._get_token()
-    if not token:
-        return {
-            "status": "error",
-            "error": "Nenhuma conta vectora.company conectada (VECTORA_TOKEN ausente).",
-        }
-    try:
-        remote_id = await registry_client.publish_skill(
-            req.name,
-            req.description,
-            req.source,
-            category=req.category,
-            tags=req.tags,
-            session_token=token,
-        )
-    except RegistryClientError as exc:
-        return {"status": "error", "error": str(exc)}
-    return {"status": "published", "skill_id": remote_id}
 
 
 @router.post("/import/preview")
