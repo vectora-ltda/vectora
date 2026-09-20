@@ -14,8 +14,11 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import RLock
 from typing import ClassVar
 
 from backend.settings import settings
@@ -54,6 +57,7 @@ class SafeRootRegistry:
     def __init__(self) -> None:
         self._roots: dict[str, SafeRoot] = {}
         self._loaded = False
+        self._lock = RLock()
 
     @classmethod
     def instance(cls) -> SafeRootRegistry:
@@ -119,16 +123,24 @@ class SafeRootRegistry:
     def _save_roots(self, roots: dict[str, SafeRoot]) -> None:
         """Atomically persist a candidate registry or raise on failure."""
         safe_roots_file = _safe_roots_file()
-        temporary_file = safe_roots_file.with_name(f".{safe_roots_file.name}.tmp")
         data = {"roots": [r.model_dump() for r in roots.values()]}
+        temporary_file: Path | None = None
         try:
             safe_roots_file.parent.mkdir(parents=True, exist_ok=True)
-            temporary_file.write_text(
-                json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+            fd, temporary_name = tempfile.mkstemp(
+                prefix=f".{safe_roots_file.name}.",
+                suffix=".tmp",
+                dir=safe_roots_file.parent,
             )
+            temporary_file = Path(temporary_name)
+            with os.fdopen(fd, "w", encoding="utf-8") as output:
+                json.dump(data, output, indent=2, ensure_ascii=False)
+                output.flush()
+                os.fsync(output.fileno())
             temporary_file.replace(safe_roots_file)
         except Exception as exc:
-            temporary_file.unlink(missing_ok=True)
+            if temporary_file is not None:
+                temporary_file.unlink(missing_ok=True)
             logger.warning("Falha ao salvar safe_roots.json", exc_info=True)
             raise SafeRootPersistenceError(
                 "Não foi possível persistir as pastas seguras."
@@ -142,103 +154,110 @@ class SafeRootRegistry:
 
     def all_roots(self, *, include_archived: bool = False) -> list[SafeRoot]:
         """Retorna raízes ativas, ou também arquivadas quando solicitado."""
-        self._load()
-        return sorted(
-            (
-                r
-                for r in self._roots.values()
-                if include_archived or r.archived_at is None
-            ),
-            key=lambda r: (not r.builtin, r.label.lower()),
-        )
+        with self._lock:
+            self._load()
+            return sorted(
+                (
+                    r
+                    for r in self._roots.values()
+                    if include_archived or r.archived_at is None
+                ),
+                key=lambda r: (not r.builtin, r.label.lower()),
+            )
 
     def get(self, root_id: str) -> SafeRoot | None:
-        self._load()
-        return self._roots.get(root_id)
+        with self._lock:
+            self._load()
+            return self._roots.get(root_id)
 
     def add(self, path: str, label: str, user_id: str) -> SafeRoot:
         """Adiciona uma nova raiz. Idempotente por path (ID determinístico)."""
-        self._load()
-        resolved = str(Path(path).expanduser().resolve())
-        root_id = self.derive_id(resolved)
-        if root_id in self._roots:
-            existing = self._roots[root_id]
-            if existing.archived_at is not None:
-                restored = existing.model_copy(update={"archived_at": None})
-                candidate = dict(self._roots)
-                candidate[root_id] = restored
-                self._save_roots(candidate)
-                self._roots = candidate
-                return restored
-            return existing
-        root = SafeRoot(
-            id=root_id,
-            path=resolved,
-            label=label.strip() or Path(resolved).name or resolved,
-            created_at=datetime.now(UTC).isoformat(),
-            created_by=user_id,
-            builtin=False,
-        )
-        candidate = dict(self._roots)
-        candidate[root_id] = root
-        self._save_roots(candidate)
-        self._roots = candidate
-        return root
+        with self._lock:
+            self._load()
+            resolved = str(Path(path).expanduser().resolve())
+            root_id = self.derive_id(resolved)
+            if root_id in self._roots:
+                existing = self._roots[root_id]
+                if existing.archived_at is not None:
+                    restored = existing.model_copy(update={"archived_at": None})
+                    candidate = dict(self._roots)
+                    candidate[root_id] = restored
+                    self._save_roots(candidate)
+                    self._roots = candidate
+                    return restored
+                return existing
+            root = SafeRoot(
+                id=root_id,
+                path=resolved,
+                label=label.strip() or Path(resolved).name or resolved,
+                created_at=datetime.now(UTC).isoformat(),
+                created_by=user_id,
+                builtin=False,
+            )
+            candidate = dict(self._roots)
+            candidate[root_id] = root
+            self._save_roots(candidate)
+            self._roots = candidate
+            return root
 
     def update_label(self, root_id: str, label: str) -> SafeRoot | None:
         """Renomeia uma entrada. Builtin permite renomear; remove não."""
-        self._load()
-        root = self._roots.get(root_id)
-        if root is None:
-            return None
-        updated = root.model_copy(update={"label": label.strip() or root.label})
-        candidate = dict(self._roots)
-        candidate[root_id] = updated
-        self._save_roots(candidate)
-        self._roots = candidate
-        return updated
+        with self._lock:
+            self._load()
+            root = self._roots.get(root_id)
+            if root is None:
+                return None
+            updated = root.model_copy(update={"label": label.strip() or root.label})
+            candidate = dict(self._roots)
+            candidate[root_id] = updated
+            self._save_roots(candidate)
+            self._roots = candidate
+            return updated
 
     def remove(self, root_id: str) -> bool:
         """Remove raiz. Recusa se for builtin."""
-        self._load()
-        root = self._roots.get(root_id)
-        if root is None:
-            return False
-        if root.builtin:
-            return False
-        candidate = dict(self._roots)
-        del candidate[root_id]
-        self._save_roots(candidate)
-        self._roots = candidate
-        return True
+        with self._lock:
+            self._load()
+            root = self._roots.get(root_id)
+            if root is None:
+                return False
+            if root.builtin:
+                return False
+            candidate = dict(self._roots)
+            del candidate[root_id]
+            self._save_roots(candidate)
+            self._roots = candidate
+            return True
 
     def archive(self, root_id: str) -> SafeRoot | None:
         """Arquiva uma raiz sem apagar o registro ou seu histórico."""
-        self._load()
-        root = self._roots.get(root_id)
-        if root is None or root.builtin:
-            return None
-        archived = root.model_copy(
-            update={"archived_at": datetime.now(UTC).isoformat()}
-        )
-        candidate = dict(self._roots)
-        candidate[root_id] = archived
-        self._save_roots(candidate)
-        self._roots = candidate
-        return archived
+        with self._lock:
+            self._load()
+            root = self._roots.get(root_id)
+            if root is None or root.builtin:
+                return None
+            archived = root.model_copy(
+                update={"archived_at": datetime.now(UTC).isoformat()}
+            )
+            candidate = dict(self._roots)
+            candidate[root_id] = archived
+            self._save_roots(candidate)
+            self._roots = candidate
+            return archived
 
     def restore(self, root_id: str) -> SafeRoot | None:
         """Restaura uma raiz arquivada."""
-        self._load()
-        root = self._roots.get(root_id)
-        if root is None:
-            return None
-        restored = root.model_copy(update={"archived_at": None})
-        candidate = dict(self._roots)
-        candidate[root_id] = restored
-        self._save_roots(candidate)
-        self._roots = candidate
-        return restored
+        with self._lock:
+            self._load()
+            root = self._roots.get(root_id)
+            if root is None:
+                return None
+            restored = root.model_copy(update={"archived_at": None})
+            candidate = dict(self._roots)
+            candidate[root_id] = restored
+            self._save_roots(candidate)
+            self._roots = candidate
+            return restored
 
     # ----- Validação ----------------------------------------------------
 
@@ -248,18 +267,19 @@ class SafeRootRegistry:
         Match inclui o próprio path quando igual à raiz (caso comum:
         usuário acabou de entrar na raiz e ainda não desceu).
         """
-        self._load()
-        target = Path(path).expanduser().resolve()
-        for root in self._roots.values():
-            if root.archived_at is not None:
-                continue
-            root_path = Path(root.path)
-            try:
-                target.relative_to(root_path)
-                return root
-            except ValueError:
-                continue
-        return None
+        with self._lock:
+            self._load()
+            target = Path(path).expanduser().resolve()
+            for root in self._roots.values():
+                if root.archived_at is not None:
+                    continue
+                root_path = Path(root.path)
+                try:
+                    target.relative_to(root_path)
+                    return root
+                except ValueError:
+                    continue
+            return None
 
     def closest_safe_root_for(self, path: str) -> SafeRoot | None:
         """Retorna o SafeRoot mais próximo do ``path`` solicitado.
@@ -269,13 +289,14 @@ class SafeRootRegistry:
         (por exemplo, ``~/Documents/vectora`` quando o user pede ``~``).
         Se nenhuma raiz "contém" o caminho, devolve a primeira da lista.
         """
-        self._load()
-        contained = self.is_under_safe_root(path)
-        if contained is not None:
-            return contained
-        # Sem match — devolve a builtin (primeiro item após sort).
-        roots = self.all_roots()
-        return roots[0] if roots else None
+        with self._lock:
+            self._load()
+            contained = self.is_under_safe_root(path)
+            if contained is not None:
+                return contained
+            # Sem match — devolve a builtin (primeiro item após sort).
+            roots = self.all_roots()
+            return roots[0] if roots else None
 
 
 def get_safe_root_registry() -> SafeRootRegistry:

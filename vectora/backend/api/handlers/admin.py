@@ -15,6 +15,7 @@ Endpoints (todos exigem role admin ou root):
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import platform
@@ -25,6 +26,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from backend.rbac.auth import User
 from backend.settings import settings
 from backend.vtypes.safe_root import SafeRoot
 
@@ -60,7 +62,7 @@ def require_root(user: Any) -> None:
         )
 
 
-def _get_user(request: Request) -> Any:
+def _get_user(request: Request) -> User:
     user = getattr(request.state, "user", None)
     if user is None:
         raise HTTPException(status_code=401, detail="Não autenticado")
@@ -830,10 +832,7 @@ async def list_safe_roots_admin(request: Request) -> dict:
     """Lista as raízes confiáveis configuradas (admin)."""
     user = _get_user(request)
     require_admin(user)
-    from backend.rbac.safe_roots import (
-        SafeRootPersistenceError,
-        get_safe_root_registry,
-    )
+    from backend.rbac.safe_roots import SafeRootPersistenceError, get_safe_root_registry
 
     registry = get_safe_root_registry()
     return {
@@ -866,7 +865,9 @@ async def create_safe_root(request: Request, body: CreateSafeRootBody) -> dict:
 
     registry = get_safe_root_registry()
     try:
-        root = registry.add(str(target), body.label, str(user.id))
+        root = await asyncio.to_thread(
+            registry.add, str(target), body.label, str(user.id)
+        )
     except SafeRootPersistenceError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     logger.info(
@@ -887,10 +888,13 @@ async def update_safe_root(
     """Renomeia uma raiz confiável (label). Builtin aceita rename."""
     user = _get_user(request)
     require_admin(user)
-    from backend.rbac.safe_roots import get_safe_root_registry
+    from backend.rbac.safe_roots import SafeRootPersistenceError, get_safe_root_registry
 
     registry = get_safe_root_registry()
-    updated = registry.update_label(root_id, body.label)
+    try:
+        updated = await asyncio.to_thread(registry.update_label, root_id, body.label)
+    except SafeRootPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     if updated is None:
         raise HTTPException(status_code=404, detail="Raiz não encontrada")
     return {"status": "updated", "root": updated.model_dump()}
@@ -916,7 +920,7 @@ async def delete_safe_root(request: Request, root_id: str) -> dict:
             detail="Raiz builtin não pode ser removida.",
         )
     try:
-        archived = registry.archive(root_id)
+        archived = await asyncio.to_thread(registry.archive, root_id)
     except SafeRootPersistenceError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     if archived is None:
@@ -928,7 +932,7 @@ async def delete_safe_root(request: Request, root_id: str) -> dict:
 @router.post("/safe-roots/{root_id}/restore", response_model=SafeRootActionResponse)
 async def restore_safe_root(
     root_id: str,
-    user: Annotated[Any, Depends(_get_user)],
+    user: Annotated[User, Depends(_get_user)],
 ) -> SafeRootActionResponse:
     """Restaura uma raiz arquivada sem alterar seu ID ou histórico."""
     require_admin(user)
@@ -938,7 +942,7 @@ async def restore_safe_root(
     )
 
     try:
-        restored = get_safe_root_registry().restore(root_id)
+        restored = await asyncio.to_thread(get_safe_root_registry().restore, root_id)
     except SafeRootPersistenceError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     if restored is None:

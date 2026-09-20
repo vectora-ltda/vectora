@@ -337,7 +337,10 @@ async def create_workspace(
     request: Request, body: CreateWorkspaceRequest
 ) -> StatusResponse:
     """Registra uma pasta como workspace, opcionalmente confiando e iniciando git."""
-    from backend.rbac.safe_roots import get_safe_root_registry
+    from backend.rbac.safe_roots import (
+        SafeRootPersistenceError,
+        get_safe_root_registry,
+    )
     from backend.workspace.workspace import workspace_registry
 
     path = Path(body.path).expanduser()
@@ -363,9 +366,12 @@ async def create_workspace(
             detail="Caminho fora das pastas seguras configuradas.",
         )
     if privileged:
-        await asyncio.to_thread(
-            safe_roots.add, str(resolved_path), resolved_path.name, str(uid)
-        )
+        try:
+            await asyncio.to_thread(
+                safe_roots.add, str(resolved_path), resolved_path.name, str(uid)
+            )
+        except SafeRootPersistenceError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
     ws = workspace_registry.create(
         str(resolved_path), trust=body.trust, git_init=body.git_init, user_id=uid
     )

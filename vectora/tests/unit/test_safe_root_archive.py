@@ -74,8 +74,11 @@ def test_archive_failure_does_not_change_effective_state(
 async def test_restore_endpoint_returns_archived_root(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A restauração administrativa usa o registro e expõe o contrato HTTP."""
+    """A restauração administrativa expõe o contrato HTTP validado."""
+    from httpx import ASGITransport, AsyncClient
+
     from backend.api.handlers import admin
+    from backend.api.server import create_app
 
     root = SafeRoot(
         id="root-1",
@@ -92,12 +95,21 @@ async def test_restore_endpoint_returns_archived_root(
     monkeypatch.setattr(
         "backend.rbac.safe_roots.get_safe_root_registry", lambda: registry
     )
-    request = SimpleNamespace(state=SimpleNamespace(user=SimpleNamespace(role="admin")))
+    monkeypatch.setenv("VECTORA_AUTH_REQUIRED", "false")
+    app = create_app(serve_static=False)
+    app.dependency_overrides[admin._get_user] = lambda: SimpleNamespace(
+        id="admin", role="admin"
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(f"/admin/safe-roots/{root.id}/restore")
 
-    response = await admin.restore_safe_root(root.id, request.state.user)
-
-    assert response.status == "restored"
-    assert response.root.archived_at is None
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "restored",
+        "root": restored.model_dump(mode="json"),
+    }
 
 
 @pytest.mark.asyncio

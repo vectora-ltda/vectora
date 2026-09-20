@@ -951,8 +951,23 @@ export function SafeRootsPanel() {
   };
 
   const handleRestore = async (id: string) => {
-    await fetch(`/admin/safe-roots/${id}/restore`, { method: "POST" });
-    await reload();
+    try {
+      const res = await fetch(`/admin/safe-roots/${id}/restore`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(
+          data.detail ??
+            m.admin_saferoots_restore_failed({ status: res.status }),
+        );
+        return;
+      }
+      setError(null);
+      await reload();
+    } catch {
+      setError(m.admin_saferoots_restore_failed({ status: 0 }));
+    }
   };
 
   const handleBrowse = async () => {

@@ -682,6 +682,7 @@
   "admin_saferoots_confirm_desc": "Existing workspaces are not affected.",
   "admin_saferoots_archived_badge": "archived",
   "admin_saferoots_restore_title": "Restore",
+  "admin_saferoots_restore_failed": "Restore failed ({status})",
   "admin_storage_test_ok": "Connection OK",
   "admin_storage_test_fail": "Connection failed",
   "admin_storage_test_button": "Test",
