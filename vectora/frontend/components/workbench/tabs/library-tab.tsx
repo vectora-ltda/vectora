@@ -165,7 +165,7 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
                     </span>
                   </span>
                 </AccordionTrigger>
-                <AccordionContent className="px-1.5 pb-2">
+                <AccordionContent className="pb-2 pl-2 pr-1">
                   <McpSection
                     query={query}
                     onCountChange={handleMcpCountChange}
@@ -184,7 +184,7 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
                     </span>
                   </span>
                 </AccordionTrigger>
-                <AccordionContent className="px-1.5 pb-2">
+                <AccordionContent className="pb-2 pl-2 pr-1">
                   <SkillsSection
                     query={query}
                     onCountChange={handleSkillsCountChange}
@@ -203,7 +203,7 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
                     </span>
                   </span>
                 </AccordionTrigger>
-                <AccordionContent className="px-1.5 pb-2">
+                <AccordionContent className="pb-2 pl-2 pr-1">
                   <MemorySection
                     query={query}
                     onCountChange={handleMemoryCountChange}
