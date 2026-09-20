@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   BrowserViewManager,
+  clearBrowserSessionData,
   isNavigableUrl,
   type BrowserViewManagerDeps,
   type BrowserViewEvent,
@@ -106,6 +107,16 @@ describe("BrowserViewManager", () => {
 
     await manager.clearData("profile-a");
     expect(deps.clearData).toHaveBeenCalledWith("persist:browser-profile-a");
+  });
+
+  it("limpa armazenamento e cache da sessão do perfil", async () => {
+    const clearStorageData = vi.fn(async () => undefined);
+    const clearCache = vi.fn(async () => undefined);
+
+    await clearBrowserSessionData({ clearStorageData, clearCache });
+
+    expect(clearStorageData).toHaveBeenCalledOnce();
+    expect(clearCache).toHaveBeenCalledOnce();
   });
 
   it("normaliza identificadores vazios para o perfil padrão", async () => {

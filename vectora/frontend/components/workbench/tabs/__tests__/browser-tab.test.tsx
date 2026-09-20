@@ -587,6 +587,58 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
     await waitFor(() => expect(bridge.clearProfileData).toHaveBeenCalledOnce());
   });
 
+  it("posiciona a view de configurações em uma aba nova", async () => {
+    const bridge = mockBrowserView();
+    mockFetch({ configurations: [] });
+    const view = render(<BrowserTab threadId="desktop-settings-bounds" />);
+    await waitFor(() => expect(bridge.createView).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByTestId("browser-settings-btn"));
+    await waitFor(() =>
+      expect(bridge.setVisible).toHaveBeenCalledWith(2, true),
+    );
+    expect(bridge.setBounds).toHaveBeenCalledWith(
+      2,
+      expect.objectContaining({
+        width: expect.any(Number),
+        height: expect.any(Number),
+      }),
+    );
+  });
+
+  it("oculta a view de configurações quando a aba fica invisível", async () => {
+    const bridge = mockBrowserView();
+    mockFetch({ configurations: [] });
+    const view = render(<BrowserTab threadId="desktop-settings-hidden" />);
+    await waitFor(() => expect(bridge.createView).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByTestId("browser-settings-btn"));
+    await waitFor(() =>
+      expect(bridge.setVisible).toHaveBeenCalledWith(2, true),
+    );
+
+    view.rerender(
+      <BrowserTab threadId="desktop-settings-hidden" visible={false} />,
+    );
+    await waitFor(() =>
+      expect(bridge.setVisible).toHaveBeenCalledWith(2, false),
+    );
+  });
+
+  it("mantém o painel aberto e mostra erro quando a view de configurações falha", async () => {
+    const bridge = mockBrowserView();
+    mockFetch({ configurations: [] });
+    render(<BrowserTab threadId="desktop-settings-error" />);
+    await waitFor(() => expect(bridge.createView).toHaveBeenCalledTimes(1));
+    bridge.createView.mockRejectedValueOnce(new Error("IPC indisponível"));
+
+    fireEvent.click(screen.getByTestId("browser-settings-btn"));
+    await screen.findByTestId("browser-settings-panel");
+    expect(
+      await screen.findByText("workbench_browser_settings_error"),
+    ).toBeTruthy();
+  });
+
   it("destrói a view de configurações se ela resolver depois que o painel for fechado", async () => {
     const bridge = mockBrowserView();
     let resolveSettingsView!: (viewId: number) => void;

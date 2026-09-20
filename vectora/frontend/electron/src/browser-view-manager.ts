@@ -87,6 +87,14 @@ export interface BrowserViewManagerDeps {
   clearData?(partition: string): Promise<void>;
 }
 
+/** Clears persisted browser storage and HTTP cache for one profile. */
+export async function clearBrowserSessionData(session: {
+  clearStorageData: () => Promise<void>;
+  clearCache: () => Promise<void>;
+}): Promise<void> {
+  await Promise.all([session.clearStorageData(), session.clearCache()]);
+}
+
 interface Entry {
   view: ManagedView;
   visible: boolean;

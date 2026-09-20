@@ -58,6 +58,7 @@ import {
 } from "./backend-lifecycle.js";
 import {
   BrowserViewManager,
+  clearBrowserSessionData,
   type ManagedView,
   type ViewBounds,
 } from "./browser-view-manager.js";
@@ -182,10 +183,7 @@ function getBrowserViewManager(): BrowserViewManager {
     },
     clearData: async (partition) => {
       const browserSession = session.fromPartition(partition);
-      await Promise.all([
-        browserSession.clearStorageData(),
-        browserSession.clearCache(),
-      ]);
+      await clearBrowserSessionData(browserSession);
     },
   });
   return browserViewManager;

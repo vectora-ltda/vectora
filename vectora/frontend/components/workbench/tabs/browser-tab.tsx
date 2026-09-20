@@ -285,7 +285,6 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       .catch(() => {
         if (requestId !== settingsRequestRef.current) return;
         setSettingsViewError(true);
-        setBrowserSettingsOpen(false);
       });
   }, [browserSettingsOpen, desktopBrowser, profileId]);
 
