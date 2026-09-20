@@ -43,13 +43,16 @@ export function generateLocalNewId(): string {
  */
 export function useNewSessionId(routeParam: string): string {
   const isNewRoute = routeParam === "new";
-  const localNewIdRef = useRef(isNewRoute ? generateLocalNewId() : "");
+  const localNewIdRef = useRef("");
   const previousRouteRef = useRef(routeParam);
 
   // Router mantém a instância da rota entre /session/:id e /session/new.
   // Gere o identificador no mesmo render em que a rota muda para "new", para
   // que histórico, sidebar e o primeiro envio nunca observem o id anterior.
-  if (isNewRoute && previousRouteRef.current !== "new") {
+  if (
+    isNewRoute &&
+    (!localNewIdRef.current || previousRouteRef.current !== "new")
+  ) {
     localNewIdRef.current = generateLocalNewId();
   }
   previousRouteRef.current = routeParam;
