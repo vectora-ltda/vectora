@@ -108,13 +108,7 @@ export function ThreeColumnShell({
             transition={workbenchTransition}
             aria-label={columns.left.label}
             data-column-visibility={leftVisibility}
-            className={`flex shrink-0 min-h-0 min-w-0 overflow-hidden ${
-              columns.left.label === "Sessões"
-                ? leftVisibility === "collapsed"
-                  ? "min-w-16"
-                  : "min-w-60"
-                : ""
-            }`}
+            className="flex shrink-0 min-h-0 min-w-0 overflow-hidden"
             style={
               leftVisibility === "collapsed"
                 ? { width: WORKBENCH_RAIL_WIDTH }

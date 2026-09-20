@@ -1045,6 +1045,9 @@ function SessionPage() {
                   left: {
                     label: "Sessões",
                     visibility: showSidebarPanel ? "visible" : "hidden",
+                    width: isSidebarCollapsed
+                      ? SIDEBAR_COLLAPSED_WIDTH
+                      : sidebarWidth,
                   },
                   center: { label: "Kanban" },
                   right: { label: "Workbench", visibility: "hidden" },
@@ -1419,6 +1422,9 @@ function SessionPage() {
                   left: {
                     label: "Sessões",
                     visibility: showSidebarPanel ? "visible" : "hidden",
+                    width: isSidebarCollapsed
+                      ? SIDEBAR_COLLAPSED_WIDTH
+                      : sidebarWidth,
                   },
                   center: { label: "Chat" },
                   right: { label: "Workbench" },

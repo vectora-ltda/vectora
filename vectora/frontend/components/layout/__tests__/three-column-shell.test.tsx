@@ -97,6 +97,26 @@ describe("ThreeColumnShell", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("respeita a largura compacta da lista de sessões sem reservar o mínimo aberto", () => {
+    render(
+      <ThreeColumnShell
+        centerHeader={<header />}
+        left={<div />}
+        center={<div />}
+        right={null}
+        columns={{
+          left: { label: "Sessões", width: 64 },
+          center: { label: "Chat" },
+          right: { label: "Workbench", visibility: "hidden" },
+        }}
+      />,
+    );
+
+    const sessions = screen.getByRole("complementary", { name: "Sessões" });
+    expect(sessions).toHaveStyle({ width: "64px" });
+    expect(sessions).not.toHaveClass("min-w-60");
+  });
+
   it("inverte a ordem física das rails sem mover o header do centro", () => {
     render(
       <ThreeColumnShell
