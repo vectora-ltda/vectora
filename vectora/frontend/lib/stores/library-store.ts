@@ -48,7 +48,7 @@ export interface CatalogSkill {
   catalog_source?: string;
   trust_state?: MCPConnector["trust_state"];
   trust_reason?: string;
-  publisher?: string;
+  publisher?: string | null;
   signature_status?: string;
 }
 
@@ -76,6 +76,7 @@ export interface MemoryBucket {
   verified: boolean;
   downloads_count: number;
   license?: string;
+  publisher?: string | null;
 }
 
 const TTL_MS = 5 * 60 * 1000;

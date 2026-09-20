@@ -69,6 +69,17 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
     trustState === "vectora_verified" ||
     trustState === "publisher_signed" ||
     (!skill.trust_state && legacyTrust !== "community");
+  const publisher =
+    skill.publisher ??
+    (() => {
+      try {
+        const url = new URL(skill.source);
+        const [, owner] = url.pathname.split("/");
+        return owner || null;
+      } catch {
+        return null;
+      }
+    })();
 
   const handleInstall = async () => {
     if (invalid) {
@@ -142,6 +153,11 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
       }
       footer={
         <>
+          {publisher && (
+            <p className="text-xs text-muted-foreground" role="status">
+              {m.library_skills_publisher({ publisher })}
+            </p>
+          )}
           {skill.trust_reason && (
             <p className="text-xs text-muted-foreground" role="status">
               {skill.trust_reason}

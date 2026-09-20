@@ -362,6 +362,11 @@ function BucketCard({
       }
       footer={
         <>
+          {bucket.publisher && (
+            <p className="text-[10px] leading-4 text-muted-foreground/80">
+              {m.library_memory_publisher({ publisher: bucket.publisher })}
+            </p>
+          )}
           <p className="text-[10px] leading-4 text-muted-foreground/80">
             {m.library_memory_downloads({ count: bucket.downloads_count })}
           </p>

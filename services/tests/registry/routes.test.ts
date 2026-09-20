@@ -90,6 +90,32 @@ describe("GET /registry/skills", () => {
     expect(body.entries).toEqual([]);
   });
 
+  it("expõe o autor da skill a partir do publisher_id", async () => {
+    const { userId } = await createUser();
+    await env.DB.prepare(
+      `INSERT INTO skills_catalog
+       (id, name, description, source, catalog_source, publisher_id)
+       VALUES (?, ?, ?, ?, 'curated', ?)`,
+    )
+      .bind(
+        "publisher-skill",
+        "Publisher Skill",
+        "skill publicada por usuário",
+        "https://github.com/example/publisher-skill",
+        userId,
+      )
+      .run();
+
+    const res = await registry.request("/skills", {}, env);
+    const body = await res.json<{
+      entries: Array<{ id: string; publisher: string | null }>;
+    }>();
+
+    expect(
+      body.entries.find((entry) => entry.id === "publisher-skill"),
+    ).toMatchObject({ publisher: "Test User" });
+  });
+
   it("?q= filtra por nome/descrição", async () => {
     await makeSkill({ name: "Godot Helper", description: "ajuda com Godot" });
     await makeSkill({ name: "Outra Skill", description: "nada a ver" });
