@@ -11,6 +11,54 @@ export const ghaBot = new Hono<{ Bindings: Env }>();
 
 const VALID_REVIEW_STYLES = new Set(["strict", "balanced", "lenient"]);
 
+/** Limites compartilhados com o cliente Python do gateway. */
+export const MAX_REVIEW_DIFF_BYTES = 6_000_000;
+export const MAX_REVIEW_JOB_BYTES = 8_000_000;
+const MAX_REVIEW_METADATA_ENTRIES = 64;
+const MAX_REVIEW_METADATA_VALUE_LENGTH = 2_000;
+
+type ReviewInput = { diff: string; metadata: Record<string, string> };
+
+function parseReviewInput(
+  value: unknown,
+): { ok: true; input: ReviewInput } | { ok: false; error: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { ok: false, error: "invalid_payload" };
+  }
+  const body = value as { diff?: unknown; metadata?: unknown };
+  if (typeof body.diff !== "string" || body.diff.length === 0) {
+    return { ok: false, error: "missing_diff" };
+  }
+  if (new TextEncoder().encode(body.diff).byteLength > MAX_REVIEW_DIFF_BYTES) {
+    return { ok: false, error: "diff_too_large" };
+  }
+  const metadata = body.metadata ?? {};
+  if (
+    typeof metadata !== "object" ||
+    metadata === null ||
+    Array.isArray(metadata)
+  ) {
+    return { ok: false, error: "invalid_metadata" };
+  }
+  const entries = Object.entries(metadata);
+  if (entries.length > MAX_REVIEW_METADATA_ENTRIES) {
+    return { ok: false, error: "metadata_too_large" };
+  }
+  const normalized: Record<string, string> = {};
+  for (const [key, item] of entries) {
+    if (
+      key.length === 0 ||
+      key.length > 200 ||
+      typeof item !== "string" ||
+      item.length > MAX_REVIEW_METADATA_VALUE_LENGTH
+    ) {
+      return { ok: false, error: "invalid_metadata" };
+    }
+    normalized[key] = item;
+  }
+  return { ok: true, input: { diff: body.diff, metadata: normalized } };
+}
+
 /** Resolve o user_id de um VECTORA_BOT_TOKEN válido (não revogado) — mesmo
  * padrão de `resolveSession`, mas contra `gha_bot_tokens` em vez de
  * `sessions`. Usado só por `GET /gha-bot/config` (a Action, não o painel). */
@@ -285,10 +333,9 @@ ghaBot.post("/review", async (c) => {
   const userId = await resolveGhaBotToken(c.env.DB, bearerToken(c.req.raw));
   if (!userId) return c.json({ error: "unauthorized" }, 401);
 
-  const body = await c.req
-    .json<{ diff?: string; metadata?: Record<string, string> }>()
-    .catch(() => null);
-  if (!body?.diff) return c.json({ error: "missing_diff" }, 400);
+  const body = await c.req.json<unknown>().catch(() => null);
+  const parsed = parseReviewInput(body);
+  if (!parsed.ok) return c.json({ error: parsed.error }, 400);
 
   const tokenRow = await c.env.DB.prepare(
     "SELECT token FROM tokens WHERE user_id = ?",
@@ -301,6 +348,19 @@ ghaBot.post("/review", async (c) => {
 
   const jobId = crypto.randomUUID();
   const callbackSecret = crypto.randomUUID();
+  const reviewPayload = {
+    type: "review_job" as const,
+    job_id: jobId,
+    diff: parsed.input.diff,
+    metadata: parsed.input.metadata,
+    callback_secret: callbackSecret,
+  };
+  if (
+    new TextEncoder().encode(JSON.stringify(reviewPayload)).byteLength >
+    MAX_REVIEW_JOB_BYTES
+  ) {
+    return c.json({ error: "review_payload_too_large" }, 400);
+  }
   const callbackSecretHash = await sha256Hex(callbackSecret);
   await c.env.DB.prepare(
     "INSERT INTO gha_bot_review_jobs (id, user_id, callback_secret, callback_secret_hash, status) VALUES (?, ?, '', ?, 'pending')",
@@ -310,8 +370,8 @@ ghaBot.post("/review", async (c) => {
 
   const { delivered } = await dispatchReviewJob(c.env, tokenRow.token, {
     job_id: jobId,
-    diff: body.diff,
-    metadata: body.metadata ?? {},
+    diff: parsed.input.diff,
+    metadata: parsed.input.metadata,
     callback_secret: callbackSecret,
   });
 

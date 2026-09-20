@@ -671,6 +671,50 @@ describe("gha-bot self-hosted (GET /config, POST/GET /review, POST /review/:id/r
     expect(res.status).toBe(400);
   });
 
+  it("rejeita metadata que não é um mapa de strings antes de criar o job", async () => {
+    const { botToken } = await makeProUserWithBotTokenAndSettings(true);
+
+    const res = await ghaBot.request(
+      "/review",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${botToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ diff: "diff", metadata: { pr: 42 } }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "invalid_metadata" });
+  });
+
+  it("rejeita diff acima do limite UTF-8 antes de persistir pending", async () => {
+    const { botToken, userId } = await makeProUserWithBotTokenAndSettings(true);
+
+    const res = await ghaBot.request(
+      "/review",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${botToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ diff: "x".repeat(6_000_001) }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "diff_too_large" });
+    const count = await env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM gha_bot_review_jobs WHERE user_id = ?",
+    )
+      .bind(userId)
+      .first<{ count: number }>();
+    expect(count?.count).toBe(0);
+  });
+
   it("GET /review/:id devolve o status do job — pending logo após criar", async () => {
     const { userId, botToken } = await makeProUserWithBotTokenAndSettings(true);
     await env.DB.prepare(

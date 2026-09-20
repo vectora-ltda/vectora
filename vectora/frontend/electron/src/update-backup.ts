@@ -13,6 +13,8 @@ export type {
 
 const MANIFEST = "manifest.json";
 const MAX_FILE_BYTES = 256 * 1024 * 1024;
+const LOCK_RETRY_ATTEMPTS = 4;
+const LOCK_RETRY_DELAY_MS = 150;
 const EXCLUDED = new Set([
   "Cache",
   "Code Cache",
@@ -23,6 +25,30 @@ const EXCLUDED = new Set([
   "update-backups",
 ]);
 let snapshotQueue: Promise<void> = Promise.resolve();
+
+function isTransientFileLock(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const code = (error as { code?: unknown }).code;
+  return code === "EBUSY" || code === "EPERM" || code === "EACCES";
+}
+
+export async function withFileLockRetry<T>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!isTransientFileLock(error) || attempt >= LOCK_RETRY_ATTEMPTS)
+        throw error;
+      attempt += 1;
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, LOCK_RETRY_DELAY_MS * 2 ** (attempt - 1)),
+      );
+    }
+  }
+}
 
 function isExcluded(relativePath: string): boolean {
   return relativePath
@@ -44,7 +70,7 @@ async function collectFiles(root: string, current = root): Promise<string[]> {
     const relative = path.relative(root, path.join(current, name));
     if (isExcluded(relative) || name.endsWith(".lock")) continue;
     const source = path.join(current, name);
-    const stat = await fs.lstat(source);
+    const stat = await withFileLockRetry(() => fs.lstat(source));
     if (stat.isSymbolicLink()) throw new Error("userData contém symlink");
     if (stat.isDirectory()) result.push(...(await collectFiles(root, source)));
     else if (stat.isFile() && stat.size <= MAX_FILE_BYTES)
@@ -57,11 +83,11 @@ async function copySafe(
   source: string,
   destination: string,
 ): Promise<UpdateBackupFile> {
-  const stat = await fs.lstat(source);
+  const stat = await withFileLockRetry(() => fs.lstat(source));
   if (!stat.isFile() || stat.isSymbolicLink())
     throw new Error("entrada não regular");
   if (stat.size > MAX_FILE_BYTES) throw new Error("arquivo excede o limite");
-  const data = await fs.readFile(source);
+  const data = await withFileLockRetry(() => fs.readFile(source));
   await fs.mkdir(path.dirname(destination), { recursive: true });
   await fs.writeFile(destination, data, { mode: 0o600 });
   return {
