@@ -46,9 +46,14 @@ export interface ManagedWebContents {
       | "page-favicon-updated"
       | "did-start-loading"
       | "did-stop-loading"
-      | "did-fail-load",
+      | "did-fail-load"
+      | "will-navigate"
+      | "will-redirect",
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     listener: (...args: any[]) => void,
+  ): void;
+  setWindowOpenHandler?(
+    handler: (details: { url: string }) => { action: "allow" | "deny" },
   ): void;
 }
 
@@ -75,10 +80,19 @@ export type BrowserViewEvent =
     };
 
 export interface BrowserViewManagerDeps {
-  createView(): ManagedView;
+  createView(profileId?: string): ManagedView;
   attach(view: ManagedView): void;
   destroyView(view: ManagedView): void;
   emit(viewId: number, event: BrowserViewEvent): void;
+  clearData?(partition: string): Promise<void>;
+}
+
+/** Clears persisted browser storage and HTTP cache for one profile. */
+export async function clearBrowserSessionData(session: {
+  clearStorageData: () => Promise<void>;
+  clearCache: () => Promise<void>;
+}): Promise<void> {
+  await Promise.all([session.clearStorageData(), session.clearCache()]);
 }
 
 interface Entry {
@@ -89,6 +103,11 @@ interface Entry {
 
 const ALLOWED_SCHEMES = new Set(["http:", "https:"]);
 const CHROME_SETTINGS_URL = /^chrome:\/\/settings(?:\/.*)?$/i;
+
+function normalizeProfileId(profileId: string | undefined): string {
+  const normalized = profileId?.trim();
+  return normalized || "default";
+}
 
 export function isNavigableUrl(raw: string): boolean {
   // ``chrome://settings`` is an Electron-owned page. It must stay intact;
@@ -108,13 +127,19 @@ export class BrowserViewManager {
 
   constructor(private readonly deps: BrowserViewManagerDeps) {}
 
-  createView(): number {
-    const view = this.deps.createView();
+  createView(profileId?: string): number {
+    const view = this.deps.createView(normalizeProfileId(profileId));
     const id = this.nextId++;
     this.entries.set(id, { view, visible: false, bounds: HIDDEN_BOUNDS });
     this.wireEvents(id, view);
     this.deps.attach(view);
     return id;
+  }
+
+  async clearData(profileId = "default"): Promise<void> {
+    await this.deps.clearData?.(
+      `persist:browser-${normalizeProfileId(profileId)}`,
+    );
   }
 
   destroyView(id: number): void {
@@ -178,6 +203,17 @@ export class BrowserViewManager {
 
   private wireEvents(id: number, view: ManagedView): void {
     const wc = view.webContents;
+    const cancelUnsafeNavigation = (
+      event: { preventDefault(): void },
+      url: string,
+    ) => {
+      if (!isNavigableUrl(url)) event.preventDefault();
+    };
+    wc.on("will-navigate", cancelUnsafeNavigation);
+    wc.on("will-redirect", cancelUnsafeNavigation);
+    // Popups are denied until they can be created as managed views. Allowing
+    // them would bypass the manager's bounds, lifecycle and navigation guards.
+    wc.setWindowOpenHandler?.(() => ({ action: "deny" }));
     const navigated = () =>
       this.deps.emit(id, {
         type: "navigated",

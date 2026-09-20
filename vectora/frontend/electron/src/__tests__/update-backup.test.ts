@@ -1,14 +1,60 @@
 import { mkdtemp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   createRotatingUpdateBackup,
   restoreUpdateBackup,
+  withFileLockRetry,
 } from "../update-backup.js";
+import { startUpdateDownload } from "../updater-download.js";
 
 describe("update backups", () => {
+  it("retries transient Windows file locks before succeeding", async () => {
+    const lockError = Object.assign(new Error("file is busy"), {
+      code: "EBUSY",
+    });
+    let attempts = 0;
+    await expect(
+      withFileLockRetry(async () => {
+        attempts += 1;
+        if (attempts < 3) throw lockError;
+        return "snapshot-ready";
+      }),
+    ).resolves.toBe("snapshot-ready");
+    expect(attempts).toBe(3);
+  });
+
+  it("continues downloading when the optional backup rejects", async () => {
+    const downloadUpdate = vi.fn<() => Promise<void>>().mockResolvedValue();
+    const warn = vi.fn();
+    const backupError = new Error("locked user data");
+
+    await startUpdateDownload(
+      Promise.reject(backupError),
+      downloadUpdate,
+      warn,
+    );
+
+    expect(warn).toHaveBeenCalledWith(
+      "[updater] backup local indisponível; prosseguindo sem backup",
+      backupError,
+    );
+    expect(downloadUpdate).toHaveBeenCalledOnce();
+  });
+
+  it("keeps updater download failures observable", async () => {
+    const downloadError = new Error("download failed");
+    const downloadUpdate = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValue(downloadError);
+
+    await expect(startUpdateDownload(null, downloadUpdate)).rejects.toBe(
+      downloadError,
+    );
+  });
+
   it("keeps at most five rotation entries", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "vectora-update-"));
     const userData = path.join(root, "user-data");
