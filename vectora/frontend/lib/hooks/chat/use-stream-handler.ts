@@ -238,7 +238,11 @@ interface UseStreamHandlerReturn {
     assistantMessageId: string,
     images?: ImageAttachment[],
     forkFromCheckpointId?: string,
-  ) => Promise<{ assistantContent: string; runId: string | undefined }>;
+  ) => Promise<{
+    assistantContent: string;
+    runId: string | undefined;
+    requestReachedBackend: boolean;
+  }>;
   /** Retoma uma execução pausada por HITL (approve / reject / edit:<json>). */
   processResume: (
     request: ResumeChatRequest,
@@ -274,7 +278,11 @@ export function useStreamHandler({
       assistantMessageId: string,
       images?: ImageAttachment[],
       forkFromCheckpointId?: string,
-    ): Promise<{ assistantContent: string; runId: string | undefined }> => {
+    ): Promise<{
+      assistantContent: string;
+      runId: string | undefined;
+      requestReachedBackend: boolean;
+    }> => {
       // Cancela stream anterior se ainda em andamento
       abortRef.current?.abort();
       const abort = new AbortController();
@@ -583,7 +591,11 @@ export function useStreamHandler({
         );
       }
 
-      return { assistantContent, runId: resolvedRunId };
+      return {
+        assistantContent,
+        runId: resolvedRunId,
+        requestReachedBackend: sseConnected,
+      };
     },
     // shouldInterruptRef (.current) e onModelSwitched (?.()) só são acessados
     // via optional chaining — o linter de deps de memoização do oxlint não

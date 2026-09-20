@@ -111,6 +111,45 @@ describe("update backups", () => {
     ).rejects.toThrow();
   });
 
+  it("preserva caches e logs excluídos ao restaurar o perfil", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "vectora-update-"));
+    const userData = path.join(root, "user-data");
+    const backups = path.join(root, "backups");
+    await mkdir(path.join(userData, "Cache"), { recursive: true });
+    await writeFile(path.join(userData, "Cache", "browser"), "keep");
+    await writeFile(path.join(userData, "settings.json"), "before");
+    const entry = await createRotatingUpdateBackup(userData, backups, "0.1.0");
+    await writeFile(path.join(userData, "settings.json"), "after");
+
+    await restoreUpdateBackup(entry, userData, backups);
+
+    await expect(
+      readFile(path.join(userData, "Cache", "browser"), "utf8"),
+    ).resolves.toBe("keep");
+    await expect(
+      readFile(path.join(userData, "settings.json"), "utf8"),
+    ).resolves.toBe("before");
+  });
+
+  it("lista e restaura snapshots vazios de perfis totalmente excluídos", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "vectora-update-"));
+    const userData = path.join(root, "user-data");
+    const backups = path.join(root, "backups");
+    await mkdir(path.join(userData, "Cache"), { recursive: true });
+    await writeFile(path.join(userData, "Cache", "browser"), "keep");
+    const entry = await createRotatingUpdateBackup(userData, backups, "0.1.0");
+    await writeFile(path.join(userData, "stale.json"), "remove");
+
+    const { listUpdateBackups } = await import("../update-backup.js");
+    expect(await listUpdateBackups(backups)).toHaveLength(1);
+    await restoreUpdateBackup(entry, userData, backups);
+
+    await expect(readFile(path.join(userData, "stale.json"))).rejects.toThrow();
+    await expect(
+      readFile(path.join(userData, "Cache", "browser"), "utf8"),
+    ).resolves.toBe("keep");
+  });
+
   it("não copia a árvore de backups para um snapshot posterior", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "vectora-update-"));
     const userData = path.join(root, "user-data");

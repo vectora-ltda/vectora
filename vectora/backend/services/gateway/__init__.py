@@ -55,6 +55,10 @@ _LOCAL_FORWARD_TIMEOUT_S = 30.0
 #: mensagens do WebSocket quando a fila enche — backpressure real, não só
 #: nos requests HTTP locais.
 _MAX_CONCURRENT_FORWARDS = 20
+_MAX_CONCURRENT_REVIEWS = 2
+_MAX_QUEUED_REVIEWS = 8
+_REVIEW_CALLBACK_ATTEMPTS = 3
+_REVIEW_CALLBACK_BACKOFF_S = 0.5
 #: Sentinela de "pare" — um por worker, enfileirado no fechamento da
 #: conexão pra cada worker terminar o que já está processando/enfileirado
 #: e sair, em vez de ficar bloqueado pra sempre em `queue.get()`.
@@ -131,13 +135,11 @@ class GatewayClient:
         #: `send_json`/`send_str` forem chamados de tasks diferentes ao
         #: mesmo tempo na mesma conexão.
         self._ws_send_lock = asyncio.Lock()
-        #: Referência forte às tasks de review_job em voo — sem isso, o
-        #: garbage collector pode derrubar a task no meio (pegadinha
-        #: conhecida do asyncio: `create_task` sem guardar a referência não
-        #: garante a task viva até terminar). `add_done_callback` limpa
-        #: sozinho quando a task acaba (sucesso ou erro).
-        self._review_tasks: set[asyncio.Task[None]] = set()
         self._review_delivery_ids: deque[str] = deque(maxlen=1024)
+        self._review_queue: asyncio.Queue[tuple[str, str, dict[str, str], str]] = (
+            asyncio.Queue(maxsize=_MAX_QUEUED_REVIEWS)
+        )
+        self._review_workers: set[asyncio.Task[None]] = set()
 
     # ------------------------------------------------------------------
     # Public API
@@ -154,6 +156,10 @@ class GatewayClient:
         if self._task and not self._task.done():
             self._task.cancel()
         self._task = None
+        for worker in self._review_workers:
+            worker.cancel()
+        await asyncio.gather(*self._review_workers, return_exceptions=True)
+        self._review_workers.clear()
 
     # ------------------------------------------------------------------
     # Internals
@@ -338,16 +344,11 @@ class GatewayClient:
                     and isinstance(callback_secret, str)
                     and callback_secret
                 ):
-                    task = asyncio.create_task(
-                        self._post_review_result(
-                            job_id,
-                            callback_secret,
-                            error=f"invalid review_job payload: {exc}",
-                        ),
-                        name=f"gha-review-invalid-{job_id}",
+                    await self._post_review_result(
+                        job_id,
+                        callback_secret,
+                        error=f"invalid review_job payload: {exc}",
                     )
-                    self._review_tasks.add(task)
-                    task.add_done_callback(self._review_tasks.discard)
                 return
             if job.delivery_id and job.delivery_id in self._review_delivery_ids:
                 logger.info(
@@ -357,24 +358,42 @@ class GatewayClient:
                 return
             if job.delivery_id:
                 self._review_delivery_ids.append(job.delivery_id)
-            # Roda fora da fila de forwards (_MAX_CONCURRENT_FORWARDS é pra
-            # requests HTTP rápidas; um review job real pode levar minutos —
-            # ocupar um worker da fila até terminar atrasaria callbacks
-            # OAuth/webhooks normais). Task solta, não bloqueia a leitura do
-            # WebSocket (`_handle_messages` só chama `await self._dispatch`,
-            # nunca espera o review terminar).
-            task = asyncio.create_task(
-                self._handle_review_job(
+            # Roda fora da fila de forwards (_MAX_CONCURRENT_FORWARDS é para
+            # requests HTTP rápidas; um review job pode levar minutos). A
+            # fila própria mantém a leitura do WebSocket livre e limita o
+            # número de revisões ativas e aguardando execução.
+            self._ensure_review_workers()
+            payload = (job.job_id, job.diff, job.metadata, job.callback_secret)
+            try:
+                self._review_queue.put_nowait(payload)
+            except asyncio.QueueFull:
+                await self._post_review_result(
                     job.job_id,
-                    job.diff,
-                    job.metadata,
                     job.callback_secret,
-                ),
-                name=f"gha-review-{message.get('job_id', '')}",
-            )
-            self._review_tasks.add(task)
-            task.add_done_callback(self._review_tasks.discard)
+                    error="review queue capacity exceeded; retry later",
+                )
             return
+
+    def _ensure_review_workers(self) -> None:
+        if self._review_workers:
+            return
+        for index in range(_MAX_CONCURRENT_REVIEWS):
+            worker = asyncio.create_task(
+                self._review_worker(), name=f"gha-review-worker-{index}"
+            )
+            self._review_workers.add(worker)
+
+    async def _review_worker(self) -> None:
+        while True:
+            payload = await self._review_queue.get()
+            try:
+                await self._handle_review_job(*payload)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("gateway: review worker falhou")
+            finally:
+                self._review_queue.task_done()
 
     async def _handle_review_job(
         self, job_id: str, diff: str, metadata: dict[str, str], callback_secret: str
@@ -408,23 +427,34 @@ class GatewayClient:
             body["review_text"] = review_text
         if error is not None:
             body["error"] = error
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{_SERVICES_URL}/gha-bot/review/{job_id}/result",
-                    json=body,
-                    headers={"Authorization": f"Bearer {callback_secret}"},
-                ) as resp:
-                    if resp.status != 200:
+        for attempt in range(_REVIEW_CALLBACK_ATTEMPTS):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(
+                        f"{_SERVICES_URL}/gha-bot/review/{job_id}/result",
+                        json=body,
+                        headers={"Authorization": f"Bearer {callback_secret}"},
+                    ) as resp:
+                        if 200 <= resp.status < 300:
+                            return
                         logger.warning(
-                            "gateway: POST review/%s/result devolveu %d",
+                            "gateway: POST review/%s/result devolveu %d (tentativa %d/%d)",
                             job_id,
                             resp.status,
+                            attempt + 1,
+                            _REVIEW_CALLBACK_ATTEMPTS,
                         )
-        except Exception:
-            logger.exception(
-                "gateway: falha ao postar resultado do review_job %s", job_id
-            )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception(
+                    "gateway: falha ao postar resultado do review_job %s (tentativa %d/%d)",
+                    job_id,
+                    attempt + 1,
+                    _REVIEW_CALLBACK_ATTEMPTS,
+                )
+            if attempt + 1 < _REVIEW_CALLBACK_ATTEMPTS:
+                await asyncio.sleep(_REVIEW_CALLBACK_BACKOFF_S * 2**attempt)
 
     async def _forward_worker(self, queue: asyncio.Queue[_ForwardJob | object]) -> None:
         """Um dos `_MAX_CONCURRENT_FORWARDS` workers fixos da conexão —

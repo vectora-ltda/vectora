@@ -517,7 +517,7 @@ def _list_drives() -> list[DirEntry]:
 
 
 def _resolve_and_authorize_dir(
-    path: str, privileged: bool, registry: Any
+    path: str, privileged: bool, registry: Any, *, strict: bool = False
 ) -> tuple[Path, str | None]:
     """Resolve ``path`` para um diretório existente e autoriza o acesso.
 
@@ -531,10 +531,17 @@ def _resolve_and_authorize_dir(
     base = Path(path).expanduser() if path else Path.home()
     try:
         base = base.resolve()
-    except OSError:
+    except OSError as exc:
+        if strict:
+            raise HTTPException(
+                status_code=404,
+                detail="Diretório pai não encontrado.",
+            ) from exc
         base = Path.home()
 
     if not base.exists() or not base.is_dir():
+        if strict:
+            raise HTTPException(status_code=404, detail="Diretório pai não encontrado.")
         base = Path.home()
 
     safe_root_id: str | None = None
@@ -652,7 +659,7 @@ async def mkdir_dir(request: Request, body: MkdirRequest) -> BrowseResponse:
 
     registry = get_safe_root_registry()
     privileged = _is_privileged(request)
-    base, _ = _resolve_and_authorize_dir(body.path, privileged, registry)
+    base, _ = _resolve_and_authorize_dir(body.path, privileged, registry, strict=True)
 
     new_dir = base / name
     if new_dir.exists():

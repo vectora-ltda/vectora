@@ -372,7 +372,10 @@ describe("gha-bot config (Action pública, autenticada por VECTORA_BOT_TOKEN)", 
 });
 
 describe("gha-bot self-hosted (GET /config, POST/GET /review, POST /review/:id/result)", () => {
-  async function makeProUserWithBotTokenAndSettings(selfHosted: boolean) {
+  async function makeProUserWithBotTokenAndSettings(
+    selfHosted: boolean,
+    repoScope?: string,
+  ) {
     const { userId, token: sessionToken } = await makeUserWithSession();
     await env.DB.prepare(
       "INSERT INTO subscriptions (id, user_id, tier, status) VALUES (?, ?, 'pro', 'active')",
@@ -386,7 +389,11 @@ describe("gha-bot self-hosted (GET /config, POST/GET /review, POST /review/:id/r
     };
     const created = await ghaBot.request(
       "/tokens",
-      { method: "POST", headers: sessionAuth, body: "{}" },
+      {
+        method: "POST",
+        headers: sessionAuth,
+        body: JSON.stringify(repoScope ? { repo_scope: repoScope } : {}),
+      },
       env,
     );
     const { secret: botToken } = await created.json<{ secret: string }>();
@@ -460,6 +467,102 @@ describe("gha-bot self-hosted (GET /config, POST/GET /review, POST /review/:id/r
     );
     const body = await res.json<{ mode: string }>();
     expect(body.mode).toBe("hosted");
+  });
+
+  it("enforce o repo_scope do token em config e review", async () => {
+    const { botToken } = await makeProUserWithBotTokenAndSettings(
+      true,
+      "acme/vectora",
+    );
+
+    const missing = await ghaBot.request(
+      "/config",
+      { headers: { Authorization: `Bearer ${botToken}` } },
+      env,
+    );
+    expect(missing.status).toBe(403);
+    expect(await missing.json()).toEqual({ error: "repo_scope_required" });
+
+    const wrong = await ghaBot.request(
+      "/config?repository=other/project",
+      { headers: { Authorization: `Bearer ${botToken}` } },
+      env,
+    );
+    expect(wrong.status).toBe(403);
+    expect(await wrong.json()).toEqual({ error: "repo_scope_forbidden" });
+
+    const allowed = await ghaBot.request(
+      "/config?repository=acme/vectora",
+      { headers: { Authorization: `Bearer ${botToken}` } },
+      env,
+    );
+    expect(allowed.status).toBe(200);
+
+    const review = await ghaBot.request(
+      "/review",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${botToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          diff: "diff",
+          metadata: { repository: "other/project" },
+        }),
+      },
+      env,
+    );
+    expect(review.status).toBe(403);
+    expect(await review.json()).toEqual({ error: "repo_scope_forbidden" });
+  });
+
+  it("bloqueia POST /review para contas sem Pro ou sem self-hosted habilitado", async () => {
+    const free = await makeUserWithSession();
+    const freeAuth = {
+      Authorization: `Bearer ${free.token}`,
+      "Content-Type": "application/json",
+    };
+    const freeTokenResponse = await ghaBot.request(
+      "/tokens",
+      { method: "POST", headers: freeAuth, body: "{}" },
+      env,
+    );
+    const { secret: freeBotToken } = await freeTokenResponse.json<{
+      secret: string;
+    }>();
+    const freeReview = await ghaBot.request(
+      "/review",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${freeBotToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ diff: "diff" }),
+      },
+      env,
+    );
+    expect(freeReview.status).toBe(403);
+    expect(await freeReview.json()).toEqual({ error: "pro_required" });
+
+    const disabled = await makeProUserWithBotTokenAndSettings(false);
+    const disabledReview = await ghaBot.request(
+      "/review",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${disabled.botToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ diff: "diff" }),
+      },
+      env,
+    );
+    expect(disabledReview.status).toBe(403);
+    expect(await disabledReview.json()).toEqual({
+      error: "self_hosted_not_enabled",
+    });
   });
 
   it("erro de borda — self_hosted_enabled=true mas usuário nunca registrou o gateway (sem linha em tokens) — cai pra hosted", async () => {

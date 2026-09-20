@@ -12,7 +12,7 @@
  * client-side que o backend nunca viu (getHistory 404 → tela "Not Found").
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useRef } from "react";
 import { markAsNew } from "@/lib/stores/new-thread-registry";
 import {
   markWorkspaceChosen,
@@ -43,24 +43,16 @@ export function generateLocalNewId(): string {
  */
 export function useNewSessionId(routeParam: string): string {
   const isNewRoute = routeParam === "new";
-  const [localNewId, setLocalNewId] = useState<string>(() =>
-    isNewRoute ? generateLocalNewId() : "",
-  );
-  const didMountRef = useRef(false);
+  const localNewIdRef = useRef(isNewRoute ? generateLocalNewId() : "");
+  const previousRouteRef = useRef(routeParam);
 
-  useEffect(() => {
-    if (!didMountRef.current) {
-      didMountRef.current = true;
-      return;
-    }
-    if (routeParam === "new") {
-      // generateLocalNewId consome sinais one-shot de workspace pré-escolhido
-      // (registries externos) — não é derivação pura de estado, por isso
-      // fica num efeito em vez de comparação durante o render.
-      // oxlint-disable-next-line react/set-state-in-effect
-      setLocalNewId(generateLocalNewId());
-    }
-  }, [routeParam]);
+  // Router mantém a instância da rota entre /session/:id e /session/new.
+  // Gere o identificador no mesmo render em que a rota muda para "new", para
+  // que histórico, sidebar e o primeiro envio nunca observem o id anterior.
+  if (isNewRoute && previousRouteRef.current !== "new") {
+    localNewIdRef.current = generateLocalNewId();
+  }
+  previousRouteRef.current = routeParam;
 
-  return isNewRoute ? localNewId : "";
+  return isNewRoute ? localNewIdRef.current : "";
 }

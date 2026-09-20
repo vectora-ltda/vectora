@@ -10,6 +10,15 @@ import { timingSafeEqual } from "../gateway/auth";
 export const ghaBot = new Hono<{ Bindings: Env }>();
 
 const VALID_REVIEW_STYLES = new Set(["strict", "balanced", "lenient"]);
+// O runner público do GitHub não consegue alcançar um Ollama local. Manter
+// o provider fora do contrato evita salvar uma configuração que só falha no
+// fallback hosted quando o túnel self-hosted estiver offline.
+const VALID_GHA_PROVIDERS = new Set([
+  "anthropic",
+  "openai",
+  "google_genai",
+  "openrouter",
+]);
 
 /** Limites compartilhados com o cliente Python do gateway. */
 export const MAX_REVIEW_DIFF_BYTES = 6_000_000;
@@ -18,6 +27,11 @@ const MAX_REVIEW_METADATA_ENTRIES = 64;
 const MAX_REVIEW_METADATA_VALUE_LENGTH = 2_000;
 
 type ReviewInput = { diff: string; metadata: Record<string, string> };
+
+interface GhaBotTokenIdentity {
+  userId: string;
+  repoScope: string | null;
+}
 
 function parseReviewInput(
   value: unknown,
@@ -59,24 +73,45 @@ function parseReviewInput(
   return { ok: true, input: { diff: body.diff, metadata: normalized } };
 }
 
-/** Resolve o user_id de um VECTORA_BOT_TOKEN válido (não revogado) — mesmo
+/** Resolve o dono e o escopo de um VECTORA_BOT_TOKEN válido (não revogado) — mesmo
  * padrão de `resolveSession`, mas contra `gha_bot_tokens` em vez de
  * `sessions`. Usado só por `GET /gha-bot/config` (a Action, não o painel). */
 async function resolveGhaBotToken(
   db: D1Database,
   rawToken: string | null,
-): Promise<string | null> {
+): Promise<GhaBotTokenIdentity | null> {
   if (!rawToken) return null;
   const tokenHash = await sha256Hex(rawToken);
   const row = await db
     .prepare(
-      "SELECT user_id, revoked_at FROM gha_bot_tokens WHERE token_hash = ?",
+      "SELECT user_id, repo_scope, revoked_at FROM gha_bot_tokens WHERE token_hash = ?",
     )
     .bind(tokenHash)
-    .first<{ user_id: string; revoked_at: string | null }>();
+    .first<{
+      user_id: string;
+      repo_scope: string | null;
+      revoked_at: string | null;
+    }>();
 
   if (!row || row.revoked_at) return null;
-  return row.user_id;
+  return { userId: row.user_id, repoScope: row.repo_scope };
+}
+
+function requestedRepository(query: Record<string, string>): string | null {
+  return (query.repository ?? query.repo ?? "").trim() || null;
+}
+
+function tokenAllowsRepository(
+  identity: GhaBotTokenIdentity,
+  repository: string | null,
+):
+  | { ok: true }
+  | { ok: false; error: "repo_scope_required" | "repo_scope_forbidden" } {
+  if (!identity.repoScope) return { ok: true };
+  if (!repository) return { ok: false, error: "repo_scope_required" };
+  return identity.repoScope === repository
+    ? { ok: true }
+    : { ok: false, error: "repo_scope_forbidden" };
 }
 
 async function isProUser(db: D1Database, userId: string): Promise<boolean> {
@@ -117,11 +152,13 @@ ghaBot.post("/tokens", async (c) => {
 
   const raw = crypto.randomUUID();
   const hash = await sha256Hex(raw);
+  const repoScope =
+    typeof body.repo_scope === "string" ? body.repo_scope.trim() || null : null;
 
   await c.env.DB.prepare(
     "INSERT INTO gha_bot_tokens (id, user_id, token_hash, repo_scope) VALUES (?, ?, ?, ?)",
   )
-    .bind(crypto.randomUUID(), userId, hash, body.repo_scope ?? null)
+    .bind(crypto.randomUUID(), userId, hash, repoScope)
     .run();
 
   // Mostrado uma vez só — só o hash fica salvo, igual api_keys.
@@ -184,7 +221,12 @@ ghaBot.put("/settings", async (c) => {
     self_hosted_enabled?: boolean;
   }>();
 
-  if (!body.provider || !body.model || !body.provider_api_key) {
+  if (
+    !body.provider ||
+    !VALID_GHA_PROVIDERS.has(body.provider) ||
+    !body.model ||
+    !body.provider_api_key
+  ) {
     return c.json({ error: "missing_fields" }, 400);
   }
   const reviewStyle = body.review_style ?? "balanced";
@@ -254,8 +296,15 @@ ghaBot.get("/download/latest", async (c) => {
 });
 
 ghaBot.get("/config", async (c) => {
-  const userId = await resolveGhaBotToken(c.env.DB, bearerToken(c.req.raw));
-  if (!userId) return c.json({ error: "unauthorized" }, 401);
+  const identity = await resolveGhaBotToken(c.env.DB, bearerToken(c.req.raw));
+  if (!identity) return c.json({ error: "unauthorized" }, 401);
+
+  const scope = tokenAllowsRepository(
+    identity,
+    requestedRepository(c.req.query()),
+  );
+  if (!scope.ok) return c.json({ error: scope.error }, 403);
+  const userId = identity.userId;
 
   if (!(await isProUser(c.env.DB, userId))) {
     return c.json({ error: "pro_required" }, 403);
@@ -330,12 +379,33 @@ interface ReviewJobRow {
  * de 30s do GatewaySession, pensado pra request/response síncrono).
  */
 ghaBot.post("/review", async (c) => {
-  const userId = await resolveGhaBotToken(c.env.DB, bearerToken(c.req.raw));
-  if (!userId) return c.json({ error: "unauthorized" }, 401);
+  const identity = await resolveGhaBotToken(c.env.DB, bearerToken(c.req.raw));
+  if (!identity) return c.json({ error: "unauthorized" }, 401);
+
+  const userId = identity.userId;
+  if (!(await isProUser(c.env.DB, userId))) {
+    return c.json({ error: "pro_required" }, 403);
+  }
+  const settings = await c.env.DB.prepare(
+    "SELECT self_hosted_enabled FROM gha_bot_config WHERE user_id = ?",
+  )
+    .bind(userId)
+    .first<{ self_hosted_enabled: number }>();
+  if (!settings || settings.self_hosted_enabled !== 1) {
+    return c.json({ error: "self_hosted_not_enabled" }, 403);
+  }
 
   const body = await c.req.json<unknown>().catch(() => null);
   const parsed = parseReviewInput(body);
   if (!parsed.ok) return c.json({ error: parsed.error }, 400);
+
+  const metadataRepository =
+    parsed.input.metadata.repository ??
+    parsed.input.metadata.repo ??
+    parsed.input.metadata.repo_full_name ??
+    null;
+  const scope = tokenAllowsRepository(identity, metadataRepository);
+  if (!scope.ok) return c.json({ error: scope.error }, 403);
 
   const tokenRow = await c.env.DB.prepare(
     "SELECT token FROM tokens WHERE user_id = ?",
@@ -389,8 +459,9 @@ ghaBot.post("/review", async (c) => {
 
 /** A Action faz long-poll aqui até status != "pending". */
 ghaBot.get("/review/:id", async (c) => {
-  const userId = await resolveGhaBotToken(c.env.DB, bearerToken(c.req.raw));
-  if (!userId) return c.json({ error: "unauthorized" }, 401);
+  const identity = await resolveGhaBotToken(c.env.DB, bearerToken(c.req.raw));
+  if (!identity) return c.json({ error: "unauthorized" }, 401);
+  const userId = identity.userId;
 
   const id = c.req.param("id");
   const row = await c.env.DB.prepare(
