@@ -323,7 +323,7 @@ class GatewayClient:
             elif msg.type == aiohttp.WSMsgType.ERROR:
                 raise ConnectionError(f"ws error: {ws.exception()}")
 
-    async def _dispatch(
+    async def _dispatch(  # noqa: PLR0911 — protocol message kinds have independent terminal paths
         self,
         ws: aiohttp.ClientWebSocketResponse,
         local_session: aiohttp.ClientSession,
