@@ -72,6 +72,8 @@ export interface BrowseResult {
   safe_root_id?: string | null;
   /** `true` quando `entries` lista volumes em vez de subdiretórios. */
   at_drives_root?: boolean;
+  /** Caminho absoluto da pasta criada pela operação mkdir, quando aplicável. */
+  created_path?: string | null;
 }
 
 /** Pseudo-path que dispara o modo "lista de discos" no backend. */
