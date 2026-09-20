@@ -359,6 +359,15 @@ function SessionPage() {
   // ── UI state local ────────────────────────────────────────────────────────
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isCompactSession) {
+      // A Sheet opened in compact mode must not remain over the desktop shell
+      // after a resize back to the wide layout.
+      // oxlint-disable-next-line react/set-state-in-effect
+      setIsMobileSidebarOpen(false);
+    }
+  }, [isCompactSession]);
   const [showToolCalls, setShowToolCalls] = useState(false);
   const [showShortcutsDialog, setShowShortcutsDialog] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
@@ -722,12 +731,15 @@ function SessionPage() {
         onToggleToolCalls={() => setShowToolCalls((v) => !v)}
         onShowShortcuts={() => setShowShortcutsDialog(true)}
         onOpenSidebar={
-          uiMode === "ide" ? undefined : () => setIsMobileSidebarOpen(true)
+          uiMode === "ide" || !isCompactSession
+            ? undefined
+            : () => setIsMobileSidebarOpen(true)
         }
+        sidebarTriggerCompactOnly={uiMode !== "ide" && isCompactSession}
         showModeSwitch={!chatMode}
       />
     ),
-    [showToolCalls, chatMode, uiMode],
+    [showToolCalls, chatMode, uiMode, isCompactSession],
   );
 
   // Cada modo escolhe explicitamente a coluna esquerda. Assistente e Kanban

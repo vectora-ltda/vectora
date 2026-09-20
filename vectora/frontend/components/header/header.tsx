@@ -13,6 +13,8 @@ interface HeaderProps {
   onToggleToolCalls?: () => void;
   onShowShortcuts?: () => void;
   onOpenSidebar?: () => void;
+  /** Render the session trigger whenever the caller has a compact shell. */
+  sidebarTriggerCompactOnly?: boolean;
   //: Mostra o seletor Assistente/IDE/Kanban centralizado nesta mesma barra
   //: (ausente em chatMode, que não tem os 3 modos). Antes vivia numa linha
   //: separada acima do Header — o usuário via duas barras empilhadas
@@ -26,6 +28,7 @@ interface HeaderProps {
 export function Header({
   onShowShortcuts,
   onOpenSidebar,
+  sidebarTriggerCompactOnly = false,
   showModeSwitch,
 }: HeaderProps) {
   const [rowRef, rowWidth] = useElementWidth<HTMLDivElement>();
@@ -47,7 +50,7 @@ export function Header({
               type="button"
               onClick={onOpenSidebar}
               aria-label={m.sidebar_open()}
-              className="lg:hidden -ml-1 mr-1 inline-flex items-center justify-center w-10 h-10 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+              className={`${sidebarTriggerCompactOnly ? "" : "lg:hidden"} -ml-1 mr-1 inline-flex items-center justify-center w-10 h-10 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors`}
             >
               <Menu className="w-5 h-5" />
             </button>
