@@ -840,6 +840,8 @@
   "library_mcp_error_uninstall": "Error removing connector",
   "library_mcp_error_search": "Error searching connectors",
   "library_mcp_verified": "Verified",
+  "library_mcp_trust_confirm": "This MCP is not cryptographically verified. Do you want to install it?",
+  "library_mcp_trust_invalid_install": "This MCP was rejected by integrity verification.",
   "library_skills_trust_builtin": "Official",
   "library_skills_trust_verified": "Verified",
   "library_skills_trust_community": "Community",

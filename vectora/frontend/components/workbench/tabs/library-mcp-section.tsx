@@ -108,15 +108,10 @@ function ConfigureDialog({
       "verification_unavailable",
     ].includes(connector.trust_state ?? "");
     if (connector.trust_state === "invalid") {
-      setError("Este MCP foi rejeitado pela verificação de integridade.");
+      setError(m.library_mcp_trust_invalid_install());
       return;
     }
-    if (
-      requiresConfirmation &&
-      !window.confirm(
-        "Este MCP não possui verificação criptográfica. Deseja instalar?",
-      )
-    )
+    if (requiresConfirmation && !window.confirm(m.library_mcp_trust_confirm()))
       return;
 
     setSaving(true);
@@ -213,14 +208,12 @@ function ConnectorCard({
         "verification_unavailable",
       ].includes(connector.trust_state ?? "");
       if (connector.trust_state === "invalid") {
-        setError("Este MCP foi rejeitado pela verificação de integridade.");
+        setError(m.library_mcp_trust_invalid_install());
         return;
       }
       if (
         requiresConfirmation &&
-        !window.confirm(
-          "Este MCP não possui verificação criptográfica. Deseja instalar?",
-        )
+        !window.confirm(m.library_mcp_trust_confirm())
       )
         return;
       const result = await installMcp(connector.id, requiresConfirmation);
