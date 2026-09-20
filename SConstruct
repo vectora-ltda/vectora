@@ -44,6 +44,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from typing import TextIO
 import urllib.error
 import urllib.request
 
@@ -902,7 +903,7 @@ def _check_vercel_link(folder: str, expected_project: str) -> None:
 
 
 def _upgrade_d1_schema(
-    log,
+    log: TextIO,
     *,
     skip_missing_tables: bool = False,
     tables_filter: set[str] | None = None,
