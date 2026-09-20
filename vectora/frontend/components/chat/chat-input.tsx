@@ -485,14 +485,11 @@ export function ChatInput({
               }}
             />
 
-            {/* Input container — borda única, sem glow nem ring duplicado. */}
+            {/* Input container — mantém o fundo e o comportamento de drop; o
+                contorno visual pertence ao próprio textarea. */}
             <div className="relative">
               <div
-                // Uma única cor de destaque (primary) e uma única camada de
-                // fundo — o overlay de drop já dá o feedback de cor durante o
-                // drag (abaixo), então o container não precisa de um segundo
-                // tom de fundo próprio (`bg-primary/5`) competindo com ele.
-                className={`relative rounded-none border-y border-x-0 transition-colors duration-200 ${compact ? "bg-sidebar" : "bg-background"} ${isDragging ? "border-primary" : "border-border/60"}`}
+                className={`relative transition-colors duration-200 ${compact ? "bg-sidebar" : "bg-background"}`}
                 onDragOver={onDragOver}
                 onDragLeave={onDragLeave}
                 onDrop={onDrop}
@@ -538,7 +535,7 @@ export function ChatInput({
                             : m.input_placeholder()
                     }
                     title={offline ? m.network_disabled_offline() : undefined}
-                    className={`relative z-10 min-h-[38px] min-w-0 flex-1 basis-0 resize-none rounded bg-muted/30 border-0 w-full px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:border-0 focus-visible:border-0 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 transition-[height] duration-150 ${compact && !input.includes("\n") ? "max-h-[38px] overflow-x-hidden overflow-y-hidden whitespace-nowrap" : "max-h-[240px] overflow-y-auto break-words custom-scrollbar"}`}
+                    className={`relative z-10 min-h-[38px] min-w-0 flex-1 basis-0 resize-none rounded-md border border-[#2a2a2a]/60 bg-[#252525]/30 w-full px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground shadow-sm focus:outline-none focus-visible:outline-none focus-visible:border-[#2a2a2a]/60 focus:ring-1 focus:ring-primary/50 focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-offset-0 transition-[height] duration-150 ${compact && !input.includes("\n") ? "max-h-[38px] overflow-x-hidden overflow-y-hidden whitespace-nowrap" : "max-h-[240px] overflow-y-auto break-words custom-scrollbar"}`}
                     disabled={!userId || offline}
                     rows={1}
                   />
