@@ -34,7 +34,7 @@ class Skill(BaseModel):
     revision: str | None = None
 
 
-SkillCatalogSource = Literal["remote", "enterprise", "local"]
+type SkillCatalogSource = Literal["remote", "enterprise", "local"]
 
 
 class SkillCatalogEntry(BaseModel):
@@ -45,13 +45,21 @@ class SkillCatalogEntry(BaseModel):
     id: str = Field(min_length=1)
     name: str = Field(min_length=1)
     description: str = ""
-    source: str = ""
+    source: str = Field(min_length=1)
     package_name: str | None = None
     category: str | None = None
     tags: list[str] = Field(default_factory=list)
     catalog_source: SkillCatalogSource
     vectora_verified: bool | None = None
     verified: bool | None = None
+
+    @field_validator("source")
+    @classmethod
+    def _validate_source(cls, value: str) -> str:
+        source = value.strip()
+        if not source:
+            raise ValueError("skill catalog source must not be empty")
+        return source
 
     @field_validator("tags", mode="before")
     @classmethod

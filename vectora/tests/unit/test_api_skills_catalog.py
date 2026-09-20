@@ -4,6 +4,7 @@ distinto de GET /skills (que lista as instaladas)."""
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 from unittest.mock import AsyncMock
 
 import pytest
@@ -17,7 +18,15 @@ async def test_get_skills_catalog_returns_remote_entries(monkeypatch):
     monkeypatch.setattr(
         skills_handler.registry_client,
         "fetch_catalog",
-        AsyncMock(return_value=[{"id": "s1", "name": "Skill 1"}]),
+        AsyncMock(
+            return_value=[
+                {
+                    "id": "s1",
+                    "name": "Skill 1",
+                    "source": "https://github.com/vectora-ltda/skill-1",
+                }
+            ]
+        ),
     )
 
     result = await skills_handler.get_skills_catalog()
@@ -25,6 +34,54 @@ async def test_get_skills_catalog_returns_remote_entries(monkeypatch):
     assert result.total == 1
     assert result.entries[0].id == "s1"
     assert result.entries[0].catalog_source == "remote"
+
+
+@pytest.mark.parametrize(
+    ("provider", "invalid_source"),
+    [
+        ("remote", None),
+        ("remote", ""),
+        ("remote", "   "),
+        ("enterprise", None),
+        ("enterprise", ""),
+        ("enterprise", "   "),
+    ],
+)
+@pytest.mark.asyncio
+async def test_get_skills_catalog_skips_entries_without_usable_source(
+    monkeypatch: pytest.MonkeyPatch,
+    provider: Literal["remote", "enterprise"],
+    invalid_source: str | None,
+) -> None:
+    valid_entry = {
+        "id": f"valid-{provider}",
+        "name": f"Valid {provider}",
+        "source": f"https://github.com/vectora-ltda/valid-{provider}",
+    }
+    invalid_entry = {"id": f"invalid-{provider}", "name": "Invalid"}
+    if invalid_source is not None:
+        invalid_entry["source"] = invalid_source
+
+    remote_entries = [valid_entry, invalid_entry] if provider == "remote" else []
+    enterprise_entries = (
+        [valid_entry, invalid_entry] if provider == "enterprise" else []
+    )
+    monkeypatch.setattr(
+        skills_handler.registry_client,
+        "fetch_catalog",
+        AsyncMock(return_value=remote_entries),
+    )
+    monkeypatch.setattr(
+        skills_handler.registry_client,
+        "fetch_enterprise_catalog",
+        AsyncMock(return_value=enterprise_entries),
+    )
+
+    result = await skills_handler.get_skills_catalog()
+
+    assert [(entry.id, entry.catalog_source) for entry in result.entries] == [
+        (f"valid-{provider}", provider)
+    ]
 
 
 @pytest.mark.asyncio
@@ -76,6 +133,7 @@ class TestSkillsCatalogQueryFilters:
             "id": "s1",
             "name": "Docker Deploy",
             "description": "publica containers",
+            "source": "https://github.com/vectora-ltda/docker-deploy",
             "category": "devtools",
             "tags": ["docker", "ci"],
         },
@@ -83,6 +141,7 @@ class TestSkillsCatalogQueryFilters:
             "id": "s2",
             "name": "Writer",
             "description": "gera documentação",
+            "source": "https://github.com/vectora-ltda/writer",
             "category": "docs",
             "tags": ["markdown"],
         },
