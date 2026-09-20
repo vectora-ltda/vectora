@@ -44,6 +44,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from typing import TextIO
 import urllib.error
 import urllib.request
 
@@ -901,8 +902,19 @@ def _check_vercel_link(folder: str, expected_project: str) -> None:
         raise SystemExit(1)
 
 
-def _upgrade_d1_schema(log) -> None:
-    """Adiciona colunas novas sem quebrar bancos D1 já existentes."""
+def _upgrade_d1_schema(
+    log: TextIO,
+    *,
+    skip_missing_tables: bool = False,
+    tables_filter: set[str] | None = None,
+) -> None:
+    """Adiciona colunas novas sem quebrar bancos D1 já existentes.
+
+    Quando executado antes do schema base, tabelas ainda inexistentes precisam
+    ser deixadas para o ``CREATE TABLE IF NOT EXISTS``. Em seguida o mesmo
+    preflight é executado novamente depois das migrations para cobrir tabelas
+    criadas durante o deploy.
+    """
     columns: tuple[tuple[str, str, str], ...] = (
         ("gha_bot_config", "self_hosted_enabled", "INTEGER NOT NULL DEFAULT 0"),
         ("issues", "github_repo", "TEXT"),
@@ -947,9 +959,41 @@ def _upgrade_d1_schema(log) -> None:
         ("github_webhook_deliveries", "lease_until", "TEXT"),
         ("gha_bot_review_jobs", "callback_secret_hash", "TEXT"),
     )
+    if tables_filter is not None:
+        columns = tuple(row for row in columns if row[0] in tables_filter)
     tables = {table for table, _, _ in columns}
     existing: dict[str, set[str]] = {}
+    table_exists: dict[str, bool] = {}
     for table in tables:
+        table_result = subprocess.run(
+            [
+                WRANGLER,
+                "d1",
+                "execute",
+                "vectora-db",
+                "--remote",
+                "--command",
+                f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}' LIMIT 1",
+                "--json",
+            ],
+            cwd=SERVICES,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+        if table_result.returncode != 0:
+            raise SystemExit(
+                f"[scons prod] não foi possível consultar a existência da tabela D1: {table}"
+            )
+        table_exists[table] = re.search(
+            rf'"name"\s*:\s*"{re.escape(table)}"',
+            table_result.stdout,
+        ) is not None
+        if not table_exists[table]:
+            existing[table] = set()
+            continue
         result = subprocess.run(
             [
                 WRANGLER,
@@ -976,6 +1020,10 @@ def _upgrade_d1_schema(log) -> None:
             re.findall(r'"name"\s*:\s*"([^"]+)"', result.stdout)
         )
     for table, column, definition in columns:
+        if not table_exists[table]:
+            if skip_missing_tables:
+                continue
+            raise SystemExit(f"[scons prod] tabela D1 ausente: {table}")
         if column in existing[table]:
             continue
         _run(
@@ -992,6 +1040,36 @@ def _upgrade_d1_schema(log) -> None:
             cwd=SERVICES,
         )
 
+    if table_exists.get("skills_catalog"):
+        # SQLite não permite DEFAULT(datetime('now')) em ALTER TABLE ADD
+        # COLUMN. Repare linhas legadas e preserve o default para inserts.
+        _run(
+            [
+                WRANGLER,
+                "d1",
+                "execute",
+                "vectora-db",
+                "--remote",
+                "--command",
+                "CREATE TRIGGER IF NOT EXISTS skills_catalog_updated_at_default AFTER INSERT ON skills_catalog WHEN NEW.updated_at IS NULL BEGIN UPDATE skills_catalog SET updated_at = datetime('now') WHERE id = NEW.id AND updated_at IS NULL; END",
+            ],
+            log=log,
+            cwd=SERVICES,
+        )
+        _run(
+            [
+                WRANGLER,
+                "d1",
+                "execute",
+                "vectora-db",
+                "--remote",
+                "--command",
+                "UPDATE skills_catalog SET updated_at = datetime('now') WHERE updated_at IS NULL",
+            ],
+            log=log,
+            cwd=SERVICES,
+        )
+
 
 def _action_prod(target, source, env):
     # Preflights ANTES de publicar qualquer coisa: credencial Cloudflare válida
@@ -1003,6 +1081,15 @@ def _action_prod(target, source, env):
     with _open_log("prod") as log:
         _run([VERCEL, "--prod", "--yes"], log=log, cwd=DOCS)
         _run([VERCEL, "--prod", "--yes"], log=log, cwd=COMPANY)
+        # Bancos antigos podem ter skills_catalog sem as colunas usadas pelo
+        # seed do schema base. Atualize tabelas já existentes antes de
+        # reaplicar 0001_schema.sql; tabelas novas são criadas pelo próprio
+        # schema e recebem uma segunda verificação após as migrations.
+        _upgrade_d1_schema(
+            log,
+            skip_missing_tables=True,
+            tables_filter={"skills_catalog"},
+        )
         # Migrations ANTES do deploy do worker: o código deployado assume o
         # schema mais novo (ex.: users.role) — publicar worker sem aplicar as
         # migrations quebra rotas em produção com SQLITE_ERROR.
