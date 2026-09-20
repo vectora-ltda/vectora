@@ -138,7 +138,14 @@ def test_legacy_timestamp_is_backfilled_and_defaulted() -> None:
     connection = sqlite3.connect(":memory:")
     connection.execute("CREATE TABLE skills_catalog (id TEXT PRIMARY KEY)")
     connection.execute("INSERT INTO skills_catalog (id) VALUES ('legacy')")
+    connection.execute(
+        "INSERT INTO skills_catalog (id) VALUES ('existing')",
+    )
     connection.execute("ALTER TABLE skills_catalog ADD COLUMN updated_at TEXT")
+    connection.execute(
+        "UPDATE skills_catalog SET updated_at = '2024-01-02 03:04:05' "
+        "WHERE id = 'existing'",
+    )
 
     connection.execute(
         "UPDATE skills_catalog SET updated_at = datetime('now') "
@@ -153,9 +160,10 @@ def test_legacy_timestamp_is_backfilled_and_defaulted() -> None:
     connection.execute("INSERT INTO skills_catalog (id) VALUES ('new')")
 
     timestamps = connection.execute(
-        "SELECT updated_at FROM skills_catalog ORDER BY id",
+        "SELECT id, updated_at FROM skills_catalog ORDER BY id",
     ).fetchall()
-    assert all(timestamp and timestamp[0] for timestamp in timestamps)
+    assert timestamps[0] == ("existing", "2024-01-02 03:04:05")
+    assert all(timestamp and timestamp[1] for timestamp in timestamps)
 
 
 @pytest.mark.skipif(os.name == "nt", reason="bash script test runs on Unix CI")
@@ -199,6 +207,17 @@ esac
         "CREATE TRIGGER IF NOT EXISTS skills_catalog_updated_at_default" in line
         for line in recorded
     )
+    trigger_index = next(
+        index
+        for index, line in enumerate(recorded)
+        if "CREATE TRIGGER IF NOT EXISTS skills_catalog_updated_at_default" in line
+    )
+    update_index = next(
+        index
+        for index, line in enumerate(recorded)
+        if "UPDATE skills_catalog SET updated_at" in line
+    )
+    assert trigger_index < update_index
 
 
 @pytest.mark.skipif(os.name == "nt", reason="bash script test runs on Unix CI")
