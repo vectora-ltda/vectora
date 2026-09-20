@@ -2,7 +2,7 @@
 
 /**
  * LibraryTab — 3 seções fecháveis (MCP, Skills, Memory Library) com busca
- * e filtros toggle por categoria. A busca é client-side sobre os itens já
+ * e seleção única de categoria. A busca é client-side sobre os itens já
  * carregados de cada seção, sem endpoint agregado.
  */
 
@@ -26,8 +26,6 @@ interface LibraryTabProps {
 
 type LibraryFilter = "mcp" | "skills" | "memory";
 
-const ALL_FILTERS: LibraryFilter[] = ["mcp", "skills", "memory"];
-
 /** Item genérico de qualquer seção — cada seção monta a lista completa a
  * partir do seu próprio backend; a busca/filtro aqui só precisa do nome
  * pra combinar contra a query. */
@@ -40,17 +38,18 @@ export interface LibraryItem {
 function FilterPill({
   label,
   active,
-  onToggle,
+  onSelect,
 }: {
   label: string;
   active: boolean;
-  onToggle: () => void;
+  onSelect: () => void;
 }) {
   return (
     <button
       type="button"
-      onClick={onToggle}
-      aria-pressed={active}
+      role="tab"
+      aria-selected={active}
+      onClick={onSelect}
       className={`h-6 rounded-[5px] px-2.5 py-1 text-xs transition-colors ${
         active
           ? "bg-[#d4d4d4]/15 text-[#d4d4d4]"
@@ -83,33 +82,13 @@ function LibrarySearchBox({
   );
 }
 
-function SectionEmptyState({ label }: { label: string }) {
-  return (
-    <p className="py-4 text-xs text-muted-foreground text-center">{label}</p>
-  );
-}
-
 export function LibraryTab({ threadId }: LibraryTabProps) {
   void threadId;
   const [query, setQuery] = useState("");
-  const [activeFilters, setActiveFilters] = useState<Set<LibraryFilter>>(
-    new Set(ALL_FILTERS),
-  );
-
-  const toggleFilter = (filter: LibraryFilter) => {
-    setActiveFilters((prev) => {
-      const next = new Set(prev);
-      if (next.has(filter)) {
-        next.delete(filter);
-      } else {
-        next.add(filter);
-      }
-      return next;
-    });
-  };
+  const [activeSection, setActiveSection] = useState<LibraryFilter>();
 
   // MCP, Skills e Memory vivem em subcomponentes próprios, que reportam a
-  // contagem filtrada de volta via onCountChange.
+  // contagem atualizada de volta via onCountChange.
   const [mcpCount, setMcpCount] = useState(0);
   const handleMcpCountChange = useCallback((count: number) => {
     setMcpCount(count);
@@ -125,94 +104,108 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
     setMemoryCount(count);
   }, []);
 
-  const noFiltersActive = activeFilters.size === 0;
-
   return (
     <div className="flex h-full flex-col bg-[#181818]">
       <div className="flex min-h-[86px] flex-col gap-2.5 border-b border-[#2a2a2a]/60 p-2.5">
         <LibrarySearchBox query={query} onChange={setQuery} />
-        <div className="flex min-w-0 flex-wrap items-start gap-2.5">
+        <div
+          className="flex min-w-0 flex-wrap items-start gap-2.5"
+          role="tablist"
+        >
           <FilterPill
             label={m.library_filter_mcp()}
-            active={activeFilters.has("mcp")}
-            onToggle={() => toggleFilter("mcp")}
+            active={activeSection === "mcp"}
+            onSelect={() => setActiveSection("mcp")}
           />
           <FilterPill
             label={m.library_filter_skills()}
-            active={activeFilters.has("skills")}
-            onToggle={() => toggleFilter("skills")}
+            active={activeSection === "skills"}
+            onSelect={() => setActiveSection("skills")}
           />
           <FilterPill
             label={m.library_filter_memory()}
-            active={activeFilters.has("memory")}
-            onToggle={() => toggleFilter("memory")}
+            active={activeSection === "memory"}
+            onSelect={() => setActiveSection("memory")}
           />
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {noFiltersActive ? (
-          <SectionEmptyState label={m.library_empty_no_filters()} />
-        ) : (
-          <Accordion type="multiple" defaultValue={[]} className="px-0">
-            {activeFilters.has("mcp") && (
-              <AccordionItem value="mcp" className="border-b-0">
-                <AccordionTrigger className="min-h-[49px] gap-2 px-2.5 py-3.5 hover:no-underline">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <Puzzle className="size-3.5 shrink-0 text-muted-foreground" />
-                    <span className="truncate text-sm leading-5">
-                      {m.library_section_mcp()} ({mcpCount})
-                    </span>
-                  </span>
-                </AccordionTrigger>
-                <AccordionContent className="pb-2 pl-2 pr-1">
-                  <McpSection
-                    query={query}
-                    onCountChange={handleMcpCountChange}
-                  />
-                </AccordionContent>
-              </AccordionItem>
-            )}
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <Accordion
+          type="single"
+          collapsible
+          value={activeSection ?? ""}
+          onValueChange={(value) =>
+            setActiveSection((value || undefined) as LibraryFilter | undefined)
+          }
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
+          <AccordionItem
+            value="mcp"
+            className="shrink-0 border-b-0 data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:flex-col"
+          >
+            <AccordionTrigger className="min-h-[49px] gap-2 px-2.5 py-3.5 hover:no-underline">
+              <span className="flex min-w-0 items-center gap-2">
+                <Puzzle className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="truncate text-sm leading-5">
+                  {m.library_section_mcp()} ({mcpCount})
+                </span>
+              </span>
+            </AccordionTrigger>
+            <AccordionContent
+              containerClassName="data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:overflow-hidden"
+              className="h-full overflow-y-auto pb-2 pl-2 pr-1"
+            >
+              <McpSection query={query} onCountChange={handleMcpCountChange} />
+            </AccordionContent>
+          </AccordionItem>
 
-            {activeFilters.has("skills") && (
-              <AccordionItem value="skills" className="border-b-0">
-                <AccordionTrigger className="min-h-[49px] gap-2 px-2.5 py-3.5 hover:no-underline">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <Sparkles className="size-3.5 shrink-0 text-muted-foreground" />
-                    <span className="truncate text-sm leading-5">
-                      {m.library_section_skills()} ({skillsCount})
-                    </span>
-                  </span>
-                </AccordionTrigger>
-                <AccordionContent className="pb-2 pl-2 pr-1">
-                  <SkillsSection
-                    query={query}
-                    onCountChange={handleSkillsCountChange}
-                  />
-                </AccordionContent>
-              </AccordionItem>
-            )}
+          <AccordionItem
+            value="skills"
+            className="shrink-0 border-b-0 data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:flex-col"
+          >
+            <AccordionTrigger className="min-h-[49px] gap-2 px-2.5 py-3.5 hover:no-underline">
+              <span className="flex min-w-0 items-center gap-2">
+                <Sparkles className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="truncate text-sm leading-5">
+                  {m.library_section_skills()} ({skillsCount})
+                </span>
+              </span>
+            </AccordionTrigger>
+            <AccordionContent
+              containerClassName="data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:overflow-hidden"
+              className="h-full overflow-y-auto pb-2 pl-2 pr-1"
+            >
+              <SkillsSection
+                query={query}
+                onCountChange={handleSkillsCountChange}
+              />
+            </AccordionContent>
+          </AccordionItem>
 
-            {activeFilters.has("memory") && (
-              <AccordionItem value="memory" className="border-b-0">
-                <AccordionTrigger className="min-h-[49px] gap-2 px-2.5 py-3.5 hover:no-underline">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <Archive className="size-3.5 shrink-0 text-muted-foreground" />
-                    <span className="truncate text-sm leading-5">
-                      {m.library_section_memory()} ({memoryCount})
-                    </span>
-                  </span>
-                </AccordionTrigger>
-                <AccordionContent className="pb-2 pl-2 pr-1">
-                  <MemorySection
-                    query={query}
-                    onCountChange={handleMemoryCountChange}
-                  />
-                </AccordionContent>
-              </AccordionItem>
-            )}
-          </Accordion>
-        )}
+          <AccordionItem
+            value="memory"
+            className="shrink-0 border-b-0 data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:flex-col"
+          >
+            <AccordionTrigger className="min-h-[49px] gap-2 px-2.5 py-3.5 hover:no-underline">
+              <span className="flex min-w-0 items-center gap-2">
+                <Archive className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="truncate text-sm leading-5">
+                  {m.library_section_memory()} ({memoryCount})
+                </span>
+              </span>
+            </AccordionTrigger>
+            <AccordionContent
+              containerClassName="data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:overflow-hidden"
+              className="h-full overflow-y-auto pb-2 pl-2 pr-1"
+            >
+              <MemorySection
+                query={query}
+                onCountChange={handleMemoryCountChange}
+              />
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
       </div>
     </div>
   );
