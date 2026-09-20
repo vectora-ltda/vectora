@@ -12,15 +12,41 @@ const preview: CanvasDocumentDescriptor = {
 };
 
 describe("isCanvasDocumentVisible", () => {
-  it("exibe preview MCP apenas no mesmo workspace e thread", () => {
+  it("exibe o preview no mesmo workspace e thread", () => {
     expect(isCanvasDocumentVisible(preview, "workspace-1", "thread-1")).toBe(
       true,
     );
+  });
+
+  it("oculta o preview em outro workspace", () => {
     expect(isCanvasDocumentVisible(preview, "workspace-2", "thread-1")).toBe(
       false,
     );
+  });
+
+  it("oculta o preview em outro thread", () => {
     expect(isCanvasDocumentVisible(preview, "workspace-1", "thread-2")).toBe(
       false,
     );
+  });
+
+  it("exibe um preview sem workspace no mesmo thread", () => {
+    expect(
+      isCanvasDocumentVisible(
+        { ...preview, workspaceId: null },
+        null,
+        "thread-1",
+      ),
+    ).toBe(true);
+  });
+
+  it("rejeita workspace vazio", () => {
+    expect(
+      isCanvasDocumentVisible({ ...preview, workspaceId: "" }, "", "thread-1"),
+    ).toBe(false);
+  });
+
+  it("rejeita thread vazio", () => {
+    expect(isCanvasDocumentVisible(preview, "workspace-1", "")).toBe(false);
   });
 });

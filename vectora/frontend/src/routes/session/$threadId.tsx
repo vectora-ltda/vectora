@@ -1176,7 +1176,11 @@ function SessionPage() {
                         ),
                       )}
                       renderDocument={(document) => {
-                        if (document.kind === "file" && document.path) {
+                        if (
+                          document.kind === "file" &&
+                          document.path &&
+                          document.workspaceId
+                        ) {
                           return (
                             <FileEditor
                               workspaceId={document.workspaceId}

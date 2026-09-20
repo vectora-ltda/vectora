@@ -192,6 +192,28 @@ describe("McpSection", () => {
     ]);
   });
 
+  it("mantém visível o preview aberto sem workspace ativo", async () => {
+    useWorkspacesStore.setState({ active_id: null });
+    render(
+      <McpSection query="" onCountChange={() => {}} threadId="thread-1" />,
+    );
+    await waitFor(() => expect(screen.getByText("Filesystem")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("Filesystem").closest('[role="button"]')!);
+
+    const state = useWindowsStore.getState();
+    expect(state.activeCanvasDocumentId).toBe(
+      "mcp:no-workspace:thread-1:filesystem",
+    );
+    expect(state.canvasDocuments).toContainEqual(
+      expect.objectContaining({
+        id: "mcp:no-workspace:thread-1:filesystem",
+        workspaceId: null,
+        threadId: "thread-1",
+      }),
+    );
+  });
+
   it("instalar um conector sem env_vars chama POST /mcp/install direto", async () => {
     render(<McpSection query="" onCountChange={() => {}} />);
     await waitFor(() => expect(screen.getByText("Filesystem")).toBeTruthy());

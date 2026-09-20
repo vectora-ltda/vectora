@@ -6,8 +6,10 @@ export function isCanvasDocumentVisible(
   workspaceId: string | null,
   threadId: string,
 ): boolean {
-  return (
-    document.workspaceId === workspaceId &&
-    (document.kind === "file" || document.threadId === threadId)
-  );
+  if (!threadId.trim() || workspaceId === "" || document.workspaceId === "") {
+    return false;
+  }
+  if (document.workspaceId !== workspaceId) return false;
+  if (document.kind === "file") return workspaceId !== null;
+  return document.threadId === threadId;
 }

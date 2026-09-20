@@ -333,9 +333,10 @@ export function McpSection({
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const openConnector = (connector: MCPConnector) => {
-    const workspaceId = useWorkspacesStore.getState().active_id ?? "";
+    const workspaceId = useWorkspacesStore.getState().active_id;
+    const workspaceKey = workspaceId ?? "no-workspace";
     openCanvasDocument({
-      id: `mcp:${workspaceId}:${threadId}:${connector.id}`,
+      id: `mcp:${workspaceKey}:${threadId}:${connector.id}`,
       kind: "mcp-preview",
       workspaceId,
       threadId,

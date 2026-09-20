@@ -47,7 +47,7 @@ export interface McpCanvasPreviewData {
 export interface CanvasDocumentDescriptor {
   id: string;
   kind: CanvasDocumentKind;
-  workspaceId: string;
+  workspaceId: string | null;
   threadId?: string;
   title: string;
   path?: string;
