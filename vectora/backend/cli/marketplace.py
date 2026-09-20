@@ -168,8 +168,8 @@ async def _skills(args: MarketplaceArgs) -> dict[str, object]:  # noqa: PLR0911
     if args.action == "list":
         return _envelope("ok", [_public_skill(skill) for skill in list_skills("local")])
     if args.action in {"search", "info"}:
-        entries = await skills_handler.get_skills_catalog()
-        catalog = entries.get("entries", [])
+        response = await skills_handler.get_skills_catalog()
+        catalog = [entry.model_dump() for entry in response.entries]
         if args.action == "info":
             catalog = [_public_skill(skill) for skill in list_skills("local")] + catalog
         found = _match(

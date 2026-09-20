@@ -3,6 +3,7 @@ distinto de GET /skills (que lista as instaladas)."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -21,7 +22,9 @@ async def test_get_skills_catalog_returns_remote_entries(monkeypatch):
 
     result = await skills_handler.get_skills_catalog()
 
-    assert result == {"entries": [{"id": "s1", "name": "Skill 1"}], "total": 1}
+    assert result.total == 1
+    assert result.entries[0].id == "s1"
+    assert result.entries[0].catalog_source == "remote"
 
 
 @pytest.mark.asyncio
@@ -32,10 +35,10 @@ async def test_get_skills_catalog_empty_is_not_error(monkeypatch):
 
     result = await skills_handler.get_skills_catalog()
 
-    assert result == {"entries": [], "total": 0}
+    assert result.model_dump() == {"entries": [], "total": 0}
 
 
-def test_local_catalog_marks_entry_provenance(tmp_path):
+def test_local_catalog_marks_entry_provenance(tmp_path: Path) -> None:
     skill_dir = tmp_path / "vectora-utilities"
     skill_dir.mkdir()
     (skill_dir / "SKILL.md").write_text(
@@ -48,7 +51,10 @@ version: 1.0.0
         encoding="utf-8",
     )
 
-    assert list_wellknown_catalog(tmp_path) == [
+    assert [
+        entry.model_dump(exclude_none=True)
+        for entry in list_wellknown_catalog(tmp_path)
+    ] == [
         {
             "id": "vectora-utilities",
             "name": "Vectora Utilities",
@@ -92,8 +98,8 @@ class TestSkillsCatalogQueryFilters:
 
         result = await skills_handler.get_skills_catalog(q="docker")
 
-        assert [e["id"] for e in result["entries"]] == ["s1"]
-        assert result["total"] == 1
+        assert [entry.id for entry in result.entries] == ["s1"]
+        assert result.total == 1
 
     @pytest.mark.asyncio
     async def test_category_filtra_exato(self, monkeypatch):
@@ -105,7 +111,7 @@ class TestSkillsCatalogQueryFilters:
 
         result = await skills_handler.get_skills_catalog(category="docs")
 
-        assert [e["id"] for e in result["entries"]] == ["s2"]
+        assert [entry.id for entry in result.entries] == ["s2"]
 
     @pytest.mark.asyncio
     async def test_tags_filtra_por_membro_da_lista(self, monkeypatch):
@@ -117,7 +123,7 @@ class TestSkillsCatalogQueryFilters:
 
         result = await skills_handler.get_skills_catalog(tags="ci")
 
-        assert [e["id"] for e in result["entries"]] == ["s1"]
+        assert [entry.id for entry in result.entries] == ["s1"]
 
     @pytest.mark.asyncio
     async def test_sem_match_devolve_lista_vazia_nao_erro(self, monkeypatch):
@@ -131,7 +137,7 @@ class TestSkillsCatalogQueryFilters:
             q="nao existe nenhuma skill assim"
         )
 
-        assert result == {"entries": [], "total": 0}
+        assert result.model_dump() == {"entries": [], "total": 0}
 
 
 class TestPublishUserSkill:

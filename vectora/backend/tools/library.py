@@ -92,7 +92,8 @@ async def install_skill_from_catalog(skill_id: str, ctx: ToolContext) -> str:
 
         remote = await registry_client.fetch_catalog("skills")
         enterprise = await registry_client.fetch_enterprise_catalog("skills")
-        local = await asyncio.to_thread(list_wellknown_catalog)
+        local_entries = await asyncio.to_thread(list_wellknown_catalog)
+        local = [entry.model_dump() for entry in local_entries]
         local_ids = {str(entry.get("id")) for entry in local if entry.get("id")}
         by_id = {
             str(entry.get("id")): entry
@@ -446,7 +447,8 @@ async def list_skills_catalog(query: str = "") -> str:
 
         remote = await registry_client.fetch_catalog("skills")
         enterprise = await registry_client.fetch_enterprise_catalog("skills")
-        local = await asyncio.to_thread(list_wellknown_catalog)
+        local_entries = await asyncio.to_thread(list_wellknown_catalog)
+        local = [entry.model_dump() for entry in local_entries]
         by_id = {
             str(entry.get("id")): entry
             for entry in [*enterprise, *remote, *local]

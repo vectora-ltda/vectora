@@ -23,11 +23,12 @@ import logging
 from typing import Literal, TypedDict
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from backend.services import registry_client
 from backend.services.importers import preview_skill_config
 from backend.services.registry_client import RegistryClientError
+from backend.vtypes.skill import SkillCatalogEntry, SkillCatalogResponse
 from backend.workspace.skills import (
     InstallSkillRequest,
     install_skill,
@@ -116,45 +117,70 @@ async def list_user_skills(
 
 
 def _matches_skill_query(
-    entry: dict, *, q: str | None, category: str | None, tags: str | None
+    entry: SkillCatalogEntry,
+    *,
+    q: str | None,
+    category: str | None,
+    tags: str | None,
 ) -> bool:
     if q:
         needle = q.strip().lower()
         if needle:
-            haystack = f"{entry.get('name', '')} {entry.get('description', '')}".lower()
+            haystack = f"{entry.name} {entry.description}".lower()
             if needle not in haystack:
                 return False
-    if category and entry.get("category") != category:
+    if category and entry.category != category:
         return False
     if tags:
-        entry_tags = entry.get("tags") or []
-        if isinstance(entry_tags, str):
-            entry_tags = [entry_tags]
-        if tags not in entry_tags:
+        if tags not in entry.tags:
             return False
     return True
 
 
-@router.get("/catalog")
+def _validate_catalog_entries(
+    entries: list[dict[str, object]],
+    catalog_source: Literal["remote", "enterprise"],
+) -> list[SkillCatalogEntry]:
+    validated: list[SkillCatalogEntry] = []
+    for entry in entries:
+        try:
+            validated.append(
+                SkillCatalogEntry.model_validate(
+                    {**entry, "catalog_source": catalog_source}
+                )
+            )
+        except ValidationError as exc:
+            logger.warning(
+                "skills: entrada de catálogo inválida ignorada",
+                extra={"catalog_source": catalog_source, "error": str(exc)},
+            )
+    return validated
+
+
+@router.get("/catalog", response_model=SkillCatalogResponse)
 async def get_skills_catalog(
     q: str | None = None, category: str | None = None, tags: str | None = None
-) -> dict:
+) -> SkillCatalogResponse:
     """Catálogo de skills curadas do registry remoto (D1, `skills_catalog`) —
     distinto de `GET /skills` (que lista as já instaladas). Mescla o
     registry remoto, um registry enterprise opcional e o catálogo local
     ``~/.vectora/skills-wellknown``. `q`/`category`/`tags` filtram em memória
     sobre as fontes já cacheadas — não refazem a requisição remota a cada busca."""
-    entries = await registry_client.fetch_catalog("skills")
-    enterprise = await registry_client.fetch_enterprise_catalog("skills")
+    remote = _validate_catalog_entries(
+        await registry_client.fetch_catalog("skills"), "remote"
+    )
+    enterprise = _validate_catalog_entries(
+        await registry_client.fetch_enterprise_catalog("skills"), "enterprise"
+    )
     local = await asyncio.to_thread(list_wellknown_catalog)
-    by_id = {str(entry.get("id")): entry for entry in enterprise if entry.get("id")}
-    by_id.update({str(entry.get("id")): entry for entry in entries if entry.get("id")})
-    by_id.update({str(entry.get("id")): entry for entry in local if entry.get("id")})
+    by_id = {entry.id: entry for entry in enterprise}
+    by_id.update({entry.id: entry for entry in remote})
+    by_id.update({entry.id: entry for entry in local})
     entries = list(by_id.values())
     filtered = [
         e for e in entries if _matches_skill_query(e, q=q, category=category, tags=tags)
     ]
-    return {"entries": filtered, "total": len(filtered)}
+    return SkillCatalogResponse(entries=filtered, total=len(filtered))
 
 
 @router.post("")
