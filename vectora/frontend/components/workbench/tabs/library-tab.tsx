@@ -216,7 +216,6 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
               </span>
             </AccordionTrigger>
             <AccordionContent
-              forceMount
               id="library-panel-mcp"
               role="tabpanel"
               aria-labelledby="library-tab-mcp"
@@ -240,7 +239,6 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
               </span>
             </AccordionTrigger>
             <AccordionContent
-              forceMount
               id="library-panel-skills"
               role="tabpanel"
               aria-labelledby="library-tab-skills"
@@ -267,7 +265,6 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
               </span>
             </AccordionTrigger>
             <AccordionContent
-              forceMount
               id="library-panel-memory"
               role="tabpanel"
               aria-labelledby="library-tab-memory"

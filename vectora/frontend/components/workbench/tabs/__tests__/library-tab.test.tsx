@@ -90,10 +90,7 @@ describe("LibraryTab", () => {
       "No skills available yet.",
       "No memory buckets available yet.",
     ]) {
-      const content = screen
-        .getByText(label)
-        .closest('[data-slot="accordion-content"]');
-      expect(content).toHaveAttribute("data-state", "closed");
+      expect(screen.queryByText(label)).not.toBeInTheDocument();
     }
   });
 
@@ -105,15 +102,11 @@ describe("LibraryTab", () => {
     fireEvent.click(screen.getByText(/Skills \(0\)/));
     expect(screen.getByText("No skills available yet.")).toBeTruthy();
     expect(
-      screen
-        .getByText("No MCP servers available yet.")
-        .closest('[data-slot="accordion-content"]'),
-    ).toHaveAttribute("data-state", "closed");
+      screen.queryByText("No MCP servers available yet."),
+    ).not.toBeInTheDocument();
     expect(
-      screen
-        .getByText("No memory buckets available yet.")
-        .closest('[data-slot="accordion-content"]'),
-    ).toHaveAttribute("data-state", "closed");
+      screen.queryByText("No memory buckets available yet."),
+    ).not.toBeInTheDocument();
   });
 
   it("mantém as três categorias no seletor e ativa apenas uma tab", () => {
@@ -142,10 +135,8 @@ describe("LibraryTab", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Memory" }));
     expect(screen.getByText("No memory buckets available yet.")).toBeTruthy();
     expect(
-      screen
-        .getByText("No MCP servers available yet.")
-        .closest('[data-slot="accordion-content"]'),
-    ).toHaveAttribute("data-state", "closed");
+      screen.queryByText("No MCP servers available yet."),
+    ).not.toBeInTheDocument();
   });
 
   it("permite recolher a seção ativa sem ativar outra", () => {
@@ -155,10 +146,8 @@ describe("LibraryTab", () => {
     expect(screen.getByText("No memory buckets available yet.")).toBeTruthy();
     fireEvent.click(memoryHeader);
     expect(
-      screen
-        .getByText("No memory buckets available yet.")
-        .closest('[data-slot="accordion-content"]'),
-    ).toHaveAttribute("data-state", "closed");
+      screen.queryByText("No memory buckets available yet."),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Memory" })).toHaveAttribute(
       "aria-selected",
       "false",
