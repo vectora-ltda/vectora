@@ -36,6 +36,7 @@ def test_registry_entries_have_required_fields():
         assert entry.id, "id não pode ser vazio"
         assert entry.name, "name não pode ser vazio"
         assert entry.description, "description não pode ser vazio"
+        assert entry.vectora_verified is False
 
 
 @pytest.fixture
@@ -91,6 +92,7 @@ async def test_list_registry_prefers_remote_entry_over_local_when_id_matches(
                     "env_vars": "[]",
                     "homepage": "",
                     "category": "filesystem",
+                    "vectora_verified": True,
                 }
             ]
         ),
@@ -100,6 +102,7 @@ async def test_list_registry_prefers_remote_entry_over_local_when_id_matches(
 
     fs = next(c for c in result if c.id == "filesystem")
     assert fs.name == "Filesystem (remoto)"
+    assert fs.vectora_verified is False
     # Demais conectores do fallback local continuam presentes, sem duplicar.
     assert len(result) == len(_REGISTRY)
 
@@ -197,16 +200,15 @@ async def test_list_registry_merges_official_mcp_registry_entries(
 
 
 @pytest.mark.asyncio
-async def test_list_registry_orders_verified_first_then_alphabetical(
+async def test_list_registry_ignores_remote_verification_flags_and_sorts_alphabetically(
     monkeypatch, _no_remote_registry
 ):
-    """Sem métrica real de popularidade na fonte, a ordenação é: conectores
-    curados (`vectora_verified`) primeiro, resto em ordem alfabética por
-    nome — nunca inventa relevância que a fonte não tem."""
+    """Flags legadas de curadoria não verificam MCPs e a lista é alfabética."""
     from unittest.mock import AsyncMock
 
     from backend.api.handlers import mcp_marketplace
 
+    monkeypatch.setattr(mcp_marketplace, "_REGISTRY", [])
     monkeypatch.setattr(
         mcp_marketplace.registry_client,
         "fetch_official_mcp_registry",
@@ -217,6 +219,7 @@ async def test_list_registry_orders_verified_first_then_alphabetical(
                     "name": "Zzz Unverified",
                     "description": "d",
                     "category": "community",
+                    "vectora_verified": True,
                 },
                 {
                     "id": "aaa-unverified",
@@ -230,16 +233,8 @@ async def test_list_registry_orders_verified_first_then_alphabetical(
 
     result = await list_registry()
 
-    verified_names = [c.name for c in result if c.vectora_verified]
-    unverified_names = [c.name for c in result if not c.vectora_verified]
-    assert verified_names == sorted(verified_names, key=str.lower)
-    assert unverified_names == ["Aaa Unverified", "Zzz Unverified"]
-    # Todos os verificados vêm antes de todos os não-verificados.
-    assert result.index(next(c for c in result if c.vectora_verified)) == 0
-    first_unverified_idx = next(
-        i for i, c in enumerate(result) if not c.vectora_verified
-    )
-    assert all(c.vectora_verified for c in result[:first_unverified_idx])
+    assert [c.name for c in result[:2]] == ["Aaa Unverified", "Zzz Unverified"]
+    assert all(not c.vectora_verified for c in result)
 
 
 @pytest.mark.asyncio

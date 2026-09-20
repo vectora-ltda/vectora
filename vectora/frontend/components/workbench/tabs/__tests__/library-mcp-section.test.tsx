@@ -48,7 +48,7 @@ const REGISTRY = [
     env_vars: [],
     homepage: "https://example.com",
     category: "filesystem",
-    vectora_verified: true,
+    vectora_verified: false,
   },
   {
     id: "brave-search",
@@ -57,7 +57,7 @@ const REGISTRY = [
     install_cmd: "npx -y @modelcontextprotocol/server-brave-search",
     env_vars: ["BRAVE_API_KEY"],
     homepage: "https://example.com",
-    category: "web",
+    category: "community",
     vectora_verified: false,
   },
 ];
@@ -118,13 +118,14 @@ describe("McpSection", () => {
     });
   });
 
-  it("mostra o estado de catálogo sem elevar curadoria a verificação", async () => {
+  it("não exibe badge de comunidade nem verificação para MCPs do catálogo", async () => {
     render(<McpSection query="" onCountChange={() => {}} />);
     await waitFor(() => {
       expect(screen.getByText("Filesystem")).toBeTruthy();
     });
-    const badges = screen.getAllByText("Community listed");
-    expect(badges).toHaveLength(1);
+    expect(screen.queryByText("Community listed")).toBeNull();
+    expect(screen.queryByText("Verified")).toBeNull();
+    expect(screen.queryByText("community", { exact: true })).toBeNull();
   });
 
   it("reporta a contagem filtrada via onCountChange", async () => {

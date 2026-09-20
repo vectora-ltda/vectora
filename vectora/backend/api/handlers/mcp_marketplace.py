@@ -119,7 +119,11 @@ class PolicyRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Registry embutido — subconjunto curado de MCPs populares
+# Registry embutido — subconjunto de MCPs da comunidade.
+#
+# Nenhuma entrada é verificada por padrão. A marcação `vectora_verified` fica
+# disponível no contrato para uma futura curadoria explícita, mas não deve ser
+# inferida pelo fato de um conector estar neste fallback.
 # ---------------------------------------------------------------------------
 
 _REGISTRY: list[MCPConnector] = [
@@ -131,7 +135,6 @@ _REGISTRY: list[MCPConnector] = [
         env_vars=["BRAVE_API_KEY"],
         homepage="https://github.com/modelcontextprotocol/servers",
         category="web",
-        vectora_verified=True,
     ),
     MCPConnector(
         id="filesystem",
@@ -141,7 +144,6 @@ _REGISTRY: list[MCPConnector] = [
         env_vars=[],
         homepage="https://github.com/modelcontextprotocol/servers",
         category="filesystem",
-        vectora_verified=True,
     ),
     MCPConnector(
         id="github",
@@ -151,7 +153,6 @@ _REGISTRY: list[MCPConnector] = [
         env_vars=["GITHUB_PERSONAL_ACCESS_TOKEN"],
         homepage="https://github.com/modelcontextprotocol/servers",
         category="devtools",
-        vectora_verified=True,
     ),
     MCPConnector(
         id="postgres",
@@ -161,7 +162,6 @@ _REGISTRY: list[MCPConnector] = [
         env_vars=["POSTGRES_CONNECTION_STRING"],
         homepage="https://github.com/modelcontextprotocol/servers",
         category="database",
-        vectora_verified=True,
     ),
     MCPConnector(
         id="slack",
@@ -171,7 +171,6 @@ _REGISTRY: list[MCPConnector] = [
         env_vars=["SLACK_BOT_TOKEN", "SLACK_TEAM_ID"],
         homepage="https://github.com/modelcontextprotocol/servers",
         category="communication",
-        vectora_verified=True,
     ),
     MCPConnector(
         id="sequential-thinking",
@@ -181,7 +180,6 @@ _REGISTRY: list[MCPConnector] = [
         env_vars=[],
         homepage="https://github.com/modelcontextprotocol/servers",
         category="reasoning",
-        vectora_verified=True,
     ),
 ]
 
@@ -200,14 +198,8 @@ def _connector_to_server(connector: MCPConnector) -> McpServer:
     parts = connector.install_cmd.split() if connector.install_cmd else ["npx"]
     trust = extension_trust.TrustRecord(
         source=f"marketplace:{connector.id}",
-        state=(
-            "community_listed" if connector.vectora_verified else connector.trust_state
-        ),
-        reason=(
-            "catalog_curated_without_signature"
-            if connector.vectora_verified
-            else connector.trust_reason
-        ),
+        state=connector.trust_state,
+        reason=connector.trust_reason,
     )
     return McpServer(
         name=connector.id,
@@ -236,16 +228,12 @@ def _remote_entry_to_connector(entry: dict) -> MCPConnector | None:
             env_vars=list(env_vars) if env_vars else [],
             homepage=entry.get("homepage") or "",
             category=entry.get("category", "general"),
-            vectora_verified=bool(entry.get("vectora_verified")),
+            # O registry remoto pode carregar flags legadas de curadoria.
+            # Elas não valem como verificação até uma curadoria explícita.
+            vectora_verified=False,
             icon_url=entry.get("icon_url") or None,
-            trust_state=(
-                "vectora_verified"
-                if entry.get("vectora_verified")
-                else "community_listed"
-            ),
-            trust_reason="catalog_curated"
-            if entry.get("vectora_verified")
-            else "catalog_listed",
+            trust_state="unsigned",
+            trust_reason="catalog_listed",
         )
     except Exception as exc:
         logger.warning("mcp_marketplace: entrada remota malformada ignorada: %r", entry)
@@ -256,8 +244,7 @@ async def list_registry() -> list[MCPConnector]:
     """Mescla três fontes, nessa ordem de prioridade (id repetido: a
     primeira que aparece vence):
 
-    1. Registry próprio da Vectora (D1, `services/src/registry/routes.ts`)
-       — curado, entradas com `vectora_verified`.
+    1. Registry próprio da Vectora (D1, `services/src/registry/routes.ts`).
     2. Registry oficial de MCP (`registry.modelcontextprotocol.io`,
        mantido pela comunidade/Anthropic) — catálogo amplo, só servers com
        pacote npm/stdio (único transporte que `_connector_to_server`
@@ -267,9 +254,9 @@ async def list_registry() -> list[MCPConnector]:
 
     As duas primeiras fontes são buscadas em paralelo (cada uma já é
     cache-first dentro de `registry_client`) — nenhuma depende da outra.
-    A lista final ordena verificados primeiro (curados, `vectora_verified`),
-    resto em ordem alfabética por nome — nunca inventa métrica de
-    popularidade que a fonte não tem.
+    A lista final é ordenada alfabeticamente por nome. Nenhuma fonte remota ou
+    fallback local concede verificação automaticamente; `vectora_verified` só
+    poderá ser preenchido por uma futura curadoria explícita.
     """
     remote, enterprise, official = await asyncio.gather(
         registry_client.fetch_catalog("mcp"),
@@ -291,9 +278,7 @@ async def list_registry() -> list[MCPConnector]:
             connectors.setdefault(connector.id, connector)
     for connector in _REGISTRY:
         connectors.setdefault(connector.id, connector)
-    return sorted(
-        connectors.values(), key=lambda c: (not c.vectora_verified, c.name.lower())
-    )
+    return sorted(connectors.values(), key=lambda c: c.name.lower())
 
 
 async def install_mcp(

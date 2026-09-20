@@ -248,22 +248,7 @@ function ConnectorCard({
     }
   };
 
-  const trustState = connector.vectora_verified
-    ? "vectora_verified"
-    : (connector.trust_state ?? "community_listed");
-  const verified = trustState === "vectora_verified";
-  const trustLabel =
-    trustState === "vectora_verified"
-      ? m.library_mcp_verified()
-      : trustState === "publisher_signed"
-        ? m.library_skills_trust_publisher_signed()
-        : trustState === "unsigned"
-          ? m.library_skills_trust_unsigned()
-          : trustState === "invalid"
-            ? m.library_skills_trust_invalid()
-            : trustState === "verification_unavailable"
-              ? m.library_skills_trust_verification_unavailable()
-              : m.library_skills_trust_community_listed();
+  const verified = connector.vectora_verified === true;
 
   return (
     <LibraryCard
@@ -282,8 +267,12 @@ function ConnectorCard({
       description={connector.description}
       tags={
         <>
-          <LibraryTag>{connector.category}</LibraryTag>
-          <LibraryTag verified={verified}>{trustLabel}</LibraryTag>
+          {connector.category !== "community" && (
+            <LibraryTag>{connector.category}</LibraryTag>
+          )}
+          {verified && (
+            <LibraryTag verified>{m.library_mcp_verified()}</LibraryTag>
+          )}
         </>
       }
       action={
