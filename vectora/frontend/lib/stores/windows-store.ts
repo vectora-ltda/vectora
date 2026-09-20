@@ -411,8 +411,18 @@ export const useWindowsStore = create<WindowsState>()(
       partialize: (state) => ({
         windows: state.windows,
         topZ: state.topZ,
-        canvasDocuments: state.canvasDocuments,
-        activeCanvasDocumentId: state.activeCanvasDocumentId,
+        // File descriptors can be reconstructed from the workspace. Plan and
+        // commit previews depend on route-local payload caches, so persisting
+        // them would restore tabs that can never render after a reload.
+        canvasDocuments: state.canvasDocuments.filter(
+          (document) => document.kind === "file",
+        ),
+        activeCanvasDocumentId:
+          state.canvasDocuments.find(
+            (document) =>
+              document.id === state.activeCanvasDocumentId &&
+              document.kind === "file",
+          )?.id ?? null,
       }),
     },
   ),

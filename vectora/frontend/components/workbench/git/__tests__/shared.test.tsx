@@ -29,7 +29,6 @@ describe("HunkView", () => {
               type: "add",
               old_line_number: null,
               new_line_number: 19,
-              no_trailing_newline: true,
             },
           ],
         }}
@@ -41,6 +40,25 @@ describe("HunkView", () => {
     expect(screen.getAllByText("19")).toHaveLength(2);
     expect(screen.getByText("removida")).toBeInTheDocument();
     expect(screen.getByText("adicionada")).toBeInTheDocument();
+  });
+
+  it("renderiza o marcador quando o diff não termina com newline", () => {
+    render(
+      <HunkView
+        hunk={{
+          header: "@@ -1,1 +1,1 @@",
+          lines: [
+            {
+              text: "+sem newline",
+              type: "add",
+              old_line_number: null,
+              new_line_number: 1,
+              no_trailing_newline: true,
+            },
+          ],
+        }}
+      />,
+    );
     expect(screen.getByText(/No newline at end of file/)).toBeInTheDocument();
   });
 });

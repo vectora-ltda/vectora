@@ -352,6 +352,19 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     expect(textarea.className).toContain("overflow-x-hidden");
     expect(textarea.className).not.toContain("overflow-x-auto");
   });
+
+  it("preserva o estado de erro sem criar overflow no composer compacto", () => {
+    const { container } = render(
+      <ChatInput
+        {...baseProps({ compact: true, inputError: "Mensagem indisponível" })}
+      />,
+    );
+
+    expect(screen.getByText("Mensagem indisponível")).toBeInTheDocument();
+    expect(
+      container.querySelector('[data-testid="chat-input-footer"]'),
+    ).toHaveClass("min-w-0");
+  });
 });
 
 describe("ChatInput — capability de imagem no OpenRouter varia por modelo", () => {

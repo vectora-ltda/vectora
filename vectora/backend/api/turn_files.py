@@ -31,6 +31,10 @@ class GitCommands(Protocol):
         """Return a revision diff or a list of changed paths."""
         ...
 
+    def cat_file(self, *args: str, **kwargs: object) -> str | bytes:
+        """Check whether an object exists in a revision."""
+        ...
+
 
 class RepoLike(Protocol):
     """Minimal repository surface used by the tracker and its tests."""
@@ -163,9 +167,20 @@ def _read(repo_root: Path, path: str) -> bytes | None:
 def _head_read(repo: RepoLike, path: str, ref: str = "HEAD") -> bytes | None:
     """Read a bounded file from ``ref`` without raising on missing paths."""
     try:
-        return repo.git.show(f"{ref}:{path}").encode("utf-8", errors="replace")
+        raw = repo.git.show(f"{ref}:{path}")
+        encoded = raw.encode("utf-8", errors="replace")
+        return encoded if len(encoded) <= MAX_FILE_BYTES else None
     except Exception:
         return None
+
+
+def _head_exists(repo: RepoLike, path: str, ref: str) -> bool:
+    """Check whether ``path`` exists in a revision without reading its data."""
+    try:
+        repo.git.cat_file("-e", f"{ref}:{path}")
+    except Exception:
+        return False
+    return True
 
 
 def _repo_and_scope(workspace_id: str) -> tuple[RepoLike, Path, Path] | None:
@@ -197,10 +212,16 @@ def capture(
         if resolved is None:
             return None
         repo, repo_root, scope_root = resolved
-        head = getattr(repo, "head", None)
-        commit = getattr(head, "commit", None)
-        commit_sha = getattr(commit, "hexsha", None)
-        initial_head = str(commit_sha) if commit_sha else None
+        initial_head: str | None = None
+        try:
+            head = getattr(repo, "head", None)
+            commit = getattr(head, "commit", None)
+            commit_sha = getattr(commit, "hexsha", None)
+            initial_head = str(commit_sha) if commit_sha else None
+        except (AttributeError, ValueError):
+            # A repository without its first commit has an unborn HEAD. The
+            # working tree is still a valid baseline for turn tracking.
+            initial_head = None
         initial = {
             path: _read(repo_root, path)
             for path in _status_paths(repo, scope_root, repo_root)
@@ -263,6 +284,17 @@ def compute(snapshot: TurnWorkspaceSnapshot) -> list[TurnFileChange]:
             else _head_read(repo, path, snapshot.initial_head or "HEAD")
         )
         after = _read(snapshot.repo_root, path)
+        before_ref = snapshot.initial_head or "HEAD"
+        before_exists = path in snapshot.initial or (
+            snapshot.initial_head is not None and _head_exists(repo, path, before_ref)
+        )
+        after_exists = (snapshot.repo_root / path).is_file()
+        # Bounded reads intentionally return None for oversized files. Do not
+        # turn an unreadable-but-present file into a false deletion.
+        if before is None and after is None and before_exists and after_exists:
+            continue
+        if before is not None and after is None and after_exists:
+            continue
         if before == after:
             continue
         before_lines = _decode_lines(before)
@@ -300,7 +332,7 @@ def compute(snapshot: TurnWorkspaceSnapshot) -> list[TurnFileChange]:
         else:
             additions = 1 if after is not None else 0
             deletions = 1 if before is not None else 0
-        status = "A" if before is None else "D" if after is None else "M"
+        status = "A" if not before_exists else "D" if not after_exists else "M"
         changes.append(TurnFileChange(path, status, additions, deletions, hunks))
     return changes
 

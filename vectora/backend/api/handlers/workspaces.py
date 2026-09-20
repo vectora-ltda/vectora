@@ -1306,7 +1306,12 @@ def _untracked_as_diff(content: str) -> list[DiffHunk]:
     hunk = DiffHunk(
         header=f"@@ -0,0 +1,{n} @@",
         lines=[
-            DiffLine(text=f"+{line}", type="add", new_line_number=index)
+            DiffLine(
+                text=f"+{line}",
+                type="add",
+                new_line_number=index,
+                no_trailing_newline=not content.endswith("\\n") and index == n,
+            )
             for index, line in enumerate(lines, start=1)
         ],
     )

@@ -1258,8 +1258,17 @@ async def git_check_hooks(ctx: ToolContext, workspace_id: str | None = None) -> 
     repo, err = _open_repo(workspace_id, ctx)
     if err:
         return err
-    result = await asyncio.to_thread(_run_pre_commit_hooks, repo)
-    return json.dumps(result)
+    try:
+        result = await asyncio.to_thread(_run_pre_commit_hooks, repo)
+        return json.dumps(result)
+    except Exception as exc:
+        logger.exception(
+            "git_check_hooks failed",
+            extra={"tool": "git_check_hooks", "workspace_id": workspace_id},
+        )
+        return json.dumps(
+            {"passed": False, "output": f"falha inesperada ao executar hooks: {exc}"}
+        )
 
 
 @vtool(

@@ -134,3 +134,46 @@ def test_latest_ignores_empty_run_id_as_active_lookup(
 
     assert run_id == "run-empty"
     assert status == "active"
+
+
+def test_capture_tracks_changes_before_first_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = git.Repo.init(tmp_path)
+    monkeypatch.setattr(
+        turn_files,
+        "_repo_and_scope",
+        lambda _workspace_id: (repo, tmp_path, tmp_path),
+    )
+
+    snapshot = turn_files.capture("ws", "thread", "run-unborn")
+    assert snapshot is not None
+    (tmp_path / "new.py").write_text("print('ok')\n", encoding="utf-8")
+
+    changes = turn_files.finalize(snapshot)
+
+    assert [change.path for change in changes] == ["new.py"]
+    assert changes[0].status == "A"
+
+
+def test_oversized_committed_file_is_not_reported_as_deleted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _repo(tmp_path)
+    large = "x" * (turn_files.MAX_FILE_BYTES + 1)
+    (tmp_path / "large.txt").write_text(large, encoding="utf-8")
+    repo.index.add(["large.txt"])
+    repo.index.commit("add large file")
+    monkeypatch.setattr(
+        turn_files,
+        "_repo_and_scope",
+        lambda _workspace_id: (repo, tmp_path, tmp_path),
+    )
+
+    snapshot = turn_files.capture("ws", "thread", "run-large")
+    assert snapshot is not None
+    (tmp_path / "large.txt").write_text(large + "y", encoding="utf-8")
+    repo.index.add(["large.txt"])
+    repo.index.commit("edit large file")
+
+    assert turn_files.finalize(snapshot) == []

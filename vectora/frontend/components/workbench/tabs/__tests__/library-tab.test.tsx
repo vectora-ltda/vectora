@@ -20,9 +20,13 @@ vi.mock("../library-mcp-section", () => ({
     onCountChange: (count: number) => void;
   }) => {
     useEffect(() => {
-      onCountChange(0);
+      onCountChange(fixtures.populated ? 1 : 0);
     }, [onCountChange]);
-    return <p>No MCP servers available yet.</p>;
+    return fixtures.populated ? (
+      <article>Brave Search MCP</article>
+    ) : (
+      <p>No MCP servers available yet.</p>
+    );
   },
 }));
 
@@ -34,9 +38,13 @@ vi.mock("../library-skills-section", () => ({
     onCountChange: (count: number) => void;
   }) => {
     useEffect(() => {
-      onCountChange(0);
+      onCountChange(fixtures.populated ? 1 : 0);
     }, [onCountChange]);
-    return <p>No skills available yet.</p>;
+    return fixtures.populated ? (
+      <article>Frontend Skill</article>
+    ) : (
+      <p>No skills available yet.</p>
+    );
   },
 }));
 
@@ -48,15 +56,24 @@ vi.mock("../library-memory-section", () => ({
     onCountChange: (count: number) => void;
   }) => {
     useEffect(() => {
-      onCountChange(0);
+      onCountChange(fixtures.populated ? 1 : 0);
     }, [onCountChange]);
-    return <p>No memory buckets available yet.</p>;
+    return fixtures.populated ? (
+      <article>Godot Engine 4.6</article>
+    ) : (
+      <p>No memory buckets available yet.</p>
+    );
   },
 }));
 
 import { LibraryTab } from "../library-tab";
 
-afterEach(cleanup);
+const fixtures = vi.hoisted(() => ({ populated: false }));
+
+afterEach(() => {
+  fixtures.populated = false;
+  cleanup();
+});
 
 describe("LibraryTab", () => {
   it("renderiza as 3 seções (MCP, Skills, Memory Library)", () => {
@@ -68,9 +85,16 @@ describe("LibraryTab", () => {
 
   it("mantém as três seções fechadas ao iniciar", () => {
     render(<LibraryTab threadId="t1" />);
-    expect(screen.queryByText("No MCP servers available yet.")).toBeNull();
-    expect(screen.queryByText("No skills available yet.")).toBeNull();
-    expect(screen.queryByText("No memory buckets available yet.")).toBeNull();
+    for (const label of [
+      "No MCP servers available yet.",
+      "No skills available yet.",
+      "No memory buckets available yet.",
+    ]) {
+      const content = screen
+        .getByText(label)
+        .closest('[data-slot="accordion-content"]');
+      expect(content).toHaveAttribute("data-state", "closed");
+    }
   });
 
   it("abre uma seção por vez e fecha a anterior", () => {
@@ -80,8 +104,16 @@ describe("LibraryTab", () => {
 
     fireEvent.click(screen.getByText(/Skills \(0\)/));
     expect(screen.getByText("No skills available yet.")).toBeTruthy();
-    expect(screen.queryByText("No MCP servers available yet.")).toBeNull();
-    expect(screen.queryByText("No memory buckets available yet.")).toBeNull();
+    expect(
+      screen
+        .getByText("No MCP servers available yet.")
+        .closest('[data-slot="accordion-content"]'),
+    ).toHaveAttribute("data-state", "closed");
+    expect(
+      screen
+        .getByText("No memory buckets available yet.")
+        .closest('[data-slot="accordion-content"]'),
+    ).toHaveAttribute("data-state", "closed");
   });
 
   it("mantém as três categorias no seletor e ativa apenas uma tab", () => {
@@ -109,7 +141,11 @@ describe("LibraryTab", () => {
     render(<LibraryTab threadId="t1" />);
     fireEvent.click(screen.getByRole("tab", { name: "Memory" }));
     expect(screen.getByText("No memory buckets available yet.")).toBeTruthy();
-    expect(screen.queryByText("No MCP servers available yet.")).toBeNull();
+    expect(
+      screen
+        .getByText("No MCP servers available yet.")
+        .closest('[data-slot="accordion-content"]'),
+    ).toHaveAttribute("data-state", "closed");
   });
 
   it("permite recolher a seção ativa sem ativar outra", () => {
@@ -118,7 +154,11 @@ describe("LibraryTab", () => {
     fireEvent.click(memoryHeader);
     expect(screen.getByText("No memory buckets available yet.")).toBeTruthy();
     fireEvent.click(memoryHeader);
-    expect(screen.queryByText("No memory buckets available yet.")).toBeNull();
+    expect(
+      screen
+        .getByText("No memory buckets available yet.")
+        .closest('[data-slot="accordion-content"]'),
+    ).toHaveAttribute("data-state", "closed");
     expect(screen.getByRole("tab", { name: "Memory" })).toHaveAttribute(
       "aria-selected",
       "false",
@@ -133,6 +173,28 @@ describe("LibraryTab", () => {
       .closest('[data-slot="accordion-content"]');
     expect(content).toHaveClass("overflow-hidden");
     expect(content?.firstElementChild).toHaveClass("overflow-y-auto");
+  });
+
+  it("renderiza dados representativos em cada seção", () => {
+    fixtures.populated = true;
+    render(<LibraryTab threadId="t1" />);
+
+    fireEvent.click(screen.getByRole("tab", { name: "MCP" }));
+    expect(screen.getByText("Brave Search MCP")).toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "Skills" }));
+    expect(screen.getByText("Frontend Skill")).toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "Memory" }));
+    expect(screen.getByText("Godot Engine 4.6")).toBeVisible();
+  });
+
+  it("move o foco entre categorias com as setas", () => {
+    render(<LibraryTab threadId="t1" />);
+    const mcpTab = screen.getByRole("tab", { name: "MCP" });
+    const skillsTab = screen.getByRole("tab", { name: "Skills" });
+    mcpTab.focus();
+    fireEvent.keyDown(mcpTab, { key: "ArrowRight" });
+    expect(skillsTab).toHaveFocus();
+    expect(skillsTab).toHaveAttribute("aria-selected", "true");
   });
 
   it("busca filtra o campo de texto sem quebrar com resultado vazio", () => {

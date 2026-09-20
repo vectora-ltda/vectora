@@ -7,7 +7,7 @@
  */
 
 import { Archive, Puzzle, Search, Sparkles } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useState, type KeyboardEvent } from "react";
 
 import {
   Accordion,
@@ -25,6 +25,7 @@ interface LibraryTabProps {
 }
 
 type LibraryFilter = "mcp" | "skills" | "memory";
+const LIBRARY_SECTIONS = ["mcp", "skills", "memory"] as const;
 
 /** Item genérico de qualquer seção — cada seção monta a lista completa a
  * partir do seu próprio backend; a busca/filtro aqui só precisa do nome
@@ -36,20 +37,30 @@ export interface LibraryItem {
 }
 
 function FilterPill({
+  value,
   label,
   active,
   onSelect,
+  onKeyDown,
+  tabIndex,
 }: {
   label: string;
+  value: string;
   active: boolean;
   onSelect: () => void;
+  onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void;
+  tabIndex: number;
 }) {
   return (
     <button
       type="button"
       role="tab"
       aria-selected={active}
+      aria-controls={`library-panel-${value}`}
+      id={`library-tab-${value}`}
+      tabIndex={tabIndex}
       onClick={onSelect}
+      onKeyDown={onKeyDown}
       className={`h-6 rounded-[5px] px-2.5 py-1 text-xs transition-colors ${
         active
           ? "bg-[#d4d4d4]/15 text-[#d4d4d4]"
@@ -104,6 +115,47 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
     setMemoryCount(count);
   }, []);
 
+  const handleSectionKeyDown = useCallback(
+    (
+      event: KeyboardEvent<HTMLButtonElement>,
+      value: (typeof LIBRARY_SECTIONS)[number],
+    ) => {
+      if (
+        ![
+          "ArrowRight",
+          "ArrowDown",
+          "ArrowLeft",
+          "ArrowUp",
+          "Home",
+          "End",
+        ].includes(event.key)
+      ) {
+        return;
+      }
+      event.preventDefault();
+      const index = LIBRARY_SECTIONS.indexOf(value);
+      const nextIndex =
+        event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? LIBRARY_SECTIONS.length - 1
+            : (index +
+                (event.key === "ArrowLeft" || event.key === "ArrowUp"
+                  ? -1
+                  : 1) +
+                LIBRARY_SECTIONS.length) %
+              LIBRARY_SECTIONS.length;
+      const next = document.getElementById(
+        `library-tab-${LIBRARY_SECTIONS[nextIndex]}`,
+      );
+      if (next instanceof HTMLButtonElement) {
+        next.focus();
+        setActiveSection(LIBRARY_SECTIONS[nextIndex]);
+      }
+    },
+    [],
+  );
+
   return (
     <div className="flex h-full flex-col bg-[#181818]">
       <div className="flex min-h-[86px] flex-col gap-2.5 border-b border-[#2a2a2a]/60 p-2.5">
@@ -113,24 +165,35 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
           role="tablist"
         >
           <FilterPill
+            value="mcp"
             label={m.library_filter_mcp()}
             active={activeSection === "mcp"}
             onSelect={() => setActiveSection("mcp")}
+            onKeyDown={(event) => handleSectionKeyDown(event, "mcp")}
+            tabIndex={
+              activeSection === "mcp" || activeSection === undefined ? 0 : -1
+            }
           />
           <FilterPill
+            value="skills"
             label={m.library_filter_skills()}
             active={activeSection === "skills"}
             onSelect={() => setActiveSection("skills")}
+            onKeyDown={(event) => handleSectionKeyDown(event, "skills")}
+            tabIndex={activeSection === "skills" ? 0 : -1}
           />
           <FilterPill
+            value="memory"
             label={m.library_filter_memory()}
             active={activeSection === "memory"}
             onSelect={() => setActiveSection("memory")}
+            onKeyDown={(event) => handleSectionKeyDown(event, "memory")}
+            tabIndex={activeSection === "memory" ? 0 : -1}
           />
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <Accordion
           type="single"
           collapsible
@@ -153,6 +216,10 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
               </span>
             </AccordionTrigger>
             <AccordionContent
+              forceMount
+              id="library-panel-mcp"
+              role="tabpanel"
+              aria-labelledby="library-tab-mcp"
               containerClassName="data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:overflow-hidden"
               className="h-full overflow-y-auto pb-2 pl-2 pr-1"
             >
@@ -173,6 +240,10 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
               </span>
             </AccordionTrigger>
             <AccordionContent
+              forceMount
+              id="library-panel-skills"
+              role="tabpanel"
+              aria-labelledby="library-tab-skills"
               containerClassName="data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:overflow-hidden"
               className="h-full overflow-y-auto pb-2 pl-2 pr-1"
             >
@@ -196,6 +267,10 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
               </span>
             </AccordionTrigger>
             <AccordionContent
+              forceMount
+              id="library-panel-memory"
+              role="tabpanel"
+              aria-labelledby="library-tab-memory"
               containerClassName="data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:overflow-hidden"
               className="h-full overflow-y-auto pb-2 pl-2 pr-1"
             >

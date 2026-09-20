@@ -160,20 +160,35 @@ def stream_engine_events(
         )
 
         run_lock = _workspace_run_lock(workspace_id) if workspace_id else None
+        lock_guard_active = False
         if run_lock is not None:
             await run_lock.acquire()
+            lock_guard_active = True
 
-        resolved_run_id = run_id or uuid.uuid4().hex
-        turn_snapshot = await asyncio.to_thread(
-            capture, workspace_id, thread_id, resolved_run_id
-        )
-        yield encode_event(
-            ThreadEvent(
-                thread_id=thread_id,
-                workspace_id=workspace_id or "",
-                run_id=resolved_run_id,
+        # The lock must already be protected while capture and the initial
+        # event are running. A client can cancel or close the generator before
+        # the consumer loop below is entered.
+        try:
+            resolved_run_id = run_id or uuid.uuid4().hex
+            turn_snapshot = await asyncio.to_thread(
+                capture, workspace_id, thread_id, resolved_run_id
             )
-        )
+            yield encode_event(
+                ThreadEvent(
+                    thread_id=thread_id,
+                    workspace_id=workspace_id or "",
+                    run_id=resolved_run_id,
+                )
+            )
+        except BaseException:
+            if lock_guard_active and run_lock is not None and run_lock.locked():
+                run_lock.release()
+                if workspace_id and _workspace_run_locks.get(workspace_id) is run_lock:
+                    waiters = getattr(run_lock, "_waiters", None)
+                    if not waiters:
+                        _workspace_run_locks.pop(workspace_id, None)
+            raise
+        lock_guard_active = False
 
         queue: asyncio.Queue[Any] = asyncio.Queue()
         background_tasks: set[asyncio.Task[None]] = set()
@@ -388,6 +403,10 @@ def stream_engine_events(
                     await run_task
             if run_lock is not None and run_lock.locked():
                 run_lock.release()
+                if workspace_id and _workspace_run_locks.get(workspace_id) is run_lock:
+                    waiters = getattr(run_lock, "_waiters", None)
+                    if not waiters:
+                        _workspace_run_locks.pop(workspace_id, None)
             yield encode_event(DoneEvent(thread_id=thread_id, run_id=resolved_run_id))
 
     return _gen()

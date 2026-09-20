@@ -18,6 +18,7 @@ memory_library.py::post_publish`.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Literal, TypedDict
 
@@ -145,7 +146,7 @@ async def get_skills_catalog(
     sobre as fontes já cacheadas — não refazem a requisição remota a cada busca."""
     entries = await registry_client.fetch_catalog("skills")
     enterprise = await registry_client.fetch_enterprise_catalog("skills")
-    local = list_wellknown_catalog()
+    local = await asyncio.to_thread(list_wellknown_catalog)
     by_id = {str(entry.get("id")): entry for entry in enterprise if entry.get("id")}
     by_id.update({str(entry.get("id")): entry for entry in entries if entry.get("id")})
     by_id.update({str(entry.get("id")): entry for entry in local if entry.get("id")})

@@ -166,12 +166,12 @@ export function ChangesView({
   summary: DiffSummary;
 }) {
   const invalidateDiff = useWorkbenchStore((s) => s.invalidateDiff);
-  const toggleSelection = useWorkbenchStore((s) => s.toggleGitFileSelection);
   const setGitFileSelection = useWorkbenchStore((s) => s.setGitFileSelection);
   const gitOps = useWorkbenchStore(
     (s) =>
       s.getGitOps?.(workspaceId) ?? {
         selectedFiles: [],
+        selectionRevision: 0,
         selectedHunks: {},
         activeDocument: null,
         operation: null,
@@ -292,6 +292,7 @@ export function ChangesView({
   };
 
   const handleBatchAction = async (action: "stage" | "unstage") => {
+    const initiatingRevision = gitOps.selectionRevision;
     const selected = summary.files.filter((file) =>
       gitOps.selectedFiles.includes(file.path),
     );
@@ -317,8 +318,22 @@ export function ChangesView({
       return;
     }
     const failed = results.filter(({ result }) => result.status === "error");
-    for (const { file, result } of results) {
-      if (result.status !== "error") toggleSelection(workspaceId, file.path);
+    if (
+      useWorkbenchStore.getState().getGitOps(workspaceId).selectionRevision ===
+      initiatingRevision
+    ) {
+      const successful = new Set(
+        results
+          .filter(({ result }) => result.status !== "error")
+          .map(({ file }) => file.path),
+      );
+      const current = useWorkbenchStore
+        .getState()
+        .getGitOps(workspaceId).selectedFiles;
+      setGitFileSelection(
+        workspaceId,
+        current.filter((path) => !successful.has(path)),
+      );
     }
     if (failed.length > 0) {
       showError(
@@ -336,10 +351,15 @@ export function ChangesView({
       return;
     }
     const requestId = ++suggestionRequest.current;
+    const requestedWorkspaceId = workspaceId;
     setGenerating(true);
     try {
-      const suggestion = await fetchGitCommitSuggestion(workspaceId);
-      if (suggestion?.title && requestId === suggestionRequest.current) {
+      const suggestion = await fetchGitCommitSuggestion(requestedWorkspaceId);
+      if (
+        suggestion?.title &&
+        requestedWorkspaceId === workspaceId &&
+        requestId === suggestionRequest.current
+      ) {
         setCommitMsg((current) => current.trim() || suggestion.title);
         setCommitBody((current) => current.trim() || suggestion.description);
       }

@@ -169,6 +169,7 @@ export interface GitOpsSnapshot {
 
 export interface GitOpsState {
   selectedFiles: string[];
+  selectionRevision: number;
   selectedHunks: Record<string, number[]>;
   activeDocument: string | null;
   operation: GitOpsSnapshot | null;
@@ -381,6 +382,7 @@ const EMPTY_PLAN: PlanCache = {
 const EMPTY_TODOS: TodoItem[] = [];
 const EMPTY_GIT_OPS: GitOpsState = {
   selectedFiles: [],
+  selectionRevision: 0,
   selectedHunks: {},
   activeDocument: null,
   operation: null,
@@ -717,7 +719,14 @@ export const useWorkbenchStore = create<WorkbenchState>()(
               ? current.selectedFiles.filter((item) => item !== path)
               : [...current.selectedFiles, path];
             return {
-              gitOps: { ...s.gitOps, [wsId]: { ...current, selectedFiles } },
+              gitOps: {
+                ...s.gitOps,
+                [wsId]: {
+                  ...current,
+                  selectedFiles,
+                  selectionRevision: current.selectionRevision + 1,
+                },
+              },
             };
           }),
         setGitFileSelection: (wsId, paths) =>
@@ -726,7 +735,11 @@ export const useWorkbenchStore = create<WorkbenchState>()(
             return {
               gitOps: {
                 ...s.gitOps,
-                [wsId]: { ...current, selectedFiles: paths },
+                [wsId]: {
+                  ...current,
+                  selectedFiles: paths,
+                  selectionRevision: current.selectionRevision + 1,
+                },
               },
             };
           }),

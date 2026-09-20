@@ -383,7 +383,7 @@ describe("windows-store — documentos do Canvas", () => {
     ]);
   });
 
-  it("persiste descriptors do Canvas e o documento ativo", () => {
+  it("persiste apenas documentos que podem ser reidratados", () => {
     s().openCanvasDocument({
       id: "commit:ws1:t1:abc",
       kind: "commit-details",
@@ -393,8 +393,8 @@ describe("windows-store — documentos do Canvas", () => {
     });
     const partialize = useWindowsStore.persist.getOptions().partialize;
     const persisted = partialize?.(s()) as Record<string, unknown>;
-    expect(persisted.canvasDocuments).toEqual(s().canvasDocuments);
-    expect(persisted.activeCanvasDocumentId).toBe("commit:ws1:t1:abc");
+    expect(persisted.canvasDocuments).toEqual([]);
+    expect(persisted.activeCanvasDocumentId).toBeNull();
   });
 });
 

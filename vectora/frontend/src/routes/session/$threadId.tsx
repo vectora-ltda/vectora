@@ -1142,6 +1142,7 @@ function SessionPage() {
                           (item) => item.id === id,
                         );
                         if (document?.kind === "file" && document.path) {
+                          closeCanvasDocument(id);
                           closeDockedTab(document.path);
                         } else {
                           closeCanvasDocument(id);
@@ -1215,7 +1216,7 @@ function SessionPage() {
                     className={
                       isNarrowIdeViewport
                         ? "relative flex flex-col h-full bg-sidebar"
-                        : `relative min-w-60 shrink-0 flex flex-col h-full border-border/60 bg-sidebar ${sidebarOnRight ? "border-r" : "border-l"}`
+                        : `relative ${chatSidebarOpen ? "min-w-60" : "min-w-12"} shrink-0 flex flex-col h-full border-border/60 bg-sidebar ${sidebarOnRight ? "border-r" : "border-l"}`
                     }
                     style={
                       isNarrowIdeViewport

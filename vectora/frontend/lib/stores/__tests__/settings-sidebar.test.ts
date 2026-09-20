@@ -1,6 +1,6 @@
 /**
  * Tests para os ajustes de sidebar do settings-store: clamp de largura
- * (240–480, arredondado) e posição. Complementa tests/bloco_l_settings.ts.
+ * (240–480, arredondado) e posição.
  */
 
 import { describe, expect, it, beforeEach } from "vitest";
