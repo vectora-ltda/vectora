@@ -3,8 +3,7 @@
 /**
  * SkillsSection — gerencia skills instaladas (backend/workspace/skills.py,
  * GET/POST /skills, DELETE /skills/:id, POST /skills/:id/verify).
- * Reaproveita o componente SkillsTab, usando seu callback onSkillsChange
- * pra manter o badge "(N)" do accordion em dia sem duplicar o fetch.
+ * Reaproveita o componente SkillsTab sem duplicar o fetch das skills locais.
  *
  * Abaixo dela, "Catálogo" lista skills curadas do registry remoto
  * (GET /skills/catalog, distinto de GET /skills que lista as instaladas) —
@@ -363,13 +362,7 @@ function SkillsCatalog({ query }: { query: string }) {
   );
 }
 
-export function SkillsSection({
-  query,
-  onCountChange,
-}: {
-  query: string;
-  onCountChange: (count: number) => void;
-}) {
+export function SkillsSection({ query }: { query: string }) {
   const { status: licenseStatus } = useLicenseStatus();
   const invalidateSkills = useLibraryStore((s) => s.invalidateSkills);
   const ensureSkillsLoaded = useLibraryStore((s) => s.ensureSkillsLoaded);
@@ -378,7 +371,7 @@ export function SkillsSection({
 
   return (
     <div className="space-y-1">
-      <SkillsTab onSkillsChange={onCountChange} />
+      <SkillsTab />
       <SkillsCatalog query={query} />
       {canPublish ? (
         <Button

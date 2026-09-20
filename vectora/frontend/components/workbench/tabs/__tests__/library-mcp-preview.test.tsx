@@ -37,4 +37,10 @@ describe("LibraryMcpPreview", () => {
 
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
+
+  it("não exibe community como badge de categoria", () => {
+    render(<LibraryMcpPreview mcp={{ ...MCP, category: "community" }} />);
+
+    expect(screen.queryByText("community", { exact: true })).toBeNull();
+  });
 });

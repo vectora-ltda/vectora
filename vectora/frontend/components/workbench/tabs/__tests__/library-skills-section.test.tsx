@@ -88,7 +88,7 @@ function mockFetch({
 describe("SkillsSection — Catálogo", () => {
   it("vem expandido por padrão e lista as skills curadas do registry remoto sem precisar de clique", async () => {
     mockFetch();
-    render(<SkillsSection query="" onCountChange={() => {}} />);
+    render(<SkillsSection query="" />);
 
     await waitFor(() => {
       expect(screen.getByText("PDF Extract")).toBeTruthy();
@@ -97,7 +97,7 @@ describe("SkillsSection — Catálogo", () => {
 
   it("toggle ainda permite recolher e reabrir o catálogo", async () => {
     mockFetch();
-    render(<SkillsSection query="" onCountChange={() => {}} />);
+    render(<SkillsSection query="" />);
     await waitFor(() => screen.getByText("PDF Extract"));
 
     fireEvent.click(screen.getByText("Browse catalog"));
@@ -112,7 +112,7 @@ describe("SkillsSection — Catálogo", () => {
   it("instalar chama POST /skills com o source da skill", async () => {
     mockFetch();
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    render(<SkillsSection query="" onCountChange={() => {}} />);
+    render(<SkillsSection query="" />);
     await waitFor(() => screen.getByText("PDF Extract"));
 
     fireEvent.click(screen.getByText("Install"));
@@ -156,14 +156,12 @@ describe("SkillsSection — Catálogo", () => {
     });
     global.fetch = fetchMock as unknown as typeof fetch;
 
-    const { rerender } = render(
-      <SkillsSection query="" onCountChange={() => {}} />,
-    );
+    const { rerender } = render(<SkillsSection query="" />);
     await vi.waitFor(() =>
       expect(screen.getByText("PDF Extract")).toBeTruthy(),
     );
 
-    rerender(<SkillsSection query="pdf" onCountChange={() => {}} />);
+    rerender(<SkillsSection query="pdf" />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(350);
     });
@@ -177,7 +175,7 @@ describe("SkillsSection — Catálogo", () => {
       if (url === "/skills/catalog?q=falha") throw new Error("offline");
       return { ok: true, json: async () => ({}) } as Response;
     });
-    rerender(<SkillsSection query="falha" onCountChange={() => {}} />);
+    rerender(<SkillsSection query="falha" />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(350);
     });
@@ -192,7 +190,7 @@ describe("SkillsSection — Catálogo", () => {
 
   it("catálogo vazio mostra estado específico, não erro e não quebra SkillsTab", async () => {
     mockFetch({ entries: [] });
-    render(<SkillsSection query="" onCountChange={() => {}} />);
+    render(<SkillsSection query="" />);
     expect(screen.getByText("stub-skills-tab")).toBeTruthy();
 
     await waitFor(() => {
@@ -213,7 +211,7 @@ describe("SkillsSection — Catálogo", () => {
         { ...CATALOG[0], id: "c", name: "Skill Comunidade" },
       ],
     });
-    render(<SkillsSection query="" onCountChange={() => {}} />);
+    render(<SkillsSection query="" />);
 
     await waitFor(() => screen.getByText("Skill Oficial"));
     expect(screen.getByText("Official")).toBeTruthy();
@@ -225,7 +223,7 @@ describe("SkillsSection — Catálogo", () => {
 describe("SkillsSection — Publicar", () => {
   it("sem conta conectada, mostra a nota em vez do botão de publicar", async () => {
     mockFetch({ licenseConfigured: false });
-    render(<SkillsSection query="" onCountChange={() => {}} />);
+    render(<SkillsSection query="" />);
 
     await waitFor(() => {
       expect(
@@ -237,7 +235,7 @@ describe("SkillsSection — Publicar", () => {
 
   it("com conta conectada, publica pelo diálogo (POST /skills/publish)", async () => {
     mockFetch({ licenseConfigured: true, publishStatus: "published" });
-    render(<SkillsSection query="" onCountChange={() => {}} />);
+    render(<SkillsSection query="" />);
 
     await waitFor(() =>
       expect(screen.getByText("Publish my skill")).toBeTruthy(),
@@ -279,7 +277,7 @@ describe("SkillsSection — Publicar", () => {
 
   it("erro de publicação mantém o diálogo aberto e mostra a mensagem", async () => {
     mockFetch({ licenseConfigured: true, publishStatus: "error" });
-    render(<SkillsSection query="" onCountChange={() => {}} />);
+    render(<SkillsSection query="" />);
 
     await waitFor(() =>
       expect(screen.getByText("Publish my skill")).toBeTruthy(),

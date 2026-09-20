@@ -9,61 +9,33 @@
  * skills-tab.test.tsx, library-memory-section.test.tsx).
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { useEffect } from "react";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 
 vi.mock("../library-mcp-section", () => ({
-  McpSection: ({
-    onCountChange,
-  }: {
-    query: string;
-    onCountChange: (count: number) => void;
-  }) => {
-    useEffect(() => {
-      onCountChange(fixtures.populated ? 1 : 0);
-    }, [onCountChange]);
-    return fixtures.populated ? (
+  McpSection: () =>
+    fixtures.populated ? (
       <article>Brave Search MCP</article>
     ) : (
       <p>No MCP servers available yet.</p>
-    );
-  },
+    ),
 }));
 
 vi.mock("../library-skills-section", () => ({
-  SkillsSection: ({
-    onCountChange,
-  }: {
-    query: string;
-    onCountChange: (count: number) => void;
-  }) => {
-    useEffect(() => {
-      onCountChange(fixtures.populated ? 1 : 0);
-    }, [onCountChange]);
-    return fixtures.populated ? (
+  SkillsSection: () =>
+    fixtures.populated ? (
       <article>Frontend Skill</article>
     ) : (
       <p>No skills available yet.</p>
-    );
-  },
+    ),
 }));
 
 vi.mock("../library-memory-section", () => ({
-  MemorySection: ({
-    onCountChange,
-  }: {
-    query: string;
-    onCountChange: (count: number) => void;
-  }) => {
-    useEffect(() => {
-      onCountChange(fixtures.populated ? 1 : 0);
-    }, [onCountChange]);
-    return fixtures.populated ? (
+  MemorySection: () =>
+    fixtures.populated ? (
       <article>Godot Engine 4.6</article>
     ) : (
       <p>No memory buckets available yet.</p>
-    );
-  },
+    ),
 }));
 
 import { LibraryTab } from "../library-tab";
@@ -78,9 +50,11 @@ afterEach(() => {
 describe("LibraryTab", () => {
   it("renderiza as 3 seções (MCP, Skills, Memory Library)", () => {
     render(<LibraryTab threadId="t1" />);
-    expect(screen.getByText(/MCP \(0\)/)).toBeTruthy();
-    expect(screen.getByText(/Skills \(0\)/)).toBeTruthy();
-    expect(screen.getByText(/Memory Library \(0\)/)).toBeTruthy();
+    expect(screen.getByText("MCP", { selector: "span" })).toBeTruthy();
+    expect(screen.getByText("Skills", { selector: "span" })).toBeTruthy();
+    expect(
+      screen.getByText("Memory Library", { selector: "span" }),
+    ).toBeTruthy();
   });
 
   it("mantém as três seções fechadas ao iniciar", () => {
@@ -96,10 +70,10 @@ describe("LibraryTab", () => {
 
   it("abre uma seção por vez e fecha a anterior", () => {
     render(<LibraryTab threadId="t1" />);
-    fireEvent.click(screen.getByText(/MCP \(0\)/));
+    fireEvent.click(screen.getByText("MCP", { selector: "span" }));
     expect(screen.getByText("No MCP servers available yet.")).toBeTruthy();
 
-    fireEvent.click(screen.getByText(/Skills \(0\)/));
+    fireEvent.click(screen.getByText("Skills", { selector: "span" }));
     expect(screen.getByText("No skills available yet.")).toBeTruthy();
     expect(
       screen.queryByText("No MCP servers available yet."),
@@ -141,7 +115,9 @@ describe("LibraryTab", () => {
 
   it("permite recolher a seção ativa sem ativar outra", () => {
     render(<LibraryTab threadId="t1" />);
-    const memoryHeader = screen.getByText(/Memory Library \(0\)/);
+    const memoryHeader = screen.getByText("Memory Library", {
+      selector: "span",
+    });
     fireEvent.click(memoryHeader);
     expect(screen.getByText("No memory buckets available yet.")).toBeTruthy();
     fireEvent.click(memoryHeader);
@@ -191,6 +167,6 @@ describe("LibraryTab", () => {
     const input = screen.getByPlaceholderText("Search the Library…");
     fireEvent.change(input, { target: { value: "algo que não existe" } });
     // seções continuam montadas (vazias já eram, filtro não quebra nada)
-    expect(screen.getByText(/MCP \(0\)/)).toBeTruthy();
+    expect(screen.getByText("MCP", { selector: "span" })).toBeTruthy();
   });
 });

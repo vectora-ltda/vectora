@@ -98,23 +98,6 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
   const [query, setQuery] = useState("");
   const [activeSection, setActiveSection] = useState<LibraryFilter>();
 
-  // MCP, Skills e Memory vivem em subcomponentes próprios, que reportam a
-  // contagem atualizada de volta via onCountChange.
-  const [mcpCount, setMcpCount] = useState(0);
-  const handleMcpCountChange = useCallback((count: number) => {
-    setMcpCount(count);
-  }, []);
-
-  const [skillsCount, setSkillsCount] = useState(0);
-  const handleSkillsCountChange = useCallback((count: number) => {
-    setSkillsCount(count);
-  }, []);
-
-  const [memoryCount, setMemoryCount] = useState(0);
-  const handleMemoryCountChange = useCallback((count: number) => {
-    setMemoryCount(count);
-  }, []);
-
   const handleSectionKeyDown = useCallback(
     (
       event: KeyboardEvent<HTMLButtonElement>,
@@ -211,7 +194,7 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
               <span className="flex min-w-0 items-center gap-2">
                 <Puzzle className="size-3.5 shrink-0 text-muted-foreground" />
                 <span className="truncate text-sm leading-5">
-                  {m.library_section_mcp()} ({mcpCount})
+                  {m.library_section_mcp()}
                 </span>
               </span>
             </AccordionTrigger>
@@ -222,11 +205,7 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
               containerClassName="data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:overflow-hidden"
               className="h-full overflow-y-auto pb-2 pl-2 pr-1"
             >
-              <McpSection
-                query={query}
-                onCountChange={handleMcpCountChange}
-                threadId={threadId}
-              />
+              <McpSection query={query} threadId={threadId} />
             </AccordionContent>
           </AccordionItem>
 
@@ -238,7 +217,7 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
               <span className="flex min-w-0 items-center gap-2">
                 <Sparkles className="size-3.5 shrink-0 text-muted-foreground" />
                 <span className="truncate text-sm leading-5">
-                  {m.library_section_skills()} ({skillsCount})
+                  {m.library_section_skills()}
                 </span>
               </span>
             </AccordionTrigger>
@@ -249,10 +228,7 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
               containerClassName="data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:overflow-hidden"
               className="h-full overflow-y-auto pb-2 pl-2 pr-1"
             >
-              <SkillsSection
-                query={query}
-                onCountChange={handleSkillsCountChange}
-              />
+              <SkillsSection query={query} />
             </AccordionContent>
           </AccordionItem>
 
@@ -264,7 +240,7 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
               <span className="flex min-w-0 items-center gap-2">
                 <Archive className="size-3.5 shrink-0 text-muted-foreground" />
                 <span className="truncate text-sm leading-5">
-                  {m.library_section_memory()} ({memoryCount})
+                  {m.library_section_memory()}
                 </span>
               </span>
             </AccordionTrigger>
@@ -275,10 +251,7 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
               containerClassName="data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:overflow-hidden"
               className="h-full overflow-y-auto pb-2 pl-2 pr-1"
             >
-              <MemorySection
-                query={query}
-                onCountChange={handleMemoryCountChange}
-              />
+              <MemorySection query={query} />
             </AccordionContent>
           </AccordionItem>
         </Accordion>

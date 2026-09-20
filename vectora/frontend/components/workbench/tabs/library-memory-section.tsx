@@ -379,11 +379,9 @@ function BucketCard({
 
 export function MemorySection({
   query,
-  onCountChange,
   currentEmbedModel = null,
 }: {
   query: string;
-  onCountChange: (count: number) => void;
   currentEmbedModel?: string | null;
 }) {
   const buckets = useLibraryStore((s) => s.memoryItems);
@@ -406,10 +404,6 @@ export function MemorySection({
     }, 350);
     return () => clearTimeout(timer);
   }, [query, ensureMemoryLoaded]);
-
-  useEffect(() => {
-    onCountChange(buckets.length);
-  }, [buckets.length, onCountChange]);
 
   if (loading) {
     return (

@@ -123,23 +123,15 @@ describe("MemorySection", () => {
   });
 
   it("lista os buckets do catálogo", async () => {
-    render(<MemorySection query="" onCountChange={() => {}} />);
+    render(<MemorySection query="" />);
     await waitFor(() => {
       expect(screen.getByText("Bucket 1")).toBeTruthy();
       expect(screen.getByText("Bucket 2")).toBeTruthy();
     });
   });
 
-  it("reporta a contagem filtrada via onCountChange", async () => {
-    const onCountChange = vi.fn();
-    render(<MemorySection query="" onCountChange={onCountChange} />);
-    await waitFor(() => {
-      expect(onCountChange).toHaveBeenCalledWith(2);
-    });
-  });
-
   it("instalar um bucket chama POST /rag-library/install e vira Installed", async () => {
-    render(<MemorySection query="" onCountChange={() => {}} />);
+    render(<MemorySection query="" />);
     await waitFor(() => expect(screen.getByText("Bucket 1")).toBeTruthy());
 
     const card = screen.getByText("Bucket 1").closest("div.rounded-lg")!;
@@ -164,7 +156,7 @@ describe("MemorySection", () => {
     render(
       <MemorySection
         query=""
-        onCountChange={() => {}}
+
         currentEmbedModel="embed-multilingual-v3.0"
       />,
     );
@@ -180,7 +172,7 @@ describe("MemorySection", () => {
 
   it("erro/borda: falha de instalação (status 'error') mostra mensagem sem quebrar a lista", async () => {
     mockFetch({ installStatus: "error" });
-    render(<MemorySection query="" onCountChange={() => {}} />);
+    render(<MemorySection query="" />);
     await waitFor(() => expect(screen.getByText("Bucket 1")).toBeTruthy());
 
     const card = screen.getByText("Bucket 1").closest("div.rounded-lg")!;
@@ -215,12 +207,10 @@ describe("MemorySection", () => {
     });
     global.fetch = fetchMock as unknown as typeof fetch;
 
-    const { rerender } = render(
-      <MemorySection query="" onCountChange={() => {}} />,
-    );
+    const { rerender } = render(<MemorySection query="" />);
     await vi.waitFor(() => expect(screen.getByText("Bucket 1")).toBeTruthy());
 
-    rerender(<MemorySection query="bucket 1" onCountChange={() => {}} />);
+    rerender(<MemorySection query="bucket 1" />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(350);
     });
@@ -237,7 +227,7 @@ describe("MemorySection", () => {
       if (url === "/rag-library/catalog?q=falha") throw new Error("offline");
       return { ok: true, json: async () => ({}) } as Response;
     });
-    rerender(<MemorySection query="falha" onCountChange={() => {}} />);
+    rerender(<MemorySection query="falha" />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(350);
     });
@@ -252,7 +242,7 @@ describe("MemorySection", () => {
 
   it("erro/borda: catálogo vazio mostra o estado vazio específico", async () => {
     mockFetch({ catalog: [] });
-    render(<MemorySection query="" onCountChange={() => {}} />);
+    render(<MemorySection query="" />);
     await waitFor(() => {
       expect(screen.getByText(/no memory buckets/i)).toBeTruthy();
     });
@@ -275,7 +265,7 @@ describe("MemorySection", () => {
       ],
       active_id: "ws1",
     });
-    render(<MemorySection query="" onCountChange={() => {}} />);
+    render(<MemorySection query="" />);
     await waitFor(() =>
       expect(
         screen.getByText(/Publishing from the app will be available/),
@@ -301,7 +291,7 @@ describe("MemorySection", () => {
       ],
       active_id: "ws1",
     });
-    render(<MemorySection query="" onCountChange={() => {}} />);
+    render(<MemorySection query="" />);
 
     await waitFor(() =>
       expect(screen.getByText("Publish my memory")).toBeTruthy(),
@@ -346,7 +336,7 @@ describe("MemorySection", () => {
       ],
       active_id: "ws1",
     });
-    render(<MemorySection query="" onCountChange={() => {}} />);
+    render(<MemorySection query="" />);
 
     fireEvent.click(await screen.findByText("Publish my memory"));
 
@@ -378,7 +368,7 @@ describe("MemorySection", () => {
       ],
       active_id: "ws1",
     });
-    render(<MemorySection query="" onCountChange={() => {}} />);
+    render(<MemorySection query="" />);
 
     fireEvent.click(await screen.findByText("Publish my memory"));
     fireEvent.click(await screen.findByText("Select a bucket"));
@@ -406,7 +396,7 @@ describe("MemorySection", () => {
       ],
       active_id: "ws1",
     });
-    render(<MemorySection query="" onCountChange={() => {}} />);
+    render(<MemorySection query="" />);
 
     await waitFor(() =>
       expect(screen.getByText("Publish my memory")).toBeTruthy(),

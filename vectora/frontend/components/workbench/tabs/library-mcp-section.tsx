@@ -316,11 +316,9 @@ function ConnectorCard({
 
 export function McpSection({
   query,
-  onCountChange,
   threadId = "library",
 }: {
   query: string;
-  onCountChange: (count: number) => void;
   threadId?: string;
 }) {
   const connectors = useLibraryStore((s) => s.mcpItems);
@@ -373,10 +371,6 @@ export function McpSection({
     }, 350);
     return () => clearTimeout(timer);
   }, [query, ensureMcpLoaded]);
-
-  useEffect(() => {
-    onCountChange(connectors.length);
-  }, [connectors.length, onCountChange]);
 
   if (loading) {
     return (

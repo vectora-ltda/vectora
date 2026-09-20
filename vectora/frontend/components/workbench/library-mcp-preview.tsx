@@ -35,7 +35,9 @@ export function LibraryMcpPreview({ mcp }: { mcp: McpCanvasPreviewData }) {
         <div className="min-w-0 space-y-2">
           <h1 className="text-2xl font-semibold text-foreground">{mcp.name}</h1>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span className="rounded bg-muted px-2 py-1">{mcp.category}</span>
+            {mcp.category !== "community" && (
+              <span className="rounded bg-muted px-2 py-1">{mcp.category}</span>
+            )}
             {homepage && (
               <a
                 href={homepage}
