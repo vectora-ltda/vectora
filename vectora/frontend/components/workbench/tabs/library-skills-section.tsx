@@ -221,6 +221,7 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
   const badgeLabel = skill.trust_state
     ? TRUST_STATE_LABEL[skill.trust_state]()
     : TRUST_LABEL[legacyTrust]();
+  const showTrustBadge = trustState !== "community_listed";
 
   const handleInstall = async () => {
     if (invalid) {
@@ -261,12 +262,14 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
       title={skill.name}
       description={skill.description}
       tags={
-        <LibraryTag
-          verified={legacyTrust !== "community"}
-          aria-label={`${m.library_skills_trust_aria_prefix()}: ${badgeLabel}`}
-        >
-          {badgeLabel}
-        </LibraryTag>
+        showTrustBadge ? (
+          <LibraryTag
+            verified={legacyTrust !== "community"}
+            aria-label={`${m.library_skills_trust_aria_prefix()}: ${badgeLabel}`}
+          >
+            {badgeLabel}
+          </LibraryTag>
+        ) : undefined
       }
       action={
         <Button

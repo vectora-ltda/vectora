@@ -198,7 +198,7 @@ describe("SkillsSection — Catálogo", () => {
     });
   });
 
-  it("badge de trust level reflete vectora_verified/verified — Official/Verified/Community", async () => {
+  it("exibe confiança verificada sem badge redundante de comunidade", async () => {
     mockFetch({
       entries: [
         {
@@ -216,7 +216,7 @@ describe("SkillsSection — Catálogo", () => {
     await waitFor(() => screen.getByText("Skill Oficial"));
     expect(screen.getByText("Official")).toBeTruthy();
     expect(screen.getByText("Verified")).toBeTruthy();
-    expect(screen.getByText("Community")).toBeTruthy();
+    expect(screen.queryByText("Community", { exact: true })).toBeNull();
   });
 });
 
