@@ -147,7 +147,7 @@ describe("GET /registry/skills", () => {
 
   it("não expõe skills autorais legadas da Vectora", async () => {
     await makeSkill({
-      id: "vectora/code-review",
+      id: "vectora-code-review",
       name: "Vectora Code Review",
       packageName: "@vectora/code-review",
     });

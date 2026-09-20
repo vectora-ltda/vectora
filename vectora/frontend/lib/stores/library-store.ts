@@ -94,7 +94,8 @@ async function fetchSkillsCatalog(q: string): Promise<CatalogSkill[]> {
   return (data.entries ?? []).filter(
     (skill) =>
       !skill.package_name?.startsWith("@vectora/") &&
-      !skill.id.startsWith("vectora/"),
+      !skill.id.startsWith("vectora/") &&
+      !skill.id.startsWith("vectora-"),
   );
 }
 

@@ -88,6 +88,7 @@ registry.get("/skills", async (c) => {
   const where: string[] = [
     "COALESCE(package_name, '') NOT LIKE '@vectora/%'",
     "id NOT LIKE 'vectora/%'",
+    "id NOT LIKE 'vectora-%'",
   ];
   const params: string[] = [];
   const search = buildSearchClause(q, ["name", "description"]);

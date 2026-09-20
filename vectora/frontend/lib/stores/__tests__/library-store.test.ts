@@ -162,7 +162,7 @@ describe("library-store — Skills e Memory", () => {
         json: async () => ({
           entries: [
             {
-              id: "vectora/code-review",
+              id: "vectora-code-review",
               name: "Vectora Code Review",
               package_name: "@vectora/code-review",
             },
