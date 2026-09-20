@@ -880,7 +880,7 @@ class TestGatewayClientReviewJob:
         with patch(
             "backend.services.gateway.aiohttp.ClientSession",
             return_value=mock_session,
-        ):
+        ) as session_cls:
             await client._post_review_result(
                 "job-1", "secret-do-job", review_text="LGTM"
             )
@@ -891,6 +891,19 @@ class TestGatewayClientReviewJob:
         )
         assert call_kwargs["json"] == {"review_text": "LGTM"}
         assert call_kwargs["headers"] == {"Authorization": "Bearer secret-do-job"}
+        assert session_cls.call_args.kwargs["timeout"].total == 10
+
+    @pytest.mark.asyncio
+    async def test_stop_sinaliza_reviews_que_aguardavam_na_fila(self) -> None:
+        client = self._client()
+        await client._review_queue.put(("queued-1", "diff", {}, "secret"))
+
+        with patch.object(client, "_post_review_result", new=AsyncMock()) as mock_post:
+            await client.stop()
+
+        mock_post.assert_awaited_once_with(
+            "queued-1", "secret", error="review worker shutting down; retry later"
+        )
 
     @pytest.mark.asyncio
     async def test_erro_borda_post_review_result_falha_de_rede_nao_propaga(
