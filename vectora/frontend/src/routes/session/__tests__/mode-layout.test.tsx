@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, waitFor, act } from "@testing-library/react";
+import { render, screen, cleanup } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 
 const { navigateSpy } = vi.hoisted(() => ({ navigateSpy: vi.fn() }));
@@ -38,24 +38,7 @@ vi.mock("@/components/kanban/kanban-board", () => ({
   KanbanBoard: () => <div data-testid="kanban" />,
 }));
 vi.mock("@/components/header/header", () => ({
-  Header: ({
-    onOpenSidebar,
-    sidebarTriggerCompactOnly,
-  }: {
-    onOpenSidebar?: () => void;
-    sidebarTriggerCompactOnly?: boolean;
-  }) => (
-    <div data-testid="header">
-      {onOpenSidebar && (
-        <button
-          type="button"
-          data-testid="header-sidebar-trigger"
-          data-compact-only={String(Boolean(sidebarTriggerCompactOnly))}
-          onClick={onOpenSidebar}
-        />
-      )}
-    </div>
-  ),
+  Header: () => <div data-testid="header" />,
 }));
 vi.mock("@/components/header/mode-switcher", () => ({
   ModeSwitch: () => <div data-testid="mode-switch" />,
@@ -321,10 +304,6 @@ describe("SessionPage — workbench do Assistente estreito", () => {
       configurable: true,
       value: 639,
     });
-    Object.defineProperty(window, "innerWidth", {
-      configurable: true,
-      value: 639,
-    });
     vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
       matches: query.includes("767px"),
       media: query,
@@ -345,67 +324,5 @@ describe("SessionPage — workbench do Assistente estreito", () => {
       configurable: true,
       value: 1024,
     });
-    Object.defineProperty(window, "innerWidth", {
-      configurable: true,
-      value: 1024,
-    });
-  });
-});
-
-describe("SessionPage — navegação compacta usa a mesma medida física", () => {
-  it("mantém o gatilho quando o Electron está compacto apesar do CSS viewport largo", async () => {
-    vi.stubGlobal("vectora", { windowControls: {} });
-    Object.defineProperties(window, {
-      outerWidth: { configurable: true, value: 800 },
-      innerWidth: { configurable: true, value: 1200 },
-    });
-    setMode("assistant");
-
-    render(<SessionPage />);
-
-    await waitFor(() =>
-      expect(screen.getByTestId("header-sidebar-trigger")).toBeInTheDocument(),
-    );
-    const trigger = screen.getByTestId("header-sidebar-trigger");
-    expect(trigger).toHaveAttribute("data-compact-only", "true");
-  });
-
-  it("fecha a Sheet ao voltar para o layout largo", async () => {
-    vi.stubGlobal("vectora", { windowControls: {} });
-    Object.defineProperties(window, {
-      outerWidth: { configurable: true, value: 800 },
-      innerWidth: { configurable: true, value: 1200 },
-    });
-    setMode("assistant");
-    render(<SessionPage />);
-
-    await waitFor(() =>
-      expect(screen.getByTestId("header-sidebar-trigger")).toBeInTheDocument(),
-    );
-    act(() => {
-      screen.getByTestId("header-sidebar-trigger").click();
-    });
-    expect(
-      document.querySelector('[data-slot="sheet-content"]'),
-    ).toBeInTheDocument();
-
-    Object.defineProperty(window, "outerWidth", {
-      configurable: true,
-      value: 1200,
-    });
-    act(() => {
-      window.dispatchEvent(new Event("resize"));
-    });
-
-    await waitFor(() =>
-      expect(
-        screen.queryByTestId("header-sidebar-trigger"),
-      ).not.toBeInTheDocument(),
-    );
-    await waitFor(() =>
-      expect(
-        document.querySelector('[data-slot="sheet-content"]'),
-      ).not.toBeInTheDocument(),
-    );
   });
 });

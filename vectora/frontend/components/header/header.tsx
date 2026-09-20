@@ -13,18 +13,19 @@ interface HeaderProps {
   onToggleToolCalls?: () => void;
   onShowShortcuts?: () => void;
   onOpenSidebar?: () => void;
-  /** Render the session trigger whenever the caller has a compact shell. */
-  sidebarTriggerCompactOnly?: boolean;
-  // O seletor de modo ocupa o centro do Header quando a tela oferece os três
-  // modos. O Header permanece uma única faixa de largura total, independente
-  // da coluna de conteúdo ativa, para manter o seletor centralizado.
+  //: Mostra o seletor Assistente/IDE/Kanban centralizado nesta mesma barra
+  //: (ausente em chatMode, que não tem os 3 modos). Antes vivia numa linha
+  //: separada acima do Header — o usuário via duas barras empilhadas
+  //: (abas de modo + ajuda/config) em vez de uma só. Unificar exige que o
+  //: Header seja renderizado UMA vez, com largura cheia, nos 3 modos —
+  //: nunca aninhado dentro da coluna do editor/chat/board, que tem largura
+  //: diferente por modo (a mesma causa raiz do bug de posição original).
   showModeSwitch?: boolean;
 }
 
 export function Header({
   onShowShortcuts,
   onOpenSidebar,
-  sidebarTriggerCompactOnly = false,
   showModeSwitch,
 }: HeaderProps) {
   const [rowRef, rowWidth] = useElementWidth<HTMLDivElement>();
@@ -46,7 +47,7 @@ export function Header({
               type="button"
               onClick={onOpenSidebar}
               aria-label={m.sidebar_open()}
-              className={`${sidebarTriggerCompactOnly ? "" : "lg:hidden"} -ml-1 mr-1 inline-flex items-center justify-center w-10 h-10 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors`}
+              className="md:hidden -ml-1 mr-1 inline-flex items-center justify-center w-10 h-10 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
             >
               <Menu className="w-5 h-5" />
             </button>

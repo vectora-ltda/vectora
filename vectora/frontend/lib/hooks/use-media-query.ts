@@ -50,36 +50,6 @@ export function getUnscaledViewportWidth(): number {
 /** Tailwind `sm` breakpoint: below 640px is the smartphone layout. */
 export const IDE_MOBILE_BREAKPOINT = 640;
 
-/** Global session-shell bands used by Assistant, IDE and Kanban. */
-export const SESSION_TABLET_BREAKPOINT = 1024;
-
-export type SessionLayoutState = "mobile" | "tablet" | "wide";
-
-export function getSessionLayoutState(width: number): SessionLayoutState {
-  if (width < IDE_MOBILE_BREAKPOINT) return "mobile";
-  if (width < SESSION_TABLET_BREAKPOINT) return "tablet";
-  return "wide";
-}
-
-/** Reads the physical viewport once mounted and updates on resize/rotation. */
-export function useSessionLayoutState(): SessionLayoutState {
-  const [state, setState] = useState<SessionLayoutState>("wide");
-
-  useEffect(() => {
-    const update = () =>
-      setState(getSessionLayoutState(getUnscaledViewportWidth()));
-    update();
-    window.addEventListener("resize", update);
-    window.visualViewport?.addEventListener("resize", update);
-    return () => {
-      window.removeEventListener("resize", update);
-      window.visualViewport?.removeEventListener("resize", update);
-    };
-  }, []);
-
-  return state;
-}
-
 export type IdeLayoutState = "wide" | "mobile";
 
 /** Classifies the IDE from the unscaled window geometry. */
