@@ -130,6 +130,9 @@ class BrowseResponse(BaseModel):
     # `true` quando `entries` lista volumes do sistema em vez de
     # subdiretórios. Path nesse caso é o pseudo-path `"__drives__"`.
     at_drives_root: bool = False
+    # Caminho absoluto da pasta criada por ``mkdir_dir``; ausente em
+    # respostas normais de listagem.
+    created_path: str | None = None
 
 
 class SafeRootInfo(BaseModel):
@@ -663,6 +666,8 @@ async def mkdir_dir(request: Request, body: MkdirRequest) -> BrowseResponse:
 
     from backend.rbac.safe_roots import get_safe_root_registry
 
+    if not body.path.strip():
+        raise HTTPException(status_code=400, detail="Caminho da pasta é obrigatório.")
     name = body.name.strip()
     if not name or name in {".", ".."} or "/" in name or "\\" in name:
         raise HTTPException(status_code=400, detail="Nome de pasta inválido.")
@@ -678,12 +683,24 @@ async def mkdir_dir(request: Request, body: MkdirRequest) -> BrowseResponse:
         )
     try:
         new_dir.mkdir()
+    except FileExistsError as exc:
+        # Two create requests can pass the preflight exists() check. Treat the
+        # losing request as the same semantic conflict as a pre-existing folder.
+        raise HTTPException(
+            status_code=409, detail="Já existe uma pasta com esse nome."
+        ) from exc
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=403, detail="Sem permissão para criar a pasta."
+        ) from exc
     except OSError as exc:
         raise HTTPException(
             status_code=500, detail=f"Não foi possível criar a pasta: {exc}"
         ) from exc
 
-    return await browse_dir(request=request, path=str(base))
+    result = await browse_dir(request=request, path=str(base))
+    result.created_path = str(new_dir)
+    return result
 
 
 @router.get("/ListSafeRoots", response_model=ListSafeRootsResponse)
