@@ -67,6 +67,7 @@ import {
   threadsQueryKey,
 } from "@/lib/queries/threads";
 import { useWindowsStore } from "@/lib/stores/windows-store";
+import { isCanvasDocumentVisible } from "@/lib/canvas-document-visibility";
 import type { PlanItem } from "@/lib/stores/workbench-store";
 import type { EditedFile } from "@/lib/types";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
@@ -514,10 +515,7 @@ function SessionPage() {
     const visible = canvasDocuments.some(
       (document) =>
         document.id === activeCanvasDocumentId &&
-        (document.kind === "mcp-preview"
-          ? document.threadId === threadId
-          : document.workspaceId === activeWorkspaceId &&
-            (document.kind === "file" || document.threadId === threadId)),
+        isCanvasDocumentVisible(document, activeWorkspaceId, threadId),
     );
     setActiveCanvasTab(visible ? activeCanvasDocumentId : "editor");
   }, [activeCanvasDocumentId, activeWorkspaceId, canvasDocuments, threadId]);
@@ -1171,11 +1169,11 @@ function SessionPage() {
                           setActiveCanvasTab("editor");
                       }}
                       documents={canvasDocuments.filter((document) =>
-                        document.kind === "mcp-preview"
-                          ? document.threadId === threadId
-                          : document.workspaceId === activeWorkspaceId &&
-                            (document.kind === "file" ||
-                              document.threadId === threadId),
+                        isCanvasDocumentVisible(
+                          document,
+                          activeWorkspaceId,
+                          threadId,
+                        ),
                       )}
                       renderDocument={(document) => {
                         if (document.kind === "file" && document.path) {

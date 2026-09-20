@@ -335,7 +335,7 @@ export function McpSection({
   const openConnector = (connector: MCPConnector) => {
     const workspaceId = useWorkspacesStore.getState().active_id ?? "";
     openCanvasDocument({
-      id: `mcp:${threadId}:${connector.id}`,
+      id: `mcp:${workspaceId}:${threadId}:${connector.id}`,
       kind: "mcp-preview",
       workspaceId,
       threadId,

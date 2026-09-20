@@ -157,16 +157,39 @@ describe("McpSection", () => {
 
     const state = useWindowsStore.getState();
     expect(useSettingsStore.getState().uiMode).toBe("ide");
-    expect(state.activeCanvasDocumentId).toBe("mcp:thread-1:filesystem");
+    expect(state.activeCanvasDocumentId).toBe(
+      "mcp:workspace-1:thread-1:filesystem",
+    );
     expect(state.canvasDocuments).toContainEqual(
       expect.objectContaining({
-        id: "mcp:thread-1:filesystem",
+        id: "mcp:workspace-1:thread-1:filesystem",
         kind: "mcp-preview",
         workspaceId: "workspace-1",
         threadId: "thread-1",
         mcp: expect.objectContaining({ id: "filesystem" }),
       }),
     );
+  });
+
+  it("mantém previews do mesmo MCP separados entre workspaces", async () => {
+    const { rerender } = render(
+      <McpSection query="" onCountChange={() => {}} threadId="thread-1" />,
+    );
+    await waitFor(() => expect(screen.getByText("Filesystem")).toBeTruthy());
+    fireEvent.click(screen.getByText("Filesystem").closest('[role="button"]')!);
+
+    useWorkspacesStore.setState({ active_id: "workspace-2" });
+    rerender(
+      <McpSection query="" onCountChange={() => {}} threadId="thread-1" />,
+    );
+    fireEvent.click(screen.getByText("Filesystem").closest('[role="button"]')!);
+
+    expect(
+      useWindowsStore.getState().canvasDocuments.map((document) => document.id),
+    ).toEqual([
+      "mcp:workspace-1:thread-1:filesystem",
+      "mcp:workspace-2:thread-1:filesystem",
+    ]);
   });
 
   it("instalar um conector sem env_vars chama POST /mcp/install direto", async () => {
