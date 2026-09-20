@@ -548,7 +548,7 @@ def _list_drives() -> list[DirEntry]:
     return out
 
 
-def _resolve_and_authorize_dir(
+async def _resolve_and_authorize_dir(
     path: str, privileged: bool, registry: Any
 ) -> tuple[Path, str | None]:
     """Resolve ``path`` para um diretório existente e autoriza o acesso.
@@ -571,14 +571,16 @@ def _resolve_and_authorize_dir(
 
     safe_root_id: str | None = None
     if not privileged:
-        containing = registry.is_under_safe_root(str(base))
+        containing = await asyncio.to_thread(registry.is_under_safe_root, str(base))
         if containing is None:
             if path:
                 raise HTTPException(
                     status_code=403,
                     detail="Caminho fora das pastas seguras configuradas.",
                 )
-            fallback = registry.closest_safe_root_for(str(Path.home()))
+            fallback = await asyncio.to_thread(
+                registry.closest_safe_root_for, str(Path.home())
+            )
             if fallback is None:
                 raise HTTPException(
                     status_code=403,
@@ -608,7 +610,10 @@ async def browse_dir(
     Privilegiados (root/admin/CLI local): navegação livre — necessário
     para o admin escolher novas pastas a marcar como confiáveis.
     """
-    from backend.rbac.safe_roots import get_safe_root_registry
+    from backend.rbac.safe_roots import (
+        SafeRootPersistenceError,
+        get_safe_root_registry,
+    )
 
     registry = get_safe_root_registry()
     privileged = _is_privileged(request)
@@ -625,7 +630,12 @@ async def browse_dir(
             at_drives_root=True,
         )
 
-    base, safe_root_id = _resolve_and_authorize_dir(path, privileged, registry)
+    try:
+        base, safe_root_id = await _resolve_and_authorize_dir(
+            path, privileged, registry
+        )
+    except SafeRootPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     entries: list[DirEntry] = []
     try:
@@ -653,7 +663,12 @@ async def browse_dir(
     elif privileged:
         parent = str(base.parent)
     else:
-        parent_under = registry.is_under_safe_root(str(base.parent))
+        try:
+            parent_under = await asyncio.to_thread(
+                registry.is_under_safe_root, str(base.parent)
+            )
+        except SafeRootPersistenceError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         parent = str(base.parent) if parent_under is not None else None
 
     return BrowseResponse(
@@ -674,7 +689,10 @@ async def mkdir_dir(request: Request, body: MkdirRequest) -> BrowseResponse:
     traversal)."""
     from fastapi import HTTPException
 
-    from backend.rbac.safe_roots import get_safe_root_registry
+    from backend.rbac.safe_roots import (
+        SafeRootPersistenceError,
+        get_safe_root_registry,
+    )
 
     if not body.path.strip():
         raise HTTPException(status_code=400, detail="Caminho da pasta é obrigatório.")
@@ -684,7 +702,10 @@ async def mkdir_dir(request: Request, body: MkdirRequest) -> BrowseResponse:
 
     registry = get_safe_root_registry()
     privileged = _is_privileged(request)
-    base, _ = _resolve_and_authorize_dir(body.path, privileged, registry)
+    try:
+        base, _ = await _resolve_and_authorize_dir(body.path, privileged, registry)
+    except SafeRootPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     new_dir = base / name
     if new_dir.exists():
@@ -716,13 +737,15 @@ async def mkdir_dir(request: Request, body: MkdirRequest) -> BrowseResponse:
 @router.get("/ListSafeRoots", response_model=ListSafeRootsResponse)
 async def list_safe_roots() -> ListSafeRootsResponse:
     """Lista as raízes confiáveis configuradas (visível a qualquer user)."""
-    from backend.rbac.safe_roots import get_safe_root_registry
+    from backend.rbac.safe_roots import (
+        SafeRootPersistenceError,
+        get_safe_root_registry,
+    )
 
     registry = get_safe_root_registry()
-    from backend.rbac.safe_roots import SafeRootPersistenceError
 
     try:
-        roots = registry.all_roots()
+        roots = await asyncio.to_thread(registry.all_roots)
     except SafeRootPersistenceError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return ListSafeRootsResponse(

@@ -71,6 +71,27 @@ def test_archive_failure_does_not_change_effective_state(
     assert current.archived_at is None
 
 
+def test_corrupt_registry_does_not_replace_last_known_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """JSON inválido não pode apagar raízes já carregadas nem ser sobrescrito."""
+    import backend.rbac.safe_roots as safe_roots_module
+
+    safe_file = tmp_path / "safe-roots.json"
+    monkeypatch.setattr(safe_roots_module, "_safe_roots_file", lambda: safe_file)
+    root_path = tmp_path / "workspace"
+    root_path.mkdir()
+    registry = SafeRootRegistry()
+    root = registry.add(str(root_path), "Workspace", "admin")
+    safe_file.write_text("{not-json", encoding="utf-8")
+
+    with pytest.raises(SafeRootPersistenceError):
+        registry.all_roots(include_archived=True)
+
+    assert registry._roots[root.id] == root
+    assert safe_file.read_text(encoding="utf-8") == "{not-json"
+
+
 def test_concurrent_registry_instances_preserve_both_mutations(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

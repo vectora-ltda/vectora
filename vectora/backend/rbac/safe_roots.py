@@ -59,21 +59,27 @@ class SafeRootRegistry:
 
     def _refresh_from_disk(self) -> None:
         """Replace the in-memory snapshot with the latest persisted data."""
-        self._roots = {}
         safe_roots_file = _safe_roots_file()
         if not safe_roots_file.exists():
+            self._roots = {}
             return
         try:
             data = json.loads(safe_roots_file.read_text(encoding="utf-8"))
+            if not isinstance(data, dict) or not isinstance(data.get("roots"), list):
+                raise ValueError("formato de safe_roots.json inválido")
+            candidate: dict[str, SafeRoot] = {}
             for item in data.get("roots", []):
                 try:
                     root = SafeRoot(**item)
-                except Exception:
-                    logger.debug("SafeRoot inválido ignorado: %s", item)
-                    continue
-                self._roots[root.id] = root
-        except Exception:
+                except Exception as exc:
+                    raise ValueError(f"SafeRoot inválido: {item!r}") from exc
+                candidate[root.id] = root
+        except Exception as exc:
             logger.warning("Falha ao carregar safe_roots.json", exc_info=True)
+            raise SafeRootPersistenceError(
+                "Não foi possível carregar as pastas seguras persistidas."
+            ) from exc
+        self._roots = candidate
 
     def _load(self) -> None:
         """Load once for compatibility with existing callers."""
@@ -88,32 +94,39 @@ class SafeRootRegistry:
         """Serialize transactions across registry instances and processes."""
         target = _safe_roots_file()
         lock_file = target.with_name(f"{target.name}.lock")
-        lock_file.parent.mkdir(parents=True, exist_ok=True)
-        if os.name == "nt":
-            import msvcrt
+        try:
+            lock_file.parent.mkdir(parents=True, exist_ok=True)
+            if os.name == "nt":
+                import msvcrt
 
-            # ``locking`` needs one existing byte and provides an advisory
-            # inter-process lock on the Windows host.
-            with lock_file.open("ab") as initializer:
-                if initializer.tell() == 0:
-                    initializer.write(b"0")
-            with lock_file.open("r+b") as stream:
-                stream.seek(0)
-                msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK, 1)
+                # ``locking`` needs one existing byte and provides an advisory
+                # inter-process lock on the Windows host.
+                with lock_file.open("ab") as initializer:
+                    if initializer.tell() == 0:
+                        initializer.write(b"0")
+                with lock_file.open("r+b") as stream:
+                    stream.seek(0)
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK, 1)
+                    try:
+                        yield
+                    finally:
+                        stream.seek(0)
+                        msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+                return
+            with lock_file.open("a+b") as stream:
+                import fcntl
+
+                fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
                 try:
                     yield
                 finally:
-                    stream.seek(0)
-                    msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
-            return
-        with lock_file.open("a+b") as stream:
-            import fcntl
-
-            fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+        except SafeRootPersistenceError:
+            raise
+        except Exception as exc:
+            raise SafeRootPersistenceError(
+                "Não foi possível bloquear o registro de pastas seguras."
+            ) from exc
 
     @contextlib.contextmanager
     def _locked(self) -> Iterator[None]:

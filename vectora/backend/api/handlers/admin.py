@@ -836,7 +836,7 @@ async def list_safe_roots_admin(request: Request) -> dict:
 
     registry = get_safe_root_registry()
     try:
-        roots = registry.all_roots(include_archived=True)
+        roots = await asyncio.to_thread(registry.all_roots, include_archived=True)
     except SafeRootPersistenceError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"roots": [root.model_dump() for root in roots]}
