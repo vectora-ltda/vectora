@@ -583,6 +583,30 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
     await waitFor(() => expect(bridge.clearProfileData).toHaveBeenCalledOnce());
   });
 
+  it("destrói a view de configurações se ela resolver depois que o painel for fechado", async () => {
+    const bridge = mockBrowserView();
+    let resolveSettingsView!: (viewId: number) => void;
+    mockFetch({ configurations: [] });
+    render(<BrowserTab threadId="desktop-settings-stale" />);
+    await waitFor(() => expect(bridge.createView).toHaveBeenCalledTimes(1));
+
+    bridge.createView.mockImplementationOnce(
+      () =>
+        new Promise<number>((resolve) => {
+          resolveSettingsView = resolve;
+        }),
+    );
+
+    fireEvent.click(screen.getByTestId("browser-settings-btn"));
+    await screen.findByTestId("browser-settings-panel");
+    fireEvent.click(screen.getByTestId("browser-settings-btn"));
+
+    await act(async () => resolveSettingsView(77));
+
+    expect(bridge.destroyView).toHaveBeenCalledWith(77);
+    expect(bridge.navigate).not.toHaveBeenCalledWith(77, "chrome://settings");
+  });
+
   it("trocar de workspace sem sessão cria a WebContentsView nativa e navega nela", async () => {
     const bridge = mockBrowserView();
     mockFetch({ configurations: [] });

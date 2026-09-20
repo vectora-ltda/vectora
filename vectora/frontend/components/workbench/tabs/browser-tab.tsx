@@ -142,6 +142,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const [browserSettingsOpen, setBrowserSettingsOpen] = useState(false);
   const [settingsViewId, setSettingsViewId] = useState<number | null>(null);
   const settingsViewIdRef = useRef<number | null>(null);
+  const settingsRequestRef = useRef(0);
 
   // Presente só no desktop Electron — quando ausente, cai no `<iframe>` de
   // fallback abaixo (sujeito a X-Frame-Options, único caminho possível fora
@@ -255,6 +256,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
 
   const toggleBrowserSettings = useCallback(() => {
     if (browserSettingsOpen) {
+      settingsRequestRef.current += 1;
       if (desktopBrowser && settingsViewIdRef.current !== null) {
         desktopBrowser.setVisible(settingsViewIdRef.current, false);
         desktopBrowser.destroyView(settingsViewIdRef.current);
@@ -266,7 +268,12 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     }
     setBrowserSettingsOpen(true);
     if (!desktopBrowser) return;
+    const requestId = ++settingsRequestRef.current;
     void desktopBrowser.createView(profileId).then((viewId) => {
+      if (requestId !== settingsRequestRef.current) {
+        desktopBrowser.destroyView(viewId);
+        return;
+      }
       settingsViewIdRef.current = viewId;
       setSettingsViewId(viewId);
       void desktopBrowser.navigate(viewId, "chrome://settings");
@@ -670,6 +677,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
 
   useEffect(
     () => () => {
+      settingsRequestRef.current += 1;
       if (desktopBrowser && settingsViewIdRef.current !== null) {
         desktopBrowser.destroyView(settingsViewIdRef.current);
         settingsViewIdRef.current = null;
