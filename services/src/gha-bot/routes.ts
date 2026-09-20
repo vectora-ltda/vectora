@@ -323,6 +323,9 @@ ghaBot.get("/config", async (c) => {
     }>();
 
   if (!row) return c.json({ error: "not_configured" }, 404);
+  if (!VALID_GHA_PROVIDERS.has(row.provider)) {
+    return c.json({ error: "reconfigure_required" }, 409);
+  }
 
   // Modo self-hosted só é oferecido se o usuário optou E o túnel do
   // gateway está de fato conectado agora — comportamento default (runner
@@ -369,6 +372,7 @@ interface ReviewJobRow {
   status: "pending" | "done" | "failed";
   review_text: string | null;
   error: string | null;
+  repository: string | null;
 }
 
 /**
@@ -433,9 +437,9 @@ ghaBot.post("/review", async (c) => {
   }
   const callbackSecretHash = await sha256Hex(callbackSecret);
   await c.env.DB.prepare(
-    "INSERT INTO gha_bot_review_jobs (id, user_id, callback_secret, callback_secret_hash, status) VALUES (?, ?, '', ?, 'pending')",
+    "INSERT INTO gha_bot_review_jobs (id, user_id, repository, callback_secret, callback_secret_hash, status) VALUES (?, ?, ?, '', ?, 'pending')",
   )
-    .bind(jobId, userId, callbackSecretHash)
+    .bind(jobId, userId, metadataRepository, callbackSecretHash)
     .run();
 
   const { delivered } = await dispatchReviewJob(c.env, tokenRow.token, {
@@ -465,13 +469,16 @@ ghaBot.get("/review/:id", async (c) => {
 
   const id = c.req.param("id");
   const row = await c.env.DB.prepare(
-    "SELECT id, status, review_text, error FROM gha_bot_review_jobs WHERE id = ? AND user_id = ?",
+    "SELECT id, status, review_text, error, repository FROM gha_bot_review_jobs WHERE id = ? AND user_id = ?",
   )
     .bind(id, userId)
     .first<ReviewJobRow>();
 
   if (!row) return c.json({ error: "not_found" }, 404);
+  const scope = tokenAllowsRepository(identity, row.repository);
+  if (!scope.ok) return c.json({ error: scope.error }, 403);
   return c.json(row);
+
 });
 
 /**
