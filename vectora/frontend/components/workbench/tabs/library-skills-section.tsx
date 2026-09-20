@@ -23,11 +23,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { SkillsTab } from "@/components/settings/environment/tabs/skills-tab";
 import { m } from "@/lib/paraglide/messages";
-import {
-  skillTrustLevel,
-  useLibraryStore,
-  type CatalogSkill,
-} from "@/lib/stores/library-store";
+import { useLibraryStore, type CatalogSkill } from "@/lib/stores/library-store";
 import { LibraryCard, LibraryTag } from "./library-card";
 
 const TRUST_STATE_LABEL = {
@@ -56,19 +52,16 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
     trustState === "community_listed" ||
     trustState === "unsigned" ||
     trustState === "verification_unavailable";
-  const legacyTrust = skillTrustLevel(skill);
   const badgeLabel = skill.trust_state
     ? (TRUST_STATE_LABEL[trustState as keyof typeof TRUST_STATE_LABEL]?.() ??
       null)
-    : legacyTrust === "builtin"
+    : skill.vectora_verified
       ? m.library_skills_trust_builtin()
-      : legacyTrust === "verified"
+      : skill.verified
         ? m.library_skills_trust_verified()
         : null;
   const badgeIsVerified =
-    trustState === "vectora_verified" ||
-    trustState === "publisher_signed" ||
-    (!skill.trust_state && legacyTrust !== "community");
+    trustState === "vectora_verified" || trustState === "publisher_signed";
   const publisher =
     skill.publisher ??
     (() => {
