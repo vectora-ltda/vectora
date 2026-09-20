@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import runpy
 import shutil
+import sqlite3
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -88,6 +89,13 @@ def test_existing_skills_catalog_gets_missing_columns(
     alters = [command for command in commands if "ALTER TABLE" in command[-1]]
     assert len(alters) == 10
     assert any("ADD COLUMN package_name TEXT" in command[-1] for command in alters)
+    assert any(
+        "UPDATE skills_catalog SET updated_at" in command[-1] for command in commands
+    )
+    assert any(
+        "CREATE TRIGGER IF NOT EXISTS skills_catalog_updated_at_default" in command[-1]
+        for command in commands
+    )
 
 
 def test_missing_skills_catalog_is_left_for_base_schema(
@@ -126,6 +134,30 @@ def test_workflow_gates_schema_on_preflight() -> None:
     assert "services_schema_legacy_catalog" not in workflow
 
 
+def test_legacy_timestamp_is_backfilled_and_defaulted() -> None:
+    connection = sqlite3.connect(":memory:")
+    connection.execute("CREATE TABLE skills_catalog (id TEXT PRIMARY KEY)")
+    connection.execute("INSERT INTO skills_catalog (id) VALUES ('legacy')")
+    connection.execute("ALTER TABLE skills_catalog ADD COLUMN updated_at TEXT")
+
+    connection.execute(
+        "UPDATE skills_catalog SET updated_at = datetime('now') "
+        "WHERE updated_at IS NULL",
+    )
+    connection.execute(
+        "CREATE TRIGGER IF NOT EXISTS skills_catalog_updated_at_default "
+        "AFTER INSERT ON skills_catalog WHEN NEW.updated_at IS NULL BEGIN "
+        "UPDATE skills_catalog SET updated_at = datetime('now') "
+        "WHERE id = NEW.id AND updated_at IS NULL; END",
+    )
+    connection.execute("INSERT INTO skills_catalog (id) VALUES ('new')")
+
+    timestamps = connection.execute(
+        "SELECT updated_at FROM skills_catalog ORDER BY id",
+    ).fetchall()
+    assert all(timestamp and timestamp[0] for timestamp in timestamps)
+
+
 @pytest.mark.skipif(os.name == "nt", reason="bash script test runs on Unix CI")
 def test_workflow_script_upgrades_existing_catalog(tmp_path: Path) -> None:
     fake_bin = tmp_path / "bin"
@@ -138,6 +170,8 @@ case "$*" in
   *sqlite_master*) printf '{"name":"skills_catalog"}' ;;
   *table_info*) printf '{"name":"id"}' ;;
   *ALTER*) printf '%s\\n' "$*" >> "$FAKE_CALLS" ;;
+  *UPDATE*) printf '%s\\n' "$*" >> "$FAKE_CALLS" ;;
+  *CREATE\\ TRIGGER*) printf '%s\\n' "$*" >> "$FAKE_CALLS" ;;
 esac
 """,
         encoding="utf-8",
@@ -158,7 +192,13 @@ esac
     )
 
     assert result.returncode == 0, result.stderr
-    assert len(calls.read_text(encoding="utf-8").splitlines()) == 10
+    recorded = calls.read_text(encoding="utf-8").splitlines()
+    assert len([line for line in recorded if "ALTER" in line]) == 10
+    assert any("UPDATE skills_catalog SET updated_at" in line for line in recorded)
+    assert any(
+        "CREATE TRIGGER IF NOT EXISTS skills_catalog_updated_at_default" in line
+        for line in recorded
+    )
 
 
 @pytest.mark.skipif(os.name == "nt", reason="bash script test runs on Unix CI")

@@ -1040,6 +1040,36 @@ def _upgrade_d1_schema(
             cwd=SERVICES,
         )
 
+    if table_exists.get("skills_catalog"):
+        # SQLite não permite DEFAULT(datetime('now')) em ALTER TABLE ADD
+        # COLUMN. Repare linhas legadas e preserve o default para inserts.
+        _run(
+            [
+                WRANGLER,
+                "d1",
+                "execute",
+                "vectora-db",
+                "--remote",
+                "--command",
+                "UPDATE skills_catalog SET updated_at = datetime('now') WHERE updated_at IS NULL",
+            ],
+            log=log,
+            cwd=SERVICES,
+        )
+        _run(
+            [
+                WRANGLER,
+                "d1",
+                "execute",
+                "vectora-db",
+                "--remote",
+                "--command",
+                "CREATE TRIGGER IF NOT EXISTS skills_catalog_updated_at_default AFTER INSERT ON skills_catalog WHEN NEW.updated_at IS NULL BEGIN UPDATE skills_catalog SET updated_at = datetime('now') WHERE id = NEW.id AND updated_at IS NULL; END",
+            ],
+            log=log,
+            cwd=SERVICES,
+        )
+
 
 def _action_prod(target, source, env):
     # Preflights ANTES de publicar qualquer coisa: credencial Cloudflare válida

@@ -60,3 +60,11 @@ ensure_missing_column publisher_id "TEXT"
 ensure_missing_column verified "INTEGER NOT NULL DEFAULT 0"
 ensure_missing_column downloads_count "INTEGER NOT NULL DEFAULT 0"
 ensure_missing_column updated_at "TEXT"
+
+# Bancos legados recebem a coluna como anulável porque SQLite não permite
+# adicionar uma coluna com DEFAULT(datetime('now')). Repare as linhas antigas
+# e preserve o comportamento do schema base para inserts futuros.
+pnpm exec wrangler d1 execute vectora-db --remote \
+  --command "UPDATE skills_catalog SET updated_at = datetime('now') WHERE updated_at IS NULL"
+pnpm exec wrangler d1 execute vectora-db --remote \
+  --command "CREATE TRIGGER IF NOT EXISTS skills_catalog_updated_at_default AFTER INSERT ON skills_catalog WHEN NEW.updated_at IS NULL BEGIN UPDATE skills_catalog SET updated_at = datetime('now') WHERE id = NEW.id AND updated_at IS NULL; END"
