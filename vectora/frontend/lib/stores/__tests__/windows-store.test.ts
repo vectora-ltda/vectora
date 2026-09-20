@@ -396,6 +396,47 @@ describe("windows-store — documentos do Canvas", () => {
     expect(persisted.canvasDocuments).toEqual([]);
     expect(persisted.activeCanvasDocumentId).toBeNull();
   });
+
+  it("migra e sanitiza documentos persistidos antes de reidratar", () => {
+    const migrate = useWindowsStore.persist.getOptions().migrate;
+    expect(migrate).toBeDefined();
+
+    const migrated = migrate?.(
+      {
+        windows: [],
+        topZ: 120,
+        canvasDocuments: [
+          {
+            id: "file:ws1:src/main.ts",
+            kind: "file",
+            workspaceId: "ws1",
+            title: "main.ts",
+            path: "src/main.ts",
+          },
+          {
+            id: "plan:ws1:plan",
+            kind: "plan",
+            workspaceId: "ws1",
+            title: "Plano",
+          },
+          {
+            id: "file:invalid",
+            kind: "file",
+            workspaceId: "",
+            title: "Inválido",
+            path: "src/invalid.ts",
+          },
+        ],
+        activeCanvasDocumentId: "plan:ws1:plan",
+      },
+      0,
+    ) as Record<string, unknown>;
+
+    expect(migrated.canvasDocuments).toEqual([
+      expect.objectContaining({ id: "file:ws1:src/main.ts" }),
+    ]);
+    expect(migrated.activeCanvasDocumentId).toBeNull();
+  });
 });
 
 describe("windows-store — docked editor (IDE mode)", () => {

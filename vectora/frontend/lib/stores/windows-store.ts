@@ -114,6 +114,32 @@ function basename(path: string): string {
 const DEFAULT_WIN_W = 640;
 const DEFAULT_WIN_H = 460;
 
+interface PersistedWindowsState {
+  windows?: FileWindowState[];
+  topZ?: number;
+  canvasDocuments?: CanvasDocumentDescriptor[];
+  activeCanvasDocumentId?: string | null;
+}
+
+function sanitizePersistedCanvas(state: PersistedWindowsState) {
+  const documents = (state.canvasDocuments ?? []).filter(
+    (document): document is CanvasDocumentDescriptor =>
+      document.kind === "file" &&
+      typeof document.id === "string" &&
+      document.id.trim().length > 0 &&
+      typeof document.workspaceId === "string" &&
+      document.workspaceId.trim().length > 0 &&
+      typeof document.path === "string" &&
+      document.path.trim().length > 0,
+  );
+  const activeCanvasDocumentId = documents.some(
+    (document) => document.id === state.activeCanvasDocumentId,
+  )
+    ? (state.activeCanvasDocumentId ?? null)
+    : null;
+  return { documents, activeCanvasDocumentId };
+}
+
 /** Posição inicial centralizada na área de conteúdo VISÍVEL (descontando a
  * sidebar esquerda), não no viewport inteiro. `count` escalona janelas
  * subsequentes a partir da mesma centralização. */
@@ -415,6 +441,17 @@ export const useWindowsStore = create<WindowsState>()(
     }),
     {
       name: "vectora-windows",
+      version: 1,
+      migrate: (persistedState: unknown) => {
+        const state = (persistedState ?? {}) as PersistedWindowsState;
+        const canvas = sanitizePersistedCanvas(state);
+        return {
+          windows: Array.isArray(state.windows) ? state.windows : [],
+          topZ: typeof state.topZ === "number" ? state.topZ : BASE_Z,
+          canvasDocuments: canvas.documents,
+          activeCanvasDocumentId: canvas.activeCanvasDocumentId,
+        };
+      },
       storage: createJSONStorage(() =>
         typeof window !== "undefined"
           ? localStorage
