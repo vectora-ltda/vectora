@@ -13,6 +13,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  Settings2,
   Sparkles,
   Square,
   Terminal,
@@ -26,6 +27,7 @@ import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { useSettingsOverlayStore } from "@/lib/stores/settings-overlay-store";
 import { m as msg } from "@/lib/paraglide/messages";
 import { BrowserDevtoolsPanel } from "./browser-devtools-panel";
+import { WorkbenchSlidePanel } from "@/components/workbench/workbench-slide-panel";
 import {
   getBrowserSessionGeneration,
   getBrowserSession,
@@ -73,6 +75,18 @@ function genId(): string {
   return typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `tab-${Math.random().toString(36).slice(2)}`;
+}
+
+/** Derives a collision-free, partition-safe identifier from a session key. */
+export function getBrowserProfileId(sessionKey: string): string {
+  const bytes = new TextEncoder().encode(sessionKey);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  const encoded = btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+  return `session-${encoded}`;
 }
 
 function normalizeUrl(raw: string): string {
@@ -125,6 +139,10 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   wsIdRef.current = wsId;
   const sessionKey = `${wsId}:${threadId}`;
   const settingsOpen = useSettingsOverlayStore((s) => s.open);
+  const [browserSettingsOpen, setBrowserSettingsOpen] = useState(false);
+  const [settingsViewId, setSettingsViewId] = useState<number | null>(null);
+  const settingsViewIdRef = useRef<number | null>(null);
+  const settingsRequestRef = useRef(0);
 
   // Presente só no desktop Electron — quando ausente, cai no `<iframe>` de
   // fallback abaixo (sujeito a X-Frame-Options, único caminho possível fora
@@ -159,6 +177,8 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   // do console de stdout do dev server acima, que é sobre o processo, não
   // sobre a página que o agente navega via tools de browser.
   const [devtoolsOpen, setDevtoolsOpen] = useState(false);
+  const [clearProfileError, setClearProfileError] = useState(false);
+  const [settingsViewError, setSettingsViewError] = useState(false);
   const [sessionHydrationVersion, setSessionHydrationVersion] = useState(0);
 
   // Múltiplas abas — cada uma com seu próprio histórico (web) ou sua
@@ -178,6 +198,10 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const [activeTabId, setActiveTabId] = useState<string>(() => {
     const restored = getBrowserSession(sessionKey);
     return restored?.activeTabId ?? tabs[0].id;
+  });
+  const [profileId, setProfileId] = useState<string>(() => {
+    const restored = getBrowserSession(sessionKey);
+    return restored?.profileId ?? getBrowserProfileId(sessionKey);
   });
   const hydratedSessionKeyRef = useRef<string | null>(sessionKey);
   const previousSessionKeyRef = useRef(sessionKey);
@@ -210,6 +234,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
 
     setTabs(nextTabs);
     setActiveTabId(nextActiveTabId);
+    setProfileId(restored?.profileId ?? getBrowserProfileId(sessionKey));
     hydratedSessionKeyRef.current = sessionKey;
     setSessionHydrationVersion((version) => version + 1);
   }, [sessionKey]);
@@ -218,9 +243,10 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     if (hydratedSessionKeyRef.current !== sessionKey) return;
     setBrowserSession(sessionKey, {
       activeTabId,
+      profileId,
       tabs: tabs.map(({ loading, loadError, ...tab }) => tab),
     });
-  }, [sessionKey, tabs, activeTabId]);
+  }, [sessionKey, tabs, activeTabId, profileId]);
 
   const [urlInput, setUrlInput] = useState("");
   const [editingUrl, setEditingUrl] = useState(false);
@@ -228,6 +254,39 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const pendingNavigateRef = useRef<Map<string, string>>(new Map());
   const pendingViewCreatesRef = useRef<Set<string>>(new Set());
   const browserViewContainerRef = useRef<HTMLDivElement>(null);
+
+  const toggleBrowserSettings = useCallback(() => {
+    if (browserSettingsOpen) {
+      settingsRequestRef.current += 1;
+      if (desktopBrowser && settingsViewIdRef.current !== null) {
+        desktopBrowser.setVisible(settingsViewIdRef.current, false);
+        desktopBrowser.destroyView(settingsViewIdRef.current);
+        settingsViewIdRef.current = null;
+        setSettingsViewId(null);
+      }
+      setBrowserSettingsOpen(false);
+      return;
+    }
+    setSettingsViewError(false);
+    setBrowserSettingsOpen(true);
+    if (!desktopBrowser) return;
+    const requestId = ++settingsRequestRef.current;
+    void desktopBrowser
+      .createView(profileId)
+      .then((viewId) => {
+        if (requestId !== settingsRequestRef.current) {
+          desktopBrowser.destroyView(viewId);
+          return;
+        }
+        settingsViewIdRef.current = viewId;
+        setSettingsViewId(viewId);
+        void desktopBrowser.navigate(viewId, "chrome://settings");
+      })
+      .catch(() => {
+        if (requestId !== settingsRequestRef.current) return;
+        setSettingsViewError(true);
+      });
+  }, [browserSettingsOpen, desktopBrowser, profileId]);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -309,7 +368,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       if (!desktopBrowser) return;
       const sessionGeneration = getBrowserSessionGeneration(sessionKey);
       pendingViewCreatesRef.current.add(tabId);
-      void desktopBrowser.createView().then((viewId) => {
+      void desktopBrowser.createView(profileId).then((viewId) => {
         if (
           !pendingViewCreatesRef.current.has(tabId) ||
           getBrowserSessionGeneration(sessionKey) !== sessionGeneration
@@ -337,7 +396,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         }
       });
     },
-    [desktopBrowser, sessionKey, updateTab],
+    [desktopBrowser, profileId, sessionKey, updateTab],
   );
 
   const addTab = useCallback(
@@ -446,7 +505,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     )) {
       pendingViewCreatesRef.current.add(tab.id);
       const sessionGeneration = getBrowserSessionGeneration(sessionKey);
-      void desktopBrowser.createView().then((viewId) => {
+      void desktopBrowser.createView(profileId).then((viewId) => {
         if (
           !pendingViewCreatesRef.current.has(tab.id) ||
           getBrowserSessionGeneration(sessionKey) !== sessionGeneration
@@ -496,6 +555,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     desktopBrowser,
     hideAllBrowserViews,
     sessionKey,
+    profileId,
     sessionHydrationVersion,
   ]);
 
@@ -555,11 +615,21 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       if (t.viewId !== null) {
         desktopBrowser.setVisible(
           t.viewId,
-          visible && !settingsOpen && t.id === activeTabId,
+          visible &&
+            !settingsOpen &&
+            !browserSettingsOpen &&
+            t.id === activeTabId,
         );
       }
     }
-  }, [desktopBrowser, tabs, activeTabId, settingsOpen, visible]);
+  }, [
+    desktopBrowser,
+    tabs,
+    activeTabId,
+    settingsOpen,
+    browserSettingsOpen,
+    visible,
+  ]);
 
   // Reporta os bounds reais do container (ResizeObserver) pro main process
   // posicionar a WebContentsView ATIVA por cima — só existe depois da
@@ -590,6 +660,52 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       window.removeEventListener("resize", report);
     };
   }, [desktopBrowser, activeViewId, hasUrl]);
+
+  useEffect(() => {
+    if (!desktopBrowser || settingsViewId === null) return;
+
+    const shouldShow = browserSettingsOpen && visible && !settingsOpen;
+    const el = browserViewContainerRef.current;
+    if (!shouldShow || !el) {
+      desktopBrowser.setVisible(settingsViewId, false);
+      return;
+    }
+
+    const report = () => {
+      const rect = el.getBoundingClientRect();
+      desktopBrowser.setBounds(settingsViewId, {
+        x: Math.round(rect.left),
+        y: Math.round(rect.top),
+        width: Math.max(0, Math.round(rect.width)),
+        height: Math.max(0, Math.round(rect.height)),
+      });
+      desktopBrowser.setVisible(settingsViewId, true);
+    };
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      desktopBrowser.setVisible(settingsViewId, false);
+    };
+  }, [
+    browserSettingsOpen,
+    desktopBrowser,
+    settingsOpen,
+    settingsViewId,
+    visible,
+  ]);
+
+  useEffect(
+    () => () => {
+      settingsRequestRef.current += 1;
+      if (desktopBrowser && settingsViewIdRef.current !== null) {
+        desktopBrowser.destroyView(settingsViewIdRef.current);
+        settingsViewIdRef.current = null;
+      }
+    },
+    [desktopBrowser],
+  );
 
   const fetchLaunch = useCallback(
     async (isCurrent: () => boolean = () => true) => {
@@ -1091,6 +1207,49 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     </div>
   );
 
+  const emptyBrowserState = (
+    <div className="flex h-full flex-col items-center justify-center pb-[18%] gap-3 p-4 text-center">
+      <Zap className="h-8 w-8 text-muted-foreground/40 shrink-0" />
+      <div className="min-w-0 max-w-[260px]">
+        <p className="text-sm font-medium text-foreground leading-snug">
+          {msg.workbench_browser_empty_title()}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+          {msg.workbench_browser_empty_description()}
+        </p>
+      </div>
+      {configs.length === 0 &&
+        (showManualForm ? (
+          manualForm
+        ) : (
+          <div className="flex w-full max-w-[220px] flex-col gap-1.5">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleAskAgent}
+              className="gap-1.5 w-full h-auto py-1.5 px-3"
+            >
+              <Sparkles className="h-3.5 w-3.5 shrink-0" />
+              <span className="text-xs">
+                {msg.workbench_browser_ask_agent()}
+              </span>
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setShowManualForm(true)}
+              className="gap-1.5 w-full h-auto py-1.5 px-3"
+            >
+              <Plus className="h-3.5 w-3.5 shrink-0" />
+              <span className="text-xs">
+                {msg.workbench_browser_manual_add()}
+              </span>
+            </Button>
+          </div>
+        ))}
+    </div>
+  );
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {serverFavorites}
@@ -1098,50 +1257,109 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       {/* Tab strip — favicon/título truncado + fechar por aba, "+" pra nova
           aba. Sempre visível (mesmo com 1 aba só), consistente com um
           browser real. */}
-      <div className="flex shrink-0 items-center gap-0.5 overflow-x-auto border-b border-border/60 bg-card/10 px-1 pt-1">
-        {tabs.map((t) => {
-          const tUrl = desktopBrowser
-            ? t.desktopUrl
-            : t.historyIndex >= 0
-              ? t.history[t.historyIndex]
-              : "";
-          const label = t.title || tUrl || msg.workbench_browser_tab_untitled();
-          const isTabActive = t.id === activeTabId;
-          return (
-            <div
-              key={t.id}
-              data-testid="browser-tab-strip-item"
-              onClick={() => setActiveTabId(t.id)}
-              className={`group flex max-w-[160px] shrink-0 items-center gap-1 rounded-t-md px-2 py-1 text-[11px] cursor-pointer transition-colors ${
-                isTabActive
-                  ? "bg-background text-foreground"
-                  : "text-muted-foreground hover:bg-accent/40"
-              }`}
-            >
-              <span className="min-w-0 flex-1 truncate">{label}</span>
-              <button
-                type="button"
-                className="shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-accent transition-opacity"
-                title={msg.workbench_browser_close_tab()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  closeTab(t.id);
-                }}
+      <div className="flex shrink-0 items-center gap-0.5 border-b border-border/60 bg-card/10 px-1 pt-1">
+        <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
+          {tabs.map((t) => {
+            const tUrl = desktopBrowser
+              ? t.desktopUrl
+              : t.historyIndex >= 0
+                ? t.history[t.historyIndex]
+                : "";
+            const label =
+              t.title || tUrl || msg.workbench_browser_tab_untitled();
+            const isTabActive = t.id === activeTabId;
+            return (
+              <div
+                key={t.id}
+                data-testid="browser-tab-strip-item"
+                onClick={() => setActiveTabId(t.id)}
+                className={`group flex max-w-[160px] shrink-0 items-center gap-1 rounded-t-md px-2 py-1 text-[11px] cursor-pointer transition-colors ${
+                  isTabActive
+                    ? "bg-background text-foreground"
+                    : "text-muted-foreground hover:bg-accent/40"
+                }`}
               >
-                <X className="h-2.5 w-2.5" />
-              </button>
-            </div>
-          );
-        })}
+                <span className="min-w-0 flex-1 truncate">{label}</span>
+                <button
+                  type="button"
+                  className="shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-accent transition-opacity"
+                  title={msg.workbench_browser_close_tab()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeTab(t.id);
+                  }}
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </div>
+            );
+          })}
+          <button
+            type="button"
+            className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            title={msg.workbench_browser_new_tab()}
+            onClick={() => addTab()}
+          >
+            <Plus className="h-3 w-3" />
+          </button>
+        </div>
         <button
           type="button"
-          className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-          title={msg.workbench_browser_new_tab()}
-          onClick={() => addTab()}
+          data-testid="browser-settings-btn"
+          aria-label={msg.workbench_browser_settings_toggle()}
+          aria-expanded={browserSettingsOpen}
+          title={msg.workbench_browser_settings_toggle()}
+          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded p-1 transition-colors ${browserSettingsOpen ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
+          onClick={toggleBrowserSettings}
         >
-          <Plus className="h-3 w-3" />
+          <Settings2 className="h-3.5 w-3.5" />
         </button>
       </div>
+
+      <WorkbenchSlidePanel
+        open={browserSettingsOpen}
+        onClose={toggleBrowserSettings}
+        title={msg.workbench_browser_settings_title()}
+        testId="browser-settings-panel"
+      >
+        <div className="space-y-3 text-xs text-muted-foreground">
+          <p>{msg.workbench_browser_settings_description()}</p>
+          {desktopBrowser ? (
+            <>
+              <button
+                type="button"
+                className="rounded border border-destructive/40 px-2 py-1 text-destructive hover:bg-destructive/10"
+                onClick={() => {
+                  if (
+                    !window.confirm(
+                      msg.workbench_browser_clear_profile_confirm(),
+                    )
+                  )
+                    return;
+                  setClearProfileError(false);
+                  void desktopBrowser.clearProfileData(profileId).catch(() => {
+                    setClearProfileError(true);
+                  });
+                }}
+              >
+                {msg.workbench_browser_clear_profile_data()}
+              </button>
+              {clearProfileError ? (
+                <p role="alert" className="text-destructive">
+                  {msg.workbench_browser_clear_profile_error()}
+                </p>
+              ) : null}
+              {settingsViewError ? (
+                <p role="alert" className="text-destructive">
+                  {msg.workbench_browser_settings_error()}
+                </p>
+              ) : null}
+            </>
+          ) : (
+            <p>{msg.workbench_browser_settings_unavailable()}</p>
+          )}
+        </div>
+      </WorkbenchSlidePanel>
 
       {/* Barra de navegação — sempre ativa, não depende de nenhum servidor */}
       <div className="flex items-center gap-1 border-b border-border/60 bg-card/20 px-2 py-1">
@@ -1218,71 +1436,32 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
             {desktopLoadError}
           </div>
         )}
-        {currentUrl ? (
-          desktopBrowser ? (
-            // WebContentsView real (Electron) desenhada pelo main process por
-            // cima deste espaço reservado — este div fica sempre vazio, é só
-            // a referência de bounds (ver o efeito de ResizeObserver acima).
-            <div
-              ref={browserViewContainerRef}
-              data-testid="browser-webcontentsview-container"
-              className="flex-1 w-full bg-white"
-            />
-          ) : (
-            <iframe
-              ref={iframeRef}
-              key={`${activeTab.id}-${activeTab.iframeKey}`}
-              src={currentUrl}
-              className="flex-1 w-full border-0 bg-white"
-              title={msg.workbench_browser_frame_title()}
-              sandbox={
-                isTrustedWorkspaceServer(currentUrl)
-                  ? "allow-scripts allow-forms allow-modals allow-popups allow-same-origin"
-                  : "allow-scripts allow-forms allow-modals allow-popups"
-              }
-            />
-          )
-        ) : (
-          <div className="flex flex-1 flex-col items-center justify-center pb-[18%] gap-3 p-4 text-center">
-            <Zap className="h-8 w-8 text-muted-foreground/40 shrink-0" />
-            <div className="min-w-0 max-w-[260px]">
-              <p className="text-sm font-medium text-foreground leading-snug">
-                {msg.workbench_browser_empty_title()}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
-                {msg.workbench_browser_empty_description()}
-              </p>
-            </div>
-            {configs.length === 0 &&
-              (showManualForm ? (
-                manualForm
-              ) : (
-                <div className="flex w-full max-w-[220px] flex-col gap-1.5">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={handleAskAgent}
-                    className="gap-1.5 w-full h-auto py-1.5 px-3"
-                  >
-                    <Sparkles className="h-3.5 w-3.5 shrink-0" />
-                    <span className="text-xs">
-                      {msg.workbench_browser_ask_agent()}
-                    </span>
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setShowManualForm(true)}
-                    className="gap-1.5 w-full h-auto py-1.5 px-3"
-                  >
-                    <Plus className="h-3.5 w-3.5 shrink-0" />
-                    <span className="text-xs">
-                      {msg.workbench_browser_manual_add()}
-                    </span>
-                  </Button>
-                </div>
-              ))}
+        {desktopBrowser ? (
+          // Mantemos o container montado antes da primeira navegação para
+          // que a view nativa de configurações tenha bounds válidos em abas
+          // novas.
+          <div
+            ref={browserViewContainerRef}
+            data-testid="browser-webcontentsview-container"
+            className="relative flex-1 w-full bg-white"
+          >
+            {!currentUrl && emptyBrowserState}
           </div>
+        ) : currentUrl ? (
+          <iframe
+            ref={iframeRef}
+            key={`${activeTab.id}-${activeTab.iframeKey}`}
+            src={currentUrl}
+            className="flex-1 w-full border-0 bg-white"
+            title={msg.workbench_browser_frame_title()}
+            sandbox={
+              isTrustedWorkspaceServer(currentUrl)
+                ? "allow-scripts allow-forms allow-modals allow-popups allow-same-origin"
+                : "allow-scripts allow-forms allow-modals allow-popups"
+            }
+          />
+        ) : (
+          emptyBrowserState
         )}
       </div>
 
