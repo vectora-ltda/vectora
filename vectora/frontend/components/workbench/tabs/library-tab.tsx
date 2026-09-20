@@ -154,7 +154,7 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
         {noFiltersActive ? (
           <SectionEmptyState label={m.library_empty_no_filters()} />
         ) : (
-          <Accordion type="multiple" defaultValue={["memory"]} className="px-0">
+          <Accordion type="multiple" defaultValue={[]} className="px-0">
             {activeFilters.has("mcp") && (
               <AccordionItem value="mcp" className="border-b-0">
                 <AccordionTrigger className="min-h-[49px] gap-2 px-2.5 py-3.5 hover:no-underline">
