@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -70,6 +71,69 @@ def test_archive_failure_does_not_change_effective_state(
     assert current.archived_at is None
 
 
+def test_concurrent_registry_instances_preserve_both_mutations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Instâncias concorrentes não podem perder uma atualização da outra."""
+    import backend.rbac.safe_roots as safe_roots_module
+
+    monkeypatch.setattr(
+        safe_roots_module,
+        "_safe_roots_file",
+        lambda: tmp_path / "safe-roots.json",
+    )
+    first_path = tmp_path / "first"
+    second_path = tmp_path / "second"
+    first_path.mkdir()
+    second_path.mkdir()
+
+    def add(path: Path) -> SafeRoot:
+        return SafeRootRegistry().add(str(path), path.name, "admin")
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        roots = list(pool.map(add, (first_path, second_path)))
+
+    persisted = SafeRootRegistry().all_roots(include_archived=True)
+    assert {root.id for root in roots}.issubset({root.id for root in persisted})
+
+
+@pytest.mark.asyncio
+async def test_workspace_creation_maps_safe_root_persistence_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Falha ao registrar o root privilegiado vira erro HTTP 503."""
+    from fastapi import HTTPException
+
+    from backend.api.handlers import workspaces
+    from backend.workspace import workspace as workspace_module
+
+    workspace_dir = tmp_path / "workspace"
+    workspace_dir.mkdir()
+    registry = SimpleNamespace(
+        add=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            SafeRootPersistenceError("disk full")
+        )
+    )
+    monkeypatch.setattr(
+        "backend.rbac.safe_roots.get_safe_root_registry", lambda: registry
+    )
+    monkeypatch.setattr(
+        workspace_module.workspace_registry,
+        "create",
+        lambda *args, **kwargs: SimpleNamespace(id="ws-1", cwd=str(workspace_dir)),
+    )
+    request = SimpleNamespace(
+        state=SimpleNamespace(user=SimpleNamespace(id="admin", role="admin"))
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await workspaces.create_workspace(
+            cast("Request", request),
+            workspaces.CreateWorkspaceRequest(path=str(workspace_dir)),
+        )
+    assert exc_info.value.status_code == 503
+
+
 @pytest.mark.asyncio
 async def test_restore_endpoint_returns_archived_root(
     monkeypatch: pytest.MonkeyPatch,
@@ -110,6 +174,36 @@ async def test_restore_endpoint_returns_archived_root(
         "status": "restored",
         "root": restored.model_dump(mode="json"),
     }
+
+
+@pytest.mark.asyncio
+async def test_update_safe_root_maps_persistence_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Renomear uma raiz traduz falha de persistência em HTTP 503."""
+    from fastapi import HTTPException
+
+    from backend.api.handlers import admin
+
+    registry = SimpleNamespace(
+        update_label=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            SafeRootPersistenceError("disk full")
+        )
+    )
+    monkeypatch.setattr(
+        "backend.rbac.safe_roots.get_safe_root_registry", lambda: registry
+    )
+    request = SimpleNamespace(
+        state=SimpleNamespace(user=SimpleNamespace(id="admin", role="admin"))
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await admin.update_safe_root(
+            cast("Request", request),
+            "root-1",
+            admin.UpdateSafeRootBody(label="Renamed"),
+        )
+    assert exc_info.value.status_code == 503
 
 
 @pytest.mark.asyncio

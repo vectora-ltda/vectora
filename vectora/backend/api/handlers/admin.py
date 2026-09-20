@@ -835,9 +835,11 @@ async def list_safe_roots_admin(request: Request) -> dict:
     from backend.rbac.safe_roots import SafeRootPersistenceError, get_safe_root_registry
 
     registry = get_safe_root_registry()
-    return {
-        "roots": [r.model_dump() for r in registry.all_roots(include_archived=True)],
-    }
+    try:
+        roots = registry.all_roots(include_archived=True)
+    except SafeRootPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"roots": [root.model_dump() for root in roots]}
 
 
 @router.post("/safe-roots")
@@ -911,15 +913,15 @@ async def delete_safe_root(request: Request, root_id: str) -> dict:
     )
 
     registry = get_safe_root_registry()
-    root = registry.get(root_id)
-    if root is None:
-        raise HTTPException(status_code=404, detail="Raiz não encontrada")
-    if root.builtin:
-        raise HTTPException(
-            status_code=400,
-            detail="Raiz builtin não pode ser removida.",
-        )
     try:
+        root = await asyncio.to_thread(registry.get, root_id)
+        if root is None:
+            raise HTTPException(status_code=404, detail="Raiz não encontrada")
+        if root.builtin:
+            raise HTTPException(
+                status_code=400,
+                detail="Raiz builtin não pode ser removida.",
+            )
         archived = await asyncio.to_thread(registry.archive, root_id)
     except SafeRootPersistenceError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

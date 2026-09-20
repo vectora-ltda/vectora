@@ -356,11 +356,15 @@ async def create_workspace(
     uid = _user_id(request)
     safe_roots = get_safe_root_registry()
     privileged = _is_privileged(request)
-    if (
-        not privileged
-        and await asyncio.to_thread(safe_roots.is_under_safe_root, str(resolved_path))
-        is None
-    ):
+    try:
+        under_safe_root = (
+            await asyncio.to_thread(safe_roots.is_under_safe_root, str(resolved_path))
+            if not privileged
+            else None
+        )
+    except SafeRootPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if not privileged and under_safe_root is None:
         raise HTTPException(
             status_code=403,
             detail="Caminho fora das pastas seguras configuradas.",
@@ -715,16 +719,22 @@ async def list_safe_roots() -> ListSafeRootsResponse:
     from backend.rbac.safe_roots import get_safe_root_registry
 
     registry = get_safe_root_registry()
+    from backend.rbac.safe_roots import SafeRootPersistenceError
+
+    try:
+        roots = registry.all_roots()
+    except SafeRootPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return ListSafeRootsResponse(
         roots=[
             SafeRootInfo(
-                id=r.id,
-                path=r.path,
-                label=r.label,
-                builtin=r.builtin,
-                archived_at=r.archived_at,
+                id=root.id,
+                path=root.path,
+                label=root.label,
+                builtin=root.builtin,
+                archived_at=root.archived_at,
             )
-            for r in registry.all_roots()
+            for root in roots
         ],
     )
 

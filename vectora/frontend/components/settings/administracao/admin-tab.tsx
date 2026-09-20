@@ -38,6 +38,16 @@ const LATENCY_UNIT = "ms";
 const BASIC_ROLES = ["admin", "member", "viewer"] as const;
 const ALL_ROLES = ["root", "admin", "member", "viewer"] as const;
 
+function roleLabel(role: string): string {
+  const labels: Record<string, string> = {
+    root: m.account_role_root(),
+    admin: m.account_role_admin(),
+    member: m.account_role_member(),
+    viewer: m.account_role_viewer(),
+  };
+  return labels[role] ?? role;
+}
+
 import { useLicenseStatus } from "@/lib/hooks/use-license-status";
 
 import { Badge } from "@/components/ui/badge";
@@ -245,7 +255,7 @@ function InvitesSection() {
                 <SelectContent>
                   {BASIC_ROLES.map((role) => (
                     <SelectItem key={role} value={role}>
-                      {role}
+                      {roleLabel(role)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -522,7 +532,7 @@ export function UsersPanel() {
               <SelectContent>
                 {ALL_ROLES.map((role) => (
                   <SelectItem key={role} value={role}>
-                    {role}
+                    {roleLabel(role)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -876,17 +886,22 @@ export function SafeRootsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [removeConfirmId, setRemoveConfirmId] = useState<string | null>(null);
+  const [restoringIds, setRestoringIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const reloadEpochRef = useRef(0);
 
   const reload = useCallback(async () => {
+    const epoch = ++reloadEpochRef.current;
     setLoading(true);
     try {
       const res = await fetch("/admin/safe-roots");
       if (res.ok) {
         const data = await res.json();
-        setRoots(data.roots ?? []);
+        if (epoch === reloadEpochRef.current) setRoots(data.roots ?? []);
       }
     } finally {
-      setLoading(false);
+      if (epoch === reloadEpochRef.current) setLoading(false);
     }
   }, []);
 
@@ -951,6 +966,8 @@ export function SafeRootsPanel() {
   };
 
   const handleRestore = async (id: string) => {
+    if (restoringIds.has(id)) return;
+    setRestoringIds((current) => new Set(current).add(id));
     try {
       const res = await fetch(`/admin/safe-roots/${id}/restore`, {
         method: "POST",
@@ -963,10 +980,15 @@ export function SafeRootsPanel() {
         );
         return;
       }
-      setError(null);
       await reload();
     } catch {
       setError(m.admin_saferoots_restore_failed({ status: 0 }));
+    } finally {
+      setRestoringIds((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
     }
   };
 
@@ -1103,6 +1125,7 @@ export function SafeRootsPanel() {
                   size="sm"
                   variant="ghost"
                   onClick={() => void handleRestore(r.id)}
+                  disabled={restoringIds.has(r.id)}
                   title={m.admin_saferoots_restore_title()}
                   aria-label={m.admin_saferoots_restore_title()}
                 >

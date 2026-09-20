@@ -1,21 +1,15 @@
-"""SafeRootRegistry — pastas confiáveis configuráveis pelo admin.
-
-Limita onde usuários comuns podem navegar ao criar workspaces. Admin
-adiciona/remove raízes; o ``BrowseDir`` valida cada path requisitado
-contra a lista.
-
-Persiste em ``~/.vectora/safe_roots.json``. Carregamento lazy. Na
-primeira inicialização, garante que ``~/Documents/vectora`` está como
-entrada builtin (não removível, mas o label pode ser editado).
-"""
+"""Persisted safe-root registry with atomic, cross-process transactions."""
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
 import os
 import tempfile
+from _thread import RLock as RLockType
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import RLock
@@ -25,6 +19,7 @@ from backend.settings import settings
 from backend.vtypes import SafeRoot
 
 logger = logging.getLogger(__name__)
+_windows_file_lock = RLock()
 
 
 class SafeRootPersistenceError(RuntimeError):
@@ -32,32 +27,24 @@ class SafeRootPersistenceError(RuntimeError):
 
 
 def _safe_roots_file() -> Path:
-    """Caminho de ``safe_roots.json``, sob ``settings.vectora_home``.
-
-    Resolvido a cada chamada (não congelado em import) para respeitar
-    ``VECTORA_HOME`` em testes que sobrescrevem ``settings.vectora_home``.
-    """
+    """Return the configured safe-root JSON path."""
     return settings.vectora_home / "safe_roots.json"
 
 
 def _default_builtin_root() -> Path:
-    """Pasta builtin garantida — espelha o root de workspaces de sessão
-    (``backend.workspace.workspace._session_workspaces_root``), mesma lógica
-    de derivar de ``settings.vectora_home.parent`` para respeitar
-    ``VECTORA_HOME`` sem mudar o default de produção (``~/Documents/vectora``).
-    """
+    """Return the default workspace root."""
     return settings.vectora_home.parent / "Documents" / "vectora"
 
 
 class SafeRootRegistry:
-    """Singleton com persistência em JSON."""
+    """Registry whose every operation observes a serialized disk snapshot."""
 
     _instance: ClassVar[SafeRootRegistry | None] = None
 
     def __init__(self) -> None:
         self._roots: dict[str, SafeRoot] = {}
         self._loaded = False
-        self._lock = RLock()
+        self._lock: RLockType = RLock()
 
     @classmethod
     def instance(cls) -> SafeRootRegistry:
@@ -67,35 +54,71 @@ class SafeRootRegistry:
 
     @staticmethod
     def derive_id(path: str) -> str:
-        """ID determinístico do path absoluto resolvido."""
+        """Return a deterministic ID for an absolute, resolved path."""
         normalized = str(Path(path).expanduser().resolve())
         return hashlib.sha256(normalized.encode()).hexdigest()[:8]
 
+    def _refresh_from_disk(self) -> None:
+        """Replace the in-memory snapshot with the latest persisted data."""
+        self._roots = {}
+        safe_roots_file = _safe_roots_file()
+        if not safe_roots_file.exists():
+            return
+        try:
+            data = json.loads(safe_roots_file.read_text(encoding="utf-8"))
+            for item in data.get("roots", []):
+                try:
+                    root = SafeRoot(**item)
+                except Exception:
+                    logger.debug("SafeRoot inválido ignorado: %s", item)
+                    continue
+                self._roots[root.id] = root
+        except Exception:
+            logger.warning("Falha ao carregar safe_roots.json", exc_info=True)
+
     def _load(self) -> None:
+        """Load once for compatibility with existing callers."""
         if self._loaded:
             return
-        safe_roots_file = _safe_roots_file()
-        if safe_roots_file.exists():
-            try:
-                data = json.loads(safe_roots_file.read_text(encoding="utf-8"))
-                for item in data.get("roots", []):
-                    try:
-                        r = SafeRoot(**item)
-                        self._roots[r.id] = r
-                    except Exception:
-                        logger.debug("SafeRoot inválido ignorado: %s", item)
-            except Exception:
-                logger.warning("Falha ao carregar safe_roots.json", exc_info=True)
+        self._refresh_from_disk()
         self._ensure_builtin()
         self._loaded = True
 
-    def _ensure_builtin(self) -> None:
-        """Garante a entrada builtin ~/Documents/vectora.
+    @contextlib.contextmanager
+    def _file_lock(self) -> Iterator[None]:
+        """Serialize transactions across registry instances and processes."""
+        target = _safe_roots_file()
+        lock_file = target.with_name(f"{target.name}.lock")
+        lock_file.parent.mkdir(parents=True, exist_ok=True)
+        if os.name == "nt":
+            # ``msvcrt.locking`` is process-scoped and raises PermissionError
+            # when a second handle in this process touches the locked byte.
+            # The process-wide guard still serializes all worker threads; the
+            # lock file remains the stable coordination marker for Unix hosts.
+            with _windows_file_lock:
+                yield
+            return
+        with lock_file.open("a+b") as stream:
+            import fcntl
 
-        Se já existir uma SafeRoot apontando para esse path (mesmo
-        criada pelo admin), marca como builtin para proteger contra
-        remoção acidental.
-        """
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+    @contextlib.contextmanager
+    def _locked(self) -> Iterator[None]:
+        """Run a transaction against a freshly loaded snapshot."""
+        with self._lock:
+            with self._file_lock():
+                self._refresh_from_disk()
+                self._ensure_builtin()
+                self._loaded = True
+                yield
+
+    def _ensure_builtin(self) -> None:
+        """Ensure the default workspace root exists and is protected."""
         builtin_path = _default_builtin_root()
         builtin_id = self.derive_id(str(builtin_path))
         existing = self._roots.get(builtin_id)
@@ -106,12 +129,11 @@ class SafeRootRegistry:
                 self._save_roots(candidate)
                 self._roots = candidate
             return
-        now = datetime.now(UTC).isoformat()
         builtin = SafeRoot(
             id=builtin_id,
             path=str(builtin_path.resolve()),
             label="Workspaces Vectora",
-            created_at=now,
+            created_at=datetime.now(UTC).isoformat(),
             created_by="system",
             builtin=True,
         )
@@ -121,10 +143,11 @@ class SafeRootRegistry:
         self._roots = candidate
 
     def _save_roots(self, roots: dict[str, SafeRoot]) -> None:
-        """Atomically persist a candidate registry or raise on failure."""
+        """Atomically persist a candidate and sync file and directory data."""
         safe_roots_file = _safe_roots_file()
-        data = {"roots": [r.model_dump() for r in roots.values()]}
+        data = {"roots": [root.model_dump() for root in roots.values()]}
         temporary_file: Path | None = None
+        fd = -1
         try:
             safe_roots_file.parent.mkdir(parents=True, exist_ok=True)
             fd, temporary_name = tempfile.mkstemp(
@@ -134,11 +157,20 @@ class SafeRootRegistry:
             )
             temporary_file = Path(temporary_name)
             with os.fdopen(fd, "w", encoding="utf-8") as output:
+                fd = -1
                 json.dump(data, output, indent=2, ensure_ascii=False)
                 output.flush()
                 os.fsync(output.fileno())
             temporary_file.replace(safe_roots_file)
+            if os.name != "nt":
+                directory_fd = os.open(safe_roots_file.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
         except Exception as exc:
+            if fd >= 0:
+                os.close(fd)
             if temporary_file is not None:
                 temporary_file.unlink(missing_ok=True)
             logger.warning("Falha ao salvar safe_roots.json", exc_info=True)
@@ -150,34 +182,30 @@ class SafeRootRegistry:
         """Persist the current registry atomically."""
         self._save_roots(self._roots)
 
-    # ----- API pública --------------------------------------------------
-
     def all_roots(self, *, include_archived: bool = False) -> list[SafeRoot]:
-        """Retorna raízes ativas, ou também arquivadas quando solicitado."""
-        with self._lock:
-            self._load()
+        """Return active roots, or archived roots when requested."""
+        with self._locked():
             return sorted(
                 (
-                    r
-                    for r in self._roots.values()
-                    if include_archived or r.archived_at is None
+                    root
+                    for root in self._roots.values()
+                    if include_archived or root.archived_at is None
                 ),
-                key=lambda r: (not r.builtin, r.label.lower()),
+                key=lambda root: (not root.builtin, root.label.lower()),
             )
 
     def get(self, root_id: str) -> SafeRoot | None:
-        with self._lock:
-            self._load()
+        """Return one root by ID."""
+        with self._locked():
             return self._roots.get(root_id)
 
     def add(self, path: str, label: str, user_id: str) -> SafeRoot:
-        """Adiciona uma nova raiz. Idempotente por path (ID determinístico)."""
-        with self._lock:
-            self._load()
+        """Add a root, restoring an archived entry with the same path."""
+        with self._locked():
             resolved = str(Path(path).expanduser().resolve())
             root_id = self.derive_id(resolved)
-            if root_id in self._roots:
-                existing = self._roots[root_id]
+            existing = self._roots.get(root_id)
+            if existing is not None:
                 if existing.archived_at is not None:
                     restored = existing.model_copy(update={"archived_at": None})
                     candidate = dict(self._roots)
@@ -201,9 +229,8 @@ class SafeRootRegistry:
             return root
 
     def update_label(self, root_id: str, label: str) -> SafeRoot | None:
-        """Renomeia uma entrada. Builtin permite renomear; remove não."""
-        with self._lock:
-            self._load()
+        """Rename an entry; builtin roots may be renamed."""
+        with self._locked():
             root = self._roots.get(root_id)
             if root is None:
                 return None
@@ -215,13 +242,10 @@ class SafeRootRegistry:
             return updated
 
     def remove(self, root_id: str) -> bool:
-        """Remove raiz. Recusa se for builtin."""
-        with self._lock:
-            self._load()
+        """Remove a non-builtin root."""
+        with self._locked():
             root = self._roots.get(root_id)
-            if root is None:
-                return False
-            if root.builtin:
+            if root is None or root.builtin:
                 return False
             candidate = dict(self._roots)
             del candidate[root_id]
@@ -230,9 +254,8 @@ class SafeRootRegistry:
             return True
 
     def archive(self, root_id: str) -> SafeRoot | None:
-        """Arquiva uma raiz sem apagar o registro ou seu histórico."""
-        with self._lock:
-            self._load()
+        """Archive a root without deleting its history."""
+        with self._locked():
             root = self._roots.get(root_id)
             if root is None or root.builtin:
                 return None
@@ -246,9 +269,8 @@ class SafeRootRegistry:
             return archived
 
     def restore(self, root_id: str) -> SafeRoot | None:
-        """Restaura uma raiz arquivada."""
-        with self._lock:
-            self._load()
+        """Restore an archived root."""
+        with self._locked():
             root = self._roots.get(root_id)
             if root is None:
                 return None
@@ -259,46 +281,35 @@ class SafeRootRegistry:
             self._roots = candidate
             return restored
 
-    # ----- Validação ----------------------------------------------------
-
     def is_under_safe_root(self, path: str) -> SafeRoot | None:
-        """Devolve o SafeRoot que contém ``path``, ou None se nenhum.
-
-        Match inclui o próprio path quando igual à raiz (caso comum:
-        usuário acabou de entrar na raiz e ainda não desceu).
-        """
-        with self._lock:
-            self._load()
+        """Return the active root containing ``path``, if any."""
+        with self._locked():
             target = Path(path).expanduser().resolve()
             for root in self._roots.values():
                 if root.archived_at is not None:
                     continue
-                root_path = Path(root.path)
                 try:
-                    target.relative_to(root_path)
+                    target.relative_to(Path(root.path))
                     return root
                 except ValueError:
                     continue
             return None
 
     def closest_safe_root_for(self, path: str) -> SafeRoot | None:
-        """Retorna o SafeRoot mais próximo do ``path`` solicitado.
-
-        Útil para o fallback do BrowseDir: quando o caller pede um
-        path fora dos limites, devolvemos a raiz mais relacionada
-        (por exemplo, ``~/Documents/vectora`` quando o user pede ``~``).
-        Se nenhuma raiz "contém" o caminho, devolve a primeira da lista.
-        """
-        with self._lock:
-            self._load()
-            contained = self.is_under_safe_root(path)
-            if contained is not None:
-                return contained
-            # Sem match — devolve a builtin (primeiro item após sort).
-            roots = self.all_roots()
+        """Return the closest containing root, or the first active root."""
+        with self._locked():
+            target = Path(path).expanduser().resolve()
+            roots = [root for root in self._roots.values() if root.archived_at is None]
+            for root in roots:
+                try:
+                    target.relative_to(Path(root.path))
+                    return root
+                except ValueError:
+                    continue
+            roots.sort(key=lambda root: (not root.builtin, root.label.lower()))
             return roots[0] if roots else None
 
 
 def get_safe_root_registry() -> SafeRootRegistry:
-    """Atalho para o singleton (mesmo padrão do workspace_registry)."""
+    """Return the process singleton."""
     return SafeRootRegistry.instance()
