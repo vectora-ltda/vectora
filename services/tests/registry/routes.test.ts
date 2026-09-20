@@ -331,6 +331,34 @@ describe("POST /registry/skills", () => {
     expect(await res.json()).toEqual({ error: "invalid_source" });
   });
 
+  it("rejeita o namespace reservado @vectora sem persistir a skill", async () => {
+    const { token } = await createUser("user");
+
+    const res = await registry.request(
+      "/skills",
+      authed(token, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Community Attempt",
+          description: "não pode ocupar o namespace reservado",
+          source: "https://github.com/community/attempt",
+          package_name: "@Vectora/community-attempt",
+        }),
+      }),
+      env,
+    );
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "reserved_package_name" });
+    const row = await env.DB.prepare(
+      "SELECT COUNT(*) AS total FROM skills_catalog WHERE package_name = ?",
+    )
+      .bind("@Vectora/community-attempt")
+      .first<{ total: number }>();
+    expect(row?.total).toBe(0);
+  });
+
   it("rejeita chamada sem sessão (401)", async () => {
     const res = await registry.request(
       "/skills",

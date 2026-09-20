@@ -171,6 +171,9 @@ registry.post("/skills", async (c) => {
   if (!name) return c.json({ error: "invalid_name" }, 400);
   if (!description) return c.json({ error: "invalid_description" }, 400);
   if (!isGitUrl(source)) return c.json({ error: "invalid_source" }, 400);
+  if (packageName.toLowerCase().startsWith("@vectora/")) {
+    return c.json({ error: "reserved_package_name" }, 400);
+  }
 
   const id = crypto.randomUUID();
   await c.env.DB.prepare(
