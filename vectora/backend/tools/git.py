@@ -1260,6 +1260,14 @@ async def git_check_hooks(ctx: ToolContext, workspace_id: str | None = None) -> 
         return err
     try:
         result = await asyncio.to_thread(_run_pre_commit_hooks, repo)
+        logger.info(
+            "git_check_hooks completed",
+            extra={
+                "tool": "git_check_hooks",
+                "workspace_id": workspace_id,
+                "passed": result.get("passed", False),
+            },
+        )
         return json.dumps(result)
     except Exception as exc:
         logger.exception(

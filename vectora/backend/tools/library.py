@@ -118,6 +118,15 @@ async def install_skill_from_catalog(skill_id: str, ctx: ToolContext) -> str:
             )
 
         skill = install_skill(ctx.user_id, entry["source"])
+        logger.info(
+            "install_skill_from_catalog completed",
+            extra={
+                "tool": "install_skill_from_catalog",
+                "skill_id": skill_id,
+                "caller_id": ctx.user_id,
+                "source": entry.get("source", ""),
+            },
+        )
         return json.dumps({"status": "installed", "skill_id": skill.id})
     except Exception as exc:
         logger.exception(
@@ -456,6 +465,14 @@ async def list_skills_catalog(query: str = "") -> str:
                 query,
             )
         ]
+        logger.info(
+            "list_skills_catalog completed",
+            extra={
+                "tool": "list_skills_catalog",
+                "query": query,
+                "result_count": len(items),
+            },
+        )
         return json.dumps(
             {"items": items[:_CATALOG_PAGE_SIZE], "total": len(items)},
             ensure_ascii=False,
