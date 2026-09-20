@@ -385,6 +385,9 @@ describe("SessionPage — navegação compacta usa a mesma medida física", () =
     act(() => {
       screen.getByTestId("header-sidebar-trigger").click();
     });
+    expect(
+      document.querySelector('[data-slot="sheet-content"]'),
+    ).toBeInTheDocument();
 
     Object.defineProperty(window, "outerWidth", {
       configurable: true,
@@ -397,6 +400,11 @@ describe("SessionPage — navegação compacta usa a mesma medida física", () =
     await waitFor(() =>
       expect(
         screen.queryByTestId("header-sidebar-trigger"),
+      ).not.toBeInTheDocument(),
+    );
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-slot="sheet-content"]'),
       ).not.toBeInTheDocument(),
     );
   });

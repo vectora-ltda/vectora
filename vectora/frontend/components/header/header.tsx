@@ -15,13 +15,9 @@ interface HeaderProps {
   onOpenSidebar?: () => void;
   /** Render the session trigger whenever the caller has a compact shell. */
   sidebarTriggerCompactOnly?: boolean;
-  //: Mostra o seletor Assistente/IDE/Kanban centralizado nesta mesma barra
-  //: (ausente em chatMode, que não tem os 3 modos). Antes vivia numa linha
-  //: separada acima do Header — o usuário via duas barras empilhadas
-  //: (abas de modo + ajuda/config) em vez de uma só. Unificar exige que o
-  //: Header seja renderizado UMA vez, com largura cheia, nos 3 modos —
-  //: nunca aninhado dentro da coluna do editor/chat/board, que tem largura
-  //: diferente por modo (a mesma causa raiz do bug de posição original).
+  // O seletor de modo ocupa o centro do Header quando a tela oferece os três
+  // modos. O Header permanece uma única faixa de largura total, independente
+  // da coluna de conteúdo ativa, para manter o seletor centralizado.
   showModeSwitch?: boolean;
 }
 
