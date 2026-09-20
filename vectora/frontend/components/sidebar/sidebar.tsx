@@ -95,7 +95,7 @@ export const Sidebar = memo(function Sidebar({
         created_at: now,
         updated_at: now,
         metadata: { user_id: "local" },
-        workspace_id: activeWorkspaceId ?? undefined,
+        workspace_id: chatMode ? undefined : (activeWorkspaceId ?? undefined),
         mode: chatMode ? "chat" : "code",
       } satisfies Thread,
     ];

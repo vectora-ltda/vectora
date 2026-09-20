@@ -66,7 +66,9 @@ vi.mock("../thread-list", () => ({
   ThreadList: ({ filteredThreads }: { filteredThreads: Thread[] }) => (
     <div data-testid="expanded-threads">
       {filteredThreads.map((thread) => (
-        <span key={thread.thread_id}>{thread.thread_id}</span>
+        <span key={thread.thread_id} data-workspace-id={thread.workspace_id}>
+          {thread.thread_id}
+        </span>
       ))}
     </div>
   ),
@@ -75,7 +77,9 @@ vi.mock("../collapsed-sidebar", () => ({
   CollapsedSidebar: ({ threads }: { threads: Thread[] }) => (
     <div data-testid="collapsed-threads">
       {threads.map((thread) => (
-        <span key={thread.thread_id}>{thread.thread_id}</span>
+        <span key={thread.thread_id} data-workspace-id={thread.workspace_id}>
+          {thread.thread_id}
+        </span>
       ))}
     </div>
   ),
@@ -137,6 +141,25 @@ describe("Sidebar — navegação da sessão nova", () => {
     expect(visible).toHaveTextContent("chat-thread");
     expect(visible).toHaveTextContent("draft-chat");
     expect(visible).not.toHaveTextContent("code-thread");
+  });
+
+  it("não associa a sessão sintética de Chat ao workspace ativo", () => {
+    chatMode = true;
+    const props = {
+      threads: [] as Thread[],
+      currentThreadId: "draft-chat",
+      isNewSession: true,
+      isCollapsed: false,
+      onToggle: noop,
+      onSelectThread: noop,
+      onDeleteThread: noop,
+    };
+
+    render(<Sidebar {...props} />);
+
+    expect(screen.getByText("draft-chat")).not.toHaveAttribute(
+      "data-workspace-id",
+    );
   });
 
   it("substitui a sessão sintética pela persistida sem duplicar o id", () => {
