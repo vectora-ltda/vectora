@@ -96,37 +96,87 @@ class SafeRootRegistry:
         lock_file = target.with_name(f"{target.name}.lock")
         try:
             lock_file.parent.mkdir(parents=True, exist_ok=True)
-            if os.name == "nt":
-                import msvcrt
-
-                # ``locking`` needs one existing byte and provides an advisory
-                # inter-process lock on the Windows host.
-                with lock_file.open("ab") as initializer:
-                    if initializer.tell() == 0:
-                        initializer.write(b"0")
-                with lock_file.open("r+b") as stream:
-                    stream.seek(0)
-                    msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK, 1)
-                    try:
-                        yield
-                    finally:
-                        stream.seek(0)
-                        msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
-                return
-            with lock_file.open("a+b") as stream:
-                import fcntl
-
-                fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
-                try:
-                    yield
-                finally:
-                    fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
         except SafeRootPersistenceError:
             raise
         except Exception as exc:
             raise SafeRootPersistenceError(
                 "Não foi possível bloquear o registro de pastas seguras."
             ) from exc
+        if os.name == "nt":
+            import msvcrt
+
+            # ``locking`` needs one existing byte and provides an advisory
+            # inter-process lock on the Windows host.
+            stream = None
+            try:
+                with lock_file.open("ab") as initializer:
+                    if initializer.tell() == 0:
+                        initializer.write(b"0")
+                stream = lock_file.open("r+b")
+                stream.seek(0)
+                msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK, 1)
+            except Exception as exc:
+                if stream is not None:
+                    stream.close()
+                raise SafeRootPersistenceError(
+                    "Não foi possível bloquear o registro de pastas seguras."
+                ) from exc
+            body_failed = False
+            try:
+                try:
+                    yield
+                except BaseException:
+                    body_failed = True
+                    raise
+            finally:
+                try:
+                    stream.seek(0)
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+                except Exception as exc:
+                    if not body_failed:
+                        raise SafeRootPersistenceError(
+                            "Não foi possível desbloquear o registro de pastas seguras."
+                        ) from exc
+                    logger.warning(
+                        "Falha ao liberar o lock de safe_roots", exc_info=True
+                    )
+                finally:
+                    stream.close()
+            return
+
+        try:
+            stream = lock_file.open("a+b")
+        except Exception as exc:
+            raise SafeRootPersistenceError(
+                "Não foi possível bloquear o registro de pastas seguras."
+            ) from exc
+        import fcntl
+
+        try:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+        except Exception as exc:
+            stream.close()
+            raise SafeRootPersistenceError(
+                "Não foi possível bloquear o registro de pastas seguras."
+            ) from exc
+        body_failed = False
+        try:
+            try:
+                yield
+            except BaseException:
+                body_failed = True
+                raise
+        finally:
+            try:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+            except Exception as exc:
+                if not body_failed:
+                    raise SafeRootPersistenceError(
+                        "Não foi possível desbloquear o registro de pastas seguras."
+                    ) from exc
+                logger.warning("Falha ao liberar o lock de safe_roots", exc_info=True)
+            finally:
+                stream.close()
 
     @contextlib.contextmanager
     def _locked(self) -> Iterator[None]:

@@ -1,5 +1,7 @@
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 from types import SimpleNamespace
 from typing import cast
 
@@ -116,6 +118,111 @@ def test_concurrent_registry_instances_preserve_both_mutations(
 
     persisted = SafeRootRegistry().all_roots(include_archived=True)
     assert {root.id for root in roots}.issubset({root.id for root in persisted})
+
+
+def test_lock_setup_failure_is_reported_as_persistence_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Falhas ao preparar o lock não devem escapar como OSError cru."""
+    import backend.rbac.safe_roots as safe_roots_module
+
+    monkeypatch.setattr(
+        safe_roots_module, "_safe_roots_file", lambda: tmp_path / "safe-roots.json"
+    )
+    registry = SafeRootRegistry()
+
+    def fail_mkdir(
+        _path: Path, *, mode: int = 0o777, parents: bool = False, exist_ok: bool = False
+    ) -> None:
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(Path, "mkdir", fail_mkdir)
+    with pytest.raises(SafeRootPersistenceError, match="bloquear"):
+        registry.all_roots()
+
+
+def test_registry_operation_errors_are_not_relabelled_as_storage_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Erros da transação devem preservar seu tipo original após o lock."""
+    import backend.rbac.safe_roots as safe_roots_module
+
+    monkeypatch.setattr(
+        safe_roots_module, "_safe_roots_file", lambda: tmp_path / "safe-roots.json"
+    )
+    registry = SafeRootRegistry()
+
+    def fail_transaction() -> None:
+        raise ValueError("invalid transaction")
+
+    monkeypatch.setattr(registry, "_ensure_builtin", fail_transaction)
+    with pytest.raises(ValueError, match="invalid transaction"):
+        registry.all_roots()
+
+
+@pytest.mark.asyncio
+async def test_admin_safe_root_list_offloads_blocking_registry_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A listagem administrativa não deve bloquear o event loop."""
+    from backend.api.handlers import admin
+
+    entered = Event()
+    release = Event()
+
+    def all_roots(*, include_archived: bool = False) -> list[SafeRoot]:
+        entered.set()
+        assert release.wait(timeout=2)
+        return []
+
+    monkeypatch.setattr(
+        "backend.rbac.safe_roots.get_safe_root_registry",
+        lambda: SimpleNamespace(all_roots=all_roots),
+    )
+    request = SimpleNamespace(
+        state=SimpleNamespace(user=SimpleNamespace(id="admin", role="admin"))
+    )
+    task = asyncio.create_task(admin.list_safe_roots_admin(cast("Request", request)))
+    await asyncio.wait_for(asyncio.to_thread(entered.wait), timeout=1)
+    await asyncio.sleep(0)
+    release.set()
+    response = await task
+    assert response == {"roots": []}
+
+
+@pytest.mark.asyncio
+async def test_workspace_authorization_offloads_blocking_registry_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """O guard compartilhado de workspace também roda fora do event loop."""
+    from backend.api.handlers import workspaces
+
+    entered = Event()
+    release = Event()
+    workspace_dir = tmp_path / "workspace"
+    workspace_dir.mkdir()
+
+    def is_under_safe_root(path: str) -> SafeRoot:
+        entered.set()
+        assert release.wait(timeout=2)
+        return SafeRoot(
+            id="root-1",
+            path=path,
+            label="Workspace",
+            created_at="2026-09-16T00:00:00+00:00",
+            created_by="admin",
+        )
+
+    registry = SimpleNamespace(is_under_safe_root=is_under_safe_root)
+    task = asyncio.create_task(
+        workspaces._resolve_and_authorize_dir(str(workspace_dir), False, registry)
+    )
+    await asyncio.wait_for(asyncio.to_thread(entered.wait), timeout=1)
+    await asyncio.sleep(0)
+    release.set()
+    base, root_id = await task
+    assert base == workspace_dir.resolve()
+    assert root_id == "root-1"
 
 
 @pytest.mark.asyncio
