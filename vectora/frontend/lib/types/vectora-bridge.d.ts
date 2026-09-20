@@ -99,7 +99,7 @@ export interface VectoraDesktopBridge {
    * própria) — presente só no desktop; sem isso, a aba Browser cai no
    * `<iframe>` de fallback (sujeito a X-Frame-Options). */
   browserView?: {
-    createView: () => Promise<number>;
+    createView: (profileId?: string) => Promise<number>;
     destroyView: (viewId: number) => void;
     navigate: (
       viewId: number,
@@ -111,6 +111,7 @@ export interface VectoraDesktopBridge {
     stop: (viewId: number) => void;
     setBounds: (viewId: number, bounds: VectoraViewBounds) => void;
     setVisible: (viewId: number, visible: boolean) => void;
+    clearProfileData: (profileId?: string) => Promise<void>;
     onEvent: (
       handler: (viewId: number, event: VectoraBrowserViewEvent) => void,
     ) => () => void;

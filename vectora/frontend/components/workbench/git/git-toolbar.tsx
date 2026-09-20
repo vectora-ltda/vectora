@@ -141,39 +141,51 @@ export function GitToolbar({
               <span className="truncate font-mono">{current}</span>
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="min-w-[200px]">
-            <DropdownMenuLabel>
-              {m.workbench_git_branch_menu()}
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {others.length === 0 ? (
-              <DropdownMenuItem disabled>
-                {m.workbench_git_branch_empty()}
-              </DropdownMenuItem>
-            ) : (
-              others.map((b) => (
-                <DropdownMenuItem
-                  key={b}
-                  onSelect={() => void handleCheckout(b)}
-                  className="font-mono text-xs"
-                >
-                  {b}
+          <DropdownMenuContent
+            align="start"
+            className="flex max-h-[min(80vh,28rem)] min-w-[200px] flex-col"
+          >
+            <div className="shrink-0">
+              <DropdownMenuLabel>
+                {m.workbench_git_branch_menu()}
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+            </div>
+            <div
+              className="min-h-0 flex-1 overflow-y-auto"
+              data-testid="git-branch-list"
+            >
+              {others.length === 0 ? (
+                <DropdownMenuItem disabled>
+                  {m.workbench_git_branch_empty()}
                 </DropdownMenuItem>
-              ))
-            )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => setCreating(true)}>
-              {m.workbench_git_branch_create()}
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={onCompare}>
-              {m.workbench_git_branch_compare()}
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={onOpenWorktrees}>
-              {m.workbench_git_branch_worktrees()}
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={onOpenStash}>
-              {m.workbench_git_stash_view()}
-            </DropdownMenuItem>
+              ) : (
+                others.map((b) => (
+                  <DropdownMenuItem
+                    key={b}
+                    onSelect={() => void handleCheckout(b)}
+                    className="font-mono text-xs"
+                  >
+                    {b}
+                  </DropdownMenuItem>
+                ))
+              )}
+            </div>
+            <div className="shrink-0">
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => setCreating(true)}>
+                {m.workbench_git_branch_create()}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onCompare}>
+                {m.workbench_git_branch_compare()}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onOpenWorktrees}>
+                {m.workbench_git_branch_worktrees()}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onOpenStash}>
+                {m.workbench_git_stash_view()}
+              </DropdownMenuItem>
+            </div>
           </DropdownMenuContent>
         </DropdownMenu>
 

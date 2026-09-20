@@ -269,8 +269,6 @@ class TestWorkspaceHandlers:
 
     @pytest.mark.asyncio
     async def test_mkdir_creates_subdir_then_relists(self, tmp_path):
-        from fastapi import HTTPException
-
         from backend.api.handlers.workspaces import MkdirRequest, mkdir_dir
 
         fake_request = SimpleNamespace(state=SimpleNamespace(user=None))
@@ -281,9 +279,15 @@ class TestWorkspaceHandlers:
         )
         assert (tmp_path / "minha-pasta").is_dir()
         assert "minha-pasta" in {e.name for e in result.entries}
+        assert result.created_path == str(tmp_path / "minha-pasta")
 
-        # Par de erro — nome inválido (traversal) e pasta já existente,
-        # nenhum dos dois cria/altera nada no disco.
+    @pytest.mark.asyncio
+    async def test_mkdir_rejeita_traversal(self, tmp_path):
+        from fastapi import HTTPException
+
+        from backend.api.handlers.workspaces import MkdirRequest, mkdir_dir
+
+        fake_request = SimpleNamespace(state=SimpleNamespace(user=None))
         with pytest.raises(HTTPException) as exc_traversal:
             await mkdir_dir(
                 fake_request,  # ty: ignore[invalid-argument-type]
@@ -291,12 +295,49 @@ class TestWorkspaceHandlers:
             )
         assert exc_traversal.value.status_code == 400
 
+    @pytest.mark.asyncio
+    async def test_mkdir_rejeita_conflito(self, tmp_path):
+        from fastapi import HTTPException
+
+        from backend.api.handlers.workspaces import MkdirRequest, mkdir_dir
+
+        fake_request = SimpleNamespace(state=SimpleNamespace(user=None))
+        (tmp_path / "minha-pasta").mkdir()
         with pytest.raises(HTTPException) as exc_conflict:
             await mkdir_dir(
                 fake_request,  # ty: ignore[invalid-argument-type]
                 MkdirRequest(path=str(tmp_path), name="minha-pasta"),
             )
         assert exc_conflict.value.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_mkdir_rejeita_nome_vazio(self, tmp_path):
+        from fastapi import HTTPException
+
+        from backend.api.handlers.workspaces import MkdirRequest, mkdir_dir
+
+        fake_request = SimpleNamespace(state=SimpleNamespace(user=None))
+        with pytest.raises(HTTPException) as exc:
+            await mkdir_dir(
+                fake_request,  # ty: ignore[invalid-argument-type]
+                MkdirRequest(path=str(tmp_path), name=""),
+            )
+        assert exc.value.status_code == 400
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.asyncio
+    async def test_mkdir_rejeita_caminho_vazio(self, tmp_path):
+        from fastapi import HTTPException
+
+        from backend.api.handlers.workspaces import MkdirRequest, mkdir_dir
+
+        fake_request = SimpleNamespace(state=SimpleNamespace(user=None))
+        with pytest.raises(HTTPException) as exc:
+            await mkdir_dir(
+                fake_request,  # ty: ignore[invalid-argument-type]
+                MkdirRequest(path="", name="nova"),
+            )
+        assert exc.value.status_code == 400
 
     @pytest.mark.asyncio
     async def test_mkdir_common_user_outside_safe_root_forbidden(self, tmp_path):
@@ -315,6 +356,31 @@ class TestWorkspaceHandlers:
                 MkdirRequest(path=str(tmp_path), name="nova"),
             )
         assert exc.value.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_mkdir_rejects_empty_name(self, tmp_path):
+        from fastapi import HTTPException
+
+        from backend.api.handlers.workspaces import MkdirRequest, mkdir_dir
+
+        with pytest.raises(HTTPException) as exc:
+            await mkdir_dir(
+                _req(),
+                MkdirRequest(path=str(tmp_path), name=""),
+            )
+        assert exc.value.status_code == 400
+        assert list(tmp_path.iterdir()) == []
+
+    @pytest.mark.asyncio
+    async def test_mkdir_rejects_empty_path(self, tmp_path):
+        from fastapi import HTTPException
+
+        from backend.api.handlers.workspaces import MkdirRequest, mkdir_dir
+
+        with pytest.raises(HTTPException) as exc:
+            await mkdir_dir(_req(), MkdirRequest(path="", name="nova"))
+        assert exc.value.status_code == 400
+        assert not (tmp_path / "nova").exists()
 
 
 # ---------------------------------------------------------------------------
