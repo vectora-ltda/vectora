@@ -3,11 +3,10 @@
  * Worker (`scheduled()`, `src/index.ts`), popula `mcp_catalog`/
  * `skills_catalog` (D1) além do seed manual de `migrations/0001_schema.sql`.
  *
- * MCP: pagina o registry oficial mantido pela comunidade MCP/Anthropic
- * (`registry.modelcontextprotocol.io`), público e sem autenticação — mesma
- * fonte que `backend/services/registry_client.py::fetch_official_mcp_
- * registry` já usa do lado do cliente Python, agora também persistida no
- * D1 pra não depender de paginação ao vivo em toda leitura.
+ * MCP: pagina o catálogo curado do GitHub MCP Registry
+ * (`api.mcp.github.com`), público e ordenado por relevância. O registry
+ * protocol oficial é uma fonte de metadados para agregadores e não é usado
+ * diretamente pela interface.
  *
  * Skills: não existe hoje nenhum registry público equivalente (skills.sh,
  * cogitado inicialmente, exige um `VERCEL_OIDC_TOKEN` só emitido dentro do
@@ -27,8 +26,8 @@
 
 import type { Env } from "../gateway/types";
 
-const OFFICIAL_MCP_REGISTRY_URL =
-  "https://registry.modelcontextprotocol.io/v0.1/servers";
+const GITHUB_MCP_REGISTRY_URL =
+  "https://api.mcp.github.com/2025-09-15/v0/servers";
 const GITHUB_CODE_SEARCH_URL = "https://api.github.com/search/code";
 
 interface DiscoveredMcp {
@@ -39,6 +38,14 @@ interface DiscoveredMcp {
   env_vars: string[];
   homepage: string;
   category: string;
+  icon_url: string;
+  publisher: string;
+  publisher_url: string;
+  stars_count: number;
+  runtime_hint: string;
+  package_identifier: string;
+  transport: string;
+  server_url: string;
 }
 
 interface McpPackage {
@@ -46,70 +53,99 @@ interface McpPackage {
   transport?: { type?: string };
   identifier?: string;
   environmentVariables?: { name?: string; isRequired?: boolean }[];
+  runtime_hint?: string;
 }
 
 interface McpServerEntry {
+  name?: string;
+  title?: string;
+  description?: string;
+  repository?: { url?: string };
+  packages?: McpPackage[];
+  remotes?: { type?: string; url?: string }[];
   server?: {
     name?: string;
     title?: string;
     description?: string;
     repository?: { url?: string };
     packages?: McpPackage[];
+    remotes?: { type?: string; url?: string }[];
+    _meta?: McpServerEntry["_meta"];
+  };
+  _meta?: {
+    "io.modelcontextprotocol.registry/publisher-provided"?: {
+      github?: {
+        name_with_owner?: string;
+        preferred_image?: string;
+        stargazer_count?: number;
+      };
+    };
   };
 }
 
-function npmStdioPackage(server: McpServerEntry["server"]): McpPackage | null {
-  for (const pkg of server?.packages ?? []) {
-    if (
-      pkg.registryType === "npm" &&
-      (pkg.transport?.type ?? "stdio") === "stdio"
-    ) {
-      return pkg;
-    }
-  }
-  return null;
-}
-
 function toDiscoveredMcp(item: McpServerEntry): DiscoveredMcp | null {
-  const server = item.server;
-  const pkg = npmStdioPackage(server);
-  if (!pkg?.identifier || !server?.name) return null;
-  const envVars = (pkg.environmentVariables ?? [])
+  const server = item.server ?? item;
+  if (!server?.name) return null;
+  const pkg = (server.packages ?? []).find((candidate) => candidate.identifier);
+  const remote = server.remotes?.find((candidate) => candidate.url);
+  if (!pkg?.identifier && !remote?.url) return null;
+  const envVars = (pkg?.environmentVariables ?? [])
     .filter((ev) => ev.isRequired && ev.name)
     .map((ev) => ev.name as string);
+  const github = (item._meta ?? server._meta)?.[
+    "io.modelcontextprotocol.registry/publisher-provided"
+  ]?.github;
+  const runtimeHint = pkg?.runtime_hint ?? "npx";
+  const installCmd = pkg?.identifier
+    ? runtimeHint === "uvx"
+      ? `uvx ${pkg.identifier}`
+      : runtimeHint === "docker"
+        ? `docker run --rm ${pkg.identifier}`
+        : `npx -y ${pkg.identifier}`
+    : "";
   return {
     id: server.name,
     name: server.title || server.name.split("/").pop() || server.name,
     description: server.description ?? "",
-    install_cmd: `npx -y ${pkg.identifier}`,
+    install_cmd: installCmd,
     env_vars: envVars,
     homepage: server.repository?.url ?? "",
     category: "community",
+    icon_url: github?.preferred_image ?? "",
+    publisher: github?.name_with_owner ?? "",
+    publisher_url: github?.name_with_owner
+      ? `https://github.com/${github.name_with_owner}`
+      : (server.repository?.url ?? ""),
+    stars_count: github?.stargazer_count ?? 0,
+    runtime_hint: runtimeHint,
+    package_identifier: pkg?.identifier ?? "",
+    transport: remote?.type === "sse" ? "sse" : remote?.url ? "http" : "stdio",
+    server_url: remote?.url ?? "",
   };
 }
 
-/** Pagina registry.modelcontextprotocol.io e faz upsert em mcp_catalog. */
+/** Pagina o catálogo GitHub MCP e faz upsert em mcp_catalog. */
 export async function discoverMcp(env: Env, maxEntries = 100): Promise<number> {
   const found = new Map<string, DiscoveredMcp>();
   try {
-    let cursor: string | undefined;
-    while (found.size < maxEntries) {
-      const url = new URL(OFFICIAL_MCP_REGISTRY_URL);
-      url.searchParams.set("version", "latest");
-      url.searchParams.set("limit", "100");
-      if (cursor) url.searchParams.set("cursor", cursor);
-      const resp = await fetch(url.toString());
+    for (let page = 1; found.size < maxEntries; page++) {
+      const url = new URL(GITHUB_MCP_REGISTRY_URL);
+      url.searchParams.set("page", String(page));
+      url.searchParams.set("per_page", "30");
+      const resp = await fetch(url.toString(), {
+        headers: { Accept: "application/json" },
+      });
       if (!resp.ok) break;
       const data = (await resp.json()) as {
         servers?: McpServerEntry[];
-        metadata?: { nextCursor?: string };
+        metadata?: { total_pages?: number };
       };
       for (const item of data.servers ?? []) {
         const connector = toDiscoveredMcp(item);
         if (connector) found.set(connector.id, connector);
       }
-      cursor = data.metadata?.nextCursor;
-      if (!cursor || !data.servers?.length) break;
+      if (!data.servers?.length || page >= (data.metadata?.total_pages ?? page))
+        break;
     }
   } catch {
     return 0;
@@ -120,8 +156,8 @@ export async function discoverMcp(env: Env, maxEntries = 100): Promise<number> {
     try {
       await env.DB.prepare(
         `INSERT INTO mcp_catalog
-           (id, name, description, install_cmd, env_vars, homepage, category, vectora_verified, catalog_source)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'official')
+           (id, name, description, install_cmd, env_vars, homepage, category, icon_url, publisher, publisher_url, stars_count, runtime_hint, package_identifier, transport, server_url, vectora_verified, catalog_source)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'github')
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name,
            description = excluded.description,
@@ -129,6 +165,14 @@ export async function discoverMcp(env: Env, maxEntries = 100): Promise<number> {
            env_vars = excluded.env_vars,
            homepage = excluded.homepage,
            category = excluded.category,
+           icon_url = excluded.icon_url,
+           publisher = excluded.publisher,
+           publisher_url = excluded.publisher_url,
+           stars_count = excluded.stars_count,
+           runtime_hint = excluded.runtime_hint,
+           package_identifier = excluded.package_identifier,
+           transport = excluded.transport,
+           server_url = excluded.server_url,
            updated_at = datetime('now')
          WHERE mcp_catalog.catalog_source != 'curated'`,
       )
@@ -140,6 +184,14 @@ export async function discoverMcp(env: Env, maxEntries = 100): Promise<number> {
           JSON.stringify(c.env_vars),
           c.homepage,
           c.category,
+          c.icon_url,
+          c.publisher,
+          c.publisher_url,
+          c.stars_count,
+          c.runtime_hint,
+          c.package_identifier,
+          c.transport,
+          c.server_url,
         )
         .run();
       upserted++;

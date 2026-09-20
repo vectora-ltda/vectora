@@ -41,6 +41,12 @@ export interface McpCanvasPreviewData {
   homepage: string;
   category: string;
   iconUrl?: string | null;
+  publisher?: string | null;
+  publisherUrl?: string | null;
+  starsCount?: number;
+  downloadsCount?: number;
+  runtimeHint?: string | null;
+  transport?: string;
 }
 
 /** Serializable document descriptor shared by IDE and assistant canvases. */

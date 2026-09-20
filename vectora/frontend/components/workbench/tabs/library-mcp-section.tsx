@@ -25,7 +25,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { m } from "@/lib/paraglide/messages";
 import { useLibraryStore, type MCPConnector } from "@/lib/stores/library-store";
-import { useSettingsStore } from "@/lib/stores/settings-store";
 import { useWindowsStore } from "@/lib/stores/windows-store";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { LibraryCard, LibraryTag } from "./library-card";
@@ -333,9 +332,14 @@ export function McpSection({
         homepage: connector.homepage,
         category: connector.category,
         iconUrl: connector.icon_url,
+        publisher: connector.publisher,
+        publisherUrl: connector.publisher_url,
+        starsCount: connector.stars_count,
+        downloadsCount: connector.downloads_count,
+        runtimeHint: connector.runtime_hint,
+        transport: connector.transport,
       },
     });
-    useSettingsStore.getState().setUiMode("ide");
   };
 
   const load = useMemo(

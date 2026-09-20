@@ -12,7 +12,6 @@ Routes (montadas em server.py):
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from typing import TYPE_CHECKING, Literal
@@ -89,6 +88,14 @@ class MCPConnector(BaseModel):
     category: str = "general"
     vectora_verified: bool = False
     icon_url: str | None = None
+    publisher: str | None = None
+    publisher_url: str | None = None
+    stars_count: int = 0
+    downloads_count: int = 0
+    transport: str = "stdio"
+    runtime_hint: str | None = None
+    package_identifier: str | None = None
+    server_url: str | None = None
     trust_state: extension_trust.TrustState = "unsigned"
     trust_reason: str = "verification_unavailable"
 
@@ -119,71 +126,6 @@ class PolicyRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Registry embutido — subconjunto de MCPs da comunidade.
-#
-# A presença no catálogo não estabelece verificação; as entradas deste
-# fallback usam o valor padrão `vectora_verified=False`.
-# ---------------------------------------------------------------------------
-
-_REGISTRY: list[MCPConnector] = [
-    MCPConnector(
-        id="brave-search",
-        name="Brave Search",
-        description="Pesquisa web via Brave Search API com resultados sem rastreamento.",
-        install_cmd="npx -y @modelcontextprotocol/server-brave-search",
-        env_vars=["BRAVE_API_KEY"],
-        homepage="https://github.com/modelcontextprotocol/servers",
-        category="web",
-    ),
-    MCPConnector(
-        id="filesystem",
-        name="Filesystem",
-        description="Acesso seguro ao filesystem local com controle de diretórios permitidos.",
-        install_cmd="npx -y @modelcontextprotocol/server-filesystem",
-        env_vars=[],
-        homepage="https://github.com/modelcontextprotocol/servers",
-        category="filesystem",
-    ),
-    MCPConnector(
-        id="github",
-        name="GitHub",
-        description="Integração com GitHub: PRs, issues, código, actions e mais.",
-        install_cmd="npx -y @modelcontextprotocol/server-github",
-        env_vars=["GITHUB_PERSONAL_ACCESS_TOKEN"],
-        homepage="https://github.com/modelcontextprotocol/servers",
-        category="devtools",
-    ),
-    MCPConnector(
-        id="postgres",
-        name="PostgreSQL",
-        description="Consultas read-only em banco PostgreSQL.",
-        install_cmd="npx -y @modelcontextprotocol/server-postgres",
-        env_vars=["POSTGRES_CONNECTION_STRING"],
-        homepage="https://github.com/modelcontextprotocol/servers",
-        category="database",
-    ),
-    MCPConnector(
-        id="slack",
-        name="Slack",
-        description="Leitura e envio de mensagens no Slack via Bot Token.",
-        install_cmd="npx -y @modelcontextprotocol/server-slack",
-        env_vars=["SLACK_BOT_TOKEN", "SLACK_TEAM_ID"],
-        homepage="https://github.com/modelcontextprotocol/servers",
-        category="communication",
-    ),
-    MCPConnector(
-        id="sequential-thinking",
-        name="Sequential Thinking",
-        description="Raciocínio passo-a-passo estruturado antes de agir.",
-        install_cmd="npx -y @modelcontextprotocol/server-sequential-thinking",
-        env_vars=[],
-        homepage="https://github.com/modelcontextprotocol/servers",
-        category="reasoning",
-    ),
-]
-
-
-# ---------------------------------------------------------------------------
 # Lógica de install/uninstall — grava no MESMO store por-usuário que o agente
 # lê (backend.workspace.plugins), não num mcp.json paralelo. Instalar um
 # conector faz suas tools aparecerem no toolset via get_user_mcp_tools.
@@ -191,10 +133,14 @@ _REGISTRY: list[MCPConnector] = [
 
 
 def _connector_to_server(connector: MCPConnector) -> McpServer:
-    """Converte um conector do registry num McpServer stdio do store funcional."""
+    """Converte a opção de instalação tipada do catálogo em um servidor."""
     from backend.workspace.plugins import McpServer
 
-    parts = connector.install_cmd.split() if connector.install_cmd else ["npx"]
+    if connector.transport in {"http", "sse"} and connector.server_url:
+        command, args = "", []
+    else:
+        parts = connector.install_cmd.split() if connector.install_cmd else ["npx"]
+        command, args = parts[0], parts[1:]
     trust = extension_trust.TrustRecord(
         source=f"marketplace:{connector.id}",
         state=connector.trust_state,
@@ -202,9 +148,11 @@ def _connector_to_server(connector: MCPConnector) -> McpServer:
     )
     return McpServer(
         name=connector.id,
-        transport="stdio",
-        command=parts[0],
-        args=parts[1:],
+        transport=connector.transport,
+        command=command,
+        args=args,
+        url=connector.server_url or "",
+        env_vars=connector.env_vars,
         trust=trust,
     )
 
@@ -227,11 +175,19 @@ def _remote_entry_to_connector(entry: dict) -> MCPConnector | None:
             env_vars=list(env_vars) if env_vars else [],
             homepage=entry.get("homepage") or "",
             category=entry.get("category", "general"),
-            # Flags do catálogo remoto não estabelecem verificação.
-            vectora_verified=False,
+            # Flags do catálogo remoto são preservadas para exibir curadoria.
             icon_url=entry.get("icon_url") or None,
-            trust_state="unsigned",
-            trust_reason="catalog_listed",
+            publisher=entry.get("publisher") or None,
+            publisher_url=entry.get("publisher_url") or None,
+            stars_count=int(entry.get("stars_count") or 0),
+            downloads_count=int(entry.get("downloads_count") or 0),
+            transport=entry.get("transport") or "stdio",
+            runtime_hint=entry.get("runtime_hint") or None,
+            package_identifier=entry.get("package_identifier") or None,
+            server_url=entry.get("server_url") or None,
+            vectora_verified=bool(entry.get("vectora_verified", False)),
+            trust_state=entry.get("trust_state") or "unsigned",
+            trust_reason=entry.get("trust_reason") or "catalog_listed",
         )
     except Exception as exc:
         logger.warning("mcp_marketplace: entrada remota malformada ignorada: %r", entry)
@@ -239,44 +195,17 @@ def _remote_entry_to_connector(entry: dict) -> MCPConnector | None:
 
 
 async def list_registry() -> list[MCPConnector]:
-    """Mescla três fontes, nessa ordem de prioridade (id repetido: a
-    primeira que aparece vence):
-
-    1. Registry próprio da Vectora (D1, `services/src/registry/routes.ts`).
-    2. Registry oficial de MCP (`registry.modelcontextprotocol.io`,
-       mantido pela comunidade/Anthropic) — catálogo amplo, só servers com
-       pacote npm/stdio (único transporte que `_connector_to_server`
-       suporta hoje).
-    3. Fallback hardcoded local (`_REGISTRY`) — só entra se nem 1 nem 2
-       responderem (sem rede/cache), nunca deixa a lista vazia.
-
-    As duas primeiras fontes são buscadas em paralelo (cada uma já é
-    cache-first dentro de `registry_client`) — nenhuma depende da outra.
-    A lista final é ordenada alfabeticamente por nome. Nenhuma fonte remota ou
-    fallback local concede verificação automaticamente; `vectora_verified` só
-    poderá ser preenchido por uma futura curadoria explícita.
-    """
-    remote, enterprise, official = await asyncio.gather(
-        registry_client.fetch_catalog("mcp"),
-        registry_client.fetch_enterprise_catalog("mcp"),
-        registry_client.fetch_official_mcp_registry(),
-    )
+    """Lista exclusivamente o catálogo MCP canônico já agregado pelo registry."""
+    remote = await registry_client.fetch_catalog("mcp")
     connectors: dict[str, MCPConnector] = {}
     for entry in remote:
         connector = _remote_entry_to_connector(entry)
         if connector is not None:
             connectors[connector.id] = connector
-    for entry in enterprise:
-        connector = _remote_entry_to_connector(entry)
-        if connector is not None:
-            connectors.setdefault(connector.id, connector)
-    for entry in official:
-        connector = _remote_entry_to_connector(entry)
-        if connector is not None:
-            connectors.setdefault(connector.id, connector)
-    for connector in _REGISTRY:
-        connectors.setdefault(connector.id, connector)
-    return sorted(connectors.values(), key=lambda c: c.name.lower())
+    return sorted(
+        connectors.values(),
+        key=lambda c: (-c.stars_count, -c.downloads_count, c.name.lower()),
+    )
 
 
 async def install_mcp(
@@ -459,10 +388,7 @@ def _authorized_target(
 def _filter_registry(
     connectors: list[MCPConnector], *, q: str | None, category: str | None
 ) -> list[MCPConnector]:
-    """Filtro em memória sobre o catálogo já mesclado — as 3 fontes de
-    `list_registry` (D1, registry oficial, fallback local) não têm um
-    `?q=`/`?category=` comum pra repassar adiante, então o filtro roda
-    aqui, depois do merge, não em cada fonte."""
+    """Filtra em memória o catálogo já carregado."""
     result = connectors
     if q:
         needle = q.strip().lower()

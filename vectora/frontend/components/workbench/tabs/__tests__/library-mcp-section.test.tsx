@@ -6,8 +6,7 @@
  * POST /mcp/install direto; instalar um com env_vars abre o form de config
  * antes e salva cada var via POST /auth/envs antes de instalar; erro/borda:
  * falha de instalação (status "error") mostra mensagem sem quebrar a lista;
- * conector já instalado mostra botão "Remover"; toggle "avançado" mostra o
- * form manual (PluginsTab).
+ * conector já instalado mostra botão "Remover"; não há entrada manual.
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import {
@@ -22,9 +21,9 @@ import {
 
 import { McpSection } from "../library-mcp-section";
 import { useLibraryStore } from "@/lib/stores/library-store";
-import { useSettingsStore } from "@/lib/stores/settings-store";
 import { useWindowsStore } from "@/lib/stores/windows-store";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
+import { useSettingsStore } from "@/lib/stores/settings-store";
 
 afterEach(cleanup);
 
@@ -135,14 +134,13 @@ describe("McpSection", () => {
     expect(screen.queryByText("community", { exact: true })).toBeNull();
   });
 
-  it("abre o MCP no canvas compartilhado e troca para o modo IDE", async () => {
+  it("abre o MCP no canvas compartilhado sem forçar o modo IDE", async () => {
     render(<McpSection query="" threadId="thread-1" />);
     await waitFor(() => expect(screen.getByText("Filesystem")).toBeTruthy());
 
     fireEvent.click(screen.getByText("Filesystem").closest('[role="button"]')!);
 
     const state = useWindowsStore.getState();
-    expect(useSettingsStore.getState().uiMode).toBe("ide");
     expect(state.activeCanvasDocumentId).toBe(
       "mcp:workspace-1:thread-1:filesystem",
     );

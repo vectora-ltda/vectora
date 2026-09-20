@@ -1,10 +1,9 @@
 """Cliente do registry remoto de MCP/Skills (`services/src/registry/routes.ts`).
 
 Segue o mesmo padrão de `backend.services.license`: `httpx.AsyncClient` com
-timeout curto, cache local com TTL, fallback offline gracioso. Falha de rede
-nunca propaga — cai pro cache existente, e sem cache devolve lista vazia
-(estado válido: o caller decide se mescla com um fallback hardcoded próprio,
-como `mcp_marketplace.py` faz).
+timeout curto e cache local com TTL. Falha de rede nunca propaga — cai pro
+cache existente, e sem cache devolve lista vazia. O catálogo MCP consumido
+pela interface é exclusivamente o agregado pelo registry da Vectora.
 """
 
 from __future__ import annotations
@@ -83,8 +82,7 @@ async def fetch_catalog(kind: RegistryKind) -> list[dict]:
     Cache-first: com cache ainda dentro do TTL online (6h), serve direto
     sem tocar rede. Sucesso de rede (cache ausente/expirado) grava cache
     local. Falha de rede cai pro cache existente (até 48h stale). Sem rede
-    e sem cache: lista vazia — nunca levanta exceção (tools/handlers que
-    chamam isto degradam pro próprio fallback, não travam).
+    e sem cache: lista vazia — nunca levanta exceção.
     """
     cache = _read_cache(kind)
     if cache is not None and _cache_is_fresh(cache, CACHE_TTL_ONLINE):

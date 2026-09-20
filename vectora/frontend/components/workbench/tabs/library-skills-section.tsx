@@ -65,6 +65,10 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
       : legacyTrust === "verified"
         ? m.library_skills_trust_verified()
         : null;
+  const badgeIsVerified =
+    trustState === "vectora_verified" ||
+    trustState === "publisher_signed" ||
+    (!skill.trust_state && legacyTrust !== "community");
 
   const handleInstall = async () => {
     if (invalid) {
@@ -107,7 +111,7 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
       tags={
         badgeLabel ? (
           <LibraryTag
-            verified={legacyTrust !== "community"}
+            verified={badgeIsVerified}
             aria-label={`${m.library_skills_trust_aria_prefix()}: ${badgeLabel}`}
           >
             {badgeLabel}

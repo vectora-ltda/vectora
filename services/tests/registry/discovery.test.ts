@@ -33,11 +33,20 @@ function npmServer(id: string, name: string) {
         },
       ],
     },
+    _meta: {
+      "io.modelcontextprotocol.registry/publisher-provided": {
+        github: {
+          name_with_owner: `example/${id}`,
+          preferred_image: "https://github.com/example/icon.png",
+          stargazer_count: 42,
+        },
+      },
+    },
   };
 }
 
 describe("discoverMcp", () => {
-  it("insere entradas novas do registry oficial e nunca sobrescreve uma linha curated com id colidindo", async () => {
+  it("insere entradas novas do catálogo GitHub e nunca sobrescreve uma linha curated com id colidindo", async () => {
     await env.DB.prepare(
       "INSERT INTO mcp_catalog (id, name, description, install_cmd, category, vectora_verified, catalog_source) VALUES (?, ?, ?, ?, ?, 1, 'curated')",
     )
@@ -75,8 +84,8 @@ describe("discoverMcp", () => {
     }>();
     expect(discovered).toEqual({
       name: "Novo Server",
-      catalog_source: "official",
-      icon_url: null,
+      catalog_source: "github",
+      icon_url: "https://github.com/example/icon.png",
     });
   });
 

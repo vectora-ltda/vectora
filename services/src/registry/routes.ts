@@ -5,22 +5,15 @@
  * `mcp` e `skills` são catálogos reais em D1 (`mcp_catalog`/`skills_catalog`,
  * `migrations/0001_schema.sql`). Curadoria
  * manual (`catalog_source='curated'`) entra por revisão do catálogo — mas o
- * catálogo também é populado automaticamente pelo cron `scheduled()`
- * (`discovery.ts`, `catalog_source='official'|'github'`), que nunca
- * sobrescreve uma linha curada. O cliente Vectora (`backend/services/
- * registry_client.py`) já sabe cair pro fallback local/hardcoded quando o
- * registry remoto está vazio ou fora do ar — lista vazia aqui é um estado
- * válido, não erro.
+ * catálogo MCP também é populado automaticamente pelo cron `scheduled()`
+ * (`discovery.ts`, `catalog_source='github'`), que nunca sobrescreve uma
+ * linha curada. O cliente Vectora (`backend/services/registry_client.py`)
+ * consome esse catálogo único; uma lista vazia é um estado válido, não um
+ * fallback para fontes paralelas.
  *
- * `POST /skills` abre publicação de skills à comunidade — padrão
- * convergente dos registries reais (SkillRegistry.io, OpenAgentSkill,
- * Vercel Agent Skills): unidade de distribuição é uma URL de repositório
- * git, não upload de blob — o Vectora clona sob demanda na instalação
- * (`backend/workspace/skills.py`), este endpoint só registra a URL no
- * catálogo com `verified=0` até curadoria de admin. MCP catalog
- * deliberadamente NÃO ganha publish — instalar código de terceiro tem
- * modelo de confiança mais pesado que instalar um `SKILL.md`; curadoria
- * fechada por design.
+ * Instalações de skills e MCPs só aceitam identificadores já presentes nos
+ * catálogos validados. Não há publicação pública nem formulário de entrada
+ * manual no produto.
  *
  * `extensions` continua placeholder — depende do SDK de autoria
  * (`vectora_ext` Python, `@vectora/extension-sdk` TS) e do Extension Host,
@@ -62,7 +55,7 @@ registry.get("/mcp", async (c) => {
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
   const stmt = c.env.DB.prepare(
-    `SELECT id, name, description, install_cmd, env_vars, homepage, category, vectora_verified, icon_url, downloads_count, updated_at FROM mcp_catalog ${whereSql} ORDER BY downloads_count DESC`,
+    `SELECT id, name, description, install_cmd, env_vars, homepage, category, vectora_verified, icon_url, publisher, publisher_url, stars_count, downloads_count, runtime_hint, package_identifier, transport, server_url, catalog_source, updated_at FROM mcp_catalog ${whereSql} ORDER BY stars_count DESC, downloads_count DESC, name COLLATE NOCASE`,
   );
   const { results } = await (params.length ? stmt.bind(...params) : stmt).all();
   return c.json({ entries: results ?? [] });

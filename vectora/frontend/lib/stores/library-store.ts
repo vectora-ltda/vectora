@@ -19,6 +19,14 @@ export interface MCPConnector {
   category: string;
   vectora_verified: boolean;
   icon_url?: string | null;
+  publisher?: string | null;
+  publisher_url?: string | null;
+  stars_count?: number;
+  downloads_count?: number;
+  runtime_hint?: string | null;
+  package_identifier?: string | null;
+  transport?: string;
+  server_url?: string | null;
   trust_state?:
     | "vectora_verified"
     | "publisher_signed"
