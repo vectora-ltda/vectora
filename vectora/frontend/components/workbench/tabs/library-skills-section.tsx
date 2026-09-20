@@ -18,22 +18,10 @@ import {
   Download,
   Loader2,
   Sparkles,
-  Upload,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { SkillsTab } from "@/components/settings/environment/tabs/skills-tab";
-import { useLicenseStatus } from "@/lib/hooks/use-license-status";
 import { m } from "@/lib/paraglide/messages";
 import {
   skillTrustLevel,
@@ -56,149 +44,6 @@ const TRUST_STATE_LABEL = {
   invalid: m.library_skills_trust_invalid,
   verification_unavailable: m.library_skills_trust_verification_unavailable,
 } as const;
-
-async function publishSkill(payload: {
-  source: string;
-  name: string;
-  description: string;
-  category: string;
-}): Promise<{ status: string; skill_id?: string; error?: string }> {
-  const res = await fetch("/skills/publish", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  return res.json();
-}
-
-function PublishDialog({
-  onClose,
-  onPublished,
-}: {
-  onClose: () => void;
-  onPublished: () => void;
-}) {
-  const [source, setSource] = useState("");
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [category, setCategory] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleConfirm = async () => {
-    if (!source.trim() || !name.trim() || !description.trim()) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const result = await publishSkill({
-        source: source.trim(),
-        name: name.trim(),
-        description: description.trim(),
-        category: category.trim(),
-      });
-      if (result.status === "error") {
-        setError(result.error ?? m.library_skills_error_publish());
-        return;
-      }
-      onPublished();
-      onClose();
-    } catch {
-      setError(m.library_skills_error_publish());
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{m.library_skills_publish_title()}</DialogTitle>
-          <DialogDescription>
-            {m.library_skills_publish_desc()}
-          </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3 py-1">
-          <div className="space-y-1.5">
-            <label
-              htmlFor="publish-skill-source"
-              className="text-xs font-medium text-muted-foreground"
-            >
-              {m.library_skills_publish_source()}
-            </label>
-            <Input
-              id="publish-skill-source"
-              value={source}
-              onChange={(e) => setSource(e.target.value)}
-              placeholder={m.library_skills_publish_source_placeholder()}
-              className="text-sm font-mono"
-              autoComplete="off"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label
-              htmlFor="publish-skill-name"
-              className="text-xs font-medium text-muted-foreground"
-            >
-              {m.library_skills_publish_name()}
-            </label>
-            <Input
-              id="publish-skill-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="text-sm"
-              autoComplete="off"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label
-              htmlFor="publish-skill-description"
-              className="text-xs font-medium text-muted-foreground"
-            >
-              {m.library_skills_publish_description()}
-            </label>
-            <Textarea
-              id="publish-skill-description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="text-sm"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label
-              htmlFor="publish-skill-category"
-              className="text-xs font-medium text-muted-foreground"
-            >
-              {m.library_skills_publish_category()}
-            </label>
-            <Input
-              id="publish-skill-category"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="text-sm"
-              autoComplete="off"
-            />
-          </div>
-          {error && <p className="text-xs text-destructive">{error}</p>}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>
-            {m.envs_cancel()}
-          </Button>
-          <Button
-            onClick={handleConfirm}
-            disabled={
-              saving || !source.trim() || !name.trim() || !description.trim()
-            }
-          >
-            {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-            {m.library_skills_publish_confirm()}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 function CatalogCard({ skill }: { skill: CatalogSkill }) {
   const [busy, setBusy] = useState(false);
@@ -366,40 +211,10 @@ function SkillsCatalog({ query }: { query: string }) {
 }
 
 export function SkillsSection({ query }: { query: string }) {
-  const { status: licenseStatus } = useLicenseStatus();
-  const invalidateSkills = useLibraryStore((s) => s.invalidateSkills);
-  const ensureSkillsLoaded = useLibraryStore((s) => s.ensureSkillsLoaded);
-  const [publishing, setPublishing] = useState(false);
-  const canPublish = Boolean(licenseStatus?.configured);
-
   return (
     <div className="space-y-1">
       <SkillsTab />
       <SkillsCatalog query={query} />
-      {canPublish ? (
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 text-xs w-full mt-2"
-          onClick={() => setPublishing(true)}
-        >
-          <Upload className="w-3 h-3 mr-1.5" />
-          {m.library_skills_publish_button()}
-        </Button>
-      ) : (
-        <p className="text-[10px] text-muted-foreground/70 pt-1">
-          {m.library_skills_publish_note()}
-        </p>
-      )}
-      {publishing && (
-        <PublishDialog
-          onClose={() => setPublishing(false)}
-          onPublished={() => {
-            invalidateSkills();
-            void ensureSkillsLoaded(query);
-          }}
-        />
-      )}
     </div>
   );
 }

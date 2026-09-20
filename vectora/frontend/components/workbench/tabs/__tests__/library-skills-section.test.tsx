@@ -48,8 +48,6 @@ const CATALOG: CatalogSkill[] = [
 function mockFetch({
   entries = CATALOG as typeof CATALOG,
   installOk = true,
-  licenseConfigured = false,
-  publishStatus = "published" as string,
 } = {}) {
   global.fetch = vi
     .fn()
@@ -64,21 +62,6 @@ function mockFetch({
         return Promise.resolve({
           ok: installOk,
           json: async () => ({}),
-        } as Response);
-      }
-      if (url === "/skills/publish" && init?.method === "POST") {
-        return Promise.resolve({
-          ok: true,
-          json: async () =>
-            publishStatus === "error"
-              ? { status: "error", error: "falha ao publicar" }
-              : { status: "published", skill_id: "remote-1" },
-        } as Response);
-      }
-      if (url === "/license/status") {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({ configured: licenseConfigured }),
         } as Response);
       }
       return Promise.resolve({ ok: true, json: async () => ({}) } as Response);
@@ -217,88 +200,5 @@ describe("SkillsSection — Catálogo", () => {
     expect(screen.getByText("Official")).toBeTruthy();
     expect(screen.getByText("Verified")).toBeTruthy();
     expect(screen.queryByText("Community", { exact: true })).toBeNull();
-  });
-});
-
-describe("SkillsSection — Publicar", () => {
-  it("sem conta conectada, mostra a nota em vez do botão de publicar", async () => {
-    mockFetch({ licenseConfigured: false });
-    render(<SkillsSection query="" />);
-
-    await waitFor(() => {
-      expect(
-        screen.getByText(/Connect your vectora.company account/),
-      ).toBeTruthy();
-    });
-    expect(screen.queryByText("Publish my skill")).toBeNull();
-  });
-
-  it("com conta conectada, publica pelo diálogo (POST /skills/publish)", async () => {
-    mockFetch({ licenseConfigured: true, publishStatus: "published" });
-    render(<SkillsSection query="" />);
-
-    await waitFor(() =>
-      expect(screen.getByText("Publish my skill")).toBeTruthy(),
-    );
-    fireEvent.click(screen.getByText("Publish my skill"));
-
-    await waitFor(() => expect(screen.getByText("Publish skill")).toBeTruthy());
-    fireEvent.change(screen.getByLabelText("Repository URL"), {
-      target: { value: "https://github.com/bruno/skill" },
-    });
-    fireEvent.change(screen.getByLabelText("Name"), {
-      target: { value: "Minha Skill" },
-    });
-    fireEvent.change(screen.getByLabelText("Description"), {
-      target: { value: "faz coisas" },
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-
-    await waitFor(() => {
-      const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls;
-      const publishCall = calls.find(
-        (c) => c[0] === "/skills/publish" && c[1]?.method === "POST",
-      );
-      expect(publishCall).toBeTruthy();
-      const body = JSON.parse(publishCall![1].body as string);
-      expect(body).toEqual({
-        source: "https://github.com/bruno/skill",
-        name: "Minha Skill",
-        description: "faz coisas",
-        category: "",
-      });
-    });
-
-    await waitFor(() => {
-      expect(screen.queryByText("Publish skill")).not.toBeInTheDocument();
-    });
-  });
-
-  it("erro de publicação mantém o diálogo aberto e mostra a mensagem", async () => {
-    mockFetch({ licenseConfigured: true, publishStatus: "error" });
-    render(<SkillsSection query="" />);
-
-    await waitFor(() =>
-      expect(screen.getByText("Publish my skill")).toBeTruthy(),
-    );
-    fireEvent.click(screen.getByText("Publish my skill"));
-    await waitFor(() => expect(screen.getByText("Publish skill")).toBeTruthy());
-    fireEvent.change(screen.getByLabelText("Repository URL"), {
-      target: { value: "https://github.com/bruno/skill" },
-    });
-    fireEvent.change(screen.getByLabelText("Name"), {
-      target: { value: "x" },
-    });
-    fireEvent.change(screen.getByLabelText("Description"), {
-      target: { value: "y" },
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-
-    await waitFor(() => {
-      expect(screen.getByText("falha ao publicar")).toBeTruthy();
-    });
-    expect(screen.getByText("Publish skill")).toBeTruthy();
   });
 });

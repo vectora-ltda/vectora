@@ -8,20 +8,10 @@
  * persistidos via POST /auth/envs — o MCP instalado passa a aparecer na
  * aba Integrações como uma entrada "Customizada" automaticamente, já que
  * ela lista qualquer env key órfã do catálogo.
- *
- * "Adicionar MCP manual" (stdio/sse/http + política de tools) reaproveita
- * o componente PluginsTab.
  */
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  ChevronDown,
-  ChevronUp,
-  Download,
-  Loader2,
-  Puzzle,
-  Trash2,
-} from "lucide-react";
+import { Download, Loader2, Puzzle, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -33,7 +23,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { PluginsTab } from "@/components/settings/environment/tabs/plugins-tab";
 import { m } from "@/lib/paraglide/messages";
 import { useLibraryStore, type MCPConnector } from "@/lib/stores/library-store";
 import { useSettingsStore } from "@/lib/stores/settings-store";
@@ -328,7 +317,6 @@ export function McpSection({
   const ensureMcpLoaded = useLibraryStore((s) => s.ensureMcpLoaded);
   const invalidateMcp = useLibraryStore((s) => s.invalidateMcp);
   const openCanvasDocument = useWindowsStore((s) => s.openCanvasDocument);
-  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const openConnector = (connector: MCPConnector) => {
     const workspaceId = useWorkspacesStore.getState().active_id;
@@ -389,11 +377,6 @@ export function McpSection({
         {error && (
           <p className="text-xs text-destructive text-center">{error}</p>
         )}
-        <AdvancedToggle
-          open={showAdvanced}
-          onToggle={() => setShowAdvanced((v) => !v)}
-        />
-        {showAdvanced && <PluginsTab />}
       </div>
     );
   }
@@ -410,34 +393,6 @@ export function McpSection({
           onOpen={() => openConnector(connector)}
         />
       ))}
-      <AdvancedToggle
-        open={showAdvanced}
-        onToggle={() => setShowAdvanced((v) => !v)}
-      />
-      {showAdvanced && <PluginsTab />}
     </div>
-  );
-}
-
-function AdvancedToggle({
-  open,
-  onToggle,
-}: {
-  open: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors pt-1"
-    >
-      {open ? (
-        <ChevronUp className="w-3.5 h-3.5" />
-      ) : (
-        <ChevronDown className="w-3.5 h-3.5" />
-      )}
-      {m.library_mcp_advanced_toggle()}
-    </button>
   );
 }

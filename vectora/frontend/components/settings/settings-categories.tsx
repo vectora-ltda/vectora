@@ -67,13 +67,6 @@ const ConnectTab = lazyWithRetry(
     })),
   "settings-connect-tab",
 );
-const PluginsTab = lazyWithRetry(
-  () =>
-    import("./environment/tabs/plugins-tab").then((mod) => ({
-      default: mod.PluginsTab,
-    })),
-  "settings-plugins-tab",
-);
 const SkillsTab = lazyWithRetry(
   () =>
     import("./environment/tabs/skills-tab").then((mod) => {
@@ -256,12 +249,6 @@ export function buildSettingsCategoryGroups({
           },
         ] as SettingsCategory[])
       : []),
-    {
-      id: "plugins",
-      group: "ambiente",
-      label: m.settings_category_plugins(),
-      Component: PluginsTab,
-    },
     {
       id: "skills",
       group: "ambiente",

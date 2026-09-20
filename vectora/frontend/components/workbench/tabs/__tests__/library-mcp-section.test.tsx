@@ -20,10 +20,6 @@ import {
   within,
 } from "@testing-library/react";
 
-vi.mock("@/components/settings/environment/tabs/plugins-tab", () => ({
-  PluginsTab: () => <div>stub-plugins-tab</div>,
-}));
-
 import { McpSection } from "../library-mcp-section";
 import { useLibraryStore } from "@/lib/stores/library-store";
 import { useSettingsStore } from "@/lib/stores/settings-store";
@@ -359,14 +355,5 @@ describe("McpSection", () => {
     });
 
     vi.useRealTimers();
-  });
-
-  it("toggle 'avançado' mostra o form manual (PluginsTab)", async () => {
-    render(<McpSection query="" />);
-    await waitFor(() => expect(screen.getByText("Filesystem")).toBeTruthy());
-
-    expect(screen.queryByText("stub-plugins-tab")).toBeNull();
-    fireEvent.click(screen.getByText(/add mcp manually/i));
-    expect(screen.getByText("stub-plugins-tab")).toBeTruthy();
   });
 });
