@@ -153,12 +153,18 @@ export function WorkspaceTrustDialog({
   // só sincroniza quando a navegação (clique/Enter) muda o listing.path.
   const lastLoadedPathRef = useRef<string | null>(null);
   const requestEpochRef = useRef(0);
+  const folderSubmissionRef = useRef(0);
 
   /** Fetch direto: precisamos distinguir 403 (fora de safe-root) de
    *  outros erros para mostrar mensagem inline. O `browse` do store
    *  achata erros em `null` e perde essa informação. */
   const load = useCallback(async (path?: string) => {
     const epoch = ++requestEpochRef.current;
+    // A navegação invalida a criação associada ao diretório anterior. O
+    // request antigo pode terminar depois, mas não deve manter a UI travada
+    // nem liberar o estado de uma criação iniciada no novo diretório.
+    folderSubmissionRef.current += 1;
+    setFolderSubmitting(false);
     const requestedPath = path ?? lastLoadedPathRef.current;
     // Keep the path that is currently being requested available for retry,
     // including when this request fails before a listing is returned.
@@ -281,6 +287,7 @@ export function WorkspaceTrustDialog({
   const handleCreateFolder = async () => {
     const name = newFolderName.trim();
     if (!listing || !name) return;
+    const submissionId = ++folderSubmissionRef.current;
     setFolderSubmitting(true);
     const navigationEpoch = requestEpochRef.current;
     setError(null);
@@ -331,7 +338,9 @@ export function WorkspaceTrustDialog({
       if (navigationEpoch !== requestEpochRef.current) return;
       setError(e instanceof Error ? e.message : "Falha de rede.");
     } finally {
-      setFolderSubmitting(false);
+      if (submissionId === folderSubmissionRef.current) {
+        setFolderSubmitting(false);
+      }
     }
   };
 

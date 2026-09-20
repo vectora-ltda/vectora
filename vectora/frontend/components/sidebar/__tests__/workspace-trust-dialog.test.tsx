@@ -231,6 +231,84 @@ describe("WorkspaceTrustDialog — reload e nova pasta", () => {
     expect(screen.getByText("novo-diretorio")).toBeTruthy();
   });
 
+  it("mantém a segunda criação bloqueada até a primeira obsoleta terminar", async () => {
+    const otherListing = {
+      ...listing,
+      path: "C:\\Users\\Machi\\Documents\\outro",
+      entries: [],
+    };
+    const mkdirResponses: Array<(response: Response) => void> = [];
+    FETCH.mockImplementation((url: string, init?: RequestInit) => {
+      if (url === "/workspaces/browse/mkdir" && init?.method === "POST") {
+        return new Promise<Response>((resolve) => mkdirResponses.push(resolve));
+      }
+      if (url.startsWith("/workspaces/browse")) {
+        return url.includes(encodeURIComponent(otherListing.path))
+          ? jsonRes(otherListing)
+          : jsonRes(listing);
+      }
+      return jsonRes({}, 404);
+    });
+
+    render(<WorkspaceTrustDialog open onOpenChange={() => {}} />);
+    await waitFor(() => screen.getByText("projeto-a"));
+    fireEvent.click(screen.getByTitle("New folder"));
+    fireEvent.change(await screen.findByPlaceholderText("Folder name"), {
+      target: { value: "primeira" },
+    });
+    fireEvent.click(screen.getByTestId("workspace-new-folder-create-btn"));
+    await waitFor(() => expect(mkdirResponses).toHaveLength(1));
+
+    const pathInput = screen.getByTestId("workspace-path-input");
+    fireEvent.change(pathInput, { target: { value: otherListing.path } });
+    fireEvent.click(screen.getByTestId("workspace-go-btn"));
+    await waitFor(() =>
+      expect(screen.getByTestId("workspace-path-input")).toHaveValue(
+        otherListing.path,
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.getByTitle("New folder")).not.toBeDisabled(),
+    );
+
+    fireEvent.click(screen.getByTitle("New folder"));
+    fireEvent.change(await screen.findByPlaceholderText("Folder name"), {
+      target: { value: "segunda" },
+    });
+    fireEvent.click(screen.getByTestId("workspace-new-folder-create-btn"));
+    await waitFor(() => expect(mkdirResponses).toHaveLength(2));
+
+    mkdirResponses[0](
+      new Response(JSON.stringify({ detail: "conflict" }), {
+        status: 409,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("workspace-new-folder-create-btn"),
+      ).toBeDisabled(),
+    );
+    expect(
+      screen.queryByText("A folder with that name already exists."),
+    ).toBeNull();
+
+    mkdirResponses[1](
+      new Response(JSON.stringify({ detail: "conflict" }), {
+        status: 409,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByText("A folder with that name already exists."),
+      ).toBeTruthy(),
+    );
+    expect(
+      screen.getByTestId("workspace-new-folder-create-btn"),
+    ).not.toBeDisabled();
+  });
+
   it("usa a entrada criada quando o servidor antigo não retorna created_path", async () => {
     const createdPath = `${listing.path}\\legado`;
     FETCH.mockImplementation((url: string, init?: RequestInit) => {
