@@ -1000,6 +1000,7 @@
   "workbench_browser_settings_toggle": "Configurações do navegador",
   "workbench_browser_settings_title": "Configurações do navegador",
   "workbench_browser_settings_description": "Gerencie os dados salvos por este perfil do navegador.",
+  "workbench_browser_settings_error": "Não foi possível abrir as configurações do navegador.",
   "workbench_browser_clear_profile_data": "Limpar dados do navegador",
   "workbench_browser_clear_profile_confirm": "Limpar cookies, cache e dados de sites deste perfil do navegador?",
   "workbench_browser_clear_profile_error": "Não foi possível limpar os dados do navegador.",

@@ -178,6 +178,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   // sobre a página que o agente navega via tools de browser.
   const [devtoolsOpen, setDevtoolsOpen] = useState(false);
   const [clearProfileError, setClearProfileError] = useState(false);
+  const [settingsViewError, setSettingsViewError] = useState(false);
   const [sessionHydrationVersion, setSessionHydrationVersion] = useState(0);
 
   // Múltiplas abas — cada uma com seu próprio histórico (web) ou sua
@@ -266,18 +267,26 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       setBrowserSettingsOpen(false);
       return;
     }
+    setSettingsViewError(false);
     setBrowserSettingsOpen(true);
     if (!desktopBrowser) return;
     const requestId = ++settingsRequestRef.current;
-    void desktopBrowser.createView(profileId).then((viewId) => {
-      if (requestId !== settingsRequestRef.current) {
-        desktopBrowser.destroyView(viewId);
-        return;
-      }
-      settingsViewIdRef.current = viewId;
-      setSettingsViewId(viewId);
-      void desktopBrowser.navigate(viewId, "chrome://settings");
-    });
+    void desktopBrowser
+      .createView(profileId)
+      .then((viewId) => {
+        if (requestId !== settingsRequestRef.current) {
+          desktopBrowser.destroyView(viewId);
+          return;
+        }
+        settingsViewIdRef.current = viewId;
+        setSettingsViewId(viewId);
+        void desktopBrowser.navigate(viewId, "chrome://settings");
+      })
+      .catch(() => {
+        if (requestId !== settingsRequestRef.current) return;
+        setSettingsViewError(true);
+        setBrowserSettingsOpen(false);
+      });
   }, [browserSettingsOpen, desktopBrowser, profileId]);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -1339,6 +1348,11 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
               {clearProfileError ? (
                 <p role="alert" className="text-destructive">
                   {msg.workbench_browser_clear_profile_error()}
+                </p>
+              ) : null}
+              {settingsViewError ? (
+                <p role="alert" className="text-destructive">
+                  {msg.workbench_browser_settings_error()}
                 </p>
               ) : null}
             </>
