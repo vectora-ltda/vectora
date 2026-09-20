@@ -4,7 +4,7 @@
  *
  * `mcp` e `skills` são catálogos reais em D1 (`mcp_catalog`/`skills_catalog`,
  * `migrations/0001_schema.sql`). Curadoria
- * manual (`catalog_source='curated'`) entra via PR editando o seed — mas o
+ * manual (`catalog_source='curated'`) entra por revisão do catálogo — mas o
  * catálogo também é populado automaticamente pelo cron `scheduled()`
  * (`discovery.ts`, `catalog_source='official'|'github'`), que nunca
  * sobrescreve uma linha curada. O cliente Vectora (`backend/services/
@@ -85,7 +85,10 @@ registry.get("/skills", async (c) => {
   const category = c.req.query("category");
   const tag = c.req.query("tags");
 
-  const where: string[] = [];
+  const where: string[] = [
+    "COALESCE(package_name, '') NOT LIKE '@vectora/%'",
+    "id NOT LIKE 'vectora/%'",
+  ];
   const params: string[] = [];
   const search = buildSearchClause(q, ["name", "description"]);
   if (search.clause) {
@@ -117,7 +120,7 @@ registry.get("/skills", async (c) => {
 registry.get("/skills/:name/versions", async (c) => {
   const packageName = c.req.param("name");
   const { results } = await c.env.DB.prepare(
-    `SELECT ${SKILLS_COLUMNS} FROM skills_catalog WHERE package_name = ?`,
+    `SELECT ${SKILLS_COLUMNS} FROM skills_catalog WHERE package_name = ? AND package_name NOT LIKE '@vectora/%'`,
   )
     .bind(packageName)
     .all<SkillRow>();

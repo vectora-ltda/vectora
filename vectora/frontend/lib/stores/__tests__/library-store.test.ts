@@ -154,6 +154,31 @@ describe("library-store — Skills e Memory", () => {
     expect((fetchMock as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
   });
 
+  it("remove skills autorais legadas mesmo quando o registry remoto ainda as envia", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          entries: [
+            {
+              id: "vectora/code-review",
+              name: "Vectora Code Review",
+              package_name: "@vectora/code-review",
+            },
+            { id: "community/pdf", name: "PDF" },
+          ],
+        }),
+      })),
+    );
+
+    await useLibraryStore.getState().ensureSkillsLoaded();
+
+    expect(
+      useLibraryStore.getState().skillsItems.map((item) => item.name),
+    ).toEqual(["PDF"]);
+  });
+
   it("erro/borda: resposta não-ok em skills não lança, mantém itens antigos e seta skillsError", async () => {
     vi.stubGlobal(
       "fetch",

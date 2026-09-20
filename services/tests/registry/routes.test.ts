@@ -144,6 +144,25 @@ describe("GET /registry/skills", () => {
 
     expect(body.entries.map((e) => e.name)).toContain("Sem versionamento");
   });
+
+  it("não expõe skills autorais legadas da Vectora", async () => {
+    await makeSkill({
+      id: "vectora/code-review",
+      name: "Vectora Code Review",
+      packageName: "@vectora/code-review",
+    });
+    await makeSkill({ name: "Community Skill", packageName: "community" });
+
+    const res = await registry.request("/skills", {}, env);
+    const body = await res.json<{ entries: Array<{ name: string }> }>();
+
+    expect(body.entries.map((entry) => entry.name)).toContain(
+      "Community Skill",
+    );
+    expect(body.entries.map((entry) => entry.name)).not.toContain(
+      "Vectora Code Review",
+    );
+  });
 });
 
 describe("GET /registry/skills/:name/versions", () => {
@@ -171,6 +190,19 @@ describe("GET /registry/skills/:name/versions", () => {
 
   it("package_name sem nenhuma versão publicada devolve lista vazia, não erro", async () => {
     const res = await registry.request("/skills/nao-existe/versions", {}, env);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ entries: [] });
+  });
+
+  it("não expõe versões do namespace autoral legado", async () => {
+    await makeSkill({ packageName: "@vectora/adr", version: "1.0.0" });
+
+    const res = await registry.request(
+      "/skills/%40vectora%2Fadr/versions",
+      {},
+      env,
+    );
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ entries: [] });

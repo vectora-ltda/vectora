@@ -8,8 +8,8 @@
  *
  * Abaixo dela, "Catálogo" lista skills curadas do registry remoto
  * (GET /skills/catalog, distinto de GET /skills que lista as instaladas) —
- * instalar uma reaproveita POST /skills {source} (mesmo endpoint do form
- * manual do SkillsTab).
+ * instalar uma reaproveita POST /skills {source}. Não existe entrada manual:
+ * toda instalação começa em um item publicado no catálogo.
  */
 
 import { useEffect, useState } from "react";

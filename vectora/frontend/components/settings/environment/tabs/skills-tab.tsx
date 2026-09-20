@@ -3,24 +3,14 @@
 /**
  * SkillsTab — gerenciador de skills do usuário.
  *
- * Lista skills instaladas, permite instalar nova (via URL git ou path local) e
- * remover/verificar existentes. Cada skill é uma pasta com SKILL.md no root
- * carregada pelo Deep Agent sob demanda (progressive disclosure).
+ * Lista skills instaladas e permite remover/verificar existentes. Novas
+ * instalações entram exclusivamente pelo catálogo da Library.
  */
 
 import { useCallback, useEffect, useState } from "react";
-import {
-  ChevronDown,
-  ChevronUp,
-  CheckCircle2,
-  Loader2,
-  Plus,
-  Trash2,
-  XCircle,
-} from "lucide-react";
+import { CheckCircle2, Loader2, Trash2, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { m } from "@/lib/paraglide/messages";
 interface Skill {
   id: string;
@@ -42,11 +32,8 @@ interface SkillsTabProps {
 export function SkillsTab({ onSkillsChange }: SkillsTabProps = {}) {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
-  const [source, setSource] = useState("");
-  const [installing, setInstalling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [verify, setVerify] = useState<Record<string, VerifyState>>({});
-  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -68,30 +55,6 @@ export function SkillsTab({ onSkillsChange }: SkillsTabProps = {}) {
     // oxlint-disable-next-line react/set-state-in-effect
     void refresh();
   }, [refresh]);
-
-  async function handleInstall() {
-    if (!source.trim()) return;
-    setInstalling(true);
-    setError(null);
-    try {
-      const res = await fetch("/skills", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: source.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.detail || m.skills_error_install());
-        return;
-      }
-      setSource("");
-      await refresh();
-    } catch {
-      setError(m.skills_error_install());
-    } finally {
-      setInstalling(false);
-    }
-  }
 
   async function handleRemove(id: string) {
     if (!confirm(m.skills_confirm_remove())) return;
@@ -123,52 +86,7 @@ export function SkillsTab({ onSkillsChange }: SkillsTabProps = {}) {
 
   return (
     <div className="space-y-4">
-      <button
-        type="button"
-        onClick={() => setShowAdvanced((v) => !v)}
-        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-      >
-        {showAdvanced ? (
-          <ChevronUp className="w-3.5 h-3.5" />
-        ) : (
-          <ChevronDown className="w-3.5 h-3.5" />
-        )}
-        {m.skills_install_toggle()}
-      </button>
-
-      {showAdvanced && (
-        <div className="space-y-2 rounded-md border border-border/60 p-3">
-          <label className="text-xs text-muted-foreground">
-            {m.skills_install_label()}
-          </label>
-          <div className="flex items-center gap-1.5">
-            <Input
-              value={source}
-              onChange={(e) => setSource(e.target.value)}
-              placeholder={m.skills_install_placeholder()}
-              className="h-8 text-xs font-mono"
-              autoComplete="off"
-              spellCheck={false}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !installing) void handleInstall();
-              }}
-            />
-            <Button
-              size="sm"
-              onClick={handleInstall}
-              disabled={installing || !source.trim()}
-              className="h-8"
-            >
-              {installing ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Plus className="w-3.5 h-3.5" />
-              )}
-            </Button>
-          </div>
-          {error && <p className="text-xs text-destructive">{error}</p>}
-        </div>
-      )}
+      {error && <p className="text-xs text-destructive">{error}</p>}
 
       {loading ? (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">

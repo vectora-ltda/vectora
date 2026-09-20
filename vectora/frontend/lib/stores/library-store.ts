@@ -34,6 +34,7 @@ export interface CatalogSkill {
   name: string;
   description: string;
   source: string;
+  package_name?: string | null;
   vectora_verified?: boolean;
   verified?: boolean;
   catalog_source?: string;
@@ -90,7 +91,11 @@ async function fetchSkillsCatalog(q: string): Promise<CatalogSkill[]> {
   const res = await fetch(`/skills/catalog${qs}`);
   if (!res.ok) throw new Error(`Erro ${res.status}`);
   const data = (await res.json()) as { entries?: CatalogSkill[] };
-  return data.entries ?? [];
+  return (data.entries ?? []).filter(
+    (skill) =>
+      !skill.package_name?.startsWith("@vectora/") &&
+      !skill.id.startsWith("vectora/"),
+  );
 }
 
 async function fetchMemoryCatalog(q: string): Promise<MemoryBucket[]> {
