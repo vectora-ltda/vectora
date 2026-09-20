@@ -3,7 +3,7 @@
  * SkillsSection — seção Skills da Library. Cobre a sub-área "Catálogo":
  * vem expandida por padrão (não escondida atrás de um toggle fechado —
  * regressão de descoberta), lista GET /skills/catalog, instalar chama
- * POST /skills {source}, toggle ainda permite recolher/reabrir; erro/borda:
+ * POST /skills {skill_id}, toggle ainda permite recolher/reabrir; erro/borda:
  * catálogo vazio mostra estado específico, não quebra a lista de instaladas
  * ao lado (SkillsTab, mockado).
  */
@@ -92,7 +92,7 @@ describe("SkillsSection — Catálogo", () => {
     });
   });
 
-  it("instalar chama POST /skills com o source da skill", async () => {
+  it("instalar chama POST /skills com o id do catálogo", async () => {
     mockFetch();
     vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<SkillsSection query="" />);
@@ -106,7 +106,7 @@ describe("SkillsSection — Catálogo", () => {
         expect.objectContaining({
           method: "POST",
           body: JSON.stringify({
-            source: CATALOG[0].source,
+            skill_id: CATALOG[0].id,
             confirm_unverified: true,
           }),
         }),

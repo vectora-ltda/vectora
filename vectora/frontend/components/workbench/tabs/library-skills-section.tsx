@@ -7,7 +7,7 @@
  *
  * Abaixo dela, "Catálogo" lista skills curadas do registry remoto
  * (GET /skills/catalog, distinto de GET /skills que lista as instaladas) —
- * instalar uma reaproveita POST /skills {source}. Não existe entrada manual:
+ * instalar uma skill referencia o identificador publicado no catálogo. Não existe entrada manual:
  * toda instalação começa em um item publicado no catálogo.
  */
 
@@ -30,43 +30,41 @@ import {
 } from "@/lib/stores/library-store";
 import { LibraryCard, LibraryTag } from "./library-card";
 
-const TRUST_LABEL = {
-  builtin: m.library_skills_trust_builtin,
-  verified: m.library_skills_trust_verified,
-  community: m.library_skills_trust_community,
-} as const;
-
 const TRUST_STATE_LABEL = {
   vectora_verified: m.library_skills_trust_builtin,
   publisher_signed: m.library_skills_trust_publisher_signed,
-  community_listed: m.library_skills_trust_community_listed,
   unsigned: m.library_skills_trust_unsigned,
   invalid: m.library_skills_trust_invalid,
   verification_unavailable: m.library_skills_trust_verification_unavailable,
 } as const;
+
+type SkillTrustState = keyof typeof TRUST_STATE_LABEL | "community_listed";
 
 function CatalogCard({ skill }: { skill: CatalogSkill }) {
   const [busy, setBusy] = useState(false);
   const [installed, setInstalled] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const trustState =
-    skill.trust_state ??
-    (skillTrustLevel(skill) === "builtin"
+    (skill.trust_state as SkillTrustState | undefined) ??
+    (skill.vectora_verified
       ? "vectora_verified"
-      : skillTrustLevel(skill) === "verified"
+      : skill.verified
         ? "publisher_signed"
         : "community_listed");
   const invalid = trustState === "invalid";
-  const requiresConfirmation = [
-    "community_listed",
-    "unsigned",
-    "verification_unavailable",
-  ].includes(trustState);
+  const requiresConfirmation =
+    trustState === "community_listed" ||
+    trustState === "unsigned" ||
+    trustState === "verification_unavailable";
   const legacyTrust = skillTrustLevel(skill);
   const badgeLabel = skill.trust_state
-    ? TRUST_STATE_LABEL[skill.trust_state]()
-    : TRUST_LABEL[legacyTrust]();
-  const showTrustBadge = trustState !== "community_listed";
+    ? (TRUST_STATE_LABEL[trustState as keyof typeof TRUST_STATE_LABEL]?.() ??
+      null)
+    : legacyTrust === "builtin"
+      ? m.library_skills_trust_builtin()
+      : legacyTrust === "verified"
+        ? m.library_skills_trust_verified()
+        : null;
 
   const handleInstall = async () => {
     if (invalid) {
@@ -85,7 +83,7 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          source: skill.source,
+          skill_id: skill.id,
           confirm_unverified: requiresConfirmation,
         }),
       });
@@ -107,7 +105,7 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
       title={skill.name}
       description={skill.description}
       tags={
-        showTrustBadge ? (
+        badgeLabel ? (
           <LibraryTag
             verified={legacyTrust !== "community"}
             aria-label={`${m.library_skills_trust_aria_prefix()}: ${badgeLabel}`}

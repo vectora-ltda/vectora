@@ -255,9 +255,6 @@ function ConnectorCard({
       description={connector.description}
       tags={
         <>
-          {connector.category !== "community" && (
-            <LibraryTag>{connector.category}</LibraryTag>
-          )}
           {verified && (
             <LibraryTag verified>{m.library_mcp_verified()}</LibraryTag>
           )}
