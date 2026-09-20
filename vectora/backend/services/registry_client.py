@@ -207,55 +207,6 @@ async def fetch_official_mcp_registry(*, max_entries: int = 100) -> list[dict]:
         return []
 
 
-class RegistryClientError(RuntimeError):
-    """Erro tipado de publish — sessão inválida, `source` rejeitado pelo
-    servidor, ou falha de rede. Nunca propaga exceção crua pro chamador."""
-
-
-async def publish_skill(
-    name: str,
-    description: str,
-    source: str,
-    *,
-    category: str | None = None,
-    tags: list[str] | None = None,
-    session_token: str,
-) -> str:
-    """Registra uma skill no catálogo remoto via `POST /registry/skills` —
-    `source` é sempre uma URL git (o mesmo formato que
-    `backend/workspace/skills.py` já aceita pra instalação), nunca um
-    upload de arquivo. Retorna o `id` da entrada recém-criada (sempre
-    `verified=false` até curadoria manual via `PATCH
-    /registry/admin/skills/:id/verify`)."""
-    try:
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            resp = await client.post(
-                f"{_registry_url()}/skills",
-                headers={"Authorization": f"Bearer {session_token}"},
-                json={
-                    "name": name,
-                    "description": description,
-                    "source": source,
-                    "category": category,
-                    "tags": tags or [],
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-    except httpx.HTTPStatusError as exc:
-        raise RegistryClientError(
-            f"Falha ao publicar a skill: {exc.response.status_code} {exc.response.text}"
-        ) from exc
-    except Exception as exc:
-        raise RegistryClientError(f"Falha ao publicar a skill: {exc}") from exc
-
-    remote_id = data.get("id")
-    if not remote_id:
-        raise RegistryClientError("Resposta inesperada do registry/skills (sem id).")
-    logger.info("registry_client: skill publicada como %s", remote_id)
-    return remote_id
-
-
 def clear_registry_cache() -> None:
     """Remove todo o cache local — útil em testes/troca de VECTORA_REGISTRY_URL."""
     with contextlib.suppress(OSError):

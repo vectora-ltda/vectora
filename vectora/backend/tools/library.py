@@ -303,62 +303,6 @@ async def publish_memory_bucket_tool(
 
 @vtool(
     extras=ToolExtras(
-        invalidates=["skills"],
-        destructive=True,
-        category="library",
-        icon="upload",
-    )
-)
-async def publish_skill_tool(
-    source: str,
-    name: str,
-    description: str,
-    category: str = "",
-    tags: list[str] | None = None,
-) -> str:
-    """Publica uma skill no catálogo remoto — exige conta vectora.company
-    conectada (`VECTORA_TOKEN`). `source` é sempre uma URL git (o mesmo
-    formato aceito por `install_skill_from_catalog`/`install_learned_skill`
-    pra instalação), nunca um tarball — o Vectora nunca hospeda o código da
-    skill, só registra onde ele mora.
-
-    Args:
-        source: URL git do repositório (ex.: "https://github.com/user/skill").
-        name: nome de exibição no catálogo remoto.
-        description: descrição do que a skill faz.
-        category: categoria opcional (ex.: "devtools", "productivity").
-        tags: lista opcional de tags de busca.
-    """
-    from backend.services import license as license_service
-    from backend.services.registry_client import RegistryClientError, publish_skill
-
-    token = license_service._get_token()
-    if not token:
-        return json.dumps(
-            {
-                "status": "error",
-                "error": "Nenhuma conta vectora.company conectada (VECTORA_TOKEN ausente).",
-            }
-        )
-    try:
-        remote_id = await publish_skill(
-            name,
-            description,
-            source,
-            category=category or None,
-            tags=tags,
-            session_token=token,
-        )
-        return json.dumps({"status": "published", "skill_id": remote_id})
-    except RegistryClientError as exc:
-        return json.dumps({"status": "error", "error": str(exc)})
-    except Exception as exc:
-        logger.exception("publish_skill_tool failed", extra={"source": source})
-        return json.dumps({"status": "error", "error": str(exc)})
-
-
-@vtool(
-    extras=ToolExtras(
         invalidates=["mcp"],
         destructive=True,
         category="library",

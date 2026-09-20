@@ -16,10 +16,9 @@ from pydantic import BaseModel
 
 from backend.api.handlers import mcp_marketplace
 from backend.api.handlers import skills as skills_handler
-from backend.services import license, registry_client
+from backend.services import registry_client
 from backend.workspace import plugins
 from backend.workspace.skills import (
-    InstallSkillRequest,
     install_skill,
     list_skills,
     remove_skill,
@@ -38,11 +37,6 @@ class MarketplaceArgs(Protocol):
     output: str
     identifier: str
     query: str | None
-    source: str
-    name: str
-    description: str
-    category: str | None
-    tags: list[str]
 
 
 def _envelope(
@@ -182,9 +176,10 @@ async def _skills(args: MarketplaceArgs) -> dict[str, object]:  # noqa: PLR0911
         )
     if args.action == "install":
         try:
-            skill = install_skill(
-                "local", InstallSkillRequest(source=args.source).source
-            )
+            entry = await skills_handler._resolve_catalog_skill(args.identifier)
+            if entry is None:
+                return _envelope("error", error="Skill não encontrada no catálogo")
+            skill = install_skill("local", entry.source)
         except ValueError as exc:
             return _envelope("error", error=str(exc))
         return _envelope("ok", _public_skill(skill))
@@ -202,22 +197,6 @@ async def _skills(args: MarketplaceArgs) -> dict[str, object]:  # noqa: PLR0911
             result,
             result.get("error"),
         )
-    if args.action == "publish":
-        token = license._get_token()
-        if not token:
-            return _envelope("error", error="Autenticação vectora.company ausente")
-        try:
-            skill_id = await registry_client.publish_skill(
-                args.name,
-                args.description,
-                args.source,
-                category=args.category,
-                tags=args.tags,
-                session_token=token,
-            )
-        except registry_client.RegistryClientError as exc:
-            return _envelope("error", error=str(exc))
-        return _envelope("ok", {"skill_id": skill_id})
     return _envelope("error", error="Comando de skill indisponível")
 
 
@@ -228,6 +207,6 @@ def run_marketplace(args: MarketplaceArgs) -> None:
     except ValueError as exc:
         result = _envelope("error", error=str(exc))
         result["error_code"] = USAGE_ERROR
-    except (OSError, registry_client.RegistryClientError) as exc:
+    except OSError as exc:
         result = _envelope("error", error=str(exc))
     raise SystemExit(_emit(result, args.output))

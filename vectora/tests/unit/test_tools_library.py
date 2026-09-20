@@ -19,7 +19,6 @@ from backend.tools.library import (
     install_memory_bucket,
     install_skill_from_catalog,
     publish_memory_bucket_tool,
-    publish_skill_tool,
     save_mcp_env_var,
     uninstall_mcp,
     verify_skill,
@@ -343,90 +342,6 @@ async def test_publish_memory_bucket_tool_no_token_returns_error_without_publish
 
     assert result["status"] == "error"
     publish_spy.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
-# publish_skill_tool
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_publish_skill_tool_publishes_with_token(monkeypatch):
-    from backend.services import license as license_service
-    from backend.services import registry_client
-
-    monkeypatch.setattr(license_service, "_get_token", lambda: "tok-123")
-    publish_spy = AsyncMock(return_value="remote-skill-1")
-    monkeypatch.setattr(registry_client, "publish_skill", publish_spy)
-
-    result = json.loads(
-        await publish_skill_tool(
-            source="https://github.com/user/skill",
-            name="Minha Skill",
-            description="faz coisas",
-            category="devtools",
-            tags=["cli"],
-        )
-    )
-
-    assert result == {"status": "published", "skill_id": "remote-skill-1"}
-    publish_spy.assert_awaited_once_with(
-        "Minha Skill",
-        "faz coisas",
-        "https://github.com/user/skill",
-        category="devtools",
-        tags=["cli"],
-        session_token="tok-123",
-    )
-
-
-@pytest.mark.asyncio
-async def test_publish_skill_tool_no_token_returns_error_without_publishing(
-    monkeypatch,
-):
-    from backend.services import license as license_service
-    from backend.services import registry_client
-
-    monkeypatch.setattr(license_service, "_get_token", lambda: None)
-    publish_spy = AsyncMock()
-    monkeypatch.setattr(registry_client, "publish_skill", publish_spy)
-
-    result = json.loads(
-        await publish_skill_tool(
-            source="https://github.com/user/skill",
-            name="Minha Skill",
-            description="faz coisas",
-        )
-    )
-
-    assert result["status"] == "error"
-    publish_spy.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_publish_skill_tool_registry_error_returns_typed_error_not_exception(
-    monkeypatch,
-):
-    from backend.services import license as license_service
-    from backend.services import registry_client
-
-    monkeypatch.setattr(license_service, "_get_token", lambda: "tok-123")
-    monkeypatch.setattr(
-        registry_client,
-        "publish_skill",
-        AsyncMock(side_effect=registry_client.RegistryClientError("source inválido")),
-    )
-
-    result = json.loads(
-        await publish_skill_tool(
-            source="não é url",
-            name="x",
-            description="y",
-        )
-    )
-
-    assert result["status"] == "error"
-    assert "inválido" in result["error"]
 
 
 # ---------------------------------------------------------------------------

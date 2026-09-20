@@ -29,7 +29,6 @@
 import { Hono } from "hono";
 import type { Env } from "../gateway/types";
 import { requireAdmin } from "../auth/roles";
-import { requireUserId } from "../auth/routes";
 import { compareVersions, latestPerPackage } from "../lib/versioning";
 
 export const registry = new Hono<{ Bindings: Env }>();
@@ -139,71 +138,6 @@ registry.get("/extensions", (c) => c.json({ entries: [] }));
  * usado por `backend/workspace/skills.py`. Grava com `verified=0`, curadoria
  * manual posterior via `PATCH /admin/skills/:id/verify`.
  */
-registry.post("/skills", async (c) => {
-  const userId = await requireUserId(c);
-  if (!userId) return c.json({ error: "unauthorized" }, 401);
-
-  const body = await c.req.json().catch(() => null);
-  if (!body || typeof body !== "object") {
-    return c.json({ error: "invalid_body" }, 400);
-  }
-
-  const name = typeof body.name === "string" ? body.name.trim() : "";
-  const description =
-    typeof body.description === "string" ? body.description.trim() : "";
-  const source = typeof body.source === "string" ? body.source.trim() : "";
-  const category =
-    typeof body.category === "string" && body.category.trim()
-      ? body.category.trim()
-      : null;
-  const tags = Array.isArray(body.tags)
-    ? body.tags.filter((t: unknown): t is string => typeof t === "string")
-    : [];
-  const version =
-    typeof body.version === "string" && body.version.trim()
-      ? body.version.trim()
-      : "0.0.1";
-  const packageName =
-    typeof body.package_name === "string" && body.package_name.trim()
-      ? body.package_name.trim()
-      : name;
-
-  if (!name) return c.json({ error: "invalid_name" }, 400);
-  if (!description) return c.json({ error: "invalid_description" }, 400);
-  if (!isGitUrl(source)) return c.json({ error: "invalid_source" }, 400);
-  if (packageName.toLowerCase().startsWith("@vectora/")) {
-    return c.json({ error: "reserved_package_name" }, 400);
-  }
-
-  const id = crypto.randomUUID();
-  await c.env.DB.prepare(
-    `INSERT INTO skills_catalog
-       (id, name, description, source, package_name, version, tags, category, catalog_source, publisher_id, verified)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'community', ?, 0)`,
-  )
-    .bind(
-      id,
-      name,
-      description,
-      source,
-      packageName,
-      version,
-      JSON.stringify(tags),
-      category,
-      userId,
-    )
-    .run();
-
-  return c.json({
-    ok: true,
-    id,
-    status: "published",
-    verified: false,
-    version,
-    package_name: packageName,
-  });
-});
-
 /** Curadoria: seta `verified=1` — só quem tem `role='admin'`. */
 registry.patch("/admin/skills/:id/verify", async (c) => {
   const adminId = await requireAdmin(c);
@@ -223,20 +157,3 @@ registry.patch("/admin/skills/:id/verify", async (c) => {
 
   return c.json({ ok: true, id, verified: true });
 });
-
-/** Só http(s)://.../repo(.git) ou `git@host:owner/repo.git` — mesma
- * validação superficial de esquema/host que `backend/workspace/skills.py`
- * já exige antes de tentar clonar; o clone real (que valida de verdade se
- * é um repo git) só acontece na instalação, não aqui. */
-function isGitUrl(value: string): boolean {
-  if (!value) return false;
-  if (/^git@[\w.-]+:[\w./-]+\.git$/.test(value)) return true;
-  try {
-    const url = new URL(value);
-    return (
-      (url.protocol === "https:" || url.protocol === "http:") && !!url.hostname
-    );
-  } catch {
-    return false;
-  }
-}
