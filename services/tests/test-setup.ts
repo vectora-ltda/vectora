@@ -6,6 +6,8 @@ import schemaSql from "../migrations/0001_schema.sql?raw";
 import issueSyncMigrationSql from "../migrations/0002_issue_sync_compat.sql?raw";
 // @ts-expect-error — Vite `?raw` import, resolvido em build/test time (esbuild).
 import removeVectoraSkillsMigrationSql from "../migrations/0004_remove_vectora_authored_skills.sql?raw";
+// @ts-expect-error — Vite `?raw` import, resolvido em build/test time (esbuild).
+import mcpCatalogSnapshotsMigrationSql from "../migrations/0005_mcp_catalog_snapshots.sql?raw";
 
 // Guarda de rede hermética. O `queueConsumers: ["vectora-email"]` do
 // vitest.config faz o miniflare ENTREGAR de verdade os emails enfileirados
@@ -66,4 +68,5 @@ beforeAll(async () => {
   await applyMigration(schemaSql as string);
   await applyMigration(issueSyncMigrationSql as string);
   await applyMigration(removeVectoraSkillsMigrationSql as string);
+  await applyMigration(mcpCatalogSnapshotsMigrationSql as string);
 });

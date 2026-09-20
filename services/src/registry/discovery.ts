@@ -125,13 +125,17 @@ function toDiscoveredMcp(item: McpServerEntry): DiscoveredMcp | null {
 }
 
 /** Pagina o catálogo GitHub MCP e faz upsert em mcp_catalog. */
-export async function discoverMcp(env: Env, maxEntries = 100): Promise<number> {
+export async function discoverMcp(
+  env: Env,
+  maxEntries = Number.POSITIVE_INFINITY,
+): Promise<number> {
   const found = new Map<string, DiscoveredMcp>();
+  const pageSize = 30;
   try {
     for (let page = 1; found.size < maxEntries; page++) {
       const url = new URL(GITHUB_MCP_REGISTRY_URL);
       url.searchParams.set("page", String(page));
-      url.searchParams.set("per_page", "30");
+      url.searchParams.set("per_page", String(pageSize));
       const resp = await fetch(url.toString(), {
         headers: { Accept: "application/json" },
       });
@@ -144,20 +148,26 @@ export async function discoverMcp(env: Env, maxEntries = 100): Promise<number> {
         const connector = toDiscoveredMcp(item);
         if (connector) found.set(connector.id, connector);
       }
-      if (!data.servers?.length || page >= (data.metadata?.total_pages ?? page))
+      const pageCount = data.metadata?.total_pages;
+      if (
+        !data.servers?.length ||
+        (pageCount !== undefined && page >= pageCount) ||
+        (pageCount === undefined && data.servers.length < pageSize)
+      )
         break;
     }
   } catch {
     return 0;
   }
 
+  const snapshotId = crypto.randomUUID();
   let upserted = 0;
   for (const c of found.values()) {
     try {
       await env.DB.prepare(
         `INSERT INTO mcp_catalog
-           (id, name, description, install_cmd, env_vars, homepage, category, icon_url, publisher, publisher_url, stars_count, runtime_hint, package_identifier, transport, server_url, vectora_verified, catalog_source)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'github')
+           (id, name, description, install_cmd, env_vars, homepage, category, icon_url, publisher, publisher_url, stars_count, runtime_hint, package_identifier, transport, server_url, vectora_verified, catalog_source, snapshot_id, last_seen_at, catalog_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'github', ?, datetime('now'), 'active')
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name,
            description = excluded.description,
@@ -173,6 +183,9 @@ export async function discoverMcp(env: Env, maxEntries = 100): Promise<number> {
            package_identifier = excluded.package_identifier,
            transport = excluded.transport,
            server_url = excluded.server_url,
+           snapshot_id = excluded.snapshot_id,
+           last_seen_at = excluded.last_seen_at,
+           catalog_status = 'active',
            updated_at = datetime('now')
          WHERE mcp_catalog.catalog_source != 'curated'`,
       )
@@ -192,12 +205,20 @@ export async function discoverMcp(env: Env, maxEntries = 100): Promise<number> {
           c.package_identifier,
           c.transport,
           c.server_url,
+          snapshotId,
         )
         .run();
       upserted++;
     } catch {
       // isola falha por entrada — uma linha malformada não derruba as demais
     }
+  }
+  if (found.size > 0) {
+    await env.DB.prepare(
+      "UPDATE mcp_catalog SET catalog_status = 'missing' WHERE catalog_source = 'github' AND COALESCE(snapshot_id, '') != ?",
+    )
+      .bind(snapshotId)
+      .run();
   }
   return upserted;
 }

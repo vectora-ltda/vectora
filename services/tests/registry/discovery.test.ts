@@ -99,6 +99,25 @@ describe("discoverMcp", () => {
 
     await expect(discoverMcp(env)).resolves.toBe(0);
   });
+
+  it("marca como ausente uma entrada GitHub que saiu do snapshot completo", async () => {
+    await env.DB.prepare(
+      "INSERT INTO mcp_catalog (id, name, description, install_cmd, category, catalog_source, snapshot_id) VALUES (?, ?, ?, ?, ?, 'github', ?)",
+    )
+      .bind("gone-server", "Gone", "d", "npx gone", "custom", "old-snapshot")
+      .run();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => mcpRegistryResponse([npmServer("kept", "Kept")])),
+    );
+
+    await discoverMcp(env);
+    const gone = await env.DB.prepare(
+      "SELECT catalog_status FROM mcp_catalog WHERE id = 'gone-server'",
+    ).first<{ catalog_status: string }>();
+    expect(gone?.catalog_status).toBe("missing");
+  });
 });
 
 describe("discoverSkills", () => {

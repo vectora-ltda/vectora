@@ -52,10 +52,8 @@ registry.get("/mcp", async (c) => {
     where.push("category = ?");
     params.push(category);
   }
-  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-
   const stmt = c.env.DB.prepare(
-    `SELECT id, name, description, install_cmd, env_vars, homepage, category, vectora_verified, icon_url, publisher, publisher_url, stars_count, downloads_count, runtime_hint, package_identifier, transport, server_url, catalog_source, updated_at FROM mcp_catalog ${whereSql} ORDER BY stars_count DESC, downloads_count DESC, name COLLATE NOCASE`,
+    `SELECT id, name, description, install_cmd, env_vars, homepage, category, vectora_verified, icon_url, publisher, publisher_url, stars_count, downloads_count, runtime_hint, package_identifier, transport, server_url, catalog_source, updated_at FROM mcp_catalog WHERE catalog_status = 'active'${where.length ? ` AND ${where.join(" AND ")}` : ""} ORDER BY stars_count DESC, downloads_count DESC, name COLLATE NOCASE`,
   );
   const { results } = await (params.length ? stmt.bind(...params) : stmt).all();
   return c.json({ entries: results ?? [] });
