@@ -10,6 +10,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { useSettingsStore } from "./settings-store";
+import type { EditedFile } from "@/lib/types";
 
 export interface FileWindowState {
   /** workspaceId — uma janela por workspace */
@@ -30,7 +31,7 @@ export interface FileWindowState {
 }
 
 export type CanvasDocumentKind =
-  "file" | "commit-details" | "plan" | "mcp-preview";
+  "file" | "file-diff" | "commit-details" | "plan" | "mcp-preview";
 
 export interface McpCanvasPreviewData {
   id: string;
@@ -58,6 +59,7 @@ export interface CanvasDocumentDescriptor {
   title: string;
   path?: string;
   commitSha?: string;
+  editedFile?: EditedFile;
   mcp?: McpCanvasPreviewData;
 }
 

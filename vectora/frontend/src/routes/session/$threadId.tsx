@@ -420,11 +420,6 @@ function SessionPage() {
   const activeWorkspaceId = useWorkspacesStore((s) => s.active_id);
   const [gitCommitDetails, setGitCommitDetails] =
     useState<GitCommitDetailsState | null>(null);
-  const [editedFileDiff, setEditedFileDiff] = useState<{
-    file: EditedFile;
-    threadId: string;
-    workspaceId: string | null;
-  } | null>(null);
   const [gitCommitDetailsById, setGitCommitDetailsById] = useState<
     Record<string, GitCommitDetailsState>
   >({});
@@ -440,6 +435,14 @@ function SessionPage() {
   const activeCanvasDocumentId = useWindowsStore(
     (state) => state.activeCanvasDocumentId,
   );
+  const modalCanvasDocument =
+    uiMode === "assistant"
+      ? (canvasDocuments.find(
+          (document) =>
+            document.id === activeCanvasDocumentId &&
+            isCanvasDocumentVisible(document, activeWorkspaceId, threadId),
+        ) ?? null)
+      : null;
   const openCanvasDocument = useWindowsStore(
     (state) => state.openCanvasDocument,
   );
@@ -452,20 +455,20 @@ function SessionPage() {
   const closeDockedTab = useWindowsStore((state) => state.closeDockedTab);
   const openEditedFileDiff = useCallback(
     (file: EditedFile) => {
-      setEditedFileDiff({
-        file,
-        threadId,
+      const documentId = `file-diff:${activeWorkspaceId ?? "global"}:${threadId}:${file.path}`;
+      openCanvasDocument({
+        id: documentId,
+        kind: "file-diff",
         workspaceId: activeWorkspaceId,
+        threadId,
+        title: m.chat_edited_files_diff({ path: file.path }),
+        path: file.path,
+        editedFile: file,
       });
+      setActiveCanvasTab(documentId);
     },
-    [activeWorkspaceId, threadId],
+    [activeWorkspaceId, openCanvasDocument, threadId],
   );
-  const selectedEditedFile =
-    editedFileDiff &&
-    editedFileDiff.threadId === threadId &&
-    editedFileDiff.workspaceId === (activeWorkspaceId ?? null)
-      ? editedFileDiff.file
-      : null;
   const openGitCommitDetails = useCallback(
     (details: GitCommitDetailsState) => {
       setGitCommitDetails(details);
@@ -521,7 +524,6 @@ function SessionPage() {
   }, [activeCanvasDocumentId, activeWorkspaceId, canvasDocuments, threadId]);
 
   useEffect(() => {
-    setEditedFileDiff(null);
     setPlanDocument(null);
     setGitCommitDetails(null);
   }, [activeWorkspaceId, threadId]);
@@ -588,7 +590,6 @@ function SessionPage() {
       // docked da thread anterior pra não herdar arquivo de outro
       // workspace (mesma proteção de handleNewChat/handleConfirmNewChat/
       // handleDeleteThread).
-      setEditedFileDiff(null);
       useWindowsStore.getState().closeAll();
       goTo(id);
       setIsMobileSidebarOpen(false);
@@ -600,7 +601,6 @@ function SessionPage() {
     // Chat: cria sessão direto (sem workspace/folders). Dev: dialog de workspace.
     // Reset do fundo: fecha janelas de arquivo da sessão anterior para a nova
     // conversa não herdar o conteúdo visual da atual.
-    setEditedFileDiff(null);
     useWindowsStore.getState().closeAll();
     if (chatMode) {
       void navigate({ to: "/session/$threadId", params: { threadId: "new" } });
@@ -620,7 +620,6 @@ function SessionPage() {
       // Não persiste a thread no backend ainda — isso evita acumular
       // conversas vazias na sidebar. A thread só é criada (via StreamChat)
       // quando a primeira mensagem é enviada.
-      setEditedFileDiff(null);
       useWindowsStore.getState().closeAll();
       if (isNewRoute) {
         // Já em /session/new: apenas marca o workspace como escolhido (sem navegar).
@@ -659,7 +658,6 @@ function SessionPage() {
       await deleteThreadMutation.mutateAsync(id);
       disposeBrowserThread(id);
       if (id !== threadId) return;
-      setEditedFileDiff(null);
       useWindowsStore.getState().closeAll();
       if (chatMode) {
         void navigate({ to: "/" });
@@ -1188,6 +1186,48 @@ function SessionPage() {
                             />
                           );
                         }
+                        if (
+                          document.kind === "file-diff" &&
+                          document.editedFile
+                        ) {
+                          return (
+                            <div className="h-full overflow-auto bg-background p-4">
+                              {document.editedFile.hunks.length ? (
+                                document.editedFile.hunks.map((hunk, index) => (
+                                  <div
+                                    key={`${hunk.header}-${index}`}
+                                    className="mb-4 last:mb-0"
+                                  >
+                                    <div className="mb-1 font-mono text-xs text-muted-foreground">
+                                      {hunk.header}
+                                    </div>
+                                    <pre className="overflow-x-auto rounded-md border border-border/50 bg-muted/20 p-3 font-mono text-xs leading-5">
+                                      {hunk.lines.map((line, lineIndex) => (
+                                        <span
+                                          key={`${lineIndex}-${line}`}
+                                          className={
+                                            line.startsWith("+")
+                                              ? "text-git-addition"
+                                              : line.startsWith("-")
+                                                ? "text-destructive"
+                                                : "text-foreground/80"
+                                          }
+                                        >
+                                          {line}
+                                          {"\n"}
+                                        </span>
+                                      ))}
+                                    </pre>
+                                  </div>
+                                ))
+                              ) : (
+                                <p className="text-sm text-muted-foreground">
+                                  {m.chat_edited_files_diff_empty()}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        }
                         if (document.kind === "commit-details") {
                           const details = gitCommitDetailsById[document.id];
                           return details ? (
@@ -1477,49 +1517,82 @@ function SessionPage() {
           )}
         </CanvasDocumentDialog>
         <CanvasDocumentDialog
-          open={selectedEditedFile !== null}
-          onOpenChange={(open) => {
-            if (!open) setEditedFileDiff(null);
-          }}
-          title={
-            selectedEditedFile
-              ? m.chat_edited_files_diff({ path: selectedEditedFile.path })
-              : "Diff"
+          open={
+            modalCanvasDocument !== null &&
+            modalCanvasDocument.kind !== "commit-details"
           }
+          onOpenChange={(open) => {
+            if (!open && modalCanvasDocument) {
+              closeCanvasDocument(modalCanvasDocument.id);
+              setActiveCanvasTab("editor");
+            }
+          }}
+          title={modalCanvasDocument?.title ?? "Documento"}
           titleClassName="truncate font-mono text-sm"
         >
-          <div className="h-full overflow-auto bg-background p-4">
-            {selectedEditedFile?.hunks.length ? (
-              selectedEditedFile.hunks.map((hunk, index) => (
-                <div key={`${hunk.header}-${index}`} className="mb-4 last:mb-0">
-                  <div className="mb-1 font-mono text-xs text-muted-foreground">
-                    {hunk.header}
-                  </div>
-                  <pre className="overflow-x-auto rounded-md border border-border/50 bg-muted/20 p-3 font-mono text-xs leading-5">
-                    {hunk.lines.map((line, lineIndex) => (
-                      <span
-                        key={`${lineIndex}-${line}`}
-                        className={
-                          line.startsWith("+")
-                            ? "text-git-addition"
-                            : line.startsWith("-")
-                              ? "text-destructive"
-                              : "text-foreground/80"
-                        }
-                      >
-                        {line}
-                        {"\n"}
-                      </span>
-                    ))}
-                  </pre>
-                </div>
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                {m.chat_edited_files_diff_empty()}
-              </p>
+          {modalCanvasDocument?.kind === "file" &&
+            modalCanvasDocument.workspaceId &&
+            modalCanvasDocument.path && (
+              <FileEditor
+                workspaceId={modalCanvasDocument.workspaceId}
+                path={modalCanvasDocument.path}
+              />
             )}
-          </div>
+          {modalCanvasDocument?.kind === "file-diff" &&
+            modalCanvasDocument.editedFile && (
+              <div className="h-full overflow-auto bg-background p-4">
+                {modalCanvasDocument.editedFile.hunks.length ? (
+                  modalCanvasDocument.editedFile.hunks.map((hunk, index) => (
+                    <div
+                      key={`${hunk.header}-${index}`}
+                      className="mb-4 last:mb-0"
+                    >
+                      <div className="mb-1 font-mono text-xs text-muted-foreground">
+                        {hunk.header}
+                      </div>
+                      <pre className="overflow-x-auto rounded-md border border-border/50 bg-muted/20 p-3 font-mono text-xs leading-5">
+                        {hunk.lines.map((line, lineIndex) => (
+                          <span
+                            key={`${lineIndex}-${line}`}
+                            className={
+                              line.startsWith("+")
+                                ? "text-git-addition"
+                                : line.startsWith("-")
+                                  ? "text-destructive"
+                                  : "text-foreground/80"
+                            }
+                          >
+                            {line}
+                            {"\n"}
+                          </span>
+                        ))}
+                      </pre>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    {m.chat_edited_files_diff_empty()}
+                  </p>
+                )}
+              </div>
+            )}
+          {modalCanvasDocument?.kind === "mcp-preview" &&
+            modalCanvasDocument.mcp && (
+              <LibraryMcpPreview mcp={modalCanvasDocument.mcp} />
+            )}
+          {modalCanvasDocument?.kind === "plan" && (
+            <div className="h-full overflow-auto p-5">
+              {planDocumentsById[modalCanvasDocument.id]?.content ? (
+                <MarkdownView
+                  content={planDocumentsById[modalCanvasDocument.id].content!}
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  {m.workbench_preview_md_loading()}
+                </p>
+              )}
+            </div>
+          )}
         </CanvasDocumentDialog>
       </div>
     </div>
