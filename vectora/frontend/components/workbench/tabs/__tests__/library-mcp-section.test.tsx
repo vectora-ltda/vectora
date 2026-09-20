@@ -123,7 +123,7 @@ describe("McpSection", () => {
     await waitFor(() => {
       expect(screen.getByText("Filesystem")).toBeTruthy();
     });
-    const badges = screen.getAllByText("community_listed");
+    const badges = screen.getAllByText("Community listed");
     expect(badges).toHaveLength(1);
   });
 
