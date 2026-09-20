@@ -19,7 +19,6 @@ from backend.settings import settings
 from backend.vtypes import SafeRoot
 
 logger = logging.getLogger(__name__)
-_windows_file_lock = RLock()
 
 
 class SafeRootPersistenceError(RuntimeError):
@@ -91,12 +90,21 @@ class SafeRootRegistry:
         lock_file = target.with_name(f"{target.name}.lock")
         lock_file.parent.mkdir(parents=True, exist_ok=True)
         if os.name == "nt":
-            # ``msvcrt.locking`` is process-scoped and raises PermissionError
-            # when a second handle in this process touches the locked byte.
-            # The process-wide guard still serializes all worker threads; the
-            # lock file remains the stable coordination marker for Unix hosts.
-            with _windows_file_lock:
-                yield
+            import msvcrt
+
+            # ``locking`` needs one existing byte and provides an advisory
+            # inter-process lock on the Windows host.
+            with lock_file.open("ab") as initializer:
+                if initializer.tell() == 0:
+                    initializer.write(b"0")
+            with lock_file.open("r+b") as stream:
+                stream.seek(0)
+                msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK, 1)
+                try:
+                    yield
+                finally:
+                    stream.seek(0)
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
             return
         with lock_file.open("a+b") as stream:
             import fcntl
