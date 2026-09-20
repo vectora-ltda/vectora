@@ -418,8 +418,6 @@ function SessionPage() {
   const [showNewChatDialog, setShowNewChatDialog] = useState(false);
   const [inputLocked, setInputLocked] = useState(false);
   const activeWorkspaceId = useWorkspacesStore((s) => s.active_id);
-  const [gitCommitDetails, setGitCommitDetails] =
-    useState<GitCommitDetailsState | null>(null);
   const [gitCommitDetailsById, setGitCommitDetailsById] = useState<
     Record<string, GitCommitDetailsState>
   >({});
@@ -471,7 +469,6 @@ function SessionPage() {
   );
   const openGitCommitDetails = useCallback(
     (details: GitCommitDetailsState) => {
-      setGitCommitDetails(details);
       if (activeWorkspaceId) {
         const documentId = `commit:${activeWorkspaceId}:${threadId}:${details.commit.sha}`;
         setGitCommitDetailsById((previous) => ({
@@ -484,7 +481,7 @@ function SessionPage() {
           kind: "commit-details",
           workspaceId: activeWorkspaceId,
           threadId,
-          title: m.workbench_git_commit_details(),
+          title: details.commit.message || m.workbench_git_commit_details(),
           commitSha: details.commit.sha,
         });
       }
@@ -525,23 +522,8 @@ function SessionPage() {
 
   useEffect(() => {
     setPlanDocument(null);
-    setGitCommitDetails(null);
   }, [activeWorkspaceId, threadId]);
 
-  useEffect(() => {
-    if (!activeWorkspaceId || !gitCommitDetails) return;
-    if (
-      !canvasDocuments.some(
-        (document) =>
-          document.id ===
-          `commit:${activeWorkspaceId}:${threadId}:${gitCommitDetails.commit.sha}`,
-      )
-    ) {
-      setGitCommitDetails(null);
-      setPlanDocument(null);
-      setActiveCanvasTab("editor");
-    }
-  }, [activeWorkspaceId, canvasDocuments, gitCommitDetails, threadId]);
   // `model` reflete `selectedModel` do settings-store (persistido) — o
   // restante de AgentConfig (repos, etc.) é local/efêmero por thread.
   const [agentConfig, setAgentConfigState] = useState<AgentConfig>(() => ({
@@ -1500,27 +1482,7 @@ function SessionPage() {
           )}
         </div>
         <CanvasDocumentDialog
-          open={uiMode === "assistant" && gitCommitDetails !== null}
-          onOpenChange={(open) => {
-            if (!open) setGitCommitDetails(null);
-          }}
-          title={
-            gitCommitDetails?.commit.message ?? m.workbench_git_commit_details()
-          }
-        >
-          {gitCommitDetails && (
-            <CommitDetails
-              commit={gitCommitDetails.commit}
-              diff={gitCommitDetails.diff}
-              loading={gitCommitDetails.loading}
-            />
-          )}
-        </CanvasDocumentDialog>
-        <CanvasDocumentDialog
-          open={
-            modalCanvasDocument !== null &&
-            modalCanvasDocument.kind !== "commit-details"
-          }
+          open={modalCanvasDocument !== null}
           onOpenChange={(open) => {
             if (!open && modalCanvasDocument) {
               closeCanvasDocument(modalCanvasDocument.id);
@@ -1593,6 +1555,34 @@ function SessionPage() {
               )}
             </div>
           )}
+          {modalCanvasDocument?.kind === "commit-details" &&
+            (() => {
+              const details = gitCommitDetailsById[modalCanvasDocument.id];
+              return details ? (
+                <CommitDetails
+                  commit={details.commit}
+                  diff={details.diff}
+                  loading={details.loading}
+                />
+              ) : (
+                <CommitDetails
+                  commit={{
+                    sha: modalCanvasDocument.commitSha ?? "",
+                    sha_short: (modalCanvasDocument.commitSha ?? "").slice(
+                      0,
+                      7,
+                    ),
+                    message: modalCanvasDocument.title,
+                    body: "",
+                    author: "",
+                    date: "",
+                    refs: [],
+                  }}
+                  diff={null}
+                  loading
+                />
+              );
+            })()}
         </CanvasDocumentDialog>
       </div>
     </div>
