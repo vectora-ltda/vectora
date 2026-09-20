@@ -12,20 +12,20 @@ from typing import Any
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT: Path = Path(__file__).resolve().parents[2]
 
 
 class _FakeEnvironment:
-    def Command(self, *_args: Any, **_kwargs: Any) -> object:  # noqa: N802
+    def Command(self, *_args: object, **_kwargs: object) -> object:  # noqa: N802
         return object()
 
-    def AlwaysBuild(self, *_args: Any) -> None:  # noqa: N802
+    def AlwaysBuild(self, *_args: object) -> None:  # noqa: N802
         return None
 
-    def Alias(self, *_args: Any) -> None:  # noqa: N802
+    def Alias(self, *_args: object) -> None:  # noqa: N802
         return None
 
-    def Decider(self, *_args: Any) -> None:  # noqa: N802
+    def Decider(self, *_args: object) -> None:  # noqa: N802
         return None
 
 
@@ -33,6 +33,7 @@ class _FakeDir:
     abspath = str(ROOT)
 
 
+# runpy exposes dynamic SCons globals; no narrower namespace type is available.
 def _load_sconstruct() -> dict[str, Any]:
     return runpy.run_path(
         str(ROOT.parent / "SConstruct"),
@@ -56,14 +57,14 @@ def _run_preflight(
     namespace = _load_sconstruct()
     commands: list[list[str]] = []
 
-    def fake_run(command: list[str], **_kwargs: Any) -> SimpleNamespace:
+    def fake_run(command: list[str], **_kwargs: object) -> SimpleNamespace:
         commands.append(command)
         sql = command[command.index("--command") + 1]
         if "sqlite_master" in sql:
             return SimpleNamespace(returncode=table_returncode, stdout=table_output)
         return SimpleNamespace(returncode=0, stdout=pragma_output)
 
-    def fake_upgrade(command: list[str], **_kwargs: Any) -> None:
+    def fake_upgrade(command: list[str], **_kwargs: object) -> None:
         commands.append(command)
 
     namespace["_upgrade_d1_schema"].__globals__["_run"] = fake_upgrade
@@ -100,7 +101,7 @@ def test_missing_skills_catalog_is_left_for_base_schema(
 def test_table_probe_failure_aborts_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
     namespace = _load_sconstruct()
 
-    def failing_run(_command: list[str], **_kwargs: Any) -> SimpleNamespace:
+    def failing_run(_command: list[str], **_kwargs: object) -> SimpleNamespace:
         return SimpleNamespace(returncode=1, stdout="authentication failed")
 
     namespace["_upgrade_d1_schema"].__globals__["_run"] = lambda *_args, **_kwargs: None
