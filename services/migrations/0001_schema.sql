@@ -256,8 +256,14 @@ CREATE TABLE IF NOT EXISTS mcp_catalog (
   catalog_source   TEXT NOT NULL DEFAULT 'curated',
   vectora_verified INTEGER NOT NULL DEFAULT 0,
   downloads_count  INTEGER NOT NULL DEFAULT 0,
+  snapshot_id      TEXT,
+  last_seen_at     TEXT,
+  catalog_status   TEXT NOT NULL DEFAULT 'active',
   updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE INDEX IF NOT EXISTS idx_mcp_catalog_public_rank
+  ON mcp_catalog (catalog_status, stars_count DESC, updated_at DESC);
 
 -- `vectora_verified` = selo oficial/curado (seed manual ou discovery), como
 -- em `mcp_catalog`. `verified` é um gate SEPARADO — curadoria de admin sobre
@@ -266,10 +272,8 @@ CREATE TABLE IF NOT EXISTS mcp_catalog (
 -- `rag_packages.verified`. Uma skill pode ter `verified=1` sem nunca ganhar
 -- o selo `vectora_verified` (que continua exclusivo de curadoria oficial).
 -- `publisher_id` NULL pra linhas curadas/discovery, preenchido só pra
--- publicações de comunidade. D1/SQLite não suporta `ALTER TABLE ... ADD
--- COLUMN IF NOT EXISTS` — bancos já provisionados antes desta mudança
--- precisam de `ALTER TABLE skills_catalog ADD COLUMN <col> ...` manual
--- (uma vez, fora deste arquivo) antes de reaplicar.
+-- publicações de comunidade. O shape completo fica declarado aqui para que
+-- bancos novos sejam provisionados em uma única migration idempotente.
 CREATE TABLE IF NOT EXISTS skills_catalog (
   id               TEXT PRIMARY KEY,
   name             TEXT NOT NULL,
@@ -436,3 +440,47 @@ ON CONFLICT (user_id) DO UPDATE SET
   provider = 'gift',
   current_period_end = NULL,
   updated_at = datetime('now');
+
+-- Objetos auxiliares da sincronização GitHub. Eles vivem nesta migration
+-- única para que uma instalação nova e uma reaplicação tenham o mesmo shape.
+CREATE TABLE IF NOT EXISTS issue_comments (
+  id TEXT PRIMARY KEY,
+  issue_id TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+  github_comment_id INTEGER NOT NULL,
+  author TEXT NOT NULL,
+  body TEXT NOT NULL,
+  html_url TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT,
+  deleted_at TEXT,
+  UNIQUE(issue_id, github_comment_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_issue_comments_issue
+  ON issue_comments(issue_id, created_at ASC);
+
+CREATE TABLE IF NOT EXISTS issue_promotion_effects (
+  issue_id       TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+  effect         TEXT NOT NULL CHECK (effect IN ('backlink', 'close')),
+  operation_token TEXT NOT NULL,
+  started_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  completed_at   TEXT,
+  PRIMARY KEY (issue_id, effect)
+);
+
+CREATE TABLE IF NOT EXISTS github_webhook_deliveries (
+  delivery_id TEXT PRIMARY KEY,
+  state TEXT NOT NULL CHECK (state IN ('processing', 'done', 'failed')),
+  error TEXT,
+  attempt_token TEXT,
+  lease_until TEXT,
+  received_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Seeds legados removidos da biblioteca pública. DELETE é idempotente e
+-- mantém a limpeza efetiva quando o schema é reaplicado em um banco existente.
+DELETE FROM skills_catalog
+WHERE package_name LIKE '@vectora/%'
+   OR id LIKE 'vectora/%'
+   OR id LIKE 'vectora-%';

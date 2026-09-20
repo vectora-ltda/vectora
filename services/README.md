@@ -107,26 +107,22 @@ handler):
   `update_telemetry`, `telemetry_ingest`, `rag_reindex`; DLQ
   `vectora-jobs-dlq`.
 
-The deployment upgrade below keeps existing issue-synchronization databases
-compatible when columns are added after the base schema.
+### Schema D1
 
-### Atualização do schema da sincronização de issues
+`migrations/0001_schema.sql` é a única migration SQL do serviço. Ela declara o
+shape completo das tabelas e índices e usa apenas operações idempotentes
+(`CREATE ... IF NOT EXISTS`, `INSERT OR IGNORE` e `ON CONFLICT`). Reaplique o
+arquivo inteiro quando necessário:
 
-O `0001_schema.sql` continua sendo o único schema base, idempotente para bancos
-novos. Os fluxos de deploy (`.github/workflows/edge.yml`,
-`.github/workflows/vectora.yml` e `scons prod`) consultam `PRAGMA table_info`
-antes de cada `ALTER TABLE` e adicionam somente as colunas ausentes. Isso
-atualiza bancos D1 existentes sem apagar dados ou repetir alterações:
+```bash
+pnpm exec wrangler d1 execute vectora-db --remote --file=migrations/0001_schema.sql
+```
 
-- `issues`: colunas de sincronização pública e promoção (`github_*`, `core_*` e
-  `approved_*`);
-- `issue_comments`: `updated_at` e `deleted_at`;
-- `gha_bot_review_jobs`: `callback_secret_hash`;
-- `gha_bot_config`: `self_hosted_enabled` para instalações legadas.
-
-Se o deploy for executado manualmente, rode o mesmo fluxo com `scons prod` ou
-reproduza a consulta antes de cada comando `ALTER TABLE`; nunca execute um
-`ALTER TABLE` já aplicado.
+O workflow de deploy mantém uma etapa de compatibilidade separada somente para
+bancos D1 legados que ainda não possuem colunas introduzidas antes da
+consolidação; essa etapa consulta `PRAGMA table_info` antes de cada alteração e
+é segura para ser executada novamente. Nenhuma nova migration numerada deve
+ser criada.
 
 - Secrets (via `wrangler secret put`, não no `.toml`): `VECTORA_APP_SECRET`
   (secret fixo por produto, autentica `POST /register`), `GATEWAY_HMAC_SECRET`,
