@@ -181,7 +181,11 @@ function getBrowserViewManager(): BrowserViewManager {
       mainWindow?.webContents.send("vectora:browser-view-event", viewId, event);
     },
     clearData: async (partition) => {
-      await session.fromPartition(partition).clearStorageData();
+      const browserSession = session.fromPartition(partition);
+      await Promise.all([
+        browserSession.clearStorageData(),
+        browserSession.clearCache(),
+      ]);
     },
   });
   return browserViewManager;

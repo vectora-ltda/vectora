@@ -654,11 +654,15 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   }, [desktopBrowser, activeViewId, hasUrl]);
 
   useEffect(() => {
-    if (!desktopBrowser || !browserSettingsOpen || settingsViewId === null) {
+    if (!desktopBrowser || settingsViewId === null) return;
+
+    const shouldShow = browserSettingsOpen && visible && !settingsOpen;
+    const el = browserViewContainerRef.current;
+    if (!shouldShow || !el) {
+      desktopBrowser.setVisible(settingsViewId, false);
       return;
     }
-    const el = browserViewContainerRef.current;
-    if (!el) return;
+
     const report = () => {
       const rect = el.getBoundingClientRect();
       desktopBrowser.setBounds(settingsViewId, {
@@ -672,8 +676,17 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     report();
     const observer = new ResizeObserver(report);
     observer.observe(el);
-    return () => observer.disconnect();
-  }, [browserSettingsOpen, desktopBrowser, settingsViewId]);
+    return () => {
+      observer.disconnect();
+      desktopBrowser.setVisible(settingsViewId, false);
+    };
+  }, [
+    browserSettingsOpen,
+    desktopBrowser,
+    settingsOpen,
+    settingsViewId,
+    visible,
+  ]);
 
   useEffect(
     () => () => {
@@ -1186,6 +1199,49 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     </div>
   );
 
+  const emptyBrowserState = (
+    <div className="flex h-full flex-col items-center justify-center pb-[18%] gap-3 p-4 text-center">
+      <Zap className="h-8 w-8 text-muted-foreground/40 shrink-0" />
+      <div className="min-w-0 max-w-[260px]">
+        <p className="text-sm font-medium text-foreground leading-snug">
+          {msg.workbench_browser_empty_title()}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+          {msg.workbench_browser_empty_description()}
+        </p>
+      </div>
+      {configs.length === 0 &&
+        (showManualForm ? (
+          manualForm
+        ) : (
+          <div className="flex w-full max-w-[220px] flex-col gap-1.5">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleAskAgent}
+              className="gap-1.5 w-full h-auto py-1.5 px-3"
+            >
+              <Sparkles className="h-3.5 w-3.5 shrink-0" />
+              <span className="text-xs">
+                {msg.workbench_browser_ask_agent()}
+              </span>
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setShowManualForm(true)}
+              className="gap-1.5 w-full h-auto py-1.5 px-3"
+            >
+              <Plus className="h-3.5 w-3.5 shrink-0" />
+              <span className="text-xs">
+                {msg.workbench_browser_manual_add()}
+              </span>
+            </Button>
+          </div>
+        ))}
+    </div>
+  );
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {serverFavorites}
@@ -1367,71 +1423,32 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
             {desktopLoadError}
           </div>
         )}
-        {currentUrl ? (
-          desktopBrowser ? (
-            // WebContentsView real (Electron) desenhada pelo main process por
-            // cima deste espaço reservado — este div fica sempre vazio, é só
-            // a referência de bounds (ver o efeito de ResizeObserver acima).
-            <div
-              ref={browserViewContainerRef}
-              data-testid="browser-webcontentsview-container"
-              className="flex-1 w-full bg-white"
-            />
-          ) : (
-            <iframe
-              ref={iframeRef}
-              key={`${activeTab.id}-${activeTab.iframeKey}`}
-              src={currentUrl}
-              className="flex-1 w-full border-0 bg-white"
-              title={msg.workbench_browser_frame_title()}
-              sandbox={
-                isTrustedWorkspaceServer(currentUrl)
-                  ? "allow-scripts allow-forms allow-modals allow-popups allow-same-origin"
-                  : "allow-scripts allow-forms allow-modals allow-popups"
-              }
-            />
-          )
-        ) : (
-          <div className="flex flex-1 flex-col items-center justify-center pb-[18%] gap-3 p-4 text-center">
-            <Zap className="h-8 w-8 text-muted-foreground/40 shrink-0" />
-            <div className="min-w-0 max-w-[260px]">
-              <p className="text-sm font-medium text-foreground leading-snug">
-                {msg.workbench_browser_empty_title()}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
-                {msg.workbench_browser_empty_description()}
-              </p>
-            </div>
-            {configs.length === 0 &&
-              (showManualForm ? (
-                manualForm
-              ) : (
-                <div className="flex w-full max-w-[220px] flex-col gap-1.5">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={handleAskAgent}
-                    className="gap-1.5 w-full h-auto py-1.5 px-3"
-                  >
-                    <Sparkles className="h-3.5 w-3.5 shrink-0" />
-                    <span className="text-xs">
-                      {msg.workbench_browser_ask_agent()}
-                    </span>
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setShowManualForm(true)}
-                    className="gap-1.5 w-full h-auto py-1.5 px-3"
-                  >
-                    <Plus className="h-3.5 w-3.5 shrink-0" />
-                    <span className="text-xs">
-                      {msg.workbench_browser_manual_add()}
-                    </span>
-                  </Button>
-                </div>
-              ))}
+        {desktopBrowser ? (
+          // Mantemos o container montado antes da primeira navegação para
+          // que a view nativa de configurações tenha bounds válidos em abas
+          // novas.
+          <div
+            ref={browserViewContainerRef}
+            data-testid="browser-webcontentsview-container"
+            className="relative flex-1 w-full bg-white"
+          >
+            {!currentUrl && emptyBrowserState}
           </div>
+        ) : currentUrl ? (
+          <iframe
+            ref={iframeRef}
+            key={`${activeTab.id}-${activeTab.iframeKey}`}
+            src={currentUrl}
+            className="flex-1 w-full border-0 bg-white"
+            title={msg.workbench_browser_frame_title()}
+            sandbox={
+              isTrustedWorkspaceServer(currentUrl)
+                ? "allow-scripts allow-forms allow-modals allow-popups allow-same-origin"
+                : "allow-scripts allow-forms allow-modals allow-popups"
+            }
+          />
+        ) : (
+          emptyBrowserState
         )}
       </div>
 

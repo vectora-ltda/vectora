@@ -106,6 +106,10 @@ describe("getBrowserProfileId", () => {
       /^session-[A-Za-z0-9_-]+$/,
     );
   });
+
+  it("mantém um identificador seguro para a chave vazia", () => {
+    expect(getBrowserProfileId("")).toBe("session-");
+  });
 });
 
 function mockFetch({
