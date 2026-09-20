@@ -28,6 +28,7 @@ import { WindowDock } from "@/components/workbench/windows/window-dock";
 import { DockedEditor } from "@/components/workbench/windows/docked-editor";
 import { FileEditor } from "@/components/workbench/file-editor";
 import { MarkdownView } from "@/components/workbench/markdown-view";
+import { LibraryMcpPreview } from "@/components/workbench/library-mcp-preview";
 import { CanvasDocumentDialog } from "@/components/workbench/canvas-document-dialog";
 import {
   CommitDetails,
@@ -513,8 +514,10 @@ function SessionPage() {
     const visible = canvasDocuments.some(
       (document) =>
         document.id === activeCanvasDocumentId &&
-        document.workspaceId === activeWorkspaceId &&
-        (document.kind === "file" || document.threadId === threadId),
+        (document.kind === "mcp-preview"
+          ? document.threadId === threadId
+          : document.workspaceId === activeWorkspaceId &&
+            (document.kind === "file" || document.threadId === threadId)),
     );
     setActiveCanvasTab(visible ? activeCanvasDocumentId : "editor");
   }, [activeCanvasDocumentId, activeWorkspaceId, canvasDocuments, threadId]);
@@ -1150,12 +1153,7 @@ function SessionPage() {
                       activeTab={activeCanvasTab}
                       onTabChange={(id) => {
                         setActiveCanvasTab(id);
-                        if (
-                          (id.startsWith("commit:") ||
-                            id.startsWith("file:") ||
-                            id.startsWith("plan:")) &&
-                          activeWorkspaceId
-                        ) {
+                        if (id !== "editor") {
                           activateCanvasDocument(id);
                         }
                       }}
@@ -1172,11 +1170,12 @@ function SessionPage() {
                         if (id === activeCanvasTab)
                           setActiveCanvasTab("editor");
                       }}
-                      documents={canvasDocuments.filter(
-                        (document) =>
-                          document.workspaceId === activeWorkspaceId &&
-                          (document.kind === "file" ||
-                            document.threadId === threadId),
+                      documents={canvasDocuments.filter((document) =>
+                        document.kind === "mcp-preview"
+                          ? document.threadId === threadId
+                          : document.workspaceId === activeWorkspaceId &&
+                            (document.kind === "file" ||
+                              document.threadId === threadId),
                       )}
                       renderDocument={(document) => {
                         if (document.kind === "file" && document.path) {
@@ -1213,6 +1212,9 @@ function SessionPage() {
                               loading
                             />
                           );
+                        }
+                        if (document.kind === "mcp-preview" && document.mcp) {
+                          return <LibraryMcpPreview mcp={document.mcp} />;
                         }
                         const plan = planDocumentsById[document.id];
                         return (

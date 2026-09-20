@@ -26,6 +26,9 @@ vi.mock("@/components/settings/environment/tabs/plugins-tab", () => ({
 
 import { McpSection } from "../library-mcp-section";
 import { useLibraryStore } from "@/lib/stores/library-store";
+import { useSettingsStore } from "@/lib/stores/settings-store";
+import { useWindowsStore } from "@/lib/stores/windows-store";
+import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 
 afterEach(cleanup);
 
@@ -38,6 +41,12 @@ beforeEach(() => {
     mcpQuery: "",
     mcpError: null,
   });
+  useWindowsStore.setState({
+    canvasDocuments: [],
+    activeCanvasDocumentId: null,
+  });
+  useSettingsStore.setState({ uiMode: "assistant" });
+  useWorkspacesStore.setState({ active_id: "workspace-1" });
 });
 
 const REGISTRY = [
@@ -138,6 +147,28 @@ describe("McpSection", () => {
     });
   });
 
+  it("abre o MCP no canvas compartilhado e troca para o modo IDE", async () => {
+    render(
+      <McpSection query="" onCountChange={() => {}} threadId="thread-1" />,
+    );
+    await waitFor(() => expect(screen.getByText("Filesystem")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("Filesystem").closest('[role="button"]')!);
+
+    const state = useWindowsStore.getState();
+    expect(useSettingsStore.getState().uiMode).toBe("ide");
+    expect(state.activeCanvasDocumentId).toBe("mcp:thread-1:filesystem");
+    expect(state.canvasDocuments).toContainEqual(
+      expect.objectContaining({
+        id: "mcp:thread-1:filesystem",
+        kind: "mcp-preview",
+        workspaceId: "workspace-1",
+        threadId: "thread-1",
+        mcp: expect.objectContaining({ id: "filesystem" }),
+      }),
+    );
+  });
+
   it("instalar um conector sem env_vars chama POST /mcp/install direto", async () => {
     render(<McpSection query="" onCountChange={() => {}} />);
     await waitFor(() => expect(screen.getByText("Filesystem")).toBeTruthy());
@@ -150,6 +181,9 @@ describe("McpSection", () => {
         b.textContent?.includes("Install"),
       )!,
     );
+
+    expect(useWindowsStore.getState().canvasDocuments).toEqual([]);
+    expect(useSettingsStore.getState().uiMode).toBe("assistant");
 
     await waitFor(() => {
       const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls;

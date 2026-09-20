@@ -29,7 +29,19 @@ export interface FileWindowState {
   zIndex: number;
 }
 
-export type CanvasDocumentKind = "file" | "commit-details" | "plan";
+export type CanvasDocumentKind =
+  "file" | "commit-details" | "plan" | "mcp-preview";
+
+export interface McpCanvasPreviewData {
+  id: string;
+  name: string;
+  description: string;
+  installCommand: string;
+  envVars: string[];
+  homepage: string;
+  category: string;
+  iconUrl?: string | null;
+}
 
 /** Serializable document descriptor shared by IDE and assistant canvases. */
 export interface CanvasDocumentDescriptor {
@@ -40,6 +52,7 @@ export interface CanvasDocumentDescriptor {
   title: string;
   path?: string;
   commitSha?: string;
+  mcp?: McpCanvasPreviewData;
 }
 
 interface WindowsState {

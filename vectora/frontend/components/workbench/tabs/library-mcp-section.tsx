@@ -36,6 +36,8 @@ import { Input } from "@/components/ui/input";
 import { PluginsTab } from "@/components/settings/environment/tabs/plugins-tab";
 import { m } from "@/lib/paraglide/messages";
 import { useLibraryStore, type MCPConnector } from "@/lib/stores/library-store";
+import { useSettingsStore } from "@/lib/stores/settings-store";
+import { useWindowsStore } from "@/lib/stores/windows-store";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { LibraryCard, LibraryTag } from "./library-card";
 import type { LibraryItem } from "./library-tab";
@@ -181,10 +183,12 @@ function ConnectorCard({
   connector,
   installed,
   onChanged,
+  onOpen,
 }: {
   connector: MCPConnector;
   installed: boolean;
   onChanged: () => void;
+  onOpen: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [configuring, setConfiguring] = useState(false);
@@ -246,6 +250,7 @@ function ConnectorCard({
 
   return (
     <LibraryCard
+      onClick={onOpen}
       icon={
         connector.icon_url ? (
           <img
@@ -312,9 +317,11 @@ function ConnectorCard({
 export function McpSection({
   query,
   onCountChange,
+  threadId = "library",
 }: {
   query: string;
   onCountChange: (count: number) => void;
+  threadId?: string;
 }) {
   const connectors = useLibraryStore((s) => s.mcpItems);
   const installedIds = useLibraryStore((s) => s.mcpInstalledIds);
@@ -322,7 +329,30 @@ export function McpSection({
   const error = useLibraryStore((s) => s.mcpError);
   const ensureMcpLoaded = useLibraryStore((s) => s.ensureMcpLoaded);
   const invalidateMcp = useLibraryStore((s) => s.invalidateMcp);
+  const openCanvasDocument = useWindowsStore((s) => s.openCanvasDocument);
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  const openConnector = (connector: MCPConnector) => {
+    const workspaceId = useWorkspacesStore.getState().active_id ?? "";
+    openCanvasDocument({
+      id: `mcp:${threadId}:${connector.id}`,
+      kind: "mcp-preview",
+      workspaceId,
+      threadId,
+      title: m.library_mcp_preview_title({ name: connector.name }),
+      mcp: {
+        id: connector.id,
+        name: connector.name,
+        description: connector.description,
+        installCommand: connector.install_cmd,
+        envVars: connector.env_vars,
+        homepage: connector.homepage,
+        category: connector.category,
+        iconUrl: connector.icon_url,
+      },
+    });
+    useSettingsStore.getState().setUiMode("ide");
+  };
 
   const load = useMemo(
     () => async () => {
@@ -382,6 +412,7 @@ export function McpSection({
           connector={connector}
           installed={installedIds.has(connector.id)}
           onChanged={load}
+          onOpen={() => openConnector(connector)}
         />
       ))}
       <AdvancedToggle

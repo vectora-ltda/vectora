@@ -1,6 +1,6 @@
 "use client";
 
-import type { HTMLAttributes, ReactNode } from "react";
+import type { HTMLAttributes, KeyboardEvent, ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -13,6 +13,7 @@ interface LibraryCardProps {
   footer?: ReactNode;
   children?: ReactNode;
   className?: string;
+  onClick?: () => void;
 }
 
 /** Shared card geometry used by the three Library catalogs. */
@@ -25,11 +26,25 @@ export function LibraryCard({
   footer,
   children,
   className,
+  onClick,
 }: LibraryCardProps) {
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!onClick || event.currentTarget !== event.target) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onClick();
+  };
+
   return (
     <div
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={handleKeyDown}
       className={cn(
         "flex items-start gap-2 rounded-lg [border-radius:12px] border border-[#2a2a2a] bg-[#1a1a1a] p-2",
+        onClick &&
+          "cursor-pointer transition-colors hover:border-[#3a3a3a] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60",
         className,
       )}
     >
@@ -41,7 +56,14 @@ export function LibraryCard({
           <h3 className="min-w-0 flex-1 text-sm font-medium leading-5 text-[#d4d4d4]">
             {title}
           </h3>
-          {action}
+          {action && (
+            <div
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => event.stopPropagation()}
+            >
+              {action}
+            </div>
+          )}
         </div>
         <p className="line-clamp-4 text-xs leading-4 text-muted-foreground">
           {description}
