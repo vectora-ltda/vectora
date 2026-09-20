@@ -215,7 +215,7 @@ esac
     update_index = next(
         index
         for index, line in enumerate(recorded)
-        if "UPDATE skills_catalog SET updated_at" in line
+        if "--command UPDATE skills_catalog SET updated_at" in line
     )
     assert trigger_index < update_index
 
