@@ -166,6 +166,11 @@ describe("library-store — Skills e Memory", () => {
               name: "Vectora Code Review",
               package_name: "@vectora/code-review",
             },
+            {
+              id: "vectora-utilities",
+              name: "Vectora Utilities",
+              catalog_source: "local",
+            },
             { id: "community/pdf", name: "PDF" },
           ],
         }),
@@ -176,7 +181,7 @@ describe("library-store — Skills e Memory", () => {
 
     expect(
       useLibraryStore.getState().skillsItems.map((item) => item.name),
-    ).toEqual(["PDF"]);
+    ).toEqual(["Vectora Utilities", "PDF"]);
   });
 
   it("erro/borda: resposta não-ok em skills não lança, mantém itens antigos e seta skillsError", async () => {

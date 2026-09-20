@@ -482,6 +482,7 @@ def list_wellknown_catalog(directory: Path | None = None) -> list[dict]:
                 "name": name,
                 "description": description,
                 "source": str(child),
+                "catalog_source": "local",
                 "category": fm.get("category", "local"),
                 "tags": tags,
             }

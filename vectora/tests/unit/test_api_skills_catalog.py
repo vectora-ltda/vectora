@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from backend.api.handlers import skills as skills_handler
+from backend.workspace.skills import list_wellknown_catalog
 
 
 @pytest.mark.asyncio
@@ -32,6 +33,32 @@ async def test_get_skills_catalog_empty_is_not_error(monkeypatch):
     result = await skills_handler.get_skills_catalog()
 
     assert result == {"entries": [], "total": 0}
+
+
+def test_local_catalog_marks_entry_provenance(tmp_path):
+    skill_dir = tmp_path / "vectora-utilities"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        """---
+name: Vectora Utilities
+description: Utilidades locais do usuário
+version: 1.0.0
+---
+""",
+        encoding="utf-8",
+    )
+
+    assert list_wellknown_catalog(tmp_path) == [
+        {
+            "id": "vectora-utilities",
+            "name": "Vectora Utilities",
+            "description": "Utilidades locais do usuário",
+            "source": str(skill_dir),
+            "catalog_source": "local",
+            "category": "local",
+            "tags": [],
+        }
+    ]
 
 
 class TestSkillsCatalogQueryFilters:

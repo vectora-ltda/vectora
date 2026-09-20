@@ -91,12 +91,16 @@ async function fetchSkillsCatalog(q: string): Promise<CatalogSkill[]> {
   const res = await fetch(`/skills/catalog${qs}`);
   if (!res.ok) throw new Error(`Erro ${res.status}`);
   const data = (await res.json()) as { entries?: CatalogSkill[] };
-  return (data.entries ?? []).filter(
-    (skill) =>
-      !skill.package_name?.startsWith("@vectora/") &&
-      !skill.id.startsWith("vectora/") &&
-      !skill.id.startsWith("vectora-"),
-  );
+  return (data.entries ?? []).filter((skill) => {
+    if (skill.catalog_source === "local") return true;
+    const packageName = skill.package_name?.toLowerCase() ?? "";
+    const id = skill.id.toLowerCase();
+    return (
+      !packageName.startsWith("@vectora/") &&
+      !id.startsWith("vectora/") &&
+      !id.startsWith("vectora-")
+    );
+  });
 }
 
 async function fetchMemoryCatalog(q: string): Promise<MemoryBucket[]> {
