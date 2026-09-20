@@ -131,6 +131,30 @@ describe("update backups", () => {
     ).resolves.toBe("before");
   });
 
+  it("preserva caches aninhados sem preservar o diretório pai inteiro", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "vectora-update-"));
+    const userData = path.join(root, "user-data");
+    const backups = path.join(root, "backups");
+    await mkdir(path.join(userData, "profile", "Cache"), { recursive: true });
+    await writeFile(path.join(userData, "profile", "Cache", "browser"), "keep");
+    await writeFile(path.join(userData, "profile", "settings.json"), "before");
+    const entry = await createRotatingUpdateBackup(userData, backups, "0.1.0");
+    await writeFile(path.join(userData, "profile", "settings.json"), "after");
+    await writeFile(path.join(userData, "profile", "stale.json"), "remove");
+
+    await restoreUpdateBackup(entry, userData, backups);
+
+    await expect(
+      readFile(path.join(userData, "profile", "Cache", "browser"), "utf8"),
+    ).resolves.toBe("keep");
+    await expect(
+      readFile(path.join(userData, "profile", "settings.json"), "utf8"),
+    ).resolves.toBe("before");
+    await expect(
+      readFile(path.join(userData, "profile", "stale.json"), "utf8"),
+    ).rejects.toThrow();
+  });
+
   it("lista e restaura snapshots vazios de perfis totalmente excluídos", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "vectora-update-"));
     const userData = path.join(root, "user-data");

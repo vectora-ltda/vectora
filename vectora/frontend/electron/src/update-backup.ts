@@ -79,6 +79,37 @@ async function collectFiles(root: string, current = root): Promise<string[]> {
   return result;
 }
 
+/** Remove managed state while retaining excluded directories at any depth. */
+async function removeManagedContent(
+  root: string,
+  current: string,
+  backupDirectory?: string,
+): Promise<void> {
+  for (const name of await fs.readdir(current)) {
+    const relative = path.relative(root, path.join(current, name));
+    if (
+      (relative === backupDirectory && path.dirname(relative) === ".") ||
+      EXCLUDED.has(name)
+    )
+      continue;
+    const target = path.join(current, name);
+    const stat = await withFileLockRetry(() => fs.lstat(target));
+    if (stat.isDirectory() && !stat.isSymbolicLink()) {
+      await removeManagedContent(root, target, backupDirectory);
+      // A parent that contains an excluded child must remain; empty parents
+      // created only by the previous state can be removed safely.
+      await withFileLockRetry(() =>
+        fs.rm(target, { recursive: false, force: true }),
+      ).catch((error: unknown) => {
+        const code = (error as { code?: unknown }).code;
+        if (code !== "ENOTEMPTY" && code !== "EEXIST") throw error;
+      });
+      continue;
+    }
+    await withFileLockRetry(() => fs.rm(target, { force: true }));
+  }
+}
+
 async function copySafe(
   source: string,
   destination: string,
@@ -281,13 +312,11 @@ async function restoreUpdateBackupUnlocked(
   );
   try {
     const backupDirectory = path.basename(path.resolve(backupRoot ?? ""));
-    for (const name of await fs.readdir(userData)) {
-      if ((backupRoot && name === backupDirectory) || EXCLUDED.has(name))
-        continue;
-      await withFileLockRetry(() =>
-        fs.rm(path.join(userData, name), { recursive: true, force: true }),
-      );
-    }
+    await removeManagedContent(
+      userData,
+      userData,
+      backupRoot ? backupDirectory : undefined,
+    );
     for (const file of manifest.files) {
       const destination = path.join(userData, file.path);
       await withFileLockRetry(() =>

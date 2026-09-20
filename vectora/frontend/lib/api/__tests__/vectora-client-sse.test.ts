@@ -60,6 +60,17 @@ async function collect<T>(gen: AsyncGenerator<T>): Promise<T[]> {
 }
 
 describe("readSSEStream (via streamChat) — evento final sem \\n\\n terminador", () => {
+  it("notifica aceitação HTTP antes de qualquer evento SSE", async () => {
+    const accepted = vi.fn();
+    fetchMock.mockResolvedValueOnce(okResponse(makeControlledStream([])));
+
+    await collect(
+      streamChat({ thread_id: "t1", content: "oi" }, undefined, accepted),
+    );
+
+    expect(accepted).toHaveBeenCalledOnce();
+  });
+
   it("entrega o evento 'done' mesmo quando ele chega no último chunk sem \\n\\n final", async () => {
     // 1º chunk: 1 evento completo (com \n\n). 2º chunk: o evento `done`,
     // SEM o \n\n de fechamento — o socket "fecha" logo em seguida (o

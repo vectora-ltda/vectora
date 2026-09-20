@@ -332,6 +332,7 @@ function redirectToLogin(): void {
 export async function* streamChat(
   request: StreamChatRequest,
   signal?: AbortSignal,
+  onAccepted?: () => void,
 ): AsyncGenerator<StreamEvent> {
   const url = `${VECTORA_API_URL}/vectora.chat.v1.ChatService/StreamChat`;
   const requestWithTurn = {
@@ -369,6 +370,11 @@ export async function* streamChat(
     const text = await response.text().catch(() => "");
     throw new Error(`StreamChat failed (${response.status}): ${text}`);
   }
+
+  // The HTTP request has been accepted even when the SSE socket closes before
+  // its first event. Let callers distinguish that case from a request that
+  // never reached the backend.
+  onAccepted?.();
 
   yield* readSSEStream(response.body);
 }
