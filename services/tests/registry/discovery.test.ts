@@ -100,6 +100,31 @@ describe("discoverMcp", () => {
     await expect(discoverMcp(env)).resolves.toBe(0);
   });
 
+  it("não promove snapshot parcial quando uma página posterior falha", async () => {
+    await env.DB.prepare(
+      "INSERT INTO mcp_catalog (id, name, description, install_cmd, category, catalog_source, snapshot_id) VALUES (?, ?, ?, ?, ?, 'github', ?)",
+    )
+      .bind("kept-old", "Old", "d", "npx old", "custom", "old-snapshot")
+      .run();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mcpRegistryResponse(
+          Array.from({ length: 30 }, (_, i) =>
+            npmServer(`page-one-${i}`, `Page ${i}`),
+          ),
+        ),
+      )
+      .mockResolvedValueOnce(new Response("upstream failure", { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(discoverMcp(env)).resolves.toBe(0);
+    const old = await env.DB.prepare(
+      "SELECT catalog_status FROM mcp_catalog WHERE id = 'kept-old'",
+    ).first<{ catalog_status: string }>();
+    expect(old?.catalog_status).toBe("active");
+  });
+
   it("marca como ausente uma entrada GitHub que saiu do snapshot completo", async () => {
     await env.DB.prepare(
       "INSERT INTO mcp_catalog (id, name, description, install_cmd, category, catalog_source, snapshot_id) VALUES (?, ?, ?, ?, ?, 'github', ?)",

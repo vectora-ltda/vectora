@@ -131,6 +131,7 @@ export async function discoverMcp(
 ): Promise<number> {
   const found = new Map<string, DiscoveredMcp>();
   const pageSize = 30;
+  let complete = false;
   try {
     for (let page = 1; found.size < maxEntries; page++) {
       const url = new URL(GITHUB_MCP_REGISTRY_URL);
@@ -139,7 +140,7 @@ export async function discoverMcp(
       const resp = await fetch(url.toString(), {
         headers: { Accept: "application/json" },
       });
-      if (!resp.ok) break;
+      if (!resp.ok) return 0;
       const data = (await resp.json()) as {
         servers?: McpServerEntry[];
         metadata?: { total_pages?: number };
@@ -153,12 +154,16 @@ export async function discoverMcp(
         !data.servers?.length ||
         (pageCount !== undefined && page >= pageCount) ||
         (pageCount === undefined && data.servers.length < pageSize)
-      )
+      ) {
+        complete = true;
         break;
+      }
     }
   } catch {
     return 0;
   }
+
+  if (!complete) return 0;
 
   const snapshotId = crypto.randomUUID();
   let upserted = 0;
