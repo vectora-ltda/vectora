@@ -17,7 +17,11 @@ import {
   act,
 } from "@testing-library/react";
 
-import { BrowserTab, clearBrowserSessionCache } from "../browser-tab";
+import {
+  BrowserTab,
+  clearBrowserSessionCache,
+  getBrowserProfileId,
+} from "../browser-tab";
 import {
   disposeBrowserWorkspace,
   disposeBrowserSession,
@@ -66,6 +70,7 @@ vi.mock("@/lib/stores/chat-input-store", () => ({
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   workspaceState.id = "ws1";
   clearBrowserSessionCache();
 });
@@ -91,6 +96,21 @@ const LAUNCH = {
     },
   ],
 };
+
+describe("getBrowserProfileId", () => {
+  it("mantém chaves distintas em partições distintas", () => {
+    expect(getBrowserProfileId("workspace:a!thread")).not.toBe(
+      getBrowserProfileId("workspace:a?thread"),
+    );
+    expect(getBrowserProfileId("workspace:á")).toMatch(
+      /^session-[A-Za-z0-9_-]+$/,
+    );
+  });
+
+  it("mantém um identificador seguro para a chave vazia", () => {
+    expect(getBrowserProfileId("")).toBe("session-");
+  });
+});
 
 function mockFetch({
   configurations = LAUNCH.configurations,
@@ -501,6 +521,7 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
       reload: vi.fn(),
       setBounds: vi.fn(),
       setVisible: vi.fn(),
+      clearProfileData: vi.fn(async (_profileId: string) => undefined),
     };
     let handler: EventHandler | null = null;
     const bridge = {
@@ -547,6 +568,99 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
     expect(
       screen.getByTestId("browser-webcontentsview-container"),
     ).toBeTruthy();
+  });
+
+  it("confirma e limpa os dados do perfil pelo painel de configurações", async () => {
+    const bridge = mockBrowserView();
+    mockFetch({ configurations: [] });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<BrowserTab threadId="desktop-settings" />);
+    await waitFor(() => expect(bridge.onEvent).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByTestId("browser-settings-btn"));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /workbench_browser_clear_profile_data/i,
+      }),
+    );
+
+    await waitFor(() => expect(bridge.clearProfileData).toHaveBeenCalledOnce());
+  });
+
+  it("posiciona a view de configurações em uma aba nova", async () => {
+    const bridge = mockBrowserView();
+    mockFetch({ configurations: [] });
+    const view = render(<BrowserTab threadId="desktop-settings-bounds" />);
+    await waitFor(() => expect(bridge.createView).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByTestId("browser-settings-btn"));
+    await waitFor(() =>
+      expect(bridge.setVisible).toHaveBeenCalledWith(2, true),
+    );
+    expect(bridge.setBounds).toHaveBeenCalledWith(
+      2,
+      expect.objectContaining({
+        width: expect.any(Number),
+        height: expect.any(Number),
+      }),
+    );
+  });
+
+  it("oculta a view de configurações quando a aba fica invisível", async () => {
+    const bridge = mockBrowserView();
+    mockFetch({ configurations: [] });
+    const view = render(<BrowserTab threadId="desktop-settings-hidden" />);
+    await waitFor(() => expect(bridge.createView).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByTestId("browser-settings-btn"));
+    await waitFor(() =>
+      expect(bridge.setVisible).toHaveBeenCalledWith(2, true),
+    );
+
+    view.rerender(
+      <BrowserTab threadId="desktop-settings-hidden" visible={false} />,
+    );
+    await waitFor(() =>
+      expect(bridge.setVisible).toHaveBeenCalledWith(2, false),
+    );
+  });
+
+  it("mantém o painel aberto e mostra erro quando a view de configurações falha", async () => {
+    const bridge = mockBrowserView();
+    mockFetch({ configurations: [] });
+    render(<BrowserTab threadId="desktop-settings-error" />);
+    await waitFor(() => expect(bridge.createView).toHaveBeenCalledTimes(1));
+    bridge.createView.mockRejectedValueOnce(new Error("IPC indisponível"));
+
+    fireEvent.click(screen.getByTestId("browser-settings-btn"));
+    await screen.findByTestId("browser-settings-panel");
+    expect(
+      await screen.findByText("workbench_browser_settings_error"),
+    ).toBeTruthy();
+  });
+
+  it("destrói a view de configurações se ela resolver depois que o painel for fechado", async () => {
+    const bridge = mockBrowserView();
+    let resolveSettingsView!: (viewId: number) => void;
+    mockFetch({ configurations: [] });
+    render(<BrowserTab threadId="desktop-settings-stale" />);
+    await waitFor(() => expect(bridge.createView).toHaveBeenCalledTimes(1));
+
+    bridge.createView.mockImplementationOnce(
+      () =>
+        new Promise<number>((resolve) => {
+          resolveSettingsView = resolve;
+        }),
+    );
+
+    fireEvent.click(screen.getByTestId("browser-settings-btn"));
+    await screen.findByTestId("browser-settings-panel");
+    fireEvent.click(screen.getByTestId("browser-settings-btn"));
+
+    await act(async () => resolveSettingsView(77));
+
+    expect(bridge.destroyView).toHaveBeenCalledWith(77);
+    expect(bridge.navigate).not.toHaveBeenCalledWith(77, "chrome://settings");
   });
 
   it("trocar de workspace sem sessão cria a WebContentsView nativa e navega nela", async () => {

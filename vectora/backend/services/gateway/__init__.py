@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+from collections import deque
 from pathlib import Path
 from typing import TypedDict, cast
 
@@ -92,6 +93,7 @@ class GatewayMessage(TypedDict, total=False):
     diff: str
     metadata: dict[str, str]
     callback_secret: str
+    delivery_id: str
 
 
 #: Item real de trabalho na fila — carrega o `ws`/`local_session` da conexão
@@ -135,6 +137,7 @@ class GatewayClient:
         #: garante a task viva até terminar). `add_done_callback` limpa
         #: sozinho quando a task acaba (sucesso ou erro).
         self._review_tasks: set[asyncio.Task[None]] = set()
+        self._review_delivery_ids: deque[str] = deque(maxlen=1024)
 
     # ------------------------------------------------------------------
     # Public API
@@ -236,7 +239,9 @@ class GatewayClient:
             ):
                 try:
                     async with session.ws_connect(
-                        ws_url, headers={"Authorization": f"Bearer {secret}"}
+                        ws_url,
+                        headers={"Authorization": f"Bearer {secret}"},
+                        max_msg_size=8_000_000,
                     ) as ws:
                         logger.info("gateway: conectado em %s", ws_url)
                         await self._handle_messages(ws, local_session, queue)
@@ -315,6 +320,43 @@ class GatewayClient:
             return
 
         if kind == "review_job":
+            from backend.services.gateway.review_contract import ReviewJobRequest
+
+            try:
+                job = ReviewJobRequest.model_validate(message)
+            except ValueError as exc:
+                logger.warning("gateway: review_job inválido descartado")
+                # The worker persists a pending job before delivery. If the
+                # payload is malformed, acknowledge the rejection when the
+                # identifying fields are still usable so it cannot remain
+                # pending forever.
+                job_id = message.get("job_id")
+                callback_secret = message.get("callback_secret")
+                if (
+                    isinstance(job_id, str)
+                    and job_id
+                    and isinstance(callback_secret, str)
+                    and callback_secret
+                ):
+                    task = asyncio.create_task(
+                        self._post_review_result(
+                            job_id,
+                            callback_secret,
+                            error=f"invalid review_job payload: {exc}",
+                        ),
+                        name=f"gha-review-invalid-{job_id}",
+                    )
+                    self._review_tasks.add(task)
+                    task.add_done_callback(self._review_tasks.discard)
+                return
+            if job.delivery_id and job.delivery_id in self._review_delivery_ids:
+                logger.info(
+                    "gateway: review_job duplicado descartado: %s",
+                    job.delivery_id,
+                )
+                return
+            if job.delivery_id:
+                self._review_delivery_ids.append(job.delivery_id)
             # Roda fora da fila de forwards (_MAX_CONCURRENT_FORWARDS é pra
             # requests HTTP rápidas; um review job real pode levar minutos —
             # ocupar um worker da fila até terminar atrasaria callbacks
@@ -323,10 +365,10 @@ class GatewayClient:
             # nunca espera o review terminar).
             task = asyncio.create_task(
                 self._handle_review_job(
-                    message.get("job_id", ""),
-                    message.get("diff", ""),
-                    message.get("metadata", {}),
-                    message.get("callback_secret", ""),
+                    job.job_id,
+                    job.diff,
+                    job.metadata,
+                    job.callback_secret,
                 ),
                 name=f"gha-review-{message.get('job_id', '')}",
             )
