@@ -357,7 +357,40 @@ jobs:
       - name: E2E tests
         run: uv run pytest tests/e2e/ -v --timeout=180 --tb=short
 
-  # ── 5. Release Native Binaries (Nuitka onefile + Electron installers) ───
+  # ── 5. Resolve release line ─────────────────────────────────────────────
+  # Both native builds and R2/KV publication consume this single output. In
+  # particular, a manual dispatch must use the checked-out package version,
+  # rather than deriving a different channel from the Git ref.
+  release-channel:
+    name: Resolve release version and update channel
+    needs: [test-unit, test-external]
+    if: >-
+      (github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/master') ||
+      (github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+      channel: ${{ steps.channel.outputs.value }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Read version from pyproject.toml
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(grep -m1 '^version' vectora/pyproject.toml | sed -E 's/version = "(.*)"/\1/')
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Select update channel from package version
+        id: channel
+        shell: bash
+        run: |
+          case "${{ steps.version.outputs.value }}" in
+            0.1.*) echo "value=maintenance" >> "$GITHUB_OUTPUT" ;;
+            *) echo "value=latest" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+  # ── 6. Release Native Binaries (Nuitka onefile + Electron installers) ───
   # Matriz cara: macOS (multiplicador 10x de minutos) e Windows (2x). Por
   # isso roda SÓ numa tag "v*" real (criada por release-please.yml quando o
   # usuário mescla o PR de release acumulado) ou disparo manual
@@ -369,7 +402,7 @@ jobs:
   # publicar".
   release-native:
     name: Release native (${{ matrix.target }}/${{ matrix.arch }})
-    needs: [test-unit, test-external]
+    needs: [test-unit, test-external, release-channel]
     if: >-
       (github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/master') ||
@@ -381,9 +414,9 @@ jobs:
       # sua própria env var de diretório de cache.
       CCACHE_DIR: ${{ github.workspace }}/.ccache
       CLCACHE_DIR: ${{ github.workspace }}/.ccache
-      # A tag de manutenção publica em um canal separado para nunca
-      # substituir a versão atual entregue a novas instalações.
-      VECTORA_UPDATE_CHANNEL: ${{ startsWith(github.ref_name, 'v0.1.') && 'maintenance' || 'latest' }}
+      # Resolvido uma única vez a partir de pyproject.toml, compartilhado com
+      # o job de publicação para builds manuais e tags usarem a mesma linha.
+      VECTORA_UPDATE_CHANNEL: ${{ needs.release-channel.outputs.channel }}
     strategy:
       fail-fast: false
       matrix:
@@ -578,7 +611,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-  # ── 6. Publish to update channel (R2 + KV) ───────────────────────────────
+  # ── 7. Publish to update channel (R2 + KV) ───────────────────────────────
   # Roda uma única vez, depois que TODA a matriz (linux/mac/win) terminou —
   # publicar de dentro de cada job da matriz faria read-modify-write
   # concorrentes na mesma chave `config` do KV
@@ -586,7 +619,7 @@ jobs:
   # rollout_percent/previous_stable/history por race condition.
   publish-update-channel:
     name: Publish to update channel (R2 + KV)
-    needs: release-native
+    needs: [release-native, release-channel]
     if: >-
       (github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/master') ||
@@ -611,26 +644,6 @@ jobs:
       - uses: pnpm/action-setup@v6
         with:
           version: 11.5.0
-      - name: Read version from pyproject.toml
-        # Fonte única do semver (mesmo arquivo que backend/version.py lê via
-        # importlib.metadata) — sem tag pra extrair a versão, lemos direto.
-        # working-directory: . sobrescreve o default do job (que é "vectora")
-        # — sem isso "vectora/pyproject.toml" resolveria pra
-        # vectora/vectora/pyproject.toml, inexistente.
-        id: version
-        working-directory: .
-        run: |
-          VERSION=$(grep -m1 '^version' vectora/pyproject.toml | sed -E 's/version = "(.*)"/\1/')
-          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
-      - name: Select update channel
-        id: channel
-        working-directory: .
-        shell: bash
-        run: |
-          case "${{ steps.version.outputs.value }}" in
-            0.1.*) echo "value=maintenance" >> "$GITHUB_OUTPUT" ;;
-            *) echo "value=latest" >> "$GITHUB_OUTPUT" ;;
-          esac
       - name: Download all installers
         uses: actions/download-artifact@v8
         with:
@@ -651,9 +664,9 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
-          pnpm run release -- --channel=${{ steps.channel.outputs.value }} --version=${{ steps.version.outputs.value }} --dist="$GITHUB_WORKSPACE/dist-electron-all"
+          pnpm run release -- --channel=${{ needs.release-channel.outputs.channel }} --version=${{ needs.release-channel.outputs.version }} --dist="$GITHUB_WORKSPACE/dist-electron-all"
 
-  # ── 7. Publish gha-bot CLI binary (R2) ────────────────────────────────────
+  # ── 8. Publish gha-bot CLI binary (R2) ────────────────────────────────────
   # Prefixo R2 separado (gha-bot/) do canal de update do desktop — não passa
   # por services/scripts/release.ts (schema por os/arch/canal, feito só pros
   # instaladores) nem pelo KV de rollout, é só um tarball versionado servido

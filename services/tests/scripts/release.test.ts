@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, it, expect } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -58,6 +58,40 @@ describe("parseArgs", () => {
 
   it("sem --version → lança erro (par de erro)", () => {
     expect(() => parseArgs([])).toThrow("--version=X.Y.Z é obrigatório");
+  });
+});
+
+describe("configuração do updater por linha de release", () => {
+  it("mantém latest.yml no canal de manutenção", () => {
+    const configPath = join(
+      __dirname,
+      "..",
+      "..",
+      "..",
+      "vectora",
+      "frontend",
+      "electron",
+      "electron-builder.yml",
+    );
+    const config = parseYaml(readFileSync(configPath, "utf8")) as {
+      publish: Array<{ url: string; channel: string }>;
+    };
+    expect(config.publish[0]?.url).toContain(
+      "/updates/${env.VECTORA_UPDATE_CHANNEL}/${os}/${arch}",
+    );
+    expect(config.publish[0]?.channel).toBe("latest");
+
+    const workerPath = join(
+      __dirname,
+      "..",
+      "..",
+      "src",
+      "updates",
+      "worker.ts",
+    );
+    expect(readFileSync(workerPath, "utf8")).toContain(
+      "/updates/:channel/:os/:arch/latest.yml",
+    );
   });
 });
 

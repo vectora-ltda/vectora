@@ -85,9 +85,10 @@ publish:
   - provider: generic
     # O workflow define VECTORA_UPDATE_CHANNEL como `latest` para a linha
     # atual e `maintenance` para tags v0.1.x. O instalador continua na mesma
-    # linha em que foi publicado.
+    # linha em que foi publicado. O worker e o publicador sempre usam o nome
+    # latest.yml para o manifesto, independentemente do canal da URL.
     url: https://services.vectora.company/updates/${env.VECTORA_UPDATE_CHANNEL}/${os}/${arch}
-    channel: ${env.VECTORA_UPDATE_CHANNEL}
+    channel: latest
 
 win:
   target:
