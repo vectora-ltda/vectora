@@ -1,13 +1,13 @@
 name: Release Please
 
-# Cada linha de release tem sua própria execução, concorrência e PR. O branch
-# alvo explícito mantém manifest e changelog isolados no histórico daquela
-# linha; mesclar a PR criada pelo Release Please continua sendo a decisão que
-# cria a tag e inicia a entrega.
+# A release publicada atualmente é calculada a partir de `master`. O branch
+# alvo explícito mantém o manifest e o changelog no histórico dessa linha;
+# mesclar a PR criada pelo Release Please continua sendo a decisão que cria a
+# tag e inicia a entrega.
 
 on:
   push:
-    branches: [master, release/0.1]
+    branches: [master]
 
 concurrency:
   group: release-please-${{ github.ref_name }}
