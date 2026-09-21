@@ -10,8 +10,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function mcpRegistryResponse(servers: unknown[]) {
-  return new Response(JSON.stringify({ servers, metadata: {} }), {
+function mcpRegistryResponse(
+  servers: unknown[],
+  metadata: { nextCursor?: string | null } = {},
+) {
+  return new Response(JSON.stringify({ servers, metadata }), {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
@@ -134,6 +137,7 @@ describe("discoverMcp", () => {
           Array.from({ length: 30 }, (_, i) =>
             npmServer(`page-one-${i}`, `Page ${i}`),
           ),
+          { nextCursor: "page-two" },
         ),
       )
       .mockResolvedValueOnce(new Response("upstream failure", { status: 503 }));
@@ -206,6 +210,25 @@ describe("discoverMcp", () => {
       "SELECT id FROM mcp_catalog WHERE id LIKE 'limited-%'",
     ).all<{ id: string }>();
     expect(rows.results).toHaveLength(1);
+  });
+
+  it("respeita maxEntries quando uma entrada posterior interrompe a página", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        mcpRegistryResponse([
+          npmServer("limited-error-one", "One"),
+          npmServer("limited-error-two", "Two"),
+          null,
+        ]),
+      ),
+    );
+
+    await expect(discoverMcp(env, 1)).resolves.toBe(1);
+    const rows = await env.DB.prepare(
+      "SELECT id FROM mcp_catalog WHERE id LIKE 'limited-error-%'",
+    ).all<{ id: string }>();
+    expect(rows.results).toEqual([{ id: "limited-error-one" }]);
   });
 });
 

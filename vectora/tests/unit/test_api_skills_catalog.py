@@ -13,11 +13,13 @@ from fastapi import Request
 from pydantic import ValidationError
 
 from backend.api.handlers import skills as skills_handler
-from backend.workspace.skills import list_wellknown_catalog
+from backend.workspace.skills import SkillScope, list_wellknown_catalog
 
 
 @pytest.mark.asyncio
-async def test_get_skills_catalog_returns_remote_entries(monkeypatch):
+async def test_get_skills_catalog_returns_remote_entries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(
         skills_handler.registry_client,
         "fetch_catalog",
@@ -253,8 +255,14 @@ class TestCatalogSkillInstall:
         )
         monkeypatch.setattr(skills_handler, "list_wellknown_catalog", list)
 
-        def install_spy(user_id, source, scope, target, **kwargs):
-            def model_dump():
+        def install_spy(
+            user_id: str,
+            source: str,
+            scope: SkillScope,
+            target: str | None,
+            **kwargs: object,
+        ) -> SimpleNamespace:
+            def model_dump() -> dict[str, str]:
                 return {"id": "remote-skill-1", "source": source}
 
             return SimpleNamespace(model_dump=model_dump)
@@ -325,10 +333,17 @@ class TestCatalogSkillInstall:
         )
         monkeypatch.setattr(skills_handler, "list_wellknown_catalog", list)
 
-        def install_spy(user_id, source, scope, target, **kwargs):
-            return SimpleNamespace(
-                model_dump=lambda: {"id": "remote-skill-2", "source": source}
-            )
+        def install_spy(
+            user_id: str,
+            source: str,
+            scope: SkillScope,
+            target: str | None,
+            **kwargs: object,
+        ) -> SimpleNamespace:
+            def model_dump() -> dict[str, str]:
+                return {"id": "remote-skill-2", "source": source}
+
+            return SimpleNamespace(model_dump=model_dump)
 
         monkeypatch.setattr(skills_handler, "install_skill", install_spy)
         request = cast("Request", SimpleNamespace(state=SimpleNamespace(user=None)))

@@ -1,6 +1,8 @@
+/** Shared renderer for an edited file's hunks in inline and modal canvases. */
 import type { EditedFile } from "@/lib/types";
 import { m } from "@/lib/paraglide/messages";
 
+/** Renders an EditedFile's hunks, or the localized empty state when none exist. */
 export function CanvasFileDiff({ editedFile }: { editedFile: EditedFile }) {
   return (
     <div className="h-full overflow-auto bg-background p-4">

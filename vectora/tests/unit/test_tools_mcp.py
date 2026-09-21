@@ -74,7 +74,9 @@ class TestSafeSubprocessEnv:
         assert "VECTORA_ANTHROPIC_API_KEY" not in env
         assert "PATH" in env
 
-    def test_valores_explicitos_passam_mas_ambiente_nao_vaza(self, monkeypatch):
+    def test_valores_explicitos_passam_mas_ambiente_nao_vaza(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "sk-nao-deveria-vazar")
         monkeypatch.setenv("PATH", "/usr/bin")
         env = _safe_subprocess_env({"MEU_TOKEN_DE_SERVICO": "valor-necessario"})
@@ -187,8 +189,8 @@ class TestVectoraMCPClientReal:
             await client.aclose()
 
     async def test_env_explicitamente_configurado_atravessa_mas_outra_sensivel_nao(
-        self, monkeypatch
-    ):
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "sk-nao-deveria-vazar")
         client = VectoraMCPClient()
         try:

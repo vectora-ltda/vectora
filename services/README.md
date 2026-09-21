@@ -112,11 +112,18 @@ handler):
 `migrations/0001_schema.sql` é a única migration SQL do serviço. Ela declara o
 shape completo das tabelas e índices e usa apenas operações idempotentes
 (`CREATE ... IF NOT EXISTS`, `INSERT OR IGNORE` e `ON CONFLICT`). Reaplique o
-arquivo inteiro quando necessário:
+arquivo inteiro quando necessário. Em um banco já existente, execute primeiro
+o preflight de compatibilidade para adicionar colunas legadas ausentes:
 
 ```bash
+pnpm install --frozen-lockfile
+bash scripts/d1_catalog_preflight.sh
 pnpm exec wrangler d1 execute vectora-db --remote --file=migrations/0001_schema.sql
 ```
+
+O preflight consulta o schema antes de cada alteração e pode ser repetido com
+segurança. Em bancos novos, ele não altera nada e o `CREATE TABLE` do 0001
+provisiona o shape completo.
 
 O workflow de deploy mantém uma etapa de compatibilidade separada somente para
 bancos D1 legados que ainda não possuem colunas introduzidas antes da

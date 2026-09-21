@@ -171,14 +171,13 @@ export async function discoverMcp(
   const found = new Map<string, DiscoveredMcp>();
   const pageSize = 30;
   let complete = false;
-  let page = 1;
   let cursor: string | undefined;
+  const seenCursors = new Set<string>();
   try {
     while (found.size < maxEntries) {
       const url = new URL(GITHUB_MCP_REGISTRY_URL);
       url.searchParams.set("limit", String(pageSize));
       if (cursor) url.searchParams.set("cursor", cursor);
-      else if (page > 1) url.searchParams.set("page", String(page));
       const resp = await fetch(url.toString(), {
         headers: { Accept: "application/json" },
       });
@@ -192,35 +191,30 @@ export async function discoverMcp(
         if (connector) found.set(connector.id, connector);
       }
       const nextCursor = data.metadata?.nextCursor ?? undefined;
-      if (!data.servers?.length) {
+      if (!nextCursor) {
         complete = true;
         break;
       }
-      if (nextCursor) {
-        cursor = nextCursor;
-        page++;
-        continue;
-      }
-      const pageCount = data.metadata?.total_pages;
-      if (pageCount !== undefined && page < pageCount) {
-        page++;
-        continue;
-      }
-      if (data.servers.length < pageSize) {
-        complete = true;
+      if (seenCursors.has(nextCursor)) {
+        // A repeated cursor cannot make progress; preserve the old snapshot.
         break;
       }
-      // Compatibility with older page-number responses that omit metadata.
-      page++;
+      seenCursors.add(nextCursor);
+      cursor = nextCursor;
     }
   } catch {
-    return upsertMcpSnapshot(env, found, false);
+    return upsertMcpSnapshot(env, selectMcpEntries(found, maxEntries), false);
   }
 
-  const selected = Number.isFinite(maxEntries)
-    ? new Map([...found].slice(0, Math.max(0, maxEntries)))
-    : found;
-  return upsertMcpSnapshot(env, selected, complete);
+  return upsertMcpSnapshot(env, selectMcpEntries(found, maxEntries), complete);
+}
+
+function selectMcpEntries(
+  found: Map<string, DiscoveredMcp>,
+  maxEntries: number,
+): Map<string, DiscoveredMcp> {
+  if (!Number.isFinite(maxEntries)) return found;
+  return new Map([...found].slice(0, Math.max(0, maxEntries)));
 }
 
 async function upsertMcpSnapshot(

@@ -20,6 +20,8 @@ from typing import Literal
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from backend.services.extension_trust import TrustState
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_REGISTRY_URL = "https://services.vectora.company/registry"
@@ -56,7 +58,7 @@ class McpCatalogEntry(BaseModel):
     transport: str = "stdio"
     server_url: str | None = None
     vectora_verified: bool = False
-    trust_state: str = "unsigned"
+    trust_state: TrustState = "unsigned"
     trust_reason: str = "catalog_listed"
 
     @field_validator("env_vars", mode="before")
