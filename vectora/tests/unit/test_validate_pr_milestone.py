@@ -89,23 +89,20 @@ def test_empty_event_is_accepted() -> None:
     assert validator.validate_pull_request({}) == []
 
 
-def test_master_maintenance_pr_is_accepted() -> None:
-    assert (
-        validator.validate_pull_request(_event(base="master", milestone="0.1.x")) == []
-    )
+def test_master_feature_pr_is_accepted() -> None:
+    assert validator.validate_pull_request(_event(base="master", milestone="0.2")) == []
 
 
-def test_master_non_vext_rejects_minor_milestone() -> None:
-    errors = validator.validate_pull_request(_event(base="master", milestone="0.2"))
-    assert errors and "0.1.x" in errors[0]
+def test_master_pr_rejects_maintenance_milestone() -> None:
+    errors = validator.validate_pull_request(_event(base="master", milestone="0.1.x"))
+    assert errors and "0.2" in errors[0]
 
 
-def test_vext_pr_accepts_minor_milestone() -> None:
+def test_scoped_vext_pr_accepts_minor_milestone() -> None:
     event = _event(
         base="master",
         milestone="0.2",
-        head="feat/vext-ecosystem",
-        title="feat: build VEXT artifacts",
+        title="feat(vext): build ecosystem artifacts",
     )
     assert validator.validate_pull_request(event) == []
 
@@ -114,11 +111,10 @@ def test_vext_pr_rejects_maintenance_milestone() -> None:
     event = _event(
         base="master",
         milestone="0.1.x",
-        head="feat/vext-ecosystem",
-        title="feat: build VEXT artifacts",
+        title="feat(vext): build ecosystem artifacts",
     )
     errors = validator.validate_pull_request(event)
-    assert errors and "0.2" in errors[0]
+    assert errors and "0.2" in errors[0] and "VEXT" in errors[0]
 
 
 def test_master_pr_requires_a_milestone() -> None:
@@ -180,5 +176,5 @@ def test_release_please_pr_without_pending_label_is_rejected() -> None:
 
 
 def test_unsupported_base_is_rejected() -> None:
-    errors = validator.validate_pull_request(_event(base="develop", milestone="0.1.x"))
+    errors = validator.validate_pull_request(_event(base="develop", milestone="0.2"))
     assert errors and "master" in errors[0]

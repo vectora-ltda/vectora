@@ -66,8 +66,8 @@ class PullRequestEvent(TypedDict):
 
 
 _MAINTENANCE_MILESTONE = "0.1.x"
-_NEXT_MINOR_MILESTONE = "0.2"
-_VEXT_TOKEN = re.compile(r"(?:^|[-_/ ])vext(?:$|[-_/ ])", re.IGNORECASE)
+_FEATURE_MILESTONE = "0.2"
+_VEXT_TOKEN = re.compile(r"(?<![A-Za-z0-9])vext(?![A-Za-z0-9])", re.IGNORECASE)
 _RELEASE_PLEASE_HEAD = re.compile(r"^release-please--branches--")
 _RELEASE_PLEASE_LABEL = "autorelease: pending"
 _SUPPORTED_BASES = {"master", "release/0.1"}
@@ -122,18 +122,19 @@ def validate_pull_request(event: PullRequestEvent) -> list[str]:
     else:
         milestone = pull_request.get("milestone")
         title = str(milestone.get("title", "").strip()) if milestone else ""
-        vext = _is_vext_pr(pull_request)
-        expected = _NEXT_MINOR_MILESTONE if vext else _MAINTENANCE_MILESTONE
+        expected = (
+            _MAINTENANCE_MILESTONE if base == "release/0.1" else _FEATURE_MILESTONE
+        )
         if not title:
             errors.append(
                 "Atribua exatamente uma milestone de release: "
                 f"`{expected}` para esta linha."
             )
         elif base == "master" and title != expected:
+            stream = "VEXT" if _is_vext_pr(pull_request) else "de funcionalidade"
             errors.append(
                 f"A milestone `{title}` não é compatível com a base `master`; "
-                f"PRs VEXT devem usar `{_NEXT_MINOR_MILESTONE}` e os demais "
-                f"`{_MAINTENANCE_MILESTONE}`."
+                f"PRs {stream} da próxima minor devem usar `{_FEATURE_MILESTONE}`."
             )
         elif base == "release/0.1" and title != _MAINTENANCE_MILESTONE:
             errors.append(
