@@ -43,6 +43,7 @@ from backend.tools.registry import ToolRegistry
 from backend.vtypes.message import VMessageChunk
 
 _UUID = "aa844f17-7e0e-4b0a-8991-c3aab9bdcc63"
+_OUTRO_UUID = "bb844f17-7e0e-4b0a-8991-c3aab9bdcc64"
 _SCHEMA = (
     Path(backend.__file__).parent / "storage" / "migrations" / "sqlite" / "schema.sql"
 )
@@ -73,6 +74,18 @@ async def db(tmp_path, monkeypatch):
     await setup.close()
 
     monkeypatch.setattr(bg, "_get_db", _connect)
+
+    class _SyntheticSessionStore:
+        async def get_session(self, thread_id: str) -> dict[str, str]:
+            return {"thread_id": thread_id, "user_id": _UUID}
+
+    async def _get_synthetic_session_store() -> _SyntheticSessionStore:
+        return _SyntheticSessionStore()
+
+    monkeypatch.setattr(
+        "backend.services.agent_factory.get_session_store",
+        _get_synthetic_session_store,
+    )
     return db_path
 
 
@@ -245,6 +258,66 @@ async def test_patch_and_delete_enforce_session_scope(db):
 
     await delete_task_endpoint(_req(), "thread-A", out.id)
     assert await get_tasks(_req(), "thread-A") == []
+
+
+async def test_background_tasks_reject_deleted_session_runs(
+    db: str, monkeypatch: pytest.MonkeyPatch, native_session_store: SessionStore
+) -> None:
+    """Runs órfãs não podem ser consultadas após a sessão ser removida."""
+    _patch_native_engine(monkeypatch, session_store=native_session_store, texto="feito")
+    await native_session_store.create_session("deleted-session", user_id=_UUID)
+    await native_session_store.delete_session("deleted-session")
+
+    connection = await bg._get_db()
+    try:
+        await connection.execute(
+            "INSERT INTO vectora_background_runs "
+            "(id, task_id, session_id, trigger_source, status) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("orphan-run", "deleted-task", "deleted-session", "manual", "done"),
+        )
+        await connection.commit()
+    finally:
+        await connection.close()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_runs(_req(), "deleted-session")
+
+    assert exc_info.value.status_code == 404
+
+
+async def test_background_task_owner_boundary_uses_same_session(
+    db: str, monkeypatch: pytest.MonkeyPatch, native_session_store: SessionStore
+) -> None:
+    """A posse da task continua obrigatória quando a session coincide."""
+    _patch_native_engine(monkeypatch, session_store=native_session_store, texto="feito")
+    await native_session_store.create_session("thread-owner", user_id=_UUID)
+    task = await bg.create_task(
+        session_id="thread-owner",
+        user_id=_OUTRO_UUID,
+        kind="routine",
+        name="privada",
+        instruction="i",
+        trigger_type="manual",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_tasks(_req(), "thread-owner")
+    assert exc_info.value.status_code == 404
+
+    # O dono da task pode acessar a mesma session quando ela pertence a ele.
+    await native_session_store.delete_session("thread-owner")
+    await native_session_store.create_session("thread-owner-owned", user_id=_OUTRO_UUID)
+    owned = await bg.create_task(
+        session_id="thread-owner-owned",
+        user_id=_OUTRO_UUID,
+        kind="routine",
+        name="privada do dono",
+        instruction="i",
+        trigger_type="manual",
+    )
+    tasks = await get_tasks(_req(_OUTRO_UUID), "thread-owner-owned")
+    assert [item.id for item in tasks] == [owned.id]
 
 
 async def test_patch_task_agent_profile_id_atribui_e_desatribui_via_http(db):
@@ -530,6 +603,7 @@ async def test_manual_run_creates_run_and_registers_thread(
     db, monkeypatch, native_session_store
 ):
     _patch_native_engine(monkeypatch, session_store=native_session_store, texto="feito")
+    await native_session_store.create_session("thread-run", user_id=_UUID)
 
     upserts: list[str] = []
 
@@ -580,6 +654,7 @@ async def test_manual_run_com_subagent_type_roda_a_soul_ate_o_fim(
     `test_manual_run_creates_run_and_registers_thread` já prova pro caso
     sem `subagent_type`."""
     _patch_native_engine(monkeypatch, session_store=native_session_store, texto="feito")
+    await native_session_store.create_session("thread-run-soul", user_id=_UUID)
 
     created = await post_task(
         _req(),
@@ -611,6 +686,8 @@ async def test_resume_run_endpoint_cancel_and_approve(
     enfileira o resume (approve/reject) via BackgroundTasks — mesmo padrão do
     disparo manual. Erro/borda: run inexistente → 404; run que não está
     aguardando aprovação → 409."""
+    _patch_native_engine(monkeypatch, session_store=native_session_store, texto="feito")
+    await native_session_store.create_session("thread-resume", user_id=_UUID)
     created = await post_task(
         _req(),
         "thread-resume",

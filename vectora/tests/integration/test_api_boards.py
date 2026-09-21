@@ -72,7 +72,7 @@ async def test_post_board_cria_com_slug_derivado(db):
     assert board.workspace_id is None
 
 
-async def test_board_rejeita_chamada_sem_usuario(db):
+async def test_board_rejeita_chamada_sem_usuario(db: str) -> None:
     with pytest.raises(HTTPException) as exc_info:
         await get_boards(_req(uid=None))
 

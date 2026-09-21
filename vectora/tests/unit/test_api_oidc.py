@@ -224,3 +224,46 @@ class TestOidcCallback:
         me = client.get("/auth/me", cookies=r.cookies)
         assert me.status_code == 200
         assert me.json()["email"] == "sso@example.com"
+
+    @pytest.mark.parametrize("email_verified", [False, None])
+    def test_email_nao_verificado_rejeita_e_nao_provisiona(
+        self, client: TestClient, email_verified: bool | None
+    ) -> None:
+        from backend.api.handlers import oidc as oidc_handler
+        from backend.rbac.oidc import OIDCConfig, OIDCDiscovery
+
+        fake_config = OIDCConfig(
+            client_id="cid", client_secret="csecret", issuer_url="https://idp.test"
+        )
+        fake_discovery = OIDCDiscovery(
+            authorization_endpoint="https://idp.test/authorize",
+            token_endpoint="https://idp.test/token",
+            jwks_uri="https://idp.test/jwks",
+        )
+        claims: dict[str, object] = {
+            "sub": "u1",
+            "email": "sso@example.com",
+            "name": "SSO User",
+        }
+        if email_verified is not None:
+            claims["email_verified"] = email_verified
+        provision = AsyncMock()
+        with (
+            patch.object(oidc_handler, "_load_config", return_value=fake_config),
+            patch(
+                "backend.rbac.oidc.discover", new=AsyncMock(return_value=fake_discovery)
+            ),
+            patch(
+                "backend.rbac.oidc.complete_login",
+                new=AsyncMock(return_value=claims),
+            ),
+            patch("backend.rbac.auth.provision_or_login_sso", new=provision),
+        ):
+            response = client.get(
+                "/auth/oidc/callback",
+                params={"code": "abc", "state": "xyz"},
+                follow_redirects=False,
+            )
+
+        assert response.status_code == 401
+        provision.assert_not_awaited()

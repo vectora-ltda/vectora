@@ -262,7 +262,7 @@ async def _require_thread_access(
     # that have not yet been reconciled into that store.
     from backend.api.handlers.threads import _assert_owns_thread
 
-    await _assert_owns_thread(thread_id, request)
+    await _assert_owns_thread(thread_id, request, require_existing=require_existing)
     from backend.scheduling.background_tasks import list_tasks
 
     tasks = await list_tasks(thread_id)
