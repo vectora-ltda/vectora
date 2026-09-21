@@ -60,4 +60,7 @@ async function applyMigration(sql: string): Promise<void> {
 
 beforeAll(async () => {
   await applyMigration(schemaSql as string);
+  // A second application is intentional: the canonical schema must be safe to
+  // replay during deploys and local recovery without changing the fixture.
+  await applyMigration(schemaSql as string);
 });
