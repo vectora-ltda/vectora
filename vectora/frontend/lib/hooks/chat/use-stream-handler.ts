@@ -238,7 +238,11 @@ interface UseStreamHandlerReturn {
     assistantMessageId: string,
     images?: ImageAttachment[],
     forkFromCheckpointId?: string,
-  ) => Promise<{ assistantContent: string; runId: string | undefined }>;
+  ) => Promise<{
+    assistantContent: string;
+    runId: string | undefined;
+    requestReachedBackend: boolean;
+  }>;
   /** Retoma uma execução pausada por HITL (approve / reject / edit:<json>). */
   processResume: (
     request: ResumeChatRequest,
@@ -274,7 +278,11 @@ export function useStreamHandler({
       assistantMessageId: string,
       images?: ImageAttachment[],
       forkFromCheckpointId?: string,
-    ): Promise<{ assistantContent: string; runId: string | undefined }> => {
+    ): Promise<{
+      assistantContent: string;
+      runId: string | undefined;
+      requestReachedBackend: boolean;
+    }> => {
       // Cancela stream anterior se ainda em andamento
       abortRef.current?.abort();
       const abort = new AbortController();
@@ -301,6 +309,9 @@ export function useStreamHandler({
       let resolvedRunId: string | undefined;
       // Primeiro evento recebido = conexão SSE estabelecida
       let sseConnected = false;
+      // HTTP 2xx aceito pelo backend. É independente do primeiro evento SSE:
+      // uma queda imediata do socket não deve remover a thread já persistida.
+      let requestAccepted = false;
       // true só quando o loop termina por done/error/abort explícitos — se o
       // async generator simplesmente esgotar sem nenhum desses (queda de
       // conexão silenciosa), fica false e dispara reconciliação com o
@@ -366,6 +377,9 @@ export function useStreamHandler({
             ...(attachments && attachments.length > 0 && { attachments }),
           },
           abort.signal,
+          () => {
+            requestAccepted = true;
+          },
         );
 
         for await (const event of events) {
@@ -583,7 +597,11 @@ export function useStreamHandler({
         );
       }
 
-      return { assistantContent, runId: resolvedRunId };
+      return {
+        assistantContent,
+        runId: resolvedRunId,
+        requestReachedBackend: requestAccepted,
+      };
     },
     // shouldInterruptRef (.current) e onModelSwitched (?.()) só são acessados
     // via optional chaining — o linter de deps de memoização do oxlint não

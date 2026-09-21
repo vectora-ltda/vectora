@@ -79,6 +79,37 @@ async function collectFiles(root: string, current = root): Promise<string[]> {
   return result;
 }
 
+/** Remove managed state while retaining excluded directories at any depth. */
+async function removeManagedContent(
+  root: string,
+  current: string,
+  backupDirectory?: string,
+): Promise<void> {
+  for (const name of await fs.readdir(current)) {
+    const relative = path.relative(root, path.join(current, name));
+    if (
+      (relative === backupDirectory && path.dirname(relative) === ".") ||
+      EXCLUDED.has(name)
+    )
+      continue;
+    const target = path.join(current, name);
+    const stat = await withFileLockRetry(() => fs.lstat(target));
+    if (stat.isDirectory() && !stat.isSymbolicLink()) {
+      await removeManagedContent(root, target, backupDirectory);
+      // A parent that contains an excluded child must remain; empty parents
+      // created only by the previous state can be removed safely.
+      await withFileLockRetry(() => fs.rmdir(target)).catch(
+        (error: unknown) => {
+          const code = (error as { code?: unknown }).code;
+          if (code !== "ENOTEMPTY" && code !== "EEXIST") throw error;
+        },
+      );
+      continue;
+    }
+    await withFileLockRetry(() => fs.rm(target, { force: true }));
+  }
+}
+
 async function copySafe(
   source: string,
   destination: string,
@@ -88,8 +119,12 @@ async function copySafe(
     throw new Error("entrada não regular");
   if (stat.size > MAX_FILE_BYTES) throw new Error("arquivo excede o limite");
   const data = await withFileLockRetry(() => fs.readFile(source));
-  await fs.mkdir(path.dirname(destination), { recursive: true });
-  await fs.writeFile(destination, data, { mode: 0o600 });
+  await withFileLockRetry(() =>
+    fs.mkdir(path.dirname(destination), { recursive: true }),
+  );
+  await withFileLockRetry(() =>
+    fs.writeFile(destination, data, { mode: 0o600 }),
+  );
   return {
     path: "",
     bytes: data.byteLength,
@@ -140,22 +175,26 @@ export async function createRotatingUpdateBackup(
         sha256: digestTree(files),
         files,
       };
-      await fs.writeFile(
-        path.join(temporary, MANIFEST),
-        JSON.stringify(manifest, null, 2),
-        { mode: 0o600 },
+      await withFileLockRetry(() =>
+        fs.writeFile(
+          path.join(temporary, MANIFEST),
+          JSON.stringify(manifest, null, 2),
+          { mode: 0o600 },
+        ),
       );
-      await fs.rename(temporary, destination);
+      await withFileLockRetry(() => fs.rename(temporary, destination));
       const entries = (await fs.readdir(backupRoot))
         .filter((entry) => !entry.startsWith(".tmp-"))
         .sort()
         .reverse();
       await Promise.all(
         entries.slice(maxBackups).map((entry) =>
-          fs.rm(path.join(backupRoot, entry), {
-            recursive: true,
-            force: true,
-          }),
+          withFileLockRetry(() =>
+            fs.rm(path.join(backupRoot, entry), {
+              recursive: true,
+              force: true,
+            }),
+          ).catch(() => undefined),
         ),
       );
       return manifest;
@@ -185,7 +224,10 @@ export async function listUpdateBackups(
       const entry = JSON.parse(
         await fs.readFile(path.join(candidate, MANIFEST), "utf8"),
       ) as UpdateBackupEntry;
-      if (entry.files?.length && digestTree(entry.files) === entry.sha256)
+      if (
+        Array.isArray(entry.files) &&
+        digestTree(entry.files) === entry.sha256
+      )
         entries.push(entry);
     } catch {
       /* diretório temporário ou snapshot incompleto */
@@ -226,8 +268,8 @@ async function restoreUpdateBackupUnlocked(
   ) as UpdateBackupEntry;
   if (
     manifest.id !== entry.id ||
-    manifest.sha256 !== digestTree(manifest.files ?? []) ||
-    !manifest.files?.length
+    !Array.isArray(manifest.files) ||
+    manifest.sha256 !== digestTree(manifest.files)
   )
     throw new Error("Backup inválido");
   for (const file of manifest.files) {
@@ -252,36 +294,53 @@ async function restoreUpdateBackupUnlocked(
   }
   const restoreRoot = `${userData}.restore-${Date.now()}`;
   const rollback = `${userData}.rollback-${Date.now()}`;
-  await fs.rm(restoreRoot, { recursive: true, force: true });
-  await fs.mkdir(restoreRoot, { recursive: true });
+  await withFileLockRetry(() =>
+    fs.rm(restoreRoot, { recursive: true, force: true }),
+  );
+  await withFileLockRetry(() => fs.mkdir(restoreRoot, { recursive: true }));
   for (const file of manifest.files) {
     const destination = path.join(restoreRoot, file.path);
-    await fs.mkdir(path.dirname(destination), { recursive: true });
-    await fs.copyFile(path.join(resolvedPath, file.path), destination);
+    await withFileLockRetry(() =>
+      fs.mkdir(path.dirname(destination), { recursive: true }),
+    );
+    await withFileLockRetry(() =>
+      fs.copyFile(path.join(resolvedPath, file.path), destination),
+    );
   }
-  await fs.cp(userData, rollback, { recursive: true, errorOnExist: false });
+  await withFileLockRetry(() =>
+    fs.cp(userData, rollback, { recursive: true, errorOnExist: false }),
+  );
   try {
     const backupDirectory = path.basename(path.resolve(backupRoot ?? ""));
-    for (const name of await fs.readdir(userData)) {
-      if (backupRoot && name === backupDirectory) continue;
-      await fs.rm(path.join(userData, name), { recursive: true, force: true });
-    }
+    await removeManagedContent(
+      userData,
+      userData,
+      backupRoot ? backupDirectory : undefined,
+    );
     for (const file of manifest.files) {
       const destination = path.join(userData, file.path);
-      await fs.mkdir(path.dirname(destination), { recursive: true });
-      await fs.copyFile(path.join(restoreRoot, file.path), destination);
+      await withFileLockRetry(() =>
+        fs.mkdir(path.dirname(destination), { recursive: true }),
+      );
+      await withFileLockRetry(() =>
+        fs.copyFile(path.join(restoreRoot, file.path), destination),
+      );
     }
   } catch (error) {
-    await fs.rm(userData, { recursive: true, force: true });
-    await fs.cp(rollback, userData, { recursive: true });
+    await withFileLockRetry(() =>
+      fs.rm(userData, { recursive: true, force: true }),
+    );
+    await withFileLockRetry(() =>
+      fs.cp(rollback, userData, { recursive: true }),
+    );
     throw error;
   } finally {
-    await fs
-      .rm(restoreRoot, { recursive: true, force: true })
-      .catch(() => undefined);
-    await fs
-      .rm(rollback, { recursive: true, force: true })
-      .catch(() => undefined);
+    await withFileLockRetry(() =>
+      fs.rm(restoreRoot, { recursive: true, force: true }),
+    ).catch(() => undefined);
+    await withFileLockRetry(() =>
+      fs.rm(rollback, { recursive: true, force: true }),
+    ).catch(() => undefined);
   }
 }
 

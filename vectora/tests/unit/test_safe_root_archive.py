@@ -1,4 +1,6 @@
 import asyncio
+import os
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event
@@ -139,6 +141,43 @@ def test_lock_setup_failure_is_reported_as_persistence_error(
     monkeypatch.setattr(Path, "mkdir", fail_mkdir)
     with pytest.raises(SafeRootPersistenceError, match="bloquear"):
         registry.all_roots()
+
+
+def test_windows_lock_retries_from_byte_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A contenção transitória no Windows deve ser retentada sem perder o lock."""
+    import backend.rbac.safe_roots as safe_roots_module
+
+    monkeypatch.setattr(
+        safe_roots_module, "_safe_roots_file", lambda: tmp_path / "safe-roots.json"
+    )
+    monkeypatch.setattr(safe_roots_module.os, "name", "nt")
+    monkeypatch.setattr(safe_roots_module, "_WINDOWS_LOCK_RETRY_DELAY_SECONDS", 0)
+
+    class FakeMsvcrt:
+        LK_NBLCK = 1
+        LK_UNLCK = 2
+
+        def __init__(self) -> None:
+            self.attempts = 0
+            self.positions: list[int] = []
+
+        def locking(self, file_descriptor: int, mode: int, _nbytes: int) -> None:
+            self.positions.append(os.lseek(file_descriptor, 0, os.SEEK_CUR))
+            if mode == self.LK_NBLCK:
+                self.attempts += 1
+                if self.attempts < 3:
+                    raise OSError("temporarily locked")
+
+    fake_msvcrt = FakeMsvcrt()
+    monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
+
+    with SafeRootRegistry()._file_lock():
+        pass
+
+    assert fake_msvcrt.attempts == 3
+    assert fake_msvcrt.positions == [0, 0, 0, 0]
 
 
 def test_registry_operation_errors_are_not_relabelled_as_storage_failures(

@@ -693,6 +693,7 @@ class TestStreamChatBlocksImageForNonVisionProvider:
 
         body = await _collect_sse_body(response)
         assert '"code": "MODEL_NO_VISION"' in body
+        assert "X-Vectora-Chat-Persisted" not in response.headers
         mock_get_native_agent.assert_not_called()
 
     @pytest.mark.asyncio
@@ -721,6 +722,7 @@ class TestStreamChatBlocksImageForNonVisionProvider:
             body = await _collect_sse_body(response)
 
         assert "MODEL_NO_VISION" not in body
+        assert response.headers["X-Vectora-Chat-Persisted"] == "1"
 
     @pytest.mark.asyncio
     async def test_openrouter_model_without_vision_is_blocked(self) -> None:
@@ -897,6 +899,7 @@ class TestStreamChatBlocksToolIncompatibleModelInCodeMode:
 
         body = await _collect_sse_body(response)
         assert '"code": "MODEL_NO_TOOL_CALLING"' in body
+        assert "X-Vectora-Chat-Persisted" not in response.headers
         mock_get_native_agent.assert_not_called()
 
     @pytest.mark.asyncio

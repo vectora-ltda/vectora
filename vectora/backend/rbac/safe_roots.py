@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import tempfile
+import time
 from _thread import RLock as RLockType
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -19,6 +20,9 @@ from backend.settings import settings
 from backend.vtypes import SafeRoot
 
 logger = logging.getLogger(__name__)
+
+_WINDOWS_LOCK_ATTEMPTS = 20
+_WINDOWS_LOCK_RETRY_DELAY_SECONDS = 0.5
 
 
 class SafeRootPersistenceError(RuntimeError):
@@ -113,8 +117,16 @@ class SafeRootRegistry:
                     if initializer.tell() == 0:
                         initializer.write(b"0")
                 stream = lock_file.open("r+b")
-                stream.seek(0)
-                msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK, 1)
+                for attempt in range(_WINDOWS_LOCK_ATTEMPTS):
+                    stream.seek(0)
+                    try:
+                        msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                    except OSError:
+                        if attempt == _WINDOWS_LOCK_ATTEMPTS - 1:
+                            raise
+                        time.sleep(_WINDOWS_LOCK_RETRY_DELAY_SECONDS)
+                    else:
+                        break
             except Exception as exc:
                 if stream is not None:
                     stream.close()
