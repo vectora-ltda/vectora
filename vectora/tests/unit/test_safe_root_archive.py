@@ -252,7 +252,8 @@ async def test_workspace_authorization_offloads_blocking_registry_read(
             created_by="admin",
         )
 
-    registry = SimpleNamespace(is_under_safe_root=is_under_safe_root)
+    registry = SafeRootRegistry()
+    monkeypatch.setattr(registry, "is_under_safe_root", is_under_safe_root)
     task = asyncio.create_task(
         workspaces._resolve_and_authorize_dir(str(workspace_dir), False, registry)
     )
