@@ -182,6 +182,8 @@ async def list_registry() -> list[MCPConnector]:
     remote = await registry_client.fetch_catalog("mcp")
     connectors: dict[str, MCPConnector] = {}
     for entry in registry_client.validate_mcp_catalog_entries(remote):
+        if entry.catalog_source != "official":
+            continue
         connector = _remote_entry_to_connector(entry)
         connectors[connector.id] = connector
     return sorted(

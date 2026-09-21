@@ -3,10 +3,9 @@
  * Worker (`scheduled()`, `src/index.ts`), popula `mcp_catalog`/
  * `skills_catalog` (D1) além do seed manual de `migrations/0001_schema.sql`.
  *
- * MCP: pagina o catálogo curado do GitHub MCP Registry
- * (`api.mcp.github.com`), público e ordenado por relevância. O registry
- * protocol oficial é uma fonte de metadados para agregadores e não é usado
- * diretamente pela interface.
+ * MCP: pagina o catálogo oficial do GitHub MCP Registry
+ * (`api.mcp.github.com`), público e ordenado por relevância. Nenhum seed
+ * local ou agregador paralelo entra no catálogo público.
  *
  * Skills: não existe hoje nenhum registry público equivalente (skills.sh,
  * cogitado inicialmente, exige um `VERCEL_OIDC_TOKEN` só emitido dentro do
@@ -42,6 +41,7 @@ interface DiscoveredMcp {
   publisher: string;
   publisher_url: string;
   stars_count: number;
+  downloads_count: number;
   runtime_hint: string;
   package_identifier: string;
   transport: string;
@@ -54,20 +54,28 @@ interface McpPackage {
   identifier?: string;
   environmentVariables?: { name?: string; isRequired?: boolean }[];
   runtimeHint?: string;
+  runtime_hint?: string;
+}
+
+interface McpRepository {
+  name?: string;
+  url?: string;
+  stargazer_count?: number;
+  downloads_count?: number;
 }
 
 interface McpServerEntry {
   name?: string;
   title?: string;
   description?: string;
-  repository?: { url?: string };
+  repository?: McpRepository;
   packages?: McpPackage[];
   remotes?: { type?: string; url?: string }[];
   server?: {
     name?: string;
     title?: string;
     description?: string;
-    repository?: { url?: string };
+    repository?: McpRepository;
     packages?: McpPackage[];
     remotes?: { type?: string; url?: string }[];
     _meta?: McpServerEntry["_meta"];
@@ -75,9 +83,11 @@ interface McpServerEntry {
   _meta?: {
     "io.modelcontextprotocol.registry/publisher-provided"?: {
       github?: {
+        display_name?: string;
         name_with_owner?: string;
         preferred_image?: string;
         stargazer_count?: number;
+        downloads_count?: number;
       };
     };
   };
@@ -86,6 +96,7 @@ interface McpServerEntry {
 function toDiscoveredMcp(item: McpServerEntry): DiscoveredMcp | null {
   const server = item.server ?? item;
   if (!server?.name) return null;
+  const serverName = server.name;
   const pkg = (server.packages ?? []).find((candidate) => {
     if (!candidate.identifier) return false;
     const transport = candidate.transport?.type ?? "stdio";
@@ -108,7 +119,11 @@ function toDiscoveredMcp(item: McpServerEntry): DiscoveredMcp | null {
     "io.modelcontextprotocol.registry/publisher-provided"
   ]?.github;
   const registryType = pkg?.registryType?.toLowerCase();
-  const runtimeHint = pkg?.runtimeHint?.toLowerCase() ?? registryType ?? "npm";
+  const runtimeHint =
+    pkg?.runtimeHint?.toLowerCase() ??
+    pkg?.runtime_hint?.toLowerCase() ??
+    registryType ??
+    "npm";
   const installCmd = pkg?.identifier
     ? registryType === "pypi" || runtimeHint === "uvx"
       ? `uvx ${pkg.identifier}`
@@ -119,20 +134,37 @@ function toDiscoveredMcp(item: McpServerEntry): DiscoveredMcp | null {
           : ""
     : "";
   if (pkg?.identifier && !installCmd) return null;
+  const owner = serverName.split("/", 1)[0] ?? "";
+  const publisher: string =
+    github?.name_with_owner ?? (serverName.includes("/") ? owner : "");
+  const publisherOwner = publisher.split("/", 1)[0] ?? "";
+  const iconUrl =
+    github?.preferred_image ??
+    (/^[A-Za-z0-9_.-]+$/.test(publisherOwner)
+      ? `https://github.com/${publisherOwner}.png?size=96`
+      : "");
   return {
-    id: server.name,
-    name: server.title || server.name.split("/").pop() || server.name,
+    id: serverName,
+    name:
+      server.title ||
+      github?.display_name ||
+      server.repository?.name ||
+      serverName.split("/").pop() ||
+      serverName,
     description: server.description ?? "",
     install_cmd: installCmd,
     env_vars: envVars,
     homepage: server.repository?.url ?? "",
     category: "community",
-    icon_url: github?.preferred_image ?? "",
-    publisher: github?.name_with_owner ?? "",
-    publisher_url: github?.name_with_owner
-      ? `https://github.com/${github.name_with_owner}`
+    icon_url: iconUrl,
+    publisher,
+    publisher_url: publisher
+      ? `https://github.com/${publisher}`
       : (server.repository?.url ?? ""),
-    stars_count: github?.stargazer_count ?? 0,
+    stars_count:
+      server.repository?.stargazer_count ?? github?.stargazer_count ?? 0,
+    downloads_count:
+      server.repository?.downloads_count ?? github?.downloads_count ?? 0,
     runtime_hint: runtimeHint,
     package_identifier: pkg?.identifier ?? "",
     transport: remote?.type === "sse" ? "sse" : remote?.url ? "http" : "stdio",
@@ -231,8 +263,8 @@ async function upsertMcpSnapshot(
     try {
       await env.DB.prepare(
         `INSERT INTO mcp_catalog
-           (id, name, description, install_cmd, env_vars, homepage, category, icon_url, publisher, publisher_url, stars_count, runtime_hint, package_identifier, transport, server_url, vectora_verified, catalog_source, snapshot_id, last_seen_at, catalog_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'github', ?, datetime('now'), 'active')
+           (id, name, description, install_cmd, env_vars, homepage, category, icon_url, publisher, publisher_url, stars_count, downloads_count, runtime_hint, package_identifier, transport, server_url, vectora_verified, catalog_source, snapshot_id, last_seen_at, catalog_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'official', ?, datetime('now'), 'active')
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name,
            description = excluded.description,
@@ -244,15 +276,17 @@ async function upsertMcpSnapshot(
            publisher = excluded.publisher,
            publisher_url = excluded.publisher_url,
            stars_count = excluded.stars_count,
+           downloads_count = excluded.downloads_count,
            runtime_hint = excluded.runtime_hint,
            package_identifier = excluded.package_identifier,
            transport = excluded.transport,
            server_url = excluded.server_url,
+           catalog_source = excluded.catalog_source,
            snapshot_id = excluded.snapshot_id,
            last_seen_at = excluded.last_seen_at,
            catalog_status = 'active',
            updated_at = datetime('now')
-         WHERE mcp_catalog.catalog_source != 'curated'`,
+         `,
       )
         .bind(
           c.id,
@@ -266,6 +300,7 @@ async function upsertMcpSnapshot(
           c.publisher,
           c.publisher_url,
           c.stars_count,
+          c.downloads_count,
           c.runtime_hint,
           c.package_identifier,
           c.transport,
@@ -281,7 +316,7 @@ async function upsertMcpSnapshot(
   }
   if (complete && writesComplete) {
     await env.DB.prepare(
-      "UPDATE mcp_catalog SET catalog_status = 'missing' WHERE catalog_source = 'github' AND COALESCE(snapshot_id, '') != ?",
+      "UPDATE mcp_catalog SET catalog_status = 'missing' WHERE catalog_source IN ('official', 'github') AND COALESCE(snapshot_id, '') != ?",
     )
       .bind(snapshotId)
       .run();

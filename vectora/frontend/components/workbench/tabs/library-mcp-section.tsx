@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Download, Loader2, Puzzle, Trash2 } from "lucide-react";
+import { Download, Loader2, Puzzle, Star, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -235,6 +235,20 @@ function ConnectorCard({
   };
 
   const verified = connector.vectora_verified === true;
+  const publisherUrl = (() => {
+    if (!connector.publisher_url) return null;
+    try {
+      const url = new URL(connector.publisher_url);
+      return url.protocol === "https:" || url.protocol === "http:"
+        ? url.href
+        : null;
+    } catch {
+      return null;
+    }
+  })();
+  const publisher = connector.publisher?.trim();
+  const stars = connector.stars_count ?? 0;
+  const downloads = connector.downloads_count ?? 0;
 
   return (
     <LibraryCard
@@ -286,7 +300,36 @@ function ConnectorCard({
           )}
         </Button>
       }
-      footer={error && <p className="text-xs text-destructive">{error}</p>}
+      footer={
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+          {publisher &&
+            (publisherUrl ? (
+              <a
+                href={publisherUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="truncate hover:text-foreground"
+                onClick={(event) => event.stopPropagation()}
+              >
+                {m.library_mcp_preview_publisher({ publisher })}
+              </a>
+            ) : (
+              <span className="truncate">
+                {m.library_mcp_preview_publisher({ publisher })}
+              </span>
+            ))}
+          {stars > 0 && (
+            <span className="inline-flex items-center gap-1">
+              <Star className="size-3" />
+              {m.library_mcp_preview_stars({ count: stars })}
+            </span>
+          )}
+          {downloads > 0 && (
+            <span>{m.library_mcp_preview_downloads({ count: downloads })}</span>
+          )}
+          {error && <p className="basis-full text-destructive">{error}</p>}
+        </div>
+      }
     >
       {configuring && (
         <ConfigureDialog

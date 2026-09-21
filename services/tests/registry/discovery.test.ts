@@ -70,7 +70,7 @@ function packagedServer(
 }
 
 describe("discoverMcp", () => {
-  it("insere entradas novas do catálogo GitHub e nunca sobrescreve uma linha curated com id colidindo", async () => {
+  it("sincroniza o catálogo oficial e substitui entradas locais com o mesmo id", async () => {
     await env.DB.prepare(
       "INSERT INTO mcp_catalog (id, name, description, install_cmd, category, vectora_verified, catalog_source) VALUES (?, ?, ?, ?, ?, 1, 'curated')",
     )
@@ -81,7 +81,7 @@ describe("discoverMcp", () => {
       "fetch",
       vi.fn(async () =>
         mcpRegistryResponse([
-          npmServer("already-curated", "Descoberto (não deve vencer)"),
+          npmServer("already-curated", "Descoberto"),
           npmServer("com.example/new-server", "Novo Server"),
         ]),
       ),
@@ -95,8 +95,8 @@ describe("discoverMcp", () => {
       "SELECT name, catalog_source FROM mcp_catalog WHERE id = 'already-curated'",
     ).first<{ name: string; catalog_source: string }>();
     expect(curated).toEqual({
-      name: "Já curado manualmente",
-      catalog_source: "curated",
+      name: "Descoberto",
+      catalog_source: "official",
     });
 
     const discovered = await env.DB.prepare(
@@ -108,7 +108,7 @@ describe("discoverMcp", () => {
     }>();
     expect(discovered).toEqual({
       name: "Novo Server",
-      catalog_source: "github",
+      catalog_source: "official",
       icon_url: "https://github.com/example/icon.png",
     });
   });

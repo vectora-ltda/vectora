@@ -850,6 +850,7 @@
   "library_mcp_preview_no_credentials": "No credentials required.",
   "library_mcp_preview_publisher": "By {publisher}",
   "library_mcp_preview_stars": "{count} GitHub stars",
+  "library_mcp_preview_downloads": "{count} downloads",
   "library_mcp_trust_confirm": "This MCP is not cryptographically verified. Do you want to install it?",
   "library_mcp_trust_invalid_install": "This MCP was rejected by integrity verification.",
   "library_skills_trust_builtin": "Official",

@@ -4,12 +4,12 @@
  *
  * `mcp` e `skills` são catálogos reais em D1 (`mcp_catalog`/`skills_catalog`,
  * `migrations/0001_schema.sql`). Curadoria
- * manual (`catalog_source='curated'`) entra por revisão do catálogo — mas o
- * catálogo MCP também é populado automaticamente pelo cron `scheduled()`
- * (`discovery.ts`, `catalog_source='github'`), que nunca sobrescreve uma
- * linha curada. O cliente Vectora (`backend/services/registry_client.py`)
- * consome esse catálogo único; uma lista vazia é um estado válido, não um
- * fallback para fontes paralelas.
+ * O catálogo MCP público só expõe linhas sincronizadas do GitHub MCP
+ * Registry (`catalog_source='official'`). Seeds locais e snapshots antigos
+ * ficam fora da resposta até serem confirmados pelo próximo snapshot oficial.
+ * O cliente Vectora (`backend/services/registry_client.py`) consome esse
+ * catálogo único; uma lista vazia é um estado válido, não um fallback para
+ * fontes paralelas.
  *
  * Instalações de skills e MCPs só aceitam identificadores já presentes nos
  * catálogos validados. Não há publicação pública nem formulário de entrada
@@ -53,7 +53,7 @@ registry.get("/mcp", async (c) => {
     params.push(category);
   }
   const stmt = c.env.DB.prepare(
-    `SELECT id, name, description, install_cmd, env_vars, homepage, category, vectora_verified, icon_url, publisher, publisher_url, stars_count, downloads_count, runtime_hint, package_identifier, transport, server_url, catalog_source, updated_at FROM mcp_catalog WHERE catalog_status = 'active'${where.length ? ` AND ${where.join(" AND ")}` : ""} ORDER BY stars_count DESC, downloads_count DESC, name COLLATE NOCASE`,
+    `SELECT id, name, description, install_cmd, env_vars, homepage, category, vectora_verified, icon_url, publisher, publisher_url, stars_count, downloads_count, runtime_hint, package_identifier, transport, server_url, catalog_source, updated_at FROM mcp_catalog WHERE catalog_status = 'active' AND catalog_source = 'official'${where.length ? ` AND ${where.join(" AND ")}` : ""} ORDER BY stars_count DESC, downloads_count DESC, name COLLATE NOCASE`,
   );
   const { results } = await (params.length ? stmt.bind(...params) : stmt).all();
   return c.json({ entries: results ?? [] });

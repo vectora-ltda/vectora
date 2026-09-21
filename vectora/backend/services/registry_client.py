@@ -57,6 +57,7 @@ class McpCatalogEntry(BaseModel):
     package_identifier: str | None = None
     transport: str = "stdio"
     server_url: str | None = None
+    catalog_source: str = ""
     vectora_verified: bool = False
     trust_state: TrustState = "unsigned"
     trust_reason: str = "catalog_listed"

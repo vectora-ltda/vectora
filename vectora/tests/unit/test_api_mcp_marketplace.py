@@ -43,6 +43,7 @@ def _entry(
         "runtime_hint": "npx",
         "package_identifier": identifier,
         "transport": "stdio",
+        "catalog_source": "official",
     }
 
 
@@ -110,7 +111,24 @@ async def test_list_registry_preserves_metadata_and_filters_malformed(
 
 
 @pytest.mark.asyncio
-async def test_list_registry_keeps_catalog_curator_flag(
+async def test_list_registry_ignores_non_official_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.api.handlers import mcp_marketplace
+
+    stale = _entry("stale", "Stale")
+    stale["catalog_source"] = "github"
+    monkeypatch.setattr(
+        mcp_marketplace.registry_client,
+        "fetch_catalog",
+        AsyncMock(return_value=[stale, _entry("official", "Official")]),
+    )
+
+    assert [entry.id for entry in await list_registry()] == ["official"]
+
+
+@pytest.mark.asyncio
+async def test_list_registry_keeps_official_curator_flag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from backend.api.handlers import mcp_marketplace

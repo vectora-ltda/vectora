@@ -850,6 +850,7 @@
   "library_mcp_preview_no_credentials": "Nenhuma credencial obrigatória.",
   "library_mcp_preview_publisher": "Por {publisher}",
   "library_mcp_preview_stars": "{count} estrelas no GitHub",
+  "library_mcp_preview_downloads": "{count} downloads",
   "library_mcp_trust_confirm": "Este MCP não possui verificação criptográfica. Deseja instalar?",
   "library_mcp_trust_invalid_install": "Este MCP foi rejeitado pela verificação de integridade.",
   "library_skills_trust_builtin": "Oficial",

@@ -14,6 +14,18 @@ function safeHomepage(value: string): string | null {
   }
 }
 
+function safeExternalUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:"
+      ? url.href
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Renders an MCP catalog entry in the shared canvas. Homepage links are
  * limited to HTTP(S), credential names are shown without secret values, and
@@ -21,6 +33,7 @@ function safeHomepage(value: string): string | null {
  */
 export function LibraryMcpPreview({ mcp }: { mcp: McpCanvasPreviewData }) {
   const homepage = safeHomepage(mcp.homepage);
+  const publisherUrl = safeExternalUrl(mcp.publisherUrl);
 
   return (
     <article className="h-full min-w-0 flex-1 overflow-y-auto bg-background">
@@ -35,14 +48,35 @@ export function LibraryMcpPreview({ mcp }: { mcp: McpCanvasPreviewData }) {
         <div className="min-w-0 space-y-2">
           <h1 className="text-2xl font-semibold text-foreground">{mcp.name}</h1>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            {mcp.publisher && (
-              <span>
-                {m.library_mcp_preview_publisher({ publisher: mcp.publisher })}
-              </span>
-            )}
+            {mcp.publisher &&
+              (publisherUrl ? (
+                <a
+                  href={publisherUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="hover:text-foreground"
+                >
+                  {m.library_mcp_preview_publisher({
+                    publisher: mcp.publisher,
+                  })}
+                </a>
+              ) : (
+                <span>
+                  {m.library_mcp_preview_publisher({
+                    publisher: mcp.publisher,
+                  })}
+                </span>
+              ))}
             {mcp.starsCount ? (
               <span>
                 {m.library_mcp_preview_stars({ count: mcp.starsCount })}
+              </span>
+            ) : null}
+            {mcp.downloadsCount ? (
+              <span>
+                {m.library_mcp_preview_downloads({
+                  count: mcp.downloadsCount,
+                })}
               </span>
             ) : null}
             {homepage && (

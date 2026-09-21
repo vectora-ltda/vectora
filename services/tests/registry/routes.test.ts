@@ -62,20 +62,26 @@ async function makeSkill(
 }
 
 describe("GET /registry/mcp", () => {
-  it("returns the seeded mcp_catalog entries (D1 real, migrations/0001_schema.sql)", async () => {
+  it("exposes only entries synchronized from the official registry", async () => {
     const res = await registry.request("/mcp", {}, env);
     expect(res.status).toBe(200);
     const body = await res.json<{ entries: Array<{ id: string }> }>();
-    expect(body.entries.map((e) => e.id)).toContain("filesystem");
+    expect(body.entries).toEqual([]);
   });
 
   it("?q= filtra por nome/descrição", async () => {
+    await env.DB.prepare(
+      "UPDATE mcp_catalog SET catalog_source = 'official' WHERE id = 'github'",
+    ).run();
     const res = await registry.request("/mcp?q=GitHub", {}, env);
     const body = await res.json<{ entries: Array<{ id: string }> }>();
     expect(body.entries.map((e) => e.id)).toEqual(["github"]);
   });
 
   it("?category= filtra por categoria exata", async () => {
+    await env.DB.prepare(
+      "UPDATE mcp_catalog SET catalog_source = 'official' WHERE id = 'postgres'",
+    ).run();
     const res = await registry.request("/mcp?category=database", {}, env);
     const body = await res.json<{ entries: Array<{ id: string }> }>();
     expect(body.entries.map((e) => e.id)).toEqual(["postgres"]);
