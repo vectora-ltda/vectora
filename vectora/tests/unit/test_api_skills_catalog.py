@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import Request
+from pydantic import ValidationError
 
 from backend.api.handlers import skills as skills_handler
 from backend.workspace.skills import list_wellknown_catalog
@@ -95,6 +96,31 @@ async def test_get_skills_catalog_empty_is_not_error(monkeypatch):
     result = await skills_handler.get_skills_catalog()
 
     assert result.model_dump() == {"entries": [], "total": 0}
+
+
+@pytest.mark.asyncio
+async def test_get_skills_catalog_skips_non_object_entries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    valid = {
+        "id": "valid",
+        "name": "Valid",
+        "source": "https://github.com/example/valid",
+    }
+    monkeypatch.setattr(
+        skills_handler.registry_client,
+        "fetch_catalog",
+        AsyncMock(return_value=[None, "malformed", ["also-malformed"], valid]),
+    )
+    monkeypatch.setattr(
+        skills_handler.registry_client,
+        "fetch_enterprise_catalog",
+        AsyncMock(return_value=[]),
+    )
+
+    result = await skills_handler.get_skills_catalog()
+
+    assert [entry.id for entry in result.entries] == ["valid"]
 
 
 def test_local_catalog_marks_entry_provenance(tmp_path: Path) -> None:
@@ -203,7 +229,9 @@ class TestSkillsCatalogQueryFilters:
 
 class TestCatalogSkillInstall:
     @pytest.mark.asyncio
-    async def test_instala_apenas_a_fonte_resolvida_pelo_catalogo(self, monkeypatch):
+    async def test_instala_apenas_a_fonte_resolvida_pelo_catalogo(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(
             skills_handler.registry_client,
             "fetch_catalog",
@@ -223,13 +251,17 @@ class TestCatalogSkillInstall:
             "fetch_enterprise_catalog",
             AsyncMock(return_value=[]),
         )
-        monkeypatch.setattr(skills_handler, "list_wellknown_catalog", lambda: [])
-        install_spy = lambda user_id, source, scope, target, **kwargs: SimpleNamespace(
-            model_dump=lambda: {"id": "remote-skill-1", "source": source}
-        )
+        monkeypatch.setattr(skills_handler, "list_wellknown_catalog", list)
+
+        def install_spy(user_id, source, scope, target, **kwargs):
+            def model_dump():
+                return {"id": "remote-skill-1", "source": source}
+
+            return SimpleNamespace(model_dump=model_dump)
+
         monkeypatch.setattr(skills_handler, "install_skill", install_spy)
 
-        request = cast(Request, SimpleNamespace(state=SimpleNamespace(user=None)))
+        request = cast("Request", SimpleNamespace(state=SimpleNamespace(user=None)))
         result = await skills_handler.install_user_skill(
             request,
             skills_handler.CatalogSkillInstallRequest(skill_id="remote-skill-1"),
@@ -244,7 +276,9 @@ class TestCatalogSkillInstall:
         }
 
     @pytest.mark.asyncio
-    async def test_fonte_fora_do_catalogo_e_rejeitada(self, monkeypatch):
+    async def test_fonte_fora_do_catalogo_e_rejeitada(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(
             skills_handler.registry_client,
             "fetch_catalog",
@@ -255,12 +289,63 @@ class TestCatalogSkillInstall:
             "fetch_enterprise_catalog",
             AsyncMock(return_value=[]),
         )
-        monkeypatch.setattr(skills_handler, "list_wellknown_catalog", lambda: [])
+        monkeypatch.setattr(skills_handler, "list_wellknown_catalog", list)
 
+        request = cast("Request", SimpleNamespace(state=SimpleNamespace(user=None)))
+        body = skills_handler.CatalogSkillInstallRequest(skill_id="unknown")
         with pytest.raises(skills_handler.HTTPException) as exc_info:
-            request = cast(Request, SimpleNamespace(state=SimpleNamespace(user=None)))
-            await skills_handler.install_user_skill(
-                request,
-                skills_handler.CatalogSkillInstallRequest(skill_id="unknown"),
-            )
+            await skills_handler.install_user_skill(request, body)
         assert exc_info.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_instalacao_ignora_entradas_malformadas_e_resolve_entrada_valida(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            skills_handler.registry_client,
+            "fetch_catalog",
+            AsyncMock(
+                return_value=[
+                    None,
+                    "malformed",
+                    {"id": "missing-source", "name": "Broken"},
+                    {
+                        "id": "remote-skill-2",
+                        "name": "Valid",
+                        "description": "valid",
+                        "source": "https://github.com/user/valid",
+                    },
+                ]
+            ),
+        )
+        monkeypatch.setattr(
+            skills_handler.registry_client,
+            "fetch_enterprise_catalog",
+            AsyncMock(return_value=[]),
+        )
+        monkeypatch.setattr(skills_handler, "list_wellknown_catalog", list)
+
+        def install_spy(user_id, source, scope, target, **kwargs):
+            return SimpleNamespace(
+                model_dump=lambda: {"id": "remote-skill-2", "source": source}
+            )
+
+        monkeypatch.setattr(skills_handler, "install_skill", install_spy)
+        request = cast("Request", SimpleNamespace(state=SimpleNamespace(user=None)))
+
+        result = await skills_handler.install_user_skill(
+            request,
+            skills_handler.CatalogSkillInstallRequest(skill_id="remote-skill-2"),
+        )
+
+        assert result["status"] == "ok"
+        assert result["skill"]["source"] == "https://github.com/user/valid"
+
+    @pytest.mark.parametrize("skill_id", [None, ""])
+    async def test_rejeita_identificador_nulo_ou_vazio(
+        self, skill_id: str | None
+    ) -> None:
+        with pytest.raises(ValidationError):
+            skills_handler.CatalogSkillInstallRequest.model_validate(
+                {"skill_id": skill_id}
+            )

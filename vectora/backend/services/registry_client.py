@@ -12,11 +12,13 @@ import contextlib
 import json
 import logging
 import os
+from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
 import httpx
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +32,66 @@ HTTP_TIMEOUT = 10.0
 RegistryKind = Literal["mcp", "skills", "mcp_official"]
 
 OFFICIAL_MCP_REGISTRY_URL = "https://registry.modelcontextprotocol.io/v0.1/servers"
+
+
+class McpCatalogEntry(BaseModel):
+    """Validated MCP catalog contract returned by the registry service."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    description: str = ""
+    install_cmd: str = ""
+    env_vars: list[str] = Field(default_factory=list)
+    homepage: str = ""
+    category: str = "general"
+    icon_url: str | None = None
+    publisher: str | None = None
+    publisher_url: str | None = None
+    stars_count: int = Field(default=0, ge=0)
+    downloads_count: int = Field(default=0, ge=0)
+    runtime_hint: str | None = None
+    package_identifier: str | None = None
+    transport: str = "stdio"
+    server_url: str | None = None
+    vectora_verified: bool = False
+    trust_state: str = "unsigned"
+    trust_reason: str = "catalog_listed"
+
+    @field_validator("env_vars", mode="before")
+    @classmethod
+    def _normalize_env_vars(cls, value: object) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                return []
+        if not isinstance(value, list):
+            return []
+        return [item for item in value if isinstance(item, str) and item]
+
+
+def validate_mcp_catalog_entries(entries: Iterable[object]) -> list[McpCatalogEntry]:
+    """Validate untrusted registry payloads before they cross service layers."""
+    validated: list[McpCatalogEntry] = []
+    for entry in entries:
+        if not isinstance(entry, Mapping):
+            logger.warning(
+                "registry_client: entrada MCP não-objeto ignorada",
+                extra={"entry_type": type(entry).__name__},
+            )
+            continue
+        try:
+            validated.append(McpCatalogEntry.model_validate(entry))
+        except Exception as exc:
+            logger.warning(
+                "registry_client: entrada MCP inválida ignorada",
+                extra={"error": str(exc)},
+            )
+    return validated
 
 
 def _registry_url() -> str:

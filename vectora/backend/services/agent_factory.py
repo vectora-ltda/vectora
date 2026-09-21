@@ -859,7 +859,7 @@ async def aget_thread_messages_with_files(
 
     return [
         ThreadHistoryEntry(
-            role=cast(Literal["human", "assistant"], item[0]),
+            role=cast("Literal['human', 'assistant']", item[0]),
             text=item[1],
             checkpoint_id=item[2],
             attachments=item[3],

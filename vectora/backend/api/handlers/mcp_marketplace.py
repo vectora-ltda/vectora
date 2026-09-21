@@ -12,13 +12,13 @@ Routes (montadas em server.py):
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import TYPE_CHECKING, Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from backend.context_graph.security import validate_url
 from backend.services import extension_trust, mcp_policy, registry_client
 from backend.services.importers import preview_mcp_config
 
@@ -79,6 +79,13 @@ async def _audit_mcp_decision(
 
 
 class MCPConnector(BaseModel):
+    """Public marketplace contract for a validated MCP catalog connector.
+
+    The catalog carries installation transport and command metadata, optional
+    remote-server URL, publisher attribution, ranking counters, and trust
+    state.  It is the only shape exposed to the API and frontend.
+    """
+
     id: str
     name: str
     description: str
@@ -137,6 +144,7 @@ def _connector_to_server(connector: MCPConnector) -> McpServer:
     from backend.workspace.plugins import McpServer
 
     if connector.transport in {"http", "sse"} and connector.server_url:
+        validate_url(connector.server_url)
         command, args = "", []
     else:
         parts = connector.install_cmd.split() if connector.install_cmd else ["npx"]
@@ -162,46 +170,20 @@ def _connector_to_server(connector: MCPConnector) -> McpServer:
 # ---------------------------------------------------------------------------
 
 
-def _remote_entry_to_connector(entry: dict) -> MCPConnector | None:
-    try:
-        env_vars = entry.get("env_vars", [])
-        if isinstance(env_vars, str):
-            env_vars = json.loads(env_vars)
-        return MCPConnector(
-            id=entry["id"],
-            name=entry.get("name", entry["id"]),
-            description=entry.get("description", ""),
-            install_cmd=entry.get("install_cmd", ""),
-            env_vars=list(env_vars) if env_vars else [],
-            homepage=entry.get("homepage") or "",
-            category=entry.get("category", "general"),
-            # Flags do catálogo remoto são preservadas para exibir curadoria.
-            icon_url=entry.get("icon_url") or None,
-            publisher=entry.get("publisher") or None,
-            publisher_url=entry.get("publisher_url") or None,
-            stars_count=int(entry.get("stars_count") or 0),
-            downloads_count=int(entry.get("downloads_count") or 0),
-            transport=entry.get("transport") or "stdio",
-            runtime_hint=entry.get("runtime_hint") or None,
-            package_identifier=entry.get("package_identifier") or None,
-            server_url=entry.get("server_url") or None,
-            vectora_verified=bool(entry.get("vectora_verified", False)),
-            trust_state=entry.get("trust_state") or "unsigned",
-            trust_reason=entry.get("trust_reason") or "catalog_listed",
-        )
-    except Exception as exc:
-        logger.warning("mcp_marketplace: entrada remota malformada ignorada: %r", entry)
-        return None
+def _remote_entry_to_connector(
+    entry: registry_client.McpCatalogEntry,
+) -> MCPConnector:
+    """Map the validated registry contract to the public API model."""
+    return MCPConnector.model_validate(entry.model_dump())
 
 
 async def list_registry() -> list[MCPConnector]:
     """Lista exclusivamente o catálogo MCP canônico já agregado pelo registry."""
     remote = await registry_client.fetch_catalog("mcp")
     connectors: dict[str, MCPConnector] = {}
-    for entry in remote:
+    for entry in registry_client.validate_mcp_catalog_entries(remote):
         connector = _remote_entry_to_connector(entry)
-        if connector is not None:
-            connectors[connector.id] = connector
+        connectors[connector.id] = connector
     return sorted(
         connectors.values(),
         key=lambda c: (-c.stars_count, -c.downloads_count, c.name.lower()),
@@ -240,6 +222,15 @@ async def install_mcp(
                 "error": "servidor bloqueado pela política",
             }
         server = _connector_to_server(connector)
+        # Catalog metadata only describes required names. Values cross the
+        # boundary when the user explicitly saved them for this account.
+        from backend.rbac.auth import get_env_overrides
+
+        overrides = await get_env_overrides(user_id)
+        explicit_env = {
+            key: overrides[key] for key in connector.env_vars if overrides.get(key)
+        }
+        server = server.model_copy(update={"env": explicit_env})
         try:
             extension_trust.validate_record(
                 server.trust, confirmed=req.confirm_unverified

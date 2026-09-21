@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-from typing import Any, cast
+from pathlib import Path
+from types import ModuleType, SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -25,7 +26,7 @@ from backend.api.handlers.mcp_marketplace import (
 
 def _entry(
     identifier: str, name: str, *, stars: int = 0, downloads: int = 0
-) -> dict[str, Any]:
+) -> dict[str, object]:
     return {
         "id": identifier,
         "name": name,
@@ -46,7 +47,7 @@ def _entry(
 
 
 @pytest.fixture
-def _catalog(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+def _catalog(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, object]]:
     from backend.api.handlers import mcp_marketplace
 
     entries = [_entry("alpha", "Alpha", stars=10), _entry("beta", "Beta", stars=20)]
@@ -59,7 +60,11 @@ def _catalog(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
 
 
 @pytest.fixture
-def _functional_store(tmp_path, monkeypatch: pytest.MonkeyPatch, _catalog):
+def _functional_store(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    _catalog: list[dict[str, object]],
+) -> ModuleType:
     from backend.workspace import plugins
 
     monkeypatch.setattr(plugins, "_plugins_dir", lambda: tmp_path / "mcp")
@@ -70,7 +75,9 @@ def _functional_store(tmp_path, monkeypatch: pytest.MonkeyPatch, _catalog):
 
 
 @pytest.mark.asyncio
-async def test_list_registry_uses_only_canonical_catalog(_catalog, monkeypatch):
+async def test_list_registry_uses_only_canonical_catalog(
+    _catalog: list[dict[str, object]], monkeypatch: pytest.MonkeyPatch
+) -> None:
     from backend.api.handlers import mcp_marketplace
 
     official = AsyncMock(side_effect=AssertionError("raw registry must not be used"))
@@ -83,7 +90,9 @@ async def test_list_registry_uses_only_canonical_catalog(_catalog, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_list_registry_preserves_metadata_and_filters_malformed(monkeypatch):
+async def test_list_registry_preserves_metadata_and_filters_malformed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from backend.api.handlers import mcp_marketplace
 
     monkeypatch.setattr(
@@ -101,7 +110,9 @@ async def test_list_registry_preserves_metadata_and_filters_malformed(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_list_registry_keeps_catalog_curator_flag(monkeypatch):
+async def test_list_registry_keeps_catalog_curator_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from backend.api.handlers import mcp_marketplace
 
     entry = _entry("curated", "Curated")

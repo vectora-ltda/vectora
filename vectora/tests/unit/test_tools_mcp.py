@@ -74,13 +74,10 @@ class TestSafeSubprocessEnv:
         assert "VECTORA_ANTHROPIC_API_KEY" not in env
         assert "PATH" in env
 
-    def test_extra_keys_declaradas_passam_mas_sensivel_nao_declarada_nao_vaza(
-        self, monkeypatch
-    ):
-        monkeypatch.setenv("MEU_TOKEN_DE_SERVICO", "valor-necessario")
+    def test_valores_explicitos_passam_mas_ambiente_nao_vaza(self, monkeypatch):
         monkeypatch.setenv("OPENAI_API_KEY", "sk-nao-deveria-vazar")
         monkeypatch.setenv("PATH", "/usr/bin")
-        env = _safe_subprocess_env(frozenset({"MEU_TOKEN_DE_SERVICO"}))
+        env = _safe_subprocess_env({"MEU_TOKEN_DE_SERVICO": "valor-necessario"})
         assert env["MEU_TOKEN_DE_SERVICO"] == "valor-necessario"
         assert "PATH" in env
         assert "OPENAI_API_KEY" not in env
@@ -189,10 +186,9 @@ class TestVectoraMCPClientReal:
         finally:
             await client.aclose()
 
-    async def test_env_vars_declaradas_atravessam_mas_outra_sensivel_nao(
+    async def test_env_explicitamente_configurado_atravessa_mas_outra_sensivel_nao(
         self, monkeypatch
     ):
-        monkeypatch.setenv("MEU_TOKEN_DE_SERVICO", "valor-necessario")
         monkeypatch.setenv("OPENAI_API_KEY", "sk-nao-deveria-vazar")
         client = VectoraMCPClient()
         try:
@@ -203,6 +199,7 @@ class TestVectoraMCPClientReal:
                         "command": sys.executable,
                         "args": [_DUMMY_SERVER],
                         "env_vars": ["MEU_TOKEN_DE_SERVICO"],
+                        "env": {"MEU_TOKEN_DE_SERVICO": "valor-necessario"},
                     }
                 }
             )

@@ -12,7 +12,7 @@ class GitContract(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    def __getitem__(self, key: str) -> Any:  # noqa: ANN401
+    def __getitem__(self, key: str) -> Any:
         """Compatibilidade de leitura para callers JSON legados.
 
         ``Any`` is intentional here: the accessor mirrors Pydantic's dynamic
@@ -21,7 +21,7 @@ class GitContract(BaseModel):
         """
         return getattr(self, key)
 
-    def get(self, key: str, default: object = None) -> Any:  # noqa: ANN401
+    def get(self, key: str, default: object = None) -> Any:
         """Lê um campo opcional para callers JSON legados.
 
         ``Any`` is intentional for the same dynamic compatibility boundary as

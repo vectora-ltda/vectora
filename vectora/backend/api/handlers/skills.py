@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Mapping, Sequence
 from typing import Literal, TypedDict
 
 from fastapi import APIRouter, HTTPException, Request
@@ -136,15 +137,24 @@ def _matches_skill_query(
 
 
 def _validate_catalog_entries(
-    entries: list[dict[str, object]],
+    entries: Sequence[object],
     catalog_source: Literal["remote", "enterprise"],
 ) -> list[SkillCatalogEntry]:
     validated: list[SkillCatalogEntry] = []
     for entry in entries:
+        if not isinstance(entry, Mapping):
+            logger.warning(
+                "skills: entrada de catálogo não-objeto ignorada",
+                extra={
+                    "catalog_source": catalog_source,
+                    "entry_type": type(entry).__name__,
+                },
+            )
+            continue
         try:
             validated.append(
                 SkillCatalogEntry.model_validate(
-                    {**entry, "catalog_source": catalog_source}
+                    {**dict(entry), "catalog_source": catalog_source}
                 )
             )
         except ValidationError as exc:

@@ -806,7 +806,7 @@ class TestGatewayClientReviewJob:
                 ws,
                 session,
                 cast(
-                    GatewayMessage,
+                    "GatewayMessage",
                     {
                         "type": "review_job",
                         "job_id": "job-invalid",
