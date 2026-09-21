@@ -44,8 +44,8 @@ def _fake_task(task_name: str = "Minha tarefa") -> Any:
     class _FakeTask:
         def __init__(self) -> None:
             self.id = "task-123"
-            self.session_id = "t1"
-            self.user_id = "u1"
+            self.session_id: str = "t1"
+            self.user_id: str = "u1"
             self.name = task_name
             self.kind = "routine"
             self.trigger_type = "interval"
@@ -665,6 +665,7 @@ async def test_run_now_dispara_execucao_em_background() -> None:
             "backend.tools.background.background_tasks.run_task",
             new=AsyncMock(),
         ) as mock_run,
+        patch("backend.tools.background.logger.info") as mock_log,
     ):
         result = json.loads(
             await run_background_task_now(task_id="task-123", ctx=_ctx())
@@ -673,6 +674,13 @@ async def test_run_now_dispara_execucao_em_background() -> None:
 
     assert result == {"status": "queued", "task_id": "task-123"}
     mock_run.assert_awaited_once_with(fake, "manual")
+    extra = mock_log.call_args.kwargs["extra"]
+    assert extra == {
+        "tool": "run_background_task_now",
+        "task_id": "task-123",
+        "session_id": "t1",
+        "user_id": "u1",
+    }
 
 
 @pytest.mark.asyncio

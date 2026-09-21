@@ -9,6 +9,7 @@ erro/borda no mesmo teste.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -341,6 +342,64 @@ class TestKanbanList:
 
         assert out["status"] == "error"
         assert "claim atual" in out["error"]
+
+    @pytest.mark.asyncio
+    async def test_resume_renova_claim_mesmo_ainda_valido(self, db: str) -> None:
+        from backend.tools.kanban import kanban_create
+
+        created = json.loads(
+            await kanban_create(ctx=_ctx(), name="card", instruction="faça algo")
+        )
+        task_id = created["task_id"]
+        assert await kanban.claim_task(task_id, "run-1", ttl_s=2)
+
+        conn = await kanban._get_db()
+        quase_expirado = (datetime.now(UTC) + timedelta(seconds=1)).isoformat()
+        await conn.execute(
+            "UPDATE vectora_background_tasks SET claim_expires_at = ? WHERE id = ?",
+            (quase_expirado, task_id),
+        )
+        await conn.commit()
+        await conn.close()
+
+        assert await kanban.ensure_task_claim(task_id, "run-1", ttl_s=900)
+        conn = await kanban._get_db()
+        async with conn.execute(
+            "SELECT claim_expires_at FROM vectora_background_tasks WHERE id = ?",
+            (task_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        await conn.close()
+        assert datetime.fromisoformat(row["claim_expires_at"]) > datetime.now(
+            UTC
+        ) + timedelta(seconds=100)
+
+    @pytest.mark.asyncio
+    async def test_write_de_background_recusa_claim_perdido_entre_precheck_e_update(
+        self, db: str
+    ) -> None:
+        from backend.tools.kanban import kanban_create
+
+        created = json.loads(
+            await kanban_create(ctx=_ctx(), name="card", instruction="faça algo")
+        )
+        task_id = created["task_id"]
+        assert await kanban.claim_task(task_id, "run-1")
+        conn = await kanban._get_db()
+        await conn.execute(
+            "UPDATE vectora_background_tasks SET claim_lock = ? WHERE id = ?",
+            ("run-2", task_id),
+        )
+        await conn.commit()
+        await conn.close()
+
+        with pytest.raises(ValueError, match="perdeu o claim"):
+            await kanban.block_task(
+                task_id,
+                "capability",
+                "não deve passar",
+                authorized_run_id="run-1",
+            )
 
     @pytest.mark.asyncio
     async def test_ready_respeita_transicao_e_limpa_bloqueio(self, db: str) -> None:

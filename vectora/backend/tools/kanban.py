@@ -265,6 +265,7 @@ async def kanban_update_status(
                 )
             await kanban.authorize_task_session(task_id, ctx.thread_id)
             authorized_session_id = ctx.thread_id
+        authorized_run_id = ctx.background_run_id if ctx.background_task_id else None
         if status in ("running", "done"):
             return json.dumps(
                 {
@@ -274,15 +275,24 @@ async def kanban_update_status(
             )
         if status == "blocked":
             await kanban.block_task(
-                task_id, block_kind or _DEFAULT_BLOCK_KIND, block_reason or ""
+                task_id,
+                block_kind or _DEFAULT_BLOCK_KIND,
+                block_reason or "",
+                authorized_run_id=authorized_run_id,
             )
         elif status == "ready":
             await kanban.manual_transition(
-                task_id, status, authorized_session_id=authorized_session_id
+                task_id,
+                status,
+                authorized_session_id=authorized_session_id,
+                authorized_run_id=authorized_run_id,
             )
         else:
             await kanban.manual_transition(
-                task_id, status, authorized_session_id=authorized_session_id
+                task_id,
+                status,
+                authorized_session_id=authorized_session_id,
+                authorized_run_id=authorized_run_id,
             )
 
         estado: dict[str, Any] = await kanban.get_task_status(task_id)

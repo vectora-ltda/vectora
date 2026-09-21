@@ -544,6 +544,15 @@ async def run_background_task_now(task_id: str, ctx: ToolContext) -> str:
             return json.dumps(
                 {"status": "error", "error": "task não pertence à sessão atual"}
             )
+        logger.info(
+            "run_background_task_now: tarefa autorizada e enfileirada",
+            extra={
+                "tool": "run_background_task_now",
+                "task_id": task.id,
+                "session_id": ctx.thread_id,
+                "user_id": ctx.user_id,
+            },
+        )
         asyncio.create_task(  # noqa: RUF006 — fire-and-forget, mesmo padrão do endpoint REST
             background_tasks.run_task(task, "manual")
         )
