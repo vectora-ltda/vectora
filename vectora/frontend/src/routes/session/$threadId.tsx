@@ -869,23 +869,29 @@ function SessionPage() {
     [sidebar, isSidebarCollapsed, hydrated, sidebarWidth, sidebarOnRight],
   );
 
+  // IDE não monta a sidebar de sessões; Assistant e Kanban montam um Sheet
+  // no mobile e a coluna desktop somente quando o viewport não é estreito.
+  const showSidebarPanel = uiMode !== "ide";
+  const showDesktopSidebarPanel = showSidebarPanel && !isNarrowViewport;
+
   const headerEl = useMemo(
     () => (
       <Header
         showToolCalls={showToolCalls}
         onToggleToolCalls={() => setShowToolCalls((v) => !v)}
         onShowShortcuts={() => setShowShortcutsDialog(true)}
-        onOpenSidebar={() => setIsMobileSidebarOpen(true)}
+        onOpenSidebar={
+          showSidebarPanel ? () => setIsMobileSidebarOpen(true) : undefined
+        }
         showModeSwitch={!chatMode}
       />
     ),
-    [showToolCalls, chatMode],
+    [showToolCalls, chatMode, showSidebarPanel],
   );
 
   // Cada modo escolhe explicitamente a coluna esquerda. Assistente e Kanban
   // usam a lista de sessões; IDE usa a workbench. Manter a sidebar de sessões
   // fora do IDE evitava que o shell tivesse quatro colunas concorrentes.
-  const showSidebarPanel = uiMode !== "ide";
   const modeComposition = getModeComposition(uiMode);
 
   // Chat renderizado no fluxo normal do layout de cada modo. `compact`
@@ -1015,7 +1021,7 @@ function SessionPage() {
                 columns={{
                   left: {
                     label: "Sessões",
-                    visibility: showSidebarPanel ? "visible" : "hidden",
+                    visibility: showDesktopSidebarPanel ? "visible" : "hidden",
                     width: isSidebarCollapsed
                       ? SIDEBAR_COLLAPSED_WIDTH
                       : sidebarWidth,
@@ -1406,7 +1412,7 @@ function SessionPage() {
                 columns={{
                   left: {
                     label: "Sessões",
-                    visibility: showSidebarPanel ? "visible" : "hidden",
+                    visibility: showDesktopSidebarPanel ? "visible" : "hidden",
                     width: isSidebarCollapsed
                       ? SIDEBAR_COLLAPSED_WIDTH
                       : sidebarWidth,

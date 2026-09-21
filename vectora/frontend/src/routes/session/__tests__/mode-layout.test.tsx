@@ -17,7 +17,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 
-const { navigateSpy } = vi.hoisted(() => ({ navigateSpy: vi.fn() }));
+const { navigateSpy, headerProps } = vi.hoisted(() => ({
+  navigateSpy: vi.fn(),
+  headerProps: { current: {} as { onOpenSidebar?: () => void } },
+}));
 
 vi.mock("@tanstack/react-router", () => ({
   // O componente lê `Route.useParams()`, então o objeto devolvido por
@@ -38,7 +41,10 @@ vi.mock("@/components/kanban/kanban-board", () => ({
   KanbanBoard: () => <div data-testid="kanban" />,
 }));
 vi.mock("@/components/header/header", () => ({
-  Header: () => <div data-testid="header" />,
+  Header: (props: { onOpenSidebar?: () => void }) => {
+    headerProps.current = props;
+    return <div data-testid="header" />;
+  },
 }));
 vi.mock("@/components/header/mode-switcher", () => ({
   ModeSwitch: () => <div data-testid="mode-switch" />,
@@ -147,6 +153,7 @@ function setMode(uiMode: "assistant" | "ide" | "kanban", chatMode = false) {
 
 beforeEach(() => {
   navigateSpy.mockClear();
+  headerProps.current = {};
   // jsdom não implementa matchMedia — useIsNarrowViewport depende dele.
   // Sempre "largo": é o layout de 3 painéis que os testes afirmam.
   // jsdom não implementa EventSource — hooks de webhook o instanciam no
@@ -181,6 +188,22 @@ beforeEach(() => {
       }),
     ),
   );
+});
+
+describe("SessionPage — ações responsivas do Header", () => {
+  it("não expõe hamburger sem Sheet no IDE", () => {
+    setMode("ide");
+    render(<SessionPage />);
+
+    expect(headerProps.current.onOpenSidebar).toBeUndefined();
+  });
+
+  it("mantém hamburger conectado ao Sheet no Assistant", () => {
+    setMode("assistant");
+    render(<SessionPage />);
+
+    expect(headerProps.current.onOpenSidebar).toEqual(expect.any(Function));
+  });
 });
 
 afterEach(() => {

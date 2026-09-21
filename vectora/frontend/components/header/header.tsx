@@ -13,13 +13,8 @@ interface HeaderProps {
   onToggleToolCalls?: () => void;
   onShowShortcuts?: () => void;
   onOpenSidebar?: () => void;
-  //: Mostra o seletor Assistente/IDE/Kanban centralizado nesta mesma barra
-  //: (ausente em chatMode, que não tem os 3 modos). Antes vivia numa linha
-  //: separada acima do Header — o usuário via duas barras empilhadas
-  //: (abas de modo + ajuda/config) em vez de uma só. Unificar exige que o
-  //: Header seja renderizado UMA vez, com largura cheia, nos 3 modos —
-  //: nunca aninhado dentro da coluna do editor/chat/board, que tem largura
-  //: diferente por modo (a mesma causa raiz do bug de posição original).
+  // O seletor de modo é renderizado uma vez no header de largura total e fica
+  // ausente no chatMode, que não oferece os três modos de workbench.
   showModeSwitch?: boolean;
 }
 
