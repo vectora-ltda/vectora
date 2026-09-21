@@ -156,8 +156,8 @@ def test_windows_lock_retries_from_byte_zero(
     monkeypatch.setattr(safe_roots_module, "_WINDOWS_LOCK_RETRY_DELAY_SECONDS", 0)
 
     class FakeMsvcrt:
-        LK_NBLCK = 1
-        LK_UNLCK = 2
+        LK_NBLCK: int = 1
+        LK_UNLCK: int = 2
 
         def __init__(self) -> None:
             self.attempts = 0
