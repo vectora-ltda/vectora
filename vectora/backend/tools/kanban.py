@@ -256,6 +256,7 @@ async def kanban_update_status(
                         "error": "task em execução não corresponde ao card solicitado",
                     }
                 )
+            await kanban.authorize_task_claim(task_id, ctx.background_run_id)
             authorized_session_id: str | None = None
         else:
             if not ctx.thread_id:

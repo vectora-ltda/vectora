@@ -6,7 +6,7 @@ Este changelog consolida as alterações publicadas.
 
 Esta versão inclui as alterações geradas pelo Release Please para o intervalo `v0.1.22...v0.1.23`. Ela também inclui o merge do PR [`#241`](https://github.com/vectora-ltda/vectora/pull/241), que corrigiu achados de autorização, gateway de reviews, sessões de chat, navegação de pastas e resiliência do updater Electron.
 
-A compatibilidade da `vectora-review-action` com `mode=self-hosted` e `job_endpoint` foi publicada no repositório externo [`vectora-ltda/vectora-review-action`](https://github.com/vectora-ltda/vectora-review-action). As pendências de triagem cross-repo permanecem fora deste pull request.
+A compatibilidade da `vectora-review-action` com `mode=self-hosted` e `job_endpoint` continua pendente no repositório externo [`vectora-ltda/vectora-review-action`](https://github.com/vectora-ltda/vectora-review-action). Esta release não considera esse contrato cross-repo concluído.
 
 ### Features
 

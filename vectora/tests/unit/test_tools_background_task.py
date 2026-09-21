@@ -44,6 +44,8 @@ def _fake_task(task_name: str = "Minha tarefa") -> Any:
     class _FakeTask:
         def __init__(self) -> None:
             self.id = "task-123"
+            self.session_id = "t1"
+            self.user_id = "u1"
             self.name = task_name
             self.kind = "routine"
             self.trigger_type = "interval"
@@ -664,7 +666,9 @@ async def test_run_now_dispara_execucao_em_background() -> None:
             new=AsyncMock(),
         ) as mock_run,
     ):
-        result = json.loads(await run_background_task_now(task_id="task-123"))
+        result = json.loads(
+            await run_background_task_now(task_id="task-123", ctx=_ctx())
+        )
         await asyncio.sleep(0)  # deixa o create_task agendado rodar
 
     assert result == {"status": "queued", "task_id": "task-123"}
@@ -683,7 +687,33 @@ async def test_run_now_tarefa_inexistente_retorna_erro_sem_disparar() -> None:
             new=AsyncMock(),
         ) as mock_run,
     ):
-        result = json.loads(await run_background_task_now(task_id="nao-existe"))
+        result = json.loads(
+            await run_background_task_now(task_id="nao-existe", ctx=_ctx())
+        )
 
     assert result["status"] == "error"
+    mock_run.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_run_now_recusa_tarefa_de_outra_sessao() -> None:
+    fake = _fake_task("Rotina estrangeira")
+    with (
+        patch(
+            "backend.tools.background.background_tasks.get_task",
+            new=AsyncMock(return_value=fake),
+        ),
+        patch(
+            "backend.tools.background.background_tasks.run_task",
+            new=AsyncMock(),
+        ) as mock_run,
+    ):
+        result = json.loads(
+            await run_background_task_now(
+                task_id="task-123", ctx=_ctx(thread_id="outra-sessao", user_id="u2")
+            )
+        )
+
+    assert result["status"] == "error"
+    assert "não pertence" in result["error"]
     mock_run.assert_not_awaited()

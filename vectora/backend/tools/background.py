@@ -522,7 +522,7 @@ async def delete_background_task(task_id: str) -> str:
         icon="play",
     )
 )
-async def run_background_task_now(task_id: str) -> str:
+async def run_background_task_now(task_id: str, ctx: ToolContext) -> str:
     """Dispara a execução imediata de uma tarefa agendada, sem esperar o
     próximo horário do cron.
 
@@ -538,6 +538,12 @@ async def run_background_task_now(task_id: str) -> str:
         task = await background_tasks.get_task(task_id)
         if task is None:
             return json.dumps({"status": "error", "error": "task não encontrada"})
+        if not ctx.thread_id:
+            return json.dumps({"status": "error", "error": "session_id ausente"})
+        if task.session_id != ctx.thread_id or task.user_id != ctx.user_id:
+            return json.dumps(
+                {"status": "error", "error": "task não pertence à sessão atual"}
+            )
         asyncio.create_task(  # noqa: RUF006 — fire-and-forget, mesmo padrão do endpoint REST
             background_tasks.run_task(task, "manual")
         )

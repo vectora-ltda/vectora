@@ -316,6 +316,73 @@ async def claim_task(
     return cur.rowcount > 0
 
 
+async def ensure_task_claim(
+    task_id: str, run_id: str, *, ttl_s: int = _DEFAULT_CLAIM_TTL_S
+) -> bool:
+    """Mantém ou recupera o claim da própria run sem roubar outro worker.
+
+    Uma run pausada para aprovação pode sobreviver ao TTL do claim. Ela pode
+    reassumir o card somente enquanto o lock ainda é dela ou depois que o
+    lock foi liberado; um claim pertencente a outra run sempre é recusado.
+    """
+    if not run_id:
+        return False
+    agora = _agora().isoformat()
+    expira = (_agora() + timedelta(seconds=ttl_s)).isoformat()
+    db = await _get_db()
+    async with db.execute(
+        "SELECT claim_lock, claim_expires_at FROM vectora_background_tasks "
+        "WHERE id = ?",
+        (task_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        return False
+    if row["claim_lock"] == run_id and row["claim_expires_at"]:
+        try:
+            if datetime.fromisoformat(row["claim_expires_at"]) > _agora():
+                return True
+        except ValueError:
+            pass
+    cur = await db.execute(
+        "UPDATE vectora_background_tasks SET status = 'running', claim_lock = ?, "
+        "claim_expires_at = ?, updated_at = datetime('now') WHERE id = ? AND "
+        "((claim_lock = ? AND claim_expires_at <= ?) OR "
+        "(claim_lock IS NULL AND status IN ('ready', 'scheduled')))",
+        (run_id, expira, task_id, run_id, agora),
+    )
+    await db.commit()
+    return cur.rowcount > 0
+
+
+async def authorize_task_claim(task_id: str, run_id: str) -> None:
+    """Confirma que uma execução ainda detém o claim do card.
+
+    Levanta ``ValueError`` para IDs ausentes, claims pertencentes a outra
+    execução ou claims expirados; isso impede que uma run zumbi altere um
+    card já reivindicado por outro worker.
+    """
+    if not run_id:
+        raise ValueError("run_id ausente no contexto da execução")
+    db = await _get_db()
+    async with db.execute(
+        "SELECT claim_lock, claim_expires_at FROM vectora_background_tasks "
+        "WHERE id = ?",
+        (task_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        raise ValueError("task não encontrada")
+    if row["claim_lock"] != run_id:
+        raise ValueError("execução não possui o claim atual da task")
+    try:
+        expirado = datetime.fromisoformat(row["claim_expires_at"]) <= _agora()
+    except (TypeError, ValueError):
+        expirado = True
+    if expirado:
+        raise ValueError("claim da execução expirou")
+
+
 async def heartbeat_claim(
     task_id: str, run_id: str, *, ttl_s: int = _DEFAULT_CLAIM_TTL_S
 ) -> bool:

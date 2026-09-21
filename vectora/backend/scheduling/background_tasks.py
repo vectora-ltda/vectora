@@ -1000,6 +1000,7 @@ async def run_task(
             # que se marca bloqueada (`task_id == background_task_id`) não
             # espera aprovação de si mesma — ver `backend/services/middleware.py`.
             "background_task_id": task.id,
+            "background_run_id": run_id,
         }
         if task.workspace_id:
             configurable["workspace_id"] = task.workspace_id
@@ -1388,6 +1389,17 @@ async def resume_background_run(run_id: str, decision: str = "approve") -> str |
     if task is None or not run_thread_id:
         return None
 
+    from backend.scheduling.kanban import ensure_task_claim
+
+    if not await ensure_task_claim(task.id, run_id):
+        logger.warning(
+            "background_tasks: run %s não recuperou o claim de %s",
+            run_id,
+            task.id,
+        )
+        return None
+    watchdog_task = asyncio.create_task(_heartbeat_watchdog(task.id, run_id))
+
     try:
         from backend.services import agent_factory
         from backend.tools.subagent_delegate import SubagentDeps
@@ -1410,6 +1422,7 @@ async def resume_background_run(run_id: str, decision: str = "approve") -> str |
             "user_id": task.user_id,
             "permission_mode": mode,
             "background_task_id": task.id,
+            "background_run_id": run_id,
         }
         if task.workspace_id:
             configurable["workspace_id"] = task.workspace_id
@@ -1486,6 +1499,10 @@ async def resume_background_run(run_id: str, decision: str = "approve") -> str |
         with contextlib.suppress(Exception):
             await _finish_run(run_id, "error", str(exc))
         return None
+    finally:
+        watchdog_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await watchdog_task
 
 
 async def cancel_background_run(run_id: str) -> str | None:
