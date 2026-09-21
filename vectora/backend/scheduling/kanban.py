@@ -198,6 +198,18 @@ async def get_task_status(task_id: str) -> dict[str, Any]:
     return dict(row)
 
 
+async def authorize_task_session(task_id: str, session_id: str) -> None:
+    db = await _get_db()
+    async with db.execute(
+        "SELECT session_id FROM vectora_background_tasks WHERE id = ?", (task_id,)
+    ) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        raise ValueError(f"task {task_id!r} não existe")
+    if row["session_id"] != session_id:
+        raise ValueError("task não pertence à sessão atual")
+
+
 async def set_status(task_id: str, status: str) -> None:
     if status not in KANBAN_STATUSES:
         msg = (
@@ -232,7 +244,12 @@ async def set_status(task_id: str, status: str) -> None:
     await _record_task_event(task_id, from_status, status)
 
 
-async def manual_transition(task_id: str, target_status: str) -> None:
+async def manual_transition(
+    task_id: str,
+    target_status: str,
+    *,
+    authorized_session_id: str | None = None,
+) -> None:
     """Move a task por ação humana direta (drag-and-drop ou `PATCH` de status).
 
     Valida a transição contra `MANUAL_TRANSITIONS`, não só o alvo contra
@@ -242,6 +259,15 @@ async def manual_transition(task_id: str, target_status: str) -> None:
     "Desbloquear") para também limpar `block_kind`/`block_reason`.
     """
     estado = await get_task_status(task_id)
+    if authorized_session_id is not None:
+        db = await _get_db()
+        async with db.execute(
+            "SELECT session_id FROM vectora_background_tasks WHERE id = ?",
+            (task_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None or row["session_id"] != authorized_session_id:
+            raise ValueError("task não pertence à sessão atual")
     atual = estado["status"]
     permitidos = MANUAL_TRANSITIONS.get(atual, frozenset())
     if target_status not in permitidos:

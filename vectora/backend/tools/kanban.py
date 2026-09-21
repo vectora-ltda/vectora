@@ -220,6 +220,7 @@ async def kanban_create(
     )
 )
 async def kanban_update_status(
+    ctx: ToolContext,
     task_id: str,
     status: str,
     block_kind: str | None = None,
@@ -247,6 +248,14 @@ async def kanban_update_status(
         inválida.
     """
     try:
+        if not ctx.thread_id:
+            return json.dumps({"status": "error", "error": "session_id ausente no contexto"})
+        await kanban.authorize_task_session(task_id, ctx.thread_id)
+        if status in ("running", "done"):
+            return json.dumps({
+                "status": "error",
+                "error": "running/done só podem ser alcançados pelos fluxos de execução",
+            })
         if status == "blocked":
             await kanban.block_task(
                 task_id, block_kind or _DEFAULT_BLOCK_KIND, block_reason or ""
@@ -254,7 +263,9 @@ async def kanban_update_status(
         elif status == "ready":
             await kanban.unblock_task(task_id)
         else:
-            await kanban.set_status(task_id, status)
+            await kanban.manual_transition(
+                task_id, status, authorized_session_id=ctx.thread_id
+            )
 
         estado: dict[str, Any] = await kanban.get_task_status(task_id)
         return json.dumps({"result": "ok", "task_id": task_id, **estado})
