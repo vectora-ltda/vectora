@@ -305,8 +305,12 @@ async def test_background_task_owner_boundary_uses_same_session(
         await get_tasks(_req(), "thread-owner")
     assert exc_info.value.status_code == 404
 
-    # O dono da task pode acessar a mesma session quando ela pertence a ele.
-    await native_session_store.delete_session("thread-owner")
+
+async def test_background_task_owner_can_list_owned_session(
+    db: str, monkeypatch: pytest.MonkeyPatch, native_session_store: SessionStore
+) -> None:
+    """O dono pode listar tasks da própria session nativa."""
+    _patch_native_engine(monkeypatch, session_store=native_session_store, texto="feito")
     await native_session_store.create_session("thread-owner-owned", user_id=_OUTRO_UUID)
     owned = await bg.create_task(
         session_id="thread-owner-owned",

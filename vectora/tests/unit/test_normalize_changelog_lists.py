@@ -20,7 +20,7 @@ def _load_normalizer() -> Callable[[Path], bool]:
     return cast("Callable[[Path], bool]", module.normalize_changelog)
 
 
-normalize_changelog = _load_normalizer()
+normalize_changelog: Callable[[Path], bool] = _load_normalizer()
 
 
 def _run(tmp_path: Path, content: str) -> tuple[str, bool, bool]:
@@ -58,6 +58,28 @@ def test_preserves_backtick_and_tilde_fenced_code(tmp_path: Path) -> None:
     assert "* inside tildes" in result
     assert "* still inside\n~~~~" in result
     assert "\n- outside\n" in result
+
+
+def test_preserves_headings_and_lists_inside_fenced_code(tmp_path: Path) -> None:
+    result, changed, _ = _run(
+        tmp_path,
+        "## [1.0.0]\n\n### Features\n\n```text\n### Example\n\n* inside code\n```\n\n* outside\n",
+    )
+
+    assert changed is True
+    assert "### Example\n\n* inside code\n```" in result
+    assert "Esta seção reúne as alterações publicadas nesta versão." in result
+    assert "\n- outside\n" in result
+
+
+def test_preserves_indented_code_list_markers(tmp_path: Path) -> None:
+    result, changed, _ = _run(
+        tmp_path,
+        "## [1.0.0]\n\n### Features\n\n    * indented code\n\t* tabbed code\n* outside\n",
+    )
+
+    assert changed is True
+    assert "    * indented code\n\t* tabbed code\n- outside\n" in result
 
 
 def test_preserves_newline_style_and_unchanged_content(tmp_path: Path) -> None:

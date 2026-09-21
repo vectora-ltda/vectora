@@ -344,7 +344,7 @@ async def post_task(
 ) -> TaskOut:
     from backend.scheduling.background_tasks import create_task
 
-    uid = await _require_thread_access(thread_id, request, require_existing=False)
+    uid = await _require_thread_access(thread_id, request)
     if body.workspace_id:
         from backend.api.handlers.workspaces import require_workspace_access
 
