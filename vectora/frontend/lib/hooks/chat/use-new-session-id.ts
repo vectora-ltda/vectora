@@ -12,7 +12,7 @@
  * client-side que o backend nunca viu (getHistory 404 → tela "Not Found").
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { markAsNew } from "@/lib/stores/new-thread-registry";
 import {
   markWorkspaceChosen,
@@ -45,8 +45,20 @@ export function useNewSessionId(routeParam: string): string {
   // Router mantém a instância da rota entre /session/:id e /session/new.
   // A dependência no parâmetro gera um id novo ao voltar para "new" e mantém
   // o mesmo id enquanto a rota não muda, sem ler refs durante o render.
-  return useMemo(
-    () => (routeParam === "new" ? generateLocalNewId() : ""),
+  // Keep ID generation pure during render: StrictMode may invoke memo
+  // calculators more than once. Registration and one-shot signal consumption
+  // belong to the committed effect instead.
+  const id = useMemo(
+    () => (routeParam === "new" ? safeRandomUUID() : ""),
     [routeParam],
   );
+
+  useEffect(() => {
+    if (routeParam !== "new" || !id) return;
+    markAsNew(id);
+    if (consumeWorkspacePreChosen()) markWorkspaceChosen(id);
+    if (consumeCreateNewWorkspacePreNav()) markCreateNewWorkspace(id);
+  }, [id, routeParam]);
+
+  return id;
 }
