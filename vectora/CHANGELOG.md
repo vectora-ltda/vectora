@@ -4,44 +4,49 @@ Esta vers�o consolida as altera��es publicadas desde a vers�o 0.1.17.
 
 ## [0.1.23](https://github.com/vectora-ltda/vectora/compare/v0.1.22...v0.1.23) (2026-09-21)
 
+Esta seção reúne as alterações publicadas nesta versão.
 
 ### Features
 
-* support parallel release lines with milestones ([6e8510c](https://github.com/vectora-ltda/vectora/commit/6e8510c56835f4bd56c4bab7aa09c595c8eac4a6))
+Os recursos incluídos nesta versão são listados abaixo.
+
+- support parallel release lines with milestones ([6e8510c](https://github.com/vectora-ltda/vectora/commit/6e8510c56835f4bd56c4bab7aa09c595c8eac4a6))
 
 
 ### Bug Fixes
 
-* include changelog normalizer in release lines ([f143bde](https://github.com/vectora-ltda/vectora/commit/f143bdea6380d8e7e96a680cb18e0de62a35f18f))
+As correções incluídas nesta versão são listadas abaixo.
+
+- include changelog normalizer in release lines ([f143bde](https://github.com/vectora-ltda/vectora/commit/f143bdea6380d8e7e96a680cb18e0de62a35f18f))
 
 ## [0.1.22](https://github.com/vectora-ltda/vectora/compare/v0.1.21...v0.1.22) (2026-09-14)
 
 
 ### Features
 
-* **frontend:** complete adaptive session shell, workbench and responsive chat ([#213](https://github.com/vectora-ltda/vectora/issues/213)) ([e3080bd](https://github.com/vectora-ltda/vectora/commit/e3080bd6bef1f587550b5d0bf9356053220805c2))
+- **frontend:** complete adaptive session shell, workbench and responsive chat ([#213](https://github.com/vectora-ltda/vectora/issues/213)) ([e3080bd](https://github.com/vectora-ltda/vectora/commit/e3080bd6bef1f587550b5d0bf9356053220805c2))
 
 
 ### Bug Fixes
 
-* restore settings and backend connection after tray restart ([#209](https://github.com/vectora-ltda/vectora/issues/209)) ([12217ce](https://github.com/vectora-ltda/vectora/commit/12217ce7054f9202b5000d9845c5fa1426f155fc))
+- restore settings and backend connection after tray restart ([#209](https://github.com/vectora-ltda/vectora/issues/209)) ([12217ce](https://github.com/vectora-ltda/vectora/commit/12217ce7054f9202b5000d9845c5fa1426f155fc))
 
 ## [0.1.21](https://github.com/vectora-ltda/vectora/compare/v0.1.20...v0.1.21) (2026-09-13)
 
 
 ### Features
 
-* add durable media quota reservations ([#172](https://github.com/vectora-ltda/vectora/issues/172)) ([e05c54b](https://github.com/vectora-ltda/vectora/commit/e05c54b47f3ce377cc91d1e62f64a186d5d66898))
-* add owned multimodal asset metadata ([#173](https://github.com/vectora-ltda/vectora/issues/173)) ([5478381](https://github.com/vectora-ltda/vectora/commit/5478381905c13dfbfee1e09e3550112bec4f5d25))
-* sincronizar issues da company com o github ([#185](https://github.com/vectora-ltda/vectora/issues/185)) ([d9c6d1c](https://github.com/vectora-ltda/vectora/commit/d9c6d1cd18968381851e9fea4e88c56134690be2))
+- add durable media quota reservations ([#172](https://github.com/vectora-ltda/vectora/issues/172)) ([e05c54b](https://github.com/vectora-ltda/vectora/commit/e05c54b47f3ce377cc91d1e62f64a186d5d66898))
+- add owned multimodal asset metadata ([#173](https://github.com/vectora-ltda/vectora/issues/173)) ([5478381](https://github.com/vectora-ltda/vectora/commit/5478381905c13dfbfee1e09e3550112bec4f5d25))
+- sincronizar issues da company com o github ([#185](https://github.com/vectora-ltda/vectora/issues/185)) ([d9c6d1c](https://github.com/vectora-ltda/vectora/commit/d9c6d1cd18968381851e9fea4e88c56134690be2))
 
 
 ### Bug Fixes
 
-* **ci:** harden edge deploy and release artifact publishing ([#192](https://github.com/vectora-ltda/vectora/issues/192)) ([5cb1989](https://github.com/vectora-ltda/vectora/commit/5cb19895a218a84d58c0839188aadca0103d27f1))
-* **electron:** avoid deprecated navigation fallback calls ([#195](https://github.com/vectora-ltda/vectora/issues/195)) ([c482d59](https://github.com/vectora-ltda/vectora/commit/c482d59a9bf2a74ef14e7c96dd81e55e524cce47))
-* **frontend:** ignore stale branch comparison responses ([#194](https://github.com/vectora-ltda/vectora/issues/194)) ([d12af54](https://github.com/vectora-ltda/vectora/commit/d12af548c2dddd1d520a780f830cd3ba47bb9600))
-* propagate trusted BYOK media billing source ([#201](https://github.com/vectora-ltda/vectora/issues/201)) ([5ef05fb](https://github.com/vectora-ltda/vectora/commit/5ef05fbd4c5e57559100598b8e085bfb6cc4a6cf))
+- **ci:** harden edge deploy and release artifact publishing ([#192](https://github.com/vectora-ltda/vectora/issues/192)) ([5cb1989](https://github.com/vectora-ltda/vectora/commit/5cb19895a218a84d58c0839188aadca0103d27f1))
+- **electron:** avoid deprecated navigation fallback calls ([#195](https://github.com/vectora-ltda/vectora/issues/195)) ([c482d59](https://github.com/vectora-ltda/vectora/commit/c482d59a9bf2a74ef14e7c96dd81e55e524cce47))
+- **frontend:** ignore stale branch comparison responses ([#194](https://github.com/vectora-ltda/vectora/issues/194)) ([d12af54](https://github.com/vectora-ltda/vectora/commit/d12af548c2dddd1d520a780f830cd3ba47bb9600))
+- propagate trusted BYOK media billing source ([#201](https://github.com/vectora-ltda/vectora/issues/201)) ([5ef05fb](https://github.com/vectora-ltda/vectora/commit/5ef05fbd4c5e57559100598b8e085bfb6cc4a6cf))
 
 ## [0.1.20](https://github.com/vectora-ltda/vectora/compare/v0.1.19...v0.1.20) (2026-09-11)
 
