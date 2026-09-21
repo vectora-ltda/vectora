@@ -20,7 +20,6 @@ const PROVIDER_LABELS: Record<GhBotProvider, string> = {
   openai: "OpenAI",
   google_genai: "Google (Gemini)",
   openrouter: "OpenRouter",
-  ollama: "Ollama",
 };
 
 const REVIEW_STYLE_LABELS: Record<GhBotReviewStyle, () => string> = {

@@ -30,9 +30,9 @@ function shortName(path: string): string {
 }
 
 export function SidebarFolders() {
-  const workspaces = useWorkspacesStore((s) => s.workspaces);
+  const workspaces = useWorkspacesStore((s) => s.workspaces) ?? [];
   const activeId = useWorkspacesStore((s) => s.active_id);
-  const safeRoots = useWorkspacesStore((s) => s.safeRoots);
+  const safeRoots = useWorkspacesStore((s) => s.safeRoots) ?? [];
   const setActive = useWorkspacesStore((s) => s.setActive);
   const loadSafeRoots = useWorkspacesStore((s) => s.loadSafeRoots);
 
