@@ -28,9 +28,8 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
           target-branch: ${{ github.ref_name }}
-          # Labels são metadados opcionais; uma edição concorrente não deve
-          # impedir a atualização do PR de release.
-          skip-labeling: true
+          # O Release Please deve manter `autorelease: pending`: a validação
+          # do branch confiável e a exceção de milestone dependem desse label.
 
       # Somente o branch exato gerado para este alvo pode receber o token de
       # publicação. As validações evitam branches parecidos de colaboradores.
