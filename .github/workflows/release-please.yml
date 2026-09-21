@@ -1,20 +1,16 @@
 name: Release Please
 
-# Mantém um único PR "chore(master): release X.Y.Z" sempre atualizado com o
-# changelog acumulado desde a última release e a versão calculada a partir
-# dos títulos de PR (Conventional Commits) mesclados em master. Nada é
-# publicado sozinho — publicar é decisão do usuário: mesclar esse PR é o
-# que cria a tag vX.Y.Z, que dispara vectora.yml (release-native +
-# publish-update-channel). Sem esse merge, PRs normais só acumulam.
+# Cada linha de release tem sua própria execução, concorrência e PR. O branch
+# alvo explícito mantém manifest e changelog isolados no histórico daquela
+# linha; mesclar a PR criada pelo Release Please continua sendo a decisão que
+# cria a tag e inicia a entrega.
 
 on:
   push:
-    branches: [master]
+    branches: [master, release/0.1]
 
-# Apenas uma execução pode atualizar o PR de release e suas labels por vez.
-# Isso evita que duas execuções removam a mesma label simultaneamente.
 concurrency:
-  group: release-please-master
+  group: release-please-${{ github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -25,16 +21,53 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
-      # GITHUB_TOKEN padrão não dispara outros workflows pelos eventos que
-      # ele mesmo cria (proteção anti-loop do GitHub) — a tag vX.Y.Z criada
-      # pela action nunca ativava vectora.yml (release-native +
-      # publish-update-channel ficavam pulados pra sempre). Token pessoal
-      # não tem essa restrição.
       - uses: googleapis/release-please-action@v5
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-          # Labels are optional metadata; do not fail the release update when
-          # a concurrent or manually edited PR already removed one.
-          skip-labeling: true
+          target-branch: ${{ github.ref_name }}
+
+      # A release PR is identified by its generated head branch. The lookup is
+      # scoped to the current base so two lines never normalize one another.
+      - name: Find Release Please branch
+        id: release-branch
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          TARGET_BRANCH: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          branch="$(gh pr list \
+            --repo "$GITHUB_REPOSITORY" \
+            --base "$TARGET_BRANCH" \
+            --state open \
+            --json headRefName \
+            --jq '[.[] | select(.headRefName | startswith("release-please--branches--"))][0].headRefName // ""')"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Check out Release Please branch
+        if: steps.release-branch.outputs.branch != ''
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release-branch.outputs.branch }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+
+      - name: Normalize generated changelog list markers
+        if: steps.release-branch.outputs.branch != ''
+        run: python utils/normalize_changelog_lists.py
+
+      - name: Commit normalized changelog
+        if: steps.release-branch.outputs.branch != ''
+        env:
+          RELEASE_BRANCH: ${{ steps.release-branch.outputs.branch }}
+        shell: bash
+        run: |
+          if git diff --quiet -- vectora/CHANGELOG.md; then
+            echo "Changelog markers are already normalized."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vectora/CHANGELOG.md
+          git commit -m "chore: normalize generated changelog list markers"
+          git push origin "HEAD:$RELEASE_BRANCH"
