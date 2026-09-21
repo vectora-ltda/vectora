@@ -311,6 +311,21 @@ async def _get_session_store() -> Any:
     return await agent_factory.get_session_store()
 
 
+async def _is_thread_deleted(thread_id: str) -> bool:
+    """Return whether ``thread_id`` has a durable deletion tombstone.
+
+    The native session row is removed as part of deletion, while historical
+    background runs can remain for audit purposes.  Checking this tombstone
+    before reserving a new session prevents an attacker from reusing an old ID
+    and recovering access to those retained records.
+    """
+    db = await _get_db()
+    async with db.execute(
+        "SELECT 1 FROM deleted_threads WHERE thread_id = ? LIMIT 1", (thread_id,)
+    ) as cursor:
+        return await cursor.fetchone() is not None
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

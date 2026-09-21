@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 _LIST_MARKER = re.compile(r"^([ ]{0,3})\*\s+")
-_FENCE = re.compile(r"^[ \t]{0,3}((?:`{3,}|~{3,})(?![`~]))(.*?)(?:\r?\n)?$")
+_FENCE = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})(.*?)(?:\r?\n)?$")
 _HEADING = re.compile(r"^(#{2,3})\s+(.+?)\s*(?:\r?\n)?$")
 
 
@@ -30,6 +30,14 @@ def _advance_fence(
     fence_match = _FENCE.match(line)
     if fence_char is None and fence_match:
         delimiter = fence_match.group(1)
+        info = fence_match.group(2)
+        # CommonMark forbids backticks in the info string of a backtick
+        # fence, but permits the opposite delimiter. Tilde fences accept
+        # either character in their info string. Keep the delimiter itself
+        # homogeneous while allowing valid language identifiers such as
+        # ``~~~`python`` and `````~~~``.
+        if delimiter[0] == "`" and "`" in info:
+            return fence_char, fence_length
         return delimiter[0], len(delimiter)
     if fence_char is not None and fence_match:
         delimiter = fence_match.group(1)

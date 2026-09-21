@@ -16,6 +16,7 @@ import pytest
 from fastapi import BackgroundTasks, HTTPException
 
 import backend
+from backend.api.handlers import threads as thread_handler
 from backend.api.handlers.background import (
     CreateLinkRequest,
     CreateTaskRequest,
@@ -47,6 +48,7 @@ _OUTRO_UUID = "bb844f17-7e0e-4b0a-8991-c3aab9bdcc64"
 _SCHEMA = (
     Path(backend.__file__).parent / "storage" / "migrations" / "sqlite" / "schema.sql"
 )
+_REAL_IS_THREAD_DELETED = thread_handler._is_thread_deleted
 
 
 def _req(uid: str | None = _UUID) -> Any:
@@ -70,10 +72,21 @@ async def db(tmp_path, monkeypatch):
 
     setup = await _connect()
     await setup.executescript(up_sql)
+    await setup.execute(
+        "CREATE TABLE IF NOT EXISTS deleted_threads ("
+        "thread_id TEXT PRIMARY KEY, deleted_at TEXT NOT NULL)"
+    )
     await setup.commit()
     await setup.close()
 
     monkeypatch.setattr(bg, "_get_db", _connect)
+
+    async def _no_tombstone(_thread_id: str) -> bool:
+        return False
+
+    # This suite owns the background-task database; the production tombstone
+    # database is covered by the focused regression below.
+    monkeypatch.setattr(thread_handler, "_is_thread_deleted", _no_tombstone)
 
     class _SyntheticSessionStore:
         async def get_session(self, thread_id: str) -> dict[str, str]:
@@ -348,6 +361,47 @@ async def test_post_task_registers_missing_native_session(
     assert session["user_id"] == _UUID
     assert created.session_id == thread_id
     assert [item.id for item in await get_tasks(_req(), thread_id)] == [created.id]
+
+
+async def test_post_task_cannot_recreate_tombstoned_session(
+    db: str, monkeypatch: pytest.MonkeyPatch, native_session_store: SessionStore
+) -> None:
+    """A deleted ID cannot be reclaimed to reach retained task history."""
+    _patch_native_engine(monkeypatch, session_store=native_session_store, texto="feito")
+    thread_id = "thread-deleted-tombstone"
+    import aiosqlite
+
+    async def _connect_checkpoints() -> Any:
+        conn: Any = await aiosqlite.connect(db)
+        conn.row_factory = lambda c, r: dict(
+            zip([col[0] for col in c.description], r, strict=False)
+        )
+        return conn
+
+    monkeypatch.setattr(thread_handler, "_get_db", _connect_checkpoints)
+    monkeypatch.setattr(thread_handler, "_is_thread_deleted", _REAL_IS_THREAD_DELETED)
+    checkpoints = await _connect_checkpoints()
+    await checkpoints.execute(
+        "INSERT INTO deleted_threads (thread_id, deleted_at) VALUES (?, ?)",
+        (thread_id, "2026-09-21T00:00:00+00:00"),
+    )
+    await checkpoints.commit()
+    await checkpoints.close()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await post_task(
+            _req(),
+            thread_id,
+            CreateTaskRequest(
+                kind="routine",
+                name="reclaim",
+                instruction="i",
+                trigger_type="manual",
+            ),
+        )
+
+    assert exc_info.value.status_code == 404
+    assert await native_session_store.get_session(thread_id) is None
 
 
 async def test_patch_task_agent_profile_id_atribui_e_desatribui_via_http(db):

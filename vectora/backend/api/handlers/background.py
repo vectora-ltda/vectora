@@ -342,16 +342,24 @@ async def get_board(request: Request, thread_id: str) -> BoardOut:
 async def post_task(
     request: Request, thread_id: str, body: CreateTaskRequest
 ) -> TaskOut:
-    from backend.api.handlers.threads import _get_session_store
+    from backend.api.handlers.threads import (
+        _get_session_store,
+        _is_thread_deleted,
+        _reconcile_delete_lock,
+    )
     from backend.scheduling.background_tasks import create_task
 
     uid = _user_id(request)
-    session_store = await _get_session_store()
-    if await session_store.get_session(thread_id) is None:
-        # The Kanban dialog can submit before the first chat turn persists the
-        # generated thread. INSERT OR IGNORE makes this registration safe when
-        # two requests race; the strict check below then verifies ownership.
-        await session_store.create_session(thread_id, user_id=uid)
+    # A first Kanban task may arrive before the first chat turn persists the
+    # generated thread. Reserve that ID only while holding the same lock used
+    # by DeleteThread, and reject durable tombstones before registration. This
+    # keeps the legitimate first-task path while making deleted IDs one-way.
+    async with _reconcile_delete_lock:
+        if await _is_thread_deleted(thread_id):
+            raise HTTPException(status_code=404, detail="Thread não encontrada")
+        session_store = await _get_session_store()
+        if await session_store.get_session(thread_id) is None:
+            await session_store.create_session(thread_id, user_id=uid)
     uid = await _require_thread_access(thread_id, request)
     if body.workspace_id:
         from backend.api.handlers.workspaces import require_workspace_access
