@@ -72,6 +72,13 @@ async def test_post_board_cria_com_slug_derivado(db):
     assert board.workspace_id is None
 
 
+async def test_board_rejeita_chamada_sem_usuario(db):
+    with pytest.raises(HTTPException) as exc_info:
+        await get_boards(_req(uid=None))
+
+    assert exc_info.value.status_code == 401
+
+
 async def test_get_boards_so_lista_do_proprio_usuario(db):
     await post_board(_req(), CreateBoardRequest(name="Meu board"))
     await post_board(_req(_OUTRO_UUID), CreateBoardRequest(name="De outro"))

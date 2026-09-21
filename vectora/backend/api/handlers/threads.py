@@ -1904,7 +1904,9 @@ class PendingInterruptResponse(BaseModel):
     "/threads/{thread_id}/pending-interrupt", response_model=PendingInterruptResponse
 )
 async def thread_pending_interrupt(
-    thread_id: str, workspace_id: str | None = None
+    thread_id: str,
+    request: Request = None,  # ty: ignore[invalid-parameter-default]
+    workspace_id: str | None = None,
 ) -> PendingInterruptResponse:
     """Reidrata o HITLPanel após um reload de página.
 
@@ -1913,6 +1915,8 @@ async def thread_pending_interrupt(
     F5 no meio de uma pausa HITL perdia o card até o usuário mandar mensagem
     nova. Chamado pelo frontend ao montar a sessão.
     """
+    if request is not None:
+        await _assert_existing_thread_ownership(thread_id, request)
     from backend.services.agent_factory import aget_thread_pending_interrupt
 
     pending = await aget_thread_pending_interrupt(thread_id, workspace_id)

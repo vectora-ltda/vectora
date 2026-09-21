@@ -30,12 +30,11 @@ router = APIRouter(prefix="/boards", tags=["boards"])
 
 
 def _user_id(request: Request) -> str:
-    """Mesmo padrão de `agent_profiles.py`/`workspaces.py` — 'local' em
-    modo CLI/desktop sem auth obrigatória."""
+    """Return the authenticated principal required by board operations."""
     user = getattr(request.state, "user", None)
     if user is not None and getattr(user, "id", None):
         return str(user.id)
-    return "local"
+    raise HTTPException(status_code=401, detail="Não autenticado")
 
 
 class BoardOut(BaseModel):

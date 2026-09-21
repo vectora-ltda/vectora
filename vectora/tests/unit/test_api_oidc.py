@@ -205,6 +205,7 @@ class TestOidcCallback:
                         "sub": "u1",
                         "email": "sso@example.com",
                         "name": "SSO User",
+                        "email_verified": True,
                     }
                 ),
             ),

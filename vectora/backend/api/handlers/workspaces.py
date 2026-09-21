@@ -4018,6 +4018,9 @@ async def toggle_rag_bucket(
     from backend.services import rag_buckets
     from backend.workspace.runtime_settings import runtime_settings
 
+    bucket = rag_buckets.get_bucket(runtime_settings, bucket_id)
+    if bucket is None or bucket.workspace_id != workspace_id:
+        raise HTTPException(status_code=404, detail="Bucket não encontrado")
     rag_buckets.set_active(
         runtime_settings,
         workspace_id=workspace_id,
@@ -4039,7 +4042,11 @@ async def delete_rag_bucket(workspace_id: str, bucket_id: str) -> dict:
     from backend.storage.factory import get_vector_store_backend
     from backend.workspace.runtime_settings import runtime_settings
 
-    rag_buckets.delete_bucket(runtime_settings, bucket_id)
+    deleted = rag_buckets.delete_bucket(
+        runtime_settings, bucket_id, workspace_id=workspace_id
+    )
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Bucket não encontrado")
     try:
         backend = await get_vector_store_backend()
         await backend.purge(f"bucket_{bucket_id}")

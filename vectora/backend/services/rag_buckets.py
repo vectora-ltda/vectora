@@ -100,21 +100,29 @@ def get_bucket(rs: RuntimeSettings, bucket_id: str) -> RagBucket | None:
     return _to_bucket(bucket_id, record) if record is not None else None
 
 
-def delete_bucket(rs: RuntimeSettings, bucket_id: str) -> None:
+def delete_bucket(
+    rs: RuntimeSettings, bucket_id: str, *, workspace_id: str | None = None
+) -> bool:
     """Remove o bucket do catálogo e de qualquer lista de ativos. Idempotente
     — bucket já ausente não levanta erro."""
     buckets = _load_buckets(rs)
+    bucket = buckets.get(bucket_id)
+    if bucket is None:
+        return False
+    if workspace_id is not None and bucket.get("workspace_id") != workspace_id:
+        return False
     buckets.pop(bucket_id, None)
     rs.set(_BUCKETS_KEY, buckets)
 
     active = _load_active(rs)
     changed = False
-    for workspace_id, ids in list(active.items()):
+    for active_workspace_id, ids in list(active.items()):
         if bucket_id in ids:
-            active[workspace_id] = [i for i in ids if i != bucket_id]
+            active[active_workspace_id] = [i for i in ids if i != bucket_id]
             changed = True
     if changed:
         rs.set(_ACTIVE_KEY, active)
+    return True
 
 
 def set_active(
@@ -125,7 +133,8 @@ def set_active(
     Bucket inexistente é ignorado silenciosamente — nunca cria uma entrada
     de bucket ativo órfã, sem registro correspondente em `rag_buckets`.
     """
-    if get_bucket(rs, bucket_id) is None:
+    bucket = get_bucket(rs, bucket_id)
+    if bucket is None or bucket.workspace_id != workspace_id:
         return
     active_map = _load_active(rs)
     current = set(active_map.get(workspace_id, []))
