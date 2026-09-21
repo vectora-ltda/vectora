@@ -21,12 +21,14 @@ on:
     tags: ["v*"]
     paths:
       - "vectora/**"
+      - "utils/**"
       - ".github/workflows/vectora.yml"
       - ".github/actions/**"
   pull_request:
     branches: [master, release/0.1]
     paths:
       - "vectora/**"
+      - "utils/**"
       - ".github/workflows/vectora.yml"
       - ".github/actions/**"
   workflow_dispatch:

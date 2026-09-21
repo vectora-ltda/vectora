@@ -22,27 +22,42 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: googleapis/release-please-action@v5
+        id: release
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
           target-branch: ${{ github.ref_name }}
 
-      # A release PR is identified by its generated head branch. The lookup is
-      # scoped to the current base so two lines never normalize one another.
+      # Only the exact branch generated for this target is eligible. The
+      # repository and label checks prevent a collaborator-owned lookalike
+      # branch from being checked out while the release token is available.
       - name: Find Release Please branch
         id: release-branch
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           TARGET_BRANCH: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
         shell: bash
         run: |
-          branch="$(gh pr list \
+          expected="release-please--branches--${TARGET_BRANCH}--components--vectora"
+          prs="$(gh pr list \
             --repo "$GITHUB_REPOSITORY" \
             --base "$TARGET_BRANCH" \
+            --head "$REPOSITORY:$expected" \
             --state open \
-            --json headRefName \
-            --jq '[.[] | select(.headRefName | startswith("release-please--branches--"))][0].headRefName // ""')"
+            --json number,headRefName,headRepository,labels)"
+          pr="$(jq -c --arg expected "$expected" --arg repository "$REPOSITORY" \
+            'map(select(\
+              .headRefName == $expected and \
+              .headRepository.nameWithOwner == $repository and \
+              ([.labels[].name] | index("autorelease: pending"))\
+            ))[0] // {}' <<<"$prs")"
+          branch="$(jq -r '.headRefName // empty' <<<"$pr")"
+          if [[ -z "$branch" ]]; then
+            echo "No trusted Release Please PR found for $TARGET_BRANCH."
+            exit 0
+          fi
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
 
       - name: Check out Release Please branch
@@ -51,6 +66,7 @@ jobs:
         with:
           ref: ${{ steps.release-branch.outputs.branch }}
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          persist-credentials: false
 
       - name: Normalize generated changelog list markers
         if: steps.release-branch.outputs.branch != ''
@@ -60,6 +76,7 @@ jobs:
         if: steps.release-branch.outputs.branch != ''
         env:
           RELEASE_BRANCH: ${{ steps.release-branch.outputs.branch }}
+          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
         shell: bash
         run: |
           if git diff --quiet -- vectora/CHANGELOG.md; then
@@ -70,4 +87,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add vectora/CHANGELOG.md
           git commit -m "chore: normalize generated changelog list markers"
+          git remote set-url origin "https://x-access-token:${RELEASE_PLEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push origin "HEAD:$RELEASE_BRANCH"

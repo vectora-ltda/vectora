@@ -7,7 +7,63 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import NotRequired, TypedDict, cast
+
+
+class LabelPayload(TypedDict):
+    """Subset of a GitHub label included in pull-request events."""
+
+    name: NotRequired[str]
+
+
+class RepositoryPayload(TypedDict):
+    """Repository identity attached to a pull-request head."""
+
+    full_name: NotRequired[str]
+    nameWithOwner: NotRequired[str]
+
+
+class HeadPayload(TypedDict):
+    """Branch and repository identity for a pull-request head."""
+
+    ref: NotRequired[str]
+    repo: NotRequired[RepositoryPayload | None]
+
+
+class BasePayload(TypedDict):
+    """Base branch identity for a pull request."""
+
+    ref: NotRequired[str]
+
+
+class MilestonePayload(TypedDict):
+    """Milestone metadata from a pull-request event."""
+
+    title: NotRequired[str]
+
+
+class PullRequestPayload(TypedDict):
+    """Event fields consumed by the release-line validator."""
+
+    base: NotRequired[BasePayload | None]
+    head: NotRequired[HeadPayload | None]
+    labels: NotRequired[list[LabelPayload]]
+    milestone: NotRequired[MilestonePayload | None]
+    title: NotRequired[str]
+
+
+class RepositoryEventPayload(TypedDict):
+    """Repository identity from the webhook envelope."""
+
+    full_name: NotRequired[str]
+
+
+class PullRequestEvent(TypedDict):
+    """Subset of the GitHub pull-request webhook envelope we validate."""
+
+    repository: NotRequired[RepositoryEventPayload | None]
+    pull_request: NotRequired[PullRequestPayload | None]
+
 
 _MAINTENANCE_MILESTONE = "0.1.x"
 _NEXT_MINOR_MILESTONE = "0.2"
@@ -17,7 +73,7 @@ _RELEASE_PLEASE_LABEL = "autorelease: pending"
 _SUPPORTED_BASES = {"master", "release/0.1"}
 
 
-def _labels(pull_request: dict[str, Any]) -> set[str]:
+def _labels(pull_request: PullRequestPayload) -> set[str]:
     """Return label names from the GitHub event payload."""
     return {
         str(label.get("name", ""))
@@ -26,7 +82,9 @@ def _labels(pull_request: dict[str, Any]) -> set[str]:
     }
 
 
-def _is_release_please_pr(event: dict[str, Any], pull_request: dict[str, Any]) -> bool:
+def _is_release_please_pr(
+    event: PullRequestEvent, pull_request: PullRequestPayload
+) -> bool:
     """Recognize an automated release PR using immutable repository context."""
     head = pull_request.get("head") or {}
     head_repo = (head.get("repo") or {}).get("full_name")
@@ -38,21 +96,22 @@ def _is_release_please_pr(event: dict[str, Any], pull_request: dict[str, Any]) -
     )
 
 
-def _is_vext_pr(pull_request: dict[str, Any]) -> bool:
+def _is_vext_pr(pull_request: PullRequestPayload) -> bool:
     """Identify the VEXT stream that is the sole ``0.2`` exception."""
     title = str(pull_request.get("title", ""))
     head_ref = str((pull_request.get("head") or {}).get("ref", ""))
     return bool(_VEXT_TOKEN.search(title) or _VEXT_TOKEN.search(head_ref))
 
 
-def validate_pull_request(event: dict[str, Any]) -> list[str]:
+def validate_pull_request(event: PullRequestEvent) -> list[str]:
     """Return actionable validation errors for a pull-request event."""
     pull_request = event.get("pull_request")
-    if not isinstance(pull_request, dict):
+    if pull_request is None:
         return []
 
     errors: list[str] = []
-    base = str((pull_request.get("base") or {}).get("ref", ""))
+    base_payload = pull_request.get("base") or {}
+    base = str(base_payload.get("ref", ""))
     if _is_release_please_pr(event, pull_request):
         return []
     if base not in _SUPPORTED_BASES:
@@ -62,11 +121,7 @@ def validate_pull_request(event: dict[str, Any]) -> list[str]:
         )
     else:
         milestone = pull_request.get("milestone")
-        title = (
-            str(milestone.get("title", "").strip())
-            if isinstance(milestone, dict)
-            else ""
-        )
+        title = str(milestone.get("title", "").strip()) if milestone else ""
         vext = _is_vext_pr(pull_request)
         expected = _NEXT_MINOR_MILESTONE if vext else _MAINTENANCE_MILESTONE
         if not title:
@@ -94,7 +149,10 @@ def main() -> int:
     if not event_path:
         print("GITHUB_EVENT_PATH não foi definido.", file=sys.stderr)
         return 2
-    payload = json.loads(Path(event_path).read_text(encoding="utf-8"))
+    payload = cast(
+        "PullRequestEvent",
+        json.loads(Path(event_path).read_text(encoding="utf-8")),
+    )
     errors = validate_pull_request(payload)
     if errors:
         for error in errors:

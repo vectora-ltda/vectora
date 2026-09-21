@@ -10,7 +10,17 @@ name: PR Checks
 
 on:
   pull_request:
-    types: [opened, edited, synchronize, reopened, milestoned, demilestoned]
+    types:
+      [
+        opened,
+        edited,
+        synchronize,
+        reopened,
+        milestoned,
+        demilestoned,
+        labeled,
+        unlabeled,
+      ]
     branches: [master, release/0.1]
 
 concurrency:
@@ -87,23 +97,6 @@ jobs:
               });
             }
             core.setFailed(message);
-
-  release-milestone:
-    name: Validate release milestone
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
-      - name: Validate milestone and base branch
-        run: python utils/validate_pr_milestone.py
-        env:
-          GITHUB_EVENT_PATH: ${{ github.event_path }}
 
   no-plan-metadata:
     name: Sem Sprint/Bloco/Fase ou menção a ferramenta de IA em título/descrição do PR
