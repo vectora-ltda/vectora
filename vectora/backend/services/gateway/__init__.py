@@ -66,6 +66,7 @@ _REVIEW_SHUTDOWN_ERROR = "review worker shutting down; retry later"
 #: conexão pra cada worker terminar o que já está processando/enfileirado
 #: e sair, em vez de ficar bloqueado pra sempre em `queue.get()`.
 _STOP_WORKER = object()
+_STOP_REVIEW_WORKER = object()
 
 
 class GatewayRequestItem(TypedDict):
@@ -109,6 +110,7 @@ class GatewayMessage(TypedDict, total=False):
 _ForwardJob = tuple[
     "aiohttp.ClientWebSocketResponse", "aiohttp.ClientSession", "GatewayRequestItem"
 ]
+_ReviewJob = tuple[str, str, dict[str, str], str]
 
 
 class GatewayClient:
@@ -139,12 +141,12 @@ class GatewayClient:
         #: mesmo tempo na mesma conexão.
         self._ws_send_lock = asyncio.Lock()
         self._review_delivery_ids: deque[str] = deque(maxlen=1024)
-        self._review_queue: asyncio.Queue[tuple[str, str, dict[str, str], str]] = (
-            asyncio.Queue(maxsize=_MAX_QUEUED_REVIEWS)
+        self._review_queue: asyncio.Queue[_ReviewJob | object] = asyncio.Queue(
+            maxsize=_MAX_QUEUED_REVIEWS
         )
         self._review_workers: set[asyncio.Task[None]] = set()
         self._active_review_jobs: dict[str, str] = {}
-        self._review_accepting = True
+        self._review_accepting: bool = True
 
     # ------------------------------------------------------------------
     # Public API
@@ -159,37 +161,67 @@ class GatewayClient:
 
     async def stop(self) -> None:
         """Cancela o loop de conexão e resolve reviews pendentes."""
+        deadline = asyncio.get_running_loop().time() + _REVIEW_SHUTDOWN_TIMEOUT_S
         self._review_accepting = False
         if self._task and not self._task.done():
             self._task.cancel()
         self._task = None
-        queued: list[tuple[str, str, dict[str, str], str]] = []
+        queued: list[_ReviewJob] = []
         while True:
             try:
-                queued.append(self._review_queue.get_nowait())
+                item = self._review_queue.get_nowait()
             except asyncio.QueueEmpty:
                 break
-        callbacks = []
+            if item is _STOP_REVIEW_WORKER:
+                self._review_queue.task_done()
+                continue
+            queued.append(cast("_ReviewJob", item))
+        callbacks: list[asyncio.Task[None]] = []
         for job_id, _diff, _metadata, callback_secret in queued:
             self._review_queue.task_done()
             callbacks.append(
-                self._post_review_result(
-                    job_id, callback_secret, error=_REVIEW_SHUTDOWN_ERROR
+                asyncio.create_task(
+                    self._post_review_result(
+                        job_id, callback_secret, error=_REVIEW_SHUTDOWN_ERROR
+                    )
                 )
             )
-        if callbacks:
-            await asyncio.gather(*callbacks, return_exceptions=True)
+        await self._await_review_tasks(callbacks, deadline)
 
         workers = set(self._review_workers)
         if workers:
-            done, pending = await asyncio.wait(
-                workers, timeout=_REVIEW_SHUTDOWN_TIMEOUT_S
-            )
-            for worker in pending:
-                worker.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
-            await asyncio.gather(*done, return_exceptions=True)
+            for _ in workers:
+                self._review_queue.put_nowait(_STOP_REVIEW_WORKER)
+            remaining = max(0.0, deadline - asyncio.get_running_loop().time())
+            if remaining:
+                _done, pending = await asyncio.wait(workers, timeout=remaining)
+            else:
+                pending = workers
+            if pending:
+                for worker in pending:
+                    worker.cancel()
+                remaining = max(0.0, deadline - asyncio.get_running_loop().time())
+                if remaining:
+                    _done, pending = await asyncio.wait(pending, timeout=remaining)
+                for worker in pending:
+                    worker.cancel()
+            await asyncio.gather(*workers, return_exceptions=True)
         self._review_workers.clear()
+
+    async def _await_review_tasks(
+        self, tasks: list[asyncio.Task[None]], deadline: float
+    ) -> None:
+        """Aguarda callbacks até o prazo único de desligamento e cancela o resto."""
+        if not tasks:
+            return
+        remaining = max(0.0, deadline - asyncio.get_running_loop().time())
+        if remaining:
+            _done, pending = await asyncio.wait(tasks, timeout=remaining)
+        else:
+            pending = set(tasks)
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     # ------------------------------------------------------------------
     # Internals
@@ -423,21 +455,24 @@ class GatewayClient:
     async def _review_worker(self) -> None:
         while True:
             payload = await self._review_queue.get()
-            job_id, _diff, _metadata, callback_secret = payload
-            self._active_review_jobs[job_id] = callback_secret
             try:
-                await self._handle_review_job(*payload)
-            except asyncio.CancelledError:
-                await asyncio.shield(
-                    self._post_review_result(
+                if payload is _STOP_REVIEW_WORKER:
+                    return
+                job_id, _diff, _metadata, callback_secret = cast("_ReviewJob", payload)
+                self._active_review_jobs[job_id] = callback_secret
+                try:
+                    review_job = cast("_ReviewJob", payload)
+                    await self._handle_review_job(*review_job)
+                except asyncio.CancelledError:
+                    await self._post_review_result(
                         job_id, callback_secret, error=_REVIEW_SHUTDOWN_ERROR
                     )
-                )
-                raise
-            except Exception:
-                logger.exception("gateway: review worker falhou")
+                    raise
+                except Exception:
+                    logger.exception("gateway: review worker falhou")
+                finally:
+                    self._active_review_jobs.pop(job_id, None)
             finally:
-                self._active_review_jobs.pop(job_id, None)
                 self._review_queue.task_done()
 
     async def _handle_review_job(

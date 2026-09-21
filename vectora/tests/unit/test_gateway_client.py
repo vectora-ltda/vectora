@@ -906,6 +906,29 @@ class TestGatewayClientReviewJob:
         )
 
     @pytest.mark.asyncio
+    async def test_stop_encerra_workers_ociosos_com_sentinela(self) -> None:
+        client = self._client()
+        client._ensure_review_workers()
+
+        await asyncio.wait_for(client.stop(), timeout=1.0)
+
+        assert not client._review_workers
+
+    @pytest.mark.asyncio
+    async def test_stop_limita_callbacks_ao_prazo_de_desligamento(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = self._client()
+        await client._review_queue.put(("queued-slow", "diff", {}, "secret"))
+        monkeypatch.setattr("backend.services.gateway._REVIEW_SHUTDOWN_TIMEOUT_S", 0.05)
+
+        async def slow_callback(*_args: object, **_kwargs: object) -> None:
+            await asyncio.sleep(1.0)
+
+        with patch.object(client, "_post_review_result", new=slow_callback):
+            await asyncio.wait_for(client.stop(), timeout=0.5)
+
+    @pytest.mark.asyncio
     async def test_erro_borda_post_review_result_falha_de_rede_nao_propaga(
         self,
     ) -> None:
