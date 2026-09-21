@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import sys
@@ -89,7 +88,6 @@ type EventPayload = PullRequestEvent | dict[str, object]
 _MAINTENANCE_MILESTONE = "0.1.x"
 _FEATURE_MILESTONE = "0.2"
 _VEXT_TOKEN = re.compile(r"(?<![A-Za-z0-9])vext(?![A-Za-z0-9])", re.IGNORECASE)
-_RELEASE_PLEASE_HEAD = re.compile(r"^release-please--branches--")
 _RELEASE_PLEASE_LABEL = "autorelease: pending"
 _SUPPORTED_BASES = {"master", "release/0.1"}
 
@@ -116,9 +114,11 @@ def _is_release_please_pr(
     head = pull_request.head
     head_repo = head.repo.full_name if head and head.repo else None
     repository = event.repository
+    base = pull_request.base.ref if pull_request.base else ""
+    expected_head = f"release-please--branches--{base}--components--vectora"
     return (
         head_repo == (repository.full_name if repository else None)
-        and bool(_RELEASE_PLEASE_HEAD.match(head.ref if head else ""))
+        and (head.ref if head else "") == expected_head
         and _RELEASE_PLEASE_LABEL in _labels(pull_request)
     )
 
