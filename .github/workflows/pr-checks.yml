@@ -1,6 +1,6 @@
 name: PR Checks
 
-# Roda em todo PR contra master: aplica labels automáticas por conventional
+# Roda em todo PR contra uma linha de desenvolvimento suportada: aplica labels automáticas por conventional
 # commit/path (.github/labeler.yml) e valida que o TÍTULO do PR segue
 # Conventional Commits — o título vira o commit de squash-merge, que
 # release-please.yml lê pra decidir o bump de versão e a seção do
@@ -10,8 +10,18 @@ name: PR Checks
 
 on:
   pull_request:
-    types: [opened, edited, synchronize, reopened]
-    branches: [master]
+    types:
+      [
+        opened,
+        edited,
+        synchronize,
+        reopened,
+        milestoned,
+        demilestoned,
+        labeled,
+        unlabeled,
+      ]
+    branches: [master, release/0.1]
 
 concurrency:
   group: pr-checks-${{ github.event.pull_request.number }}

@@ -152,7 +152,12 @@ function SessionPage() {
   const isCompactSession = sessionLayoutState !== "wide";
   const ideLayoutState = useIdeLayoutState();
   const workbenchOpen = useWorkbenchStore((s) => s.isOpen(threadId));
+  const setWorkbenchOpen = useWorkbenchStore((s) => s.setPanelOpen);
   const setSplitSize = useWorkbenchStore((s) => s.setSplitSize);
+  const openWorkbench = useCallback(
+    () => setWorkbenchOpen(threadId, true),
+    [setWorkbenchOpen, threadId],
+  );
 
   // CI em tempo real: webhook do GitHub → toast + badge no git-tab (sem F5).
   useWebhookWorkbench();
@@ -882,6 +887,7 @@ function SessionPage() {
             >
               <IdeModeLayout
                 workbenchOpen={workbenchOpen}
+                onOpenWorkbench={openWorkbench}
                 layoutState={isCompactSession ? "mobile" : ideLayoutState}
                 direction={sidebarOnRight ? "rtl" : "ltr"}
                 workbenchSide={ideWorkbenchSide}

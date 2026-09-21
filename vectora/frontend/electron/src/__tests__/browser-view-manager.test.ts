@@ -21,8 +21,8 @@ function makeFakeView(): ManagedView & {
     emitFake(event, ...args) {
       handlers[event]?.(...args);
     },
-    getWindowOpenAction(url: string) {
-      return windowOpenHandler?.({ url });
+    getWindowOpenAction(targetUrl: string) {
+      return windowOpenHandler?.({ url: targetUrl });
     },
     webContents: {
       loadURL: vi.fn(async (u: string) => {

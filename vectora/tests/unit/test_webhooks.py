@@ -176,7 +176,7 @@ class TestWebhookEndpoint:
         mock_persist.assert_not_awaited()
 
     @patch("backend.api.handlers.webhooks._persist_event", new_callable=AsyncMock)
-    def test_sem_secret_configurado_aceita(
+    def test_sem_secret_configurado_rejeita(
         self, mock_persist: AsyncMock, client: TestClient
     ) -> None:
         with patch.dict("os.environ", {}, clear=True):
@@ -185,29 +185,38 @@ class TestWebhookEndpoint:
                 json={"action": "opened"},
                 headers={"x-github-event": "push"},
             )
-        assert resp.status_code == 200
+        assert resp.status_code == 503
+        mock_persist.assert_not_awaited()
 
     @patch("backend.api.handlers.webhooks._persist_event", new_callable=AsyncMock)
     def test_payload_malformado(
         self, mock_persist: AsyncMock, client: TestClient
     ) -> None:
-        with patch.dict("os.environ", {}, clear=True):
+        secret = "secret"
+        body = b"isto nao e json{"
+        signature = (
+            "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+        )
+        with patch.dict("os.environ", {"GITHUB_WEBHOOK_SECRET": secret}, clear=True):
             resp = client.post(
                 "/webhook/github",
-                content=b"isto nao e json{",
+                content=body,
                 headers={
                     "x-github-event": "push",
+                    "x-hub-signature-256": signature,
                     "content-type": "application/json",
                 },
             )
         assert resp.status_code == 400
 
     @patch("backend.api.handlers.webhooks._persist_event", new_callable=AsyncMock)
-    def test_provider_suportado_sem_verificador_aceita(
+    def test_provider_sem_verificador_rejeita(
         self, mock_persist: AsyncMock, client: TestClient
     ) -> None:
-        resp = client.post("/webhook/sendgrid", json={"event": "delivered"})
-        assert resp.status_code == 200
+        with patch.dict("os.environ", {}, clear=True):
+            resp = client.post("/webhook/sendgrid", json={"event": "delivered"})
+        assert resp.status_code == 503
+        mock_persist.assert_not_awaited()
 
     @patch("backend.api.handlers.webhooks._persist_event", new_callable=AsyncMock)
     def test_provider_nao_suportado_e_rejeitado_antes_de_persistir(

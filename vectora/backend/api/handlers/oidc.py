@@ -116,6 +116,11 @@ async def oidc_callback(
     email = claims.get("email")
     if not email:
         raise HTTPException(status_code=401, detail="IDP não devolveu claim 'email'.")
+    if claims.get("email_verified") is not True:
+        raise HTTPException(
+            status_code=401,
+            detail="IDP não confirmou que o endereço de email foi verificado.",
+        )
 
     _, access_token, refresh_token = await auth_svc.provision_or_login_sso(
         email, name=claims.get("name", "")

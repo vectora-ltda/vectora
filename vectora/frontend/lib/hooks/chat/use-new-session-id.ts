@@ -12,7 +12,7 @@
  * client-side que o backend nunca viu (getHistory 404 → tela "Not Found").
  */
 
-import { useRef } from "react";
+import { useMemo } from "react";
 import { markAsNew } from "@/lib/stores/new-thread-registry";
 import {
   markWorkspaceChosen,
@@ -42,20 +42,11 @@ export function generateLocalNewId(): string {
  * primeira montagem). Fora do modo "new", devolve string vazia.
  */
 export function useNewSessionId(routeParam: string): string {
-  const isNewRoute = routeParam === "new";
-  const localNewIdRef = useRef("");
-  const previousRouteRef = useRef(routeParam);
-
   // Router mantém a instância da rota entre /session/:id e /session/new.
-  // Gere o identificador no mesmo render em que a rota muda para "new", para
-  // que histórico, sidebar e o primeiro envio nunca observem o id anterior.
-  if (
-    isNewRoute &&
-    (!localNewIdRef.current || previousRouteRef.current !== "new")
-  ) {
-    localNewIdRef.current = generateLocalNewId();
-  }
-  previousRouteRef.current = routeParam;
-
-  return isNewRoute ? localNewIdRef.current : "";
+  // A dependência no parâmetro gera um id novo ao voltar para "new" e mantém
+  // o mesmo id enquanto a rota não muda, sem ler refs durante o render.
+  return useMemo(
+    () => (routeParam === "new" ? generateLocalNewId() : ""),
+    [routeParam],
+  );
 }

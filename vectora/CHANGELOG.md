@@ -401,7 +401,7 @@ Esta seção lista as funcionalidades adicionadas na versão `0.1.23`. As mudan�
 
 - **backend:** reconstrói histórico de mensagens numa query em vez de N ([53e1030](https://github.com/vectora-ltda/vectora/commit/53e1030b0c974f8f9d4e4f546f511377fd9dae62))
 
-## [0.1.22](https://github.com/vectora-ltda/vectora/compare/v0.1.21...v0.1.22) (2026-09-14)
+## [0.1.23](https://github.com/vectora-ltda/vectora/compare/v0.1.22...v0.1.23) (2026-09-21)
 
 ### Features
 
@@ -409,6 +409,17 @@ Esta seção lista as funcionalidades adicionadas na versão `0.1.23`. As mudan�
 
 ### Bug Fixes
 
+- add Chromium browser settings and profile isolation ([#221](https://github.com/vectora-ltda/vectora/issues/221)) ([928577e](https://github.com/vectora-ltda/vectora/commit/928577ee386805709049a61844c4ad7af0d23dbf))
+- add global responsive session layout bands ([#223](https://github.com/vectora-ltda/vectora/issues/223)) ([dae2c6c](https://github.com/vectora-ltda/vectora/commit/dae2c6c0e9b44a8aa47331c023130567d0341dba))
+- archive safe roots and enforce workspace access ([#222](https://github.com/vectora-ltda/vectora/issues/222)) ([d3d1cbc](https://github.com/vectora-ltda/vectora/commit/d3d1cbc84fd37b07d4fa18711dfc8c1299443d40))
+- navigate created folders and surface new sessions ([#217](https://github.com/vectora-ltda/vectora/issues/217)) ([2e1bee3](https://github.com/vectora-ltda/vectora/commit/2e1bee3b683cc72a3fdf63f829bc59ed8a58368b))
+- support parallel release lines with milestones ([#247](https://github.com/vectora-ltda/vectora/issues/247)) ([caef9fc](https://github.com/vectora-ltda/vectora/commit/caef9fc5180cb8016f9fe56276d4320816ff081d)), closes [#245](https://github.com/vectora-ltda/vectora/issues/245)
+- validate GitHub review job contracts ([#227](https://github.com/vectora-ltda/vectora/issues/227)) ([ad9898f](https://github.com/vectora-ltda/vectora/commit/ad9898f5cb15059bb2fda84ac725320c22036ed1))
+
+- corrige deploy do D1 com colunas legadas de skills ([#236](https://github.com/vectora-ltda/vectora/issues/236)) ([e4f7c41](https://github.com/vectora-ltda/vectora/commit/e4f7c41547352ea9fe5ae1983a15b72f910e5d3b))
+- prevent Electron updates from stalling on locked files ([#235](https://github.com/vectora-ltda/vectora/issues/235)) ([7ea3459](https://github.com/vectora-ltda/vectora/commit/7ea3459e35cd9dace7c046c4c4d9bc4a71450e51))
+- remediate release review findings ([#241](https://github.com/vectora-ltda/vectora/issues/241)) ([eac4cdb](https://github.com/vectora-ltda/vectora/commit/eac4cdb71634fdeda426cad191bd584b0095ad5a))
+- resolve release-please idempotence and security findings ([#243](https://github.com/vectora-ltda/vectora/issues/243)) ([54251d0](https://github.com/vectora-ltda/vectora/commit/54251d0c633a625b2283c6afebcc8639d47fb9e6))
 - restore settings and backend connection after tray restart ([#209](https://github.com/vectora-ltda/vectora/issues/209)) ([12217ce](https://github.com/vectora-ltda/vectora/commit/12217ce7054f9202b5000d9845c5fa1426f155fc))
 
 ## [0.1.21](https://github.com/vectora-ltda/vectora/compare/v0.1.20...v0.1.21) (2026-09-13)
