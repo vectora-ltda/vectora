@@ -248,11 +248,22 @@ async def kanban_update_status(
         inválida.
     """
     try:
-        if not ctx.thread_id:
-            return json.dumps(
-                {"status": "error", "error": "session_id ausente no contexto"}
-            )
-        await kanban.authorize_task_session(task_id, ctx.thread_id)
+        if ctx.background_task_id:
+            if ctx.background_task_id != task_id:
+                return json.dumps(
+                    {
+                        "status": "error",
+                        "error": "task em execução não corresponde ao card solicitado",
+                    }
+                )
+            authorized_session_id: str | None = None
+        else:
+            if not ctx.thread_id:
+                return json.dumps(
+                    {"status": "error", "error": "session_id ausente no contexto"}
+                )
+            await kanban.authorize_task_session(task_id, ctx.thread_id)
+            authorized_session_id = ctx.thread_id
         if status in ("running", "done"):
             return json.dumps(
                 {
@@ -265,10 +276,12 @@ async def kanban_update_status(
                 task_id, block_kind or _DEFAULT_BLOCK_KIND, block_reason or ""
             )
         elif status == "ready":
-            await kanban.unblock_task(task_id)
+            await kanban.manual_transition(
+                task_id, status, authorized_session_id=authorized_session_id
+            )
         else:
             await kanban.manual_transition(
-                task_id, status, authorized_session_id=ctx.thread_id
+                task_id, status, authorized_session_id=authorized_session_id
             )
 
         estado: dict[str, Any] = await kanban.get_task_status(task_id)

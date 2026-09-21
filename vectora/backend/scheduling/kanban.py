@@ -199,6 +199,11 @@ async def get_task_status(task_id: str) -> dict[str, Any]:
 
 
 async def authorize_task_session(task_id: str, session_id: str) -> None:
+    """Authorize a task mutation for the session that owns the task.
+
+    Raises ``ValueError`` when the task does not exist or its persisted
+    session differs from ``session_id``.
+    """
     db = await _get_db()
     async with db.execute(
         "SELECT session_id FROM vectora_background_tasks WHERE id = ?", (task_id,)

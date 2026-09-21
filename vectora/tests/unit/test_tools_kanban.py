@@ -251,6 +251,90 @@ class TestKanbanList:
 
         assert (await kanban.get_task_status(created["task_id"]))["status"] == "ready"
 
+    @pytest.mark.asyncio
+    async def test_run_de_background_pode_atualizar_a_propria_task(self, db):
+        from backend.tools.kanban import kanban_create, kanban_update_status
+
+        created = json.loads(
+            await kanban_create(ctx=_ctx(), name="card", instruction="faça algo")
+        )
+        task_id = created["task_id"]
+
+        out = json.loads(
+            await kanban_update_status(
+                ctx=ToolContext(thread_id="bg-run", background_task_id=task_id),
+                task_id=task_id,
+                status="triage",
+            )
+        )
+
+        assert out["result"] == "ok"
+        assert (await kanban.get_task_status(task_id))["status"] == "triage"
+
+    @pytest.mark.asyncio
+    async def test_run_de_background_nao_pode_atualizar_outra_task(self, db):
+        from backend.tools.kanban import kanban_create, kanban_update_status
+
+        created = json.loads(
+            await kanban_create(ctx=_ctx(), name="card", instruction="faça algo")
+        )
+
+        out = json.loads(
+            await kanban_update_status(
+                ctx=ToolContext(thread_id="bg-run", background_task_id="other-task"),
+                task_id=created["task_id"],
+                status="triage",
+            )
+        )
+
+        assert out["status"] == "error"
+        assert "não corresponde" in out["error"]
+        assert (await kanban.get_task_status(created["task_id"]))["status"] == "ready"
+
+    @pytest.mark.asyncio
+    async def test_ready_respeita_transicao_e_limpa_bloqueio(self, db):
+        from backend.tools.kanban import kanban_create, kanban_update_status
+
+        created = json.loads(
+            await kanban_create(ctx=_ctx(), name="card", instruction="faça algo")
+        )
+        task_id = created["task_id"]
+        await kanban_update_status(
+            ctx=_ctx(),
+            task_id=task_id,
+            status="blocked",
+            block_kind="capability",
+            block_reason="falta ferramenta",
+        )
+
+        out = json.loads(
+            await kanban_update_status(ctx=_ctx(), task_id=task_id, status="ready")
+        )
+
+        assert out["result"] == "ok"
+        estado = await kanban.get_task_status(task_id)
+        assert estado["status"] == "ready"
+        assert estado["block_kind"] is None
+        assert estado["block_reason"] is None
+
+    @pytest.mark.asyncio
+    async def test_done_nao_pode_voltar_direto_para_ready(self, db):
+        from backend.tools.kanban import kanban_create, kanban_update_status
+
+        created = json.loads(
+            await kanban_create(ctx=_ctx(), name="card", instruction="faça algo")
+        )
+        task_id = created["task_id"]
+        await kanban.set_status(task_id, "done")
+
+        out = json.loads(
+            await kanban_update_status(ctx=_ctx(), task_id=task_id, status="ready")
+        )
+
+        assert out["status"] == "error"
+        assert "transição 'done' → 'ready'" in out["error"]
+        assert (await kanban.get_task_status(task_id))["status"] == "done"
+
 
 class TestKanbanDecompose:
     @pytest.mark.asyncio
