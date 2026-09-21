@@ -82,6 +82,17 @@ def test_preserves_indented_code_list_markers(tmp_path: Path) -> None:
     assert "    * indented code\n\t* tabbed code\n- outside\n" in result
 
 
+def test_ignores_mixed_fence_delimiters(tmp_path: Path) -> None:
+    result, changed, _ = _run(
+        tmp_path,
+        "## [1.0.0]\n\n### Features\n\n~~~text\n* inside code\n~~~```\n* still inside\n~~~\n* outside\n",
+    )
+
+    assert changed is True
+    assert "* inside code\n~~~```\n* still inside\n~~~" in result
+    assert "\n- outside\n" in result
+
+
 def test_preserves_newline_style_and_unchanged_content(tmp_path: Path) -> None:
     path = tmp_path / "CHANGELOG.md"
     path.write_bytes(b"## [1.0.0]\r\n\r\nTexto introdutorio.\r\n\r\n- pronto\r\n")

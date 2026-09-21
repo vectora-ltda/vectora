@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 _LIST_MARKER = re.compile(r"^([ ]{0,3})\*\s+")
-_FENCE = re.compile(r"^[ \t]{0,3}([`~]{3,})(.*?)(?:\r?\n)?$")
+_FENCE = re.compile(r"^[ \t]{0,3}((?:`{3,}|~{3,})(?![`~]))(.*?)(?:\r?\n)?$")
 _HEADING = re.compile(r"^(#{2,3})\s+(.+?)\s*(?:\r?\n)?$")
 
 

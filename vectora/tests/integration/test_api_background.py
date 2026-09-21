@@ -324,6 +324,32 @@ async def test_background_task_owner_can_list_owned_session(
     assert [item.id for item in tasks] == [owned.id]
 
 
+async def test_post_task_registers_missing_native_session(
+    db: str, monkeypatch: pytest.MonkeyPatch, native_session_store: SessionStore
+) -> None:
+    """A primeira task persiste a session gerada antes do primeiro chat."""
+    _patch_native_engine(monkeypatch, session_store=native_session_store, texto="feito")
+    thread_id = "thread-first-task"
+    assert await native_session_store.get_session(thread_id) is None
+
+    created = await post_task(
+        _req(),
+        thread_id,
+        CreateTaskRequest(
+            kind="routine",
+            name="primeira task",
+            instruction="i",
+            trigger_type="manual",
+        ),
+    )
+
+    session = await native_session_store.get_session(thread_id)
+    assert session is not None
+    assert session["user_id"] == _UUID
+    assert created.session_id == thread_id
+    assert [item.id for item in await get_tasks(_req(), thread_id)] == [created.id]
+
+
 async def test_patch_task_agent_profile_id_atribui_e_desatribui_via_http(db):
     """O drawer edita assignee depois da criação, campo
     novo em UpdateTaskRequest. Omitir o campo no PATCH não pode apagar um
