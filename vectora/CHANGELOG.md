@@ -2,6 +2,18 @@
 
 Esta vers�o consolida as altera��es publicadas desde a vers�o 0.1.17.
 
+## [0.1.23](https://github.com/vectora-ltda/vectora/compare/v0.1.22...v0.1.23) (2026-09-21)
+
+
+### Features
+
+* support parallel release lines with milestones ([6e8510c](https://github.com/vectora-ltda/vectora/commit/6e8510c56835f4bd56c4bab7aa09c595c8eac4a6))
+
+
+### Bug Fixes
+
+* include changelog normalizer in release lines ([f143bde](https://github.com/vectora-ltda/vectora/commit/f143bdea6380d8e7e96a680cb18e0de62a35f18f))
+
 ## [0.1.22](https://github.com/vectora-ltda/vectora/compare/v0.1.21...v0.1.22) (2026-09-14)
 
 
