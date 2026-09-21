@@ -45,6 +45,27 @@ function npmServer(id: string, name: string) {
   };
 }
 
+function packagedServer(
+  id: string,
+  registryType: "npm" | "pypi" | "oci",
+  identifier: string,
+) {
+  return {
+    server: {
+      name: id,
+      title: id,
+      description: id,
+      packages: [
+        {
+          registryType,
+          transport: { type: "stdio" },
+          identifier,
+        },
+      ],
+    },
+  };
+}
+
 describe("discoverMcp", () => {
   it("insere entradas novas do catálogo GitHub e nunca sobrescreve uma linha curated com id colidindo", async () => {
     await env.DB.prepare(
@@ -142,6 +163,49 @@ describe("discoverMcp", () => {
       "SELECT catalog_status FROM mcp_catalog WHERE id = 'gone-server'",
     ).first<{ catalog_status: string }>();
     expect(gone?.catalog_status).toBe("missing");
+  });
+
+  it("mapeia runtimes do registry oficial sem forçar Node", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        mcpRegistryResponse([
+          packagedServer("python-server", "pypi", "python-mcp"),
+          packagedServer("container-server", "oci", "ghcr.io/example/mcp:1"),
+        ]),
+      ),
+    );
+
+    await discoverMcp(env);
+
+    const rows = await env.DB.prepare(
+      "SELECT id, install_cmd FROM mcp_catalog WHERE id IN ('python-server', 'container-server') ORDER BY id",
+    ).all<{ id: string; install_cmd: string }>();
+    expect(rows.results).toEqual([
+      {
+        id: "container-server",
+        install_cmd: "docker run --rm ghcr.io/example/mcp:1",
+      },
+      { id: "python-server", install_cmd: "uvx python-mcp" },
+    ]);
+  });
+
+  it("respeita maxEntries e não grava o restante da página", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        mcpRegistryResponse([
+          npmServer("limited-one", "One"),
+          npmServer("limited-two", "Two"),
+        ]),
+      ),
+    );
+
+    await expect(discoverMcp(env, 1)).resolves.toBe(1);
+    const rows = await env.DB.prepare(
+      "SELECT id FROM mcp_catalog WHERE id LIKE 'limited-%'",
+    ).all<{ id: string }>();
+    expect(rows.results).toHaveLength(1);
   });
 });
 

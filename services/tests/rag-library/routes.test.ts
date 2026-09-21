@@ -85,6 +85,33 @@ describe("GET /rag-library", () => {
     const missing = await ragLibrary.request("/unknown-id/download", {}, env);
     expect(missing.status).toBe(404);
   });
+
+  it("inclui o nome do publisher para buckets publicados", async () => {
+    const { userId } = await createUser("user");
+    const id = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO rag_packages (id, name, source_lib, source_version, size_bytes, checksum, storage_url, publisher_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+      .bind(
+        id,
+        "published-bucket",
+        "community",
+        "1",
+        10,
+        "abc",
+        "https://storage.example.com/published.tar.gz",
+        userId,
+      )
+      .run();
+
+    const response = await ragLibrary.request("/", {}, env);
+    const body =
+      await response.json<Array<{ id: string; publisher: string | null }>>();
+
+    expect(body.find((packageRow) => packageRow.id === id)?.publisher).toBe(
+      "Test User",
+    );
+  });
 });
 
 describe("GET /rag-library?q=", () => {

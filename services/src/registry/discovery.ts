@@ -53,7 +53,7 @@ interface McpPackage {
   transport?: { type?: string };
   identifier?: string;
   environmentVariables?: { name?: string; isRequired?: boolean }[];
-  runtime_hint?: string;
+  runtimeHint?: string;
 }
 
 interface McpServerEntry {
@@ -86,8 +86,20 @@ interface McpServerEntry {
 function toDiscoveredMcp(item: McpServerEntry): DiscoveredMcp | null {
   const server = item.server ?? item;
   if (!server?.name) return null;
-  const pkg = (server.packages ?? []).find((candidate) => candidate.identifier);
-  const remote = server.remotes?.find((candidate) => candidate.url);
+  const pkg = (server.packages ?? []).find((candidate) => {
+    if (!candidate.identifier) return false;
+    const transport = candidate.transport?.type ?? "stdio";
+    if (transport !== "stdio") return false;
+    const registryType = candidate.registryType?.toLowerCase();
+    return (
+      registryType === "npm" ||
+      registryType === "pypi" ||
+      registryType === "oci"
+    );
+  });
+  const remote = server.remotes?.find(
+    (candidate) => candidate.url && isValidRemoteUrl(candidate.url),
+  );
   if (!pkg?.identifier && !remote?.url) return null;
   const envVars = (pkg?.environmentVariables ?? [])
     .filter((ev) => ev.isRequired && ev.name)
@@ -95,14 +107,18 @@ function toDiscoveredMcp(item: McpServerEntry): DiscoveredMcp | null {
   const github = (item._meta ?? server._meta)?.[
     "io.modelcontextprotocol.registry/publisher-provided"
   ]?.github;
-  const runtimeHint = pkg?.runtime_hint ?? "npx";
+  const registryType = pkg?.registryType?.toLowerCase();
+  const runtimeHint = pkg?.runtimeHint?.toLowerCase() ?? registryType ?? "npm";
   const installCmd = pkg?.identifier
-    ? runtimeHint === "uvx"
+    ? registryType === "pypi" || runtimeHint === "uvx"
       ? `uvx ${pkg.identifier}`
-      : runtimeHint === "docker"
+      : registryType === "oci" || runtimeHint === "docker"
         ? `docker run --rm ${pkg.identifier}`
-        : `npx -y ${pkg.identifier}`
+        : registryType === "npm" && ["npm", "npx"].includes(runtimeHint)
+          ? `npx -y ${pkg.identifier}`
+          : ""
     : "";
+  if (pkg?.identifier && !installCmd) return null;
   return {
     id: server.name,
     name: server.title || server.name.split("/").pop() || server.name,
@@ -124,6 +140,29 @@ function toDiscoveredMcp(item: McpServerEntry): DiscoveredMcp | null {
   };
 }
 
+/**
+ * Accept only a syntactically valid HTTP endpoint here. The worker does
+ * not resolve arbitrary catalog hosts: SSRF enforcement belongs to the
+ * connection boundary (`validate_url` in the API), where DNS resolution and
+ * redirect checks are available. Keeping this stage structural avoids a
+ * brittle, incomplete list of private IP literals in production code.
+ */
+function isValidRemoteUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if (
+      !["http:", "https:"].includes(url.protocol) ||
+      url.username ||
+      url.password
+    ) {
+      return false;
+    }
+    return url.hostname.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 /** Pagina o catálogo GitHub MCP e faz upsert em mcp_catalog. */
 export async function discoverMcp(
   env: Env,
@@ -132,41 +171,68 @@ export async function discoverMcp(
   const found = new Map<string, DiscoveredMcp>();
   const pageSize = 30;
   let complete = false;
+  let page = 1;
+  let cursor: string | undefined;
   try {
-    for (let page = 1; found.size < maxEntries; page++) {
+    while (found.size < maxEntries) {
       const url = new URL(GITHUB_MCP_REGISTRY_URL);
-      url.searchParams.set("page", String(page));
-      url.searchParams.set("per_page", String(pageSize));
+      url.searchParams.set("limit", String(pageSize));
+      if (cursor) url.searchParams.set("cursor", cursor);
+      else if (page > 1) url.searchParams.set("page", String(page));
       const resp = await fetch(url.toString(), {
         headers: { Accept: "application/json" },
       });
       if (!resp.ok) return 0;
       const data = (await resp.json()) as {
         servers?: McpServerEntry[];
-        metadata?: { total_pages?: number };
+        metadata?: { nextCursor?: string | null; total_pages?: number };
       };
       for (const item of data.servers ?? []) {
         const connector = toDiscoveredMcp(item);
         if (connector) found.set(connector.id, connector);
       }
-      const pageCount = data.metadata?.total_pages;
-      if (
-        !data.servers?.length ||
-        (pageCount !== undefined && page >= pageCount) ||
-        (pageCount === undefined && data.servers.length < pageSize)
-      ) {
+      const nextCursor = data.metadata?.nextCursor ?? undefined;
+      if (!data.servers?.length) {
         complete = true;
         break;
       }
+      if (nextCursor) {
+        cursor = nextCursor;
+        page++;
+        continue;
+      }
+      const pageCount = data.metadata?.total_pages;
+      if (pageCount !== undefined && page < pageCount) {
+        page++;
+        continue;
+      }
+      if (data.servers.length < pageSize) {
+        complete = true;
+        break;
+      }
+      // Compatibility with older page-number responses that omit metadata.
+      page++;
     }
   } catch {
-    return 0;
+    return upsertMcpSnapshot(env, found, false);
   }
 
-  if (!complete) return 0;
+  const selected = Number.isFinite(maxEntries)
+    ? new Map([...found].slice(0, Math.max(0, maxEntries)))
+    : found;
+  return upsertMcpSnapshot(env, selected, complete);
+}
+
+async function upsertMcpSnapshot(
+  env: Env,
+  found: Map<string, DiscoveredMcp>,
+  complete: boolean,
+): Promise<number> {
+  if (found.size === 0) return 0;
 
   const snapshotId = crypto.randomUUID();
   let upserted = 0;
+  let writesComplete = true;
   for (const c of found.values()) {
     try {
       await env.DB.prepare(
@@ -216,9 +282,10 @@ export async function discoverMcp(
       upserted++;
     } catch {
       // isola falha por entrada — uma linha malformada não derruba as demais
+      writesComplete = false;
     }
   }
-  if (found.size > 0) {
+  if (complete && writesComplete) {
     await env.DB.prepare(
       "UPDATE mcp_catalog SET catalog_status = 'missing' WHERE catalog_source = 'github' AND COALESCE(snapshot_id, '') != ?",
     )
