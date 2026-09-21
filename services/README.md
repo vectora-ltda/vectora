@@ -107,8 +107,9 @@ handler):
   `update_telemetry`, `telemetry_ingest`, `rag_reindex`; DLQ
   `vectora-jobs-dlq`.
 
-The deployment upgrade below keeps existing issue-synchronization databases
-compatible when columns are added after the base schema.
+The base schema is the single source of truth for fresh and existing D1
+databases. Reapply `migrations/0001_schema.sql` after schema changes; it is
+idempotent and includes the registry tables and mandatory extension READMEs.
 
 ### Atualização do schema da sincronização de issues
 

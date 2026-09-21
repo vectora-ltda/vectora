@@ -4,32 +4,28 @@ Esta vers�o consolida as altera��es publicadas desde a vers�o 0.1.17.
 
 ## [0.1.22](https://github.com/vectora-ltda/vectora/compare/v0.1.21...v0.1.22) (2026-09-14)
 
-
 ### Features
 
-* **frontend:** complete adaptive session shell, workbench and responsive chat ([#213](https://github.com/vectora-ltda/vectora/issues/213)) ([e3080bd](https://github.com/vectora-ltda/vectora/commit/e3080bd6bef1f587550b5d0bf9356053220805c2))
-
+- **frontend:** complete adaptive session shell, workbench and responsive chat ([#213](https://github.com/vectora-ltda/vectora/issues/213)) ([e3080bd](https://github.com/vectora-ltda/vectora/commit/e3080bd6bef1f587550b5d0bf9356053220805c2))
 
 ### Bug Fixes
 
-* restore settings and backend connection after tray restart ([#209](https://github.com/vectora-ltda/vectora/issues/209)) ([12217ce](https://github.com/vectora-ltda/vectora/commit/12217ce7054f9202b5000d9845c5fa1426f155fc))
+- restore settings and backend connection after tray restart ([#209](https://github.com/vectora-ltda/vectora/issues/209)) ([12217ce](https://github.com/vectora-ltda/vectora/commit/12217ce7054f9202b5000d9845c5fa1426f155fc))
 
 ## [0.1.21](https://github.com/vectora-ltda/vectora/compare/v0.1.20...v0.1.21) (2026-09-13)
 
-
 ### Features
 
-* add durable media quota reservations ([#172](https://github.com/vectora-ltda/vectora/issues/172)) ([e05c54b](https://github.com/vectora-ltda/vectora/commit/e05c54b47f3ce377cc91d1e62f64a186d5d66898))
-* add owned multimodal asset metadata ([#173](https://github.com/vectora-ltda/vectora/issues/173)) ([5478381](https://github.com/vectora-ltda/vectora/commit/5478381905c13dfbfee1e09e3550112bec4f5d25))
-* sincronizar issues da company com o github ([#185](https://github.com/vectora-ltda/vectora/issues/185)) ([d9c6d1c](https://github.com/vectora-ltda/vectora/commit/d9c6d1cd18968381851e9fea4e88c56134690be2))
-
+- add durable media quota reservations ([#172](https://github.com/vectora-ltda/vectora/issues/172)) ([e05c54b](https://github.com/vectora-ltda/vectora/commit/e05c54b47f3ce377cc91d1e62f64a186d5d66898))
+- add owned multimodal asset metadata ([#173](https://github.com/vectora-ltda/vectora/issues/173)) ([5478381](https://github.com/vectora-ltda/vectora/commit/5478381905c13dfbfee1e09e3550112bec4f5d25))
+- sincronizar issues da company com o github ([#185](https://github.com/vectora-ltda/vectora/issues/185)) ([d9c6d1c](https://github.com/vectora-ltda/vectora/commit/d9c6d1cd18968381851e9fea4e88c56134690be2))
 
 ### Bug Fixes
 
-* **ci:** harden edge deploy and release artifact publishing ([#192](https://github.com/vectora-ltda/vectora/issues/192)) ([5cb1989](https://github.com/vectora-ltda/vectora/commit/5cb19895a218a84d58c0839188aadca0103d27f1))
-* **electron:** avoid deprecated navigation fallback calls ([#195](https://github.com/vectora-ltda/vectora/issues/195)) ([c482d59](https://github.com/vectora-ltda/vectora/commit/c482d59a9bf2a74ef14e7c96dd81e55e524cce47))
-* **frontend:** ignore stale branch comparison responses ([#194](https://github.com/vectora-ltda/vectora/issues/194)) ([d12af54](https://github.com/vectora-ltda/vectora/commit/d12af548c2dddd1d520a780f830cd3ba47bb9600))
-* propagate trusted BYOK media billing source ([#201](https://github.com/vectora-ltda/vectora/issues/201)) ([5ef05fb](https://github.com/vectora-ltda/vectora/commit/5ef05fbd4c5e57559100598b8e085bfb6cc4a6cf))
+- **ci:** harden edge deploy and release artifact publishing ([#192](https://github.com/vectora-ltda/vectora/issues/192)) ([5cb1989](https://github.com/vectora-ltda/vectora/commit/5cb19895a218a84d58c0839188aadca0103d27f1))
+- **electron:** avoid deprecated navigation fallback calls ([#195](https://github.com/vectora-ltda/vectora/issues/195)) ([c482d59](https://github.com/vectora-ltda/vectora/commit/c482d59a9bf2a74ef14e7c96dd81e55e524cce47))
+- **frontend:** ignore stale branch comparison responses ([#194](https://github.com/vectora-ltda/vectora/issues/194)) ([d12af54](https://github.com/vectora-ltda/vectora/commit/d12af548c2dddd1d520a780f830cd3ba47bb9600))
+- propagate trusted BYOK media billing source ([#201](https://github.com/vectora-ltda/vectora/issues/201)) ([5ef05fb](https://github.com/vectora-ltda/vectora/commit/5ef05fbd4c5e57559100598b8e085bfb6cc4a6cf))
 
 ## [0.1.20](https://github.com/vectora-ltda/vectora/compare/v0.1.19...v0.1.20) (2026-09-11)
 
@@ -190,7 +186,7 @@ Os novos recursos desta vers�o s�o listados abaixo.
 - **media:** ffmpeg embutido + análise de mídia local (Sprint 2.1/2.2) ([3151413](https://github.com/vectora-ltda/vectora/commit/31514132580a391ad67f31b1c79cbf1302334612))
 - **media:** geracao de imagem e voz pelo provider ativo, sem fallback silencioso ([8ee8bf3](https://github.com/vectora-ltda/vectora/commit/8ee8bf3b5a3a3a38d93caf0666d1a436f9a3c791))
 - **media:** geracao e analise de video pelo provider ativo ([c2b29c4](https://github.com/vectora-ltda/vectora/commit/c2b29c44648f74bd159204eeb184fdac302e7674))
-- Memory Library publica por bucket, não o workspace inteiro ([106abd3](https://github.com/vectora-ltda/vectora/commit/106abd3b8606f619c89877353903757d6f1d6407))
+- Memory Buckets publica por bucket, não o workspace inteiro ([106abd3](https://github.com/vectora-ltda/vectora/commit/106abd3b8606f619c89877353903757d6f1d6407))
 - **memory:** fatos estruturados por categoria + dedup no Remember ([02d74bd](https://github.com/vectora-ltda/vectora/commit/02d74bd6c038431da687faf915954926feaaa54a))
 - **memory:** índice de busca unificado na Memory Tab ([0d7aa98](https://github.com/vectora-ltda/vectora/commit/0d7aa982b2008be07000eeab97ea1342fd1532de))
 - **ollama:** capacidade real por /api/show, embeddings nativos e saida do langchain-ollama ([03946a7](https://github.com/vectora-ltda/vectora/commit/03946a7b4f9dd1c4a1f6f3bd3b124c1bc7b2a46a))
@@ -570,7 +566,7 @@ As melhorias de desempenho desta vers�o s�o listadas abaixo.
 - **auth:** env overrides do usuário local persistem via runtime_settings (Sprint 11.2) ([07c2909](https://github.com/vectora-ltda/vectora/commit/07c2909d39f72f7a915440015b26aefcadf92a74))
 - **auth:** hardening — redação de audit log, tokens de serviço, recuperação de senha ([80fc210](https://github.com/vectora-ltda/vectora/commit/80fc21007fbf8b1110407f435ae2b5eba8af9860))
 - **auth:** SSO/OIDC — login via provedor de identidade externo ([61f8442](https://github.com/vectora-ltda/vectora/commit/61f844267893e6acfc53ec6d68643a53692e0033))
-- **backend:** icon_url no catalogo MCP + publish de Memory Library ([21ef7ec](https://github.com/vectora-ltda/vectora/commit/21ef7ecc3a536a919d5de37ff9d7bf707bb31dae))
+- **backend:** icon_url no catalogo MCP + publish de Memory Buckets ([21ef7ec](https://github.com/vectora-ltda/vectora/commit/21ef7ecc3a536a919d5de37ff9d7bf707bb31dae))
 - **backend:** sandbox real no Windows via WSL2 (nao Docker) ([58eb0e7](https://github.com/vectora-ltda/vectora/commit/58eb0e72f5843752c8c6ba9c7b7ba1ac62830a1a))
 - **background:** intervenção HITL/cancel em runs de background (Sprint 3.4) ([f884323](https://github.com/vectora-ltda/vectora/commit/f8843232bbea468b08187fc1cfef9b2beac38270))
 - **background:** resume de HITL para runs em background (awaiting_approval) ([5aefc82](https://github.com/vectora-ltda/vectora/commit/5aefc822049fd43f9e8583fefa8f2cf2f58de75f))
@@ -675,8 +671,8 @@ As melhorias de desempenho desta vers�o s�o listadas abaixo.
 - **media:** ffmpeg embutido + análise de mídia local (Sprint 2.1/2.2) ([3151413](https://github.com/vectora-ltda/vectora/commit/31514132580a391ad67f31b1c79cbf1302334612))
 - **media:** geracao de imagem e voz pelo provider ativo, sem fallback silencioso ([8ee8bf3](https://github.com/vectora-ltda/vectora/commit/8ee8bf3b5a3a3a38d93caf0666d1a436f9a3c791))
 - **media:** geracao e analise de video pelo provider ativo ([c2b29c4](https://github.com/vectora-ltda/vectora/commit/c2b29c44648f74bd159204eeb184fdac302e7674))
-- Memory Library — backend (publish/verify/download de buckets RAG comunitários) ([6697280](https://github.com/vectora-ltda/vectora/commit/669728003d094fdb4b52b2fc154eb4cb14c2ce9c))
-- Memory Library publica por bucket, não o workspace inteiro ([106abd3](https://github.com/vectora-ltda/vectora/commit/106abd3b8606f619c89877353903757d6f1d6407))
+- Memory Buckets — backend (publish/verify/download de buckets RAG comunitários) ([6697280](https://github.com/vectora-ltda/vectora/commit/669728003d094fdb4b52b2fc154eb4cb14c2ce9c))
+- Memory Buckets publica por bucket, não o workspace inteiro ([106abd3](https://github.com/vectora-ltda/vectora/commit/106abd3b8606f619c89877353903757d6f1d6407))
 - **memory:** fatos estruturados por categoria + dedup no Remember ([02d74bd](https://github.com/vectora-ltda/vectora/commit/02d74bd6c038431da687faf915954926feaaa54a))
 - **memory:** índice de busca unificado na Memory Tab ([0d7aa98](https://github.com/vectora-ltda/vectora/commit/0d7aa982b2008be07000eeab97ea1342fd1532de))
 - **ollama:** capacidade real por /api/show, embeddings nativos e saida do langchain-ollama ([03946a7](https://github.com/vectora-ltda/vectora/commit/03946a7b4f9dd1c4a1f6f3bd3b124c1bc7b2a46a))
@@ -757,7 +753,7 @@ As melhorias de desempenho desta vers�o s�o listadas abaixo.
 - **vectora:** fecha o bloco nativo de consumers e consolida testes adjacentes ([fd05a97](https://github.com/vectora-ltda/vectora/commit/fd05a9774461779f0d30cef1c68bdff9aaa0e5ea))
 - **vectora:** remove grafo deepagents legado de agent_factory, cobre dedup nativo ([67ad8bb](https://github.com/vectora-ltda/vectora/commit/67ad8bbd10e7fa73ce1659d03d311e92bd992cf7))
 - **workbench:** Library — seção MCP religa o marketplace (Sprint 2) ([39f5511](https://github.com/vectora-ltda/vectora/commit/39f5511d4b7d521910b44323e375041f56e9cfb1))
-- **workbench:** Library — seção Memory Library (Sprint 6, frontend) ([1ff76b1](https://github.com/vectora-ltda/vectora/commit/1ff76b150583188a8ba49febdffdc06106a16271))
+- **workbench:** Library — seção Memory Buckets (Sprint 6, frontend) ([1ff76b1](https://github.com/vectora-ltda/vectora/commit/1ff76b150583188a8ba49febdffdc06106a16271))
 - **workbench:** Library — seção Skills migrada da Settings (Sprint 3) ([f73c154](https://github.com/vectora-ltda/vectora/commit/f73c154f7b6f95921c336e75094ee6ece3f1d65f))
 - **workbench:** Library shell+MCP+Skills (dev-flag) + Sprint 0 (bugs de prioridade) ([2d14aac](https://github.com/vectora-ltda/vectora/commit/2d14aac7424f59622ffd907e4ad4be472f6445c7))
 - **workbench:** nova aba Library — shell + busca com filtros (Sprint 1) ([b665519](https://github.com/vectora-ltda/vectora/commit/b665519c60a771ee4f51fbd638ab22f6c8cdfeb8))

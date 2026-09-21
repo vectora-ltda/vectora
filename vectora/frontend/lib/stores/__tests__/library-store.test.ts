@@ -24,6 +24,13 @@ function resetStore() {
     memoryFetchedAt: null,
     memoryQuery: "",
     memoryError: null,
+    extensionItems: [],
+    extensionLoading: false,
+    extensionFetchedAt: null,
+    extensionQuery: "",
+    extensionError: null,
+    extensionInstalledIds: new Set(),
+    extensionInstallingId: null,
   });
 }
 
@@ -261,5 +268,38 @@ describe("library-store — skillTrustLevel", () => {
     expect(
       skillTrustLevel({ id: "s3", name: "s", description: "", source: "" }),
     ).toBe("community");
+  });
+});
+
+describe("library-store — VEXT", () => {
+  it("carrega catálogo e restaura extensões ativas do ciclo local", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === "/registry/extensions") {
+        return {
+          ok: true,
+          json: async () => ({
+            entries: [{ id: "prettier", name: "Prettier" }],
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          extensions: [
+            { id: "prettier", version: "1.0.0", active: true },
+            { id: "old", version: "1.0.0", active: false },
+          ],
+        }),
+      } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await useLibraryStore.getState().ensureExtensionsLoaded();
+
+    expect(useLibraryStore.getState().extensionItems).toHaveLength(1);
+    expect(useLibraryStore.getState().extensionInstalledIds).toEqual(
+      new Set(["prettier"]),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

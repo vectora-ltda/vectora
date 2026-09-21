@@ -383,7 +383,7 @@ MEMORY_TOOLS: list[ToolSpec] = [
     apply_memory_consolidation,
 ]
 
-#: Ferramentas da Library: auto-instalar MCP/Skills/Memory Library, invocar
+#: Ferramentas da Library: auto-instalar MCP/Skills/Memory Buckets, invocar
 #: MCP externo já conectado
 LIBRARY_TOOLS: list[ToolSpec] = [
     call_mcp_tool,

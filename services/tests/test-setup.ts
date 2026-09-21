@@ -64,6 +64,13 @@ async function applyMigration(sql: string): Promise<void> {
 
 beforeAll(async () => {
   await applyMigration(schemaSql as string);
+  try {
+    await env.DB.prepare(
+      "ALTER TABLE vext_extensions ADD COLUMN readme TEXT NOT NULL DEFAULT \"\"",
+    ).run();
+  } catch {
+    // The worker pool may reuse a database already initialized by an older test run.
+  }
   await applyMigration(issueSyncMigrationSql as string);
   await applyMigration(reviewRepositoryMigrationSql as string);
 });

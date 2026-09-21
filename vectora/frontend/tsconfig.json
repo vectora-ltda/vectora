@@ -21,7 +21,8 @@
     "jsx": "react-jsx",
     "incremental": true,
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@vext/json-rpc": ["../../vext-sdk/packages/json-rpc/src/index.ts"]
     },
     "types": ["vite/client", "vite-plugin-pwa/client", "node"]
   },

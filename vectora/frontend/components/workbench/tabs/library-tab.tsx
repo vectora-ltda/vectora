@@ -1,12 +1,12 @@
 "use client";
 
 /**
- * LibraryTab — 3 seções fecháveis (MCP, Skills, Memory Library) com busca
+ * LibraryTab — 3 seções fecháveis (MCP, Skills, Memory Buckets) com busca
  * e filtros toggle por categoria. A busca é client-side sobre os itens já
  * carregados de cada seção, sem endpoint agregado.
  */
 
-import { Archive, Puzzle, Search, Sparkles } from "lucide-react";
+import { Archive, Package, Puzzle, Search, Sparkles } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import {
@@ -17,16 +17,17 @@ import {
 } from "@/components/ui/accordion";
 import { m } from "@/lib/paraglide/messages";
 import { McpSection } from "./library-mcp-section";
-import { MemorySection } from "./library-memory-section";
+import { MemoryBucketsSection } from "./library-memory-buckets-section";
 import { SkillsSection } from "./library-skills-section";
+import { ExtensionsSection } from "./library-extensions-section";
 
 interface LibraryTabProps {
   threadId: string;
 }
 
-type LibraryFilter = "mcp" | "skills" | "memory";
+type LibraryFilter = "mcp" | "skills" | "memory" | "extensions";
 
-const ALL_FILTERS: LibraryFilter[] = ["mcp", "skills", "memory"];
+const ALL_FILTERS: LibraryFilter[] = ["mcp", "skills", "memory", "extensions"];
 
 /** Item genérico de qualquer seção — cada seção monta a lista completa a
  * partir do seu próprio backend; a busca/filtro aqui só precisa do nome
@@ -124,6 +125,11 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
   const handleMemoryCountChange = useCallback((count: number) => {
     setMemoryCount(count);
   }, []);
+  const [extensionCount, setExtensionCount] = useState(0);
+  const handleExtensionCountChange = useCallback(
+    (count: number) => setExtensionCount(count),
+    [],
+  );
 
   const noFiltersActive = activeFilters.size === 0;
 
@@ -143,9 +149,14 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
             onToggle={() => toggleFilter("skills")}
           />
           <FilterPill
-            label={m.library_filter_memory()}
+            label={m.library_filter_memory_buckets()}
             active={activeFilters.has("memory")}
             onToggle={() => toggleFilter("memory")}
+          />
+          <FilterPill
+            label={m.library_filter_extensions()}
+            active={activeFilters.has("extensions")}
+            onToggle={() => toggleFilter("extensions")}
           />
         </div>
       </div>
@@ -203,14 +214,32 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
                   <span className="flex items-center gap-2 min-w-0">
                     <Archive className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
                     <span className="truncate">
-                      {m.library_section_memory()} ({memoryCount})
+                      {m.library_section_memory_buckets()} ({memoryCount})
                     </span>
                   </span>
                 </AccordionTrigger>
                 <AccordionContent>
-                  <MemorySection
+                  <MemoryBucketsSection
                     query={query}
                     onCountChange={handleMemoryCountChange}
+                  />
+                </AccordionContent>
+              </AccordionItem>
+            )}
+            {activeFilters.has("extensions") && (
+              <AccordionItem value="extensions">
+                <AccordionTrigger>
+                  <span className="flex items-center gap-2 min-w-0">
+                    <Package className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                    <span className="truncate">
+                      {m.library_section_extensions()} ({extensionCount})
+                    </span>
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <ExtensionsSection
+                    query={query}
+                    onCountChange={handleExtensionCountChange}
                   />
                 </AccordionContent>
               </AccordionItem>
