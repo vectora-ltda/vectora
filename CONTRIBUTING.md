@@ -16,6 +16,8 @@ O workflow do Release Please é disparado por pushes em `master` e `release/0.1`
 
 PRs automatizados do Release Please são aceitos apenas quando o head pertence ao repositório Vectora, usa o nome de branch gerado pelo workflow e possui o label `autorelease: pending`. Título ou label sem a origem e a branch esperadas não são suficientes para isentar a validação.
 
+O canal de atualização acompanha a linha de release: `master`/`0.2.x` publica em `latest`, enquanto `release/0.1`/`0.1.x` publica em `maintenance`. O workflow passa esse canal explicitamente ao publicador e os instaladores `v0.1.x` continuam recebendo apenas atualizações da linha de manutenção. Downloads públicos para novas instalações continuam usando `latest`.
+
 ## Propagação de correções
 
 Uma correção aplicada em `release/0.1` deve ser encaminhada explicitamente para `master` por merge ou cherry-pick quando também fizer parte da próxima minor. Mudanças de `master` não são backportadas automaticamente para a linha estável; o PR de propagação deve receber a milestone compatível com a linha que será publicada.

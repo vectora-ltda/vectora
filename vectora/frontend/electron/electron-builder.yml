@@ -13,7 +13,7 @@
 # repo é privado (Vectora é vendido, não open source) e o Free precisa baixar
 # e atualizar sem conta. `${os}`/`${arch}` resolvem por build (mesmo macro do
 # artifactName), então cada instalador aponta pro seu próprio
-# /updates/latest/<os>/<arch>/latest.yml no worker (services/src/updates/worker.ts).
+# /updates/<channel>/<os>/<arch>/latest.yml no worker (services/src/updates/worker.ts).
 
 appId: company.vectora.desktop
 productName: Vectora
@@ -83,8 +83,11 @@ extraResources:
 # GET /updates/:channel/:os/:arch/latest.yml do worker.
 publish:
   - provider: generic
-    url: https://services.vectora.company/updates/latest/${os}/${arch}
-    channel: latest
+    # O workflow define VECTORA_UPDATE_CHANNEL como `latest` para a linha
+    # atual e `maintenance` para tags v0.1.x. O instalador continua na mesma
+    # linha em que foi publicado.
+    url: https://services.vectora.company/updates/${env.VECTORA_UPDATE_CHANNEL}/${os}/${arch}
+    channel: ${env.VECTORA_UPDATE_CHANNEL}
 
 win:
   target:

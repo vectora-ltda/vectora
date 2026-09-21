@@ -381,6 +381,9 @@ jobs:
       # sua própria env var de diretório de cache.
       CCACHE_DIR: ${{ github.workspace }}/.ccache
       CLCACHE_DIR: ${{ github.workspace }}/.ccache
+      # A tag de manutenção publica em um canal separado para nunca
+      # substituir a versão atual entregue a novas instalações.
+      VECTORA_UPDATE_CHANNEL: ${{ startsWith(github.ref_name, 'v0.1.') && 'maintenance' || 'latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -619,6 +622,15 @@ jobs:
         run: |
           VERSION=$(grep -m1 '^version' vectora/pyproject.toml | sed -E 's/version = "(.*)"/\1/')
           echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Select update channel
+        id: channel
+        working-directory: .
+        shell: bash
+        run: |
+          case "${{ steps.version.outputs.value }}" in
+            0.1.*) echo "value=maintenance" >> "$GITHUB_OUTPUT" ;;
+            *) echo "value=latest" >> "$GITHUB_OUTPUT" ;;
+          esac
       - name: Download all installers
         uses: actions/download-artifact@v8
         with:
@@ -639,7 +651,7 @@ jobs:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
-          pnpm run release -- --version=${{ steps.version.outputs.value }} --dist="$GITHUB_WORKSPACE/dist-electron-all"
+          pnpm run release -- --channel=${{ steps.channel.outputs.value }} --version=${{ steps.version.outputs.value }} --dist="$GITHUB_WORKSPACE/dist-electron-all"
 
   # ── 7. Publish gha-bot CLI binary (R2) ────────────────────────────────────
   # Prefixo R2 separado (gha-bot/) do canal de update do desktop — não passa

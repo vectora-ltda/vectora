@@ -35,6 +35,22 @@ describe("parseArgs", () => {
     expect(version).toBe("0.2.0");
   });
 
+  it("aceita o canal de manutenção da linha 0.1.x", () => {
+    const { channel } = parseArgs([
+      "--channel=maintenance",
+      "--version=0.1.23",
+    ]);
+    expect(channel).toBe("maintenance");
+  });
+
+  it("remove espaços do canal explícito", () => {
+    const { channel } = parseArgs([
+      "--channel= maintenance ",
+      "--version=0.1.23",
+    ]);
+    expect(channel).toBe("maintenance");
+  });
+
   it("--dist sobrescreve o default", () => {
     const { dist } = parseArgs(["--version=0.1.1", "--dist=/tmp/builds"]);
     expect(dist).toBe("/tmp/builds");
