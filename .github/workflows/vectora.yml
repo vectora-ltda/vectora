@@ -384,12 +384,11 @@ jobs:
           echo "value=$VERSION" >> "$GITHUB_OUTPUT"
       - name: Select update channel from package version
         id: channel
+        working-directory: .
         shell: bash
         run: |
-          case "${{ steps.version.outputs.value }}" in
-            0.1.*) echo "value=maintenance" >> "$GITHUB_OUTPUT" ;;
-            *) echo "value=latest" >> "$GITHUB_OUTPUT" ;;
-          esac
+          CHANNEL=$(python utils/select_update_channel.py "${{ steps.version.outputs.value }}")
+          echo "value=$CHANNEL" >> "$GITHUB_OUTPUT"
 
   # ── 6. Release Native Binaries (Nuitka onefile + Electron installers) ───
   # Matriz cara: macOS (multiplicador 10x de minutos) e Windows (2x). Por
