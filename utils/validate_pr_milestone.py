@@ -7,63 +7,84 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import NotRequired, TypedDict, cast
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 
-class LabelPayload(TypedDict):
+class LabelPayload(BaseModel):
     """Subset of a GitHub label included in pull-request events."""
 
-    name: NotRequired[str]
+    model_config = ConfigDict(extra="ignore")
+
+    name: str = ""
 
 
-class RepositoryPayload(TypedDict):
+class RepositoryPayload(BaseModel):
     """Repository identity attached to a pull-request head."""
 
-    full_name: NotRequired[str]
-    nameWithOwner: NotRequired[str]
+    model_config = ConfigDict(extra="ignore")
+
+    full_name: str | None = None
 
 
-class HeadPayload(TypedDict):
+class HeadPayload(BaseModel):
     """Branch and repository identity for a pull-request head."""
 
-    ref: NotRequired[str]
-    repo: NotRequired[RepositoryPayload | None]
+    model_config = ConfigDict(extra="ignore")
+
+    ref: str = ""
+    repo: RepositoryPayload | None = None
 
 
-class BasePayload(TypedDict):
+class BasePayload(BaseModel):
     """Base branch identity for a pull request."""
 
-    ref: NotRequired[str]
+    model_config = ConfigDict(extra="ignore")
+
+    ref: str = ""
 
 
-class MilestonePayload(TypedDict):
+class MilestonePayload(BaseModel):
     """Milestone metadata from a pull-request event."""
 
-    title: NotRequired[str]
+    model_config = ConfigDict(extra="ignore")
+
+    title: str = ""
 
 
-class PullRequestPayload(TypedDict):
+class PullRequestPayload(BaseModel):
     """Event fields consumed by the release-line validator."""
 
-    base: NotRequired[BasePayload | None]
-    head: NotRequired[HeadPayload | None]
-    labels: NotRequired[list[LabelPayload]]
-    milestone: NotRequired[MilestonePayload | None]
-    title: NotRequired[str]
+    model_config = ConfigDict(extra="ignore")
+
+    base: BasePayload | None = None
+    head: HeadPayload | None = None
+    labels: list[LabelPayload] = Field(default_factory=list)
+    milestone: MilestonePayload | None = None
+    title: str = ""
 
 
-class RepositoryEventPayload(TypedDict):
+class RepositoryEventPayload(BaseModel):
     """Repository identity from the webhook envelope."""
 
-    full_name: NotRequired[str]
+    model_config = ConfigDict(extra="ignore")
+
+    full_name: str = ""
 
 
-class PullRequestEvent(TypedDict):
-    """Subset of the GitHub pull-request webhook envelope we validate."""
+class PullRequestEvent(BaseModel):
+    """Validated subset of the GitHub pull-request webhook envelope."""
 
-    repository: NotRequired[RepositoryEventPayload | None]
-    pull_request: NotRequired[PullRequestPayload | None]
+    model_config = ConfigDict(extra="ignore")
 
+    repository: RepositoryEventPayload | None = None
+    pull_request: PullRequestPayload | None = None
+
+
+PullRequestEvent.model_rebuild()
+
+
+type EventPayload = PullRequestEvent | dict[str, object]
 
 _MAINTENANCE_MILESTONE = "0.1.x"
 _FEATURE_MILESTONE = "0.2"
@@ -73,46 +94,54 @@ _RELEASE_PLEASE_LABEL = "autorelease: pending"
 _SUPPORTED_BASES = {"master", "release/0.1"}
 
 
+def _parse_event(event: EventPayload) -> PullRequestEvent | None:
+    """Normalize test dictionaries and reject malformed webhook structures."""
+    if isinstance(event, PullRequestEvent):
+        return event
+    try:
+        return PullRequestEvent.model_validate(event)
+    except ValidationError:
+        return None
+
+
 def _labels(pull_request: PullRequestPayload) -> set[str]:
-    """Return label names from the GitHub event payload."""
-    return {
-        str(label.get("name", ""))
-        for label in pull_request.get("labels", [])
-        if isinstance(label, dict)
-    }
+    """Return label names from the validated GitHub event payload."""
+    return {label.name for label in pull_request.labels}
 
 
 def _is_release_please_pr(
     event: PullRequestEvent, pull_request: PullRequestPayload
 ) -> bool:
     """Recognize an automated release PR using immutable repository context."""
-    head = pull_request.get("head") or {}
-    head_repo = (head.get("repo") or {}).get("full_name")
-    repository = event.get("repository") or {}
+    head = pull_request.head
+    head_repo = head.repo.full_name if head and head.repo else None
+    repository = event.repository
     return (
-        head_repo == repository.get("full_name")
-        and bool(_RELEASE_PLEASE_HEAD.match(str(head.get("ref", ""))))
+        head_repo == (repository.full_name if repository else None)
+        and bool(_RELEASE_PLEASE_HEAD.match(head.ref if head else ""))
         and _RELEASE_PLEASE_LABEL in _labels(pull_request)
     )
 
 
 def _is_vext_pr(pull_request: PullRequestPayload) -> bool:
-    """Identify the VEXT stream that is the sole ``0.2`` exception."""
-    title = str(pull_request.get("title", ""))
-    head_ref = str((pull_request.get("head") or {}).get("ref", ""))
-    return bool(_VEXT_TOKEN.search(title) or _VEXT_TOKEN.search(head_ref))
+    """Identify VEXT titles and branches for clear validation diagnostics."""
+    head_ref = pull_request.head.ref if pull_request.head else ""
+    return bool(_VEXT_TOKEN.search(pull_request.title) or _VEXT_TOKEN.search(head_ref))
 
 
-def validate_pull_request(event: PullRequestEvent) -> list[str]:
+def validate_pull_request(event: EventPayload) -> list[str]:
     """Return actionable validation errors for a pull-request event."""
-    pull_request = event.get("pull_request")
+    parsed_event = _parse_event(event)
+    if parsed_event is None:
+        return ["O payload do webhook de pull request é inválido."]
+
+    pull_request = parsed_event.pull_request
     if pull_request is None:
         return []
 
     errors: list[str] = []
-    base_payload = pull_request.get("base") or {}
-    base = str(base_payload.get("ref", ""))
-    if _is_release_please_pr(event, pull_request):
+    base = pull_request.base.ref if pull_request.base else ""
+    if _is_release_please_pr(parsed_event, pull_request):
         return []
     if base not in _SUPPORTED_BASES:
         errors.append(
@@ -120,8 +149,8 @@ def validate_pull_request(event: PullRequestEvent) -> list[str]:
             f"base recebida: `{base or '(vazia)'}`."
         )
     else:
-        milestone = pull_request.get("milestone")
-        title = str(milestone.get("title", "").strip()) if milestone else ""
+        milestone = pull_request.milestone
+        title = milestone.title.strip() if milestone else ""
         expected = (
             _MAINTENANCE_MILESTONE if base == "release/0.1" else _FEATURE_MILESTONE
         )
@@ -150,10 +179,11 @@ def main() -> int:
     if not event_path:
         print("GITHUB_EVENT_PATH não foi definido.", file=sys.stderr)
         return 2
-    payload = cast(
-        "PullRequestEvent",
-        json.loads(Path(event_path).read_text(encoding="utf-8")),
-    )
+    try:
+        payload = PullRequestEvent.model_validate_json(Path(event_path).read_bytes())
+    except (OSError, ValueError, ValidationError) as exc:
+        print(f"Evento GitHub inválido: {exc}", file=sys.stderr)
+        return 2
     errors = validate_pull_request(payload)
     if errors:
         for error in errors:

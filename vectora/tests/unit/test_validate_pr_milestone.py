@@ -7,6 +7,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import NotRequired, Protocol, TypedDict, cast
 
+import pytest
+
 
 class RepositoryPayload(TypedDict):
     full_name: NotRequired[str]
@@ -47,7 +49,11 @@ class PullRequestEvent(TypedDict):
 
 
 class ValidatorModule(Protocol):
-    def validate_pull_request(self, event: PullRequestEvent) -> list[str]: ...
+    def validate_pull_request(
+        self, event: PullRequestEvent | dict[str, object]
+    ) -> list[str]: ...
+
+    def main(self) -> int: ...
 
 
 def _load_validator() -> ValidatorModule:
@@ -87,6 +93,16 @@ def _event(
 
 def test_empty_event_is_accepted() -> None:
     assert validator.validate_pull_request({}) == []
+
+
+def test_main_rejects_malformed_event(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    event_path = tmp_path / "event.json"
+    event_path.write_text('{"pull_request": "malformed"}', encoding="utf-8")
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
+
+    assert validator.main() == 2
 
 
 def test_master_feature_pr_is_accepted() -> None:

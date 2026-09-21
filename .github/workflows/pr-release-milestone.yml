@@ -30,17 +30,18 @@ jobs:
     name: Validate release milestone
     runs-on: ubuntu-latest
     steps:
-      # pull_request_target loads this workflow from the base branch; pin the
-      # checkout to the base commit explicitly so only trusted validator code
-      # is executed, even when the PR changes this file.
+      # Use the trusted revision that contains this workflow and validator. A
+      # maintenance branch may predate the validator entirely.
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.workflow_sha }}
           persist-credentials: false
-      - uses: actions/setup-python@v6
+      - uses: ./.github/actions/setup-uv
         with:
           python-version: "3.13"
+          all-extras: "false"
+          working-directory: vectora
       - name: Validate milestone and base branch
-        run: python utils/validate_pr_milestone.py
+        run: uv run --project vectora python utils/validate_pr_milestone.py
         env:
           GITHUB_EVENT_PATH: ${{ github.event_path }}

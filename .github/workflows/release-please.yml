@@ -44,7 +44,7 @@ jobs:
           prs="$(gh pr list \
             --repo "$GITHUB_REPOSITORY" \
             --base "$TARGET_BRANCH" \
-            --head "$REPOSITORY:$expected" \
+            --head "$expected" \
             --state open \
             --json number,headRefName,headRepository,labels)"
           pr="$(jq -c --arg expected "$expected" --arg repository "$REPOSITORY" \
