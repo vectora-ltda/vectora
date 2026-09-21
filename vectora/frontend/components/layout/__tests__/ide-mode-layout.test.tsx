@@ -6,8 +6,9 @@
  * faixa de abas no topo troca qual está visível.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen, within, fireEvent } from "@testing-library/react";
+import { useState } from "react";
 
 import { IdeModeLayout } from "@/components/layout/ide-mode-layout";
 
@@ -154,5 +155,34 @@ describe("IdeModeLayout", () => {
     );
     expect(screen.getByTestId("panel-editor")).toBeInTheDocument();
     expect(screen.queryByTestId("panel-workbench")).not.toBeInTheDocument();
+  });
+
+  it("viewport estreita: a aba Workbench reabre um painel fechado", () => {
+    const onOpenWorkbench = vi.fn();
+    function ReopenHarness() {
+      const [workbenchOpen, setWorkbenchOpen] = useState(false);
+      return (
+        <IdeModeLayout
+          layoutState="mobile"
+          workbenchOpen={workbenchOpen}
+          onOpenWorkbench={() => {
+            onOpenWorkbench();
+            setWorkbenchOpen(true);
+          }}
+          header={<div data-testid="panel-header">Header</div>}
+          navBar={<div data-testid="panel-navbar">NavBar</div>}
+          workbenchContent={<div data-testid="panel-workbench">Workbench</div>}
+          editor={<div data-testid="panel-editor">Editor</div>}
+          chat={<div data-testid="panel-chat">Chat</div>}
+        />
+      );
+    }
+
+    render(<ReopenHarness />);
+
+    fireEvent.click(screen.getByTestId("ide-mobile-tab-workbench"));
+
+    expect(onOpenWorkbench).toHaveBeenCalledOnce();
+    expect(screen.getByTestId("panel-workbench")).toBeInTheDocument();
   });
 });

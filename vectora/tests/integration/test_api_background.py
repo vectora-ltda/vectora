@@ -8,14 +8,16 @@ thread.
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
-from fastapi import BackgroundTasks, HTTPException
+from fastapi import BackgroundTasks, HTTPException, Request
 
 import backend
+from backend.api.handlers import threads as thread_handler
 from backend.api.handlers.background import (
     CreateLinkRequest,
     CreateTaskRequest,
@@ -43,9 +45,11 @@ from backend.tools.registry import ToolRegistry
 from backend.vtypes.message import VMessageChunk
 
 _UUID = "aa844f17-7e0e-4b0a-8991-c3aab9bdcc63"
+_OUTRO_UUID = "bb844f17-7e0e-4b0a-8991-c3aab9bdcc64"
 _SCHEMA = (
     Path(backend.__file__).parent / "storage" / "migrations" / "sqlite" / "schema.sql"
 )
+_REAL_IS_THREAD_DELETED = thread_handler._is_thread_deleted
 
 
 def _req(uid: str | None = _UUID) -> Any:
@@ -69,10 +73,33 @@ async def db(tmp_path, monkeypatch):
 
     setup = await _connect()
     await setup.executescript(up_sql)
+    await setup.execute(
+        "CREATE TABLE IF NOT EXISTS deleted_threads ("
+        "thread_id TEXT PRIMARY KEY, deleted_at TEXT NOT NULL)"
+    )
     await setup.commit()
     await setup.close()
 
     monkeypatch.setattr(bg, "_get_db", _connect)
+
+    async def _no_tombstone(_thread_id: str) -> bool:
+        return False
+
+    # This suite owns the background-task database; the production tombstone
+    # database is covered by the focused regression below.
+    monkeypatch.setattr(thread_handler, "_is_thread_deleted", _no_tombstone)
+
+    class _SyntheticSessionStore:
+        async def get_session(self, thread_id: str) -> dict[str, str]:
+            return {"thread_id": thread_id, "user_id": _UUID}
+
+    async def _get_synthetic_session_store() -> _SyntheticSessionStore:
+        return _SyntheticSessionStore()
+
+    monkeypatch.setattr(
+        "backend.services.agent_factory.get_session_store",
+        _get_synthetic_session_store,
+    )
     return db_path
 
 
@@ -245,6 +272,280 @@ async def test_patch_and_delete_enforce_session_scope(db):
 
     await delete_task_endpoint(_req(), "thread-A", out.id)
     assert await get_tasks(_req(), "thread-A") == []
+
+
+async def test_background_tasks_reject_deleted_session_runs(
+    db: str, monkeypatch: pytest.MonkeyPatch, native_session_store: SessionStore
+) -> None:
+    """Runs órfãs não podem ser consultadas após a sessão ser removida."""
+    _patch_native_engine(monkeypatch, session_store=native_session_store, texto="feito")
+    await native_session_store.create_session("deleted-session", user_id=_UUID)
+    await native_session_store.delete_session("deleted-session")
+
+    connection = await bg._get_db()
+    try:
+        await connection.execute(
+            "INSERT INTO vectora_background_runs "
+            "(id, task_id, session_id, trigger_source, status) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("orphan-run", "deleted-task", "deleted-session", "manual", "done"),
+        )
+        await connection.commit()
+    finally:
+        await connection.close()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_runs(_req(), "deleted-session")
+
+    assert exc_info.value.status_code == 404
+
+
+async def test_background_task_owner_boundary_uses_same_session(
+    db: str, monkeypatch: pytest.MonkeyPatch, native_session_store: SessionStore
+) -> None:
+    """A posse da task continua obrigatória quando a session coincide."""
+    _patch_native_engine(monkeypatch, session_store=native_session_store, texto="feito")
+    await native_session_store.create_session("thread-owner", user_id=_UUID)
+    task = await bg.create_task(
+        session_id="thread-owner",
+        user_id=_OUTRO_UUID,
+        kind="routine",
+        name="privada",
+        instruction="i",
+        trigger_type="manual",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_tasks(_req(), "thread-owner")
+    assert exc_info.value.status_code == 404
+
+
+async def test_background_task_owner_can_list_owned_session(
+    db: str, monkeypatch: pytest.MonkeyPatch, native_session_store: SessionStore
+) -> None:
+    """O dono pode listar tasks da própria session nativa."""
+    _patch_native_engine(monkeypatch, session_store=native_session_store, texto="feito")
+    await native_session_store.create_session("thread-owner-owned", user_id=_OUTRO_UUID)
+    owned = await bg.create_task(
+        session_id="thread-owner-owned",
+        user_id=_OUTRO_UUID,
+        kind="routine",
+        name="privada do dono",
+        instruction="i",
+        trigger_type="manual",
+    )
+    tasks = await get_tasks(_req(_OUTRO_UUID), "thread-owner-owned")
+    assert [item.id for item in tasks] == [owned.id]
+
+
+async def test_native_session_keeps_access_after_deleted_task_run(
+    db: str,
+    monkeypatch: pytest.MonkeyPatch,
+    native_session_store: SessionStore,
+) -> None:
+    """Runs órfãs não invalidam a sessão nativa nem aparecem na listagem."""
+    _patch_native_engine(monkeypatch, session_store=native_session_store, texto="feito")
+    session_id = "native-session-with-history"
+    await native_session_store.create_session(session_id, user_id=_UUID)
+    surviving = await bg.create_task(
+        session_id=session_id,
+        user_id=_UUID,
+        kind="routine",
+        name="mantida",
+        instruction="i",
+        trigger_type="manual",
+    )
+    removed = await bg.create_task(
+        session_id=session_id,
+        user_id=_UUID,
+        kind="routine",
+        name="removida",
+        instruction="i",
+        trigger_type="manual",
+    )
+
+    connection = await bg._get_db()
+    try:
+        await connection.execute(
+            "INSERT INTO vectora_background_runs "
+            "(id, task_id, session_id, trigger_source, status) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("surviving-run", surviving.id, session_id, "manual", "done"),
+        )
+        await connection.execute(
+            "INSERT INTO vectora_background_runs "
+            "(id, task_id, session_id, trigger_source, status) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("orphaned-run", removed.id, session_id, "manual", "done"),
+        )
+        await connection.commit()
+    finally:
+        await connection.close()
+
+    assert await bg.delete_task(removed.id) is True
+    tasks = await get_tasks(_req(), session_id)
+    assert [item.id for item in tasks] == [surviving.id]
+    runs = await get_runs(_req(), session_id)
+    assert [item.id for item in runs] == ["surviving-run"]
+
+
+async def test_missing_session_rejects_orphan_run_even_with_owned_task(
+    db: str,
+    monkeypatch: pytest.MonkeyPatch,
+    native_session_store: SessionStore,
+) -> None:
+    """Tasks não podem reabrir acesso a runs cujo card já foi apagado."""
+    _patch_native_engine(monkeypatch, session_store=native_session_store, texto="feito")
+
+    class _MissingSessionStore:
+        async def get_session(self, thread_id: str) -> None:
+            del thread_id
+
+    async def _get_missing_session_store() -> _MissingSessionStore:
+        return _MissingSessionStore()
+
+    monkeypatch.setattr(
+        thread_handler, "_get_session_store", _get_missing_session_store
+    )
+    task = await bg.create_task(
+        session_id="session-with-orphan-run",
+        user_id=_UUID,
+        kind="routine",
+        name="mantida",
+        instruction="i",
+        trigger_type="manual",
+    )
+
+    connection = await bg._get_db()
+    try:
+        await connection.execute(
+            "INSERT INTO vectora_background_runs "
+            "(id, task_id, session_id, trigger_source, status) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                "orphan-run-with-owned-task",
+                "deleted-card",
+                task.session_id,
+                "manual",
+                "done",
+            ),
+        )
+        await connection.commit()
+    finally:
+        await connection.close()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_runs(_req(), task.session_id)
+
+    assert exc_info.value.status_code == 404
+
+
+async def test_post_task_registers_missing_native_session(
+    db: str, monkeypatch: pytest.MonkeyPatch, native_session_store: SessionStore
+) -> None:
+    """A primeira task persiste a session gerada antes do primeiro chat."""
+    _patch_native_engine(monkeypatch, session_store=native_session_store, texto="feito")
+    thread_id = "thread-first-task"
+    assert await native_session_store.get_session(thread_id) is None
+
+    created = await post_task(
+        _req(),
+        thread_id,
+        CreateTaskRequest(
+            kind="routine",
+            name="primeira task",
+            instruction="i",
+            trigger_type="manual",
+        ),
+    )
+
+    session = await native_session_store.get_session(thread_id)
+    assert session is not None
+    assert session["user_id"] == _UUID
+    assert created.session_id == thread_id
+    assert [item.id for item in await get_tasks(_req(), thread_id)] == [created.id]
+
+
+async def test_first_workspace_task_persists_workspace_on_session(
+    db: str, monkeypatch: pytest.MonkeyPatch, native_session_store: SessionStore
+) -> None:
+    """A task can be the first operation without losing its workspace scope."""
+    _patch_native_engine(monkeypatch, session_store=native_session_store, texto="feito")
+
+    def _allow_workspace_access(workspace_id: str, request: Request) -> None:
+        del workspace_id, request
+
+    monkeypatch.setattr(
+        "backend.api.handlers.workspaces.require_workspace_access",
+        _allow_workspace_access,
+    )
+    thread_id = "thread-first-workspace-task"
+    workspace_id = "workspace-first-task"
+
+    created = await post_task(
+        _req(),
+        thread_id,
+        CreateTaskRequest(
+            kind="routine",
+            name="primeira task no workspace",
+            instruction="i",
+            trigger_type="manual",
+            workspace_id=workspace_id,
+        ),
+    )
+
+    session = await native_session_store.get_session(thread_id)
+    assert session is not None
+    assert session["workspace_id"] == workspace_id
+    assert created.workspace_id == workspace_id
+
+
+async def test_post_task_cannot_recreate_tombstoned_session(
+    db: str, monkeypatch: pytest.MonkeyPatch, native_session_store: SessionStore
+) -> None:
+    """A deleted ID cannot be reclaimed to reach retained task history."""
+    _patch_native_engine(monkeypatch, session_store=native_session_store, texto="feito")
+    thread_id = "thread-deleted-tombstone"
+    import aiosqlite
+
+    async def _connect_checkpoints() -> aiosqlite.Connection:
+        conn: aiosqlite.Connection = await aiosqlite.connect(db)
+
+        def _row_factory(
+            cursor: sqlite3.Cursor, row: tuple[object, ...]
+        ) -> dict[str, object]:
+            return dict(zip([col[0] for col in cursor.description], row, strict=False))
+
+        conn.row_factory = cast(
+            "type",
+            _row_factory,
+        )
+        return conn
+
+    monkeypatch.setattr(thread_handler, "_get_db", _connect_checkpoints)
+    monkeypatch.setattr(thread_handler, "_is_thread_deleted", _REAL_IS_THREAD_DELETED)
+    checkpoints = await _connect_checkpoints()
+    await checkpoints.execute(
+        "INSERT INTO deleted_threads (thread_id, deleted_at) VALUES (?, ?)",
+        (thread_id, "2026-09-21T00:00:00+00:00"),
+    )
+    await checkpoints.commit()
+    await checkpoints.close()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await post_task(
+            _req(),
+            thread_id,
+            CreateTaskRequest(
+                kind="routine",
+                name="reclaim",
+                instruction="i",
+                trigger_type="manual",
+            ),
+        )
+
+    assert exc_info.value.status_code == 404
+    assert await native_session_store.get_session(thread_id) is None
 
 
 async def test_patch_task_agent_profile_id_atribui_e_desatribui_via_http(db):
@@ -530,6 +831,7 @@ async def test_manual_run_creates_run_and_registers_thread(
     db, monkeypatch, native_session_store
 ):
     _patch_native_engine(monkeypatch, session_store=native_session_store, texto="feito")
+    await native_session_store.create_session("thread-run", user_id=_UUID)
 
     upserts: list[str] = []
 
@@ -580,6 +882,7 @@ async def test_manual_run_com_subagent_type_roda_a_soul_ate_o_fim(
     `test_manual_run_creates_run_and_registers_thread` já prova pro caso
     sem `subagent_type`."""
     _patch_native_engine(monkeypatch, session_store=native_session_store, texto="feito")
+    await native_session_store.create_session("thread-run-soul", user_id=_UUID)
 
     created = await post_task(
         _req(),
@@ -611,6 +914,8 @@ async def test_resume_run_endpoint_cancel_and_approve(
     enfileira o resume (approve/reject) via BackgroundTasks — mesmo padrão do
     disparo manual. Erro/borda: run inexistente → 404; run que não está
     aguardando aprovação → 409."""
+    _patch_native_engine(monkeypatch, session_store=native_session_store, texto="feito")
+    await native_session_store.create_session("thread-resume", user_id=_UUID)
     created = await post_task(
         _req(),
         "thread-resume",

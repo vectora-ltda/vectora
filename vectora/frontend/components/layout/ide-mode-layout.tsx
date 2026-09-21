@@ -49,6 +49,8 @@ interface IdeModeLayoutProps {
   defaultMobilePanel?: IdeMobilePanel;
   /** Estado de visibilidade da workbench, usado para evitar selecionar painel fechado. */
   workbenchOpen?: boolean;
+  /** Reabre a workbench quando ela foi fechada no modo compacto. */
+  onOpenWorkbench?: () => void;
   workbenchSide?: "left" | "right";
   direction?: "ltr" | "rtl";
   workbenchWidth?: number;
@@ -71,6 +73,7 @@ export function IdeModeLayout({
   chat,
   defaultMobilePanel = "editor",
   workbenchOpen = true,
+  onOpenWorkbench,
   workbenchSide = "left",
   direction = "ltr",
   workbenchWidth,
@@ -144,7 +147,12 @@ export function IdeModeLayout({
               role="tab"
               aria-selected={active}
               data-testid={`ide-mobile-tab-${id}`}
-              onClick={() => setMobilePanel(id)}
+              onClick={() => {
+                if (id === "workbench" && !workbenchOpen) {
+                  onOpenWorkbench?.();
+                }
+                setMobilePanel(id);
+              }}
               className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors ${
                 active
                   ? "bg-muted text-foreground"

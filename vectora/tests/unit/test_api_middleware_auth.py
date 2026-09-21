@@ -73,6 +73,14 @@ class TestIsPublicRoute:
         assert _is_public_route("/sessions/thread-1/background/tasks/task-1") is False
         assert _is_public_route("/sessions/thread-1/background/runs") is False
 
+    def test_session_artifacts_and_boards_are_private_even_with_dotted_names(
+        self,
+    ) -> None:
+        from backend.api.middleware.auth import _is_public_route
+
+        assert _is_public_route("/artifacts/thread-1/media/image.png") is False
+        assert _is_public_route("/boards") is False
+
     def test_root_path_is_public_frontend(self):
         # Paths fora dos prefixos de API são proxy para o Next.js e
         # portanto públicos do ponto de vista do middleware Python —

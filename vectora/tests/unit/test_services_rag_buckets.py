@@ -58,7 +58,13 @@ class TestGetAndDelete:
         assert rag_buckets.get_bucket(rs, bucket.id) is None
 
     def test_delete_bucket_unknown_id_is_noop(self, rs: RuntimeSettings) -> None:
-        rag_buckets.delete_bucket(rs, "id-que-nao-existe")  # não deve lançar
+        assert rag_buckets.delete_bucket(rs, "id-que-nao-existe") is False
+
+    def test_delete_bucket_rejects_other_workspace(self, rs: RuntimeSettings) -> None:
+        bucket = rag_buckets.create_bucket(rs, workspace_id="ws1", name="A")
+
+        assert rag_buckets.delete_bucket(rs, bucket.id, workspace_id="ws2") is False
+        assert rag_buckets.get_bucket(rs, bucket.id) is not None
 
     def test_delete_bucket_also_removes_from_active_set(
         self, rs: RuntimeSettings
@@ -101,6 +107,13 @@ class TestActiveBuckets:
         )
 
         assert rag_buckets.get_active_bucket_ids(rs, "ws1") == []
+
+    def test_set_active_rejects_other_workspace(self, rs: RuntimeSettings) -> None:
+        bucket = rag_buckets.create_bucket(rs, workspace_id="ws1", name="A")
+
+        rag_buckets.set_active(rs, workspace_id="ws2", bucket_id=bucket.id, active=True)
+
+        assert rag_buckets.get_active_bucket_ids(rs, "ws2") == []
 
     def test_active_buckets_isolated_per_workspace(self, rs: RuntimeSettings) -> None:
         bucket = rag_buckets.create_bucket(rs, workspace_id="ws1", name="A")
