@@ -8,12 +8,13 @@ thread.
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
-from fastapi import BackgroundTasks, HTTPException
+from fastapi import BackgroundTasks, HTTPException, Request
 
 import backend
 from backend.api.handlers import threads as thread_handler
@@ -368,9 +369,13 @@ async def test_first_workspace_task_persists_workspace_on_session(
 ) -> None:
     """A task can be the first operation without losing its workspace scope."""
     _patch_native_engine(monkeypatch, session_store=native_session_store, texto="feito")
+
+    def _allow_workspace_access(workspace_id: str, request: Request) -> None:
+        del workspace_id, request
+
     monkeypatch.setattr(
         "backend.api.handlers.workspaces.require_workspace_access",
-        lambda workspace_id, request: None,
+        _allow_workspace_access,
     )
     thread_id = "thread-first-workspace-task"
     workspace_id = "workspace-first-task"
@@ -401,10 +406,17 @@ async def test_post_task_cannot_recreate_tombstoned_session(
     thread_id = "thread-deleted-tombstone"
     import aiosqlite
 
-    async def _connect_checkpoints() -> Any:
-        conn: Any = await aiosqlite.connect(db)
-        conn.row_factory = lambda c, r: dict(
-            zip([col[0] for col in c.description], r, strict=False)
+    async def _connect_checkpoints() -> aiosqlite.Connection:
+        conn: aiosqlite.Connection = await aiosqlite.connect(db)
+
+        def _row_factory(
+            cursor: sqlite3.Cursor, row: tuple[object, ...]
+        ) -> dict[str, object]:
+            return dict(zip([col[0] for col in cursor.description], row, strict=False))
+
+        conn.row_factory = cast(
+            "type",
+            _row_factory,
         )
         return conn
 

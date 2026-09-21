@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
 _BUCKETS_KEY = "rag_buckets"
 _ACTIVE_KEY = "rag_workspace_active_buckets"
+_PENDING_PURGES_KEY = "rag_bucket_pending_purges"
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,17 @@ def _load_active(rs: RuntimeSettings) -> dict[str, list[str]]:
     return {
         str(k): [str(v) for v in vs] if isinstance(vs, list) else []
         for k, vs in raw.items()
+    }
+
+
+def _load_pending_purges(rs: RuntimeSettings) -> dict[str, str]:
+    raw = rs.get(_PENDING_PURGES_KEY, {})
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        str(bucket_id): str(workspace_id)
+        for bucket_id, workspace_id in raw.items()
+        if isinstance(bucket_id, str) and isinstance(workspace_id, str)
     }
 
 
@@ -98,6 +110,32 @@ def get_bucket(rs: RuntimeSettings, bucket_id: str) -> RagBucket | None:
     buckets = _load_buckets(rs)
     record = buckets.get(bucket_id)
     return _to_bucket(bucket_id, record) if record is not None else None
+
+
+def mark_pending_purge(
+    rs: RuntimeSettings, *, workspace_id: str, bucket_id: str
+) -> None:
+    """Persist the workspace that is authorized to retry a failed purge."""
+    pending = _load_pending_purges(rs)
+    pending[bucket_id] = workspace_id
+    rs.set(_PENDING_PURGES_KEY, pending)
+
+
+def get_pending_purge_workspace(rs: RuntimeSettings, bucket_id: str) -> str | None:
+    """Return the workspace authorized to retry a bucket purge, if any."""
+    return _load_pending_purges(rs).get(bucket_id)
+
+
+def clear_pending_purge(
+    rs: RuntimeSettings, *, workspace_id: str, bucket_id: str
+) -> bool:
+    """Clear a completed purge only when its workspace still matches."""
+    pending = _load_pending_purges(rs)
+    if pending.get(bucket_id) != workspace_id:
+        return False
+    pending.pop(bucket_id, None)
+    rs.set(_PENDING_PURGES_KEY, pending)
+    return True
 
 
 def delete_bucket(

@@ -279,8 +279,10 @@ async def _require_thread_access(
         async with _reconcile_delete_lock:
             if await _is_thread_deleted(thread_id):
                 raise HTTPException(status_code=404, detail="Thread não encontrada")
-            legacy_tasks = await list_tasks(thread_id)
-            if legacy_tasks and all(task.user_id == uid for task in legacy_tasks):
+            tasks_without_native_session = await list_tasks(thread_id)
+            if tasks_without_native_session and all(
+                task.user_id == uid for task in tasks_without_native_session
+            ):
                 return uid
 
     await _assert_owns_thread(thread_id, request, require_existing=require_existing)

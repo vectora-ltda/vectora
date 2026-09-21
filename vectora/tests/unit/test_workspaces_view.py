@@ -743,6 +743,50 @@ class TestToggleAndDeleteRagBucket:
         assert await list_rag_buckets(workspace_id=wsid) == []
 
     @pytest.mark.asyncio
+    async def test_delete_retorna_a_tentar_purge_falho_no_request_seguinte(
+        self, trusted_ws, _isolated_runtime_settings, monkeypatch
+    ):
+        from unittest.mock import AsyncMock
+
+        from backend.api.handlers.workspaces import delete_rag_bucket
+        from backend.services import rag_buckets
+
+        wsid, _root = trusted_ws
+        bucket = rag_buckets.create_bucket(
+            _isolated_runtime_settings, workspace_id=wsid, name="Docs"
+        )
+        fake_backend = AsyncMock()
+        fake_backend.purge.side_effect = [
+            RuntimeError("temporariamente indisponível"),
+            None,
+        ]
+        monkeypatch.setattr(
+            "backend.storage.factory.get_vector_store_backend",
+            AsyncMock(return_value=fake_backend),
+        )
+
+        await delete_rag_bucket(workspace_id=wsid, bucket_id=bucket.id)
+        assert (
+            rag_buckets.get_pending_purge_workspace(
+                _isolated_runtime_settings, bucket.id
+            )
+            == wsid
+        )
+
+        # A different workspace cannot consume the pending cleanup record.
+        await delete_rag_bucket(workspace_id="outro-workspace", bucket_id=bucket.id)
+        fake_backend.purge.assert_awaited_once_with(f"bucket_{bucket.id}")
+
+        await delete_rag_bucket(workspace_id=wsid, bucket_id=bucket.id)
+        assert fake_backend.purge.await_count == 2
+        assert (
+            rag_buckets.get_pending_purge_workspace(
+                _isolated_runtime_settings, bucket.id
+            )
+            is None
+        )
+
+    @pytest.mark.asyncio
     async def test_delete_idempotente_bucket_ja_ausente(
         self, trusted_ws, _isolated_runtime_settings
     ):
