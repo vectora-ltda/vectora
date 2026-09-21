@@ -15,6 +15,7 @@ Endpoints (todos exigem autenticação):
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
@@ -658,7 +659,7 @@ async def resume_run_endpoint(
     return {"status": "queued", "run_id": run_id}
 
 
-def _row_to_run_out(r: dict[str, Any]) -> RunOut:
+def _row_to_run_out(r: Mapping[str, Any]) -> RunOut:
     return RunOut(
         id=r["id"],
         task_id=r["task_id"],

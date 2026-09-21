@@ -20,7 +20,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, tzinfo
-from typing import Any
+from typing import Any, TypedDict, cast
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -127,6 +127,20 @@ class BackgroundTask:
             "claim_expires_at": self.claim_expires_at,
             "board_id": self.board_id,
         }
+
+
+class BackgroundRunRow(TypedDict):
+    """Linha de run exposta pelos endpoints de histórico."""
+
+    id: str
+    task_id: str
+    session_id: str
+    run_thread_id: str | None
+    trigger_source: str
+    status: str
+    summary: str | None
+    started_at: str
+    finished_at: str | None
 
 
 def _row_to_task(row: dict[str, Any]) -> BackgroundTask:
@@ -612,7 +626,7 @@ async def list_runs(session_id: str, limit: int = 50) -> list[dict[str, Any]]:
 
 async def list_runs_for_user(
     session_id: str, user_id: str, limit: int = 50
-) -> list[dict[str, Any]]:
+) -> list[BackgroundRunRow]:
     """Lista apenas runs ligadas a tasks ainda pertencentes ao usuário.
 
     O histórico de uma task removida permanece armazenado para auditoria, mas
@@ -622,7 +636,9 @@ async def list_runs_for_user(
     try:
         cur = await conn.execute(
             """
-            SELECT run.*
+            SELECT run.id, run.task_id, run.session_id, run.run_thread_id,
+                   run.trigger_source, run.status, run.summary,
+                   run.started_at, run.finished_at
             FROM vectora_background_runs AS run
             INNER JOIN vectora_background_tasks AS task
               ON task.id = run.task_id
@@ -638,7 +654,7 @@ async def list_runs_for_user(
     finally:
         with contextlib.suppress(Exception):
             await conn.close()
-    return list(rows)
+    return [cast("BackgroundRunRow", row) for row in rows]
 
 
 async def runs_have_owned_tasks(session_id: str, user_id: str) -> bool:
