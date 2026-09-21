@@ -14,10 +14,12 @@ listar/ler.
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 
 import pytest
 
 from backend.vtypes import Workspace
+from backend.workspace.runtime_settings import RuntimeSettings
 
 # ---------------------------------------------------------------------------
 # Fixture — workspace confiável apontando para tmp_path
@@ -744,8 +746,11 @@ class TestToggleAndDeleteRagBucket:
 
     @pytest.mark.asyncio
     async def test_delete_retorna_a_tentar_purge_falho_no_request_seguinte(
-        self, trusted_ws, _isolated_runtime_settings, monkeypatch
-    ):
+        self,
+        trusted_ws: tuple[str, Path],
+        _isolated_runtime_settings: RuntimeSettings,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         from unittest.mock import AsyncMock
 
         from backend.api.handlers.workspaces import delete_rag_bucket
@@ -773,10 +778,6 @@ class TestToggleAndDeleteRagBucket:
             == wsid
         )
 
-        # A different workspace cannot consume the pending cleanup record.
-        await delete_rag_bucket(workspace_id="outro-workspace", bucket_id=bucket.id)
-        fake_backend.purge.assert_awaited_once_with(f"bucket_{bucket.id}")
-
         await delete_rag_bucket(workspace_id=wsid, bucket_id=bucket.id)
         assert fake_backend.purge.await_count == 2
         assert (
@@ -784,6 +785,41 @@ class TestToggleAndDeleteRagBucket:
                 _isolated_runtime_settings, bucket.id
             )
             is None
+        )
+
+    @pytest.mark.asyncio
+    async def test_delete_nao_consumir_purge_pendente_de_outro_workspace(
+        self,
+        trusted_ws: tuple[str, Path],
+        _isolated_runtime_settings: RuntimeSettings,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Uma workspace diferente não pode consumir cleanup pendente."""
+        from unittest.mock import AsyncMock
+
+        from backend.api.handlers.workspaces import delete_rag_bucket
+        from backend.services import rag_buckets
+
+        wsid, _root = trusted_ws
+        bucket = rag_buckets.create_bucket(
+            _isolated_runtime_settings, workspace_id=wsid, name="Docs"
+        )
+        fake_backend = AsyncMock()
+        fake_backend.purge.side_effect = RuntimeError("temporariamente indisponível")
+        monkeypatch.setattr(
+            "backend.storage.factory.get_vector_store_backend",
+            AsyncMock(return_value=fake_backend),
+        )
+
+        await delete_rag_bucket(workspace_id=wsid, bucket_id=bucket.id)
+        await delete_rag_bucket(workspace_id="outro-workspace", bucket_id=bucket.id)
+
+        fake_backend.purge.assert_awaited_once_with(f"bucket_{bucket.id}")
+        assert (
+            rag_buckets.get_pending_purge_workspace(
+                _isolated_runtime_settings, bucket.id
+            )
+            == wsid
         )
 
     @pytest.mark.asyncio

@@ -295,8 +295,6 @@ async def _require_thread_access(
     tasks = await list_tasks(thread_id)
     if any(task.user_id != uid for task in tasks):
         raise HTTPException(status_code=404, detail="Thread não encontrada")
-    if not await runs_have_owned_tasks(thread_id, uid):
-        raise HTTPException(status_code=404, detail="Thread não encontrada")
     if require_existing and not tasks:
         # Empty sessions are valid before their first background task. There is
         # no data to disclose or mutate, so retain the existing empty response.
@@ -675,10 +673,10 @@ def _row_to_run_out(r: dict[str, Any]) -> RunOut:
 
 @router.get("/runs", response_model=list[RunOut])
 async def get_runs(request: Request, thread_id: str) -> list[RunOut]:
-    from backend.scheduling.background_tasks import list_runs
+    from backend.scheduling.background_tasks import list_runs_for_user
 
-    await _require_thread_access(thread_id, request)
-    rows = await list_runs(thread_id)
+    uid = await _require_thread_access(thread_id, request)
+    rows = await list_runs_for_user(thread_id, uid)
     return [_row_to_run_out(r) for r in rows]
 
 

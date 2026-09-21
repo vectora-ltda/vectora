@@ -610,6 +610,37 @@ async def list_runs(session_id: str, limit: int = 50) -> list[dict[str, Any]]:
     return list(rows)
 
 
+async def list_runs_for_user(
+    session_id: str, user_id: str, limit: int = 50
+) -> list[dict[str, Any]]:
+    """Lista apenas runs ligadas a tasks ainda pertencentes ao usuário.
+
+    O histórico de uma task removida permanece armazenado para auditoria, mas
+    não pode aparecer na API de uma sessão nativa que continua válida.
+    """
+    conn = await _get_db()
+    try:
+        cur = await conn.execute(
+            """
+            SELECT run.*
+            FROM vectora_background_runs AS run
+            INNER JOIN vectora_background_tasks AS task
+              ON task.id = run.task_id
+             AND task.session_id = run.session_id
+             AND task.user_id = ?
+            WHERE run.session_id = ?
+            ORDER BY run.started_at DESC
+            LIMIT ?
+            """,
+            (user_id, session_id, limit),
+        )
+        rows = await cur.fetchall()
+    finally:
+        with contextlib.suppress(Exception):
+            await conn.close()
+    return list(rows)
+
+
 async def runs_have_owned_tasks(session_id: str, user_id: str) -> bool:
     """Informa se cada run retida ainda aponta para uma task do usuário.
 

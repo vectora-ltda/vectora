@@ -338,6 +338,57 @@ async def test_background_task_owner_can_list_owned_session(
     assert [item.id for item in tasks] == [owned.id]
 
 
+async def test_native_session_keeps_access_after_deleted_task_run(
+    db: str,
+    monkeypatch: pytest.MonkeyPatch,
+    native_session_store: SessionStore,
+) -> None:
+    """Runs órfãs não invalidam a sessão nativa nem aparecem na listagem."""
+    _patch_native_engine(monkeypatch, session_store=native_session_store, texto="feito")
+    session_id = "native-session-with-history"
+    await native_session_store.create_session(session_id, user_id=_UUID)
+    surviving = await bg.create_task(
+        session_id=session_id,
+        user_id=_UUID,
+        kind="routine",
+        name="mantida",
+        instruction="i",
+        trigger_type="manual",
+    )
+    removed = await bg.create_task(
+        session_id=session_id,
+        user_id=_UUID,
+        kind="routine",
+        name="removida",
+        instruction="i",
+        trigger_type="manual",
+    )
+
+    connection = await bg._get_db()
+    try:
+        await connection.execute(
+            "INSERT INTO vectora_background_runs "
+            "(id, task_id, session_id, trigger_source, status) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("surviving-run", surviving.id, session_id, "manual", "done"),
+        )
+        await connection.execute(
+            "INSERT INTO vectora_background_runs "
+            "(id, task_id, session_id, trigger_source, status) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("orphaned-run", removed.id, session_id, "manual", "done"),
+        )
+        await connection.commit()
+    finally:
+        await connection.close()
+
+    assert await bg.delete_task(removed.id) is True
+    tasks = await get_tasks(_req(), session_id)
+    assert [item.id for item in tasks] == [surviving.id]
+    runs = await get_runs(_req(), session_id)
+    assert [item.id for item in runs] == ["surviving-run"]
+
+
 async def test_missing_session_rejects_orphan_run_even_with_owned_task(
     db: str,
     monkeypatch: pytest.MonkeyPatch,
