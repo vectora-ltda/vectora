@@ -4,7 +4,7 @@ Este arquivo reúne as regras de contribuição relacionadas ao fluxo de branche
 
 ## Linhas de release
 
-O branch `master` é a linha atualmente publicada pelo Release Please. A linha `release/0.1` permanece como destino de manutenção da série `0.1.x`, mas não cria uma PR de release automática neste fluxo.
+O branch `master` é a linha da próxima minor (`0.2`). A linha `release/0.1` é o destino de manutenção da série `0.1.x`; ambas são publicadas pelo Release Please em PRs independentes.
 
 PRs que apontam para `master` devem usar a milestone `0.2`, incluindo o trabalho do ecossistema VEXT. PRs de manutenção que apontam para `release/0.1` devem usar `0.1.x`. A milestone acompanha a linha de destino porque o Release Please calcula cada branch a partir dos commits que foram incorporados nele.
 
@@ -12,7 +12,7 @@ Uma milestone deve ser escolhida antes da aprovação do PR. O workflow `Validat
 
 ## Release Please
 
-O Release Please cria uma única PR para `master`, que é a PR de release oficial desta fase. Milestones não filtram commits depois do merge; por isso não há uma segunda PR automática para `release/0.1` até que uma linha de manutenção volte a ser ativada de forma explícita.
+O workflow do Release Please é disparado por pushes em `master` e `release/0.1`. Ele calcula cada linha de forma independente e usa o alvo explícito para criar ou atualizar a PR correspondente: `master` gera a próxima minor e `release/0.1` gera a próxima versão patch `0.1.x`. Milestones não filtram commits depois do merge; o branch de destino é o que separa os históricos.
 
 PRs automatizados do Release Please são aceitos apenas quando o head pertence ao repositório Vectora, usa o nome de branch gerado pelo workflow e possui o label `autorelease: pending`. Título ou label sem a origem e a branch esperadas não são suficientes para isentar a validação.
 
