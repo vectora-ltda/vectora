@@ -38,3 +38,48 @@ jobs:
           # Labels are optional metadata; do not fail the release update when
           # a concurrent or manually edited PR already removed one.
           skip-labeling: true
+
+      # Release Please renders changelog lists with `*`. Keep the generated
+      # document aligned with the repository convention (`-`) without changing
+      # content, and make the follow-up commit only when normalization changes it.
+      - name: Find Release Please branch
+        id: release-branch
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        shell: bash
+        run: |
+          branch="$(gh pr list \
+            --repo "$GITHUB_REPOSITORY" \
+            --base master \
+            --state open \
+            --head release-please--branches--master--components--vectora \
+            --json headRefName \
+            --jq '.[0].headRefName // ""')"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Check out Release Please branch
+        if: steps.release-branch.outputs.branch != ''
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release-branch.outputs.branch }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+
+      - name: Normalize generated changelog list markers
+        if: steps.release-branch.outputs.branch != ''
+        run: python utils/normalize_changelog_lists.py
+
+      - name: Commit normalized changelog
+        if: steps.release-branch.outputs.branch != ''
+        env:
+          RELEASE_BRANCH: ${{ steps.release-branch.outputs.branch }}
+        shell: bash
+        run: |
+          if git diff --quiet -- vectora/CHANGELOG.md; then
+            echo "Changelog markers are already normalized."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vectora/CHANGELOG.md
+          git commit -m "chore: normalize generated changelog list markers"
+          git push origin "HEAD:$RELEASE_BRANCH"

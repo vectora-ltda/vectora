@@ -4018,6 +4018,14 @@ async def toggle_rag_bucket(
     from backend.services import rag_buckets
     from backend.workspace.runtime_settings import runtime_settings
 
+    bucket = rag_buckets.get_bucket(runtime_settings, bucket_id)
+    if bucket is None:
+        # Toggling an already-absent bucket is a safe no-op. This keeps
+        # repeated UI updates idempotent without weakening the tenant check
+        # for a bucket that belongs to another workspace.
+        return body
+    if bucket.workspace_id != workspace_id:
+        raise HTTPException(status_code=404, detail="Bucket não encontrado")
     rag_buckets.set_active(
         runtime_settings,
         workspace_id=workspace_id,
@@ -4039,13 +4047,48 @@ async def delete_rag_bucket(workspace_id: str, bucket_id: str) -> dict:
     from backend.storage.factory import get_vector_store_backend
     from backend.workspace.runtime_settings import runtime_settings
 
-    rag_buckets.delete_bucket(runtime_settings, bucket_id)
+    bucket = rag_buckets.get_bucket(runtime_settings, bucket_id)
+    if bucket is None:
+        # A previous purge may have failed after the catalog row was removed.
+        # Retry only for the workspace that owns the persisted cleanup record.
+        pending_workspace = rag_buckets.get_pending_purge_workspace(
+            runtime_settings, bucket_id
+        )
+        if pending_workspace != workspace_id:
+            # DELETE is intentionally idempotent: a retry after a successful
+            # deletion has the same result as the original request.
+            return {"ok": True}
+        try:
+            backend = await get_vector_store_backend()
+            await backend.purge(f"bucket_{bucket_id}")
+        except Exception:
+            logger.warning(
+                "rag_buckets: falha ao repetir purge do bucket %s",
+                bucket_id,
+                exc_info=True,
+            )
+            return {"ok": True}
+        rag_buckets.clear_pending_purge(
+            runtime_settings, workspace_id=workspace_id, bucket_id=bucket_id
+        )
+        return {"ok": True}
+    if bucket.workspace_id != workspace_id:
+        raise HTTPException(status_code=404, detail="Bucket não encontrado")
+
+    rag_buckets.mark_pending_purge(
+        runtime_settings, workspace_id=workspace_id, bucket_id=bucket_id
+    )
+    rag_buckets.delete_bucket(runtime_settings, bucket_id, workspace_id=workspace_id)
     try:
         backend = await get_vector_store_backend()
         await backend.purge(f"bucket_{bucket_id}")
     except Exception:
         logger.warning(
             "rag_buckets: falha ao purgar tabela do bucket %s", bucket_id, exc_info=True
+        )
+    else:
+        rag_buckets.clear_pending_purge(
+            runtime_settings, workspace_id=workspace_id, bucket_id=bucket_id
         )
     return {"ok": True}
 
