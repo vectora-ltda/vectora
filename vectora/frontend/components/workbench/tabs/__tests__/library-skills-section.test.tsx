@@ -42,6 +42,7 @@ const CATALOG: CatalogSkill[] = [
     name: "PDF Extract",
     description: "Extrai texto de PDFs",
     source: "https://github.com/example/pdf-extract-skill",
+    publisher: "Example Maintainers",
   },
 ];
 
@@ -76,6 +77,7 @@ describe("SkillsSection — Catálogo", () => {
     await waitFor(() => {
       expect(screen.getByText("PDF Extract")).toBeTruthy();
     });
+    expect(screen.getByText(/Example Maintainers/)).toBeTruthy();
   });
 
   it("toggle ainda permite recolher e reabrir o catálogo", async () => {
@@ -200,5 +202,16 @@ describe("SkillsSection — Catálogo", () => {
     expect(screen.getByText("Official")).toBeTruthy();
     expect(screen.getByText("Verified")).toBeTruthy();
     expect(screen.queryByText("Community", { exact: true })).toBeNull();
+  });
+
+  it("não infere autor a partir de uma URL quando o catálogo não informa publisher", async () => {
+    mockFetch({
+      entries: [{ ...CATALOG[0], publisher: undefined }],
+    });
+    render(<SkillsSection query="" />);
+
+    await waitFor(() => expect(screen.getByText("PDF Extract")).toBeTruthy());
+    expect(screen.queryByText(/Example Maintainers/)).toBeNull();
+    expect(screen.queryByText(/example\/pdf-extract-skill/)).toBeNull();
   });
 });

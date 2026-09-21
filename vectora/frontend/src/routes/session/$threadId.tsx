@@ -30,6 +30,7 @@ import { FileEditor } from "@/components/workbench/file-editor";
 import { MarkdownView } from "@/components/workbench/markdown-view";
 import { LibraryMcpPreview } from "@/components/workbench/library-mcp-preview";
 import { CanvasDocumentDialog } from "@/components/workbench/canvas-document-dialog";
+import { CanvasFileDiff } from "@/components/workbench/canvas-file-diff";
 import {
   CommitDetails,
   type GitCommitDetailsState,
@@ -439,6 +440,9 @@ function SessionPage() {
   const closeCanvasDocument = useWindowsStore(
     (state) => state.closeCanvasDocument,
   );
+  const closeCanvasDocumentModal = useWindowsStore(
+    (state) => state.closeCanvasDocumentModal,
+  );
   const closeDockedTab = useWindowsStore((state) => state.closeDockedTab);
   const openEditedFileDiff = useCallback(
     (file: EditedFile) => {
@@ -472,6 +476,7 @@ function SessionPage() {
           threadId,
           title: details.commit.message || m.workbench_git_commit_details(),
           commitSha: details.commit.sha,
+          commitDetails: details,
         });
       }
     },
@@ -494,6 +499,7 @@ function SessionPage() {
         threadId,
         title: item.title,
         path: item.path,
+        plan: { item, content },
       });
     },
     [activeWorkspaceId, openCanvasDocument, threadId],
@@ -1157,45 +1163,13 @@ function SessionPage() {
                           document.editedFile
                         ) {
                           return (
-                            <div className="h-full overflow-auto bg-background p-4">
-                              {document.editedFile.hunks.length ? (
-                                document.editedFile.hunks.map((hunk, index) => (
-                                  <div
-                                    key={`${hunk.header}-${index}`}
-                                    className="mb-4 last:mb-0"
-                                  >
-                                    <div className="mb-1 font-mono text-xs text-muted-foreground">
-                                      {hunk.header}
-                                    </div>
-                                    <pre className="overflow-x-auto rounded-md border border-border/50 bg-muted/20 p-3 font-mono text-xs leading-5">
-                                      {hunk.lines.map((line, lineIndex) => (
-                                        <span
-                                          key={`${lineIndex}-${line}`}
-                                          className={
-                                            line.startsWith("+")
-                                              ? "text-git-addition"
-                                              : line.startsWith("-")
-                                                ? "text-destructive"
-                                                : "text-foreground/80"
-                                          }
-                                        >
-                                          {line}
-                                          {"\n"}
-                                        </span>
-                                      ))}
-                                    </pre>
-                                  </div>
-                                ))
-                              ) : (
-                                <p className="text-sm text-muted-foreground">
-                                  {m.chat_edited_files_diff_empty()}
-                                </p>
-                              )}
-                            </div>
+                            <CanvasFileDiff editedFile={document.editedFile} />
                           );
                         }
                         if (document.kind === "commit-details") {
-                          const details = gitCommitDetailsById[document.id];
+                          const details =
+                            document.commitDetails ??
+                            gitCommitDetailsById[document.id];
                           return details ? (
                             <CommitDetails
                               commit={details.commit}
@@ -1224,7 +1198,8 @@ function SessionPage() {
                         if (document.kind === "mcp-preview" && document.mcp) {
                           return <LibraryMcpPreview mcp={document.mcp} />;
                         }
-                        const plan = planDocumentsById[document.id];
+                        const plan =
+                          document.plan ?? planDocumentsById[document.id];
                         return (
                           <div className="h-full overflow-auto p-5">
                             {plan?.content ? (
@@ -1469,7 +1444,7 @@ function SessionPage() {
           open={modalCanvasDocument !== null}
           onOpenChange={(open) => {
             if (!open && modalCanvasDocument) {
-              closeCanvasDocument(modalCanvasDocument.id);
+              closeCanvasDocumentModal(modalCanvasDocument.id);
               setActiveCanvasTab("editor");
             }
           }}
@@ -1486,41 +1461,7 @@ function SessionPage() {
             )}
           {modalCanvasDocument?.kind === "file-diff" &&
             modalCanvasDocument.editedFile && (
-              <div className="h-full overflow-auto bg-background p-4">
-                {modalCanvasDocument.editedFile.hunks.length ? (
-                  modalCanvasDocument.editedFile.hunks.map((hunk, index) => (
-                    <div
-                      key={`${hunk.header}-${index}`}
-                      className="mb-4 last:mb-0"
-                    >
-                      <div className="mb-1 font-mono text-xs text-muted-foreground">
-                        {hunk.header}
-                      </div>
-                      <pre className="overflow-x-auto rounded-md border border-border/50 bg-muted/20 p-3 font-mono text-xs leading-5">
-                        {hunk.lines.map((line, lineIndex) => (
-                          <span
-                            key={`${lineIndex}-${line}`}
-                            className={
-                              line.startsWith("+")
-                                ? "text-git-addition"
-                                : line.startsWith("-")
-                                  ? "text-destructive"
-                                  : "text-foreground/80"
-                            }
-                          >
-                            {line}
-                            {"\n"}
-                          </span>
-                        ))}
-                      </pre>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    {m.chat_edited_files_diff_empty()}
-                  </p>
-                )}
-              </div>
+              <CanvasFileDiff editedFile={modalCanvasDocument.editedFile} />
             )}
           {modalCanvasDocument?.kind === "mcp-preview" &&
             modalCanvasDocument.mcp && (
@@ -1528,9 +1469,13 @@ function SessionPage() {
             )}
           {modalCanvasDocument?.kind === "plan" && (
             <div className="h-full overflow-auto p-5">
-              {planDocumentsById[modalCanvasDocument.id]?.content ? (
+              {(modalCanvasDocument.plan?.content ??
+              planDocumentsById[modalCanvasDocument.id]?.content) ? (
                 <MarkdownView
-                  content={planDocumentsById[modalCanvasDocument.id].content!}
+                  content={
+                    (modalCanvasDocument.plan?.content ??
+                      planDocumentsById[modalCanvasDocument.id]?.content)!
+                  }
                 />
               ) : (
                 <p className="text-sm text-muted-foreground">
@@ -1541,7 +1486,9 @@ function SessionPage() {
           )}
           {modalCanvasDocument?.kind === "commit-details" &&
             (() => {
-              const details = gitCommitDetailsById[modalCanvasDocument.id];
+              const details =
+                modalCanvasDocument.commitDetails ??
+                gitCommitDetailsById[modalCanvasDocument.id];
               return details ? (
                 <CommitDetails
                   commit={details.commit}

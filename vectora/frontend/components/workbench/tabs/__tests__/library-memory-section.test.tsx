@@ -42,6 +42,7 @@ const CATALOG = [
     description: "Documentação interna vetorizada",
     embed_model: "embed-multilingual-v3.0",
     verified: true,
+    publisher: "Vectora Team",
     downloads_count: 42,
     license: "MIT",
   },
@@ -128,6 +129,7 @@ describe("MemorySection", () => {
       expect(screen.getByText("Bucket 1")).toBeTruthy();
       expect(screen.getByText("Bucket 2")).toBeTruthy();
     });
+    expect(screen.getByText(/Vectora Team/)).toBeTruthy();
   });
 
   it("instalar um bucket chama POST /rag-library/install e vira Installed", async () => {

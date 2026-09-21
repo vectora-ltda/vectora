@@ -62,17 +62,7 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
         : null;
   const badgeIsVerified =
     trustState === "vectora_verified" || trustState === "publisher_signed";
-  const publisher =
-    skill.publisher ??
-    (() => {
-      try {
-        const url = new URL(skill.source);
-        const [, owner] = url.pathname.split("/");
-        return owner || null;
-      } catch {
-        return null;
-      }
-    })();
+  const publisher = skill.publisher;
 
   const handleInstall = async () => {
     if (invalid) {

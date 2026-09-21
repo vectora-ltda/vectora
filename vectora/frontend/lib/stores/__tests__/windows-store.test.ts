@@ -383,7 +383,7 @@ describe("windows-store — documentos do Canvas", () => {
     ]);
   });
 
-  it("persiste apenas documentos que podem ser reidratados", () => {
+  it("persiste documentos com payload que podem ser reidratados", () => {
     s().openCanvasDocument({
       id: "commit:ws1:t1:abc",
       kind: "commit-details",
@@ -393,11 +393,15 @@ describe("windows-store — documentos do Canvas", () => {
     });
     const partialize = useWindowsStore.persist.getOptions().partialize;
     const persisted = partialize?.(s()) as Record<string, unknown>;
-    expect(persisted.canvasDocuments).toEqual([]);
-    expect(persisted.activeCanvasDocumentId).toBeNull();
+    expect(persisted.canvasDocuments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "commit:ws1:t1:abc" }),
+      ]),
+    );
+    expect(persisted.activeCanvasDocumentId).toBe("commit:ws1:t1:abc");
   });
 
-  it("migra e sanitiza documentos persistidos antes de reidratar", () => {
+  it("migra e preserva um documento de arquivo válido", () => {
     const migrate = useWindowsStore.persist.getOptions().migrate;
     expect(migrate).toBeDefined();
 
@@ -413,21 +417,8 @@ describe("windows-store — documentos do Canvas", () => {
             title: "main.ts",
             path: "src/main.ts",
           },
-          {
-            id: "plan:ws1:plan",
-            kind: "plan",
-            workspaceId: "ws1",
-            title: "Plano",
-          },
-          {
-            id: "file:invalid",
-            kind: "file",
-            workspaceId: "",
-            title: "Inválido",
-            path: "src/invalid.ts",
-          },
         ],
-        activeCanvasDocumentId: "plan:ws1:plan",
+        activeCanvasDocumentId: "file:ws1:src/main.ts",
       },
       0,
     ) as Record<string, unknown>;
@@ -435,7 +426,72 @@ describe("windows-store — documentos do Canvas", () => {
     expect(migrated.canvasDocuments).toEqual([
       expect.objectContaining({ id: "file:ws1:src/main.ts" }),
     ]);
+    expect(migrated.activeCanvasDocumentId).toBe("file:ws1:src/main.ts");
+  });
+
+  it("rejeita documentos com tipo não suportado", () => {
+    const migrate = useWindowsStore.persist.getOptions().migrate!;
+    const migrated = migrate(
+      {
+        canvasDocuments: [
+          { id: "bad", kind: "unknown", workspaceId: "ws", title: "Bad" },
+        ],
+        activeCanvasDocumentId: "bad",
+      },
+      0,
+    ) as Record<string, unknown>;
+    expect(migrated.canvasDocuments).toEqual([]);
     expect(migrated.activeCanvasDocumentId).toBeNull();
+  });
+
+  it("descarta payloads de Canvas não-array e entradas nulas", () => {
+    const migrate = useWindowsStore.persist.getOptions().migrate!;
+    const migrated = migrate(
+      {
+        canvasDocuments: [
+          null,
+          1,
+          "bad",
+          {
+            id: "ok",
+            kind: "file",
+            workspaceId: "ws",
+            title: "Ok",
+            path: "a.ts",
+          },
+        ],
+        activeCanvasDocumentId: "ok",
+      },
+      0,
+    ) as Record<string, unknown>;
+    expect(migrated.canvasDocuments).toEqual([
+      expect.objectContaining({ id: "ok" }),
+    ]);
+    expect(migrated.activeCanvasDocumentId).toBe("ok");
+
+    const nonArray = migrate({ canvasDocuments: null }, 0) as Record<
+      string,
+      unknown
+    >;
+    expect(nonArray.canvasDocuments).toEqual([]);
+  });
+
+  it("fecha modal sem ativar automaticamente outro documento", () => {
+    s().openCanvasDocument({
+      id: "a",
+      kind: "plan",
+      workspaceId: "ws",
+      title: "A",
+    });
+    s().openCanvasDocument({
+      id: "b",
+      kind: "plan",
+      workspaceId: "ws",
+      title: "B",
+    });
+    s().closeCanvasDocumentModal("b");
+    expect(s().activeCanvasDocumentId).toBeNull();
+    expect(s().canvasDocuments.map((document) => document.id)).toEqual(["a"]);
   });
 });
 

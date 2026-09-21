@@ -11,6 +11,8 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { useSettingsStore } from "./settings-store";
 import type { EditedFile } from "@/lib/types";
+import type { GitCommitDetailsState } from "@/components/workbench/git/history-view";
+import type { PlanItem } from "./workbench-store";
 
 export interface FileWindowState {
   /** workspaceId — uma janela por workspace */
@@ -60,6 +62,8 @@ export interface CanvasDocumentDescriptor {
   path?: string;
   commitSha?: string;
   editedFile?: EditedFile;
+  commitDetails?: GitCommitDetailsState;
+  plan?: { item: PlanItem; content: string | null };
   mcp?: McpCanvasPreviewData;
 }
 
@@ -102,6 +106,7 @@ interface WindowsState {
   openCanvasDocument: (document: CanvasDocumentDescriptor) => void;
   activateCanvasDocument: (id: string) => void;
   closeCanvasDocument: (id: string) => void;
+  closeCanvasDocumentModal: (id: string) => void;
   clearCanvasDocumentsForWorkspace: (workspaceId: string) => void;
 }
 
@@ -117,20 +122,38 @@ const DEFAULT_WIN_H = 460;
 interface PersistedWindowsState {
   windows?: FileWindowState[];
   topZ?: number;
-  canvasDocuments?: CanvasDocumentDescriptor[];
+  canvasDocuments?: unknown;
   activeCanvasDocumentId?: string | null;
 }
 
 function sanitizePersistedCanvas(state: PersistedWindowsState) {
-  const documents = (state.canvasDocuments ?? []).filter(
-    (document): document is CanvasDocumentDescriptor =>
-      document.kind === "file" &&
-      typeof document.id === "string" &&
-      document.id.trim().length > 0 &&
-      typeof document.workspaceId === "string" &&
-      document.workspaceId.trim().length > 0 &&
-      typeof document.path === "string" &&
-      document.path.trim().length > 0,
+  const rawDocuments = Array.isArray(state.canvasDocuments)
+    ? state.canvasDocuments
+    : [];
+  const documents = rawDocuments.filter(
+    (document): document is CanvasDocumentDescriptor => {
+      if (!document || typeof document !== "object") return false;
+      const candidate = document as Partial<CanvasDocumentDescriptor>;
+      if (
+        typeof candidate.id !== "string" ||
+        candidate.id.trim().length === 0 ||
+        typeof candidate.workspaceId !== "string" ||
+        candidate.workspaceId.trim().length === 0 ||
+        typeof candidate.title !== "string"
+      ) {
+        return false;
+      }
+      if (candidate.kind === "file" || candidate.kind === "file-diff") {
+        return (
+          typeof candidate.path === "string" && candidate.path.trim().length > 0
+        );
+      }
+      return (
+        candidate.kind === "commit-details" ||
+        candidate.kind === "plan" ||
+        candidate.kind === "mcp-preview"
+      );
+    },
   );
   const activeCanvasDocumentId = documents.some(
     (document) => document.id === state.activeCanvasDocumentId,
@@ -209,6 +232,15 @@ export const useWindowsStore = create<WindowsState>()(
                 : s.activeCanvasDocumentId,
           };
         }),
+
+      closeCanvasDocumentModal: (id) =>
+        set((s) => ({
+          canvasDocuments: s.canvasDocuments.filter(
+            (document) => document.id !== id,
+          ),
+          activeCanvasDocumentId:
+            s.activeCanvasDocumentId === id ? null : s.activeCanvasDocumentId,
+        })),
 
       clearCanvasDocumentsForWorkspace: (workspaceId) =>
         set((s) => {
@@ -469,18 +501,8 @@ export const useWindowsStore = create<WindowsState>()(
       partialize: (state) => ({
         windows: state.windows,
         topZ: state.topZ,
-        // File descriptors can be reconstructed from the workspace. Plan and
-        // commit previews depend on route-local payload caches, so persisting
-        // them would restore tabs that can never render after a reload.
-        canvasDocuments: state.canvasDocuments.filter(
-          (document) => document.kind === "file",
-        ),
-        activeCanvasDocumentId:
-          state.canvasDocuments.find(
-            (document) =>
-              document.id === state.activeCanvasDocumentId &&
-              document.kind === "file",
-          )?.id ?? null,
+        canvasDocuments: state.canvasDocuments,
+        activeCanvasDocumentId: state.activeCanvasDocumentId,
       }),
     },
   ),
