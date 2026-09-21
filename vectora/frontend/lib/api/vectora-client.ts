@@ -371,10 +371,12 @@ export async function* streamChat(
     throw new Error(`StreamChat failed (${response.status}): ${text}`);
   }
 
-  // The HTTP request has been accepted even when the SSE socket closes before
-  // its first event. Let callers distinguish that case from a request that
-  // never reached the backend.
-  onAccepted?.();
+  // The backend only emits this marker after creating/persisting the chat
+  // turn. A successful HTTP response alone is insufficient: validation
+  // errors are streamed as 2xx SSE responses before a session exists.
+  if (response.headers?.get("X-Vectora-Chat-Persisted") === "1") {
+    onAccepted?.();
+  }
 
   yield* readSSEStream(response.body);
 }
