@@ -620,6 +620,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Vectora-Chat-Persisted"],
     )
 
     # ── Routers ───────────────────────────────────────────────────────────────

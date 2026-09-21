@@ -217,7 +217,10 @@ export class GatewaySession implements DurableObject {
     }
   }
 
-  async webSocketClose(_ws: WebSocket): Promise<void> {
+  async webSocketClose(ws: WebSocket): Promise<void> {
+    // O callback do socket anterior pode chegar depois que uma reconexão já
+    // instalou outro socket. Nunca deixe esse callback apagar a conexão viva.
+    if (this.ws !== ws) return;
     this.ws = null;
     if (this.pingTimer) {
       clearInterval(this.pingTimer);
@@ -231,8 +234,8 @@ export class GatewaySession implements DurableObject {
     }
   }
 
-  async webSocketError(_ws: WebSocket, _error: unknown): Promise<void> {
-    await this.webSocketClose(_ws);
+  async webSocketError(ws: WebSocket, _error: unknown): Promise<void> {
+    await this.webSocketClose(ws);
   }
 
   private async forwardToLocal(request: Request): Promise<Response> {

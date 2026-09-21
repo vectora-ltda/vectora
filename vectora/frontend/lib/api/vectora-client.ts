@@ -332,6 +332,7 @@ function redirectToLogin(): void {
 export async function* streamChat(
   request: StreamChatRequest,
   signal?: AbortSignal,
+  onAccepted?: () => void,
 ): AsyncGenerator<StreamEvent> {
   const url = `${VECTORA_API_URL}/vectora.chat.v1.ChatService/StreamChat`;
   const requestWithTurn = {
@@ -368,6 +369,13 @@ export async function* streamChat(
   if (!response.ok || !response.body) {
     const text = await response.text().catch(() => "");
     throw new Error(`StreamChat failed (${response.status}): ${text}`);
+  }
+
+  // The backend only emits this marker after creating/persisting the chat
+  // turn. A successful HTTP response alone is insufficient: validation
+  // errors are streamed as 2xx SSE responses before a session exists.
+  if (response.headers?.get("X-Vectora-Chat-Persisted") === "1") {
+    onAccepted?.();
   }
 
   yield* readSSEStream(response.body);
