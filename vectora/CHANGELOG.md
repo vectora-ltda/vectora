@@ -2,6 +2,24 @@
 
 Esta vers�o consolida as altera��es publicadas desde a vers�o 0.1.17.
 
+## [0.1.23](https://github.com/vectora-ltda/vectora/compare/v0.1.22...v0.1.23) (2026-09-21)
+
+
+### Features
+
+* add Chromium browser settings and profile isolation ([#221](https://github.com/vectora-ltda/vectora/issues/221)) ([928577e](https://github.com/vectora-ltda/vectora/commit/928577ee386805709049a61844c4ad7af0d23dbf))
+* add global responsive session layout bands ([#223](https://github.com/vectora-ltda/vectora/issues/223)) ([dae2c6c](https://github.com/vectora-ltda/vectora/commit/dae2c6c0e9b44a8aa47331c023130567d0341dba))
+* archive safe roots and enforce workspace access ([#222](https://github.com/vectora-ltda/vectora/issues/222)) ([d3d1cbc](https://github.com/vectora-ltda/vectora/commit/d3d1cbc84fd37b07d4fa18711dfc8c1299443d40))
+* navigate created folders and surface new sessions ([#217](https://github.com/vectora-ltda/vectora/issues/217)) ([2e1bee3](https://github.com/vectora-ltda/vectora/commit/2e1bee3b683cc72a3fdf63f829bc59ed8a58368b))
+* validate GitHub review job contracts ([#227](https://github.com/vectora-ltda/vectora/issues/227)) ([ad9898f](https://github.com/vectora-ltda/vectora/commit/ad9898f5cb15059bb2fda84ac725320c22036ed1))
+
+
+### Bug Fixes
+
+* corrige deploy do D1 com colunas legadas de skills ([#236](https://github.com/vectora-ltda/vectora/issues/236)) ([e4f7c41](https://github.com/vectora-ltda/vectora/commit/e4f7c41547352ea9fe5ae1983a15b72f910e5d3b))
+* prevent Electron updates from stalling on locked files ([#235](https://github.com/vectora-ltda/vectora/issues/235)) ([7ea3459](https://github.com/vectora-ltda/vectora/commit/7ea3459e35cd9dace7c046c4c4d9bc4a71450e51))
+* remediate release review findings ([#241](https://github.com/vectora-ltda/vectora/issues/241)) ([eac4cdb](https://github.com/vectora-ltda/vectora/commit/eac4cdb71634fdeda426cad191bd584b0095ad5a))
+
 ## [0.1.22](https://github.com/vectora-ltda/vectora/compare/v0.1.21...v0.1.22) (2026-09-14)
 
 
