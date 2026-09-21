@@ -338,6 +338,57 @@ async def test_background_task_owner_can_list_owned_session(
     assert [item.id for item in tasks] == [owned.id]
 
 
+async def test_missing_session_rejects_orphan_run_even_with_owned_task(
+    db: str,
+    monkeypatch: pytest.MonkeyPatch,
+    native_session_store: SessionStore,
+) -> None:
+    """Tasks não podem reabrir acesso a runs cujo card já foi apagado."""
+    _patch_native_engine(monkeypatch, session_store=native_session_store, texto="feito")
+
+    class _MissingSessionStore:
+        async def get_session(self, thread_id: str) -> None:
+            del thread_id
+
+    async def _get_missing_session_store() -> _MissingSessionStore:
+        return _MissingSessionStore()
+
+    monkeypatch.setattr(
+        thread_handler, "_get_session_store", _get_missing_session_store
+    )
+    task = await bg.create_task(
+        session_id="session-with-orphan-run",
+        user_id=_UUID,
+        kind="routine",
+        name="mantida",
+        instruction="i",
+        trigger_type="manual",
+    )
+
+    connection = await bg._get_db()
+    try:
+        await connection.execute(
+            "INSERT INTO vectora_background_runs "
+            "(id, task_id, session_id, trigger_source, status) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                "orphan-run-with-owned-task",
+                "deleted-card",
+                task.session_id,
+                "manual",
+                "done",
+            ),
+        )
+        await connection.commit()
+    finally:
+        await connection.close()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_runs(_req(), task.session_id)
+
+    assert exc_info.value.status_code == 404
+
+
 async def test_post_task_registers_missing_native_session(
     db: str, monkeypatch: pytest.MonkeyPatch, native_session_store: SessionStore
 ) -> None:

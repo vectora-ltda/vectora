@@ -266,7 +266,10 @@ async def _require_thread_access(
         _is_thread_deleted,
         _reconcile_delete_lock,
     )
-    from backend.scheduling.background_tasks import list_tasks
+    from backend.scheduling.background_tasks import (
+        list_tasks,
+        runs_have_owned_tasks,
+    )
 
     session_store = await _get_session_store()
     session = await session_store.get_session(thread_id)
@@ -280,8 +283,10 @@ async def _require_thread_access(
             if await _is_thread_deleted(thread_id):
                 raise HTTPException(status_code=404, detail="Thread não encontrada")
             tasks_without_native_session = await list_tasks(thread_id)
-            if tasks_without_native_session and all(
-                task.user_id == uid for task in tasks_without_native_session
+            if (
+                tasks_without_native_session
+                and all(task.user_id == uid for task in tasks_without_native_session)
+                and await runs_have_owned_tasks(thread_id, uid)
             ):
                 return uid
 
@@ -289,6 +294,8 @@ async def _require_thread_access(
 
     tasks = await list_tasks(thread_id)
     if any(task.user_id != uid for task in tasks):
+        raise HTTPException(status_code=404, detail="Thread não encontrada")
+    if not await runs_have_owned_tasks(thread_id, uid):
         raise HTTPException(status_code=404, detail="Thread não encontrada")
     if require_existing and not tasks:
         # Empty sessions are valid before their first background task. There is
@@ -628,12 +635,21 @@ async def resume_run_endpoint(
     from backend.scheduling.background_tasks import (
         _get_run,
         cancel_background_run,
+        get_task,
         resume_background_run,
     )
 
     await _require_thread_access(thread_id, request)
     run = await _get_run(run_id)
     if run is None or run.get("session_id") != thread_id:
+        raise HTTPException(status_code=404, detail="Run não encontrada")
+    task_id = run.get("task_id")
+    task = await get_task(task_id) if isinstance(task_id, str) else None
+    if (
+        task is None
+        or task.session_id != thread_id
+        or task.user_id != _user_id(request)
+    ):
         raise HTTPException(status_code=404, detail="Run não encontrada")
     if run.get("status") != "awaiting_approval":
         raise HTTPException(status_code=409, detail="Run não está aguardando aprovação")

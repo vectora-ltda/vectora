@@ -610,6 +610,35 @@ async def list_runs(session_id: str, limit: int = 50) -> list[dict[str, Any]]:
     return list(rows)
 
 
+async def runs_have_owned_tasks(session_id: str, user_id: str) -> bool:
+    """Informa se cada run retida ainda aponta para uma task do usuário.
+
+    As linhas de run mantêm o histórico depois que uma task é apagada, mas
+    não carregam um proprietário próprio. Uma linha órfã, portanto, não pode
+    comprovar autorização para uma sessão sem registro nativo de propriedade.
+    """
+    conn = await _get_db()
+    try:
+        cur = await conn.execute(
+            """
+            SELECT 1
+            FROM vectora_background_runs AS run
+            LEFT JOIN vectora_background_tasks AS task
+              ON task.id = run.task_id
+             AND task.session_id = run.session_id
+             AND task.user_id = ?
+            WHERE run.session_id = ?
+              AND task.id IS NULL
+            LIMIT 1
+            """,
+            (user_id, session_id),
+        )
+        return await cur.fetchone() is None
+    finally:
+        with contextlib.suppress(Exception):
+            await conn.close()
+
+
 async def list_runs_for_task(task_id: str, limit: int = 20) -> list[dict[str, Any]]:
     """Histórico de execuções de UMA task — o que falta pro card do Kanban
     conectar run history (hoje só `list_runs` por session existe, sem
