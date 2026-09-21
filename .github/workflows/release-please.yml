@@ -28,10 +28,12 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
           target-branch: ${{ github.ref_name }}
+          # Labels são metadados opcionais; uma edição concorrente não deve
+          # impedir a atualização do PR de release.
+          skip-labeling: true
 
-      # Only the exact branch generated for this target is eligible. The
-      # repository and label checks prevent a collaborator-owned lookalike
-      # branch from being checked out while the release token is available.
+      # Somente o branch exato gerado para este alvo pode receber o token de
+      # publicação. As validações evitam branches parecidos de colaboradores.
       - name: Find Release Please branch
         id: release-branch
         env:
