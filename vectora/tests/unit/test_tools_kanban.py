@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -373,6 +373,23 @@ class TestKanbanList:
         assert datetime.fromisoformat(row["claim_expires_at"]) > datetime.now(
             UTC
         ) + timedelta(seconds=100)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("task_id", "run_id"),
+        [
+            (None, "run-1"),
+            ("", "run-1"),
+            ("missing", None),
+            ("missing", ""),
+        ],
+    )
+    async def test_resume_recusa_ids_ausentes_ou_vazios(
+        self, db: str, task_id: str | None, run_id: str | None
+    ) -> None:
+        assert not await kanban.ensure_task_claim(
+            cast("str", task_id), cast("str", run_id)
+        )
 
     @pytest.mark.asyncio
     async def test_write_de_background_recusa_claim_perdido_entre_precheck_e_update(

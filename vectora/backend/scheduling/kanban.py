@@ -218,6 +218,11 @@ async def authorize_task_session(task_id: str, session_id: str) -> None:
 async def set_status(
     task_id: str, status: str, *, authorized_run_id: str | None = None
 ) -> None:
+    """Atualiza o status do card, opcionalmente sob fencing de uma run.
+
+    Quando ``authorized_run_id`` é informado, a escrita só ocorre enquanto o
+    claim da run continua vigente; uma perda do claim levanta ``ValueError``.
+    """
     if status not in KANBAN_STATUSES:
         msg = (
             f"status {status!r} fora da taxonomia — válidos: "
@@ -545,6 +550,11 @@ async def block_task(
 
 
 async def unblock_task(task_id: str, *, authorized_run_id: str | None = None) -> None:
+    """Desbloqueia um card e limpa seus metadados de bloqueio.
+
+    Com ``authorized_run_id``, a alteração exige um claim vigente da mesma
+    run e levanta ``ValueError`` se o fencing rejeitar a escrita.
+    """
     db = await _get_db()
     async with db.execute(
         "SELECT status FROM vectora_background_tasks WHERE id = ?", (task_id,)
