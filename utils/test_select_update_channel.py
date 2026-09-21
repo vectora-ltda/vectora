@@ -19,3 +19,8 @@ def test_current_minor_versions_select_latest(version: str) -> None:
 def test_missing_or_malformed_versions_fail(version: str) -> None:
     with pytest.raises(ValueError, match="Versão do pacote inválida"):
         select_update_channel(version)
+
+
+def test_null_version_fails_with_controlled_error() -> None:
+    with pytest.raises(ValueError, match="Versão do pacote inválida"):
+        select_update_channel(None)

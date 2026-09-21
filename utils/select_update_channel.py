@@ -13,8 +13,10 @@ _VERSION = re.compile(
 )
 
 
-def select_update_channel(version: str) -> UpdateChannel:
+def select_update_channel(version: str | None) -> UpdateChannel:
     """Return the release stream for a strict ``major.minor.patch`` version."""
+    if version is None:
+        raise ValueError("Versão do pacote inválida: None")
     match = _VERSION.fullmatch(version.strip())
     if match is None:
         raise ValueError(f"Versão do pacote inválida: {version!r}")
