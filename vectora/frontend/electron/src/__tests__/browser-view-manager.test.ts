@@ -11,9 +11,9 @@ import {
 function makeFakeView(): ManagedView & {
   handlers: Record<string, (...args: unknown[]) => void>;
   emitFake(event: string, ...args: unknown[]): void;
-  getWindowOpenAction(targetUrl: string):
-    | { action: "allow" | "deny" }
-    | undefined;
+  getWindowOpenAction(
+    targetUrl: string,
+  ): { action: "allow" | "deny" } | undefined;
 } {
   const handlers: Record<string, (...args: unknown[]) => void> = {};
   let windowOpenHandler:

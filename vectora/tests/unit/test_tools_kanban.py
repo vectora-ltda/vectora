@@ -114,11 +114,13 @@ class TestKanbanUpdateStatus:
         )
         task_id = created["task_id"]
 
-        out = json.loads(await kanban_update_status(task_id=task_id, status="review"))
+        out = json.loads(
+            await kanban_update_status(ctx=_ctx(), task_id=task_id, status="triage")
+        )
         assert out["result"] == "ok"
 
         estado = await kanban.get_task_status(task_id)
-        assert estado["status"] == "review"
+        assert estado["status"] == "triage"
 
     @pytest.mark.asyncio
     async def test_status_fora_da_taxonomia_retorna_erro_tipado_sem_lancar(self, db):
@@ -133,7 +135,7 @@ class TestKanbanUpdateStatus:
         task_id = created["task_id"]
 
         out = json.loads(
-            await kanban_update_status(task_id=task_id, status="em-analise")
+            await kanban_update_status(ctx=_ctx(), task_id=task_id, status="em-analise")
         )
         assert out["status"] == "error"
         assert "em-analise" in out["error"]
@@ -153,6 +155,7 @@ class TestKanbanUpdateStatus:
 
         out = json.loads(
             await kanban_update_status(
+                ctx=_ctx(),
                 task_id=task_id,
                 status="blocked",
                 block_kind="capability",
@@ -200,10 +203,53 @@ class TestKanbanList:
             await kanban_create(ctx=_ctx(), name="card review", instruction="faça algo")
         )
         await kanban_create(ctx=_ctx(), name="card ready", instruction="faça algo")
-        await kanban_update_status(task_id=created["task_id"], status="review")
+        await kanban_update_status(
+            ctx=_ctx(), task_id=created["task_id"], status="triage"
+        )
 
-        out = json.loads(await kanban_list(ctx=_ctx(), status="review"))
+        out = json.loads(await kanban_list(ctx=_ctx(), status="triage"))
         assert [c["name"] for c in out["cards"]] == ["card review"]
+
+    @pytest.mark.asyncio
+    async def test_recusa_task_de_outra_sessao(self, db):
+        from backend.tools.kanban import kanban_create, kanban_update_status
+
+        created = json.loads(
+            await kanban_create(
+                ctx=_ctx("sessao-dona"), name="card", instruction="faça algo"
+            )
+        )
+
+        out = json.loads(
+            await kanban_update_status(
+                ctx=_ctx("sessao-alheia"),
+                task_id=created["task_id"],
+                status="review",
+            )
+        )
+
+        assert out["status"] == "error"
+        assert "não pertence" in out["error"]
+        assert (await kanban.get_task_status(created["task_id"]))["status"] == "ready"
+
+    @pytest.mark.asyncio
+    async def test_nao_permite_agente_forcar_running_ou_done(self, db):
+        from backend.tools.kanban import kanban_create, kanban_update_status
+
+        created = json.loads(
+            await kanban_create(ctx=_ctx(), name="card", instruction="faça algo")
+        )
+
+        for status in ("running", "done"):
+            out = json.loads(
+                await kanban_update_status(
+                    ctx=_ctx(), task_id=created["task_id"], status=status
+                )
+            )
+            assert out["status"] == "error"
+            assert "fluxos de execução" in out["error"]
+
+        assert (await kanban.get_task_status(created["task_id"]))["status"] == "ready"
 
 
 class TestKanbanDecompose:
