@@ -260,10 +260,30 @@ async def _require_thread_access(
     # The native session store is the source of truth for thread ownership.
     # Keep the task-owner check below as a defense in depth for legacy sessions
     # that have not yet been reconciled into that store.
-    from backend.api.handlers.threads import _assert_owns_thread
+    from backend.api.handlers.threads import (
+        _assert_owns_thread,
+        _get_session_store,
+        _is_thread_deleted,
+        _reconcile_delete_lock,
+    )
+    from backend.scheduling.background_tasks import list_tasks
+
+    session_store = await _get_session_store()
+    session = await session_store.get_session(thread_id)
+    if session is None and require_existing:
+        # Tasks written by older releases can predate the native session row.
+        # Keep those records readable by their recorded owner, while refusing
+        # tombstoned IDs and mixed-owner task sets. New task creation always
+        # reserves the native session first, so this is only a compatibility
+        # path for legacy data and isolated task stores.
+        async with _reconcile_delete_lock:
+            if await _is_thread_deleted(thread_id):
+                raise HTTPException(status_code=404, detail="Thread não encontrada")
+            legacy_tasks = await list_tasks(thread_id)
+            if legacy_tasks and all(task.user_id == uid for task in legacy_tasks):
+                return uid
 
     await _assert_owns_thread(thread_id, request, require_existing=require_existing)
-    from backend.scheduling.background_tasks import list_tasks
 
     tasks = await list_tasks(thread_id)
     if any(task.user_id != uid for task in tasks):
@@ -350,6 +370,14 @@ async def post_task(
     from backend.scheduling.background_tasks import create_task
 
     uid = _user_id(request)
+    if body.workspace_id:
+        from backend.api.handlers.workspaces import require_workspace_access
+
+        # Validate the workspace before reserving a generated session ID. A
+        # rejected task must not leave behind a native session owned by the
+        # caller, and the validated workspace becomes authoritative metadata
+        # for the first task-created session.
+        require_workspace_access(body.workspace_id, request)
     # A first Kanban task may arrive before the first chat turn persists the
     # generated thread. Reserve that ID only while holding the same lock used
     # by DeleteThread, and reject durable tombstones before registration. This
@@ -359,12 +387,10 @@ async def post_task(
             raise HTTPException(status_code=404, detail="Thread não encontrada")
         session_store = await _get_session_store()
         if await session_store.get_session(thread_id) is None:
-            await session_store.create_session(thread_id, user_id=uid)
+            await session_store.create_session(
+                thread_id, user_id=uid, workspace_id=body.workspace_id
+            )
     uid = await _require_thread_access(thread_id, request)
-    if body.workspace_id:
-        from backend.api.handlers.workspaces import require_workspace_access
-
-        require_workspace_access(body.workspace_id, request)
     if body.board_id:
         from backend.scheduling.boards import get_board
 

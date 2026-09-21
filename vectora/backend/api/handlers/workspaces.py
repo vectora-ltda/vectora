@@ -4019,7 +4019,12 @@ async def toggle_rag_bucket(
     from backend.workspace.runtime_settings import runtime_settings
 
     bucket = rag_buckets.get_bucket(runtime_settings, bucket_id)
-    if bucket is None or bucket.workspace_id != workspace_id:
+    if bucket is None:
+        # Toggling an already-absent bucket is a safe no-op. This keeps
+        # repeated UI updates idempotent without weakening the tenant check
+        # for a bucket that belongs to another workspace.
+        return body
+    if bucket.workspace_id != workspace_id:
         raise HTTPException(status_code=404, detail="Bucket não encontrado")
     rag_buckets.set_active(
         runtime_settings,
@@ -4042,11 +4047,15 @@ async def delete_rag_bucket(workspace_id: str, bucket_id: str) -> dict:
     from backend.storage.factory import get_vector_store_backend
     from backend.workspace.runtime_settings import runtime_settings
 
-    deleted = rag_buckets.delete_bucket(
-        runtime_settings, bucket_id, workspace_id=workspace_id
-    )
-    if not deleted:
+    bucket = rag_buckets.get_bucket(runtime_settings, bucket_id)
+    if bucket is None:
+        # DELETE is intentionally idempotent: a retry after a successful
+        # deletion has the same result as the original request.
+        return {"ok": True}
+    if bucket.workspace_id != workspace_id:
         raise HTTPException(status_code=404, detail="Bucket não encontrado")
+
+    rag_buckets.delete_bucket(runtime_settings, bucket_id, workspace_id=workspace_id)
     try:
         backend = await get_vector_store_backend()
         await backend.purge(f"bucket_{bucket_id}")

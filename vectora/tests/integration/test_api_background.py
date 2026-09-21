@@ -363,6 +363,36 @@ async def test_post_task_registers_missing_native_session(
     assert [item.id for item in await get_tasks(_req(), thread_id)] == [created.id]
 
 
+async def test_first_workspace_task_persists_workspace_on_session(
+    db: str, monkeypatch: pytest.MonkeyPatch, native_session_store: SessionStore
+) -> None:
+    """A task can be the first operation without losing its workspace scope."""
+    _patch_native_engine(monkeypatch, session_store=native_session_store, texto="feito")
+    monkeypatch.setattr(
+        "backend.api.handlers.workspaces.require_workspace_access",
+        lambda workspace_id, request: None,
+    )
+    thread_id = "thread-first-workspace-task"
+    workspace_id = "workspace-first-task"
+
+    created = await post_task(
+        _req(),
+        thread_id,
+        CreateTaskRequest(
+            kind="routine",
+            name="primeira task no workspace",
+            instruction="i",
+            trigger_type="manual",
+            workspace_id=workspace_id,
+        ),
+    )
+
+    session = await native_session_store.get_session(thread_id)
+    assert session is not None
+    assert session["workspace_id"] == workspace_id
+    assert created.workspace_id == workspace_id
+
+
 async def test_post_task_cannot_recreate_tombstoned_session(
     db: str, monkeypatch: pytest.MonkeyPatch, native_session_store: SessionStore
 ) -> None:
