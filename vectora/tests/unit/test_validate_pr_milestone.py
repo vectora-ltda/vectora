@@ -30,12 +30,14 @@ def _event(
     labels: list[str] | None = None,
     head_repo: str = "vectora-ltda/vectora",
     author: str = "contributor",
+    title: str = "fix: routine maintenance",
 ) -> dict[str, Any]:
     return {
         "repository": {"full_name": "vectora-ltda/vectora"},
         "pull_request": {
             "base": {"ref": base},
             "head": {"ref": head, "repo": {"full_name": head_repo}},
+            "title": title,
             "milestone": {"title": milestone} if milestone else None,
             "labels": [{"name": label} for label in labels or []],
             "user": {"login": author},
@@ -43,16 +45,32 @@ def _event(
     }
 
 
-def test_master_requires_next_minor_milestone() -> None:
-    assert validator.validate_pull_request(_event(base="master", milestone="0.2")) == []
-    assert validator.validate_pull_request(_event(base="master", milestone=None))
-    assert validator.validate_pull_request(_event(base="master", milestone="0.1.23"))
-
-
-def test_maintenance_accepts_exact_patch_milestones() -> None:
+def test_master_uses_maintenance_unless_pr_is_vext() -> None:
     assert (
-        validator.validate_pull_request(_event(base="release/0.1", milestone="0.1.23"))
+        validator.validate_pull_request(_event(base="master", milestone="0.1.x")) == []
+    )
+    assert validator.validate_pull_request(_event(base="master", milestone="0.2"))
+
+    vext = _event(
+        base="master",
+        milestone="0.2",
+        head="feat/vext-ecosystem",
+        title="feat: build VEXT artifacts",
+    )
+    assert validator.validate_pull_request(vext) == []
+    vext["pull_request"]["milestone"] = {"title": "0.1.x"}
+    assert validator.validate_pull_request(vext)
+
+    assert validator.validate_pull_request(_event(base="master", milestone=None))
+
+
+def test_maintenance_accepts_the_rolling_patch_milestone() -> None:
+    assert (
+        validator.validate_pull_request(_event(base="release/0.1", milestone="0.1.x"))
         == []
+    )
+    assert validator.validate_pull_request(
+        _event(base="release/0.1", milestone="0.1.23")
     )
     assert validator.validate_pull_request(_event(base="release/0.1", milestone="0.2"))
 
