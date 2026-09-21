@@ -67,6 +67,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+_CHAT_PERSISTED_HEADER = "X-Vectora-Chat-Persisted"
+
 #: permission_mode do último turno de cada thread — resume_chat (HITL) precisa
 #: reidratar o MESMO ``ToolContext`` que ``stream_chat`` usou nesse turno,
 #: já que o motor nativo reavalia ``should_require_approval`` dinamicamente a
@@ -1036,7 +1038,11 @@ async def stream_chat(
         return StreamingResponse(
             _idempotent_turn_stream(thread_id),
             media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                _CHAT_PERSISTED_HEADER: "1",
+            },
         )
     user_message_id = await session_store.append_message(
         thread_id, user_msg, parent_message_id=parent_id, turn_id=request.turn_id
@@ -1140,6 +1146,7 @@ async def stream_chat(
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",  # Nginx: desabilita buffering de SSE
+            _CHAT_PERSISTED_HEADER: "1",
         },
     )
 

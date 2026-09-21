@@ -404,6 +404,7 @@ CREATE TABLE IF NOT EXISTS gha_bot_config (
 CREATE TABLE IF NOT EXISTS gha_bot_review_jobs (
   id              TEXT NOT NULL PRIMARY KEY,
   user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  repository      TEXT,
   callback_secret TEXT NOT NULL,
   status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'done', 'failed')),
   review_text     TEXT,

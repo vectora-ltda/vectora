@@ -340,6 +340,22 @@ class TestWorkspaceHandlers:
         assert exc.value.status_code == 400
 
     @pytest.mark.asyncio
+    async def test_mkdir_rejeita_pai_stale_sem_redirecionar_para_home(self, tmp_path):
+        from fastapi import HTTPException
+
+        from backend.api.handlers.workspaces import MkdirRequest, mkdir_dir
+
+        fake_request = SimpleNamespace(state=SimpleNamespace(user=None))
+        missing_parent = tmp_path / "renomeada-ou-removida"
+        with pytest.raises(HTTPException) as exc:
+            await mkdir_dir(
+                fake_request,  # ty: ignore[invalid-argument-type]
+                MkdirRequest(path=str(missing_parent), name="nova"),
+            )
+        assert exc.value.status_code == 404
+        assert not missing_parent.exists()
+
+    @pytest.mark.asyncio
     async def test_mkdir_common_user_outside_safe_root_forbidden(self, tmp_path):
         from fastapi import HTTPException
 

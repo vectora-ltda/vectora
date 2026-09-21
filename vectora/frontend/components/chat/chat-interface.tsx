@@ -712,7 +712,7 @@ export function ChatInterface({
       try {
         const assistantMessageId = generateMessageId();
         const streamStart = Date.now();
-        const { assistantContent } = await processStream(
+        const { assistantContent, requestReachedBackend } = await processStream(
           content,
           assistantMessageId,
           files,
@@ -725,7 +725,11 @@ export function ChatInterface({
         // requisição é de fato recebida). O otimista inserido antes do envio
         // (onThreadUpdate com lastMessage="") fica então como uma sessão
         // fantasma só no cache local — desfaz aqui.
-        if (isFirstMessageOfThread && !assistantContent) {
+        if (
+          isFirstMessageOfThread &&
+          !assistantContent &&
+          !requestReachedBackend
+        ) {
           onThreadPersistFailed?.(threadId);
         }
 

@@ -743,10 +743,7 @@ class TestGatewayClientReviewJob:
 
     @pytest.mark.asyncio
     async def test_dispatch_de_review_job_nao_passa_pela_fila_de_forwards(self) -> None:
-        """review_job roda fora da fila de `_MAX_CONCURRENT_FORWARDS`
-        workers (essa é pra requests HTTP rápidas) — uma task solta, pra
-        não bloquear callbacks OAuth/webhooks normais atrás de um job que
-        pode levar minutos."""
+        """review_job usa a fila limitada própria, sem ocupar forwards."""
         client = self._client()
         ws = AsyncMock()
         session = AsyncMock()
@@ -765,12 +762,13 @@ class TestGatewayClientReviewJob:
                 },
                 queue,
             )
-            await asyncio.sleep(0)  # deixa a task criada rodar
+            await client._review_queue.join()
 
         assert queue.qsize() == 0
         mock_handle.assert_awaited_once_with(
             "job-1", "diff x", {"pr": "1"}, "secret-do-job"
         )
+        await client.stop()
 
     @pytest.mark.asyncio
     async def test_dispatch_de_review_job_descarta_delivery_duplicado(self) -> None:
@@ -790,9 +788,10 @@ class TestGatewayClientReviewJob:
         with patch.object(client, "_handle_review_job", new=AsyncMock()) as mock_handle:
             await client._dispatch(ws, session, message, queue)
             await client._dispatch(ws, session, message, queue)
-            await asyncio.sleep(0)
+            await client._review_queue.join()
 
         mock_handle.assert_awaited_once()
+        await client.stop()
 
     @pytest.mark.asyncio
     async def test_dispatch_de_review_job_invalido_falha_job_persistido(self) -> None:
@@ -881,7 +880,7 @@ class TestGatewayClientReviewJob:
         with patch(
             "backend.services.gateway.aiohttp.ClientSession",
             return_value=mock_session,
-        ):
+        ) as session_cls:
             await client._post_review_result(
                 "job-1", "secret-do-job", review_text="LGTM"
             )
@@ -892,6 +891,68 @@ class TestGatewayClientReviewJob:
         )
         assert call_kwargs["json"] == {"review_text": "LGTM"}
         assert call_kwargs["headers"] == {"Authorization": "Bearer secret-do-job"}
+        assert session_cls.call_args.kwargs["timeout"].total == 10
+
+    @pytest.mark.asyncio
+    async def test_stop_sinaliza_reviews_que_aguardavam_na_fila(self) -> None:
+        client = self._client()
+        await client._review_queue.put(("queued-1", "diff", {}, "secret"))
+
+        with patch.object(client, "_post_review_result", new=AsyncMock()) as mock_post:
+            await client.stop()
+
+        mock_post.assert_awaited_once_with(
+            "queued-1", "secret", error="review worker shutting down; retry later"
+        )
+
+    @pytest.mark.asyncio
+    async def test_stop_encerra_workers_ociosos_com_sentinela(self) -> None:
+        client = self._client()
+        client._ensure_review_workers()
+
+        await asyncio.wait_for(client.stop(), timeout=1.0)
+
+        assert not client._review_workers
+
+    @pytest.mark.asyncio
+    async def test_stop_limita_callbacks_ao_prazo_de_desligamento(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = self._client()
+        await client._review_queue.put(("queued-slow", "diff", {}, "secret"))
+        monkeypatch.setattr("backend.services.gateway._REVIEW_SHUTDOWN_TIMEOUT_S", 0.05)
+
+        async def slow_callback(*_args: object, **_kwargs: object) -> None:
+            await asyncio.sleep(1.0)
+
+        with patch.object(client, "_post_review_result", new=slow_callback):
+            await asyncio.wait_for(client.stop(), timeout=0.5)
+
+    @pytest.mark.asyncio
+    async def test_stop_agenda_callback_para_review_ativo_cancelado(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = self._client()
+        monkeypatch.setattr("backend.services.gateway._REVIEW_SHUTDOWN_TIMEOUT_S", 0.05)
+        started = asyncio.Event()
+        blocked = asyncio.Event()
+
+        async def blocked_review(*_args: object) -> None:
+            started.set()
+            await blocked.wait()
+
+        with (
+            patch.object(client, "_handle_review_job", new=blocked_review),
+            patch.object(client, "_post_review_result", new=AsyncMock()) as mock_post,
+        ):
+            client._ensure_review_workers()
+            await client._review_queue.put(("active-1", "diff", {}, "secret"))
+            await asyncio.wait_for(started.wait(), timeout=1.0)
+            await client.stop()
+
+        mock_post.assert_awaited_once_with(
+            "active-1", "secret", error="review worker shutting down; retry later"
+        )
 
     @pytest.mark.asyncio
     async def test_erro_borda_post_review_result_falha_de_rede_nao_propaga(

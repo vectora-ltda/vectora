@@ -113,13 +113,18 @@ let updateDownloadPromise: Promise<void> | null = null;
 
 function startUpdateDownload(): Promise<void> {
   if (updateDownloadPromise) return updateDownloadPromise;
-  updateDownloadPromise = startUpdateDownloadAfterBackup(
+  const pending = startUpdateDownloadAfterBackup(
     pendingBackupPromise,
     async () => {
       await autoUpdater.downloadUpdate();
     },
   );
-  return updateDownloadPromise;
+  const tracked = pending.catch((error: unknown) => {
+    if (updateDownloadPromise === tracked) updateDownloadPromise = null;
+    throw error;
+  });
+  updateDownloadPromise = tracked;
+  return tracked;
 }
 
 function pendingUpdatePath(): string {
