@@ -192,6 +192,14 @@ class TestRoutes:
         paths = self._route_paths(headless_app)
         assert "/vectora.chat.v1.ChatService/GetTools" in paths
 
+    def test_cors_exposes_chat_persistence_header(self, headless_app):
+        from fastapi.middleware.cors import CORSMiddleware
+
+        cors = next(
+            mw for mw in headless_app.user_middleware if mw.cls is CORSMiddleware
+        )
+        assert "X-Vectora-Chat-Persisted" in cors.kwargs["expose_headers"]
+
     def test_workspaces_active_route_exists(self, headless_app):
         paths = self._route_paths(headless_app)
         assert "/workspaces/active" in paths, (

@@ -145,6 +145,7 @@ class GatewayClient:
             maxsize=_MAX_QUEUED_REVIEWS
         )
         self._review_workers: set[asyncio.Task[None]] = set()
+        self._review_callback_tasks: set[asyncio.Task[None]] = set()
         self._active_review_jobs: dict[str, str] = {}
         self._review_accepting: bool = True
 
@@ -179,14 +180,7 @@ class GatewayClient:
         callbacks: list[asyncio.Task[None]] = []
         for job_id, _diff, _metadata, callback_secret in queued:
             self._review_queue.task_done()
-            callbacks.append(
-                asyncio.create_task(
-                    self._post_review_result(
-                        job_id, callback_secret, error=_REVIEW_SHUTDOWN_ERROR
-                    )
-                )
-            )
-        await self._await_review_tasks(callbacks, deadline)
+            callbacks.append(self._schedule_review_callback(job_id, callback_secret))
 
         workers = set(self._review_workers)
         if workers:
@@ -200,13 +194,23 @@ class GatewayClient:
             if pending:
                 for worker in pending:
                     worker.cancel()
-                remaining = max(0.0, deadline - asyncio.get_running_loop().time())
-                if remaining:
-                    _done, pending = await asyncio.wait(pending, timeout=remaining)
-                for worker in pending:
-                    worker.cancel()
             await asyncio.gather(*workers, return_exceptions=True)
+        callbacks.extend(self._review_callback_tasks)
+        await self._await_review_tasks(callbacks, deadline)
         self._review_workers.clear()
+
+    def _schedule_review_callback(
+        self, job_id: str, callback_secret: str
+    ) -> asyncio.Task[None]:
+        """Agenda um callback de falha sem prendê-lo ao worker cancelado."""
+        task = asyncio.create_task(
+            self._post_review_result(
+                job_id, callback_secret, error=_REVIEW_SHUTDOWN_ERROR
+            )
+        )
+        self._review_callback_tasks.add(task)
+        task.add_done_callback(self._review_callback_tasks.discard)
+        return task
 
     async def _await_review_tasks(
         self, tasks: list[asyncio.Task[None]], deadline: float
@@ -464,9 +468,7 @@ class GatewayClient:
                     review_job = cast("_ReviewJob", payload)
                     await self._handle_review_job(*review_job)
                 except asyncio.CancelledError:
-                    await self._post_review_result(
-                        job_id, callback_secret, error=_REVIEW_SHUTDOWN_ERROR
-                    )
+                    self._schedule_review_callback(job_id, callback_secret)
                     raise
                 except Exception:
                     logger.exception("gateway: review worker falhou")

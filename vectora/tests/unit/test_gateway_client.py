@@ -929,6 +929,32 @@ class TestGatewayClientReviewJob:
             await asyncio.wait_for(client.stop(), timeout=0.5)
 
     @pytest.mark.asyncio
+    async def test_stop_agenda_callback_para_review_ativo_cancelado(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = self._client()
+        monkeypatch.setattr("backend.services.gateway._REVIEW_SHUTDOWN_TIMEOUT_S", 0.05)
+        started = asyncio.Event()
+        blocked = asyncio.Event()
+
+        async def blocked_review(*_args: object) -> None:
+            started.set()
+            await blocked.wait()
+
+        with (
+            patch.object(client, "_handle_review_job", new=blocked_review),
+            patch.object(client, "_post_review_result", new=AsyncMock()) as mock_post,
+        ):
+            client._ensure_review_workers()
+            await client._review_queue.put(("active-1", "diff", {}, "secret"))
+            await asyncio.wait_for(started.wait(), timeout=1.0)
+            await client.stop()
+
+        mock_post.assert_awaited_once_with(
+            "active-1", "secret", error="review worker shutting down; retry later"
+        )
+
+    @pytest.mark.asyncio
     async def test_erro_borda_post_review_result_falha_de_rede_nao_propaga(
         self,
     ) -> None:
