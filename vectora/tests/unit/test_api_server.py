@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 # ---------------------------------------------------------------------------
@@ -192,7 +193,7 @@ class TestRoutes:
         paths = self._route_paths(headless_app)
         assert "/vectora.chat.v1.ChatService/GetTools" in paths
 
-    def test_cors_exposes_chat_persistence_header(self, headless_app):
+    def test_cors_exposes_chat_persistence_header(self, headless_app: FastAPI) -> None:
         from fastapi.middleware.cors import CORSMiddleware
 
         cors = next(
