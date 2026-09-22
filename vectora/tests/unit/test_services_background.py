@@ -1448,6 +1448,73 @@ async def _run_task_ate_pausar(
 _CHAMADAS_ANOTAR: list[str] = []
 
 
+async def test_resume_without_pending_approval_finishes_and_blocks(
+    db, native_session_store, monkeypatch
+) -> None:
+    """Metadados de aprovação ausentes não deixam run e card em running."""
+    task = await bg.create_task(
+        session_id="sess-missing-approval",
+        user_id="u",
+        kind="routine",
+        name="Sem pendência",
+        instruction="i",
+        trigger_type="manual",
+        trigger_config={"permission_mode": "ask"},
+    )
+    run_id = "run-missing-approval"
+    from backend.scheduling import kanban
+
+    assert await kanban.claim_task(task.id, run_id)
+    await bg._insert_run(run_id, task, "run-thread-missing", "manual")
+    await bg._mark_run_awaiting(run_id, "aguardando aprovação")
+    _patch_native_engine(monkeypatch, session_store=native_session_store)
+
+    async def _without_pending(**_kwargs: Any) -> bool:
+        return False
+
+    monkeypatch.setattr(bg, "resume_conversation", _without_pending)
+    assert await bg.resume_background_run(run_id) is None
+    run = await bg._get_run(run_id)
+    assert run is not None
+    assert run["status"] == "error"
+    estado = await kanban.get_task_status(task.id)
+    assert estado["status"] == "blocked"
+    assert estado["claim_lock"] is None
+
+
+async def test_resume_claim_error_finishes_and_blocks(
+    db, native_session_store, monkeypatch
+) -> None:
+    """Falha ao recuperar o claim compensa a reserva da run."""
+    task = await bg.create_task(
+        session_id="sess-claim-error",
+        user_id="u",
+        kind="routine",
+        name="Claim falho",
+        instruction="i",
+        trigger_type="manual",
+        trigger_config={"permission_mode": "ask"},
+    )
+    run_id = "run-claim-error"
+    from backend.scheduling import kanban
+
+    assert await kanban.claim_task(task.id, run_id)
+    await bg._insert_run(run_id, task, "run-thread-claim-error", "manual")
+    await bg._mark_run_awaiting(run_id, "aguardando aprovação")
+    _patch_native_engine(monkeypatch, session_store=native_session_store)
+
+    async def _claim_error(*_args: Any, **_kwargs: Any) -> bool:
+        raise RuntimeError("banco indisponível")
+
+    monkeypatch.setattr(kanban, "ensure_task_claim", _claim_error)
+    assert await bg.resume_background_run(run_id) is None
+    run = await bg._get_run(run_id)
+    assert run is not None
+    assert run["status"] == "error"
+    estado = await kanban.get_task_status(task.id)
+    assert estado["status"] == "blocked"
+
+
 async def test_resume_background_run_reject_and_edit_decisions(
     db, native_session_store, monkeypatch
 ):

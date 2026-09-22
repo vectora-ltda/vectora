@@ -636,6 +636,49 @@ async def _reopen_cancelled_run(run_id: str) -> bool:
             await conn.close()
 
 
+async def _reserve_resumed_run(run_id: str, task: BackgroundTask) -> bool:
+    """Reserva run e card antes de entrar no motor, com compensação."""
+    reserved = False
+    try:
+        if not await _transition_run_status(run_id, "awaiting_approval", "running"):
+            return False
+        reserved = True
+        from backend.scheduling.kanban import ensure_task_claim
+
+        if await ensure_task_claim(task.id, run_id):
+            return True
+        logger.warning(
+            "background_tasks: run %s não recuperou o claim de %s",
+            run_id,
+            task.id,
+        )
+        await _transition_run_status(run_id, "running", "awaiting_approval")
+        return False
+    except Exception as exc:
+        logger.exception(
+            "background_tasks: reserva da run falhou",
+            extra={"run_id": run_id, "task_id": task.id},
+        )
+        if reserved:
+            with contextlib.suppress(Exception):
+                await _finish_run(
+                    run_id,
+                    "error",
+                    str(exc),
+                    expected_status="running",
+                )
+            with contextlib.suppress(Exception):
+                from backend.scheduling.kanban import block_task
+
+                await block_task(
+                    task.id,
+                    "transient",
+                    str(exc)[:500],
+                    authorized_run_id=run_id,
+                )
+        return False
+
+
 async def _mark_run_awaiting(run_id: str, summary: str) -> None:
     """Marca a run como pendente de aprovação humana (HITL).
 
@@ -1429,8 +1472,20 @@ async def _resume_normal_run(
         approval_gate=approval_gate,
     )
     if not resumed:
-        # Nenhuma pendência real (duplo-clique/retry) — idempotente, mesmo
-        # shape de retorno de "run não encontrada" em resume_background_run.
+        # A reserva já foi feita; uma pendência ausente é uma falha terminal,
+        # não um retorno silencioso que deixaria run e card presos em running.
+        reason = "Aprovação pendente não encontrada para a run retomada."
+        finished = await _finish_run(run_id, "error", reason, expected_status="running")
+        if finished:
+            with contextlib.suppress(Exception):
+                from backend.scheduling.kanban import block_task
+
+                await block_task(
+                    task.id,
+                    "transient",
+                    reason,
+                    authorized_run_id=run_id,
+                )
         return None
 
     result = await run_conversation(
@@ -1483,29 +1538,17 @@ async def resume_background_run(run_id: str, decision: str = "approve") -> str |
         return None
     run_thread_id = run.get("run_thread_id") or ""
     task = await get_task(run["task_id"])
-    # Reserve the run before touching the task claim. Cancellation wins only
-    # while the run is awaiting approval; after this transition, a concurrent
-    # cancellation cannot race an executing coroutine.
-    if (
-        task is None
-        or not run_thread_id
-        or not await _transition_run_status(run_id, "awaiting_approval", "running")
-    ):
+    if task is None or not run_thread_id:
+        return None
+    # Reserve the run before touching the task claim. The helper compensates
+    # database failures so no reservation can strand a run in ``running``.
+    if not await _reserve_resumed_run(run_id, task):
         return None
 
-    from backend.scheduling.kanban import ensure_task_claim
-
-    if not await ensure_task_claim(task.id, run_id):
-        logger.warning(
-            "background_tasks: run %s não recuperou o claim de %s",
-            run_id,
-            task.id,
-        )
-        await _transition_run_status(run_id, "running", "awaiting_approval")
-        return None
-    watchdog_task = asyncio.create_task(_heartbeat_watchdog(task.id, run_id))
-
+    watchdog_task: asyncio.Task[Any] | None = None
     try:
+        watchdog_task = asyncio.create_task(_heartbeat_watchdog(task.id, run_id))
+
         from backend.services import agent_factory
         from backend.tools.subagent_delegate import SubagentDeps
 
@@ -1619,9 +1662,10 @@ async def resume_background_run(run_id: str, decision: str = "approve") -> str |
             )
         return None
     finally:
-        watchdog_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await watchdog_task
+        if watchdog_task is not None:
+            watchdog_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await watchdog_task
 
 
 async def cancel_background_run(run_id: str | None) -> str | None:
