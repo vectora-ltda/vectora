@@ -1742,6 +1742,16 @@ async def test_list_background_tasks_sem_session_id_e_task_sem_run(db, monkeypat
 # ---------------------------------------------------------------------------
 
 
+async def test_cancel_background_run_without_id_is_noop() -> None:
+    """IDs ausentes não devem consultar nem alterar o histórico de runs."""
+    assert await bg.cancel_background_run(None) is None
+
+
+async def test_cancel_background_run_empty_id_is_noop() -> None:
+    """Uma string vazia tem o mesmo comportamento idempotente que None."""
+    assert await bg.cancel_background_run("") is None
+
+
 async def test_cancel_and_approve_task_action(db, monkeypatch):
     """cancel_background_run encerra uma run pendente; a tool approve_task_action
     (decision='cancel') faz o mesmo pelo orquestrador. Erro/borda: cancelar uma
@@ -1788,6 +1798,43 @@ async def test_cancel_and_approve_task_action(db, monkeypatch):
         await approve_task_action(run_id=run_id, decision="cancel", ctx=ctx)
     )
     assert out2["status"] == "error"
+
+
+async def test_cancel_expired_claim_blocks_task_before_stale_cleanup(
+    db: str,
+) -> None:
+    """A run cancelada mantém o card bloqueado mesmo após o claim expirar."""
+    import sqlite3
+
+    task = await bg.create_task(
+        session_id="sess-cancel-expired",
+        user_id="u",
+        kind="routine",
+        name="Expirada",
+        instruction="i",
+        trigger_type="manual",
+        trigger_config={"permission_mode": "ask"},
+    )
+    run_id = "run-cancel-expired"
+    from backend.scheduling import kanban
+
+    assert await kanban.claim_task(task.id, run_id)
+    await bg._insert_run(run_id, task, "sess-cancel-expired", "manual")
+    await bg._mark_run_awaiting(run_id, "aguardando terminal")
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "UPDATE vectora_background_tasks SET claim_expires_at = ? WHERE id = ?",
+            ("2000-01-01T00:00:00+00:00", task.id),
+        )
+        conn.commit()
+
+    assert await bg.cancel_background_run(run_id) == "cancelled"
+    estado = await kanban.get_task_status(task.id)
+    assert estado["status"] == "blocked"
+    assert estado["claim_lock"] is None
+    assert await kanban.release_stale_claims() == 0
+    estado_final = await kanban.get_task_status(task.id)
+    assert estado_final["status"] == "blocked"
 
 
 async def test_approve_task_action_approve_reject_edit(

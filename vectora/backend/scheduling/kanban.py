@@ -521,6 +521,7 @@ async def block_task(
     reason: str,
     *,
     authorized_run_id: str | None = None,
+    allow_expired_claim: bool = False,
 ) -> None:
     """Bloqueia a task. `dependency` fica em `todo`; o resto vai pra `blocked`.
 
@@ -552,6 +553,15 @@ async def block_task(
                 "block_reason = ?, claim_lock = NULL, claim_expires_at = NULL, "
                 "updated_at = datetime('now') WHERE id = ?",
                 (kind, reason, task_id),
+            )
+        elif allow_expired_claim:
+            cur = await db.execute(
+                "UPDATE vectora_background_tasks SET status = 'todo', "
+                "block_kind = ?, block_reason = ?, claim_lock = NULL, "
+                "claim_expires_at = NULL, updated_at = datetime('now') "
+                "WHERE id = ? AND (claim_lock = ? OR (claim_lock IS NULL "
+                "AND status IN ('ready', 'running', 'scheduled')))",
+                (kind, reason, task_id, authorized_run_id),
             )
         else:
             cur = await db.execute(
@@ -593,6 +603,15 @@ async def block_task(
             "block_reason = ?, block_count = ?, claim_lock = NULL, "
             "claim_expires_at = NULL, updated_at = datetime('now') WHERE id = ?",
             (status, kind, reason, novo_count, task_id),
+        )
+    elif allow_expired_claim:
+        cur = await db.execute(
+            "UPDATE vectora_background_tasks SET status = ?, block_kind = ?, "
+            "block_reason = ?, block_count = ?, claim_lock = NULL, "
+            "claim_expires_at = NULL, updated_at = datetime('now') WHERE id = ? "
+            "AND (claim_lock = ? OR (claim_lock IS NULL AND status IN "
+            "('ready', 'running', 'scheduled')))",
+            (status, kind, reason, novo_count, task_id, authorized_run_id),
         )
     else:
         cur = await db.execute(

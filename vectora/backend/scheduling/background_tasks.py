@@ -1540,7 +1540,7 @@ async def resume_background_run(run_id: str, decision: str = "approve") -> str |
             await watchdog_task
 
 
-async def cancel_background_run(run_id: str) -> str | None:
+async def cancel_background_run(run_id: str | None) -> str | None:
     """Cancela uma run pendente de aprovação (ou rodando) — status 'cancelled'.
 
     A run cancelada não é retomável. Retorna ``"cancelled"`` em sucesso, ou
@@ -1550,15 +1550,16 @@ async def cancel_background_run(run_id: str) -> str | None:
     Assim, o cleanup de claims expirados não transforma um cancelamento
     explícito em uma nova execução automática.
     """
+    if not run_id:
+        return None
     run = await _get_run(run_id)
     if run is None or run.get("status") not in ("awaiting_approval", "running"):
         return None
     task_id = run.get("task_id")
     task = await get_task(task_id) if isinstance(task_id, str) else None
     summary = run.get("summary") or "Cancelada pelo usuário."
-    await _finish_run(run_id, "cancelled", summary)
     if task is not None:
-        with contextlib.suppress(Exception):
+        try:
             from backend.scheduling.kanban import block_task
 
             await block_task(
@@ -1566,7 +1567,15 @@ async def cancel_background_run(run_id: str) -> str | None:
                 "needs_input",
                 "Execução cancelada pelo usuário.",
                 authorized_run_id=run_id,
+                allow_expired_claim=True,
             )
+        except ValueError:
+            logger.warning(
+                "background_tasks: cancelamento perdeu o claim da task",
+                extra={"run_id": run_id, "task_id": task.id},
+            )
+            return None
+    await _finish_run(run_id, "cancelled", summary)
     return "cancelled"
 
 
