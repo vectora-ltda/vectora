@@ -18,6 +18,7 @@ import asyncio
 import contextlib
 import json
 import logging
+from collections.abc import Awaitable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Any, TypedDict, cast
@@ -562,18 +563,142 @@ async def _insert_run(
             await conn.close()
 
 
-async def _finish_run(run_id: str, status: str, summary: str) -> None:
+async def _finish_run(
+    run_id: str,
+    status: str,
+    summary: str,
+    *,
+    expected_status: str | None = None,
+) -> bool:
+    """Finaliza uma run, opcionalmente sob fencing de estado.
+
+    Runs retomadas passam ``expected_status="running"`` para que uma
+    conclusão atrasada nunca sobrescreva uma transição terminal concorrente.
+    """
     conn = await _get_db()
     try:
-        await conn.execute(
-            "UPDATE vectora_background_runs SET status = ?, summary = ?, "
-            "finished_at = ? WHERE id = ?",
-            (status, summary[:4000], datetime.now(UTC).isoformat(), run_id),
-        )
+        if expected_status is not None:
+            cur = await conn.execute(
+                "UPDATE vectora_background_runs SET status = ?, summary = ?, "
+                "finished_at = ? WHERE id = ? AND status = ?",
+                (
+                    status,
+                    summary[:4000],
+                    datetime.now(UTC).isoformat(),
+                    run_id,
+                    expected_status,
+                ),
+            )
+        else:
+            cur = await conn.execute(
+                "UPDATE vectora_background_runs SET status = ?, summary = ?, "
+                "finished_at = ? WHERE id = ?",
+                (status, summary[:4000], datetime.now(UTC).isoformat(), run_id),
+            )
         await conn.commit()
+        return cur.rowcount > 0
     finally:
         with contextlib.suppress(Exception):
             await conn.close()
+
+
+async def _transition_run_status(
+    run_id: str,
+    expected_status: str,
+    status: str,
+) -> bool:
+    """Aplica uma transição de estado condicional e atômica à run."""
+    conn = await _get_db()
+    try:
+        cur = await conn.execute(
+            "UPDATE vectora_background_runs SET status = ? WHERE id = ? AND status = ?",
+            (status, run_id, expected_status),
+        )
+        await conn.commit()
+        return cur.rowcount > 0
+    finally:
+        with contextlib.suppress(Exception):
+            await conn.close()
+
+
+async def _await_reservation_step(operation: Awaitable[bool]) -> bool:
+    """Conclui uma etapa de reserva mesmo se o chamador for cancelado."""
+    operation_task = asyncio.ensure_future(operation)
+    try:
+        return await asyncio.shield(operation_task)
+    except asyncio.CancelledError:
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.shield(operation_task)
+        raise
+
+
+async def _reopen_cancelled_run(run_id: str) -> bool:
+    """Desfaz um cancelamento quando a transição do cartão não foi possível."""
+    conn = await _get_db()
+    try:
+        cur = await conn.execute(
+            "UPDATE vectora_background_runs SET status = 'awaiting_approval', "
+            "finished_at = NULL WHERE id = ? AND status = 'cancelled'",
+            (run_id,),
+        )
+        await conn.commit()
+        return cur.rowcount > 0
+    finally:
+        with contextlib.suppress(Exception):
+            await conn.close()
+
+
+async def _reserve_resumed_run(run_id: str, task: BackgroundTask) -> bool:
+    """Reserva run e card antes de entrar no motor, com compensação."""
+    reserved = False
+    try:
+        if not await _await_reservation_step(
+            _transition_run_status(run_id, "awaiting_approval", "running")
+        ):
+            return False
+        reserved = True
+        from backend.scheduling.kanban import ensure_task_claim
+
+        if await _await_reservation_step(ensure_task_claim(task.id, run_id)):
+            return True
+        logger.warning(
+            "background_tasks: run %s não recuperou o claim de %s",
+            run_id,
+            task.id,
+        )
+        await _await_reservation_step(
+            _transition_run_status(run_id, "running", "awaiting_approval")
+        )
+        return False
+    except asyncio.CancelledError:
+        with contextlib.suppress(asyncio.CancelledError):
+            await _await_reservation_step(
+                _transition_run_status(run_id, "running", "awaiting_approval")
+            )
+        raise
+    except Exception as exc:
+        logger.exception(
+            "background_tasks: reserva da run falhou",
+            extra={"run_id": run_id, "task_id": task.id},
+        )
+        if reserved:
+            with contextlib.suppress(Exception):
+                await _finish_run(
+                    run_id,
+                    "error",
+                    str(exc),
+                    expected_status="running",
+                )
+            with contextlib.suppress(Exception):
+                from backend.scheduling.kanban import block_task
+
+                await block_task(
+                    task.id,
+                    "transient",
+                    str(exc)[:500],
+                    authorized_run_id=run_id,
+                )
+        return False
 
 
 async def _mark_run_awaiting(run_id: str, summary: str) -> None:
@@ -1144,7 +1269,12 @@ async def run_task(
             with contextlib.suppress(Exception):
                 from backend.scheduling.kanban import block_task
 
-                await block_task(task.id, "transient", goal_outcome.reason[:500])
+                await block_task(
+                    task.id,
+                    "transient",
+                    goal_outcome.reason[:500],
+                    authorized_run_id=run_id,
+                )
             return None
 
         summary = (
@@ -1186,7 +1316,7 @@ async def run_task(
         await _touch_last_run(task.id)
         _emit_run_event("done", task, run_id, run_thread_id, summary)
         await report_to_parent_session(task, run_thread_id, summary)
-        await _mark_kanban_after_success(task)
+        await _mark_kanban_after_success(task, run_id=run_id)
         return run_thread_id
     except Exception as exc:
         logger.exception(
@@ -1202,7 +1332,12 @@ async def run_task(
             # "transient" (não "capability"): é uma falha da própria run,
             # não do orçamento — a taxonomia distingue os dois motivos pro
             # card mostrar o certo.
-            await block_task(task.id, "transient", str(exc)[:500])
+            await block_task(
+                task.id,
+                "transient",
+                str(exc)[:500],
+                authorized_run_id=run_id,
+            )
         return None
     finally:
         _watchdog_task.cancel()
@@ -1210,7 +1345,9 @@ async def run_task(
             await _watchdog_task
 
 
-async def _mark_kanban_after_success(task: BackgroundTask) -> None:
+async def _mark_kanban_after_success(
+    task: BackgroundTask, *, run_id: str | None = None
+) -> None:
     """Fecha o ciclo do Kanban após uma run bem-sucedida.
 
     Recorrente (`interval`) nunca termina de verdade — volta pra `ready`
@@ -1220,6 +1357,9 @@ async def _mark_kanban_after_success(task: BackgroundTask) -> None:
     menos que `trigger_config.requires_review` peça revisão humana antes,
     caso em que vai pra `review` em vez de `done` diretamente.
     `recompute_ready()` promove tasks que dependiam desta, quando existirem.
+    Quando ``run_id`` é informado, a escrita é cercada pelo claim dessa run e
+    libera o claim no mesmo ``UPDATE``; se a task se bloqueou durante a
+    execução, o fencing falha e preserva o bloqueio.
     """
     try:
         from backend.scheduling.kanban import recompute_ready, set_status
@@ -1230,7 +1370,7 @@ async def _mark_kanban_after_success(task: BackgroundTask) -> None:
             novo_status = "review"
         else:
             novo_status = "done"
-        await set_status(task.id, novo_status)
+        await set_status(task.id, novo_status, authorized_run_id=run_id)
         await recompute_ready()
     except Exception:
         logger.warning(
@@ -1294,17 +1434,36 @@ async def _resume_goal_run(
         _emit_run_event("needs_approval", task, run_id, run_thread_id, desc)
         return "awaiting_approval"
     if goal_outcome.status == "error":
-        await _finish_run(run_id, "error", goal_outcome.reason)
+        finished = await _finish_run(
+            run_id,
+            "error",
+            goal_outcome.reason,
+            expected_status="running",
+        )
+        if not finished:
+            return None
         _emit_run_event("error", task, run_id, run_thread_id, goal_outcome.reason)
+        with contextlib.suppress(Exception):
+            from backend.scheduling.kanban import block_task
+
+            await block_task(
+                task.id,
+                "transient",
+                goal_outcome.reason[:500],
+                authorized_run_id=run_id,
+            )
         return None
     summary = (
         goal_outcome.final_message.text()
         if goal_outcome.final_message
         else goal_outcome.reason
     )
-    await _finish_run(run_id, "done", summary)
+    finished = await _finish_run(run_id, "done", summary, expected_status="running")
+    if not finished:
+        return None
     _emit_run_event("done", task, run_id, run_thread_id, summary)
     await report_to_parent_session(task, run_thread_id, summary)
+    await _mark_kanban_after_success(task, run_id=run_id)
     return "done"
 
 
@@ -1335,8 +1494,20 @@ async def _resume_normal_run(
         approval_gate=approval_gate,
     )
     if not resumed:
-        # Nenhuma pendência real (duplo-clique/retry) — idempotente, mesmo
-        # shape de retorno de "run não encontrada" em resume_background_run.
+        # A reserva já foi feita; uma pendência ausente é uma falha terminal,
+        # não um retorno silencioso que deixaria run e card presos em running.
+        reason = "Aprovação pendente não encontrada para a run retomada."
+        finished = await _finish_run(run_id, "error", reason, expected_status="running")
+        if finished:
+            with contextlib.suppress(Exception):
+                from backend.scheduling.kanban import block_task
+
+                await block_task(
+                    task.id,
+                    "transient",
+                    reason,
+                    authorized_run_id=run_id,
+                )
         return None
 
     result = await run_conversation(
@@ -1358,9 +1529,12 @@ async def _resume_normal_run(
         return "awaiting_approval"
 
     summary = result.final_message.text() if result.final_message else ""
-    await _finish_run(run_id, "done", summary)
+    finished = await _finish_run(run_id, "done", summary, expected_status="running")
+    if not finished:
+        return None
     _emit_run_event("done", task, run_id, run_thread_id, summary)
     await report_to_parent_session(task, run_thread_id, summary)
+    await _mark_kanban_after_success(task, run_id=run_id)
     return "done"
 
 
@@ -1388,19 +1562,15 @@ async def resume_background_run(run_id: str, decision: str = "approve") -> str |
     task = await get_task(run["task_id"])
     if task is None or not run_thread_id:
         return None
-
-    from backend.scheduling.kanban import ensure_task_claim
-
-    if not await ensure_task_claim(task.id, run_id):
-        logger.warning(
-            "background_tasks: run %s não recuperou o claim de %s",
-            run_id,
-            task.id,
-        )
+    # Reserve the run before touching the task claim. The helper compensates
+    # database failures so no reservation can strand a run in ``running``.
+    if not await _reserve_resumed_run(run_id, task):
         return None
-    watchdog_task = asyncio.create_task(_heartbeat_watchdog(task.id, run_id))
 
+    watchdog_task: asyncio.Task[Any] | None = None
     try:
+        watchdog_task = asyncio.create_task(_heartbeat_watchdog(task.id, run_id))
+
         from backend.services import agent_factory
         from backend.tools.subagent_delegate import SubagentDeps
 
@@ -1497,26 +1667,74 @@ async def resume_background_run(run_id: str, decision: str = "approve") -> str |
     except Exception as exc:
         logger.exception("background_tasks: resume falhou", extra={"run_id": run_id})
         with contextlib.suppress(Exception):
-            await _finish_run(run_id, "error", str(exc))
+            await _finish_run(
+                run_id,
+                "error",
+                str(exc),
+                expected_status="running",
+            )
+        with contextlib.suppress(Exception):
+            from backend.scheduling.kanban import block_task
+
+            await block_task(
+                task.id,
+                "transient",
+                str(exc)[:500],
+                authorized_run_id=run_id,
+            )
         return None
     finally:
-        watchdog_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await watchdog_task
+        if watchdog_task is not None:
+            watchdog_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await watchdog_task
 
 
-async def cancel_background_run(run_id: str) -> str | None:
-    """Cancela uma run pendente de aprovação (ou rodando) — status 'cancelled'.
+async def cancel_background_run(run_id: str | None) -> str | None:
+    """Cancela uma run pendente de aprovação — status ``cancelled``.
 
     A run cancelada não é retomável. Retorna ``"cancelled"`` em sucesso, ou
     ``None`` se a run não existe ou já terminou (done/error/cancelled).
+
+    O card também é bloqueado sob fencing quando a run ainda detém o claim.
+    Assim, o cleanup de claims expirados não transforma um cancelamento
+    explícito em uma nova execução automática.
     """
-    run = await _get_run(run_id)
-    if run is None or run.get("status") not in ("awaiting_approval", "running"):
+    if not run_id:
         return None
-    await _finish_run(
-        run_id, "cancelled", run.get("summary") or "Cancelada pelo usuário."
-    )
+    run = await _get_run(run_id)
+    if run is None or run.get("status") != "awaiting_approval":
+        return None
+    task_id = run.get("task_id")
+    task = await get_task(task_id) if isinstance(task_id, str) else None
+    summary = run.get("summary") or "Cancelada pelo usuário."
+    # Reserve the terminal state first. If resume won the race, the run is
+    # already ``running`` and cancellation must not interrupt its coroutine.
+    if not await _finish_run(
+        run_id,
+        "cancelled",
+        summary,
+        expected_status="awaiting_approval",
+    ):
+        return None
+    if task is not None:
+        try:
+            from backend.scheduling.kanban import block_task
+
+            await block_task(
+                task.id,
+                "needs_input",
+                "Execução cancelada pelo usuário.",
+                authorized_run_id=run_id,
+                allow_expired_claim=True,
+            )
+        except ValueError:
+            logger.warning(
+                "background_tasks: cancelamento perdeu o claim da task",
+                extra={"run_id": run_id, "task_id": task.id},
+            )
+            await _reopen_cancelled_run(run_id)
+            return None
     return "cancelled"
 
 
@@ -2010,10 +2228,6 @@ class BackgroundScheduler:
             await run_task(task, task.trigger_type)
             if task.trigger_type == "once":
                 await update_task(task.id, enabled=False)
-            else:
-                await _set_next_run(
-                    task.id, _next_run(task.trigger_config.get("cron_expr"))
-                )
 
 
 _scheduler: BackgroundScheduler | None = None

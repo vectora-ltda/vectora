@@ -1220,9 +1220,127 @@ async def test_run_task_interrupt_marks_awaiting_and_resume_completes(
     assert runs2[0]["status"] == "done"
     assert runs2[0]["summary"] == "arquivo escrito"
 
+    from backend.scheduling import kanban
+
+    estado = await kanban.get_task_status(task.id)
+    assert estado["status"] == "done"
+    assert estado["claim_lock"] is None
+    assert estado["claim_expires_at"] is None
+
     historico = await native_session_store.get_history(run_thread_id)
     assert [m.role.value for m in historico[-3:]] == ["assistant", "tool", "assistant"]
     assert historico[-2].text() == "arquivo escrito"  # resultado real da tool
+
+
+async def test_self_block_survives_success_epilogue(db: str) -> None:
+    """Um bloqueio feito pela própria run não pode ser sobrescrito por done."""
+    from backend.scheduling import kanban
+
+    task = await bg.create_task(
+        session_id="sess-self-block",
+        user_id="u-self-block",
+        kind="routine",
+        name="Bloqueia",
+        instruction="aguarde intervenção",
+        trigger_type="manual",
+        trigger_config={},
+    )
+    run_id = "run-self-block"
+    assert await kanban.claim_task(task.id, run_id)
+    await kanban.block_task(
+        task.id,
+        "needs_input",
+        "aguardando credencial",
+        authorized_run_id=run_id,
+    )
+
+    await bg._mark_kanban_after_success(task, run_id=run_id)
+
+    estado = await kanban.get_task_status(task.id)
+    assert estado["status"] == "blocked"
+    assert estado["block_kind"] == "needs_input"
+    assert estado["claim_lock"] is None
+
+
+async def test_interval_success_advances_next_run_with_claim_release(
+    db: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A recurring success advances its occurrence before releasing the claim."""
+    from backend.scheduling import kanban
+
+    task = await bg.create_task(
+        session_id="sess-interval-fence",
+        user_id="u-interval-fence",
+        kind="routine",
+        name="Recorrente",
+        instruction="execute",
+        trigger_type="interval",
+        trigger_config={"cron_expr": "0 9 * * *"},
+        next_run_at="2026-09-21T09:00:00+00:00",
+    )
+    run_id = "run-interval-fence"
+    assert await kanban.claim_task(task.id, run_id)
+    monkeypatch.setattr(bg, "_next_run", lambda _expr: "2026-09-22T09:00:00+00:00")
+
+    await kanban.set_status(task.id, "ready", authorized_run_id=run_id)
+
+    updated = await bg.get_task(task.id)
+    assert updated is not None
+    assert updated.next_run_at == "2026-09-22T09:00:00+00:00"
+    estado = await kanban.get_task_status(task.id)
+    assert estado["claim_lock"] is None
+    assert estado["claim_expires_at"] is None
+
+
+async def test_interval_completion_reloads_concurrently_edited_schedule(
+    db: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Completion follows a schedule edit that races its first calculation."""
+    import json
+    import sqlite3
+
+    from backend.scheduling import kanban
+
+    task = await bg.create_task(
+        session_id="sess-interval-edit",
+        user_id="u-interval-edit",
+        kind="routine",
+        name="Recorrente editada",
+        instruction="execute",
+        trigger_type="interval",
+        trigger_config={"cron_expr": "0 9 * * *"},
+        next_run_at="2026-09-21T09:00:00+00:00",
+    )
+    run_id = "run-interval-edit"
+    assert await kanban.claim_task(task.id, run_id)
+    calls = 0
+
+    def _next_run(cron_expr: str | None) -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            with sqlite3.connect(db) as conn:
+                conn.execute(
+                    "UPDATE vectora_background_tasks SET trigger_config = ?, "
+                    "next_run_at = ? WHERE id = ?",
+                    (
+                        json.dumps({"cron_expr": "0 10 * * *"}),
+                        "2026-09-21T10:00:00+00:00",
+                        task.id,
+                    ),
+                )
+                conn.commit()
+            return "2026-09-22T09:00:00+00:00"
+        assert cron_expr == "0 10 * * *"
+        return "2026-09-22T10:00:00+00:00"
+
+    monkeypatch.setattr(bg, "_next_run", _next_run)
+    await kanban.set_status(task.id, "ready", authorized_run_id=run_id)
+
+    updated = await bg.get_task(task.id)
+    assert updated is not None
+    assert updated.trigger_config["cron_expr"] == "0 10 * * *"
+    assert updated.next_run_at == "2026-09-22T10:00:00+00:00"
 
 
 async def test_resume_background_run_rejects_unknown_or_finished_run(
@@ -1330,6 +1448,103 @@ async def _run_task_ate_pausar(
 _CHAMADAS_ANOTAR: list[str] = []
 
 
+async def test_resume_without_pending_approval_finishes_and_blocks(
+    db: str, native_session_store: SessionStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Metadados de aprovação ausentes não deixam run e card em running."""
+    task = await bg.create_task(
+        session_id="sess-missing-approval",
+        user_id="u",
+        kind="routine",
+        name="Sem pendência",
+        instruction="i",
+        trigger_type="manual",
+        trigger_config={"permission_mode": "ask"},
+    )
+    run_id = "run-missing-approval"
+    from backend.scheduling import kanban
+
+    assert await kanban.claim_task(task.id, run_id)
+    await bg._insert_run(run_id, task, "run-thread-missing", "manual")
+    await bg._mark_run_awaiting(run_id, "aguardando aprovação")
+    _patch_native_engine(monkeypatch, session_store=native_session_store)
+
+    async def _without_pending(**_kwargs: object) -> bool:
+        return False
+
+    monkeypatch.setattr(bg, "resume_conversation", _without_pending)
+    assert await bg.resume_background_run(run_id) is None
+    run = await bg._get_run(run_id)
+    assert run is not None
+    assert run["status"] == "error"
+    estado = await kanban.get_task_status(task.id)
+    assert estado["status"] == "blocked"
+    assert estado["claim_lock"] is None
+
+
+async def test_resume_claim_error_finishes_and_blocks(
+    db: str, native_session_store: SessionStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Falha ao recuperar o claim compensa a reserva da run."""
+    task = await bg.create_task(
+        session_id="sess-claim-error",
+        user_id="u",
+        kind="routine",
+        name="Claim falho",
+        instruction="i",
+        trigger_type="manual",
+        trigger_config={"permission_mode": "ask"},
+    )
+    run_id = "run-claim-error"
+    from backend.scheduling import kanban
+
+    assert await kanban.claim_task(task.id, run_id)
+    await bg._insert_run(run_id, task, "run-thread-claim-error", "manual")
+    await bg._mark_run_awaiting(run_id, "aguardando aprovação")
+    _patch_native_engine(monkeypatch, session_store=native_session_store)
+
+    async def _claim_error(*_args: object, **_kwargs: object) -> bool:
+        raise RuntimeError("banco indisponível")
+
+    monkeypatch.setattr(kanban, "ensure_task_claim", _claim_error)
+    assert await bg.resume_background_run(run_id) is None
+    run = await bg._get_run(run_id)
+    assert run is not None
+    assert run["status"] == "error"
+    estado = await kanban.get_task_status(task.id)
+    assert estado["status"] == "blocked"
+
+
+async def test_resume_claim_cancellation_restores_awaiting_state(
+    db: str, native_session_store: SessionStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cancelamento durante a aquisição não deixa a run presa em running."""
+    task = await bg.create_task(
+        session_id="sess-claim-cancel",
+        user_id="u",
+        kind="routine",
+        name="Claim cancelado",
+        instruction="i",
+        trigger_type="manual",
+        trigger_config={"permission_mode": "ask"},
+    )
+    run_id = "run-claim-cancel"
+    await bg._insert_run(run_id, task, "run-thread-claim-cancel", "manual")
+    await bg._mark_run_awaiting(run_id, "aguardando aprovação")
+    _patch_native_engine(monkeypatch, session_store=native_session_store)
+    from backend.scheduling import kanban
+
+    async def _claim_cancelled(*_args: object, **_kwargs: object) -> bool:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(kanban, "ensure_task_claim", _claim_cancelled)
+    with pytest.raises(asyncio.CancelledError):
+        await bg.resume_background_run(run_id)
+    run = await bg._get_run(run_id)
+    assert run is not None
+    assert run["status"] == "awaiting_approval"
+
+
 async def test_resume_background_run_reject_and_edit_decisions(
     db, native_session_store, monkeypatch
 ):
@@ -1390,7 +1605,7 @@ async def test_resume_background_run_invalid_decision_marks_error(
     except geral — a run vira 'error' (não fica presa em awaiting_approval) e
     o resume devolve None."""
     _CHAMADAS_ANOTAR.clear()
-    _task, run_id = await _run_task_ate_pausar(
+    task, run_id = await _run_task_ate_pausar(
         monkeypatch,
         native_session_store,
         tool_name="anotar_bg_bad_decision",
@@ -1405,6 +1620,12 @@ async def test_resume_background_run_invalid_decision_marks_error(
     assert run is not None
     assert run["status"] == "error"
     assert "decision inválida" in run["summary"]
+
+    from backend.scheduling import kanban
+
+    estado = await kanban.get_task_status(task.id)
+    assert estado["status"] == "blocked"
+    assert estado["claim_lock"] is None
 
 
 async def test_resume_background_run_repauses_same_turn(
@@ -1618,6 +1839,45 @@ async def test_list_background_tasks_sem_session_id_e_task_sem_run(db, monkeypat
 # ---------------------------------------------------------------------------
 
 
+async def test_cancel_background_run_without_id_is_noop() -> None:
+    """IDs ausentes não devem consultar nem alterar o histórico de runs."""
+    assert await bg.cancel_background_run(None) is None
+
+
+async def test_cancel_background_run_empty_id_is_noop() -> None:
+    """Uma string vazia tem o mesmo comportamento idempotente que None."""
+    assert await bg.cancel_background_run("") is None
+
+
+async def test_cancel_running_run_loses_to_resume_reservation(db: str) -> None:
+    """Uma run já reservada para execução não pode ser cancelada por baixo."""
+    task = await bg.create_task(
+        session_id="sess-cancel-running",
+        user_id="u",
+        kind="routine",
+        name="Em execução",
+        instruction="i",
+        trigger_type="manual",
+        trigger_config={"permission_mode": "ask"},
+    )
+    run_id = "run-running"
+    from backend.scheduling import kanban
+
+    assert await kanban.claim_task(task.id, run_id)
+    await bg._insert_run(run_id, task, "sess-cancel-running", "manual")
+    assert await bg._get_run(run_id) is not None
+
+    # _insert_run cria a run como running, exatamente o estado reservado por
+    # resume_background_run antes de iniciar o agente.
+    assert await bg.cancel_background_run(run_id) is None
+    run = await bg._get_run(run_id)
+    assert run is not None
+    assert run["status"] == "running"
+    estado = await kanban.get_task_status(task.id)
+    assert estado["status"] == "running"
+    assert estado["claim_lock"] == run_id
+
+
 async def test_cancel_and_approve_task_action(db, monkeypatch):
     """cancel_background_run encerra uma run pendente; a tool approve_task_action
     (decision='cancel') faz o mesmo pelo orquestrador. Erro/borda: cancelar uma
@@ -1637,6 +1897,9 @@ async def test_cancel_and_approve_task_action(db, monkeypatch):
         trigger_config={"permission_mode": "ask"},
     )
     run_id = "run-await"
+    from backend.scheduling import kanban
+
+    assert await kanban.claim_task(task.id, run_id)
     await bg._insert_run(run_id, task, "sess-cancel", "manual")
     await bg._mark_run_awaiting(run_id, "aguardando terminal")
 
@@ -1650,6 +1913,10 @@ async def test_cancel_and_approve_task_action(db, monkeypatch):
     run = await bg._get_run(run_id)
     assert run is not None
     assert run["status"] == "cancelled"
+    estado = await kanban.get_task_status(task.id)
+    assert estado["status"] == "blocked"
+    assert estado["block_kind"] == "needs_input"
+    assert estado["claim_lock"] is None
 
     # Erro/borda: cancelar de novo (já não está pendente) → None / erro tipado.
     assert await bg.cancel_background_run(run_id) is None
@@ -1657,6 +1924,43 @@ async def test_cancel_and_approve_task_action(db, monkeypatch):
         await approve_task_action(run_id=run_id, decision="cancel", ctx=ctx)
     )
     assert out2["status"] == "error"
+
+
+async def test_cancel_expired_claim_blocks_task_before_stale_cleanup(
+    db: str,
+) -> None:
+    """A run cancelada mantém o card bloqueado mesmo após o claim expirar."""
+    import sqlite3
+
+    task = await bg.create_task(
+        session_id="sess-cancel-expired",
+        user_id="u",
+        kind="routine",
+        name="Expirada",
+        instruction="i",
+        trigger_type="manual",
+        trigger_config={"permission_mode": "ask"},
+    )
+    run_id = "run-cancel-expired"
+    from backend.scheduling import kanban
+
+    assert await kanban.claim_task(task.id, run_id)
+    await bg._insert_run(run_id, task, "sess-cancel-expired", "manual")
+    await bg._mark_run_awaiting(run_id, "aguardando terminal")
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            "UPDATE vectora_background_tasks SET claim_expires_at = ? WHERE id = ?",
+            ("2000-01-01T00:00:00+00:00", task.id),
+        )
+        conn.commit()
+
+    assert await bg.cancel_background_run(run_id) == "cancelled"
+    estado = await kanban.get_task_status(task.id)
+    assert estado["status"] == "blocked"
+    assert estado["claim_lock"] is None
+    assert await kanban.release_stale_claims() == 0
+    estado_final = await kanban.get_task_status(task.id)
+    assert estado_final["status"] == "blocked"
 
 
 async def test_approve_task_action_approve_reject_edit(
@@ -1742,9 +2046,13 @@ async def test_approve_task_action_approve_reject_edit(
 
 async def test_scheduler_runs_due_and_skips_disabled(db, monkeypatch):
     fired: list[str] = []
+    from backend.scheduling import kanban
 
     async def _fake_run(task, trigger_source, payload=None):
         fired.append(task.id)
+        run_id = f"run-{task.id}"
+        assert await kanban.claim_task(task.id, run_id)
+        await bg._mark_kanban_after_success(task, run_id=run_id)
         return "bg-x"
 
     monkeypatch.setattr(bg, "run_task", _fake_run)
