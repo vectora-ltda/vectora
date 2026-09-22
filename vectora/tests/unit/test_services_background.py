@@ -1232,7 +1232,7 @@ async def test_run_task_interrupt_marks_awaiting_and_resume_completes(
     assert historico[-2].text() == "arquivo escrito"  # resultado real da tool
 
 
-async def test_self_block_survives_success_epilogue(db):
+async def test_self_block_survives_success_epilogue(db: str) -> None:
     """Um bloqueio feito pela própria run não pode ser sobrescrito por done."""
     from backend.scheduling import kanban
 
@@ -1260,6 +1260,36 @@ async def test_self_block_survives_success_epilogue(db):
     assert estado["status"] == "blocked"
     assert estado["block_kind"] == "needs_input"
     assert estado["claim_lock"] is None
+
+
+async def test_interval_success_advances_next_run_with_claim_release(
+    db: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A recurring success advances its occurrence before releasing the claim."""
+    from backend.scheduling import kanban
+
+    task = await bg.create_task(
+        session_id="sess-interval-fence",
+        user_id="u-interval-fence",
+        kind="routine",
+        name="Recorrente",
+        instruction="execute",
+        trigger_type="interval",
+        trigger_config={"cron_expr": "0 9 * * *"},
+        next_run_at="2026-09-21T09:00:00+00:00",
+    )
+    run_id = "run-interval-fence"
+    assert await kanban.claim_task(task.id, run_id)
+    monkeypatch.setattr(bg, "_next_run", lambda _expr: "2026-09-22T09:00:00+00:00")
+
+    await kanban.set_status(task.id, "ready", authorized_run_id=run_id)
+
+    updated = await bg.get_task(task.id)
+    assert updated is not None
+    assert updated.next_run_at == "2026-09-22T09:00:00+00:00"
+    estado = await kanban.get_task_status(task.id)
+    assert estado["claim_lock"] is None
+    assert estado["claim_expires_at"] is None
 
 
 async def test_resume_background_run_rejects_unknown_or_finished_run(
@@ -1785,9 +1815,13 @@ async def test_approve_task_action_approve_reject_edit(
 
 async def test_scheduler_runs_due_and_skips_disabled(db, monkeypatch):
     fired: list[str] = []
+    from backend.scheduling import kanban
 
     async def _fake_run(task, trigger_source, payload=None):
         fired.append(task.id)
+        run_id = f"run-{task.id}"
+        assert await kanban.claim_task(task.id, run_id)
+        await bg._mark_kanban_after_success(task, run_id=run_id)
         return "bg-x"
 
     monkeypatch.setattr(bg, "run_task", _fake_run)
