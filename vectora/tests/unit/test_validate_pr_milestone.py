@@ -121,7 +121,7 @@ def test_main_uses_milestone_assigned_during_workflow(
     """Valida a milestone atualizada em vez do snapshot obsoleto do webhook."""
     event_path = tmp_path / "event.json"
     event_path.write_text(
-        json.dumps(_event(base=DEVELOPMENT_BRANCH, milestone=None)),
+        json.dumps(_event(base=MAINTENANCE_BRANCH, milestone=None)),
         encoding="utf-8",
     )
     monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
