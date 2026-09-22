@@ -14,10 +14,10 @@ from rotate_release_lines import (
 )
 from select_release_line import ReleaseLines
 
-CONFIG: ReleaseLines = {
-    "development": {"branch": "master", "milestone": "0.2"},
-    "maintenance": {"branch": "release/0.1", "milestone": "0.1.x"},
-}
+CONFIG: ReleaseLines = ReleaseLines(
+    development={"branch": "master", "milestone": "0.2"},
+    maintenance={"branch": "release/0.1", "milestone": "0.1.x"},
+)
 
 
 def test_release_tag_rotates_active_lines() -> None:
@@ -31,12 +31,28 @@ def test_release_tag_rotates_active_lines() -> None:
     assert rotation["previous_maintenance_branch"] == "release/0.1"
 
 
-def test_unrelated_tag_does_not_rotate() -> None:
-    """Tags fora da linha ativa de desenvolvimento são ignoradas com segurança."""
+def test_maintenance_release_tag_does_not_rotate() -> None:
+    """Uma tag da linha de manutenção não inicia nova rotação."""
     assert rotation_for_release("v0.1.23", CONFIG, "master") is None
+
+
+def test_release_from_maintenance_branch_does_not_rotate() -> None:
+    """Uma publicação cuja origem não é a linha de desenvolvimento é ignorada."""
     assert rotation_for_release("v0.2.0", CONFIG, "release/0.1") is None
+
+
+def test_patch_release_does_not_rotate() -> None:
+    """Uma versão de patch não encerra a linha minor ativa."""
     assert rotation_for_release("v0.2.1", CONFIG, "master") is None
+
+
+def test_empty_release_tag_does_not_rotate() -> None:
+    """Uma tag vazia não produz plano de rotação."""
     assert rotation_for_release("", CONFIG, "master") is None
+
+
+def test_empty_target_branch_does_not_rotate() -> None:
+    """Uma origem vazia não autoriza a rotação."""
     assert rotation_for_release("v0.2.0", CONFIG, "") is None
 
 
@@ -113,6 +129,21 @@ def test_rotation_plan_ignores_unrelated_pull_requests() -> None:
     ]
 
 
+def test_rotation_plan_without_pull_requests_keeps_baseline_operations() -> None:
+    """Uma rotação sem PRs abertas ainda cria a linha e publica a configuração."""
+    rotation = rotation_for_release("v0.2.0", CONFIG, "master")
+    assert rotation is not None
+
+    plan = build_rotation_plan(rotation, [])
+
+    assert plan == [
+        {"kind": "create_branch", "pull_request": None, "value": "release/0.2"},
+        {"kind": "ensure_milestone", "pull_request": None, "value": "0.2.x"},
+        {"kind": "ensure_milestone", "pull_request": None, "value": "0.3"},
+        {"kind": "publish_config", "pull_request": None, "value": "v0.2.0"},
+    ]
+
+
 def test_main_rotates_valid_release_event(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -171,7 +202,7 @@ def test_main_writes_valid_rotation(
         encoding="utf-8",
     )
     config = tmp_path / "release-lines.json"
-    config.write_text(json.dumps(CONFIG), encoding="utf-8")
+    config.write_text(json.dumps(CONFIG.model_dump()), encoding="utf-8")
     monkeypatch.setattr(
         sys,
         "argv",

@@ -89,13 +89,18 @@ jobs:
 
             if ! git merge --no-edit "origin/$MAINTENANCE_BRANCH"; then
               git merge --abort || true
-              conflict_branch="sync/release-promotion-${GITHUB_RUN_ID}"
+              conflict_branch="sync/release-promotion-${MAINTENANCE_BRANCH//\//-}-to-${DEVELOPMENT_BRANCH//\//-}"
               if [[ -z "$GH_TOKEN" ]]; then
                   echo "::error::RELEASE_PLEASE_TOKEN é necessário para abrir uma PR de resolução de conflitos." >&2
                 exit 1
               fi
+              remote_conflict_sha="$(git ls-remote --heads origin "$conflict_branch" | awk '{print $1}')"
               git switch --force-create "$conflict_branch" "origin/$MAINTENANCE_BRANCH"
-              git push origin "HEAD:$conflict_branch"
+              if [[ -n "$remote_conflict_sha" ]]; then
+                git push --force-with-lease="refs/heads/$conflict_branch:$remote_conflict_sha" origin "HEAD:$conflict_branch"
+              else
+                git push origin "HEAD:$conflict_branch"
+              fi
               existing_pr="$(gh pr list \
                 --repo "$GITHUB_REPOSITORY" \
                 --base "$DEVELOPMENT_BRANCH" \

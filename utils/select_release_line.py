@@ -5,18 +5,23 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import TypedDict
+
+from pydantic import BaseModel, ConfigDict
 
 
-class ReleaseLine(TypedDict):
+class ReleaseLine(BaseModel):
     """Metadados de branch e milestone de uma linha de release ativa."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     branch: str
     milestone: str
 
 
-class ReleaseLines(TypedDict):
+class ReleaseLines(BaseModel):
     """Linhas configuradas de desenvolvimento e manutenção."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     development: ReleaseLine
     maintenance: ReleaseLine
@@ -28,36 +33,32 @@ CONFIG_PATH: Path = Path(__file__).parents[1] / ".github" / "release-lines.json"
 def load_release_lines(path: Path = CONFIG_PATH) -> ReleaseLines:
     """Carrega e valida a configuração versionada das linhas de release."""
     payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError("release-line configuration must be an object")
-    result: dict[str, ReleaseLine] = {}
-    for key in ("development", "maintenance"):
-        line = payload.get(key)
-        if not isinstance(line, dict):
-            raise ValueError(f"missing release line: {key}")
-        branch = line.get("branch")
-        milestone = line.get("milestone")
-        if not isinstance(branch, str) or not branch:
-            raise ValueError(f"invalid branch for release line: {key}")
-        if not isinstance(milestone, str) or not milestone:
-            raise ValueError(f"invalid milestone for release line: {key}")
-        result[key] = {"branch": branch, "milestone": milestone}
-    if result["development"]["branch"] == result["maintenance"]["branch"]:
+    try:
+        config = ReleaseLines.model_validate(
+            json.loads(path.read_text(encoding="utf-8"))
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"invalid release-line configuration: {exc}") from exc
+    if config.development.branch == config.maintenance.branch:
         raise ValueError("development and maintenance branches must differ")
-    return {"development": result["development"], "maintenance": result["maintenance"]}
+    return config
 
 
 def selection_for_branch(branch: str | None, config: ReleaseLines) -> dict[str, str]:
     """Retorna as saídas do workflow para uma branch, incluindo o indicador de habilitação."""
     selected = next(
-        (line for line in config.values() if line["branch"] == branch),
+        (
+            line
+            for line in (config.development, config.maintenance)
+            if line.branch == branch
+        ),
         None,
     )
     outputs = {
         "enabled": "true" if selected else "false",
-        "maintenance_branch": config["maintenance"]["branch"],
-        "development_branch": config["development"]["branch"],
-        "development_milestone": config["development"]["milestone"],
+        "maintenance_branch": config.maintenance.branch,
+        "development_branch": config.development.branch,
+        "development_milestone": config.development.milestone,
     }
     return outputs
 
