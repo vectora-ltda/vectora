@@ -8,8 +8,6 @@ Esta versão inclui as alterações geradas pelo Release Please para o intervalo
 
 A compatibilidade da `vectora-review-action` com `mode=self-hosted` e `job_endpoint` continua pendente no repositório externo [`vectora-ltda/vectora-review-action`](https://github.com/vectora-ltda/vectora-review-action). Esta release não considera esse contrato cross-repo concluído.
 
-Esta seção lista as correções incluídas na versão `0.1.23`.
-
 ### Features
 
 Esta seção lista as funcionalidades adicionadas na versão `0.1.23`. As mudanças incluem segurança e identidade, motor nativo e HITL, chat e mídia, Workbench, Kanban, integrações, armazenamento, atualizações e entrega.
