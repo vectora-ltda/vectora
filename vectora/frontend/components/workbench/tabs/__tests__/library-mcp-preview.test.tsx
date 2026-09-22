@@ -43,4 +43,31 @@ describe("LibraryMcpPreview", () => {
 
     expect(screen.queryByText("community", { exact: true })).toBeNull();
   });
+
+  it("exibe publisher como link quando a URL é segura", () => {
+    render(
+      <LibraryMcpPreview
+        mcp={{
+          ...MCP,
+          publisher: "Acme",
+          publisherUrl: "https://github.com/acme",
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: /Acme/ })).toHaveAttribute(
+      "href",
+      "https://github.com/acme",
+    );
+  });
+
+  it("mantém publisher como texto quando a URL é inválida", () => {
+    render(
+      <LibraryMcpPreview
+        mcp={{ ...MCP, publisher: "Acme", publisherUrl: "javascript:alert(1)" }}
+      />,
+    );
+
+    expect(screen.getByText(/Acme/).closest("a")).toBeNull();
+  });
 });

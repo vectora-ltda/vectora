@@ -45,6 +45,27 @@ describe("registry — catálogos reais de MCP/Skills (D1)", () => {
     expect(body.entries).toEqual([]);
   });
 
+  it("GET /registry/mcp traduz falha do backend em erro 503", async () => {
+    const failingEnv = {
+      ...env,
+      DB: {
+        prepare: () => {
+          throw new Error("database unavailable");
+        },
+      },
+    } as unknown as typeof env;
+    const ctx = createExecutionContext();
+    const res = await worker.fetch(
+      new Request("https://services.vectora.company/registry/mcp"),
+      failingEnv,
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "registry unavailable" });
+  });
+
   it("GET /registry/extensions continua placeholder (fora de escopo — SDK de extensões não existe)", async () => {
     const ctx = createExecutionContext();
     const req = new Request(

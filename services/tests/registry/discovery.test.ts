@@ -128,6 +128,15 @@ describe("discoverMcp", () => {
       catalog_source: "official",
       icon_url: "https://github.com/example/icon.png",
     });
+
+    const attribution = await env.DB.prepare(
+      "SELECT publisher, publisher_url, homepage FROM mcp_catalog WHERE id = 'com.example/new-server'",
+    ).first<{ publisher: string; publisher_url: string; homepage: string }>();
+    expect(attribution).toEqual({
+      publisher: "example",
+      publisher_url: "https://github.com/example",
+      homepage: "https://github.com/example/com.example/new-server",
+    });
   });
 
   it("erro/borda: falha de rede não lança e retorna 0 sem quebrar o cron", async () => {

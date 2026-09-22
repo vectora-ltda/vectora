@@ -12,6 +12,7 @@ Routes (montadas em server.py):
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Literal
 
@@ -223,7 +224,7 @@ async def install_mcp(
                 ),
                 "error": "servidor bloqueado pela política",
             }
-        server = _connector_to_server(connector)
+        server = await asyncio.to_thread(_connector_to_server, connector)
         # Catalog metadata only describes required names. Values cross the
         # boundary when the user explicitly saved them for this account.
         from backend.rbac.auth import get_env_overrides

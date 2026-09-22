@@ -52,11 +52,18 @@ registry.get("/mcp", async (c) => {
     where.push("category = ?");
     params.push(category);
   }
-  const stmt = c.env.DB.prepare(
-    `SELECT id, name, description, install_cmd, env_vars, homepage, category, vectora_verified, icon_url, publisher, publisher_url, stars_count, downloads_count, runtime_hint, package_identifier, transport, server_url, catalog_source, updated_at FROM mcp_catalog WHERE catalog_status = 'active' AND catalog_source = 'official'${where.length ? ` AND ${where.join(" AND ")}` : ""} ORDER BY stars_count DESC, downloads_count DESC, name COLLATE NOCASE`,
-  );
-  const { results } = await (params.length ? stmt.bind(...params) : stmt).all();
-  return c.json({ entries: results ?? [] });
+  try {
+    const stmt = c.env.DB.prepare(
+      `SELECT id, name, description, install_cmd, env_vars, homepage, category, vectora_verified, icon_url, publisher, publisher_url, stars_count, downloads_count, runtime_hint, package_identifier, transport, server_url, catalog_source, updated_at FROM mcp_catalog WHERE catalog_status = 'active' AND catalog_source = 'official'${where.length ? ` AND ${where.join(" AND ")}` : ""} ORDER BY stars_count DESC, downloads_count DESC, name COLLATE NOCASE`,
+    );
+    const { results } = await (
+      params.length ? stmt.bind(...params) : stmt
+    ).all();
+    return c.json({ entries: results ?? [] });
+  } catch (error) {
+    console.error("registry mcp query failed", error);
+    return c.json({ error: "registry unavailable" }, 503);
+  }
 });
 
 const SKILLS_COLUMNS =

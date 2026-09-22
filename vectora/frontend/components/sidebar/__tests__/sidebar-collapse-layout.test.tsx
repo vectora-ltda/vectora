@@ -17,7 +17,22 @@ function render(ui: React.ReactElement) {
 }
 
 vi.mock("@/lib/stores/workspaces-store", () => ({
-  useWorkspacesStore: (sel: (s: unknown) => unknown) => sel({ workspaces: [] }),
+  useWorkspacesStore: (sel: (s: unknown) => unknown) =>
+    sel({
+      workspaces: [
+        {
+          id: "workspace-1",
+          name: "Vectora",
+          cwd: "/tmp/vectora",
+          trusted: true,
+          is_git_repo: true,
+          git_remote: null,
+          git_current_branch: null,
+          git_default_branch: null,
+        },
+      ],
+      active_id: "workspace-1",
+    }),
 }));
 vi.mock("@/lib/stores/settings-store", () => ({
   useSettingsStore: (sel: (s: unknown) => unknown) => sel({ chatMode: false }),
@@ -31,7 +46,21 @@ vi.mock("@/lib/hooks/use-webhook-events", () => ({
 }));
 vi.mock("../sidebar-utils", () => ({
   groupThreads: () => [],
-  groupThreadsByWorkspace: () => ({ groups: [], orphans: [] }),
+  groupThreadsByWorkspace: (items: Thread[]) => ({
+    groups: items.length
+      ? [
+          {
+            workspace: {
+              id: "workspace-1",
+              name: "Vectora",
+              cwd: "/tmp/vectora",
+            },
+            threads: items,
+          },
+        ]
+      : [],
+    orphans: [],
+  }),
 }));
 vi.mock("@/lib/hooks/use-network-status", () => ({
   useNetworkStatus: () => ({ offline: false }),
@@ -49,7 +78,21 @@ vi.mock("../sidebar-mode-toggle", () => ({
   ),
 }));
 vi.mock("../thread-list", () => ({
-  ThreadList: () => <div data-testid="thread-list" />,
+  ThreadList: ({
+    workspaceGroups,
+  }: {
+    workspaceGroups: Array<{ workspace: { name: string }; threads: Thread[] }>;
+  }) => (
+    <nav data-testid="thread-list">
+      {workspaceGroups.map((group) => (
+        <section key={group.workspace.name} aria-label={group.workspace.name}>
+          {group.threads.map((thread) => (
+            <span key={thread.thread_id}>{thread.thread_id}</span>
+          ))}
+        </section>
+      ))}
+    </nav>
+  ),
 }));
 vi.mock("../sidebar-footer", () => ({ SidebarFooter: () => null }));
 vi.mock("@/components/ui/confirm-dialog", () => ({
@@ -72,7 +115,16 @@ vi.mock("@/lib/paraglide/messages", () => ({
 afterEach(cleanup);
 
 const noop = vi.fn();
-const threads: Thread[] = [];
+const threads: Thread[] = [
+  {
+    thread_id: "thread-1",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    metadata: { user_id: "local" },
+    workspace_id: "workspace-1",
+    mode: "code",
+  },
+];
 
 describe("Sidebar — wrapper de animação não quebra o preenchimento de altura", () => {
   it("recolhida: o <aside> fica direto sob um wrapper 'contents' (herda a altura do pai)", () => {
@@ -139,8 +191,11 @@ describe("Sidebar — wrapper de animação não quebra o preenchimento de altur
       />,
     );
 
-    expect(screen.queryByTestId("sidebar-folders")).not.toBeInTheDocument();
+    expect(screen.queryByText("Pastas")).not.toBeInTheDocument();
     expect(screen.getByTestId("thread-list")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Vectora" })).toBeInTheDocument();
+    expect(screen.getAllByText("Vectora")).toHaveLength(1);
+    expect(screen.getByText("thread-1")).toBeInTheDocument();
   });
 
   it("mantém o toggle de modo separado do botão de recolher no modo compacto", () => {

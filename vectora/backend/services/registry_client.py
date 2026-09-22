@@ -141,6 +141,16 @@ def _cache_is_fresh(payload: dict, ttl: timedelta) -> bool:
     return datetime.now(UTC) - fetched_at < ttl
 
 
+def _cache_has_current_mcp_shape(payload: dict) -> bool:
+    entries = payload.get("entries")
+    return isinstance(entries, list) and all(
+        isinstance(entry, Mapping)
+        and isinstance(entry.get("catalog_source"), str)
+        and bool(entry.get("catalog_source"))
+        for entry in entries
+    )
+
+
 async def fetch_catalog(kind: RegistryKind) -> list[dict]:
     """Busca o catálogo `kind` ("mcp" | "skills") do registry remoto.
 
@@ -150,7 +160,11 @@ async def fetch_catalog(kind: RegistryKind) -> list[dict]:
     e sem cache: lista vazia — nunca levanta exceção.
     """
     cache = _read_cache(kind)
-    if cache is not None and _cache_is_fresh(cache, CACHE_TTL_ONLINE):
+    if (
+        cache is not None
+        and (kind != "mcp" or _cache_has_current_mcp_shape(cache))
+        and _cache_is_fresh(cache, CACHE_TTL_ONLINE)
+    ):
         return list(cache.get("entries", []))
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
@@ -162,7 +176,11 @@ async def fetch_catalog(kind: RegistryKind) -> list[dict]:
         return entries
     except Exception as exc:
         logger.warning("registry_client: falha ao buscar catálogo %s (%s)", kind, exc)
-        if cache is not None and _cache_is_fresh(cache, CACHE_TTL_OFFLINE):
+        if (
+            cache is not None
+            and (kind != "mcp" or _cache_has_current_mcp_shape(cache))
+            and _cache_is_fresh(cache, CACHE_TTL_OFFLINE)
+        ):
             logger.info("registry_client: usando cache offline de %s", kind)
             return list(cache.get("entries", []))
         return []

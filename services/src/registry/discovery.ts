@@ -7,16 +7,8 @@
  * (`api.mcp.github.com`), público e ordenado por relevância. Nenhum seed
  * local ou agregador paralelo entra no catálogo público.
  *
- * Skills: não existe hoje nenhum registry público equivalente (skills.sh,
- * cogitado inicialmente, exige um `VERCEL_OIDC_TOKEN` só emitido dentro do
- * runtime de deploy da própria Vercel — inacessível a um Worker de
- * terceiro, confirmado via `skills.sh/docs/api`). Reavaliado em 2026-08-15:
- * limitação continua real — a API segue exigindo OIDC federation do
- * projeto Vercel (nenhuma alternativa de API key documentada ainda; existe
- * pedido aberto da comunidade por chave própria, `vercel-labs/skills#1053`,
- * sem resolução). Alternativa: GitHub code search por `filename:SKILL.md`
- * (`GITHUB_TOKEN` opcional — sem ele, essa metade do discovery fica
- * desligada, não é erro).
+ * Skills são descobertas por busca de código no GitHub quando `GITHUB_TOKEN`
+ * está configurado; sem token, essa fonte fica desativada de forma segura.
  *
  * As duas fontes são isoladas uma da outra (falha em uma nunca impede a
  * outra) e o upsert nunca sobrescreve uma linha `catalog_source='curated'`
@@ -145,9 +137,10 @@ function toDiscoveredMcp(item: McpServerEntry): DiscoveredMcp | null {
     : "";
   if (pkg?.identifier && !installCmd) return null;
   const owner = serverName.split("/", 1)[0] ?? "";
-  const publisher: string =
-    github?.name_with_owner ?? (serverName.includes("/") ? owner : "");
-  const publisherOwner = publisher.split("/", 1)[0] ?? "";
+  const publisher: string = github?.name_with_owner
+    ? (github.name_with_owner.split("/", 1)[0] ?? "")
+    : owner;
+  const publisherOwner = publisher;
   const iconUrl =
     github?.preferred_image ??
     (/^[A-Za-z0-9_.-]+$/.test(publisherOwner)
@@ -273,8 +266,8 @@ async function upsertMcpSnapshot(
     try {
       await env.DB.prepare(
         `INSERT INTO mcp_catalog
-           (id, name, description, install_cmd, env_vars, homepage, category, icon_url, publisher, publisher_url, stars_count, downloads_count, runtime_hint, package_identifier, transport, server_url, vectora_verified, catalog_source, snapshot_id, last_seen_at, catalog_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'official', ?, datetime('now'), 'active')
+           (id, name, description, install_cmd, env_vars, homepage, category, icon_url, publisher, publisher_url, stars_count, downloads_count, runtime_hint, package_identifier, transport, server_url, vectora_verified, catalog_source, snapshot_id, last_seen_at, catalog_status, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'official', ?, datetime('now'), 'active', datetime('now'))
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name,
            description = excluded.description,

@@ -54,6 +54,7 @@ def _run_preflight(
     table_output: str,
     pragma_output: str = '{"name":"id"}',
     table_returncode: int = 0,
+    table: str = "skills_catalog",
 ) -> list[list[str]]:
     namespace = _load_sconstruct()
     commands: list[list[str]] = []
@@ -73,7 +74,7 @@ def _run_preflight(
     namespace["_upgrade_d1_schema"](
         SimpleNamespace(),
         skip_missing_tables=True,
-        tables_filter={"skills_catalog"},
+        tables_filter={table},
     )
     return commands
 
@@ -104,6 +105,25 @@ def test_missing_skills_catalog_is_left_for_base_schema(
     commands = _run_preflight(monkeypatch, table_output="{}")
 
     assert not any("ALTER TABLE" in command[-1] for command in commands)
+
+
+def test_existing_mcp_catalog_gets_timestamp_compatibility(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commands = _run_preflight(
+        monkeypatch,
+        table_output='{"name":"mcp_catalog"}',
+        table="mcp_catalog",
+    )
+
+    assert any(
+        "UPDATE mcp_catalog SET updated_at = datetime('now')" in command[-1]
+        for command in commands
+    )
+    assert any(
+        "CREATE TRIGGER IF NOT EXISTS mcp_catalog_updated_at_default" in command[-1]
+        for command in commands
+    )
 
 
 def test_table_probe_failure_aborts_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
