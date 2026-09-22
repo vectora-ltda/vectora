@@ -1515,6 +1515,36 @@ async def test_resume_claim_error_finishes_and_blocks(
     assert estado["status"] == "blocked"
 
 
+async def test_resume_claim_cancellation_restores_awaiting_state(
+    db, native_session_store, monkeypatch
+) -> None:
+    """Cancelamento durante a aquisição não deixa a run presa em running."""
+    task = await bg.create_task(
+        session_id="sess-claim-cancel",
+        user_id="u",
+        kind="routine",
+        name="Claim cancelado",
+        instruction="i",
+        trigger_type="manual",
+        trigger_config={"permission_mode": "ask"},
+    )
+    run_id = "run-claim-cancel"
+    await bg._insert_run(run_id, task, "run-thread-claim-cancel", "manual")
+    await bg._mark_run_awaiting(run_id, "aguardando aprovação")
+    _patch_native_engine(monkeypatch, session_store=native_session_store)
+    from backend.scheduling import kanban
+
+    async def _claim_cancelled(*_args: Any, **_kwargs: Any) -> bool:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(kanban, "ensure_task_claim", _claim_cancelled)
+    with pytest.raises(asyncio.CancelledError):
+        await bg.resume_background_run(run_id)
+    run = await bg._get_run(run_id)
+    assert run is not None
+    assert run["status"] == "awaiting_approval"
+
+
 async def test_resume_background_run_reject_and_edit_decisions(
     db, native_session_store, monkeypatch
 ):

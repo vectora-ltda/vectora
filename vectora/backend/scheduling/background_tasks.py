@@ -18,6 +18,7 @@ import asyncio
 import contextlib
 import json
 import logging
+from collections.abc import Awaitable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Any, TypedDict, cast
@@ -620,6 +621,17 @@ async def _transition_run_status(
             await conn.close()
 
 
+async def _await_reservation_step(operation: Awaitable[bool]) -> bool:
+    """Conclui uma etapa de reserva mesmo se o chamador for cancelado."""
+    operation_task = asyncio.ensure_future(operation)
+    try:
+        return await asyncio.shield(operation_task)
+    except asyncio.CancelledError:
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.shield(operation_task)
+        raise
+
+
 async def _reopen_cancelled_run(run_id: str) -> bool:
     """Desfaz um cancelamento quando a transição do cartão não foi possível."""
     conn = await _get_db()
@@ -640,20 +652,30 @@ async def _reserve_resumed_run(run_id: str, task: BackgroundTask) -> bool:
     """Reserva run e card antes de entrar no motor, com compensação."""
     reserved = False
     try:
-        if not await _transition_run_status(run_id, "awaiting_approval", "running"):
+        if not await _await_reservation_step(
+            _transition_run_status(run_id, "awaiting_approval", "running")
+        ):
             return False
         reserved = True
         from backend.scheduling.kanban import ensure_task_claim
 
-        if await ensure_task_claim(task.id, run_id):
+        if await _await_reservation_step(ensure_task_claim(task.id, run_id)):
             return True
         logger.warning(
             "background_tasks: run %s não recuperou o claim de %s",
             run_id,
             task.id,
         )
-        await _transition_run_status(run_id, "running", "awaiting_approval")
+        await _await_reservation_step(
+            _transition_run_status(run_id, "running", "awaiting_approval")
+        )
         return False
+    except asyncio.CancelledError:
+        with contextlib.suppress(asyncio.CancelledError):
+            await _await_reservation_step(
+                _transition_run_status(run_id, "running", "awaiting_approval")
+            )
+        raise
     except Exception as exc:
         logger.exception(
             "background_tasks: reserva da run falhou",
