@@ -21,7 +21,7 @@ on:
         labeled,
         unlabeled,
       ]
-    branches: [master, release/0.1]
+    branches: ["**"]
 
 concurrency:
   group: pr-checks-${{ github.event.pull_request.number }}
@@ -33,7 +33,7 @@ permissions:
 jobs:
   labeler:
     name: Label PR
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       pull-requests: write
     steps:
@@ -43,7 +43,7 @@ jobs:
 
   commitlint:
     name: Verify PR title (Conventional Commits)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       pull-requests: write
     steps:
@@ -105,7 +105,7 @@ jobs:
     # Comentar no PR exige escrita; quem comenta é o job trusted em
     # pr-checks-comment.yml (workflow_run, contexto do branch base) — nunca
     # o job que processa dado da PR direto.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
