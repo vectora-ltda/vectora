@@ -94,13 +94,6 @@ jobs:
                   echo "::error::RELEASE_PLEASE_TOKEN é necessário para abrir uma PR de resolução de conflitos." >&2
                 exit 1
               fi
-              remote_conflict_sha="$(git ls-remote --heads origin "$conflict_branch" | awk '{print $1}')"
-              git switch --force-create "$conflict_branch" "origin/$MAINTENANCE_BRANCH"
-              if [[ -n "$remote_conflict_sha" ]]; then
-                git push --force-with-lease="refs/heads/$conflict_branch:$remote_conflict_sha" origin "HEAD:$conflict_branch"
-              else
-                git push origin "HEAD:$conflict_branch"
-              fi
               existing_pr="$(gh pr list \
                 --repo "$GITHUB_REPOSITORY" \
                 --base "$DEVELOPMENT_BRANCH" \
@@ -109,8 +102,15 @@ jobs:
                 --json number \
                 --jq '.[0].number // empty')"
               if [[ -n "$existing_pr" ]]; then
-                echo "Conflict-resolution PR #$existing_pr is already open."
+                echo "Conflict-resolution PR #$existing_pr is already open; preserving resolver commits."
               else
+                remote_conflict_sha="$(git ls-remote --heads origin "$conflict_branch" | awk '{print $1}')"
+                git switch --force-create "$conflict_branch" "origin/$MAINTENANCE_BRANCH"
+                if [[ -n "$remote_conflict_sha" ]]; then
+                  git push --force-with-lease="refs/heads/$conflict_branch:$remote_conflict_sha" origin "HEAD:$conflict_branch"
+                else
+                  git push origin "HEAD:$conflict_branch"
+                fi
                 gh pr create \
                   --repo "$GITHUB_REPOSITORY" \
                   --base "$DEVELOPMENT_BRANCH" \

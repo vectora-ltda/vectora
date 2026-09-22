@@ -128,7 +128,10 @@ def rotation_for_release(
     match = SEMVER_TAG.fullmatch(tag)
     if match is None:
         return None
-    if target_branch != config.development.branch:
+    if target_branch != config.development.branch and not (
+        target_branch is not None
+        and re.fullmatch(r"[0-9a-fA-F]{7,64}", target_branch) is not None
+    ):
         return None
 
     major = int(match.group("major"))

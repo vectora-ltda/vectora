@@ -50,6 +50,7 @@ def test_forward_port_workflow_opens_isolated_conflict_pr() -> None:
         in content
     )
     assert "force-with-lease" in content
+    assert "preserving resolver commits" in content
     assert 'git push origin "HEAD:$conflict_branch"' in content
     assert '--head "$conflict_branch"' in content
     assert '--milestone "$DEVELOPMENT_MILESTONE"' not in content
@@ -129,7 +130,16 @@ def test_release_workflows_pin_github_script_to_node_24() -> None:
     for workflow in workflow_paths:
         content = workflow.read_text(encoding="utf-8")
         assert "actions/github-script@v8" in content
-        assert "actions/github-script@v7" not in content
+    assert "actions/github-script@v7" not in content
+
+
+def test_release_rotation_uses_project_environment() -> None:
+    """Garante que a rotação use o ambiente uv que contém Pydantic."""
+    workflow = WORKFLOW.parent / "rotate-release-lines.yml"
+    content = workflow.read_text(encoding="utf-8")
+
+    assert "./.github/actions/setup-uv" in content
+    assert "uv run --project vectora python utils/rotate_release_lines.py" in content
 
 
 def test_release_workflows_pin_ubuntu_runner() -> None:

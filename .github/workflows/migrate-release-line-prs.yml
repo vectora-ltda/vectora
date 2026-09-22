@@ -33,18 +33,21 @@ jobs:
           github-token: ${{ github.token }}
           script: |
             const body = process.env.ROTATION_BODY ?? "";
-            const metadata = body.match(
-              /<!-- rotation: previous_maintenance_branch=([^;]+); previous_maintenance_milestone=([^;]+); previous_development_milestone=([^ ]+) -->/,
-            );
+            const {
+              findMigrationTargets,
+              applyMigrationUpdates,
+              parseRotationMetadata,
+            } = require("./.github/scripts/migrate_release_line_prs.js");
+            const metadata = parseRotationMetadata(body);
             if (!metadata) {
               core.setFailed("A PR de rotação mesclada não possui metadados de migração validados.");
               return;
             }
-            const [
-              , previousMaintenanceBranch,
-              previousMaintenanceMilestone,
-              previousDevelopmentMilestone,
-            ] = metadata;
+            const {
+              maintenanceBranch: previousMaintenanceBranch,
+              maintenanceMilestone: previousMaintenanceMilestone,
+              developmentMilestone: previousDevelopmentMilestone,
+            } = metadata;
             const { owner, repo } = context.repo;
             const config = JSON.parse(
               require("fs").readFileSync(".github/release-lines.json", "utf8"),
@@ -56,13 +59,8 @@ jobs:
               github.rest.issues.listMilestones,
               { owner, repo, state: "open", per_page: 100 },
             );
-            const maintenance = milestones.find(
-              ({ title }) => title === config.maintenance.milestone,
-            );
-            const development = milestones.find(
-              ({ title }) => title === config.development.milestone,
-            );
-            if (!maintenance || !development) {
+            const targets = findMigrationTargets(config, milestones);
+            if (!targets) {
               core.setFailed("As milestones ativas de release estão ausentes após a rotação.");
               return;
             }
@@ -77,24 +75,11 @@ jobs:
                 developmentMilestone: previousDevelopmentMilestone,
               });
               if (!migration) continue;
-              if (pr.base.ref !== migration.base) {
-                await github.rest.pulls.update({
-                  owner,
-                  repo,
-                  pull_number: pr.number,
-                  base: migration.base,
-                });
-              }
-              const target = migration.milestone === config.maintenance.milestone
-                ? maintenance
-                : development;
-              if (pr.milestone?.number !== target.number) {
-                await github.rest.issues.update({
-                  owner,
-                  repo,
-                  issue_number: pr.number,
-                  milestone: target.number,
-                });
-              }
+              await applyMigrationUpdates(pr, migration, targets, {
+                owner,
+                repo,
+                pulls: github.rest.pulls,
+                issues: github.rest.issues,
+              });
               core.info(`PR #${pr.number} migrada.`);
             }

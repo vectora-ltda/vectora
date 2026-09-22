@@ -28,13 +28,19 @@ jobs:
           token: ${{ github.token }}
           persist-credentials: false
 
+      - uses: ./.github/actions/setup-uv
+        with:
+          python-version: "3.13"
+          all-extras: "false"
+          working-directory: vectora
+
       - name: Calculate release-line rotation
         id: rotation
         shell: bash
         env:
           GITHUB_EVENT_PATH: ${{ github.event_path }}
         run: |
-          python utils/rotate_release_lines.py "$GITHUB_EVENT_PATH" >> "$GITHUB_OUTPUT"
+          uv run --project vectora python utils/rotate_release_lines.py "$GITHUB_EVENT_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Skip releases outside the active development line
         if: steps.rotation.outputs.rotate != 'true'
@@ -196,7 +202,7 @@ jobs:
           else
             git switch -c "$rotation_branch"
           fi
-          python utils/rotate_release_lines.py "$EVENT_PATH" --write .github/release-lines.json
+          uv run --project vectora python utils/rotate_release_lines.py "$EVENT_PATH" --write .github/release-lines.json
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .github/release-lines.json
