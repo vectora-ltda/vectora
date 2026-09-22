@@ -50,7 +50,6 @@ vi.mock("../sidebar-mode-toggle", () => ({ SidebarModeToggle: () => null }));
 vi.mock("../sidebar-footer", () => ({ SidebarFooter: () => null }));
 vi.mock("../new-chat-button", () => ({ NewChatButton: () => null }));
 vi.mock("../session-search", () => ({ SessionSearch: () => null }));
-vi.mock("../sidebar-folders", () => ({ SidebarFolders: () => null }));
 vi.mock("@/components/ui/confirm-dialog", () => ({
   ConfirmDialog: () => null,
 }));
