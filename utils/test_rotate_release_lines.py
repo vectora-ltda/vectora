@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 from rotate_release_lines import (
@@ -99,3 +100,14 @@ def test_rotation_plan_ignores_unrelated_pull_requests() -> None:
         "ensure_milestone",
         "publish_config",
     ]
+
+
+def test_invalid_release_event_returns_failure(tmp_path: Path, monkeypatch) -> None:
+    """Malformed release input fails before any rotation can be published."""
+    from rotate_release_lines import main
+
+    event = tmp_path / "event.json"
+    event.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["rotate_release_lines.py", str(event)])
+
+    assert main() == 1
