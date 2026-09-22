@@ -119,3 +119,33 @@ if [ "$mcp_table_exists" = true ]; then
   pnpm exec wrangler d1 execute vectora-db --remote \
     --command "CREATE INDEX IF NOT EXISTS idx_mcp_catalog_public_rank ON mcp_catalog(catalog_status, stars_count DESC, updated_at DESC)"
 fi
+
+# The base schema declares repository for fresh review-job tables, but D1
+# instances that already have the table do not replay CREATE TABLE. Upgrade
+# that legacy shape before review handlers start writing repository-scoped jobs.
+review_jobs_table_exists=false
+if table_exists gha_bot_review_jobs; then
+  review_jobs_table_exists=true
+else
+  status=$?
+  if [ "$status" -ne 1 ]; then
+    exit "$status"
+  fi
+fi
+
+if [ "$review_jobs_table_exists" = true ]; then
+  if review_jobs_schema=$(pnpm exec wrangler d1 execute vectora-db --remote \
+    --command "PRAGMA table_info(gha_bot_review_jobs)" --json 2>&1); then
+    :
+  else
+    status=$?
+    echo "Falha ao consultar o schema D1: gha_bot_review_jobs" >&2
+    printf '%s\n' "$review_jobs_schema" >&2
+    exit "$status"
+  fi
+
+  if ! grep -Eq '\"name\"[[:space:]]*:[[:space:]]*\"repository\"' <<< "$review_jobs_schema"; then
+    pnpm exec wrangler d1 execute vectora-db --remote \
+      --command "ALTER TABLE gha_bot_review_jobs ADD COLUMN repository TEXT"
+  fi
+fi

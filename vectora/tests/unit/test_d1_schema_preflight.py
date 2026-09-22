@@ -131,6 +131,7 @@ def test_workflow_gates_schema_on_preflight() -> None:
     assert "id: services_schema_catalog_preflight" in workflow
     assert "steps.services_schema_catalog_preflight.outcome == 'success'" in workflow
     assert "bash scripts/d1_catalog_preflight.sh" in workflow
+    assert 'ensure_column gha_bot_review_jobs repository "TEXT"' in workflow
     assert "services_schema_legacy_catalog" not in workflow
 
 
