@@ -1,4 +1,4 @@
-"""Tests for release-line rotation decisions and config writes."""
+"""Testes das decisões de rotação e das gravações da configuração."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
 from rotate_release_lines import (
     build_rotation_plan,
     rotation_for_release,
@@ -20,7 +21,7 @@ CONFIG: ReleaseLines = {
 
 
 def test_release_tag_rotates_active_lines() -> None:
-    """A published development tag advances maintenance and development lines."""
+    """Uma tag publicada de desenvolvimento avança as linhas de manutenção e desenvolvimento."""
     rotation = rotation_for_release("v0.2.0", CONFIG, "master")
 
     assert rotation is not None
@@ -31,7 +32,7 @@ def test_release_tag_rotates_active_lines() -> None:
 
 
 def test_unrelated_tag_does_not_rotate() -> None:
-    """Tags outside the active development line are ignored safely."""
+    """Tags fora da linha ativa de desenvolvimento são ignoradas com segurança."""
     assert rotation_for_release("v0.1.23", CONFIG, "master") is None
     assert rotation_for_release("v0.2.0", CONFIG, "release/0.1") is None
     assert rotation_for_release("v0.2.1", CONFIG, "master") is None
@@ -40,8 +41,14 @@ def test_unrelated_tag_does_not_rotate() -> None:
     assert rotation_for_release("v0.2.0", CONFIG, "") is None
 
 
+def test_newer_release_fails_until_configuration_rotation_is_merged() -> None:
+    """Um release mais novo falha em vez de ser silenciosamente ignorado."""
+    with pytest.raises(ValueError, match="newer than configured"):
+        rotation_for_release("v0.3.0", CONFIG, "master")
+
+
 def test_rotation_writes_next_config(tmp_path: Path) -> None:
-    """A valid rotation persists the next branch and milestone mapping."""
+    """Uma rotação válida persiste o próximo mapeamento de branch e milestone."""
     rotation = rotation_for_release("0.2.0", CONFIG, "master")
     assert rotation is not None
     path = tmp_path / "release-lines.json"
@@ -55,7 +62,7 @@ def test_rotation_writes_next_config(tmp_path: Path) -> None:
 
 
 def test_rotation_plan_executes_all_success_paths() -> None:
-    """The plan covers branch, milestones, PR metadata, and publication."""
+    """O plano cobre branch, milestones, metadados de PR e publicação."""
     rotation = rotation_for_release("v0.2.0", CONFIG, "master")
     assert rotation is not None
 
@@ -85,7 +92,7 @@ def test_rotation_plan_executes_all_success_paths() -> None:
 
 
 def test_rotation_plan_ignores_unrelated_pull_requests() -> None:
-    """Unrelated PRs produce no API update operations."""
+    """PRs não relacionadas não produzem operações de atualização da API."""
     rotation = rotation_for_release("v0.2.0", CONFIG, "master")
     assert rotation is not None
 
@@ -102,8 +109,83 @@ def test_rotation_plan_ignores_unrelated_pull_requests() -> None:
     ]
 
 
-def test_invalid_release_event_returns_failure(tmp_path: Path, monkeypatch) -> None:
-    """Malformed release input fails before any rotation can be published."""
+def test_main_rotates_valid_release_event(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """O ponto de entrada emite a rotação para um evento válido."""
+    from rotate_release_lines import main
+
+    event = tmp_path / "event.json"
+    event.write_text(
+        json.dumps(
+            {
+                "release": {
+                    "tag_name": "v0.2.0",
+                    "target_commitish": "master",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(sys, "argv", ["rotate_release_lines.py", str(event)])
+
+    assert main() == 0
+    assert "rotate=true" in capsys.readouterr().out
+
+
+def test_main_ignores_valid_non_rotating_event(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """O ponto de entrada informa quando um evento válido não exige rotação."""
+    from rotate_release_lines import main
+
+    event = tmp_path / "event.json"
+    event.write_text(
+        json.dumps({"release": {"tag_name": "v0.1.23", "target_commitish": "master"}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(sys, "argv", ["rotate_release_lines.py", str(event)])
+
+    assert main() == 0
+    assert capsys.readouterr().out.strip() == "rotate=false"
+
+
+def test_main_writes_valid_rotation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """O ponto de entrada grava a configuração quando solicitado."""
+    from rotate_release_lines import main
+
+    event = tmp_path / "event.json"
+    event.write_text(
+        json.dumps({"release": {"tag_name": "v0.2.0", "target_commitish": "master"}}),
+        encoding="utf-8",
+    )
+    config = tmp_path / "release-lines.json"
+    config.write_text(json.dumps(CONFIG), encoding="utf-8")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["rotate_release_lines.py", str(event), "--write", str(config)],
+    )
+
+    assert main() == 0
+    assert (
+        json.loads(config.read_text(encoding="utf-8"))["development"]["milestone"]
+        == "0.3"
+    )
+
+
+def test_invalid_release_event_returns_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Uma entrada de release inválida falha antes que qualquer rotação seja publicada."""
     from rotate_release_lines import main
 
     event = tmp_path / "event.json"

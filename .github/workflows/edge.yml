@@ -34,8 +34,8 @@ permissions:
   contents: read
 
 env:
-  # Vercel production no longer accepts Node 26; keep CI and deploy on the
-  # supported LTS runtime used by the company project.
+  # A produção da Vercel ainda não aceita Node 26; mantenha o CI e o deploy
+  # no runtime LTS suportado pelo projeto da empresa.
   NODE_VERSION: "24"
   PNPM_VERSION: "11.5.0"
 

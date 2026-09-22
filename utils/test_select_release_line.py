@@ -1,4 +1,4 @@
-"""Tests for configuration-driven release-line selection."""
+"""Testes da seleção de linhas de release orientada pela configuração."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from select_release_line import load_release_lines, selection_for_branch
 
 
 def test_configured_branches_enable_release_workflows() -> None:
-    """Configured development and maintenance branches enable promotion jobs."""
+    """Branches configuradas de desenvolvimento e manutenção habilitam os jobs de promoção."""
     config = load_release_lines()
 
     assert (
@@ -24,26 +24,26 @@ def test_configured_branches_enable_release_workflows() -> None:
 
 
 def test_unknown_branch_skips_release_workflows() -> None:
-    """Feature branches cannot enable token-bearing release workflows."""
+    """Branches de feature não podem habilitar workflows de release que usam token."""
     config = load_release_lines()
 
     assert selection_for_branch("feat/untrusted", config)["enabled"] == "false"
 
 
 def test_empty_branch_skips_release_workflows() -> None:
-    """An empty branch name cannot authorize release automation."""
+    """Um nome de branch vazio não pode autorizar a automação de release."""
     config = load_release_lines()
     assert selection_for_branch("", config)["enabled"] == "false"
 
 
 def test_missing_branch_skips_release_workflows() -> None:
-    """A missing branch name cannot authorize release automation."""
+    """A ausência do nome da branch não pode autorizar a automação de release."""
     config = load_release_lines()
     assert selection_for_branch(None, config)["enabled"] == "false"
 
 
 def test_invalid_configuration_is_rejected(tmp_path: Path) -> None:
-    """Malformed or duplicated release lines fail before workflow use."""
+    """Linhas de release inválidas ou duplicadas falham antes do uso pelo workflow."""
     path = tmp_path / "release-lines.json"
     path.write_text(
         json.dumps(

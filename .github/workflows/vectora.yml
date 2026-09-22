@@ -120,7 +120,7 @@ jobs:
         working-directory: vectora/frontend
         run: pnpm test
 
-  # ── 3. Build Verification (backend compile + frontend SPA) ──────────────
+  # ── 3. Verificação de build (compilação do backend + SPA frontend) ─────
   build_verification:
     name: Build Verification
     runs-on: ubuntu-24.04
@@ -149,7 +149,7 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm build
 
-  # ── 4a. Unit Tests ──────────────────────────────────────────────────────
+  # ── 4a. Testes unitários ────────────────────────────────────────────────
   test-unit:
     name: Unit Tests
     runs-on: ubuntu-24.04
@@ -228,7 +228,7 @@ jobs:
       # runtime tokio interno do Lance entra numa configuração degenerada
       # de threadpool em runners com poucos vCPUs (achado real — ver
       # github.com/lancedb/lancedb/issues/2326 — "Number of CPUs is less
-      # than or equal to the number of IO core reservations"). Sem
+      # menor ou igual ao número de reservas de núcleos de E/S"). Sem
       # confirmação de que isso causa o hang em si, só um warning
       # documentado, mas é testável e barato.
       - name: Run unit tests
@@ -357,10 +357,10 @@ jobs:
       - name: E2E tests
         run: uv run pytest tests/e2e/ -v --timeout=180 --tb=short
 
-  # ── 5. Resolve release line ─────────────────────────────────────────────
-  # Both native builds and R2/KV publication consume this single output. In
-  # particular, a manual dispatch must use the checked-out package version,
-  # rather than deriving a different channel from the Git ref.
+  # ── 5. Resolver linha de release ────────────────────────────────────────
+  # Os builds nativos e a publicação no R2/KV consomem esta única saída.
+  # Em particular, um disparo manual deve usar a versão do pacote baixado,
+  # em vez de derivar um canal diferente a partir da referência do Git.
   release-channel:
     name: Resolve release version and update channel
     needs: [test-unit, test-external]
@@ -390,7 +390,7 @@ jobs:
           CHANNEL=$(python utils/select_update_channel.py "${{ steps.version.outputs.value }}")
           echo "value=$CHANNEL" >> "$GITHUB_OUTPUT"
 
-  # ── 6. Release Native Binaries (Nuitka onefile + Electron installers) ───
+  # ── 6. Binários nativos de release (Nuitka onefile + instaladores Electron)
   # Matriz cara: macOS (multiplicador 10x de minutos) e Windows (2x). Por
   # isso roda SÓ numa tag "v*" real (criada por release-please.yml quando o
   # usuário mescla o PR de release acumulado) ou disparo manual
@@ -611,7 +611,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-  # ── 7. Publish to update channel (R2 + KV) ───────────────────────────────
+  # ── 7. Publicar no canal de atualização (R2 + KV) ────────────────────────
   # Roda uma única vez, depois que TODA a matriz (linux/mac/win) terminou —
   # publicar de dentro de cada job da matriz faria read-modify-write
   # concorrentes na mesma chave `config` do KV
@@ -666,7 +666,7 @@ jobs:
         run: |
           pnpm run release -- --channel=${{ needs.release-channel.outputs.channel }} --version=${{ needs.release-channel.outputs.version }} --dist="$GITHUB_WORKSPACE/dist-electron-all"
 
-  # ── 8. Publish gha-bot CLI binary (R2) ────────────────────────────────────
+  # ── 8. Publicar binário CLI do gha-bot (R2) ───────────────────────────────
   # Prefixo R2 separado (gha-bot/) do canal de update do desktop — não passa
   # por services/scripts/release.ts (schema por os/arch/canal, feito só pros
   # instaladores) nem pelo KV de rollout, é só um tarball versionado servido

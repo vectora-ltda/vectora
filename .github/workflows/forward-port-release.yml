@@ -1,8 +1,8 @@
 name: Sync release fixes to master
 
-# Keep the maintenance line isolated from the development line while ensuring
-# fixes merged into the configured maintenance branch are promoted directly to
-# the configured development branch. The direction is intentionally one-way.
+# Mantém a linha de manutenção isolada da linha de desenvolvimento e promove
+# diretamente as correções para a linha configurada de desenvolvimento. O
+# sentido é intencionalmente unidirecional.
 on:
   push:
     branches:
@@ -28,6 +28,7 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           token: ${{ github.token }}
           fetch-depth: 0
+          persist-credentials: false
       - name: Load release line configuration
         id: release-lines
         shell: bash
@@ -61,12 +62,19 @@ jobs:
       - name: Apply release branch to master
         if: steps.release-lines.outputs.enabled == 'true' && github.ref_name == steps.release-lines.outputs.maintenance_branch
         env:
+          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           MAINTENANCE_BRANCH: ${{ steps.release-lines.outputs.maintenance_branch }}
           DEVELOPMENT_BRANCH: ${{ steps.release-lines.outputs.development_branch }}
           DEVELOPMENT_MILESTONE: ${{ steps.release-lines.outputs.development_milestone }}
         shell: bash
         run: |
+          set -euo pipefail
+          if [[ -z "$RELEASE_PLEASE_TOKEN" ]]; then
+            echo "::error::RELEASE_PLEASE_TOKEN is required to trigger downstream workflows." >&2
+            exit 1
+          fi
+          git remote set-url origin "https://x-access-token:${RELEASE_PLEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           for attempt in 1 2 3; do
@@ -83,7 +91,7 @@ jobs:
               git merge --abort || true
               conflict_branch="sync/release-promotion-${GITHUB_RUN_ID}"
               if [[ -z "$GH_TOKEN" ]]; then
-                echo "::error::GITHUB_TOKEN is required to open a conflict-resolution PR." >&2
+                  echo "::error::RELEASE_PLEASE_TOKEN é necessário para abrir uma PR de resolução de conflitos." >&2
                 exit 1
               fi
               git switch --force-create "$conflict_branch" "origin/$MAINTENANCE_BRANCH"
@@ -103,7 +111,6 @@ jobs:
                   --base "$DEVELOPMENT_BRANCH" \
                   --head "$conflict_branch" \
                   --title "chore: resolve release promotion conflicts" \
-                  --milestone "$DEVELOPMENT_MILESTONE" \
                   --body "The automatic promotion from the maintenance line to the development line found merge conflicts. Resolve them in this PR, then merge it to forward the maintenance fixes." \
                   --label "chore"
               fi

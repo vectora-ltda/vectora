@@ -1,4 +1,4 @@
-"""Select an active release line for GitHub Actions workflows."""
+"""Seleciona uma linha de release ativa para os workflows do GitHub Actions."""
 
 from __future__ import annotations
 
@@ -9,14 +9,14 @@ from typing import TypedDict
 
 
 class ReleaseLine(TypedDict):
-    """Branch and milestone metadata for an active release line."""
+    """Metadados de branch e milestone de uma linha de release ativa."""
 
     branch: str
     milestone: str
 
 
 class ReleaseLines(TypedDict):
-    """Configured development and maintenance release lines."""
+    """Linhas configuradas de desenvolvimento e manutenção."""
 
     development: ReleaseLine
     maintenance: ReleaseLine
@@ -26,7 +26,7 @@ CONFIG_PATH: Path = Path(__file__).parents[1] / ".github" / "release-lines.json"
 
 
 def load_release_lines(path: Path = CONFIG_PATH) -> ReleaseLines:
-    """Load and validate the versioned release-line configuration."""
+    """Carrega e valida a configuração versionada das linhas de release."""
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("release-line configuration must be an object")
@@ -48,7 +48,7 @@ def load_release_lines(path: Path = CONFIG_PATH) -> ReleaseLines:
 
 
 def selection_for_branch(branch: str | None, config: ReleaseLines) -> dict[str, str]:
-    """Return workflow outputs for a branch, including an enabled flag."""
+    """Retorna as saídas do workflow para uma branch, incluindo o indicador de habilitação."""
     selected = next(
         (line for line in config.values() if line["branch"] == branch),
         None,
@@ -63,7 +63,7 @@ def selection_for_branch(branch: str | None, config: ReleaseLines) -> dict[str, 
 
 
 def main() -> int:
-    """Print GitHub Actions outputs for the supplied branch."""
+    """Imprime as saídas do GitHub Actions para a branch informada."""
     if len(sys.argv) != 2:
         print("usage: select_release_line.py BRANCH", file=sys.stderr)
         return 2

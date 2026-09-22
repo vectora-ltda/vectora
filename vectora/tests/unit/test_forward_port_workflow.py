@@ -1,3 +1,5 @@
+"""Testes dos contratos dos workflows de promoção e release."""
+
 from __future__ import annotations
 
 import json
@@ -14,7 +16,7 @@ CONFIG: Path = WORKFLOW.parent.parent / "release-lines.json"
 
 
 def test_forward_port_workflow_promotes_only_release_into_master() -> None:
-    """Protect configured one-way promotion, retries, and trusted branch use."""
+    """Protege a promoção unidirecional configurada, as tentativas e a branch confiável."""
     content = WORKFLOW.read_text(encoding="utf-8")
 
     config = json.loads(CONFIG.read_text(encoding="utf-8"))
@@ -39,19 +41,19 @@ def test_forward_port_workflow_promotes_only_release_into_master() -> None:
 
 
 def test_forward_port_workflow_opens_isolated_conflict_pr() -> None:
-    """Protect conflict resolution from writing commits back to maintenance."""
+    """Protege a resolução de conflitos contra gravação de commits na manutenção."""
     content = WORKFLOW.read_text(encoding="utf-8")
 
     assert "git merge --abort || true" in content
     assert 'conflict_branch="sync/release-promotion-${GITHUB_RUN_ID}"' in content
     assert 'git push origin "HEAD:$conflict_branch"' in content
     assert '--head "$conflict_branch"' in content
-    assert '--milestone "$DEVELOPMENT_MILESTONE"' in content
+    assert '--milestone "$DEVELOPMENT_MILESTONE"' not in content
+    assert "RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}" in content
 
 
 def test_pr_milestone_workflow_assigns_milestone_from_base() -> None:
-    """Ensure supported PR bases map to milestones and concurrent creation recovers."""
-    """Protect configuration-driven milestone assignment and race recovery."""
+    """Garante que bases de PR suportadas sejam associadas às milestones e que corridas sejam recuperadas."""
     workflow = WORKFLOW.parent / "pr-release-milestone.yml"
     content = workflow.read_text(encoding="utf-8")
 
@@ -66,7 +68,7 @@ def test_pr_milestone_workflow_assigns_milestone_from_base() -> None:
 
 
 def test_release_please_uses_trusted_config_for_branch_gate() -> None:
-    """Protect the Release Please token from branch-controlled configuration."""
+    """Protege o token do Release Please contra configuração controlada pela branch."""
     workflow = WORKFLOW.parent / "release-please.yml"
     content = workflow.read_text(encoding="utf-8")
 
@@ -79,7 +81,7 @@ def test_release_please_uses_trusted_config_for_branch_gate() -> None:
 
 
 def test_release_rotation_workflow_declares_release_entrypoint() -> None:
-    """Keep the GitHub workflow connected to the executable rotation boundary."""
+    """Mantém o workflow do GitHub conectado à fronteira executável de rotação."""
     workflow = WORKFLOW.parent / "rotate-release-lines.yml"
     content = workflow.read_text(encoding="utf-8")
 
@@ -88,7 +90,8 @@ def test_release_rotation_workflow_declares_release_entrypoint() -> None:
     assert "utils/rotate_release_lines.py" in content
     assert "release-lines.json" in content
     assert "gh pr create" in content
-    assert "GITHUB_TOKEN" in content
+    assert "RELEASE_PLEASE_TOKEN" in content
+    assert "compareCommits" in content
     migration = workflow.parent / "migrate-release-line-prs.yml"
     migration_content = migration.read_text(encoding="utf-8")
     assert "pulls.update" in migration_content

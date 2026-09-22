@@ -1,4 +1,4 @@
-"""Calculate and apply the next release-line rotation."""
+"""Calcula e aplica a próxima rotação das linhas de release."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ SEMVER_TAG: re.Pattern[str] = re.compile(
 
 
 class Rotation(TypedDict):
-    """Metadata needed to rotate the active release lines."""
+    """Metadados necessários para rotacionar as linhas de release ativas."""
 
     release_tag: str
     release_version: str
@@ -30,7 +30,7 @@ class Rotation(TypedDict):
 
 
 class OpenPullRequest(TypedDict):
-    """Relevant metadata for an open pull request during rotation."""
+    """Metadados relevantes de uma pull request aberta durante a rotação."""
 
     number: int
     base_branch: str
@@ -38,7 +38,7 @@ class OpenPullRequest(TypedDict):
 
 
 class RotationOperation(TypedDict):
-    """One deterministic operation performed by the GitHub rotation workflow."""
+    """Uma operação determinística executada pelo workflow de rotação do GitHub."""
 
     kind: Literal[
         "create_branch",
@@ -55,11 +55,11 @@ def build_rotation_plan(
     rotation: Rotation,
     pull_requests: list[OpenPullRequest],
 ) -> list[RotationOperation]:
-    """Build the branch, milestone, PR, and config operations for a rotation.
+    """Monta as operações de branch, milestone, PR e configuração de uma rotação.
 
-    Keeping this decision boundary pure makes the API-facing workflow testable
-    without contacting GitHub. The workflow remains responsible for applying
-    each operation and failing when an API call cannot be completed.
+    Manter essa fronteira de decisão pura torna o workflow que chama a API
+    testável sem contato com o GitHub. O workflow continua responsável por
+    aplicar cada operação e falhar quando uma chamada à API não puder ser concluída.
     """
     plan: list[RotationOperation] = [
         {
@@ -124,7 +124,7 @@ def build_rotation_plan(
 def rotation_for_release(
     tag: str, config: ReleaseLines, target_branch: str | None = None
 ) -> Rotation | None:
-    """Return the next lines when ``tag`` closes the configured development line."""
+    """Retorna as próximas linhas quando ``tag`` encerra a linha configurada de desenvolvimento."""
     match = SEMVER_TAG.fullmatch(tag)
     if match is None:
         return None
@@ -134,7 +134,20 @@ def rotation_for_release(
     major = int(match.group("major"))
     minor = int(match.group("minor"))
     expected = f"{major}.{minor}"
-    if config["development"]["milestone"] != expected:
+    configured = config["development"]["milestone"]
+    configured_match = re.fullmatch(r"(?P<major>\d+)\.(?P<minor>\d+)", configured)
+    if configured_match is None:
+        raise ValueError(f"invalid development milestone: {configured}")
+    configured_version = (
+        int(configured_match.group("major")),
+        int(configured_match.group("minor")),
+    )
+    if (major, minor) > configured_version:
+        raise ValueError(
+            f"published release {expected} is newer than configured development "
+            f"milestone {configured}; merge the pending rotation before retrying"
+        )
+    if configured != expected:
         return None
 
     next_minor = minor + 1
@@ -152,7 +165,7 @@ def rotation_for_release(
 
 
 def rotated_config(config: ReleaseLines, rotation: Rotation) -> ReleaseLines:
-    """Build the next configuration without mutating the loaded mapping."""
+    """Monta a próxima configuração sem alterar o mapeamento carregado."""
     return {
         "development": {
             "branch": rotation["development_branch"],
@@ -166,7 +179,7 @@ def rotated_config(config: ReleaseLines, rotation: Rotation) -> ReleaseLines:
 
 
 def write_rotated_config(path: Path, config: ReleaseLines, rotation: Rotation) -> None:
-    """Persist the next release-line configuration as formatted JSON."""
+    """Persiste a próxima configuração das linhas de release como JSON formatado."""
     path.write_text(
         json.dumps(rotated_config(config, rotation), indent=2) + "\n",
         encoding="utf-8",
@@ -186,7 +199,7 @@ def _event_values(event_path: Path) -> tuple[str, str | None]:
 
 
 def main() -> int:
-    """Print GitHub Actions outputs and optionally update the config file."""
+    """Imprime as saídas do GitHub Actions e opcionalmente atualiza o arquivo de configuração."""
     if len(sys.argv) not in (2, 4) or (len(sys.argv) == 4 and sys.argv[2] != "--write"):
         print(
             "usage: rotate_release_lines.py EVENT_JSON [--write CONFIG_PATH]",

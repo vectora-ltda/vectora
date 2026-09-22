@@ -1,8 +1,8 @@
 name: Migrate release-line pull requests
 
-# Configuration activation is the boundary for migrating existing pull
-# requests. This prevents the milestone validator from observing the old
-# release-line policy while the configuration PR is still awaiting merge.
+# A ativação da configuração é o limite para migrar pull requests existentes.
+# Isso impede que o validador de milestones observe a política antiga enquanto
+# a PR de configuração das linhas de release ainda aguarda merge.
 on:
   pull_request_target:
     types: [closed]
@@ -37,7 +37,7 @@ jobs:
               /<!-- rotation: previous_maintenance_branch=([^;]+); previous_maintenance_milestone=([^;]+); previous_development_milestone=([^ ]+) -->/,
             );
             if (!metadata) {
-              core.setFailed("The merged rotation PR has no validated migration metadata.");
+              core.setFailed("A PR de rotação mesclada não possui metadados de migração validados.");
               return;
             }
             const [
@@ -60,7 +60,7 @@ jobs:
               ({ title }) => title === config.development.milestone,
             );
             if (!maintenance || !development) {
-              core.setFailed("The active release milestones are missing after rotation.");
+              core.setFailed("As milestones ativas de release estão ausentes após a rotação.");
               return;
             }
             const prs = await github.paginate(
@@ -79,7 +79,7 @@ jobs:
                   base: config.maintenance.branch,
                 });
               }
-              const target = maintenancePr && pr.milestone?.title === previousMaintenanceMilestone
+              const target = maintenancePr
                 ? maintenance
                 : developmentPr
                   ? development
@@ -92,5 +92,5 @@ jobs:
                   milestone: target.number,
                 });
               }
-              core.info(`Migrated PR #${pr.number}.`);
+              core.info(`PR #${pr.number} migrada.`);
             }

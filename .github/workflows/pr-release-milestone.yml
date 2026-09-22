@@ -1,8 +1,8 @@
 name: PR Release Milestone
 
-# Metadata validation runs in the trusted base context. The pull-request
-# revision is never checked out or executed, so contributors cannot replace
-# the validator and bypass the release-line gate.
+# A validação de metadados roda no contexto confiável da base. A revisão da
+# pull request nunca é baixada nem executada, portanto colaboradores não podem
+# substituir o validador e contornar o bloqueio da linha de release.
 on:
   pull_request_target:
     types:
@@ -31,7 +31,7 @@ jobs:
     name: Validate release milestone
     runs-on: ubuntu-24.04
     steps:
-      # Use the trusted revision that contains this workflow and configuration.
+      # Usa a revisão confiável que contém este workflow e a configuração.
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.workflow_sha }}

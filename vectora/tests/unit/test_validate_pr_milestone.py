@@ -1,4 +1,4 @@
-"""Regression tests for the pull-request release-line contract."""
+"""Testes de regressão do contrato de linha de release das pull requests."""
 
 from __future__ import annotations
 
@@ -74,10 +74,10 @@ RELEASE_CONFIG: dict[str, dict[str, str]] = json.loads(
         encoding="utf-8"
     )
 )
-DEVELOPMENT_BRANCH = RELEASE_CONFIG["development"]["branch"]
-DEVELOPMENT_MILESTONE = RELEASE_CONFIG["development"]["milestone"]
-MAINTENANCE_BRANCH = RELEASE_CONFIG["maintenance"]["branch"]
-MAINTENANCE_MILESTONE = RELEASE_CONFIG["maintenance"]["milestone"]
+DEVELOPMENT_BRANCH: str = RELEASE_CONFIG["development"]["branch"]
+DEVELOPMENT_MILESTONE: str = RELEASE_CONFIG["development"]["milestone"]
+MAINTENANCE_BRANCH: str = RELEASE_CONFIG["maintenance"]["branch"]
+MAINTENANCE_MILESTONE: str = RELEASE_CONFIG["maintenance"]["milestone"]
 
 
 def _event(
@@ -118,7 +118,7 @@ def test_main_rejects_malformed_event(
 def test_main_uses_milestone_assigned_during_workflow(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Validate the refreshed milestone instead of the stale webhook snapshot."""
+    """Valida a milestone atualizada em vez do snapshot obsoleto do webhook."""
     event_path = tmp_path / "event.json"
     event_path.write_text(
         json.dumps(_event(base=DEVELOPMENT_BRANCH, milestone=None)),

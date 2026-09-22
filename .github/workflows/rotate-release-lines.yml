@@ -1,8 +1,8 @@
 name: Rotate release lines
 
-# A published development release advances the two active lines. The workflow
-# is deliberately separate from Release Please so the release PR remains the
-# single approval point for the versioned configuration change.
+# Um release publicado de desenvolvimento avança as duas linhas ativas. O
+# workflow é separado do Release Please para que a PR de release continue
+# sendo o único ponto de aprovação da alteração de configuração versionada.
 on:
   release:
     types: [published]
@@ -38,7 +38,7 @@ jobs:
 
       - name: Skip releases outside the active development line
         if: steps.rotation.outputs.rotate != 'true'
-        run: echo "The published release is not the configured development line; no rotation is needed."
+        run: echo "O release publicado não corresponde à linha configurada de desenvolvimento; nenhuma rotação será feita."
 
       - name: Create the next maintenance branch and milestones
         if: steps.rotation.outputs.rotate == 'true'
@@ -70,7 +70,7 @@ jobs:
                 ref: `tags/${RELEASE_TAG}`,
               });
             } catch (error) {
-              core.setFailed(`Could not resolve released tag ${RELEASE_TAG}: ${error.message}`);
+              core.setFailed(`Não foi possível resolver a tag publicada ${RELEASE_TAG}: ${error.message}`);
               return;
             }
             let releaseSha = tagRef.data.object.sha;
@@ -84,12 +84,24 @@ jobs:
             }
 
             try {
-              await github.rest.git.getRef({
+              const existing = await github.rest.git.getRef({
                 owner,
                 repo,
                 ref: `heads/${MAINTENANCE_BRANCH}`,
               });
-              core.info(`Maintenance branch ${MAINTENANCE_BRANCH} already exists.`);
+              const comparison = await github.rest.repos.compareCommits({
+                owner,
+                repo,
+                base: releaseSha,
+                head: existing.data.object.sha,
+              });
+              if (!["ahead", "identical"].includes(comparison.data.status)) {
+                core.setFailed(
+                  `A branch ${MAINTENANCE_BRANCH} existente não contém o commit publicado ${RELEASE_TAG}.`,
+                );
+                return;
+              }
+              core.info(`A branch de manutenção ${MAINTENANCE_BRANCH} já existe.`);
             } catch (error) {
               if (error.status !== 404) throw error;
               await github.rest.git.createRef({
@@ -98,7 +110,7 @@ jobs:
                 ref: `refs/heads/${MAINTENANCE_BRANCH}`,
                 sha: releaseSha,
               });
-              core.info(`Created maintenance branch ${MAINTENANCE_BRANCH} at ${RELEASE_TAG}.`);
+              core.info(`Branch de manutenção ${MAINTENANCE_BRANCH} criada em ${RELEASE_TAG}.`);
             }
 
             const openMilestones = await github.paginate(
@@ -128,17 +140,18 @@ jobs:
             };
             const maintenance = await ensureMilestone(
               MAINTENANCE_MILESTONE,
-              `Maintenance release line ${MAINTENANCE_BRANCH}`,
+              `Linha de manutenção ${MAINTENANCE_BRANCH}`,
             );
             const development = await ensureMilestone(
               DEVELOPMENT_MILESTONE,
-              "Next development release line",
+              "Próxima linha de release de desenvolvimento",
             );
 
       - name: Open the versioned configuration update PR
         if: steps.rotation.outputs.rotate == 'true'
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           EVENT_PATH: ${{ github.event_path }}
           DEVELOPMENT_BRANCH: ${{ steps.rotation.outputs.development_branch }}
           RELEASE_TAG: ${{ steps.rotation.outputs.release_tag }}
@@ -148,6 +161,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [[ -z "$RELEASE_PLEASE_TOKEN" ]]; then
+            echo "::error::RELEASE_PLEASE_TOKEN is required to publish the rotation PR." >&2
+            exit 1
+          fi
           rotation_branch="chore/rotate-release-lines-${RELEASE_TAG//[^A-Za-z0-9._-]/-}"
           git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           remote_ref="$(git ls-remote --heads origin "$rotation_branch")"
@@ -162,7 +179,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .github/release-lines.json
           if git diff --cached --quiet; then
-            echo "The rotation configuration is already committed."
+            echo "A configuração da rotação já está commitada."
           else
             git commit -m "chore: rotate release lines for ${RELEASE_TAG}"
           fi
@@ -176,5 +193,5 @@ jobs:
               --body "$(printf 'Updates .github/release-lines.json after %s, keeping maintenance and development milestones aligned with the published release.\n\n<!-- rotation: previous_maintenance_branch=%s; previous_maintenance_milestone=%s; previous_development_milestone=%s -->' \
                 "$RELEASE_TAG" "$PREVIOUS_MAINTENANCE_BRANCH" "$PREVIOUS_MAINTENANCE_MILESTONE" "$PREVIOUS_DEVELOPMENT_MILESTONE")"
           else
-            echo "An open configuration rotation PR already exists."
+            echo "Já existe uma PR aberta para a rotação da configuração."
           fi
