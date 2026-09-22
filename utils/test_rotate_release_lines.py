@@ -40,9 +40,9 @@ def test_unrelated_tag_does_not_rotate() -> None:
     assert rotation_for_release("v0.2.0", CONFIG, "") is None
 
 
-def test_release_with_unspecified_target_rotates() -> None:
-    """Um evento sem branch alvo explícita mantém a rotação válida."""
-    assert rotation_for_release("v0.2.0", CONFIG, None) is not None
+def test_release_without_target_is_ignored() -> None:
+    """Um evento sem branch alvo explícita não pode autorizar a rotação."""
+    assert rotation_for_release("v0.2.0", CONFIG, None) is None
 
 
 def test_newer_release_fails_until_configuration_rotation_is_merged() -> None:

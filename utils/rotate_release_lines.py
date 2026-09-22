@@ -128,7 +128,7 @@ def rotation_for_release(
     match = SEMVER_TAG.fullmatch(tag)
     if match is None:
         return None
-    if target_branch is not None and target_branch != config["development"]["branch"]:
+    if target_branch != config["development"]["branch"]:
         return None
 
     major = int(match.group("major"))
