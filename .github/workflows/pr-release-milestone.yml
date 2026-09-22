@@ -38,7 +38,7 @@ jobs:
           persist-credentials: false
       - name: Assign release milestone from base branch
         id: assign-milestone
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require("fs");
@@ -88,6 +88,7 @@ jobs:
               }
             }
 
+            core.setOutput("milestone", milestoneTitle);
             const current = context.payload.pull_request.milestone?.title;
             if (current === milestoneTitle) {
               core.info(`Pull request already uses milestone ${milestoneTitle}.`);
@@ -100,7 +101,6 @@ jobs:
               issue_number: context.issue.number,
               milestone: milestone.number,
             });
-            core.setOutput("milestone", milestoneTitle);
             core.info(`Assigned milestone ${milestoneTitle} for base ${base}.`);
 
       - uses: ./.github/actions/setup-uv
