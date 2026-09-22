@@ -2045,10 +2045,6 @@ class BackgroundScheduler:
             await run_task(task, task.trigger_type)
             if task.trigger_type == "once":
                 await update_task(task.id, enabled=False)
-            else:
-                await _set_next_run(
-                    task.id, _next_run(task.trigger_config.get("cron_expr"))
-                )
 
 
 _scheduler: BackgroundScheduler | None = None
