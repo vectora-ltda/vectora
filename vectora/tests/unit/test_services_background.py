@@ -1752,6 +1752,35 @@ async def test_cancel_background_run_empty_id_is_noop() -> None:
     assert await bg.cancel_background_run("") is None
 
 
+async def test_cancel_running_run_loses_to_resume_reservation(db) -> None:
+    """Uma run já reservada para execução não pode ser cancelada por baixo."""
+    task = await bg.create_task(
+        session_id="sess-cancel-running",
+        user_id="u",
+        kind="routine",
+        name="Em execução",
+        instruction="i",
+        trigger_type="manual",
+        trigger_config={"permission_mode": "ask"},
+    )
+    run_id = "run-running"
+    from backend.scheduling import kanban
+
+    assert await kanban.claim_task(task.id, run_id)
+    await bg._insert_run(run_id, task, "sess-cancel-running", "manual")
+    assert await bg._get_run(run_id) is not None
+
+    # _insert_run cria a run como running, exatamente o estado reservado por
+    # resume_background_run antes de iniciar o agente.
+    assert await bg.cancel_background_run(run_id) is None
+    run = await bg._get_run(run_id)
+    assert run is not None
+    assert run["status"] == "running"
+    estado = await kanban.get_task_status(task.id)
+    assert estado["status"] == "running"
+    assert estado["claim_lock"] == run_id
+
+
 async def test_cancel_and_approve_task_action(db, monkeypatch):
     """cancel_background_run encerra uma run pendente; a tool approve_task_action
     (decision='cancel') faz o mesmo pelo orquestrador. Erro/borda: cancelar uma

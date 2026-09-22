@@ -562,15 +562,75 @@ async def _insert_run(
             await conn.close()
 
 
-async def _finish_run(run_id: str, status: str, summary: str) -> None:
+async def _finish_run(
+    run_id: str,
+    status: str,
+    summary: str,
+    *,
+    expected_status: str | None = None,
+) -> bool:
+    """Finaliza uma run, opcionalmente sob fencing de estado.
+
+    Runs retomadas passam ``expected_status="running"`` para que uma
+    conclusão atrasada nunca sobrescreva uma transição terminal concorrente.
+    """
     conn = await _get_db()
     try:
-        await conn.execute(
-            "UPDATE vectora_background_runs SET status = ?, summary = ?, "
-            "finished_at = ? WHERE id = ?",
-            (status, summary[:4000], datetime.now(UTC).isoformat(), run_id),
+        if expected_status is not None:
+            cur = await conn.execute(
+                "UPDATE vectora_background_runs SET status = ?, summary = ?, "
+                "finished_at = ? WHERE id = ? AND status = ?",
+                (
+                    status,
+                    summary[:4000],
+                    datetime.now(UTC).isoformat(),
+                    run_id,
+                    expected_status,
+                ),
+            )
+        else:
+            cur = await conn.execute(
+                "UPDATE vectora_background_runs SET status = ?, summary = ?, "
+                "finished_at = ? WHERE id = ?",
+                (status, summary[:4000], datetime.now(UTC).isoformat(), run_id),
+            )
+        await conn.commit()
+        return cur.rowcount > 0
+    finally:
+        with contextlib.suppress(Exception):
+            await conn.close()
+
+
+async def _transition_run_status(
+    run_id: str,
+    expected_status: str,
+    status: str,
+) -> bool:
+    """Aplica uma transição de estado condicional e atômica à run."""
+    conn = await _get_db()
+    try:
+        cur = await conn.execute(
+            "UPDATE vectora_background_runs SET status = ? WHERE id = ? AND status = ?",
+            (status, run_id, expected_status),
         )
         await conn.commit()
+        return cur.rowcount > 0
+    finally:
+        with contextlib.suppress(Exception):
+            await conn.close()
+
+
+async def _reopen_cancelled_run(run_id: str) -> bool:
+    """Desfaz um cancelamento quando a transição do cartão não foi possível."""
+    conn = await _get_db()
+    try:
+        cur = await conn.execute(
+            "UPDATE vectora_background_runs SET status = 'awaiting_approval', "
+            "finished_at = NULL WHERE id = ? AND status = 'cancelled'",
+            (run_id,),
+        )
+        await conn.commit()
+        return cur.rowcount > 0
     finally:
         with contextlib.suppress(Exception):
             await conn.close()
@@ -1309,7 +1369,14 @@ async def _resume_goal_run(
         _emit_run_event("needs_approval", task, run_id, run_thread_id, desc)
         return "awaiting_approval"
     if goal_outcome.status == "error":
-        await _finish_run(run_id, "error", goal_outcome.reason)
+        finished = await _finish_run(
+            run_id,
+            "error",
+            goal_outcome.reason,
+            expected_status="running",
+        )
+        if not finished:
+            return None
         _emit_run_event("error", task, run_id, run_thread_id, goal_outcome.reason)
         with contextlib.suppress(Exception):
             from backend.scheduling.kanban import block_task
@@ -1326,7 +1393,9 @@ async def _resume_goal_run(
         if goal_outcome.final_message
         else goal_outcome.reason
     )
-    await _finish_run(run_id, "done", summary)
+    finished = await _finish_run(run_id, "done", summary, expected_status="running")
+    if not finished:
+        return None
     _emit_run_event("done", task, run_id, run_thread_id, summary)
     await report_to_parent_session(task, run_thread_id, summary)
     await _mark_kanban_after_success(task, run_id=run_id)
@@ -1383,7 +1452,9 @@ async def _resume_normal_run(
         return "awaiting_approval"
 
     summary = result.final_message.text() if result.final_message else ""
-    await _finish_run(run_id, "done", summary)
+    finished = await _finish_run(run_id, "done", summary, expected_status="running")
+    if not finished:
+        return None
     _emit_run_event("done", task, run_id, run_thread_id, summary)
     await report_to_parent_session(task, run_thread_id, summary)
     await _mark_kanban_after_success(task, run_id=run_id)
@@ -1412,7 +1483,14 @@ async def resume_background_run(run_id: str, decision: str = "approve") -> str |
         return None
     run_thread_id = run.get("run_thread_id") or ""
     task = await get_task(run["task_id"])
-    if task is None or not run_thread_id:
+    # Reserve the run before touching the task claim. Cancellation wins only
+    # while the run is awaiting approval; after this transition, a concurrent
+    # cancellation cannot race an executing coroutine.
+    if (
+        task is None
+        or not run_thread_id
+        or not await _transition_run_status(run_id, "awaiting_approval", "running")
+    ):
         return None
 
     from backend.scheduling.kanban import ensure_task_claim
@@ -1423,6 +1501,7 @@ async def resume_background_run(run_id: str, decision: str = "approve") -> str |
             run_id,
             task.id,
         )
+        await _transition_run_status(run_id, "running", "awaiting_approval")
         return None
     watchdog_task = asyncio.create_task(_heartbeat_watchdog(task.id, run_id))
 
@@ -1523,7 +1602,12 @@ async def resume_background_run(run_id: str, decision: str = "approve") -> str |
     except Exception as exc:
         logger.exception("background_tasks: resume falhou", extra={"run_id": run_id})
         with contextlib.suppress(Exception):
-            await _finish_run(run_id, "error", str(exc))
+            await _finish_run(
+                run_id,
+                "error",
+                str(exc),
+                expected_status="running",
+            )
         with contextlib.suppress(Exception):
             from backend.scheduling.kanban import block_task
 
@@ -1541,7 +1625,7 @@ async def resume_background_run(run_id: str, decision: str = "approve") -> str |
 
 
 async def cancel_background_run(run_id: str | None) -> str | None:
-    """Cancela uma run pendente de aprovação (ou rodando) — status 'cancelled'.
+    """Cancela uma run pendente de aprovação — status ``cancelled``.
 
     A run cancelada não é retomável. Retorna ``"cancelled"`` em sucesso, ou
     ``None`` se a run não existe ou já terminou (done/error/cancelled).
@@ -1553,11 +1637,20 @@ async def cancel_background_run(run_id: str | None) -> str | None:
     if not run_id:
         return None
     run = await _get_run(run_id)
-    if run is None or run.get("status") not in ("awaiting_approval", "running"):
+    if run is None or run.get("status") != "awaiting_approval":
         return None
     task_id = run.get("task_id")
     task = await get_task(task_id) if isinstance(task_id, str) else None
     summary = run.get("summary") or "Cancelada pelo usuário."
+    # Reserve the terminal state first. If resume won the race, the run is
+    # already ``running`` and cancellation must not interrupt its coroutine.
+    if not await _finish_run(
+        run_id,
+        "cancelled",
+        summary,
+        expected_status="awaiting_approval",
+    ):
+        return None
     if task is not None:
         try:
             from backend.scheduling.kanban import block_task
@@ -1574,8 +1667,8 @@ async def cancel_background_run(run_id: str | None) -> str | None:
                 "background_tasks: cancelamento perdeu o claim da task",
                 extra={"run_id": run_id, "task_id": task.id},
             )
+            await _reopen_cancelled_run(run_id)
             return None
-    await _finish_run(run_id, "cancelled", summary)
     return "cancelled"
 
 
