@@ -1819,7 +1819,7 @@ async def test_cancel_background_run_empty_id_is_noop() -> None:
     assert await bg.cancel_background_run("") is None
 
 
-async def test_cancel_running_run_loses_to_resume_reservation(db) -> None:
+async def test_cancel_running_run_loses_to_resume_reservation(db: str) -> None:
     """Uma run já reservada para execução não pode ser cancelada por baixo."""
     task = await bg.create_task(
         session_id="sess-cancel-running",
