@@ -1,0 +1,49 @@
+"""Tests for release-line rotation decisions and config writes."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from rotate_release_lines import rotation_for_release, write_rotated_config
+from select_release_line import ReleaseLines
+
+CONFIG: ReleaseLines = {
+    "development": {"branch": "master", "milestone": "0.2"},
+    "maintenance": {"branch": "release/0.1", "milestone": "0.1.x"},
+}
+
+
+def test_release_tag_rotates_active_lines() -> None:
+    """A published development tag advances maintenance and development lines."""
+    rotation = rotation_for_release("v0.2.0", CONFIG, "master")
+
+    assert rotation is not None
+    assert rotation["maintenance_branch"] == "release/0.2"
+    assert rotation["maintenance_milestone"] == "0.2.x"
+    assert rotation["development_milestone"] == "0.3"
+    assert rotation["previous_maintenance_branch"] == "release/0.1"
+
+
+def test_unrelated_tag_does_not_rotate() -> None:
+    """Tags outside the active development line are ignored safely."""
+    assert rotation_for_release("v0.1.23", CONFIG, "master") is None
+    assert rotation_for_release("v0.2.0", CONFIG, "release/0.1") is None
+    assert rotation_for_release("v0.2.1", CONFIG, "master") is None
+    assert rotation_for_release("", CONFIG, "master") is None
+    assert rotation_for_release("v0.2.0", CONFIG, None) is not None
+    assert rotation_for_release("v0.2.0", CONFIG, "") is None
+
+
+def test_rotation_writes_next_config(tmp_path: Path) -> None:
+    """A valid rotation persists the next branch and milestone mapping."""
+    rotation = rotation_for_release("0.2.0", CONFIG, "master")
+    assert rotation is not None
+    path = tmp_path / "release-lines.json"
+
+    write_rotated_config(path, CONFIG, rotation)
+
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "development": {"branch": "master", "milestone": "0.3"},
+        "maintenance": {"branch": "release/0.2", "milestone": "0.2.x"},
+    }

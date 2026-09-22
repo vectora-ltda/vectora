@@ -1,0 +1,96 @@
+name: Migrate release-line pull requests
+
+# Configuration activation is the boundary for migrating existing pull
+# requests. This prevents the milestone validator from observing the old
+# release-line policy while the configuration PR is still awaiting merge.
+on:
+  pull_request_target:
+    types: [closed]
+    branches:
+      - master
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  migrate:
+    if: >-
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'chore/rotate-release-lines-') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/github-script@v7
+        env:
+          ROTATION_BODY: ${{ github.event.pull_request.body }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const body = process.env.ROTATION_BODY ?? "";
+            const metadata = body.match(
+              /<!-- rotation: previous_maintenance_branch=([^;]+); previous_maintenance_milestone=([^;]+); previous_development_milestone=([^ ]+) -->/,
+            );
+            if (!metadata) {
+              core.setFailed("The merged rotation PR has no validated migration metadata.");
+              return;
+            }
+            const [
+              , previousMaintenanceBranch,
+              previousMaintenanceMilestone,
+              previousDevelopmentMilestone,
+            ] = metadata;
+            const { owner, repo } = context.repo;
+            const config = JSON.parse(
+              require("fs").readFileSync(".github/release-lines.json", "utf8"),
+            );
+            const milestones = await github.paginate(
+              github.rest.issues.listMilestones,
+              { owner, repo, state: "open", per_page: 100 },
+            );
+            const maintenance = milestones.find(
+              ({ title }) => title === config.maintenance.milestone,
+            );
+            const development = milestones.find(
+              ({ title }) => title === config.development.milestone,
+            );
+            if (!maintenance || !development) {
+              core.setFailed("The active release milestones are missing after rotation.");
+              return;
+            }
+            const prs = await github.paginate(
+              github.rest.pulls.list,
+              { owner, repo, state: "open", per_page: 100 },
+            );
+            for (const pr of prs) {
+              const maintenancePr = pr.base.ref === previousMaintenanceBranch;
+              const developmentPr = pr.milestone?.title === previousDevelopmentMilestone;
+              if (!maintenancePr && !developmentPr) continue;
+              if (maintenancePr) {
+                await github.rest.pulls.update({
+                  owner,
+                  repo,
+                  pull_number: pr.number,
+                  base: config.maintenance.branch,
+                });
+              }
+              const target = maintenancePr && pr.milestone?.title === previousMaintenanceMilestone
+                ? maintenance
+                : developmentPr
+                  ? development
+                  : null;
+              if (target && pr.milestone?.number !== target.number) {
+                await github.rest.issues.update({
+                  owner,
+                  repo,
+                  issue_number: pr.number,
+                  milestone: target.number,
+                });
+              }
+              core.info(`Migrated PR #${pr.number}.`);
+            }

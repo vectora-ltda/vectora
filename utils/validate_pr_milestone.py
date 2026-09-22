@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -85,11 +86,49 @@ PullRequestEvent.model_rebuild()
 
 type EventPayload = PullRequestEvent | dict[str, object]
 
-_MAINTENANCE_MILESTONE = "0.1.x"
-_FEATURE_MILESTONE = "0.2"
 _VEXT_TOKEN = re.compile(r"(?<![A-Za-z0-9])vext(?![A-Za-z0-9])", re.IGNORECASE)
 _RELEASE_PLEASE_LABEL = "autorelease: pending"
-_SUPPORTED_BASES = {"master", "release/0.1"}
+
+
+class ReleaseLine(BaseModel):
+    """Branch and milestone for one active release line."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    branch: str
+    milestone: str
+
+
+class ReleaseLineConfig(BaseModel):
+    """Versioned source of truth for active release lines."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    development: ReleaseLine
+    maintenance: ReleaseLine
+
+
+ReleaseLineConfig.model_rebuild()
+
+
+@lru_cache(maxsize=1)
+def _release_lines() -> ReleaseLineConfig:
+    """Load active branches and milestones from the versioned config."""
+    config_path = Path(__file__).parents[1] / ".github" / "release-lines.json"
+    return ReleaseLineConfig.model_validate_json(config_path.read_bytes())
+
+
+def _line_for_base(base: str) -> ReleaseLine | None:
+    """Return the configured release line for a pull-request base."""
+    config = _release_lines()
+    return next(
+        (
+            line
+            for line in (config.development, config.maintenance)
+            if line.branch == base
+        ),
+        None,
+    )
 
 
 def _parse_event(event: EventPayload) -> PullRequestEvent | None:
@@ -143,32 +182,39 @@ def validate_pull_request(event: EventPayload) -> list[str]:
     base = pull_request.base.ref if pull_request.base else ""
     if _is_release_please_pr(parsed_event, pull_request):
         return []
-    if base not in _SUPPORTED_BASES:
+    line = _line_for_base(base)
+    if line is None:
+        configured_bases = ", ".join(
+            configured.branch
+            for configured in (
+                _release_lines().development,
+                _release_lines().maintenance,
+            )
+        )
         errors.append(
-            "PRs de código devem usar base `master` ou `release/0.1`; "
+            "PRs de código devem usar uma base declarada na configuração de release "
+            f"({configured_bases}); "
             f"base recebida: `{base or '(vazia)'}`."
         )
     else:
         milestone = pull_request.milestone
         title = milestone.title.strip() if milestone else ""
-        expected = (
-            _MAINTENANCE_MILESTONE if base == "release/0.1" else _FEATURE_MILESTONE
-        )
+        expected = line.milestone
         if not title:
             errors.append(
                 "Atribua exatamente uma milestone de release: "
                 f"`{expected}` para esta linha."
             )
-        elif base == "master" and title != expected:
+        elif line is _release_lines().development and title != expected:
             stream = "VEXT" if _is_vext_pr(pull_request) else "de funcionalidade"
             errors.append(
-                f"A milestone `{title}` não é compatível com a base `master`; "
-                f"PRs {stream} da próxima minor devem usar `{_FEATURE_MILESTONE}`."
+                f"A milestone `{title}` não é compatível com a base `{base}`; "
+                f"PRs {stream} da próxima minor devem usar `{expected}`."
             )
-        elif base == "release/0.1" and title != _MAINTENANCE_MILESTONE:
+        elif title != expected:
             errors.append(
-                f"A milestone `{title}` não é compatível com `release/0.1`; "
-                f"use `{_MAINTENANCE_MILESTONE}`."
+                f"A milestone `{title}` não é compatível com `{base}`; "
+                f"use `{expected}`."
             )
     return errors
 
@@ -184,6 +230,9 @@ def main() -> int:
     except (OSError, ValueError, ValidationError) as exc:
         print(f"Evento GitHub inválido: {exc}", file=sys.stderr)
         return 2
+    expected_milestone = os.environ.get("EXPECTED_RELEASE_MILESTONE")
+    if expected_milestone and payload.pull_request is not None:
+        payload.pull_request.milestone = MilestonePayload(title=expected_milestone)
     errors = validate_pull_request(payload)
     if errors:
         for error in errors:
