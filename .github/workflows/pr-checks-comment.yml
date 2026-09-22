@@ -20,7 +20,7 @@ permissions:
 jobs:
   comment:
     if: github.event.workflow_run.conclusion == 'failure'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Baixa o número do PR reprovado (se o job de validação subiu um)
         uses: actions/download-artifact@v4
