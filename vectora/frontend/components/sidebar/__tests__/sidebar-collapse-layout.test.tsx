@@ -77,21 +77,9 @@ vi.mock("../sidebar-mode-toggle", () => ({
     <div data-testid={compact ? "compact-mode-toggle" : "mode-toggle"} />
   ),
 }));
-vi.mock("../thread-list", () => ({
-  ThreadList: ({
-    workspaceGroups,
-  }: {
-    workspaceGroups: Array<{ workspace: { name: string }; threads: Thread[] }>;
-  }) => (
-    <nav data-testid="thread-list">
-      {workspaceGroups.map((group) => (
-        <section key={group.workspace.name} aria-label={group.workspace.name}>
-          {group.threads.map((thread) => (
-            <span key={thread.thread_id}>{thread.thread_id}</span>
-          ))}
-        </section>
-      ))}
-    </nav>
+vi.mock("../thread-item", () => ({
+  ThreadItem: ({ thread }: { thread: Thread }) => (
+    <span data-testid="thread-item">{thread.thread_id}</span>
   ),
 }));
 vi.mock("../sidebar-footer", () => ({ SidebarFooter: () => null }));
@@ -109,6 +97,20 @@ vi.mock("@/lib/paraglide/messages", () => ({
     session_delete_confirm_rag_warning: () => "RAG em andamento.",
     session_delete_confirm: () => "Apagar",
     session_delete_cancel: () => "Cancelar",
+    sidebar_refreshing: () => "Atualizando",
+    sidebar_pull_to_refresh: () => "Puxe para atualizar",
+    sidebar_no_results: () => "Nenhum resultado",
+    sidebar_no_results_hint: () => "Tente outra busca",
+    sidebar_no_conversations: () => "Nenhuma conversa",
+    sidebar_no_conversations_hint: () => "Comece uma conversa",
+    sidebar_group_other_conversations: () => "Outras conversas",
+    sidebar_group_today: () => "Hoje",
+    sidebar_group_yesterday: () => "Ontem",
+    sidebar_group_last_7_days: () => "Últimos 7 dias",
+    sidebar_group_older: () => "Mais antigas",
+    sidebar_workspace_collapse: () => "Recolher workspace",
+    sidebar_workspace_expand: () => "Expandir workspace",
+    sidebar_workspace_thread_count: ({ n }: { n: number }) => `${n} sessões`,
   },
 }));
 
@@ -192,7 +194,7 @@ describe("Sidebar — wrapper de animação não quebra o preenchimento de altur
     );
 
     expect(screen.queryByText("Pastas")).not.toBeInTheDocument();
-    expect(screen.getByTestId("thread-list")).toBeInTheDocument();
+    expect(screen.getByRole("navigation")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Vectora" })).toBeInTheDocument();
     expect(screen.getAllByText("Vectora")).toHaveLength(1);
     expect(screen.getByText("thread-1")).toBeInTheDocument();
