@@ -72,7 +72,7 @@ jobs:
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
       - if: failure()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const message = `**Título do PR fora do padrão**

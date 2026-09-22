@@ -42,7 +42,7 @@ jobs:
 
       - name: Create the next maintenance branch and milestones
         if: steps.rotation.outputs.rotate == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           MAINTENANCE_BRANCH: ${{ steps.rotation.outputs.maintenance_branch }}
           MAINTENANCE_MILESTONE: ${{ steps.rotation.outputs.maintenance_milestone }}
