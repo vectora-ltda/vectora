@@ -7,7 +7,6 @@ Este changelog consolida as alterações publicadas.
 
 ### Features
 
-* add durable media quota reservations ([#172](https://github.com/vectora-ltda/vectora/issues/172)) ([e05c54b](https://github.com/vectora-ltda/vectora/commit/e05c54b47f3ce377cc91d1e62f64a186d5d66898))
 * add isolated Browser Workbench profiles ([#178](https://github.com/vectora-ltda/vectora/issues/178)) ([f73f704](https://github.com/vectora-ltda/vectora/commit/f73f70494777ee48298d52ab800130a5322862c3)), closes [#87](https://github.com/vectora-ltda/vectora/issues/87)
 * add mobile thread gestures ([#184](https://github.com/vectora-ltda/vectora/issues/184)) ([534d2e0](https://github.com/vectora-ltda/vectora/commit/534d2e0af6ec103107e68e09d41aa70181bf0b20)), closes [#96](https://github.com/vectora-ltda/vectora/issues/96)
 * add owned multimodal asset metadata ([#173](https://github.com/vectora-ltda/vectora/issues/173)) ([5478381](https://github.com/vectora-ltda/vectora/commit/5478381905c13dfbfee1e09e3550112bec4f5d25))
@@ -84,7 +83,6 @@ Este changelog consolida as alterações publicadas.
 * **frontend:** revisa Aparência com novo catálogo de temas e UI Scale ([#69](https://github.com/vectora-ltda/vectora/issues/69)) ([72a48cb](https://github.com/vectora-ltda/vectora/commit/72a48cb35d103b0dcf63ab28d834c38b6b097d84))
 * **frontend:** theme picker com cards pintados + toggle claro/escuro/sistema ([#51](https://github.com/vectora-ltda/vectora/issues/51)) ([52514ad](https://github.com/vectora-ltda/vectora/commit/52514ad2191d1dabe94df030b4edaf73b7f712f2))
 * **gh-bot:** add one-shot cli command for vectora run ([#21](https://github.com/vectora-ltda/vectora/issues/21)) ([f81a6cd](https://github.com/vectora-ltda/vectora/commit/f81a6cdf7fc16f5fdb58cb2b0282832ff4680be7))
-* **gha-bot:** modo self-hosted — revisão roda na própria instância Vectora ([#52](https://github.com/vectora-ltda/vectora/issues/52)) ([71fdf4e](https://github.com/vectora-ltda/vectora/commit/71fdf4ee254f6bdb68de8b2a6aba371580e9014a))
 * **github:** tools github_fetch_pr_diff e github_post_pr_comment ([acbf96e](https://github.com/vectora-ltda/vectora/commit/acbf96ebe5f5578911b3cbbe1de323e168e11807))
 * **hitl:** aprovacao inteligente com avaliador auxiliar + allowlist ([b1714d5](https://github.com/vectora-ltda/vectora/commit/b1714d5a7fc6bd136a8128be9d232b2bb8330dca))
 * **i18n:** migrar strings hardcoded do HITLPanel pra Paraglide ([2d0510d](https://github.com/vectora-ltda/vectora/commit/2d0510df90a82560abf8a690ddb8096dfc2bd447))
