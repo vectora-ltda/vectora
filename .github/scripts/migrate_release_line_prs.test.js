@@ -76,6 +76,10 @@ test("rejeita metadados de rotação ausentes ou inválidos", () => {
   assert.equal(parseRotationMetadata("texto sem marcador"), null);
 });
 
+test("rejeita metadados de rotação nulos", () => {
+  assert.equal(parseRotationMetadata(null), null);
+});
+
 test("rejeita milestones ativas incompletas", () => {
   assert.equal(findMigrationTargets(config, []), null);
   assert.equal(findMigrationTargets({}, []), null);

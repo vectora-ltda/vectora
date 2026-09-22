@@ -7,7 +7,7 @@ on:
   pull_request_target:
     types: [closed]
     branches:
-      - master
+      - "**"
 
 permissions:
   contents: read
@@ -52,6 +52,12 @@ jobs:
             const config = JSON.parse(
               require("fs").readFileSync(".github/release-lines.json", "utf8"),
             );
+            if (context.payload.pull_request.base.ref !== config.development.branch) {
+              core.info(
+                `Ignorando PR fechada na base não configurada: ${context.payload.pull_request.base.ref}`,
+              );
+              return;
+            }
             const { classifyPullRequest } = require(
               "./.github/scripts/migrate_release_line_prs.js",
             );

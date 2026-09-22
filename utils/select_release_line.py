@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -12,7 +13,7 @@ from pydantic import BaseModel, ConfigDict
 class ReleaseLine(BaseModel):
     """Metadados de branch e milestone de uma linha de release ativa."""
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="forbid")
 
     branch: str
     milestone: str
@@ -21,7 +22,7 @@ class ReleaseLine(BaseModel):
 class ReleaseLines(BaseModel):
     """Linhas configuradas de desenvolvimento e manutenção."""
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True, extra="forbid")
 
     development: ReleaseLine
     maintenance: ReleaseLine

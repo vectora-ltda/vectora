@@ -57,6 +57,11 @@ jobs:
             const milestoneTitle = line.milestone;
 
             const { owner, repo } = context.repo;
+            const currentPullRequest = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: context.issue.number,
+            });
             const milestones = await github.paginate(
               github.rest.issues.listMilestones,
               { owner, repo, state: "open", per_page: 100 },
@@ -89,19 +94,29 @@ jobs:
             }
 
             core.setOutput("milestone", milestoneTitle);
-            const current = context.payload.pull_request.milestone?.title;
+            const current = currentPullRequest.data.milestone?.title;
             if (current === milestoneTitle) {
               core.info(`Pull request already uses milestone ${milestoneTitle}.`);
-              return;
+            } else {
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: context.issue.number,
+                milestone: milestone.number,
+              });
+              core.info(`Assigned milestone ${milestoneTitle} for base ${base}.`);
             }
 
-            await github.rest.issues.update({
+            const refreshedPullRequest = await github.rest.pulls.get({
               owner,
               repo,
-              issue_number: context.issue.number,
-              milestone: milestone.number,
+              pull_number: context.issue.number,
             });
-            core.info(`Assigned milestone ${milestoneTitle} for base ${base}.`);
+            core.setOutput(
+              "current_milestone",
+              refreshedPullRequest.data.milestone?.title ?? "",
+            );
+            core.setOutput("current_base", refreshedPullRequest.data.base.ref);
 
       - uses: ./.github/actions/setup-uv
         with:
@@ -112,4 +127,5 @@ jobs:
         run: uv run --project vectora python utils/validate_pr_milestone.py
         env:
           GITHUB_EVENT_PATH: ${{ github.event_path }}
-          EXPECTED_RELEASE_MILESTONE: ${{ steps.assign-milestone.outputs.milestone }}
+          CURRENT_RELEASE_MILESTONE: ${{ steps.assign-milestone.outputs.current_milestone }}
+          CURRENT_PR_BASE: ${{ steps.assign-milestone.outputs.current_base }}

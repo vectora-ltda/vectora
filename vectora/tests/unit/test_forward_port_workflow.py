@@ -67,7 +67,10 @@ def test_pr_milestone_workflow_assigns_milestone_from_base() -> None:
     assert "issues.update" in content
     assert "issues.createMilestone" in content
     assert "error.status !== 422" in content
-    assert "EXPECTED_RELEASE_MILESTONE" in content
+    assert "CURRENT_RELEASE_MILESTONE" in content
+    assert "CURRENT_PR_BASE" in content
+    assert "current_milestone" in content
+    assert "current_base" in content
     assert "milestone: milestone.number" in content
     assert "issues: write" in content
 
@@ -108,6 +111,11 @@ def test_release_rotation_workflow_declares_release_entrypoint() -> None:
     assert "api.issues.update" in helper_content
     assert "pull_request_target" in migration_content
     assert "migrate_release_line_prs.js" in migration_content
+    assert '      - "**"' in migration_content
+    assert (
+        "context.payload.pull_request.base.ref !== config.development.branch"
+        in migration_content
+    )
 
 
 def test_release_rotation_verifies_tag_ancestry() -> None:

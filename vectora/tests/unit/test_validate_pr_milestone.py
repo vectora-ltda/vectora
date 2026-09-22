@@ -125,7 +125,8 @@ def test_main_uses_milestone_assigned_during_workflow(
         encoding="utf-8",
     )
     monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
-    monkeypatch.setenv("EXPECTED_RELEASE_MILESTONE", DEVELOPMENT_MILESTONE)
+    monkeypatch.setenv("CURRENT_RELEASE_MILESTONE", DEVELOPMENT_MILESTONE)
+    monkeypatch.setenv("CURRENT_PR_BASE", DEVELOPMENT_BRANCH)
 
     assert validator.main() == 0
 

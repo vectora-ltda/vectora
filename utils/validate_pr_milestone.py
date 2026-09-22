@@ -7,6 +7,7 @@ import re
 import sys
 from functools import lru_cache
 from pathlib import Path
+from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -14,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 class LabelPayload(BaseModel):
     """Subconjunto de um label do GitHub incluído nos eventos de pull request."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
 
     name: str = ""
 
@@ -22,7 +23,7 @@ class LabelPayload(BaseModel):
 class RepositoryPayload(BaseModel):
     """Identidade do repositório associada ao head de uma pull request."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
 
     full_name: str | None = None
 
@@ -30,7 +31,7 @@ class RepositoryPayload(BaseModel):
 class HeadPayload(BaseModel):
     """Identidade da branch e do repositório do head de uma pull request."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
 
     ref: str = ""
     repo: RepositoryPayload | None = None
@@ -39,7 +40,7 @@ class HeadPayload(BaseModel):
 class BasePayload(BaseModel):
     """Identidade da branch base de uma pull request."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
 
     ref: str = ""
 
@@ -47,7 +48,7 @@ class BasePayload(BaseModel):
 class MilestonePayload(BaseModel):
     """Metadados da milestone de um evento de pull request."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
 
     title: str = ""
 
@@ -55,7 +56,7 @@ class MilestonePayload(BaseModel):
 class PullRequestPayload(BaseModel):
     """Campos do evento consumidos pelo validador de linhas de release."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
 
     base: BasePayload | None = None
     head: HeadPayload | None = None
@@ -67,7 +68,7 @@ class PullRequestPayload(BaseModel):
 class RepositoryEventPayload(BaseModel):
     """Identidade do repositório extraída do envelope do webhook."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
 
     full_name: str = ""
 
@@ -75,7 +76,7 @@ class RepositoryEventPayload(BaseModel):
 class PullRequestEvent(BaseModel):
     """Subconjunto validado do envelope de webhook de pull request do GitHub."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
 
     repository: RepositoryEventPayload | None = None
     pull_request: PullRequestPayload | None = None
@@ -230,9 +231,13 @@ def main() -> int:
     except (OSError, ValueError, ValidationError) as exc:
         print(f"Evento GitHub inválido: {exc}", file=sys.stderr)
         return 2
-    expected_milestone = os.environ.get("EXPECTED_RELEASE_MILESTONE")
-    if expected_milestone and payload.pull_request is not None:
-        payload.pull_request.milestone = MilestonePayload(title=expected_milestone)
+    current_milestone = os.environ.get("CURRENT_RELEASE_MILESTONE")
+    current_base = os.environ.get("CURRENT_PR_BASE")
+    if payload.pull_request is not None:
+        if current_milestone is not None:
+            payload.pull_request.milestone = MilestonePayload(title=current_milestone)
+        if current_base:
+            payload.pull_request.base = BasePayload(ref=current_base)
     errors = validate_pull_request(payload)
     if errors:
         for error in errors:
