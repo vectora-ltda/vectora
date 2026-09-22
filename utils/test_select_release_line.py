@@ -13,14 +13,8 @@ def test_configured_branches_enable_release_workflows() -> None:
     """Branches configuradas de desenvolvimento e manutenção habilitam os jobs de promoção."""
     config = load_release_lines()
 
-    assert (
-        selection_for_branch(config["development"]["branch"], config)["enabled"]
-        == "true"
-    )
-    assert (
-        selection_for_branch(config["maintenance"]["branch"], config)["enabled"]
-        == "true"
-    )
+    assert selection_for_branch(config.development.branch, config)["enabled"] == "true"
+    assert selection_for_branch(config.maintenance.branch, config)["enabled"] == "true"
 
 
 def test_unknown_branch_skips_release_workflows() -> None:

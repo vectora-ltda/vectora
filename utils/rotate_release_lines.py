@@ -128,13 +128,13 @@ def rotation_for_release(
     match = SEMVER_TAG.fullmatch(tag)
     if match is None:
         return None
-    if target_branch != config["development"]["branch"]:
+    if target_branch != config.development.branch:
         return None
 
     major = int(match.group("major"))
     minor = int(match.group("minor"))
     expected = f"{major}.{minor}"
-    configured = config["development"]["milestone"]
+    configured = config.development.milestone
     configured_match = re.fullmatch(r"(?P<major>\d+)\.(?P<minor>\d+)", configured)
     if configured_match is None:
         raise ValueError(f"invalid development milestone: {configured}")
@@ -156,32 +156,32 @@ def rotation_for_release(
         "release_version": expected,
         "maintenance_branch": f"release/{expected}",
         "maintenance_milestone": f"{expected}.x",
-        "development_branch": config["development"]["branch"],
+        "development_branch": config.development.branch,
         "development_milestone": f"{major}.{next_minor}",
-        "previous_maintenance_branch": config["maintenance"]["branch"],
-        "previous_maintenance_milestone": config["maintenance"]["milestone"],
-        "previous_development_milestone": config["development"]["milestone"],
+        "previous_maintenance_branch": config.maintenance.branch,
+        "previous_maintenance_milestone": config.maintenance.milestone,
+        "previous_development_milestone": config.development.milestone,
     }
 
 
 def rotated_config(config: ReleaseLines, rotation: Rotation) -> ReleaseLines:
     """Monta a próxima configuração sem alterar o mapeamento carregado."""
-    return {
-        "development": {
+    return ReleaseLines(
+        development={
             "branch": rotation["development_branch"],
             "milestone": rotation["development_milestone"],
         },
-        "maintenance": {
+        maintenance={
             "branch": rotation["maintenance_branch"],
             "milestone": rotation["maintenance_milestone"],
         },
-    }
+    )
 
 
 def write_rotated_config(path: Path, config: ReleaseLines, rotation: Rotation) -> None:
     """Persiste a próxima configuração das linhas de release como JSON formatado."""
     path.write_text(
-        json.dumps(rotated_config(config, rotation), indent=2) + "\n",
+        json.dumps(rotated_config(config, rotation).model_dump(), indent=2) + "\n",
         encoding="utf-8",
     )
 

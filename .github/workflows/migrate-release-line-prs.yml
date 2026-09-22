@@ -49,6 +49,9 @@ jobs:
             const config = JSON.parse(
               require("fs").readFileSync(".github/release-lines.json", "utf8"),
             );
+            const { classifyPullRequest } = require(
+              "./.github/scripts/migrate_release_line_prs.js",
+            );
             const milestones = await github.paginate(
               github.rest.issues.listMilestones,
               { owner, repo, state: "open", per_page: 100 },
@@ -68,23 +71,24 @@ jobs:
               { owner, repo, state: "open", per_page: 100 },
             );
             for (const pr of prs) {
-              const maintenancePr = pr.base.ref === previousMaintenanceBranch;
-              const developmentPr = pr.milestone?.title === previousDevelopmentMilestone;
-              if (!maintenancePr && !developmentPr) continue;
-              if (maintenancePr) {
+              const migration = classifyPullRequest(pr, config, {
+                maintenanceBranch: previousMaintenanceBranch,
+                maintenanceMilestone: previousMaintenanceMilestone,
+                developmentMilestone: previousDevelopmentMilestone,
+              });
+              if (!migration) continue;
+              if (pr.base.ref !== migration.base) {
                 await github.rest.pulls.update({
                   owner,
                   repo,
                   pull_number: pr.number,
-                  base: config.maintenance.branch,
+                  base: migration.base,
                 });
               }
-              const target = maintenancePr
+              const target = migration.milestone === config.maintenance.milestone
                 ? maintenance
-                : developmentPr
-                  ? development
-                  : null;
-              if (target && pr.milestone?.number !== target.number) {
+                : development;
+              if (pr.milestone?.number !== target.number) {
                 await github.rest.issues.update({
                   owner,
                   repo,

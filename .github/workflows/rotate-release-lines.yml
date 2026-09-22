@@ -47,6 +47,10 @@ jobs:
           MAINTENANCE_BRANCH: ${{ steps.rotation.outputs.maintenance_branch }}
           MAINTENANCE_MILESTONE: ${{ steps.rotation.outputs.maintenance_milestone }}
           DEVELOPMENT_MILESTONE: ${{ steps.rotation.outputs.development_milestone }}
+          DEVELOPMENT_BRANCH: ${{ steps.rotation.outputs.development_branch }}
+          PREVIOUS_MAINTENANCE_BRANCH: ${{ steps.rotation.outputs.previous_maintenance_branch }}
+          PREVIOUS_MAINTENANCE_MILESTONE: ${{ steps.rotation.outputs.previous_maintenance_milestone }}
+          PREVIOUS_DEVELOPMENT_MILESTONE: ${{ steps.rotation.outputs.previous_development_milestone }}
           RELEASE_TAG: ${{ steps.rotation.outputs.release_tag }}
         with:
           github-token: ${{ github.token }}
@@ -81,6 +85,24 @@ jobs:
                 tag_sha: releaseSha,
               });
               releaseSha = annotated.data.object.sha;
+            }
+
+            const developmentRef = await github.rest.git.getRef({
+              owner,
+              repo,
+              ref: `heads/${process.env.DEVELOPMENT_BRANCH}`,
+            });
+            const ancestry = await github.rest.repos.compareCommits({
+              owner,
+              repo,
+              base: releaseSha,
+              head: developmentRef.data.object.sha,
+            });
+            if (!["ahead", "identical"].includes(ancestry.data.status)) {
+              core.setFailed(
+                `A tag ${RELEASE_TAG} não pertence à linha de desenvolvimento ${process.env.DEVELOPMENT_BRANCH}.`,
+              );
+              return;
             }
 
             try {

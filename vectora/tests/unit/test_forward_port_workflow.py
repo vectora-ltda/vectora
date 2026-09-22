@@ -45,7 +45,11 @@ def test_forward_port_workflow_opens_isolated_conflict_pr() -> None:
     content = WORKFLOW.read_text(encoding="utf-8")
 
     assert "git merge --abort || true" in content
-    assert 'conflict_branch="sync/release-promotion-${GITHUB_RUN_ID}"' in content
+    assert (
+        'conflict_branch="sync/release-promotion-${MAINTENANCE_BRANCH//\\//-}-to-${DEVELOPMENT_BRANCH//\\//-}"'
+        in content
+    )
+    assert "force-with-lease" in content
     assert 'git push origin "HEAD:$conflict_branch"' in content
     assert '--head "$conflict_branch"' in content
     assert '--milestone "$DEVELOPMENT_MILESTONE"' not in content
@@ -97,3 +101,47 @@ def test_release_rotation_workflow_declares_release_entrypoint() -> None:
     assert "pulls.update" in migration_content
     assert "issues.update" in migration_content
     assert "pull_request_target" in migration_content
+    assert "migrate_release_line_prs.js" in migration_content
+
+
+def test_release_rotation_verifies_tag_ancestry() -> None:
+    """Impede criar uma linha de manutenção a partir de uma tag fora do desenvolvimento."""
+    workflow = WORKFLOW.parent / "rotate-release-lines.yml"
+    content = workflow.read_text(encoding="utf-8")
+
+    assert "DEVELOPMENT_BRANCH" in content
+    assert "github.rest.repos.compareCommits" in content
+    assert "base: releaseSha" in content
+    assert "head: developmentRef.data.object.sha" in content
+    assert '"ahead", "identical"' in content
+
+
+def test_release_workflows_pin_github_script_to_node_24() -> None:
+    """Garante que os workflows não reintroduzam a runtime Node.js 20 depreciada."""
+    workflow_paths = [
+        WORKFLOW.parent / "migrate-release-line-prs.yml",
+        WORKFLOW.parent / "pr-checks-comment.yml",
+        WORKFLOW.parent / "pr-checks.yml",
+        WORKFLOW.parent / "pr-release-milestone.yml",
+        WORKFLOW.parent / "rotate-release-lines.yml",
+    ]
+
+    for workflow in workflow_paths:
+        content = workflow.read_text(encoding="utf-8")
+        assert "actions/github-script@v8" in content
+        assert "actions/github-script@v7" not in content
+
+
+def test_release_workflows_pin_ubuntu_runner() -> None:
+    """Garante que os workflows de release não dependam do rótulo móvel do Ubuntu."""
+    workflow_paths = [
+        WORKFLOW.parent / "migrate-release-line-prs.yml",
+        WORKFLOW.parent / "pr-release-milestone.yml",
+        WORKFLOW.parent / "rotate-release-lines.yml",
+        WORKFLOW.parent / "forward-port-release.yml",
+    ]
+
+    for workflow in workflow_paths:
+        content = workflow.read_text(encoding="utf-8")
+        assert "runs-on: ubuntu-24.04" in content
+        assert "ubuntu-latest" not in content
