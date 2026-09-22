@@ -238,20 +238,33 @@ async def set_status(
     ) as cur:
         row = await cur.fetchone()
     from_status = row["status"] if row else None
-    next_run_at = None
-    if (
+    next_run_at: str | None = None
+    interval_config_raw: object | None = None
+    is_interval_completion = (
         authorized_run_id is not None
         and status in ("ready", "done")
         and row is not None
         and row["trigger_type"] == "interval"
-    ):
+    )
+    if is_interval_completion:
         # Advance the occurrence in the same transaction that releases its
         # claim; otherwise another scheduler can reclaim the old due time.
         from backend.scheduling.background_tasks import _next_run
 
-        config = row["trigger_config"]
-        config = json.loads(config) if isinstance(config, str) else (config or {})
-        next_run_at = _next_run(config.get("cron_expr"))
+        interval_config_raw = row["trigger_config"]
+
+        def _next_interval_run(raw: object) -> str | None:
+            config_value: object = raw
+            if isinstance(raw, str):
+                try:
+                    config_value = json.loads(raw)
+                except json.JSONDecodeError:
+                    config_value = {}
+            config = config_value if isinstance(config_value, dict) else {}
+            cron_expr = config.get("cron_expr")
+            return _next_run(cron_expr if isinstance(cron_expr, str) else None)
+
+        next_run_at = _next_interval_run(interval_config_raw)
     if status in ("ready", "done"):
         # Saída bem-sucedida do ciclo de bloqueio — zera o contador de
         # escalonamento (ver BLOCK_RECURRENCE_LIMIT), senão uma task que
@@ -263,20 +276,52 @@ async def set_status(
                 "updated_at = datetime('now') WHERE id = ?",
                 (status, task_id),
             )
+        elif is_interval_completion:
+            # A concurrent schedule edit may replace trigger_config after
+            # the snapshot above. Retry from the fresh config rather than
+            # overwriting its next_run_at with the old cron expression.
+            while True:
+                cur = await db.execute(
+                    "UPDATE vectora_background_tasks SET status = ?, "
+                    "block_count = 0, next_run_at = ?, claim_lock = NULL, "
+                    "claim_expires_at = NULL, updated_at = datetime('now') "
+                    "WHERE id = ? AND claim_lock = ? AND claim_expires_at > ? "
+                    "AND trigger_config = ?",
+                    (
+                        status,
+                        next_run_at,
+                        task_id,
+                        authorized_run_id,
+                        _agora().isoformat(),
+                        interval_config_raw,
+                    ),
+                )
+                if cur.rowcount:
+                    break
+                async with db.execute(
+                    "SELECT trigger_config, claim_lock, claim_expires_at "
+                    "FROM vectora_background_tasks WHERE id = ?",
+                    (task_id,),
+                ) as latest_cur:
+                    latest = await latest_cur.fetchone()
+                now_iso = _agora().isoformat()
+                if (
+                    latest is None
+                    or latest["claim_lock"] != authorized_run_id
+                    or not latest["claim_expires_at"]
+                    or latest["claim_expires_at"] <= now_iso
+                ):
+                    await db.rollback()
+                    raise ValueError("execução perdeu o claim da task")
+                interval_config_raw = latest["trigger_config"]
+                next_run_at = _next_interval_run(interval_config_raw)
         else:
             cur = await db.execute(
-                "UPDATE vectora_background_tasks SET status = ?, block_count = 0, "
-                "next_run_at = CASE WHEN trigger_type = 'interval' THEN ? "
-                "ELSE next_run_at END, claim_lock = NULL, claim_expires_at = NULL, "
+                "UPDATE vectora_background_tasks SET status = ?, "
+                "block_count = 0, claim_lock = NULL, claim_expires_at = NULL, "
                 "updated_at = datetime('now') WHERE id = ? AND claim_lock = ? "
                 "AND claim_expires_at > ?",
-                (
-                    status,
-                    next_run_at,
-                    task_id,
-                    authorized_run_id,
-                    _agora().isoformat(),
-                ),
+                (status, task_id, authorized_run_id, _agora().isoformat()),
             )
     elif authorized_run_id is None:
         cur = await db.execute(

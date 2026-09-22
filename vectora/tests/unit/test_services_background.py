@@ -1292,6 +1292,57 @@ async def test_interval_success_advances_next_run_with_claim_release(
     assert estado["claim_expires_at"] is None
 
 
+async def test_interval_completion_reloads_concurrently_edited_schedule(
+    db: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Completion follows a schedule edit that races its first calculation."""
+    import json
+    import sqlite3
+
+    from backend.scheduling import kanban
+
+    task = await bg.create_task(
+        session_id="sess-interval-edit",
+        user_id="u-interval-edit",
+        kind="routine",
+        name="Recorrente editada",
+        instruction="execute",
+        trigger_type="interval",
+        trigger_config={"cron_expr": "0 9 * * *"},
+        next_run_at="2026-09-21T09:00:00+00:00",
+    )
+    run_id = "run-interval-edit"
+    assert await kanban.claim_task(task.id, run_id)
+    calls = 0
+
+    def _next_run(cron_expr: str | None) -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            with sqlite3.connect(db) as conn:
+                conn.execute(
+                    "UPDATE vectora_background_tasks SET trigger_config = ?, "
+                    "next_run_at = ? WHERE id = ?",
+                    (
+                        json.dumps({"cron_expr": "0 10 * * *"}),
+                        "2026-09-21T10:00:00+00:00",
+                        task.id,
+                    ),
+                )
+                conn.commit()
+            return "2026-09-22T09:00:00+00:00"
+        assert cron_expr == "0 10 * * *"
+        return "2026-09-22T10:00:00+00:00"
+
+    monkeypatch.setattr(bg, "_next_run", _next_run)
+    await kanban.set_status(task.id, "ready", authorized_run_id=run_id)
+
+    updated = await bg.get_task(task.id)
+    assert updated is not None
+    assert updated.trigger_config["cron_expr"] == "0 10 * * *"
+    assert updated.next_run_at == "2026-09-22T10:00:00+00:00"
+
+
 async def test_resume_background_run_rejects_unknown_or_finished_run(
     db, native_session_store, monkeypatch
 ):
@@ -1710,6 +1761,9 @@ async def test_cancel_and_approve_task_action(db, monkeypatch):
         trigger_config={"permission_mode": "ask"},
     )
     run_id = "run-await"
+    from backend.scheduling import kanban
+
+    assert await kanban.claim_task(task.id, run_id)
     await bg._insert_run(run_id, task, "sess-cancel", "manual")
     await bg._mark_run_awaiting(run_id, "aguardando terminal")
 
@@ -1723,6 +1777,10 @@ async def test_cancel_and_approve_task_action(db, monkeypatch):
     run = await bg._get_run(run_id)
     assert run is not None
     assert run["status"] == "cancelled"
+    estado = await kanban.get_task_status(task.id)
+    assert estado["status"] == "blocked"
+    assert estado["block_kind"] == "needs_input"
+    assert estado["claim_lock"] is None
 
     # Erro/borda: cancelar de novo (já não está pendente) → None / erro tipado.
     assert await bg.cancel_background_run(run_id) is None

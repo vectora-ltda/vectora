@@ -1545,13 +1545,28 @@ async def cancel_background_run(run_id: str) -> str | None:
 
     A run cancelada não é retomável. Retorna ``"cancelled"`` em sucesso, ou
     ``None`` se a run não existe ou já terminou (done/error/cancelled).
+
+    O card também é bloqueado sob fencing quando a run ainda detém o claim.
+    Assim, o cleanup de claims expirados não transforma um cancelamento
+    explícito em uma nova execução automática.
     """
     run = await _get_run(run_id)
     if run is None or run.get("status") not in ("awaiting_approval", "running"):
         return None
-    await _finish_run(
-        run_id, "cancelled", run.get("summary") or "Cancelada pelo usuário."
-    )
+    task_id = run.get("task_id")
+    task = await get_task(task_id) if isinstance(task_id, str) else None
+    summary = run.get("summary") or "Cancelada pelo usuário."
+    await _finish_run(run_id, "cancelled", summary)
+    if task is not None:
+        with contextlib.suppress(Exception):
+            from backend.scheduling.kanban import block_task
+
+            await block_task(
+                task.id,
+                "needs_input",
+                "Execução cancelada pelo usuário.",
+                authorized_run_id=run_id,
+            )
     return "cancelled"
 
 
