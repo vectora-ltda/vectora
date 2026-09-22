@@ -1282,7 +1282,8 @@ async def run_task(
             if final_message
             else (goal_outcome.reason if goal_outcome is not None else "")
         )
-        await _finish_run(run_id, "done", summary)
+        if not await _finish_run_and_mark_kanban(run_id, task, summary):
+            raise RuntimeError("a run perdeu o claim antes da conclusão")
 
         # Custo real da run, gravado só agora que se sabe o resultado. O
         # motor nativo ainda não expõe `usage_metadata` pro caller do loop
@@ -1316,7 +1317,6 @@ async def run_task(
         await _touch_last_run(task.id)
         _emit_run_event("done", task, run_id, run_thread_id, summary)
         await report_to_parent_session(task, run_thread_id, summary)
-        await _mark_kanban_after_success(task, run_id=run_id)
         return run_thread_id
     except Exception as exc:
         logger.exception(
@@ -1377,6 +1377,31 @@ async def _mark_kanban_after_success(
             "background_tasks: falha ao atualizar status do kanban pós-run",
             exc_info=True,
         )
+
+
+async def _finish_run_and_mark_kanban(
+    run_id: str,
+    task: BackgroundTask,
+    summary: str,
+    *,
+    expected_status: str = "running",
+) -> bool:
+    """Conclui a run e seu card sem uma janela entre as duas gravações."""
+    if task.trigger_type == "interval":
+        target_status = "ready"
+    elif task.trigger_config.get("requires_review"):
+        target_status = "review"
+    else:
+        target_status = "done"
+    from backend.scheduling.kanban import complete_run_and_set_status
+
+    return await complete_run_and_set_status(
+        run_id,
+        task.id,
+        summary,
+        target_status,
+        expected_run_status=expected_status,
+    )
 
 
 async def _get_run(run_id: str) -> dict[str, Any] | None:
@@ -1458,12 +1483,12 @@ async def _resume_goal_run(
         if goal_outcome.final_message
         else goal_outcome.reason
     )
-    finished = await _finish_run(run_id, "done", summary, expected_status="running")
-    if not finished:
+    if not await _finish_run_and_mark_kanban(
+        run_id, task, summary, expected_status="running"
+    ):
         return None
     _emit_run_event("done", task, run_id, run_thread_id, summary)
     await report_to_parent_session(task, run_thread_id, summary)
-    await _mark_kanban_after_success(task, run_id=run_id)
     return "done"
 
 
@@ -1529,12 +1554,12 @@ async def _resume_normal_run(
         return "awaiting_approval"
 
     summary = result.final_message.text() if result.final_message else ""
-    finished = await _finish_run(run_id, "done", summary, expected_status="running")
-    if not finished:
+    if not await _finish_run_and_mark_kanban(
+        run_id, task, summary, expected_status="running"
+    ):
         return None
     _emit_run_event("done", task, run_id, run_thread_id, summary)
     await report_to_parent_session(task, run_thread_id, summary)
-    await _mark_kanban_after_success(task, run_id=run_id)
     return "done"
 
 
@@ -1567,7 +1592,7 @@ async def resume_background_run(run_id: str, decision: str = "approve") -> str |
     if not await _reserve_resumed_run(run_id, task):
         return None
 
-    watchdog_task: asyncio.Task[Any] | None = None
+    watchdog_task: asyncio.Task[None] | None = None
     try:
         watchdog_task = asyncio.create_task(_heartbeat_watchdog(task.id, run_id))
 
@@ -1708,33 +1733,22 @@ async def cancel_background_run(run_id: str | None) -> str | None:
     task_id = run.get("task_id")
     task = await get_task(task_id) if isinstance(task_id, str) else None
     summary = run.get("summary") or "Cancelada pelo usuário."
-    # Reserve the terminal state first. If resume won the race, the run is
-    # already ``running`` and cancellation must not interrupt its coroutine.
-    if not await _finish_run(
-        run_id,
-        "cancelled",
-        summary,
-        expected_status="awaiting_approval",
-    ):
+    if task is None:
         return None
-    if task is not None:
-        try:
-            from backend.scheduling.kanban import block_task
+    from backend.scheduling.kanban import cancel_run_and_block
 
-            await block_task(
-                task.id,
-                "needs_input",
-                "Execução cancelada pelo usuário.",
-                authorized_run_id=run_id,
-                allow_expired_claim=True,
-            )
-        except ValueError:
-            logger.warning(
-                "background_tasks: cancelamento perdeu o claim da task",
-                extra={"run_id": run_id, "task_id": task.id},
-            )
-            await _reopen_cancelled_run(run_id)
-            return None
+    cancelled = await cancel_run_and_block(
+        run_id,
+        task.id,
+        summary,
+        "Execução cancelada pelo usuário.",
+    )
+    if not cancelled:
+        logger.warning(
+            "background_tasks: cancelamento perdeu a corrida ou o claim",
+            extra={"run_id": run_id, "task_id": task.id},
+        )
+        return None
     return "cancelled"
 
 

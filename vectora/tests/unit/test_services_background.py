@@ -1343,6 +1343,40 @@ async def test_interval_completion_reloads_concurrently_edited_schedule(
     assert updated.next_run_at == "2026-09-22T10:00:00+00:00"
 
 
+async def test_run_completion_rolls_back_when_claim_is_lost(db: str) -> None:
+    """Run e card permanecem inalterados quando o fencing rejeita o card."""
+    from backend.scheduling import kanban
+
+    task = await bg.create_task(
+        session_id="sess-completion-race",
+        user_id="u-completion-race",
+        kind="routine",
+        name="Corrida",
+        instruction="execute",
+        trigger_type="manual",
+        trigger_config={},
+    )
+    run_id = "run-completion-race"
+    await bg._insert_run(run_id, task, "sess-completion-race", "manual")
+
+    # Outra execução detém o card; a conclusão deve reverter a atualização da
+    # run em vez de deixar uma run done sem a transição correspondente.
+    assert await kanban.claim_task(task.id, "other-run")
+    completed = await kanban.complete_run_and_set_status(
+        run_id,
+        task.id,
+        "resultado",
+        "done",
+    )
+    assert completed is False
+    run = await bg._get_run(run_id)
+    assert run is not None
+    assert run["status"] == "running"
+    status = await kanban.get_task_status(task.id)
+    assert status["status"] == "running"
+    assert status["claim_lock"] == "other-run"
+
+
 async def test_resume_background_run_rejects_unknown_or_finished_run(
     db, native_session_store, monkeypatch
 ):
@@ -1879,9 +1913,7 @@ async def test_cancel_running_run_loses_to_resume_reservation(db: str) -> None:
 
 
 async def test_cancel_and_approve_task_action(db, monkeypatch):
-    """cancel_background_run encerra uma run pendente; a tool approve_task_action
-    (decision='cancel') faz o mesmo pelo orquestrador. Erro/borda: cancelar uma
-    run já concluída → None / erro tipado."""
+    """A ação de cancelamento bloqueia o card e encerra a run pendente."""
     import json as _json
 
     from backend.tools.background import approve_task_action
@@ -1918,12 +1950,37 @@ async def test_cancel_and_approve_task_action(db, monkeypatch):
     assert estado["block_kind"] == "needs_input"
     assert estado["claim_lock"] is None
 
-    # Erro/borda: cancelar de novo (já não está pendente) → None / erro tipado.
+
+async def test_cancel_and_approve_task_action_is_idempotent(db):
+    """Cancelamento repetido retorna None e erro tipado pela ferramenta."""
+    import json as _json
+
+    from backend.tools.background import approve_task_action
+    from backend.tools.context import ToolContext
+
+    task = await bg.create_task(
+        session_id="sess-cancel-idempotent",
+        user_id="u",
+        kind="routine",
+        name="Cancelável",
+        instruction="i",
+        trigger_type="manual",
+        trigger_config={"permission_mode": "ask"},
+    )
+    run_id = "run-cancel-idempotent"
+    from backend.scheduling import kanban
+
+    assert await kanban.claim_task(task.id, run_id)
+    await bg._insert_run(run_id, task, "sess-cancel-idempotent", "manual")
+    await bg._mark_run_awaiting(run_id, "aguardando terminal")
+    ctx = ToolContext(thread_id="sess-cancel-idempotent", user_id="u")
+
+    assert await bg.cancel_background_run(run_id) == "cancelled"
     assert await bg.cancel_background_run(run_id) is None
-    out2 = _json.loads(
+    out = _json.loads(
         await approve_task_action(run_id=run_id, decision="cancel", ctx=ctx)
     )
-    assert out2["status"] == "error"
+    assert out["status"] == "error"
 
 
 async def test_cancel_expired_claim_blocks_task_before_stale_cleanup(
