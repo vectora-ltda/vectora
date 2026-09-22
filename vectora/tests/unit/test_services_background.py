@@ -1449,7 +1449,7 @@ _CHAMADAS_ANOTAR: list[str] = []
 
 
 async def test_resume_without_pending_approval_finishes_and_blocks(
-    db, native_session_store, monkeypatch
+    db: str, native_session_store: SessionStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Metadados de aprovação ausentes não deixam run e card em running."""
     task = await bg.create_task(
@@ -1469,7 +1469,7 @@ async def test_resume_without_pending_approval_finishes_and_blocks(
     await bg._mark_run_awaiting(run_id, "aguardando aprovação")
     _patch_native_engine(monkeypatch, session_store=native_session_store)
 
-    async def _without_pending(**_kwargs: Any) -> bool:
+    async def _without_pending(**_kwargs: object) -> bool:
         return False
 
     monkeypatch.setattr(bg, "resume_conversation", _without_pending)
@@ -1483,7 +1483,7 @@ async def test_resume_without_pending_approval_finishes_and_blocks(
 
 
 async def test_resume_claim_error_finishes_and_blocks(
-    db, native_session_store, monkeypatch
+    db: str, native_session_store: SessionStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Falha ao recuperar o claim compensa a reserva da run."""
     task = await bg.create_task(
@@ -1503,7 +1503,7 @@ async def test_resume_claim_error_finishes_and_blocks(
     await bg._mark_run_awaiting(run_id, "aguardando aprovação")
     _patch_native_engine(monkeypatch, session_store=native_session_store)
 
-    async def _claim_error(*_args: Any, **_kwargs: Any) -> bool:
+    async def _claim_error(*_args: object, **_kwargs: object) -> bool:
         raise RuntimeError("banco indisponível")
 
     monkeypatch.setattr(kanban, "ensure_task_claim", _claim_error)
@@ -1516,7 +1516,7 @@ async def test_resume_claim_error_finishes_and_blocks(
 
 
 async def test_resume_claim_cancellation_restores_awaiting_state(
-    db, native_session_store, monkeypatch
+    db: str, native_session_store: SessionStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Cancelamento durante a aquisição não deixa a run presa em running."""
     task = await bg.create_task(
@@ -1534,7 +1534,7 @@ async def test_resume_claim_cancellation_restores_awaiting_state(
     _patch_native_engine(monkeypatch, session_store=native_session_store)
     from backend.scheduling import kanban
 
-    async def _claim_cancelled(*_args: Any, **_kwargs: Any) -> bool:
+    async def _claim_cancelled(*_args: object, **_kwargs: object) -> bool:
         raise asyncio.CancelledError
 
     monkeypatch.setattr(kanban, "ensure_task_claim", _claim_cancelled)
