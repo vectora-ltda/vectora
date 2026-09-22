@@ -21,6 +21,7 @@ do Vectora e é o mesmo desacoplamento do Hermes.
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -231,10 +232,26 @@ async def set_status(
         raise ValueError(msg)
     db = await _get_db()
     async with db.execute(
-        "SELECT status FROM vectora_background_tasks WHERE id = ?", (task_id,)
+        "SELECT status, trigger_type, trigger_config "
+        "FROM vectora_background_tasks WHERE id = ?",
+        (task_id,),
     ) as cur:
         row = await cur.fetchone()
     from_status = row["status"] if row else None
+    next_run_at = None
+    if (
+        authorized_run_id is not None
+        and status in ("ready", "done")
+        and row is not None
+        and row["trigger_type"] == "interval"
+    ):
+        # Advance the occurrence in the same transaction that releases its
+        # claim; otherwise another scheduler can reclaim the old due time.
+        from backend.scheduling.background_tasks import _next_run
+
+        config = row["trigger_config"]
+        config = json.loads(config) if isinstance(config, str) else (config or {})
+        next_run_at = _next_run(config.get("cron_expr"))
     if status in ("ready", "done"):
         # Saída bem-sucedida do ciclo de bloqueio — zera o contador de
         # escalonamento (ver BLOCK_RECURRENCE_LIMIT), senão uma task que
@@ -249,10 +266,17 @@ async def set_status(
         else:
             cur = await db.execute(
                 "UPDATE vectora_background_tasks SET status = ?, block_count = 0, "
-                "claim_lock = NULL, claim_expires_at = NULL, "
+                "next_run_at = CASE WHEN trigger_type = 'interval' THEN ? "
+                "ELSE next_run_at END, claim_lock = NULL, claim_expires_at = NULL, "
                 "updated_at = datetime('now') WHERE id = ? AND claim_lock = ? "
                 "AND claim_expires_at > ?",
-                (status, task_id, authorized_run_id, _agora().isoformat()),
+                (
+                    status,
+                    next_run_at,
+                    task_id,
+                    authorized_run_id,
+                    _agora().isoformat(),
+                ),
             )
     elif authorized_run_id is None:
         cur = await db.execute(
