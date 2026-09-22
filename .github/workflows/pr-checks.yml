@@ -31,6 +31,19 @@ permissions:
   contents: read
 
 jobs:
+  migration-tests:
+    name: Testes da migração de linhas de release
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "26"
+      - name: Executa testes do classificador de migração
+        run: node --test .github/scripts/migrate_release_line_prs.test.js
+
   labeler:
     name: Label PR
     runs-on: ubuntu-24.04

@@ -56,6 +56,15 @@ def test_empty_target_branch_does_not_rotate() -> None:
     assert rotation_for_release("v0.2.0", CONFIG, "") is None
 
 
+def test_release_targeted_at_commit_sha_can_rotate() -> None:
+    """Um release direcionado ao commit da linha pode ser validado pela ancestralidade do workflow."""
+    rotation = rotation_for_release(
+        "v0.2.0", CONFIG, "0123456789abcdef0123456789abcdef01234567"
+    )
+
+    assert rotation is not None
+
+
 def test_release_without_target_is_ignored() -> None:
     """Um evento sem branch alvo explícita não pode autorizar a rotação."""
     assert rotation_for_release("v0.2.0", CONFIG, None) is None
