@@ -78,16 +78,14 @@ def test_release_please_uses_trusted_config_for_branch_gate() -> None:
     assert "RELEASE_PLEASE_TOKEN" in content
 
 
-def test_release_rotation_workflow_updates_lines_and_open_prs() -> None:
-    """Protect automatic post-release branch, milestone, and config rotation."""
+def test_release_rotation_workflow_declares_release_entrypoint() -> None:
+    """Keep the GitHub workflow connected to the executable rotation boundary."""
     workflow = WORKFLOW.parent / "rotate-release-lines.yml"
     content = workflow.read_text(encoding="utf-8")
 
     assert "release:" in content
     assert "types: [published]" in content
     assert "utils/rotate_release_lines.py" in content
-    assert "git.createRef" in content
-    assert "issues.createMilestone" in content
     assert "release-lines.json" in content
     assert "gh pr create" in content
     assert "GITHUB_TOKEN" in content

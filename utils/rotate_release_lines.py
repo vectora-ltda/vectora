@@ -6,7 +6,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 from select_release_line import ReleaseLines, load_release_lines
 
@@ -27,6 +27,98 @@ class Rotation(TypedDict):
     previous_maintenance_branch: str
     previous_maintenance_milestone: str
     previous_development_milestone: str
+
+
+class OpenPullRequest(TypedDict):
+    """Relevant metadata for an open pull request during rotation."""
+
+    number: int
+    base_branch: str
+    milestone: str | None
+
+
+class RotationOperation(TypedDict):
+    """One deterministic operation performed by the GitHub rotation workflow."""
+
+    kind: Literal[
+        "create_branch",
+        "ensure_milestone",
+        "update_base",
+        "update_milestone",
+        "publish_config",
+    ]
+    pull_request: int | None
+    value: str
+
+
+def build_rotation_plan(
+    rotation: Rotation,
+    pull_requests: list[OpenPullRequest],
+) -> list[RotationOperation]:
+    """Build the branch, milestone, PR, and config operations for a rotation.
+
+    Keeping this decision boundary pure makes the API-facing workflow testable
+    without contacting GitHub. The workflow remains responsible for applying
+    each operation and failing when an API call cannot be completed.
+    """
+    plan: list[RotationOperation] = [
+        {
+            "kind": "create_branch",
+            "pull_request": None,
+            "value": rotation["maintenance_branch"],
+        },
+        {
+            "kind": "ensure_milestone",
+            "pull_request": None,
+            "value": rotation["maintenance_milestone"],
+        },
+        {
+            "kind": "ensure_milestone",
+            "pull_request": None,
+            "value": rotation["development_milestone"],
+        },
+    ]
+    for pull_request in pull_requests:
+        maintenance_match = (
+            pull_request["base_branch"] == rotation["previous_maintenance_branch"]
+        )
+        development_match = (
+            pull_request["milestone"] == rotation["previous_development_milestone"]
+        )
+        if not maintenance_match and not development_match:
+            continue
+        if maintenance_match:
+            plan.append(
+                {
+                    "kind": "update_base",
+                    "pull_request": pull_request["number"],
+                    "value": rotation["maintenance_branch"],
+                }
+            )
+        if maintenance_match and (
+            pull_request["milestone"] == rotation["previous_maintenance_milestone"]
+        ):
+            milestone = rotation["maintenance_milestone"]
+        elif development_match:
+            milestone = rotation["development_milestone"]
+        else:
+            milestone = None
+        if milestone is not None:
+            plan.append(
+                {
+                    "kind": "update_milestone",
+                    "pull_request": pull_request["number"],
+                    "value": milestone,
+                }
+            )
+    plan.append(
+        {
+            "kind": "publish_config",
+            "pull_request": None,
+            "value": rotation["release_tag"],
+        }
+    )
+    return plan
 
 
 def rotation_for_release(
