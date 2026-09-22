@@ -152,7 +152,6 @@ export function WorkspaceTrustDialog({
   // Evita resetar o input enquanto o usuário digita um path novo —
   // só sincroniza quando a navegação (clique/Enter) muda o listing.path.
   const lastLoadedPathRef = useRef<string | null>(null);
-  const [lastLoadedPath, setLastLoadedPath] = useState<string | null>(null);
   const requestEpochRef = useRef(0);
   const folderSubmissionRef = useRef(0);
 
@@ -170,7 +169,6 @@ export function WorkspaceTrustDialog({
     // Keep the path that is currently being requested available for retry,
     // including when this request fails before a listing is returned.
     lastLoadedPathRef.current = requestedPath ?? null;
-    setLastLoadedPath(requestedPath ?? null);
     setLoading(true);
     setError(null);
     setListing(null);
@@ -210,7 +208,6 @@ export function WorkspaceTrustDialog({
       if (epoch !== requestEpochRef.current) return;
       setListing(data);
       lastLoadedPathRef.current = data.path;
-      setLastLoadedPath(data.path);
       setPathInput(data.path);
     } catch (e) {
       if (epoch !== requestEpochRef.current) return;
@@ -334,7 +331,6 @@ export function WorkspaceTrustDialog({
       if (navigationEpoch !== requestEpochRef.current) return;
       setListing(data);
       lastLoadedPathRef.current = data.path;
-      setLastLoadedPath(data.path);
       setPathInput(data.path);
       setNewFolderName("");
       setCreatingFolder(false);
@@ -689,7 +685,9 @@ export function WorkspaceTrustDialog({
                     disabled={
                       loading ||
                       offline ||
-                      (!listing && !lastLoadedPath && !pathInput.trim())
+                      (!listing &&
+                        !lastLoadedPathRef.current &&
+                        !pathInput.trim())
                     }
                     title={
                       offline

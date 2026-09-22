@@ -253,9 +253,9 @@ function InvitesSection() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {BASIC_ROLES.map((roleValue) => (
-                    <SelectItem key={roleValue} value={roleValue}>
-                      {roleLabel(roleValue)}
+                  {BASIC_ROLES.map((role) => (
+                    <SelectItem key={role} value={role}>
+                      {roleLabel(role)}
                     </SelectItem>
                   ))}
                 </SelectContent>

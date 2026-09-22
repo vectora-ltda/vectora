@@ -11,14 +11,14 @@ name: Edge (company + services + docs)
 
 on:
   push:
-    branches: ["**"]
+    branches: [master, release/0.1]
     paths:
       - "company/**"
       - "services/**"
       - "docs/**"
       - ".github/workflows/edge.yml"
   pull_request:
-    branches: ["**"]
+    branches: [master, release/0.1]
     paths:
       - "company/**"
       - "services/**"
@@ -34,8 +34,8 @@ permissions:
   contents: read
 
 env:
-  # A produção da Vercel ainda não aceita Node 26; mantenha o CI e o deploy
-  # no runtime LTS suportado pelo projeto da empresa.
+  # Vercel production no longer accepts Node 26; keep CI and deploy on the
+  # supported LTS runtime used by the company project.
   NODE_VERSION: "24"
   PNPM_VERSION: "11.5.0"
 
@@ -43,7 +43,7 @@ jobs:
   # ── Company (site + dashboard) ──────────────────────────────────────────
   company:
     name: Company (lint + types + tests)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
@@ -71,7 +71,7 @@ jobs:
   # ── Services (Worker Cloudflare único: gateway + updates) ───────────────
   services:
     name: Services (types + tests)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
@@ -95,10 +95,10 @@ jobs:
   # ── Docs (Hugo) ───────────────────────────────────────────────────────────
   docs:
     name: Docs (Hugo build)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v5
         with:
           go-version: "1.26"
       # Mesma versão pinada em docs/vercel.json — build de verificação aqui
@@ -119,7 +119,7 @@ jobs:
   # mesma política já documentada em .env.gha.example.
   deploy:
     name: Deploy produção (Vercel + Cloudflare)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     needs: [company, services, docs]
     # !cancelled(): sem uma função de status aqui, o GitHub Actions pula o
     # job INTEIRO se qualquer um dos `needs` falhar — os always() dos passos
