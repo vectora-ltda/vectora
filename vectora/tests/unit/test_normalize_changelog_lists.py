@@ -105,6 +105,16 @@ def test_allows_opposite_delimiter_at_start_of_fence_info(tmp_path: Path) -> Non
     assert "\n- outside\n" in result
 
 
+def test_does_not_treat_tab_indented_delimiter_as_fence(tmp_path: Path) -> None:
+    result, changed, _ = _run(
+        tmp_path,
+        "## [1.0.0]\n\n### Features\n\n\t~~~\n* outside\n",
+    )
+
+    assert changed is True
+    assert "\t~~~\n- outside\n" in result
+
+
 def test_preserves_newline_style_and_unchanged_content(tmp_path: Path) -> None:
     path = tmp_path / "CHANGELOG.md"
     path.write_bytes(b"## [1.0.0]\r\n\r\nTexto introdutorio.\r\n\r\n- pronto\r\n")

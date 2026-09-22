@@ -15,6 +15,7 @@ Endpoints (todos exigem autenticação):
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
@@ -236,14 +237,70 @@ async def _to_out(t: BackgroundTask) -> TaskOut:
     )
 
 
-async def _require_task(thread_id: str, task_id: str) -> BackgroundTask:
+async def _require_task(
+    thread_id: str, task_id: str, *, request: Request | None = None
+) -> BackgroundTask:
     """Carrega a task garantindo que pertence à session da URL."""
     from backend.scheduling.background_tasks import get_task
 
     task = await get_task(task_id)
-    if task is None or task.session_id != thread_id:
+    if (
+        task is None
+        or task.session_id != thread_id
+        or (request is not None and task.user_id != _user_id(request))
+    ):
         raise HTTPException(status_code=404, detail="Task não encontrada")
     return task
+
+
+async def _require_thread_access(
+    thread_id: str, request: Request, *, require_existing: bool = True
+) -> str:
+    """Require that the authenticated caller owns the session in the URL."""
+    uid = _user_id(request)
+    # The native session store is the source of truth for thread ownership.
+    # Keep the task-owner check below as a defense in depth for legacy sessions
+    # that have not yet been reconciled into that store.
+    from backend.api.handlers.threads import (
+        _assert_owns_thread,
+        _get_session_store,
+        _is_thread_deleted,
+        _reconcile_delete_lock,
+    )
+    from backend.scheduling.background_tasks import (
+        list_tasks,
+        runs_have_owned_tasks,
+    )
+
+    session_store = await _get_session_store()
+    session = await session_store.get_session(thread_id)
+    if session is None and require_existing:
+        # Tasks written by older releases can predate the native session row.
+        # Keep those records readable by their recorded owner, while refusing
+        # tombstoned IDs and mixed-owner task sets. New task creation always
+        # reserves the native session first, so this is only a compatibility
+        # path for legacy data and isolated task stores.
+        async with _reconcile_delete_lock:
+            if await _is_thread_deleted(thread_id):
+                raise HTTPException(status_code=404, detail="Thread não encontrada")
+            tasks_without_native_session = await list_tasks(thread_id)
+            if (
+                tasks_without_native_session
+                and all(task.user_id == uid for task in tasks_without_native_session)
+                and await runs_have_owned_tasks(thread_id, uid)
+            ):
+                return uid
+
+    await _assert_owns_thread(thread_id, request, require_existing=require_existing)
+
+    tasks = await list_tasks(thread_id)
+    if any(task.user_id != uid for task in tasks):
+        raise HTTPException(status_code=404, detail="Thread não encontrada")
+    if require_existing and not tasks:
+        # Empty sessions are valid before their first background task. There is
+        # no data to disclose or mutate, so retain the existing empty response.
+        return uid
+    return uid
 
 
 # ---------------------------------------------------------------------------
@@ -255,7 +312,7 @@ async def _require_task(thread_id: str, task_id: str) -> BackgroundTask:
 async def get_tasks(request: Request, thread_id: str) -> list[TaskOut]:
     from backend.scheduling.background_tasks import list_tasks
 
-    _user_id(request)
+    await _require_thread_access(thread_id, request)
     return [await _to_out(t) for t in await list_tasks(thread_id)]
 
 
@@ -273,7 +330,7 @@ async def get_board(request: Request, thread_id: str) -> BoardOut:
         get_progress_batch,
     )
 
-    _user_id(request)
+    await _require_thread_access(thread_id, request)
     tasks = await list_tasks(thread_id)
     ids = [t.id for t in tasks]
 
@@ -313,13 +370,35 @@ async def get_board(request: Request, thread_id: str) -> BoardOut:
 async def post_task(
     request: Request, thread_id: str, body: CreateTaskRequest
 ) -> TaskOut:
+    from backend.api.handlers.threads import (
+        _get_session_store,
+        _is_thread_deleted,
+        _reconcile_delete_lock,
+    )
     from backend.scheduling.background_tasks import create_task
 
     uid = _user_id(request)
     if body.workspace_id:
         from backend.api.handlers.workspaces import require_workspace_access
 
+        # Validate the workspace before reserving a generated session ID. A
+        # rejected task must not leave behind a native session owned by the
+        # caller, and the validated workspace becomes authoritative metadata
+        # for the first task-created session.
         require_workspace_access(body.workspace_id, request)
+    # A first Kanban task may arrive before the first chat turn persists the
+    # generated thread. Reserve that ID only while holding the same lock used
+    # by DeleteThread, and reject durable tombstones before registration. This
+    # keeps the legitimate first-task path while making deleted IDs one-way.
+    async with _reconcile_delete_lock:
+        if await _is_thread_deleted(thread_id):
+            raise HTTPException(status_code=404, detail="Thread não encontrada")
+        session_store = await _get_session_store()
+        if await session_store.get_session(thread_id) is None:
+            await session_store.create_session(
+                thread_id, user_id=uid, workspace_id=body.workspace_id
+            )
+    uid = await _require_thread_access(thread_id, request)
     if body.board_id:
         from backend.scheduling.boards import get_board
 
@@ -365,7 +444,7 @@ async def bulk_tasks_endpoint(
     """
     from backend.scheduling import kanban
 
-    _user_id(request)
+    await _require_thread_access(thread_id, request)
     if body.action not in _BULK_ACTIONS:
         raise HTTPException(
             status_code=400, detail=f"ação {body.action!r} não suportada"
@@ -374,7 +453,7 @@ async def bulk_tasks_endpoint(
     results: list[BulkTaskResult] = []
     for task_id in body.task_ids:
         try:
-            await _require_task(thread_id, task_id)
+            await _require_task(thread_id, task_id, request=request)
             await kanban.set_status(task_id, "archived")
             results.append(BulkTaskResult(task_id=task_id, ok=True))
         except HTTPException as exc:
@@ -397,8 +476,8 @@ async def patch_task(
     from backend.scheduling import kanban
     from backend.scheduling.background_tasks import update_task
 
-    _user_id(request)
-    await _require_task(thread_id, task_id)
+    await _require_thread_access(thread_id, request)
+    await _require_task(thread_id, task_id, request=request)
     if body.status is not None:
         try:
             await kanban.manual_transition(task_id, body.status)
@@ -426,8 +505,8 @@ async def patch_task(
 async def delete_task_endpoint(request: Request, thread_id: str, task_id: str) -> None:
     from backend.scheduling.background_tasks import delete_task
 
-    _user_id(request)
-    await _require_task(thread_id, task_id)
+    await _require_thread_access(thread_id, request)
+    await _require_task(thread_id, task_id, request=request)
     await delete_task(task_id)
 
 
@@ -447,9 +526,9 @@ async def add_link_endpoint(
     from backend.scheduling.background_tasks import get_task
     from backend.scheduling.kanban import add_dependency
 
-    _user_id(request)
-    await _require_task(thread_id, task_id)
-    await _require_task(thread_id, body.parent_id)
+    await _require_thread_access(thread_id, request)
+    await _require_task(thread_id, task_id, request=request)
+    await _require_task(thread_id, body.parent_id, request=request)
     try:
         await add_dependency(body.parent_id, task_id)
     except ValueError as exc:
@@ -469,8 +548,8 @@ async def remove_link_endpoint(
     from backend.scheduling.background_tasks import get_task
     from backend.scheduling.kanban import remove_dependency
 
-    _user_id(request)
-    await _require_task(thread_id, task_id)
+    await _require_thread_access(thread_id, request)
+    await _require_task(thread_id, task_id, request=request)
     await remove_dependency(parent_id, task_id)
     updated = await get_task(task_id)
     if updated is None:
@@ -487,8 +566,8 @@ async def unblock_task_endpoint(
     from backend.scheduling.background_tasks import get_task
     from backend.scheduling.kanban import unblock_task
 
-    _user_id(request)
-    await _require_task(thread_id, task_id)
+    await _require_thread_access(thread_id, request)
+    await _require_task(thread_id, task_id, request=request)
     await unblock_task(task_id)
     updated = await get_task(task_id)
     if updated is None:
@@ -506,8 +585,8 @@ async def approve_review_endpoint(
     from backend.scheduling.background_tasks import get_task
     from backend.scheduling.kanban import approve_review
 
-    uid = _user_id(request)
-    await _require_task(thread_id, task_id)
+    uid = await _require_thread_access(thread_id, request)
+    await _require_task(thread_id, task_id, request=request)
     try:
         await approve_review(task_id, uid)
     except ValueError as exc:
@@ -527,8 +606,8 @@ async def run_task_endpoint(
 ) -> dict[str, str]:
     from backend.scheduling.background_tasks import run_task
 
-    _user_id(request)
-    task = await _require_task(thread_id, task_id)
+    await _require_thread_access(thread_id, request)
+    task = await _require_task(thread_id, task_id, request=request)
     background_tasks.add_task(run_task, task, "manual")
     return {"status": "queued", "task_id": task_id}
 
@@ -555,23 +634,37 @@ async def resume_run_endpoint(
     from backend.scheduling.background_tasks import (
         _get_run,
         cancel_background_run,
+        get_task,
         resume_background_run,
     )
 
-    _user_id(request)
+    await _require_thread_access(thread_id, request)
     run = await _get_run(run_id)
     if run is None or run.get("session_id") != thread_id:
+        raise HTTPException(status_code=404, detail="Run não encontrada")
+    task_id = run.get("task_id")
+    task = await get_task(task_id) if isinstance(task_id, str) else None
+    if (
+        task is None
+        or task.session_id != thread_id
+        or task.user_id != _user_id(request)
+    ):
         raise HTTPException(status_code=404, detail="Run não encontrada")
     if run.get("status") != "awaiting_approval":
         raise HTTPException(status_code=409, detail="Run não está aguardando aprovação")
     if body.decision == "cancel":
-        await cancel_background_run(run_id)
+        cancelled = await cancel_background_run(run_id)
+        if cancelled is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Run perdeu o controle da tarefa e não foi cancelada",
+            )
         return {"status": "cancelled", "run_id": run_id}
     background_tasks.add_task(resume_background_run, run_id, body.decision)
     return {"status": "queued", "run_id": run_id}
 
 
-def _row_to_run_out(r: dict[str, Any]) -> RunOut:
+def _row_to_run_out(r: Mapping[str, Any]) -> RunOut:
     return RunOut(
         id=r["id"],
         task_id=r["task_id"],
@@ -586,10 +679,10 @@ def _row_to_run_out(r: dict[str, Any]) -> RunOut:
 
 @router.get("/runs", response_model=list[RunOut])
 async def get_runs(request: Request, thread_id: str) -> list[RunOut]:
-    from backend.scheduling.background_tasks import list_runs
+    from backend.scheduling.background_tasks import list_runs_for_user
 
-    _user_id(request)
-    rows = await list_runs(thread_id)
+    uid = await _require_thread_access(thread_id, request)
+    rows = await list_runs_for_user(thread_id, uid)
     return [_row_to_run_out(r) for r in rows]
 
 
@@ -599,8 +692,8 @@ async def get_task_runs(request: Request, thread_id: str, task_id: str) -> list[
     entre `GET /runs` (existia, só por session) e o card do Kanban."""
     from backend.scheduling.background_tasks import list_runs_for_task
 
-    _user_id(request)
-    await _require_task(thread_id, task_id)
+    await _require_thread_access(thread_id, request)
+    await _require_task(thread_id, task_id, request=request)
     rows = await list_runs_for_task(task_id)
     return [_row_to_run_out(r) for r in rows]
 
@@ -633,8 +726,8 @@ async def post_comment_endpoint(
 ) -> CommentOut:
     from backend.scheduling.kanban import add_comment
 
-    uid = _user_id(request)
-    await _require_task(thread_id, task_id)
+    uid = await _require_thread_access(thread_id, request)
+    await _require_task(thread_id, task_id, request=request)
     try:
         comment = await add_comment(task_id, uid, body.body)
     except ValueError as exc:
@@ -651,8 +744,8 @@ async def get_comments_endpoint(
 ) -> list[CommentOut]:
     from backend.scheduling.kanban import list_comments
 
-    _user_id(request)
-    await _require_task(thread_id, task_id)
+    await _require_thread_access(thread_id, request)
+    await _require_task(thread_id, task_id, request=request)
     rows = await list_comments(task_id)
     return [_row_to_comment_out(r) for r in rows]
 
@@ -665,7 +758,7 @@ async def get_events_endpoint(
     gravada por `kanban._record_task_event` em cada transição."""
     from backend.scheduling.kanban import list_events
 
-    _user_id(request)
-    await _require_task(thread_id, task_id)
+    await _require_thread_access(thread_id, request)
+    await _require_task(thread_id, task_id, request=request)
     rows = await list_events(task_id)
     return [_row_to_event_out(r) for r in rows]

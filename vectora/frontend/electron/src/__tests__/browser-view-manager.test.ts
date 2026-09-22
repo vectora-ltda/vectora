@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   BrowserViewManager,
+  clearBrowserSessionData,
   isNavigableUrl,
   type BrowserViewManagerDeps,
   type BrowserViewEvent,
@@ -10,13 +11,21 @@ import {
 function makeFakeView(): ManagedView & {
   handlers: Record<string, (...args: unknown[]) => void>;
   emitFake(event: string, ...args: unknown[]): void;
+  getWindowOpenAction(
+    targetUrl: string,
+  ): { action: "allow" | "deny" } | undefined;
 } {
   const handlers: Record<string, (...args: unknown[]) => void> = {};
+  let windowOpenHandler:
+    ((details: { url: string }) => { action: "allow" | "deny" }) | undefined;
   let url = "";
   return {
     handlers,
     emitFake(event, ...args) {
       handlers[event]?.(...args);
+    },
+    getWindowOpenAction(targetUrl: string) {
+      return windowOpenHandler?.({ url: targetUrl });
     },
     webContents: {
       loadURL: vi.fn(async (u: string) => {
@@ -32,6 +41,9 @@ function makeFakeView(): ManagedView & {
       getTitle: vi.fn(() => "título"),
       on: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
         handlers[event] = listener;
+      }),
+      setWindowOpenHandler: vi.fn((handler) => {
+        windowOpenHandler = handler;
       }),
     },
     setBounds: vi.fn(),
@@ -90,6 +102,42 @@ describe("BrowserViewManager", () => {
     expect(deps.attach).toHaveBeenCalledTimes(2);
   });
 
+  it("propaga o perfil ao criar uma view e permite limpar seus dados", async () => {
+    deps.clearData = vi.fn(async () => undefined);
+    const id = manager.createView("profile-a");
+    expect(id).toBe(1);
+    expect(deps.createView).toHaveBeenCalledWith("profile-a");
+
+    await manager.clearData("profile-a");
+    expect(deps.clearData).toHaveBeenCalledWith("persist:browser-profile-a");
+  });
+
+  it("limpa armazenamento e cache da sessão do perfil", async () => {
+    const clearStorageData = vi.fn(async () => undefined);
+    const clearCache = vi.fn(async () => undefined);
+
+    await clearBrowserSessionData({ clearStorageData, clearCache });
+
+    expect(clearStorageData).toHaveBeenCalledOnce();
+    expect(clearCache).toHaveBeenCalledOnce();
+  });
+
+  it("normaliza identificadores vazios para o perfil padrão", async () => {
+    deps.clearData = vi.fn(async () => undefined);
+    manager.createView("");
+    expect(deps.createView).toHaveBeenCalledWith("default");
+    await manager.clearData("");
+    expect(deps.clearData).toHaveBeenCalledWith("persist:browser-default");
+  });
+
+  it("nega popups para manter toda navegação sob controle do manager", () => {
+    manager.createView();
+    const view = views[0];
+    expect(view.getWindowOpenAction("https://example.com")).toEqual({
+      action: "deny",
+    });
+  });
+
   it("destroi a view via deps.destroyView; id inexistente não quebra", () => {
     const id = manager.createView();
     manager.destroyView(id);
@@ -121,6 +169,20 @@ describe("BrowserViewManager", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain("esquema não permitido");
     expect(views[0].webContents.loadURL).not.toHaveBeenCalled();
+  });
+
+  it("cancela redirects e navegações nativas fora da allowlist", () => {
+    const id = manager.createView();
+    const view = views[0];
+    const navigateEvent = { preventDefault: vi.fn() };
+    const redirectEvent = { preventDefault: vi.fn() };
+
+    view.emitFake("will-navigate", navigateEvent, "file:///tmp/secret");
+    view.emitFake("will-redirect", redirectEvent, "javascript:alert(1)");
+
+    expect(navigateEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(redirectEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(id).toBe(1);
   });
 
   it("navigate em view inexistente retorna erro em vez de lançar", () => {

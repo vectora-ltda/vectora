@@ -90,7 +90,7 @@ export interface VectoraDesktopBridge {
    * própria (cookies/cache persistentes, contexto de navegação de nível
    * superior, imune a X-Frame-Options). Ver electron/src/browser-view-manager.ts. */
   browserView: {
-    createView: () => Promise<number>;
+    createView: (profileId?: string) => Promise<number>;
     destroyView: (viewId: number) => void;
     navigate: (
       viewId: number,
@@ -102,6 +102,7 @@ export interface VectoraDesktopBridge {
     stop: (viewId: number) => void;
     setBounds: (viewId: number, bounds: ViewBounds) => void;
     setVisible: (viewId: number, visible: boolean) => void;
+    clearProfileData: (profileId?: string) => Promise<void>;
     /** Subscreve a eventos de navegação (navigated/titleUpdated/
      * faviconUpdated/loadingChanged/loadFailed) de qualquer view criada. */
     onEvent: (
@@ -188,7 +189,8 @@ const bridge: VectoraDesktopBridge = {
     },
   },
   browserView: {
-    createView: () => ipcRenderer.invoke("vectora:browser-create-view"),
+    createView: (profileId?: string) =>
+      ipcRenderer.invoke("vectora:browser-create-view", profileId),
     destroyView: (viewId) =>
       ipcRenderer.send("vectora:browser-destroy-view", viewId),
     navigate: (viewId, url) =>
@@ -202,6 +204,8 @@ const bridge: VectoraDesktopBridge = {
       ipcRenderer.send("vectora:browser-set-bounds", viewId, bounds),
     setVisible: (viewId, visible) =>
       ipcRenderer.send("vectora:browser-set-visible", viewId, visible),
+    clearProfileData: (profileId?: string) =>
+      ipcRenderer.invoke("vectora:browser-clear-profile-data", profileId),
     onEvent: (handler) => {
       const listener = (
         _event: unknown,

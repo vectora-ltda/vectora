@@ -15,6 +15,7 @@ import { SidebarHeader } from "./sidebar-header";
 import { NewChatButton } from "./new-chat-button";
 import { SessionSearch } from "./session-search";
 import { SidebarModeToggle } from "./sidebar-mode-toggle";
+import { SidebarFolders } from "./sidebar-folders";
 import { ThreadList } from "./thread-list";
 import { SidebarFooter } from "./sidebar-footer";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -59,6 +60,7 @@ export const Sidebar = memo(function Sidebar({
 
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const chatMode = useSettingsStore((s) => s.chatMode);
+  const activeWorkspaceId = useWorkspacesStore((s) => s.active_id);
   const ragJobs = useRagJobsStore((s) => s.jobs);
   const applyRagEvent = useRagJobsStore((s) => s.applyEvent);
   const updateThreadMutation = useUpdateThread();
@@ -79,12 +81,33 @@ export const Sidebar = memo(function Sidebar({
 
   // Chat e Dev são pools separados: a sidebar mostra só as sessões do modo ativo.
   // Sessões legadas sem modo são tratadas como "dev".
+  const visibleThreads = useMemo(() => {
+    if (
+      !isNewSession ||
+      threads.some((thread) => thread.thread_id === currentThreadId)
+    ) {
+      return threads;
+    }
+    const now = new Date().toISOString();
+    return [
+      ...threads,
+      {
+        thread_id: currentThreadId,
+        created_at: now,
+        updated_at: now,
+        metadata: { user_id: "local" },
+        workspace_id: chatMode ? undefined : (activeWorkspaceId ?? undefined),
+        mode: chatMode ? "chat" : "code",
+      } satisfies Thread,
+    ];
+  }, [activeWorkspaceId, chatMode, currentThreadId, isNewSession, threads]);
+
   const modeThreads = useMemo(() => {
     // Pools separados: chat vs código. O backend normaliza o modo em
     // "chat"|"code" (_normalize_mode); sessões legadas sem modo são "code".
     const wanted = chatMode ? "chat" : "code";
-    return threads.filter((t) => (t.mode ?? "code") === wanted);
-  }, [threads, chatMode]);
+    return visibleThreads.filter((t) => (t.mode ?? "code") === wanted);
+  }, [visibleThreads, chatMode]);
 
   const filteredThreads = useMemo(() => {
     if (!searchQuery.trim()) return modeThreads;
@@ -186,7 +209,7 @@ export const Sidebar = memo(function Sidebar({
             className="contents"
           >
             <CollapsedSidebar
-              threads={threads}
+              threads={filteredThreads}
               currentThreadId={currentThreadId}
               onToggle={onToggle}
               onSelectThread={onSelectThread}
@@ -216,6 +239,8 @@ export const Sidebar = memo(function Sidebar({
                 onChange={setSearchQuery}
                 onClear={handleClearSearch}
               />
+
+              <SidebarFolders />
 
               <ThreadList
                 isLoading={isLoading}

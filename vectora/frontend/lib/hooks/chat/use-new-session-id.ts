@@ -12,7 +12,7 @@
  * client-side que o backend nunca viu (getHistory 404 → tela "Not Found").
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { markAsNew } from "@/lib/stores/new-thread-registry";
 import {
   markWorkspaceChosen,
@@ -42,25 +42,23 @@ export function generateLocalNewId(): string {
  * primeira montagem). Fora do modo "new", devolve string vazia.
  */
 export function useNewSessionId(routeParam: string): string {
-  const isNewRoute = routeParam === "new";
-  const [localNewId, setLocalNewId] = useState<string>(() =>
-    isNewRoute ? generateLocalNewId() : "",
+  // Router mantém a instância da rota entre /session/:id e /session/new.
+  // A dependência no parâmetro gera um id novo ao voltar para "new" e mantém
+  // o mesmo id enquanto a rota não muda, sem ler refs durante o render.
+  // Keep ID generation pure during render: StrictMode may invoke memo
+  // calculators more than once. Registration and one-shot signal consumption
+  // belong to the committed effect instead.
+  const id = useMemo(
+    () => (routeParam === "new" ? safeRandomUUID() : ""),
+    [routeParam],
   );
-  const didMountRef = useRef(false);
 
   useEffect(() => {
-    if (!didMountRef.current) {
-      didMountRef.current = true;
-      return;
-    }
-    if (routeParam === "new") {
-      // generateLocalNewId consome sinais one-shot de workspace pré-escolhido
-      // (registries externos) — não é derivação pura de estado, por isso
-      // fica num efeito em vez de comparação durante o render.
-      // oxlint-disable-next-line react/set-state-in-effect
-      setLocalNewId(generateLocalNewId());
-    }
-  }, [routeParam]);
+    if (routeParam !== "new" || !id) return;
+    markAsNew(id);
+    if (consumeWorkspacePreChosen()) markWorkspaceChosen(id);
+    if (consumeCreateNewWorkspacePreNav()) markCreateNewWorkspace(id);
+  }, [id, routeParam]);
 
-  return isNewRoute ? localNewId : "";
+  return id;
 }

@@ -1,14 +1,60 @@
 import { mkdtemp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   createRotatingUpdateBackup,
   restoreUpdateBackup,
+  withFileLockRetry,
 } from "../update-backup.js";
+import { startUpdateDownload } from "../updater-download.js";
 
 describe("update backups", () => {
+  it("retries transient Windows file locks before succeeding", async () => {
+    const lockError = Object.assign(new Error("file is busy"), {
+      code: "EBUSY",
+    });
+    let attempts = 0;
+    await expect(
+      withFileLockRetry(async () => {
+        attempts += 1;
+        if (attempts < 3) throw lockError;
+        return "snapshot-ready";
+      }),
+    ).resolves.toBe("snapshot-ready");
+    expect(attempts).toBe(3);
+  });
+
+  it("continues downloading when the optional backup rejects", async () => {
+    const downloadUpdate = vi.fn<() => Promise<void>>().mockResolvedValue();
+    const warn = vi.fn();
+    const backupError = new Error("locked user data");
+
+    await startUpdateDownload(
+      Promise.reject(backupError),
+      downloadUpdate,
+      warn,
+    );
+
+    expect(warn).toHaveBeenCalledWith(
+      "[updater] backup local indisponível; prosseguindo sem backup",
+      backupError,
+    );
+    expect(downloadUpdate).toHaveBeenCalledOnce();
+  });
+
+  it("keeps updater download failures observable", async () => {
+    const downloadError = new Error("download failed");
+    const downloadUpdate = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValue(downloadError);
+
+    await expect(startUpdateDownload(null, downloadUpdate)).rejects.toBe(
+      downloadError,
+    );
+  });
+
   it("keeps at most five rotation entries", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "vectora-update-"));
     const userData = path.join(root, "user-data");
@@ -63,6 +109,69 @@ describe("update backups", () => {
     await expect(
       readFile(path.join(userData, "new-directory", "new-file"), "utf8"),
     ).rejects.toThrow();
+  });
+
+  it("preserva caches e logs excluídos ao restaurar o perfil", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "vectora-update-"));
+    const userData = path.join(root, "user-data");
+    const backups = path.join(root, "backups");
+    await mkdir(path.join(userData, "Cache"), { recursive: true });
+    await writeFile(path.join(userData, "Cache", "browser"), "keep");
+    await writeFile(path.join(userData, "settings.json"), "before");
+    const entry = await createRotatingUpdateBackup(userData, backups, "0.1.0");
+    await writeFile(path.join(userData, "settings.json"), "after");
+
+    await restoreUpdateBackup(entry, userData, backups);
+
+    await expect(
+      readFile(path.join(userData, "Cache", "browser"), "utf8"),
+    ).resolves.toBe("keep");
+    await expect(
+      readFile(path.join(userData, "settings.json"), "utf8"),
+    ).resolves.toBe("before");
+  });
+
+  it("preserva caches aninhados sem preservar o diretório pai inteiro", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "vectora-update-"));
+    const userData = path.join(root, "user-data");
+    const backups = path.join(root, "backups");
+    await mkdir(path.join(userData, "profile", "Cache"), { recursive: true });
+    await writeFile(path.join(userData, "profile", "Cache", "browser"), "keep");
+    await writeFile(path.join(userData, "profile", "settings.json"), "before");
+    const entry = await createRotatingUpdateBackup(userData, backups, "0.1.0");
+    await writeFile(path.join(userData, "profile", "settings.json"), "after");
+    await writeFile(path.join(userData, "profile", "stale.json"), "remove");
+
+    await restoreUpdateBackup(entry, userData, backups);
+
+    await expect(
+      readFile(path.join(userData, "profile", "Cache", "browser"), "utf8"),
+    ).resolves.toBe("keep");
+    await expect(
+      readFile(path.join(userData, "profile", "settings.json"), "utf8"),
+    ).resolves.toBe("before");
+    await expect(
+      readFile(path.join(userData, "profile", "stale.json"), "utf8"),
+    ).rejects.toThrow();
+  });
+
+  it("lista e restaura snapshots vazios de perfis totalmente excluídos", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "vectora-update-"));
+    const userData = path.join(root, "user-data");
+    const backups = path.join(root, "backups");
+    await mkdir(path.join(userData, "Cache"), { recursive: true });
+    await writeFile(path.join(userData, "Cache", "browser"), "keep");
+    const entry = await createRotatingUpdateBackup(userData, backups, "0.1.0");
+    await writeFile(path.join(userData, "stale.json"), "remove");
+
+    const { listUpdateBackups } = await import("../update-backup.js");
+    expect(await listUpdateBackups(backups)).toHaveLength(1);
+    await restoreUpdateBackup(entry, userData, backups);
+
+    await expect(readFile(path.join(userData, "stale.json"))).rejects.toThrow();
+    await expect(
+      readFile(path.join(userData, "Cache", "browser"), "utf8"),
+    ).resolves.toBe("keep");
   });
 
   it("não copia a árvore de backups para um snapshot posterior", async () => {

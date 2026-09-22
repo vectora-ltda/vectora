@@ -372,7 +372,10 @@ describe("gha-bot config (Action pública, autenticada por VECTORA_BOT_TOKEN)", 
 });
 
 describe("gha-bot self-hosted (GET /config, POST/GET /review, POST /review/:id/result)", () => {
-  async function makeProUserWithBotTokenAndSettings(selfHosted: boolean) {
+  async function makeProUserWithBotTokenAndSettings(
+    selfHosted: boolean,
+    repoScope?: string,
+  ) {
     const { userId, token: sessionToken } = await makeUserWithSession();
     await env.DB.prepare(
       "INSERT INTO subscriptions (id, user_id, tier, status) VALUES (?, ?, 'pro', 'active')",
@@ -386,7 +389,11 @@ describe("gha-bot self-hosted (GET /config, POST/GET /review, POST /review/:id/r
     };
     const created = await ghaBot.request(
       "/tokens",
-      { method: "POST", headers: sessionAuth, body: "{}" },
+      {
+        method: "POST",
+        headers: sessionAuth,
+        body: JSON.stringify(repoScope ? { repo_scope: repoScope } : {}),
+      },
       env,
     );
     const { secret: botToken } = await created.json<{ secret: string }>();
@@ -460,6 +467,136 @@ describe("gha-bot self-hosted (GET /config, POST/GET /review, POST /review/:id/r
     );
     const body = await res.json<{ mode: string }>();
     expect(body.mode).toBe("hosted");
+  });
+
+  it("exige repository quando o token possui repo_scope", async () => {
+    const { botToken } = await makeProUserWithBotTokenAndSettings(
+      true,
+      "acme/vectora",
+    );
+    const response = await ghaBot.request(
+      "/config",
+      { headers: { Authorization: `Bearer ${botToken}` } },
+      env,
+    );
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "repo_scope_required" });
+  });
+
+  it("recusa repository diferente do repo_scope em /config", async () => {
+    const { botToken } = await makeProUserWithBotTokenAndSettings(
+      true,
+      "acme/vectora",
+    );
+    const response = await ghaBot.request(
+      "/config?repository=other/project",
+      { headers: { Authorization: `Bearer ${botToken}` } },
+      env,
+    );
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "repo_scope_forbidden" });
+  });
+
+  it("aceita o repository correspondente ao repo_scope em /config", async () => {
+    const { botToken } = await makeProUserWithBotTokenAndSettings(
+      true,
+      "acme/vectora",
+    );
+    const response = await ghaBot.request(
+      "/config?repository=acme/vectora",
+      { headers: { Authorization: `Bearer ${botToken}` } },
+      env,
+    );
+    expect(response.status).toBe(200);
+  });
+
+  it("aplica o repo_scope ao criar um review", async () => {
+    const { botToken } = await makeProUserWithBotTokenAndSettings(
+      true,
+      "acme/vectora",
+    );
+    const response = await ghaBot.request(
+      "/review",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${botToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          diff: "diff",
+          metadata: { repository: "other/project" },
+        }),
+      },
+      env,
+    );
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "repo_scope_forbidden" });
+  });
+
+  it("exige reconfiguração para provider legado persistido", async () => {
+    const { userId, botToken } = await makeProUserWithBotTokenAndSettings(true);
+    await env.DB.prepare(
+      "UPDATE gha_bot_config SET provider = ? WHERE user_id = ?",
+    )
+      .bind("ollama", userId)
+      .run();
+
+    const response = await ghaBot.request(
+      "/config",
+      { headers: { Authorization: `Bearer ${botToken}` } },
+      env,
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "reconfigure_required" });
+  });
+
+  it("bloqueia POST /review para contas sem Pro ou sem self-hosted habilitado", async () => {
+    const free = await makeUserWithSession();
+    const freeAuth = {
+      Authorization: `Bearer ${free.token}`,
+      "Content-Type": "application/json",
+    };
+    const freeTokenResponse = await ghaBot.request(
+      "/tokens",
+      { method: "POST", headers: freeAuth, body: "{}" },
+      env,
+    );
+    const { secret: freeBotToken } = await freeTokenResponse.json<{
+      secret: string;
+    }>();
+    const freeReview = await ghaBot.request(
+      "/review",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${freeBotToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ diff: "diff" }),
+      },
+      env,
+    );
+    expect(freeReview.status).toBe(403);
+    expect(await freeReview.json()).toEqual({ error: "pro_required" });
+
+    const disabled = await makeProUserWithBotTokenAndSettings(false);
+    const disabledReview = await ghaBot.request(
+      "/review",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${disabled.botToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ diff: "diff" }),
+      },
+      env,
+    );
+    expect(disabledReview.status).toBe(403);
+    expect(await disabledReview.json()).toEqual({
+      error: "self_hosted_not_enabled",
+    });
   });
 
   it("erro de borda — self_hosted_enabled=true mas usuário nunca registrou o gateway (sem linha em tokens) — cai pra hosted", async () => {
@@ -671,6 +808,50 @@ describe("gha-bot self-hosted (GET /config, POST/GET /review, POST /review/:id/r
     expect(res.status).toBe(400);
   });
 
+  it("rejeita metadata que não é um mapa de strings antes de criar o job", async () => {
+    const { botToken } = await makeProUserWithBotTokenAndSettings(true);
+
+    const res = await ghaBot.request(
+      "/review",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${botToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ diff: "diff", metadata: { pr: 42 } }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "invalid_metadata" });
+  });
+
+  it("rejeita diff acima do limite UTF-8 antes de persistir pending", async () => {
+    const { botToken, userId } = await makeProUserWithBotTokenAndSettings(true);
+
+    const res = await ghaBot.request(
+      "/review",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${botToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ diff: "x".repeat(6_000_001) }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "diff_too_large" });
+    const count = await env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM gha_bot_review_jobs WHERE user_id = ?",
+    )
+      .bind(userId)
+      .first<{ count: number }>();
+    expect(count?.count).toBe(0);
+  });
+
   it("GET /review/:id devolve o status do job — pending logo após criar", async () => {
     const { userId, botToken } = await makeProUserWithBotTokenAndSettings(true);
     await env.DB.prepare(
@@ -687,6 +868,31 @@ describe("gha-bot self-hosted (GET /config, POST/GET /review, POST /review/:id/r
     expect(res.status).toBe(200);
     const body = await res.json<{ status: string }>();
     expect(body.status).toBe("pending");
+  });
+
+  it("não permite que token scoped faça polling de outro repository", async () => {
+    const { userId, botToken } = await makeProUserWithBotTokenAndSettings(
+      true,
+      "acme/vectora",
+    );
+    await env.DB.prepare(
+      "INSERT INTO gha_bot_review_jobs (id, user_id, repository, callback_secret, callback_secret_hash, status) VALUES (?, ?, ?, '', ?, 'pending')",
+    )
+      .bind(
+        "job-scope-isolated-1",
+        userId,
+        "other/project",
+        await sha256Hex("secret-scope-isolated-1"),
+      )
+      .run();
+
+    const response = await ghaBot.request(
+      "/review/job-scope-isolated-1",
+      { headers: { Authorization: `Bearer ${botToken}` } },
+      env,
+    );
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "repo_scope_forbidden" });
   });
 
   it("erro de borda — GET /review/:id de um job de outro usuário devolve 404 (isolamento)", async () => {

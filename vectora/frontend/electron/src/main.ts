@@ -58,6 +58,7 @@ import {
 } from "./backend-lifecycle.js";
 import {
   BrowserViewManager,
+  clearBrowserSessionData,
   type ManagedView,
   type ViewBounds,
 } from "./browser-view-manager.js";
@@ -72,6 +73,7 @@ import {
   listUpdateBackups,
   restoreUpdateBackup,
 } from "./update-backup.js";
+import { startUpdateDownload as startUpdateDownloadAfterBackup } from "./updater-download.js";
 
 const ELECTRON_RESTART_EXIT_CODE = 42;
 
@@ -111,13 +113,18 @@ let updateDownloadPromise: Promise<void> | null = null;
 
 function startUpdateDownload(): Promise<void> {
   if (updateDownloadPromise) return updateDownloadPromise;
-  if (!pendingBackupPromise) {
-    return Promise.reject(new Error("backup da atualização não foi preparado"));
-  }
-  updateDownloadPromise = pendingBackupPromise.then(async () => {
-    await autoUpdater.downloadUpdate();
+  const pending = startUpdateDownloadAfterBackup(
+    pendingBackupPromise,
+    async () => {
+      await autoUpdater.downloadUpdate();
+    },
+  );
+  const tracked = pending.catch((error: unknown) => {
+    if (updateDownloadPromise === tracked) updateDownloadPromise = null;
+    throw error;
   });
-  return updateDownloadPromise;
+  updateDownloadPromise = tracked;
+  return tracked;
 }
 
 function pendingUpdatePath(): string {
@@ -154,22 +161,19 @@ async function rollbackPendingUpdate(): Promise<boolean> {
 /**
  * Browser real da aba Browser do workbench (não a SPA) — cada view é um
  * `WebContentsView`, contexto de navegação de nível superior, imune a
- * `X-Frame-Options`/`frame-ancestors` (não é uma sub-frame). Todas as views
- * compartilham `session.fromPartition("persist:browser")`: cookies/cache
- * nativos do Chromium, persistentes em disco, iguais a um perfil de browser
- * real — deliberadamente sem `preload` (são páginas de terceiros, nunca
- * recebem a bridge `window.vectora`).
+ * `X-Frame-Options`/`frame-ancestors` (não é uma sub-frame). Cada perfil usa
+ * uma partição persistente própria, mantendo cookies/cache isolados.
  */
 function getBrowserViewManager(): BrowserViewManager {
   if (browserViewManager) return browserViewManager;
   browserViewManager = new BrowserViewManager({
-    createView: () =>
+    createView: (profileId = "default") =>
       new WebContentsView({
         webPreferences: {
           contextIsolation: true,
           sandbox: true,
           nodeIntegration: false,
-          session: session.fromPartition("persist:browser"),
+          session: session.fromPartition(`persist:browser-${profileId}`),
         },
       }) as unknown as ManagedView,
     attach: (view) => {
@@ -182,6 +186,10 @@ function getBrowserViewManager(): BrowserViewManager {
     },
     emit: (viewId, event) => {
       mainWindow?.webContents.send("vectora:browser-view-event", viewId, event);
+    },
+    clearData: async (partition) => {
+      const browserSession = session.fromPartition(partition);
+      await clearBrowserSessionData(browserSession);
     },
   });
   return browserViewManager;
@@ -796,7 +804,7 @@ function setupAutoUpdater(): void {
     void startUpdateDownload().catch((error: unknown) => {
       broadcast({
         state: "error",
-        message: `Backup local falhou: ${String(error)}`,
+        message: `Download da atualização falhou: ${String(error)}`,
       });
     });
   });
@@ -979,8 +987,8 @@ function registerIpc(): void {
   // Browser real da aba Browser (ver getBrowserViewManager) — comandos
   // invoke/handle (resposta esperada) + eventos fire-and-forget, mesmo
   // padrão do restante deste arquivo.
-  ipcMain.handle("vectora:browser-create-view", () =>
-    getBrowserViewManager().createView(),
+  ipcMain.handle("vectora:browser-create-view", (_event, profileId?: string) =>
+    getBrowserViewManager().createView(profileId),
   );
   ipcMain.on("vectora:browser-destroy-view", (_event, viewId: number) => {
     getBrowserViewManager().destroyView(viewId);
@@ -1007,6 +1015,11 @@ function registerIpc(): void {
     (_event, viewId: number, bounds: ViewBounds) => {
       getBrowserViewManager().setBounds(viewId, bounds);
     },
+  );
+  ipcMain.handle(
+    "vectora:browser-clear-profile-data",
+    (_event, profileId?: string) =>
+      getBrowserViewManager().clearData(profileId),
   );
   ipcMain.on(
     "vectora:browser-set-visible",

@@ -1,0 +1,47 @@
+name: PR Release Milestone
+
+# Metadata validation runs in the trusted base context. The pull-request
+# revision is never checked out or executed, so contributors cannot replace
+# the validator and bypass the release-line gate.
+on:
+  pull_request_target:
+    types:
+      [
+        opened,
+        edited,
+        synchronize,
+        reopened,
+        milestoned,
+        demilestoned,
+        labeled,
+        unlabeled,
+      ]
+    branches: [master, release/0.1]
+
+concurrency:
+  group: pr-release-milestone-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  release-milestone:
+    name: Validate release milestone
+    runs-on: ubuntu-latest
+    steps:
+      # Use the trusted revision that contains this workflow and validator. A
+      # maintenance branch may predate the validator entirely.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup-uv
+        with:
+          python-version: "3.13"
+          all-extras: "false"
+          working-directory: vectora
+      - name: Validate milestone and base branch
+        run: uv run --project vectora python utils/validate_pr_milestone.py
+        env:
+          GITHUB_EVENT_PATH: ${{ github.event_path }}

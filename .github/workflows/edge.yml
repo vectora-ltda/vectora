@@ -220,11 +220,27 @@ jobs:
         working-directory: services
         run: pnpm install --frozen-lockfile
 
+      # O schema base também contém seeds. Em bancos antigos, CREATE TABLE IF
+      # NOT EXISTS preserva a tabela existente sem adicionar colunas novas;
+      # atualize as colunas do catálogo antes do seed para que a reaplicação
+      # idempotente não falhe antes do passo de upgrade completo.
+      - name: Atualiza catálogo antes do schema base (services)
+        id: services_schema_catalog_preflight
+        if: >-
+          always() && steps.services_install.outcome == 'success' &&
+          steps.credentials.outputs.has_cloudflare_token == 'true'
+        working-directory: services
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: bash scripts/d1_catalog_preflight.sh
+
       # A base idempotente precisa existir antes das migrations rastreadas.
       - name: Aplica schema base D1 (services)
         id: services_schema
         if: >-
           always() && steps.services_install.outcome == 'success' &&
+          steps.services_schema_catalog_preflight.outcome == 'success' &&
           steps.credentials.outputs.has_cloudflare_token == 'true'
         working-directory: services
         env:

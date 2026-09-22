@@ -32,6 +32,7 @@ import { useHydrated } from "@/lib/hooks/use-hydrated";
 import {
   useIdeLayoutState,
   useIsNarrowViewport,
+  useSessionLayoutState,
 } from "@/lib/hooks/use-media-query";
 import { MOTION_INSTANT, PANEL_TRANSITION } from "@/lib/motion/transitions";
 import {
@@ -147,10 +148,16 @@ function SessionPage() {
   // Abaixo de Tailwind `sm`, o modo IDE usa o estado mobile e mostra um painel
   // por vez. A largura é medida sem a escala visual do Electron.
   const isNarrowViewport = useIsNarrowViewport();
+  const sessionLayoutState = useSessionLayoutState();
+  const isCompactSession = sessionLayoutState !== "wide";
   const ideLayoutState = useIdeLayoutState();
-  const isNarrowIdeViewport = ideLayoutState === "mobile";
   const workbenchOpen = useWorkbenchStore((s) => s.isOpen(threadId));
+  const setWorkbenchOpen = useWorkbenchStore((s) => s.setPanelOpen);
   const setSplitSize = useWorkbenchStore((s) => s.setSplitSize);
+  const openWorkbench = useCallback(
+    () => setWorkbenchOpen(threadId, true),
+    [setWorkbenchOpen, threadId],
+  );
 
   // CI em tempo real: webhook do GitHub → toast + badge no git-tab (sem F5).
   useWebhookWorkbench();
@@ -357,6 +364,15 @@ function SessionPage() {
   // ── UI state local ────────────────────────────────────────────────────────
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isCompactSession) {
+      // A Sheet opened in compact mode must not remain over the desktop shell
+      // after a resize back to the wide layout.
+      // oxlint-disable-next-line react/set-state-in-effect
+      setIsMobileSidebarOpen(false);
+    }
+  }, [isCompactSession]);
   const [showToolCalls, setShowToolCalls] = useState(false);
   const [showShortcutsDialog, setShowShortcutsDialog] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
@@ -719,17 +735,22 @@ function SessionPage() {
         showToolCalls={showToolCalls}
         onToggleToolCalls={() => setShowToolCalls((v) => !v)}
         onShowShortcuts={() => setShowShortcutsDialog(true)}
-        onOpenSidebar={() => setIsMobileSidebarOpen(true)}
+        onOpenSidebar={
+          uiMode === "ide" || !isCompactSession
+            ? undefined
+            : () => setIsMobileSidebarOpen(true)
+        }
+        sidebarTriggerCompactOnly={uiMode !== "ide" && isCompactSession}
         showModeSwitch={!chatMode}
       />
     ),
-    [showToolCalls, chatMode],
+    [showToolCalls, chatMode, uiMode, isCompactSession],
   );
 
   // Cada modo escolhe explicitamente a coluna esquerda. Assistente e Kanban
   // usam a lista de sessões; IDE usa a workbench. Manter a sidebar de sessões
   // fora do IDE evitava que o shell tivesse quatro colunas concorrentes.
-  const showSidebarPanel = uiMode !== "ide";
+  const showSidebarPanel = uiMode !== "ide" && !isCompactSession;
   const modeComposition = getModeComposition(uiMode);
 
   // Chat renderizado no fluxo normal do layout de cada modo. `compact`
@@ -762,7 +783,10 @@ function SessionPage() {
               onThreadPersistFailed={handleThreadPersistFailed}
               onThreadNotFound={handleThreadNotFound}
               inputLocked={inputLocked}
-              isNewThread={isNew(threadId)}
+              // The route is already known to be new during the first render,
+              // before useNewSessionId's committed effect registers the local
+              // id. Keep the history loader from treating that id as persisted.
+              isNewThread={isNewRoute || isNew(threadId)}
               compact={compact}
               onStartChat={
                 welcomeActions ? handleStartChatFromWelcome : undefined
@@ -803,7 +827,7 @@ function SessionPage() {
       <LicenseBanner fullWidth onBlockingChange={setInputLocked} />
 
       <div className="relative flex flex-1 min-h-0 overflow-hidden">
-        {showSidebarPanel && (
+        {uiMode !== "ide" && (
           <Sheet
             open={isMobileSidebarOpen}
             onOpenChange={setIsMobileSidebarOpen}
@@ -837,7 +861,7 @@ function SessionPage() {
             >
               <ThreeColumnShell
                 centerHeader={headerEl}
-                left={sidebarPanel}
+                left={showSidebarPanel ? sidebarPanel : null}
                 center={
                   <div className="flex min-w-[360px] flex-1 min-h-0 overflow-hidden">
                     <KanbanBoard threadId={threadId} />
@@ -845,7 +869,10 @@ function SessionPage() {
                 }
                 right={null}
                 columns={{
-                  left: { label: "Sessões" },
+                  left: {
+                    label: "Sessões",
+                    visibility: showSidebarPanel ? "visible" : "hidden",
+                  },
                   center: { label: "Kanban" },
                   right: { label: "Workbench", visibility: "hidden" },
                 }}
@@ -863,7 +890,8 @@ function SessionPage() {
             >
               <IdeModeLayout
                 workbenchOpen={workbenchOpen}
-                layoutState={ideLayoutState}
+                onOpenWorkbench={openWorkbench}
+                layoutState={isCompactSession ? "mobile" : ideLayoutState}
                 direction={sidebarOnRight ? "rtl" : "ltr"}
                 workbenchSide={ideWorkbenchSide}
                 // The shell column includes the fixed 48px rail. splitSize
@@ -895,12 +923,12 @@ function SessionPage() {
                   <div
                     ref={workbenchResizeRef}
                     className={
-                      isNarrowIdeViewport
+                      isCompactSession
                         ? "relative flex-1 min-w-0"
                         : "relative shrink-0 overflow-hidden"
                     }
                     style={
-                      isNarrowIdeViewport
+                      isCompactSession
                         ? undefined
                         : { width: hydrated && workbenchOpen ? splitSize : 0 }
                     }
@@ -913,7 +941,7 @@ function SessionPage() {
                       onAddToContext={pushMention}
                       onSendPrompt={pushDraft}
                     />
-                    {!isNarrowIdeViewport && workbenchOpen && (
+                    {!isCompactSession && workbenchOpen && (
                       <div
                         role="separator"
                         aria-orientation="vertical"
@@ -945,17 +973,17 @@ function SessionPage() {
                   <div
                     ref={chatSidebarRef}
                     className={
-                      isNarrowIdeViewport
+                      isCompactSession
                         ? "relative flex flex-col h-full bg-sidebar"
                         : `relative shrink-0 flex flex-col h-full border-border/60 bg-sidebar ${sidebarOnRight ? "border-r" : "border-l"}`
                     }
                     style={
-                      isNarrowIdeViewport
+                      isCompactSession
                         ? undefined
                         : { width: hydrated ? chatSidebarWidth : 256 }
                     }
                   >
-                    {!isNarrowIdeViewport && (
+                    {!isCompactSession && (
                       <div
                         role="separator"
                         aria-orientation="vertical"
@@ -1007,10 +1035,10 @@ function SessionPage() {
             >
               <ThreeColumnShell
                 centerHeader={headerEl}
-                left={sidebarPanel}
+                left={showSidebarPanel ? sidebarPanel : null}
                 center={
                   <div className="flex flex-1 min-w-0 min-h-0 flex-col overflow-hidden">
-                    {isNarrowViewport && assistantWorkbenchVisible ? (
+                    {isCompactSession && assistantWorkbenchVisible ? (
                       <div className="flex h-full min-w-0">
                         {assistantWorkbenchSide === "left" && (
                           <WorkbenchNavBar
@@ -1076,10 +1104,13 @@ function SessionPage() {
                     )}
                   </div>
                 }
-                showRight={hydrated && !chatMode && !isNarrowViewport}
+                showRight={hydrated && !chatMode && !isCompactSession}
                 direction={sidebarOnRight ? "rtl" : "ltr"}
                 columns={{
-                  left: { label: "Sessões" },
+                  left: {
+                    label: "Sessões",
+                    visibility: showSidebarPanel ? "visible" : "hidden",
+                  },
                   center: { label: "Chat" },
                   right: { label: "Workbench" },
                 }}

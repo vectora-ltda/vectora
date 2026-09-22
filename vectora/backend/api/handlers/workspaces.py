@@ -17,19 +17,23 @@ em modo CLI/root local, usa ``"local"``.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hashlib
 import json
 import logging
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from backend.rbac.safe_roots import SafeRootRegistry
 
 router = APIRouter(prefix="/vectora.workspace.v1.WorkspaceService", tags=["workspaces"])
 
@@ -129,6 +133,9 @@ class BrowseResponse(BaseModel):
     # `true` quando `entries` lista volumes do sistema em vez de
     # subdiretórios. Path nesse caso é o pseudo-path `"__drives__"`.
     at_drives_root: bool = False
+    # Caminho absoluto da pasta criada por ``mkdir_dir``; ausente em
+    # respostas normais de listagem.
+    created_path: str | None = None
 
 
 class SafeRootInfo(BaseModel):
@@ -136,6 +143,7 @@ class SafeRootInfo(BaseModel):
     path: str
     label: str
     builtin: bool
+    archived_at: str | None = None
 
 
 class ListSafeRootsResponse(BaseModel):
@@ -332,17 +340,47 @@ async def create_workspace(
     request: Request, body: CreateWorkspaceRequest
 ) -> StatusResponse:
     """Registra uma pasta como workspace, opcionalmente confiando e iniciando git."""
+    from backend.rbac.safe_roots import (
+        SafeRootPersistenceError,
+        get_safe_root_registry,
+    )
     from backend.workspace.workspace import workspace_registry
 
     path = Path(body.path).expanduser()
-    if not path.exists() or not path.is_dir():
+    try:
+        resolved_path = path.resolve(strict=True)
+    except OSError:
+        resolved_path = None
+    if resolved_path is None or not resolved_path.is_dir():
         return StatusResponse(
             status="error", message=f"Diretório não encontrado: {body.path}"
         )
 
     uid = _user_id(request)
+    safe_roots = get_safe_root_registry()
+    privileged = _is_privileged(request)
+    try:
+        under_safe_root = (
+            await asyncio.to_thread(safe_roots.is_under_safe_root, str(resolved_path))
+            if not privileged
+            else None
+        )
+    except SafeRootPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if not privileged and under_safe_root is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Caminho fora das pastas seguras configuradas.",
+        )
+    if privileged:
+        try:
+            await asyncio.to_thread(
+                safe_roots.add, str(resolved_path), resolved_path.name, str(uid)
+            )
+        except SafeRootPersistenceError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
     ws = workspace_registry.create(
-        str(path), trust=body.trust, git_init=body.git_init, user_id=uid
+        str(resolved_path), trust=body.trust, git_init=body.git_init, user_id=uid
     )
     workspace_registry.set_active(ws.id, uid)
     return StatusResponse(status="ok", workspace=_to_info(ws))
@@ -513,8 +551,12 @@ def _list_drives() -> list[DirEntry]:
     return out
 
 
-def _resolve_and_authorize_dir(
-    path: str, privileged: bool, registry: Any
+async def _resolve_and_authorize_dir(
+    path: str,
+    privileged: bool,
+    registry: SafeRootRegistry,
+    *,
+    strict: bool = False,
 ) -> tuple[Path, str | None]:
     """Resolve ``path`` para um diretório existente e autoriza o acesso.
 
@@ -528,22 +570,31 @@ def _resolve_and_authorize_dir(
     base = Path(path).expanduser() if path else Path.home()
     try:
         base = base.resolve()
-    except OSError:
+    except OSError as exc:
+        if strict:
+            raise HTTPException(
+                status_code=404,
+                detail="Diretório pai não encontrado.",
+            ) from exc
         base = Path.home()
 
     if not base.exists() or not base.is_dir():
+        if strict:
+            raise HTTPException(status_code=404, detail="Diretório pai não encontrado.")
         base = Path.home()
 
     safe_root_id: str | None = None
     if not privileged:
-        containing = registry.is_under_safe_root(str(base))
+        containing = await asyncio.to_thread(registry.is_under_safe_root, str(base))
         if containing is None:
             if path:
                 raise HTTPException(
                     status_code=403,
                     detail="Caminho fora das pastas seguras configuradas.",
                 )
-            fallback = registry.closest_safe_root_for(str(Path.home()))
+            fallback = await asyncio.to_thread(
+                registry.closest_safe_root_for, str(Path.home())
+            )
             if fallback is None:
                 raise HTTPException(
                     status_code=403,
@@ -573,7 +624,10 @@ async def browse_dir(
     Privilegiados (root/admin/CLI local): navegação livre — necessário
     para o admin escolher novas pastas a marcar como confiáveis.
     """
-    from backend.rbac.safe_roots import get_safe_root_registry
+    from backend.rbac.safe_roots import (
+        SafeRootPersistenceError,
+        get_safe_root_registry,
+    )
 
     registry = get_safe_root_registry()
     privileged = _is_privileged(request)
@@ -590,7 +644,12 @@ async def browse_dir(
             at_drives_root=True,
         )
 
-    base, safe_root_id = _resolve_and_authorize_dir(path, privileged, registry)
+    try:
+        base, safe_root_id = await _resolve_and_authorize_dir(
+            path, privileged, registry
+        )
+    except SafeRootPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     entries: list[DirEntry] = []
     try:
@@ -618,7 +677,12 @@ async def browse_dir(
     elif privileged:
         parent = str(base.parent)
     else:
-        parent_under = registry.is_under_safe_root(str(base.parent))
+        try:
+            parent_under = await asyncio.to_thread(
+                registry.is_under_safe_root, str(base.parent)
+            )
+        except SafeRootPersistenceError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         parent = str(base.parent) if parent_under is not None else None
 
     return BrowseResponse(
@@ -639,15 +703,25 @@ async def mkdir_dir(request: Request, body: MkdirRequest) -> BrowseResponse:
     traversal)."""
     from fastapi import HTTPException
 
-    from backend.rbac.safe_roots import get_safe_root_registry
+    from backend.rbac.safe_roots import (
+        SafeRootPersistenceError,
+        get_safe_root_registry,
+    )
 
+    if not body.path.strip():
+        raise HTTPException(status_code=400, detail="Caminho da pasta é obrigatório.")
     name = body.name.strip()
     if not name or name in {".", ".."} or "/" in name or "\\" in name:
         raise HTTPException(status_code=400, detail="Nome de pasta inválido.")
 
     registry = get_safe_root_registry()
     privileged = _is_privileged(request)
-    base, _ = _resolve_and_authorize_dir(body.path, privileged, registry)
+    try:
+        base, _ = await _resolve_and_authorize_dir(
+            body.path, privileged, registry, strict=True
+        )
+    except SafeRootPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     new_dir = base / name
     if new_dir.exists():
@@ -656,24 +730,50 @@ async def mkdir_dir(request: Request, body: MkdirRequest) -> BrowseResponse:
         )
     try:
         new_dir.mkdir()
+    except FileExistsError as exc:
+        # Two create requests can pass the preflight exists() check. Treat the
+        # losing request as the same semantic conflict as a pre-existing folder.
+        raise HTTPException(
+            status_code=409, detail="Já existe uma pasta com esse nome."
+        ) from exc
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=403, detail="Sem permissão para criar a pasta."
+        ) from exc
     except OSError as exc:
         raise HTTPException(
             status_code=500, detail=f"Não foi possível criar a pasta: {exc}"
         ) from exc
 
-    return await browse_dir(request=request, path=str(base))
+    result = await browse_dir(request=request, path=str(base))
+    result.created_path = str(new_dir)
+    return result
 
 
 @router.get("/ListSafeRoots", response_model=ListSafeRootsResponse)
 async def list_safe_roots() -> ListSafeRootsResponse:
     """Lista as raízes confiáveis configuradas (visível a qualquer user)."""
-    from backend.rbac.safe_roots import get_safe_root_registry
+    from backend.rbac.safe_roots import (
+        SafeRootPersistenceError,
+        get_safe_root_registry,
+    )
 
     registry = get_safe_root_registry()
+
+    try:
+        roots = await asyncio.to_thread(registry.all_roots)
+    except SafeRootPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return ListSafeRootsResponse(
         roots=[
-            SafeRootInfo(id=r.id, path=r.path, label=r.label, builtin=r.builtin)
-            for r in registry.all_roots()
+            SafeRootInfo(
+                id=root.id,
+                path=root.path,
+                label=root.label,
+                builtin=root.builtin,
+                archived_at=root.archived_at,
+            )
+            for root in roots
         ],
     )
 
@@ -3918,6 +4018,14 @@ async def toggle_rag_bucket(
     from backend.services import rag_buckets
     from backend.workspace.runtime_settings import runtime_settings
 
+    bucket = rag_buckets.get_bucket(runtime_settings, bucket_id)
+    if bucket is None:
+        # Toggling an already-absent bucket is a safe no-op. This keeps
+        # repeated UI updates idempotent without weakening the tenant check
+        # for a bucket that belongs to another workspace.
+        return body
+    if bucket.workspace_id != workspace_id:
+        raise HTTPException(status_code=404, detail="Bucket não encontrado")
     rag_buckets.set_active(
         runtime_settings,
         workspace_id=workspace_id,
@@ -3939,13 +4047,48 @@ async def delete_rag_bucket(workspace_id: str, bucket_id: str) -> dict:
     from backend.storage.factory import get_vector_store_backend
     from backend.workspace.runtime_settings import runtime_settings
 
-    rag_buckets.delete_bucket(runtime_settings, bucket_id)
+    bucket = rag_buckets.get_bucket(runtime_settings, bucket_id)
+    if bucket is None:
+        # A previous purge may have failed after the catalog row was removed.
+        # Retry only for the workspace that owns the persisted cleanup record.
+        pending_workspace = rag_buckets.get_pending_purge_workspace(
+            runtime_settings, bucket_id
+        )
+        if pending_workspace != workspace_id:
+            # DELETE is intentionally idempotent: a retry after a successful
+            # deletion has the same result as the original request.
+            return {"ok": True}
+        try:
+            backend = await get_vector_store_backend()
+            await backend.purge(f"bucket_{bucket_id}")
+        except Exception:
+            logger.warning(
+                "rag_buckets: falha ao repetir purge do bucket %s",
+                bucket_id,
+                exc_info=True,
+            )
+            return {"ok": True}
+        rag_buckets.clear_pending_purge(
+            runtime_settings, workspace_id=workspace_id, bucket_id=bucket_id
+        )
+        return {"ok": True}
+    if bucket.workspace_id != workspace_id:
+        raise HTTPException(status_code=404, detail="Bucket não encontrado")
+
+    rag_buckets.mark_pending_purge(
+        runtime_settings, workspace_id=workspace_id, bucket_id=bucket_id
+    )
+    rag_buckets.delete_bucket(runtime_settings, bucket_id, workspace_id=workspace_id)
     try:
         backend = await get_vector_store_backend()
         await backend.purge(f"bucket_{bucket_id}")
     except Exception:
         logger.warning(
             "rag_buckets: falha ao purgar tabela do bucket %s", bucket_id, exc_info=True
+        )
+    else:
+        rag_buckets.clear_pending_purge(
+            runtime_settings, workspace_id=workspace_id, bucket_id=bucket_id
         )
     return {"ok": True}
 

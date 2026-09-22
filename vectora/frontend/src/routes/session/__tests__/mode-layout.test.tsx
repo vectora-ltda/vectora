@@ -14,31 +14,59 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { render, screen, cleanup, waitFor, act } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 
-const { navigateSpy } = vi.hoisted(() => ({ navigateSpy: vi.fn() }));
+const { navigateSpy, chatProps, routeParam } = vi.hoisted(() => ({
+  navigateSpy: vi.fn(),
+  chatProps: vi.fn(),
+  routeParam: { value: "t1" },
+}));
 
 vi.mock("@tanstack/react-router", () => ({
   // O componente lê `Route.useParams()`, então o objeto devolvido por
   // createFileRoute precisa carregá-lo — não basta repassar as opções.
   createFileRoute: () => (opts: Record<string, unknown>) => ({
     ...opts,
-    useParams: () => ({ threadId: "t1" }),
+    useParams: () => ({ threadId: routeParam.value }),
   }),
   useNavigate: () => navigateSpy,
 }));
 
 vi.mock("@/components/chat/chat-interface", () => ({
-  ChatInterface: ({ compact }: { compact?: boolean }) => (
-    <div data-testid="chat" data-compact={String(!!compact)} />
-  ),
+  ChatInterface: ({
+    compact,
+    isNewThread,
+  }: {
+    compact?: boolean;
+    isNewThread?: boolean;
+  }) => {
+    chatProps({ compact, isNewThread });
+    return <div data-testid="chat" data-compact={String(!!compact)} />;
+  },
 }));
 vi.mock("@/components/kanban/kanban-board", () => ({
   KanbanBoard: () => <div data-testid="kanban" />,
 }));
 vi.mock("@/components/header/header", () => ({
-  Header: () => <div data-testid="header" />,
+  Header: ({
+    onOpenSidebar,
+    sidebarTriggerCompactOnly,
+  }: {
+    onOpenSidebar?: () => void;
+    sidebarTriggerCompactOnly?: boolean;
+  }) => (
+    <div data-testid="header">
+      {onOpenSidebar && (
+        <button
+          type="button"
+          data-testid="header-sidebar-trigger"
+          data-compact-only={String(Boolean(sidebarTriggerCompactOnly))}
+          onClick={onOpenSidebar}
+        />
+      )}
+    </div>
+  ),
 }));
 vi.mock("@/components/header/mode-switcher", () => ({
   ModeSwitch: () => <div data-testid="mode-switch" />,
@@ -147,6 +175,8 @@ function setMode(uiMode: "assistant" | "ide" | "kanban", chatMode = false) {
 
 beforeEach(() => {
   navigateSpy.mockClear();
+  chatProps.mockClear();
+  routeParam.value = "t1";
   // jsdom não implementa matchMedia — useIsNarrowViewport depende dele.
   // Sempre "largo": é o layout de 3 painéis que os testes afirmam.
   // jsdom não implementa EventSource — hooks de webhook o instanciam no
@@ -189,6 +219,17 @@ afterEach(() => {
 });
 
 describe("SessionPage — um modo por vez, nunca dois", () => {
+  it("marca a rota de nova conversa antes dos efeitos de registro", () => {
+    routeParam.value = "new";
+    setMode("assistant");
+
+    render(<SessionPage />);
+
+    expect(chatProps).toHaveBeenCalledWith(
+      expect.objectContaining({ isNewThread: true }),
+    );
+  });
+
   it("Kanban mostra o board e NENHUM chat", () => {
     // Regressão: o chat era um overlay absoluto irmão das branches de modo,
     // então continuava desenhado por cima do board depois da troca.
@@ -304,6 +345,10 @@ describe("SessionPage — workbench do Assistente estreito", () => {
       configurable: true,
       value: 639,
     });
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 639,
+    });
     vi.mocked(window.matchMedia).mockImplementation((query: string) => ({
       matches: query.includes("767px"),
       media: query,
@@ -324,5 +369,67 @@ describe("SessionPage — workbench do Assistente estreito", () => {
       configurable: true,
       value: 1024,
     });
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 1024,
+    });
+  });
+});
+
+describe("SessionPage — navegação compacta usa a mesma medida física", () => {
+  it("mantém o gatilho quando o Electron está compacto apesar do CSS viewport largo", async () => {
+    vi.stubGlobal("vectora", { windowControls: {} });
+    Object.defineProperties(window, {
+      outerWidth: { configurable: true, value: 800 },
+      innerWidth: { configurable: true, value: 1200 },
+    });
+    setMode("assistant");
+
+    render(<SessionPage />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("header-sidebar-trigger")).toBeInTheDocument(),
+    );
+    const trigger = screen.getByTestId("header-sidebar-trigger");
+    expect(trigger).toHaveAttribute("data-compact-only", "true");
+  });
+
+  it("fecha a Sheet ao voltar para o layout largo", async () => {
+    vi.stubGlobal("vectora", { windowControls: {} });
+    Object.defineProperties(window, {
+      outerWidth: { configurable: true, value: 800 },
+      innerWidth: { configurable: true, value: 1200 },
+    });
+    setMode("assistant");
+    render(<SessionPage />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("header-sidebar-trigger")).toBeInTheDocument(),
+    );
+    act(() => {
+      screen.getByTestId("header-sidebar-trigger").click();
+    });
+    expect(
+      document.querySelector('[data-slot="sheet-content"]'),
+    ).toBeInTheDocument();
+
+    Object.defineProperty(window, "outerWidth", {
+      configurable: true,
+      value: 1200,
+    });
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("header-sidebar-trigger"),
+      ).not.toBeInTheDocument(),
+    );
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-slot="sheet-content"]'),
+      ).not.toBeInTheDocument(),
+    );
   });
 });
