@@ -149,7 +149,7 @@ function SessionPage() {
   // por vez. A largura é medida sem a escala visual do Electron.
   const isNarrowViewport = useIsNarrowViewport();
   const sessionLayoutState = useSessionLayoutState();
-  const isCompactSession = sessionLayoutState !== "wide";
+  const isCompactSession = sessionLayoutState === "compact";
   const ideLayoutState = useIdeLayoutState();
   const workbenchOpen = useWorkbenchStore((s) => s.isOpen(threadId));
   const setWorkbenchOpen = useWorkbenchStore((s) => s.setPanelOpen);
