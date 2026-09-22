@@ -69,6 +69,23 @@ function packagedServer(
   };
 }
 
+function packageOnlyServer(id: string) {
+  return {
+    server: {
+      name: id,
+      title: "Package only",
+      packages: [
+        {
+          registry_name: "npm",
+          runtime_hint: "npx",
+          identifier: "@example/package-only",
+          transport: { type: "stdio" },
+        },
+      ],
+    },
+  };
+}
+
 describe("discoverMcp", () => {
   it("sincroniza o catálogo oficial e substitui entradas locais com o mesmo id", async () => {
     await env.DB.prepare(
@@ -192,6 +209,29 @@ describe("discoverMcp", () => {
       },
       { id: "python-server", install_cmd: "uvx python-mcp" },
     ]);
+  });
+
+  it("inclui pacotes package-only com metadados snake_case do registry", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        mcpRegistryResponse([packageOnlyServer("package-only")]),
+      ),
+    );
+
+    await expect(discoverMcp(env)).resolves.toBe(1);
+    const row = await env.DB.prepare(
+      "SELECT install_cmd, runtime_hint, package_identifier FROM mcp_catalog WHERE id = 'package-only'",
+    ).first<{
+      install_cmd: string;
+      runtime_hint: string;
+      package_identifier: string;
+    }>();
+    expect(row).toEqual({
+      install_cmd: "npx -y @example/package-only",
+      runtime_hint: "npx",
+      package_identifier: "@example/package-only",
+    });
   });
 
   it("respeita maxEntries e não grava o restante da página", async () => {

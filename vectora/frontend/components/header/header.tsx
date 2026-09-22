@@ -13,14 +13,18 @@ interface HeaderProps {
   onToggleToolCalls?: () => void;
   onShowShortcuts?: () => void;
   onOpenSidebar?: () => void;
-  // O seletor de modo é renderizado uma vez no header de largura total e fica
-  // ausente no chatMode, que não oferece os três modos de workbench.
+  /** Render the session trigger whenever the caller has a compact shell. */
+  sidebarTriggerCompactOnly?: boolean;
+  // O seletor de modo ocupa o centro do Header quando a tela oferece os três
+  // modos. O Header permanece uma única faixa de largura total, independente
+  // da coluna de conteúdo ativa, para manter o seletor centralizado.
   showModeSwitch?: boolean;
 }
 
 export function Header({
   onShowShortcuts,
   onOpenSidebar,
+  sidebarTriggerCompactOnly = false,
   showModeSwitch,
 }: HeaderProps) {
   const [rowRef, rowWidth] = useElementWidth<HTMLDivElement>();
@@ -34,7 +38,7 @@ export function Header({
       // horizontal desalinha entre elas.
       className="safe-area-top-header border-b border-border/60 bg-background min-h-[var(--app-header-height)] flex items-center"
     >
-      <div className="flex items-stretch justify-between w-full min-w-0 px-4 sm:px-6 self-stretch">
+      <div className="flex items-center justify-between w-full min-w-0 px-4 sm:px-6">
         <div className="flex items-center gap-2 shrink-0">
           {/* Hamburger só em mobile — reabre o sidebar como overlay. */}
           {onOpenSidebar && (
@@ -42,7 +46,7 @@ export function Header({
               type="button"
               onClick={onOpenSidebar}
               aria-label={m.sidebar_open()}
-              className="md:hidden -ml-1 mr-1 inline-flex items-center justify-center w-10 h-10 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+              className={`${sidebarTriggerCompactOnly ? "" : "lg:hidden"} -ml-1 mr-1 inline-flex items-center justify-center w-10 h-10 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors`}
             >
               <Menu className="w-5 h-5" />
             </button>
@@ -50,7 +54,7 @@ export function Header({
         </div>
 
         {showModeSwitch && (
-          <div className="flex-1 flex items-stretch justify-center min-w-0 self-stretch">
+          <div className="flex-1 flex justify-center min-w-0">
             <ModeSwitch show width={rowWidth} />
           </div>
         )}

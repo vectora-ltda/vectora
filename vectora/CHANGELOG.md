@@ -1,22 +1,33 @@
 # Changelog
 
-Esta vers�o consolida as altera��es publicadas desde a vers�o 0.1.17.
+Este changelog consolida as alterações publicadas.
 
-## [0.1.22](https://github.com/vectora-ltda/vectora/compare/v0.1.21...v0.1.22) (2026-09-14)
+## [0.1.23](https://github.com/vectora-ltda/vectora/compare/v0.1.22...v0.1.23) (2026-09-21)
 
-Esta seção reúne as alterações publicadas nesta versão.
+Esta versão inclui as alterações geradas pelo Release Please para o intervalo `v0.1.22...v0.1.23`. Ela também inclui o merge do PR [`#241`](https://github.com/vectora-ltda/vectora/pull/241), que corrigiu achados de autorização, gateway de reviews, sessões de chat, navegação de pastas e resiliência do updater Electron.
+
+A compatibilidade da `vectora-review-action` com `mode=self-hosted` e `job_endpoint` continua pendente no repositório externo [`vectora-ltda/vectora-review-action`](https://github.com/vectora-ltda/vectora-review-action). Esta release não considera esse contrato cross-repo concluído.
 
 ### Features
 
-Os recursos incluídos nesta versão são listados abaixo.
+Esta seção lista as funcionalidades adicionadas na versão `0.1.23`. As mudanças incluem segurança e identidade, motor nativo e HITL, chat e mídia, Workbench, Kanban, integrações, armazenamento, atualizações e entrega.
 
-- **frontend:** complete adaptive session shell, workbench and responsive chat ([#213](https://github.com/vectora-ltda/vectora/issues/213)) ([e3080bd](https://github.com/vectora-ltda/vectora/commit/e3080bd6bef1f587550b5d0bf9356053220805c2))
+- add Chromium browser settings and profile isolation ([#221](https://github.com/vectora-ltda/vectora/issues/221)) ([928577e](https://github.com/vectora-ltda/vectora/commit/928577ee386805709049a61844c4ad7af0d23dbf))
+- add global responsive session layout bands ([#223](https://github.com/vectora-ltda/vectora/issues/223)) ([dae2c6c](https://github.com/vectora-ltda/vectora/commit/dae2c6c0e9b44a8aa47331c023130567d0341dba))
+- archive safe roots and enforce workspace access ([#222](https://github.com/vectora-ltda/vectora/issues/222)) ([d3d1cbc](https://github.com/vectora-ltda/vectora/commit/d3d1cbc84fd37b07d4fa18711dfc8c1299443d40))
+- navigate created folders and surface new sessions ([#217](https://github.com/vectora-ltda/vectora/issues/217)) ([2e1bee3](https://github.com/vectora-ltda/vectora/commit/2e1bee3b683cc72a3fdf63f829bc59ed8a58368b))
+- validate GitHub review job contracts ([#227](https://github.com/vectora-ltda/vectora/issues/227)) ([ad9898f](https://github.com/vectora-ltda/vectora/commit/ad9898f5cb15059bb2fda84ac725320c22036ed1))
 
 ### Bug Fixes
 
-As correções incluídas nesta versão são listadas abaixo.
-
+- support parallel release lines with milestones ([#247](https://github.com/vectora-ltda/vectora/issues/247)) ([caef9fc](https://github.com/vectora-ltda/vectora/commit/caef9fc5180cb8016f9fe56276d4320816ff081d)), closes [#245](https://github.com/vectora-ltda/vectora/issues/245)
+- resolve release-please idempotence and security findings ([#243](https://github.com/vectora-ltda/vectora/issues/243)) ([54251d0](https://github.com/vectora-ltda/vectora/commit/54251d0c633a625b2283c6afebcc8639d47fb9e6))
 - restore settings and backend connection after tray restart ([#209](https://github.com/vectora-ltda/vectora/issues/209)) ([12217ce](https://github.com/vectora-ltda/vectora/commit/12217ce7054f9202b5000d9845c5fa1426f155fc))
+- corrige deploy do D1 com colunas legadas de skills ([#236](https://github.com/vectora-ltda/vectora/issues/236)) ([e4f7c41](https://github.com/vectora-ltda/vectora/commit/e4f7c41547352ea9fe5ae1983a15b72f910e5d3b))
+- prevent Electron updates from stalling on locked files ([#235](https://github.com/vectora-ltda/vectora/issues/235)) ([7ea3459](https://github.com/vectora-ltda/vectora/commit/7ea3459e35cd9dace7c046c4c4d9bc4a71450e51))
+- remediate release review findings ([#241](https://github.com/vectora-ltda/vectora/issues/241)) ([eac4cdb](https://github.com/vectora-ltda/vectora/commit/eac4cdb71634fdeda426cad191bd584b0095ad5a))
+
+Esta seção encerra as alterações da versão `0.1.23`.
 
 ## [0.1.21](https://github.com/vectora-ltda/vectora/compare/v0.1.20...v0.1.21) (2026-09-13)
 

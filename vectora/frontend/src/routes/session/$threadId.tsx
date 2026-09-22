@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 
 import { Sidebar } from "@/components/sidebar/sidebar";
@@ -26,15 +25,6 @@ import { NewChatDialog } from "@/components/sidebar/new-chat-dialog";
 import { WindowLayer } from "@/components/workbench/windows/window-layer";
 import { WindowDock } from "@/components/workbench/windows/window-dock";
 import { DockedEditor } from "@/components/workbench/windows/docked-editor";
-import { FileEditor } from "@/components/workbench/file-editor";
-import { MarkdownView } from "@/components/workbench/markdown-view";
-import { LibraryMcpPreview } from "@/components/workbench/library-mcp-preview";
-import { CanvasDocumentDialog } from "@/components/workbench/canvas-document-dialog";
-import { CanvasFileDiff } from "@/components/workbench/canvas-file-diff";
-import {
-  CommitDetails,
-  type GitCommitDetailsState,
-} from "@/components/workbench/git/history-view";
 import { SessionSwitcher } from "@/components/header/session-switcher";
 import { ColumnHeader } from "@/components/layout/column-header";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -42,6 +32,7 @@ import { useHydrated } from "@/lib/hooks/use-hydrated";
 import {
   useIdeLayoutState,
   useIsNarrowViewport,
+  useSessionLayoutState,
 } from "@/lib/hooks/use-media-query";
 import { MOTION_INSTANT, PANEL_TRANSITION } from "@/lib/motion/transitions";
 import {
@@ -53,7 +44,6 @@ import {
   WORKBENCH_CONTENT_MIN_WIDTH,
   WORKBENCH_RAIL_WIDTH,
 } from "@/lib/layout/workbench-geometry";
-import { SIDE_COLUMN_MIN_WIDTH } from "@/lib/layout/panel-geometry";
 import { useWebhookWorkbench } from "@/lib/hooks/use-webhook-workbench";
 import { useClampPanelWidths } from "@/lib/hooks/use-clamp-panel-widths";
 import { useWorkbenchStore } from "@/lib/stores/workbench-store";
@@ -67,9 +57,6 @@ import {
   threadsQueryKey,
 } from "@/lib/queries/threads";
 import { useWindowsStore } from "@/lib/stores/windows-store";
-import { isCanvasDocumentVisible } from "@/lib/canvas-document-visibility";
-import type { PlanItem } from "@/lib/stores/workbench-store";
-import type { EditedFile } from "@/lib/types";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import {
   listThreads,
@@ -161,8 +148,9 @@ function SessionPage() {
   // Abaixo de Tailwind `sm`, o modo IDE usa o estado mobile e mostra um painel
   // por vez. A largura é medida sem a escala visual do Electron.
   const isNarrowViewport = useIsNarrowViewport();
+  const sessionLayoutState = useSessionLayoutState();
+  const isCompactSession = sessionLayoutState !== "wide";
   const ideLayoutState = useIdeLayoutState();
-  const isNarrowIdeViewport = ideLayoutState === "mobile";
   const workbenchOpen = useWorkbenchStore((s) => s.isOpen(threadId));
   const setWorkbenchOpen = useWorkbenchStore((s) => s.setPanelOpen);
   const setSplitSize = useWorkbenchStore((s) => s.setSplitSize);
@@ -178,10 +166,6 @@ function SessionPage() {
   const setSidebarWidth = useSettingsStore((s) => s.setSidebarWidth);
   const sidebarPosition = useSettingsStore((s) => s.sidebarPosition);
   const sidebarOnRight = sidebarPosition === "right";
-  // The chat column is the physical inverse of the sessions/workbench
-  // sidebar when the desktop shell is mirrored.
-  const chatPhysicalSide = sidebarOnRight ? "left" : "right";
-  const chatResizeEdge = chatPhysicalSide === "right" ? "left" : "right";
   const assistantWorkbenchSide = sidebarOnRight ? "left" : "right";
   const ideWorkbenchSide = sidebarOnRight ? "right" : "left";
   const chatMode = useSettingsStore((s) => s.chatMode);
@@ -199,9 +183,6 @@ function SessionPage() {
 
   // Resize do painel de workbench content no modo IDE (borda direita do painel)
   const workbenchResizeRef = useRef<HTMLDivElement>(null);
-  // No Assistente a alça fica no limite externo do painel (conteúdo + rail),
-  // portanto usa uma referência própria para descontar a largura da rail.
-  const assistantWorkbenchResizeRef = useRef<HTMLDivElement>(null);
   const draggingWorkbench = useRef(false);
   const onWorkbenchResizeDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -228,37 +209,15 @@ function SessionPage() {
     },
     [ideWorkbenchSide, setSplitSize],
   );
-  const onAssistantWorkbenchResizeMove = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!draggingWorkbench.current) return;
-      const rect = assistantWorkbenchResizeRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const outerWidth = getPanelWidthFromPointer(
-        e.clientX,
-        rect,
-        assistantWorkbenchSide,
-      );
-      setSplitSize(
-        Math.min(
-          WORKBENCH_CONTENT_MAX_WIDTH,
-          Math.max(
-            WORKBENCH_CONTENT_MIN_WIDTH,
-            outerWidth - WORKBENCH_RAIL_WIDTH,
-          ),
-        ),
-      );
-    },
-    [assistantWorkbenchSide, setSplitSize],
-  );
   const onWorkbenchResizeKeyDown = useCallback(
-    (
-      e: React.KeyboardEvent<HTMLDivElement>,
-      side: "left" | "right" = ideWorkbenchSide,
-    ) => {
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
       e.preventDefault();
       setSplitSize(
-        Math.min(480, Math.max(220, splitSize + getResizeDelta(e.key, side))),
+        Math.min(
+          480,
+          Math.max(220, splitSize + getResizeDelta(e.key, ideWorkbenchSide)),
+        ),
       );
     },
     [ideWorkbenchSide, setSplitSize, splitSize],
@@ -295,14 +254,12 @@ function SessionPage() {
         const width = getPanelWidthFromPointer(
           e.clientX,
           rect,
-          chatPhysicalSide,
+          sidebarOnRight ? "right" : "left",
         );
-        setChatSidebarWidth(
-          Math.min(520, Math.max(SIDE_COLUMN_MIN_WIDTH, width)),
-        );
+        setChatSidebarWidth(Math.min(520, Math.max(240, width)));
       }
     },
-    [chatPhysicalSide, setChatSidebarWidth],
+    [setChatSidebarWidth, sidebarOnRight],
   );
   const onChatSidebarResizeKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -312,13 +269,14 @@ function SessionPage() {
         Math.min(
           520,
           Math.max(
-            SIDE_COLUMN_MIN_WIDTH,
-            chatSidebarWidth + getResizeDelta(e.key, chatPhysicalSide),
+            240,
+            chatSidebarWidth +
+              getResizeDelta(e.key, sidebarOnRight ? "right" : "left"),
           ),
         ),
       );
     },
-    [chatPhysicalSide, chatSidebarWidth, setChatSidebarWidth],
+    [chatSidebarWidth, setChatSidebarWidth, sidebarOnRight],
   );
   const onChatSidebarResizeUp = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -405,125 +363,21 @@ function SessionPage() {
 
   // ── UI state local ────────────────────────────────────────────────────────
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [chatSidebarOpen, setChatSidebarOpen] = useState(true);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isCompactSession) {
+      // A Sheet opened in compact mode must not remain over the desktop shell
+      // after a resize back to the wide layout.
+      // oxlint-disable-next-line react/set-state-in-effect
+      setIsMobileSidebarOpen(false);
+    }
+  }, [isCompactSession]);
   const [showToolCalls, setShowToolCalls] = useState(false);
   const [showShortcutsDialog, setShowShortcutsDialog] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showNewChatDialog, setShowNewChatDialog] = useState(false);
   const [inputLocked, setInputLocked] = useState(false);
-  const activeWorkspaceId = useWorkspacesStore((s) => s.active_id);
-  const [gitCommitDetailsById, setGitCommitDetailsById] = useState<
-    Record<string, GitCommitDetailsState>
-  >({});
-  const [planDocument, setPlanDocument] = useState<{
-    item: PlanItem;
-    content: string | null;
-  } | null>(null);
-  const [planDocumentsById, setPlanDocumentsById] = useState<
-    Record<string, { item: PlanItem; content: string | null }>
-  >({});
-  const [activeCanvasTab, setActiveCanvasTab] = useState("editor");
-  const canvasDocuments = useWindowsStore((state) => state.canvasDocuments);
-  const activeCanvasDocumentId = useWindowsStore(
-    (state) => state.activeCanvasDocumentId,
-  );
-  const modalCanvasDocument =
-    uiMode === "assistant"
-      ? (canvasDocuments.find(
-          (document) =>
-            document.id === activeCanvasDocumentId &&
-            isCanvasDocumentVisible(document, activeWorkspaceId, threadId),
-        ) ?? null)
-      : null;
-  const openCanvasDocument = useWindowsStore(
-    (state) => state.openCanvasDocument,
-  );
-  const activateCanvasDocument = useWindowsStore(
-    (state) => state.activateCanvasDocument,
-  );
-  const closeCanvasDocument = useWindowsStore(
-    (state) => state.closeCanvasDocument,
-  );
-  const closeCanvasDocumentModal = useWindowsStore(
-    (state) => state.closeCanvasDocumentModal,
-  );
-  const closeDockedTab = useWindowsStore((state) => state.closeDockedTab);
-  const openEditedFileDiff = useCallback(
-    (file: EditedFile) => {
-      const documentId = `file-diff:${activeWorkspaceId ?? "global"}:${threadId}:${file.path}`;
-      openCanvasDocument({
-        id: documentId,
-        kind: "file-diff",
-        workspaceId: activeWorkspaceId,
-        threadId,
-        title: m.chat_edited_files_diff({ path: file.path }),
-        path: file.path,
-        editedFile: file,
-      });
-      setActiveCanvasTab(documentId);
-    },
-    [activeWorkspaceId, openCanvasDocument, threadId],
-  );
-  const openGitCommitDetails = useCallback(
-    (details: GitCommitDetailsState) => {
-      if (activeWorkspaceId) {
-        const documentId = `commit:${activeWorkspaceId}:${threadId}:${details.commit.sha}`;
-        setGitCommitDetailsById((previous) => ({
-          ...previous,
-          [documentId]: details,
-        }));
-        setActiveCanvasTab(documentId);
-        openCanvasDocument({
-          id: documentId,
-          kind: "commit-details",
-          workspaceId: activeWorkspaceId,
-          threadId,
-          title: details.commit.message || m.workbench_git_commit_details(),
-          commitSha: details.commit.sha,
-          commitDetails: details,
-        });
-      }
-    },
-    [activeWorkspaceId, openCanvasDocument, threadId],
-  );
-  const openPlanDocument = useCallback(
-    (item: PlanItem, content: string | null) => {
-      if (!activeWorkspaceId) return;
-      const documentId = `plan:${activeWorkspaceId}:${threadId}:${item.path}`;
-      setPlanDocument({ item, content });
-      setPlanDocumentsById((previous) => ({
-        ...previous,
-        [documentId]: { item, content },
-      }));
-      setActiveCanvasTab(documentId);
-      openCanvasDocument({
-        id: documentId,
-        kind: "plan",
-        workspaceId: activeWorkspaceId,
-        threadId,
-        title: item.title,
-        path: item.path,
-        plan: { item, content },
-      });
-    },
-    [activeWorkspaceId, openCanvasDocument, threadId],
-  );
-
-  useEffect(() => {
-    if (!activeCanvasDocumentId) return;
-    const visible = canvasDocuments.some(
-      (document) =>
-        document.id === activeCanvasDocumentId &&
-        isCanvasDocumentVisible(document, activeWorkspaceId, threadId),
-    );
-    setActiveCanvasTab(visible ? activeCanvasDocumentId : "editor");
-  }, [activeCanvasDocumentId, activeWorkspaceId, canvasDocuments, threadId]);
-
-  useEffect(() => {
-    setPlanDocument(null);
-  }, [activeWorkspaceId, threadId]);
-
   // `model` reflete `selectedModel` do settings-store (persistido) — o
   // restante de AgentConfig (repos, etc.) é local/efêmero por thread.
   const [agentConfig, setAgentConfigState] = useState<AgentConfig>(() => ({
@@ -793,6 +647,7 @@ function SessionPage() {
   const isNewSession = isNew(threadId);
 
   // Threads do workspace ativo (para o session switcher do IDE mode).
+  const activeWorkspaceId = useWorkspacesStore((s) => s.active_id);
   const wsThreads = useMemo(
     () =>
       activeWorkspaceId
@@ -842,7 +697,7 @@ function SessionPage() {
     () => (
       <motion.div
         ref={sidebarWrapRef}
-        className={`hidden md:flex shrink-0 relative ${isSidebarCollapsed ? "min-w-16" : "min-w-60"}`}
+        className="hidden md:flex shrink-0 relative"
         animate={{
           width: isSidebarCollapsed
             ? SIDEBAR_COLLAPSED_WIDTH
@@ -874,11 +729,6 @@ function SessionPage() {
     [sidebar, isSidebarCollapsed, hydrated, sidebarWidth, sidebarOnRight],
   );
 
-  // IDE não monta a sidebar de sessões; Assistant e Kanban montam um Sheet
-  // no mobile e a coluna desktop somente quando o viewport não é estreito.
-  const showSidebarPanel = uiMode !== "ide";
-  const showDesktopSidebarPanel = showSidebarPanel && !isNarrowViewport;
-
   const headerEl = useMemo(
     () => (
       <Header
@@ -886,17 +736,21 @@ function SessionPage() {
         onToggleToolCalls={() => setShowToolCalls((v) => !v)}
         onShowShortcuts={() => setShowShortcutsDialog(true)}
         onOpenSidebar={
-          showSidebarPanel ? () => setIsMobileSidebarOpen(true) : undefined
+          uiMode === "ide" || !isCompactSession
+            ? undefined
+            : () => setIsMobileSidebarOpen(true)
         }
+        sidebarTriggerCompactOnly={uiMode !== "ide" && isCompactSession}
         showModeSwitch={!chatMode}
       />
     ),
-    [showToolCalls, chatMode, showSidebarPanel],
+    [showToolCalls, chatMode, uiMode, isCompactSession],
   );
 
   // Cada modo escolhe explicitamente a coluna esquerda. Assistente e Kanban
   // usam a lista de sessões; IDE usa a workbench. Manter a sidebar de sessões
   // fora do IDE evitava que o shell tivesse quatro colunas concorrentes.
+  const showSidebarPanel = uiMode !== "ide" && !isCompactSession;
   const modeComposition = getModeComposition(uiMode);
 
   // Chat renderizado no fluxo normal do layout de cada modo. `compact`
@@ -904,7 +758,7 @@ function SessionPage() {
   // do scroll sobrevive à troca de modo via `message-list.tsx`, que
   // guarda e restaura por thread — não por manter a instância montada.
   const renderChatPanel = useCallback(
-    (compact: boolean, onCollapse?: () => void) => {
+    (compact: boolean) => {
       const welcomeActions =
         !compact && hydrated && isNewRoute && !isWorkspaceChosen(threadId);
       return (
@@ -917,17 +771,6 @@ function SessionPage() {
                 onSelectThread={handleSelectThread}
                 onNewSession={handleNewChat}
               />
-              {onCollapse && (
-                <button
-                  type="button"
-                  aria-label={m.sidebar_collapse()}
-                  title={m.sidebar_collapse()}
-                  onClick={onCollapse}
-                  className="ml-auto rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                >
-                  <PanelRightClose className="h-4 w-4" />
-                </button>
-              )}
             </ColumnHeader>
           )}
           <div className="flex-1 min-h-0">
@@ -939,9 +782,11 @@ function SessionPage() {
               onThreadUpdate={handleThreadUpdate}
               onThreadPersistFailed={handleThreadPersistFailed}
               onThreadNotFound={handleThreadNotFound}
-              onOpenEditedFile={openEditedFileDiff}
               inputLocked={inputLocked}
-              isNewThread={isNew(threadId)}
+              // The route is already known to be new during the first render,
+              // before useNewSessionId's committed effect registers the local
+              // id. Keep the history loader from treating that id as persisted.
+              isNewThread={isNewRoute || isNew(threadId)}
               compact={compact}
               onStartChat={
                 welcomeActions ? handleStartChatFromWelcome : undefined
@@ -982,7 +827,7 @@ function SessionPage() {
       <LicenseBanner fullWidth onBlockingChange={setInputLocked} />
 
       <div className="relative flex flex-1 min-h-0 overflow-hidden">
-        {showSidebarPanel && (
+        {uiMode !== "ide" && (
           <Sheet
             open={isMobileSidebarOpen}
             onOpenChange={setIsMobileSidebarOpen}
@@ -1016,7 +861,7 @@ function SessionPage() {
             >
               <ThreeColumnShell
                 centerHeader={headerEl}
-                left={sidebarPanel}
+                left={showSidebarPanel ? sidebarPanel : null}
                 center={
                   <div className="flex min-w-[360px] flex-1 min-h-0 overflow-hidden">
                     <KanbanBoard threadId={threadId} />
@@ -1026,10 +871,7 @@ function SessionPage() {
                 columns={{
                   left: {
                     label: "Sessões",
-                    visibility: showDesktopSidebarPanel ? "visible" : "hidden",
-                    width: isSidebarCollapsed
-                      ? SIDEBAR_COLLAPSED_WIDTH
-                      : sidebarWidth,
+                    visibility: showSidebarPanel ? "visible" : "hidden",
                   },
                   center: { label: "Kanban" },
                   right: { label: "Workbench", visibility: "hidden" },
@@ -1049,7 +891,7 @@ function SessionPage() {
               <IdeModeLayout
                 workbenchOpen={workbenchOpen}
                 onOpenWorkbench={openWorkbench}
-                layoutState={ideLayoutState}
+                layoutState={isCompactSession ? "mobile" : ideLayoutState}
                 direction={sidebarOnRight ? "rtl" : "ltr"}
                 workbenchSide={ideWorkbenchSide}
                 // The shell column includes the fixed 48px rail. splitSize
@@ -1067,12 +909,9 @@ function SessionPage() {
                 workbenchMaxWidth={
                   WORKBENCH_CONTENT_MAX_WIDTH + WORKBENCH_RAIL_WIDTH
                 }
-                chatWidth={
-                  hydrated ? (chatSidebarOpen ? chatSidebarWidth : 48) : 256
-                }
-                chatMinWidth={chatSidebarOpen ? SIDE_COLUMN_MIN_WIDTH : 48}
+                chatWidth={hydrated ? chatSidebarWidth : 256}
+                chatMinWidth={240}
                 chatMaxWidth={520}
-                showChat={chatSidebarOpen}
                 header={headerEl}
                 navBar={
                   <WorkbenchNavBar
@@ -1084,12 +923,12 @@ function SessionPage() {
                   <div
                     ref={workbenchResizeRef}
                     className={
-                      isNarrowIdeViewport
+                      isCompactSession
                         ? "relative flex-1 min-w-0"
                         : "relative shrink-0 overflow-hidden"
                     }
                     style={
-                      isNarrowIdeViewport
+                      isCompactSession
                         ? undefined
                         : { width: hydrated && workbenchOpen ? splitSize : 0 }
                     }
@@ -1097,14 +936,12 @@ function SessionPage() {
                   >
                     <WorkbenchContent
                       threadId={threadId}
-                      onOpenCommitDetails={openGitCommitDetails}
-                      onOpenPlanDocument={openPlanDocument}
                       side={ideWorkbenchSide}
                       visible={hydrated && workbenchOpen}
                       onAddToContext={pushMention}
                       onSendPrompt={pushDraft}
                     />
-                    {!isNarrowIdeViewport && workbenchOpen && (
+                    {!isCompactSession && workbenchOpen && (
                       <div
                         role="separator"
                         aria-orientation="vertical"
@@ -1113,14 +950,12 @@ function SessionPage() {
                         aria-valuemax={480}
                         aria-valuenow={splitSize}
                         tabIndex={0}
-                        onKeyDown={(event) =>
-                          onWorkbenchResizeKeyDown(event, ideWorkbenchSide)
-                        }
+                        onKeyDown={onWorkbenchResizeKeyDown}
                         onPointerDown={onWorkbenchResizeDown}
                         onPointerMove={onWorkbenchResizeMove}
                         onPointerUp={onWorkbenchResizeUp}
                         onPointerCancel={onWorkbenchResizeUp}
-                        className={`absolute ${ideWorkbenchSide === "left" ? "right-0" : "left-0"} top-0 z-[100] h-full w-1 cursor-col-resize touch-none select-none bg-border/60 hover:bg-primary/50 transition-colors`}
+                        className={`absolute ${ideWorkbenchSide === "left" ? "right-0" : "left-0"} top-0 z-10 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors`}
                       />
                     )}
                   </div>
@@ -1129,102 +964,7 @@ function SessionPage() {
                   // min-w-[360px]: piso mínimo pro editor continuar usável
                   // ao encolher a janela ou puxar o painel do workbench largo.
                   <div className="flex flex-col flex-1 min-w-0 h-full overflow-hidden">
-                    <CenterCanvas
-                      activeTab={activeCanvasTab}
-                      onTabChange={(id) => {
-                        setActiveCanvasTab(id);
-                        if (id !== "editor") {
-                          activateCanvasDocument(id);
-                        }
-                      }}
-                      onTabClose={(id) => {
-                        const document = canvasDocuments.find(
-                          (item) => item.id === id,
-                        );
-                        if (document?.kind === "file" && document.path) {
-                          closeCanvasDocument(id);
-                          closeDockedTab(document.path);
-                        } else {
-                          closeCanvasDocument(id);
-                        }
-                        if (id === activeCanvasTab)
-                          setActiveCanvasTab("editor");
-                      }}
-                      documents={canvasDocuments.filter((document) =>
-                        isCanvasDocumentVisible(
-                          document,
-                          activeWorkspaceId,
-                          threadId,
-                        ),
-                      )}
-                      renderDocument={(document) => {
-                        if (
-                          document.kind === "file" &&
-                          document.path &&
-                          document.workspaceId
-                        ) {
-                          return (
-                            <FileEditor
-                              workspaceId={document.workspaceId}
-                              path={document.path}
-                            />
-                          );
-                        }
-                        if (
-                          document.kind === "file-diff" &&
-                          document.editedFile
-                        ) {
-                          return (
-                            <CanvasFileDiff editedFile={document.editedFile} />
-                          );
-                        }
-                        if (document.kind === "commit-details") {
-                          const details =
-                            document.commitDetails ??
-                            gitCommitDetailsById[document.id];
-                          return details ? (
-                            <CommitDetails
-                              commit={details.commit}
-                              diff={details.diff}
-                              loading={details.loading}
-                            />
-                          ) : (
-                            <CommitDetails
-                              commit={{
-                                sha: document.commitSha ?? "",
-                                sha_short: (document.commitSha ?? "").slice(
-                                  0,
-                                  7,
-                                ),
-                                message: document.title,
-                                body: "",
-                                author: "",
-                                date: "",
-                                refs: [],
-                              }}
-                              diff={null}
-                              loading
-                            />
-                          );
-                        }
-                        if (document.kind === "mcp-preview" && document.mcp) {
-                          return <LibraryMcpPreview mcp={document.mcp} />;
-                        }
-                        const plan =
-                          document.plan ?? planDocumentsById[document.id];
-                        return (
-                          <div className="h-full overflow-auto p-5">
-                            {plan?.content ? (
-                              <MarkdownView content={plan.content} />
-                            ) : (
-                              <p className="text-sm text-muted-foreground">
-                                {m.workbench_preview_md_loading()}
-                              </p>
-                            )}
-                          </div>
-                        );
-                      }}
-                    >
+                    <CenterCanvas>
                       <DockedEditor activeWorkspaceId={activeWorkspaceId} />
                     </CenterCanvas>
                   </div>
@@ -1233,28 +973,22 @@ function SessionPage() {
                   <div
                     ref={chatSidebarRef}
                     className={
-                      isNarrowIdeViewport
+                      isCompactSession
                         ? "relative flex flex-col h-full bg-sidebar"
-                        : `relative ${chatSidebarOpen ? "min-w-60" : "min-w-12"} shrink-0 flex flex-col h-full border-border/60 bg-sidebar ${sidebarOnRight ? "border-r" : "border-l"}`
+                        : `relative shrink-0 flex flex-col h-full border-border/60 bg-sidebar ${sidebarOnRight ? "border-r" : "border-l"}`
                     }
                     style={
-                      isNarrowIdeViewport
+                      isCompactSession
                         ? undefined
-                        : {
-                            width: hydrated
-                              ? chatSidebarOpen
-                                ? chatSidebarWidth
-                                : 48
-                              : 256,
-                          }
+                        : { width: hydrated ? chatSidebarWidth : 256 }
                     }
                   >
-                    {!isNarrowIdeViewport && (
+                    {!isCompactSession && (
                       <div
                         role="separator"
                         aria-orientation="vertical"
                         aria-label={m.resize_chat()}
-                        aria-valuemin={SIDE_COLUMN_MIN_WIDTH}
+                        aria-valuemin={240}
                         aria-valuemax={520}
                         aria-valuenow={chatSidebarWidth}
                         tabIndex={0}
@@ -1263,28 +997,12 @@ function SessionPage() {
                         onPointerMove={onChatSidebarResizeMove}
                         onPointerUp={onChatSidebarResizeUp}
                         onPointerCancel={onChatSidebarResizeUp}
-                        className={`absolute ${chatResizeEdge === "left" ? "left-0" : "right-0"} top-0 z-[100] h-full w-1 cursor-col-resize touch-none select-none bg-border/60 hover:bg-primary/50 transition-colors`}
+                        className={`absolute ${sidebarOnRight ? "left-0" : "right-0"} top-0 z-10 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors`}
                       />
                     )}
-                    {chatSidebarOpen ? (
-                      <div className="flex-1 min-h-0 min-w-0">
-                        {renderChatPanel(true, () => setChatSidebarOpen(false))}
-                      </div>
-                    ) : (
-                      <div className="flex h-full min-h-0 w-full flex-col">
-                        <div className="flex h-16 min-h-16 shrink-0 items-center justify-center border-b border-border/60 bg-sidebar">
-                          <button
-                            type="button"
-                            aria-label={m.sidebar_open()}
-                            title={m.sidebar_open()}
-                            onClick={() => setChatSidebarOpen(true)}
-                            className="flex h-full w-full items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground"
-                          >
-                            <PanelRightOpen className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                    <div className="flex-1 min-h-0 min-w-0">
+                      {renderChatPanel(true)}
+                    </div>
                   </div>
                 }
               />
@@ -1317,10 +1035,10 @@ function SessionPage() {
             >
               <ThreeColumnShell
                 centerHeader={headerEl}
-                left={sidebarPanel}
+                left={showSidebarPanel ? sidebarPanel : null}
                 center={
                   <div className="flex flex-1 min-w-0 min-h-0 flex-col overflow-hidden">
-                    {isNarrowViewport && assistantWorkbenchVisible ? (
+                    {isCompactSession && assistantWorkbenchVisible ? (
                       <div className="flex h-full min-w-0">
                         {assistantWorkbenchSide === "left" && (
                           <WorkbenchNavBar
@@ -1331,8 +1049,6 @@ function SessionPage() {
                         <div className="min-w-0 flex-1">
                           <WorkbenchContent
                             threadId={threadId}
-                            onOpenCommitDetails={openGitCommitDetails}
-                            onOpenPlanDocument={openPlanDocument}
                             side={assistantWorkbenchSide}
                             visible
                             onAddToContext={pushMention}
@@ -1353,7 +1069,6 @@ function SessionPage() {
                 }
                 right={
                   <div
-                    ref={assistantWorkbenchResizeRef}
                     className={`relative flex min-w-0 shrink-0 min-h-0 flex-row overflow-hidden border-border/60 ${assistantWorkbenchSide === "right" ? "border-l" : "border-r"}`}
                     style={{
                       width: assistantWorkbenchVisible
@@ -1375,34 +1090,10 @@ function SessionPage() {
                     {assistantWorkbenchVisible && (
                       <WorkbenchContent
                         threadId={threadId}
-                        onOpenCommitDetails={openGitCommitDetails}
-                        onOpenPlanDocument={openPlanDocument}
                         side={assistantWorkbenchSide}
                         visible
                         onAddToContext={pushMention}
                         onSendPrompt={pushDraft}
-                      />
-                    )}
-                    {assistantWorkbenchVisible && (
-                      <div
-                        role="separator"
-                        aria-orientation="vertical"
-                        aria-label={m.resize_workbench()}
-                        aria-valuemin={WORKBENCH_CONTENT_MIN_WIDTH}
-                        aria-valuemax={WORKBENCH_CONTENT_MAX_WIDTH}
-                        aria-valuenow={splitSize}
-                        tabIndex={0}
-                        onKeyDown={(event) =>
-                          onWorkbenchResizeKeyDown(
-                            event,
-                            assistantWorkbenchSide,
-                          )
-                        }
-                        onPointerDown={onWorkbenchResizeDown}
-                        onPointerMove={onAssistantWorkbenchResizeMove}
-                        onPointerUp={onWorkbenchResizeUp}
-                        onPointerCancel={onWorkbenchResizeUp}
-                        className={`absolute ${assistantWorkbenchSide === "left" ? "right-0" : "left-0"} top-0 z-[100] h-full w-1 cursor-col-resize touch-none select-none bg-border/60 hover:bg-primary/50 transition-colors`}
                       />
                     )}
                     {assistantWorkbenchSide === "right" && (
@@ -1413,15 +1104,12 @@ function SessionPage() {
                     )}
                   </div>
                 }
-                showRight={hydrated && !chatMode && !isNarrowViewport}
+                showRight={hydrated && !chatMode && !isCompactSession}
                 direction={sidebarOnRight ? "rtl" : "ltr"}
                 columns={{
                   left: {
                     label: "Sessões",
-                    visibility: showDesktopSidebarPanel ? "visible" : "hidden",
-                    width: isSidebarCollapsed
-                      ? SIDEBAR_COLLAPSED_WIDTH
-                      : sidebarWidth,
+                    visibility: showSidebarPanel ? "visible" : "hidden",
                   },
                   center: { label: "Chat" },
                   right: { label: "Workbench" },
@@ -1452,81 +1140,6 @@ function SessionPage() {
             </motion.div>
           )}
         </div>
-        <CanvasDocumentDialog
-          open={modalCanvasDocument !== null}
-          onOpenChange={(open) => {
-            if (!open && modalCanvasDocument) {
-              closeCanvasDocumentModal(modalCanvasDocument.id);
-              setActiveCanvasTab("editor");
-            }
-          }}
-          title={modalCanvasDocument?.title ?? "Documento"}
-          titleClassName="truncate font-mono text-sm"
-        >
-          {modalCanvasDocument?.kind === "file" &&
-            modalCanvasDocument.workspaceId &&
-            modalCanvasDocument.path && (
-              <FileEditor
-                workspaceId={modalCanvasDocument.workspaceId}
-                path={modalCanvasDocument.path}
-              />
-            )}
-          {modalCanvasDocument?.kind === "file-diff" &&
-            modalCanvasDocument.editedFile && (
-              <CanvasFileDiff editedFile={modalCanvasDocument.editedFile} />
-            )}
-          {modalCanvasDocument?.kind === "mcp-preview" &&
-            modalCanvasDocument.mcp && (
-              <LibraryMcpPreview mcp={modalCanvasDocument.mcp} />
-            )}
-          {modalCanvasDocument?.kind === "plan" && (
-            <div className="h-full overflow-auto p-5">
-              {(modalCanvasDocument.plan?.content ??
-              planDocumentsById[modalCanvasDocument.id]?.content) ? (
-                <MarkdownView
-                  content={
-                    (modalCanvasDocument.plan?.content ??
-                      planDocumentsById[modalCanvasDocument.id]?.content)!
-                  }
-                />
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  {m.workbench_preview_md_loading()}
-                </p>
-              )}
-            </div>
-          )}
-          {modalCanvasDocument?.kind === "commit-details" &&
-            (() => {
-              const details =
-                modalCanvasDocument.commitDetails ??
-                gitCommitDetailsById[modalCanvasDocument.id];
-              return details ? (
-                <CommitDetails
-                  commit={details.commit}
-                  diff={details.diff}
-                  loading={details.loading}
-                />
-              ) : (
-                <CommitDetails
-                  commit={{
-                    sha: modalCanvasDocument.commitSha ?? "",
-                    sha_short: (modalCanvasDocument.commitSha ?? "").slice(
-                      0,
-                      7,
-                    ),
-                    message: modalCanvasDocument.title,
-                    body: "",
-                    author: "",
-                    date: "",
-                    refs: [],
-                  }}
-                  diff={null}
-                  loading
-                />
-              );
-            })()}
-        </CanvasDocumentDialog>
       </div>
     </div>
   );

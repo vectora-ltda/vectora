@@ -50,6 +50,7 @@ interface DiscoveredMcp {
 
 interface McpPackage {
   registryType?: string;
+  registry_name?: string;
   transport?: { type?: string };
   identifier?: string;
   environmentVariables?: { name?: string; isRequired?: boolean }[];
@@ -101,11 +102,20 @@ function toDiscoveredMcp(item: McpServerEntry): DiscoveredMcp | null {
     if (!candidate.identifier) return false;
     const transport = candidate.transport?.type ?? "stdio";
     if (transport !== "stdio") return false;
-    const registryType = candidate.registryType?.toLowerCase();
+    const registryType = (
+      candidate.registryType ?? candidate.registry_name
+    )?.toLowerCase();
+    const runtimeHint = (
+      candidate.runtimeHint ?? candidate.runtime_hint
+    )?.toLowerCase();
     return (
       registryType === "npm" ||
       registryType === "pypi" ||
-      registryType === "oci"
+      registryType === "oci" ||
+      runtimeHint === "npm" ||
+      runtimeHint === "npx" ||
+      runtimeHint === "uvx" ||
+      runtimeHint === "docker"
     );
   });
   const remote = server.remotes?.find(
@@ -118,7 +128,7 @@ function toDiscoveredMcp(item: McpServerEntry): DiscoveredMcp | null {
   const github = (item._meta ?? server._meta)?.[
     "io.modelcontextprotocol.registry/publisher-provided"
   ]?.github;
-  const registryType = pkg?.registryType?.toLowerCase();
+  const registryType = (pkg?.registryType ?? pkg?.registry_name)?.toLowerCase();
   const runtimeHint =
     pkg?.runtimeHint?.toLowerCase() ??
     pkg?.runtime_hint?.toLowerCase() ??
@@ -129,7 +139,7 @@ function toDiscoveredMcp(item: McpServerEntry): DiscoveredMcp | null {
       ? `uvx ${pkg.identifier}`
       : registryType === "oci" || runtimeHint === "docker"
         ? `docker run --rm ${pkg.identifier}`
-        : registryType === "npm" && ["npm", "npx"].includes(runtimeHint)
+        : registryType === "npm" || ["npm", "npx"].includes(runtimeHint)
           ? `npx -y ${pkg.identifier}`
           : ""
     : "";

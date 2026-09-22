@@ -99,9 +99,23 @@ if [ "$mcp_table_exists" = true ]; then
     fi
   }
 
+  # The schema replay creates a ranking index over these columns. Add the
+  # complete discovery shape first so legacy tables can reach that replay.
+  ensure_missing_mcp_column icon_url "TEXT"
+  ensure_missing_mcp_column publisher "TEXT"
+  ensure_missing_mcp_column publisher_url "TEXT"
+  ensure_missing_mcp_column stars_count "INTEGER NOT NULL DEFAULT 0"
+  ensure_missing_mcp_column runtime_hint "TEXT"
+  ensure_missing_mcp_column package_identifier "TEXT"
+  ensure_missing_mcp_column transport "TEXT NOT NULL DEFAULT 'stdio'"
+  ensure_missing_mcp_column server_url "TEXT"
+  ensure_missing_mcp_column catalog_source "TEXT NOT NULL DEFAULT 'curated'"
+  ensure_missing_mcp_column vectora_verified "INTEGER NOT NULL DEFAULT 0"
+  ensure_missing_mcp_column downloads_count "INTEGER NOT NULL DEFAULT 0"
   ensure_missing_mcp_column snapshot_id "TEXT"
   ensure_missing_mcp_column last_seen_at "TEXT"
   ensure_missing_mcp_column catalog_status "TEXT NOT NULL DEFAULT 'active'"
+  ensure_missing_mcp_column updated_at "TEXT"
   pnpm exec wrangler d1 execute vectora-db --remote \
     --command "CREATE INDEX IF NOT EXISTS idx_mcp_catalog_public_rank ON mcp_catalog(catalog_status, stars_count DESC, updated_at DESC)"
 fi

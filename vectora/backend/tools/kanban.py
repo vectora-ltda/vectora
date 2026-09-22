@@ -220,6 +220,7 @@ async def kanban_create(
     )
 )
 async def kanban_update_status(
+    ctx: ToolContext,
     task_id: str,
     status: str,
     block_kind: str | None = None,
@@ -247,14 +248,52 @@ async def kanban_update_status(
         inválida.
     """
     try:
+        if ctx.background_task_id:
+            if ctx.background_task_id != task_id:
+                return json.dumps(
+                    {
+                        "status": "error",
+                        "error": "task em execução não corresponde ao card solicitado",
+                    }
+                )
+            await kanban.authorize_task_claim(task_id, ctx.background_run_id)
+            authorized_session_id: str | None = None
+        else:
+            if not ctx.thread_id:
+                return json.dumps(
+                    {"status": "error", "error": "session_id ausente no contexto"}
+                )
+            await kanban.authorize_task_session(task_id, ctx.thread_id)
+            authorized_session_id = ctx.thread_id
+        authorized_run_id = ctx.background_run_id if ctx.background_task_id else None
+        if status in ("running", "done"):
+            return json.dumps(
+                {
+                    "status": "error",
+                    "error": "running/done só podem ser alcançados pelos fluxos de execução",
+                }
+            )
         if status == "blocked":
             await kanban.block_task(
-                task_id, block_kind or _DEFAULT_BLOCK_KIND, block_reason or ""
+                task_id,
+                block_kind or _DEFAULT_BLOCK_KIND,
+                block_reason or "",
+                authorized_run_id=authorized_run_id,
             )
         elif status == "ready":
-            await kanban.unblock_task(task_id)
+            await kanban.manual_transition(
+                task_id,
+                status,
+                authorized_session_id=authorized_session_id,
+                authorized_run_id=authorized_run_id,
+            )
         else:
-            await kanban.set_status(task_id, status)
+            await kanban.manual_transition(
+                task_id,
+                status,
+                authorized_session_id=authorized_session_id,
+                authorized_run_id=authorized_run_id,
+            )
 
         estado: dict[str, Any] = await kanban.get_task_status(task_id)
         return json.dumps({"result": "ok", "task_id": task_id, **estado})

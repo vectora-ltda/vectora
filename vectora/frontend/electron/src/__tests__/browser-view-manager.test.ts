@@ -8,13 +8,13 @@ import {
   type ManagedView,
 } from "../browser-view-manager.js";
 
-type FakeManagedView = ManagedView & {
+function makeFakeView(): ManagedView & {
   handlers: Record<string, (...args: unknown[]) => void>;
   emitFake(event: string, ...args: unknown[]): void;
-  getWindowOpenAction(url: string): { action: "allow" | "deny" } | undefined;
-};
-
-function makeFakeView(): FakeManagedView {
+  getWindowOpenAction(
+    targetUrl: string,
+  ): { action: "allow" | "deny" } | undefined;
+} {
   const handlers: Record<string, (...args: unknown[]) => void> = {};
   let windowOpenHandler:
     ((details: { url: string }) => { action: "allow" | "deny" }) | undefined;
@@ -24,8 +24,8 @@ function makeFakeView(): FakeManagedView {
     emitFake(event, ...args) {
       handlers[event]?.(...args);
     },
-    getWindowOpenAction(url: string) {
-      return windowOpenHandler?.({ url });
+    getWindowOpenAction(targetUrl: string) {
+      return windowOpenHandler?.({ url: targetUrl });
     },
     webContents: {
       loadURL: vi.fn(async (u: string) => {

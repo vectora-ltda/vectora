@@ -653,7 +653,12 @@ async def resume_run_endpoint(
     if run.get("status") != "awaiting_approval":
         raise HTTPException(status_code=409, detail="Run não está aguardando aprovação")
     if body.decision == "cancel":
-        await cancel_background_run(run_id)
+        cancelled = await cancel_background_run(run_id)
+        if cancelled is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Run perdeu o controle da tarefa e não foi cancelada",
+            )
         return {"status": "cancelled", "run_id": run_id}
     background_tasks.add_task(resume_background_run, run_id, body.decision)
     return {"status": "queued", "run_id": run_id}

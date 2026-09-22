@@ -16,8 +16,9 @@ export interface CenterCanvasTab {
 const EMPTY_TABS: CenterCanvasTab[] = [];
 const EMPTY_DOCUMENTS: CanvasDocumentDescriptor[] = [];
 
-const tabDomId = (id: string, index: number) =>
-  `vectora-center-canvas-tab-${id.replace(/[^a-zA-Z0-9_-]/g, "-")}-${index}`;
+function tabDomId(id: string, index: number): string {
+  return `vectora-center-canvas-tab-${id.replace(/[^a-zA-Z0-9_-]/g, "-")}-${index}`;
+}
 
 interface CenterCanvasProps {
   tabs?: CenterCanvasTab[];
