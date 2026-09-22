@@ -99,8 +99,13 @@ def test_release_rotation_workflow_declares_release_entrypoint() -> None:
     assert "compareCommits" in content
     migration = workflow.parent / "migrate-release-line-prs.yml"
     migration_content = migration.read_text(encoding="utf-8")
-    assert "pulls.update" in migration_content
-    assert "issues.update" in migration_content
+    assert "applyMigrationUpdates" in migration_content
+    migration_helper = (
+        workflow.parent.parent / "scripts" / "migrate_release_line_prs.js"
+    )
+    helper_content = migration_helper.read_text(encoding="utf-8")
+    assert "api.pulls.update" in helper_content
+    assert "api.issues.update" in helper_content
     assert "pull_request_target" in migration_content
     assert "migrate_release_line_prs.js" in migration_content
 
