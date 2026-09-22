@@ -249,6 +249,7 @@ async def set_status(
         else:
             cur = await db.execute(
                 "UPDATE vectora_background_tasks SET status = ?, block_count = 0, "
+                "claim_lock = NULL, claim_expires_at = NULL, "
                 "updated_at = datetime('now') WHERE id = ? AND claim_lock = ? "
                 "AND claim_expires_at > ?",
                 (status, task_id, authorized_run_id, _agora().isoformat()),
@@ -262,6 +263,7 @@ async def set_status(
     else:
         cur = await db.execute(
             "UPDATE vectora_background_tasks SET status = ?, "
+            "claim_lock = NULL, claim_expires_at = NULL, "
             "updated_at = datetime('now') WHERE id = ? AND claim_lock = ? "
             "AND claim_expires_at > ?",
             (status, task_id, authorized_run_id, _agora().isoformat()),

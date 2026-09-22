@@ -1144,7 +1144,12 @@ async def run_task(
             with contextlib.suppress(Exception):
                 from backend.scheduling.kanban import block_task
 
-                await block_task(task.id, "transient", goal_outcome.reason[:500])
+                await block_task(
+                    task.id,
+                    "transient",
+                    goal_outcome.reason[:500],
+                    authorized_run_id=run_id,
+                )
             return None
 
         summary = (
@@ -1186,7 +1191,7 @@ async def run_task(
         await _touch_last_run(task.id)
         _emit_run_event("done", task, run_id, run_thread_id, summary)
         await report_to_parent_session(task, run_thread_id, summary)
-        await _mark_kanban_after_success(task)
+        await _mark_kanban_after_success(task, run_id=run_id)
         return run_thread_id
     except Exception as exc:
         logger.exception(
@@ -1202,7 +1207,12 @@ async def run_task(
             # "transient" (não "capability"): é uma falha da própria run,
             # não do orçamento — a taxonomia distingue os dois motivos pro
             # card mostrar o certo.
-            await block_task(task.id, "transient", str(exc)[:500])
+            await block_task(
+                task.id,
+                "transient",
+                str(exc)[:500],
+                authorized_run_id=run_id,
+            )
         return None
     finally:
         _watchdog_task.cancel()
@@ -1210,7 +1220,9 @@ async def run_task(
             await _watchdog_task
 
 
-async def _mark_kanban_after_success(task: BackgroundTask) -> None:
+async def _mark_kanban_after_success(
+    task: BackgroundTask, *, run_id: str | None = None
+) -> None:
     """Fecha o ciclo do Kanban após uma run bem-sucedida.
 
     Recorrente (`interval`) nunca termina de verdade — volta pra `ready`
@@ -1220,6 +1232,9 @@ async def _mark_kanban_after_success(task: BackgroundTask) -> None:
     menos que `trigger_config.requires_review` peça revisão humana antes,
     caso em que vai pra `review` em vez de `done` diretamente.
     `recompute_ready()` promove tasks que dependiam desta, quando existirem.
+    Quando ``run_id`` é informado, a escrita é cercada pelo claim dessa run e
+    libera o claim no mesmo ``UPDATE``; se a task se bloqueou durante a
+    execução, o fencing falha e preserva o bloqueio.
     """
     try:
         from backend.scheduling.kanban import recompute_ready, set_status
@@ -1230,7 +1245,7 @@ async def _mark_kanban_after_success(task: BackgroundTask) -> None:
             novo_status = "review"
         else:
             novo_status = "done"
-        await set_status(task.id, novo_status)
+        await set_status(task.id, novo_status, authorized_run_id=run_id)
         await recompute_ready()
     except Exception:
         logger.warning(
@@ -1296,6 +1311,15 @@ async def _resume_goal_run(
     if goal_outcome.status == "error":
         await _finish_run(run_id, "error", goal_outcome.reason)
         _emit_run_event("error", task, run_id, run_thread_id, goal_outcome.reason)
+        with contextlib.suppress(Exception):
+            from backend.scheduling.kanban import block_task
+
+            await block_task(
+                task.id,
+                "transient",
+                goal_outcome.reason[:500],
+                authorized_run_id=run_id,
+            )
         return None
     summary = (
         goal_outcome.final_message.text()
@@ -1305,6 +1329,7 @@ async def _resume_goal_run(
     await _finish_run(run_id, "done", summary)
     _emit_run_event("done", task, run_id, run_thread_id, summary)
     await report_to_parent_session(task, run_thread_id, summary)
+    await _mark_kanban_after_success(task, run_id=run_id)
     return "done"
 
 
@@ -1361,6 +1386,7 @@ async def _resume_normal_run(
     await _finish_run(run_id, "done", summary)
     _emit_run_event("done", task, run_id, run_thread_id, summary)
     await report_to_parent_session(task, run_thread_id, summary)
+    await _mark_kanban_after_success(task, run_id=run_id)
     return "done"
 
 
@@ -1498,6 +1524,15 @@ async def resume_background_run(run_id: str, decision: str = "approve") -> str |
         logger.exception("background_tasks: resume falhou", extra={"run_id": run_id})
         with contextlib.suppress(Exception):
             await _finish_run(run_id, "error", str(exc))
+        with contextlib.suppress(Exception):
+            from backend.scheduling.kanban import block_task
+
+            await block_task(
+                task.id,
+                "transient",
+                str(exc)[:500],
+                authorized_run_id=run_id,
+            )
         return None
     finally:
         watchdog_task.cancel()

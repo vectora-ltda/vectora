@@ -1220,9 +1220,46 @@ async def test_run_task_interrupt_marks_awaiting_and_resume_completes(
     assert runs2[0]["status"] == "done"
     assert runs2[0]["summary"] == "arquivo escrito"
 
+    from backend.scheduling import kanban
+
+    estado = await kanban.get_task_status(task.id)
+    assert estado["status"] == "done"
+    assert estado["claim_lock"] is None
+    assert estado["claim_expires_at"] is None
+
     historico = await native_session_store.get_history(run_thread_id)
     assert [m.role.value for m in historico[-3:]] == ["assistant", "tool", "assistant"]
     assert historico[-2].text() == "arquivo escrito"  # resultado real da tool
+
+
+async def test_self_block_survives_success_epilogue(db):
+    """Um bloqueio feito pela própria run não pode ser sobrescrito por done."""
+    from backend.scheduling import kanban
+
+    task = await bg.create_task(
+        session_id="sess-self-block",
+        user_id="u-self-block",
+        kind="routine",
+        name="Bloqueia",
+        instruction="aguarde intervenção",
+        trigger_type="manual",
+        trigger_config={},
+    )
+    run_id = "run-self-block"
+    assert await kanban.claim_task(task.id, run_id)
+    await kanban.block_task(
+        task.id,
+        "needs_input",
+        "aguardando credencial",
+        authorized_run_id=run_id,
+    )
+
+    await bg._mark_kanban_after_success(task, run_id=run_id)
+
+    estado = await kanban.get_task_status(task.id)
+    assert estado["status"] == "blocked"
+    assert estado["block_kind"] == "needs_input"
+    assert estado["claim_lock"] is None
 
 
 async def test_resume_background_run_rejects_unknown_or_finished_run(
@@ -1390,7 +1427,7 @@ async def test_resume_background_run_invalid_decision_marks_error(
     except geral — a run vira 'error' (não fica presa em awaiting_approval) e
     o resume devolve None."""
     _CHAMADAS_ANOTAR.clear()
-    _task, run_id = await _run_task_ate_pausar(
+    task, run_id = await _run_task_ate_pausar(
         monkeypatch,
         native_session_store,
         tool_name="anotar_bg_bad_decision",
@@ -1405,6 +1442,12 @@ async def test_resume_background_run_invalid_decision_marks_error(
     assert run is not None
     assert run["status"] == "error"
     assert "decision inválida" in run["summary"]
+
+    from backend.scheduling import kanban
+
+    estado = await kanban.get_task_status(task.id)
+    assert estado["status"] == "blocked"
+    assert estado["claim_lock"] is None
 
 
 async def test_resume_background_run_repauses_same_turn(
