@@ -51,7 +51,7 @@ interface RagPackageRow {
 }
 
 const RAG_PACKAGE_COLUMNS =
-  "id, name, description, source_lib, source_version, package_name, version, size_bytes, checksum, embed_model, publisher_id, (SELECT COALESCE(full_name, email) FROM users WHERE users.id = rag_packages.publisher_id) AS publisher, verified, downloads_count, license, updated_at";
+  "id, name, description, source_lib, source_version, package_name, version, size_bytes, checksum, embed_model, publisher_id, (SELECT NULLIF(TRIM(full_name), '') FROM users WHERE users.id = rag_packages.publisher_id) AS publisher, verified, downloads_count, license, updated_at";
 
 ragLibrary.get("/", async (c) => {
   const q = c.req.query("q");
