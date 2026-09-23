@@ -296,6 +296,16 @@ async def kanban_update_status(
             )
 
         estado: dict[str, Any] = await kanban.get_task_status(task_id)
+        logger.info(
+            "kanban_update_status: card movido com sucesso",
+            extra={
+                "tool": "kanban_update_status",
+                "task_id": task_id,
+                "status_pedido": status,
+                "session_id": authorized_session_id,
+                "background_run_id": authorized_run_id,
+            },
+        )
         return json.dumps({"result": "ok", "task_id": task_id, **estado})
     except ValueError as e:
         return json.dumps({"status": "error", "error": str(e)})

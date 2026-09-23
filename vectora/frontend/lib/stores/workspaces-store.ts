@@ -13,7 +13,8 @@
  * - Falhas de rede/servidor em ações do usuário viram toast (canal único de
  *   feedback); nenhuma ação retorna silenciosamente `null`.
  * - Persistência via `localStorage`, mas só de `active_id`: a lista de
- *   workspaces é sempre revalidada do backend (source of truth).
+ *   workspaces é sempre revalidada do backend (source of truth) e nunca cruza
+ *   contas diferentes no mesmo navegador.
  */
 
 import { create } from "zustand";
@@ -543,13 +544,19 @@ export const useWorkspacesStore = create<WorkspacesState>()(
               removeItem: () => {},
             },
       ),
-      // Persiste `active_id` e a lista de `workspaces` (stale-while-revalidate).
-      // A lista precisa existir no 1º paint: `groupThreadsByWorkspace` casa cada
-      // sessão de código ao seu workspace por id. `hydrate()` revalida logo, então
-      // a janela de dado stale é mínima.
+      // Persiste somente o id selecionado. A lista completa pode conter caminhos
+      // privados de outro usuário e deve sempre vir da API autenticada.
       partialize: (state) => ({
         active_id: state.active_id,
-        workspaces: state.workspaces,
+      }),
+      merge: (persisted, current) => ({
+        ...current,
+        active_id:
+          persisted && typeof persisted === "object" && "active_id" in persisted
+            ? ((persisted as { active_id?: string | null }).active_id ?? null)
+            : null,
+        workspaces: [],
+        safeRoots: [],
       }),
     },
   ),
