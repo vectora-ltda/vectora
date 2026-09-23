@@ -96,6 +96,26 @@ describe("workspaces-store — leitura pura", () => {
 });
 
 describe("workspaces-store — transições de conta e concorrência", () => {
+  it("aceita o active_id do servidor quando a seleção local ficou inválida", async () => {
+    useWorkspacesStore.setState({ active_id: "revogado" });
+    retryMock.mockResolvedValueOnce({
+      workspaces: [ws("servidor")],
+      active_id: "servidor",
+    });
+    await useWorkspacesStore.getState().hydrate();
+    expect(useWorkspacesStore.getState().active_id).toBe("servidor");
+  });
+
+  it("reverte uma seleção otimista rejeitada pelo servidor", async () => {
+    useWorkspacesStore.setState({ active_id: "anterior" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ message: "negado" }, false, 403)),
+    );
+    await useWorkspacesStore.getState().setActive("recusado");
+    expect(useWorkspacesStore.getState().active_id).toBe("anterior");
+  });
+
   it("preserva o workspace selecionado quando a hidratação termina depois", async () => {
     let resolveHydrate: ((value: unknown) => void) | undefined;
     retryMock.mockReturnValueOnce(

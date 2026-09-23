@@ -301,6 +301,7 @@ export const useWorkspacesStore = create<WorkspacesState>()(
       hydrate: async () => {
         const generation = accountGeneration;
         const requestId = ++latestHydrateRequest;
+        const activeAtStart = get().active_id;
         set((s) => ({
           ...asyncLoading(),
           pending: { ...s.pending, hydrate: true },
@@ -329,9 +330,16 @@ export const useWorkspacesStore = create<WorkspacesState>()(
                 disposeBrowserWorkspace(workspace.id);
               }
             }
+            const localSelectionChanged = s.active_id !== activeAtStart;
+            const localSelectionIsValid =
+              localSelectionChanged &&
+              s.active_id !== null &&
+              nextIds.has(s.active_id);
             return {
               workspaces: data.workspaces,
-              active_id: s.active_id ?? data.active_id ?? null,
+              active_id: localSelectionIsValid
+                ? s.active_id
+                : (data.active_id ?? null),
               fetchedAt: Date.now(),
               ...asyncSuccess(),
               pending: { ...s.pending, hydrate: false },
@@ -355,12 +363,16 @@ export const useWorkspacesStore = create<WorkspacesState>()(
       },
 
       setActive: async (id) => {
+        const previousId = get().active_id;
         set({ active_id: id });
-        await fetchJson("/workspaces/set-active", {
+        const result = await fetchJson("/workspaces/set-active", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ workspace_id: id }),
         });
+        if (!result && get().active_id === id) {
+          set({ active_id: previousId });
+        }
       },
 
       syncActiveLocal: (id) => {
