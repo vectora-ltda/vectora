@@ -15,7 +15,7 @@ import os
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypedDict
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -32,6 +32,14 @@ CACHE_TTL_OFFLINE = timedelta(hours=48)
 HTTP_TIMEOUT = 10.0
 
 RegistryKind = Literal["mcp", "skills", "mcp_official"]
+
+
+class RegistryStatus(TypedDict):
+    source: str
+    status: str
+    last_synced_at: str | None
+    error: str | None
+
 
 OFFICIAL_MCP_REGISTRY_URL = "https://registry.modelcontextprotocol.io/v0.1/servers"
 
@@ -184,6 +192,33 @@ async def fetch_catalog(kind: RegistryKind) -> list[dict]:
             logger.info("registry_client: usando cache offline de %s", kind)
             return list(cache.get("entries", []))
         return []
+
+
+async def fetch_catalog_status(kind: Literal["mcp", "skills"]) -> RegistryStatus:
+    """Obtém o estado da fonte sem confundir catálogo vazio com falha."""
+    fallback: RegistryStatus = {
+        "source": kind,
+        "status": "unavailable",
+        "last_synced_at": None,
+        "error": "status unavailable",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            response = await client.get(f"{_registry_url()}/status/{kind}")
+            response.raise_for_status()
+            payload = response.json()
+        return {
+            "source": str(payload.get("source", kind)),
+            "status": str(payload.get("status", "never")),
+            "last_synced_at": payload.get("last_synced_at"),
+            "error": payload.get("error"),
+        }
+    except Exception as exc:
+        logger.warning(
+            "registry_client: estado da fonte indisponível",
+            extra={"kind": kind, "error": str(exc)},
+        )
+        return fallback
 
 
 async def fetch_enterprise_catalog(kind: Literal["mcp", "skills"]) -> list[dict]:

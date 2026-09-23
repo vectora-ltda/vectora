@@ -3,8 +3,8 @@
  * Worker (`scheduled()`, `src/index.ts`), popula `mcp_catalog`/
  * `skills_catalog` (D1) além do seed manual de `migrations/0001_schema.sql`.
  *
- * MCP: pagina o catálogo oficial do GitHub MCP Registry
- * (`api.mcp.github.com`), público e ordenado por relevância. Nenhum seed
+ * MCP: pagina o catálogo oficial do MCP Registry
+ * (`registry.modelcontextprotocol.io`), público e sem token. Nenhum seed
  * local ou agregador paralelo entra no catálogo público.
  *
  * Skills são descobertas por busca de código no GitHub quando `GITHUB_TOKEN`
@@ -17,9 +17,41 @@
 
 import type { Env } from "../gateway/types";
 
-const GITHUB_MCP_REGISTRY_URL =
-  "https://api.mcp.github.com/2025-09-15/v0/servers";
+const OFFICIAL_MCP_REGISTRY_URL =
+  "https://registry.modelcontextprotocol.io/v0.1/servers";
 const GITHUB_CODE_SEARCH_URL = "https://api.github.com/search/code";
+
+type SyncStatus = "ready" | "unavailable" | "disabled";
+
+async function recordSyncState(
+  env: Env,
+  source: "mcp" | "skills",
+  status: SyncStatus,
+  error: string | null = null,
+): Promise<void> {
+  try {
+    await env.DB.prepare(
+      `INSERT INTO registry_sync_state (source, status, last_synced_at, last_error)
+       VALUES (?, ?, CASE WHEN ? = 'ready' THEN datetime('now') ELSE NULL END, ?)
+       ON CONFLICT(source) DO UPDATE SET
+         status = excluded.status,
+         last_synced_at = CASE WHEN excluded.status = 'ready' THEN excluded.last_synced_at ELSE registry_sync_state.last_synced_at END,
+         last_error = excluded.last_error,
+         updated_at = datetime('now')`,
+    )
+      .bind(source, status, status, error)
+      .run();
+  } catch (recordError) {
+    console.error("registry discovery: não foi possível registrar estado", {
+      operation: "sync_state",
+      source,
+      error:
+        recordError instanceof Error
+          ? recordError.message
+          : String(recordError),
+    });
+  }
+}
 
 interface DiscoveredMcp {
   id: string;
@@ -87,6 +119,7 @@ interface McpServerEntry {
 }
 
 function toDiscoveredMcp(item: McpServerEntry): DiscoveredMcp | null {
+  if (!item || typeof item !== "object") return null;
   const server = item.server ?? item;
   if (!server?.name) return null;
   const serverName = server.name;
@@ -198,25 +231,34 @@ function isValidRemoteUrl(value: string): boolean {
   }
 }
 
-/** Pagina o catálogo GitHub MCP e faz upsert em mcp_catalog. */
+/** Pagina o catálogo oficial e faz upsert atômico em mcp_catalog. */
 export async function discoverMcp(
   env: Env,
   maxEntries = Number.POSITIVE_INFINITY,
 ): Promise<number> {
   const found = new Map<string, DiscoveredMcp>();
-  const pageSize = 30;
+  const pageSize = 100;
   let complete = false;
   let cursor: string | undefined;
   const seenCursors = new Set<string>();
   try {
     while (found.size < maxEntries) {
-      const url = new URL(GITHUB_MCP_REGISTRY_URL);
+      const url = new URL(OFFICIAL_MCP_REGISTRY_URL);
       url.searchParams.set("limit", String(pageSize));
+      url.searchParams.set("version", "latest");
       if (cursor) url.searchParams.set("cursor", cursor);
       const resp = await fetch(url.toString(), {
         headers: { Accept: "application/json" },
       });
-      if (!resp.ok) return 0;
+      if (!resp.ok) {
+        await recordSyncState(env, "mcp", "unavailable", `HTTP ${resp.status}`);
+        console.error("registry discovery: resposta MCP não-OK", {
+          operation: "mcp_discovery",
+          status: resp.status,
+          cursor: cursor ?? null,
+        });
+        return 0;
+      }
       const data = (await resp.json()) as {
         servers?: McpServerEntry[];
         metadata?: { nextCursor?: string | null; total_pages?: number };
@@ -231,17 +273,42 @@ export async function discoverMcp(
         break;
       }
       if (seenCursors.has(nextCursor)) {
-        // A repeated cursor cannot make progress; preserve the old snapshot.
-        break;
+        await recordSyncState(env, "mcp", "unavailable", "cursor repetido");
+        console.error("registry discovery: cursor MCP repetido", {
+          operation: "mcp_discovery",
+          cursor: nextCursor,
+        });
+        return 0;
       }
       seenCursors.add(nextCursor);
       cursor = nextCursor;
     }
-  } catch {
-    return upsertMcpSnapshot(env, selectMcpEntries(found, maxEntries), false);
+  } catch (error) {
+    await recordSyncState(
+      env,
+      "mcp",
+      "unavailable",
+      error instanceof Error ? error.message : String(error),
+    );
+    console.error("registry discovery: falha ao ler MCP", {
+      operation: "mcp_discovery",
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return 0;
   }
 
-  return upsertMcpSnapshot(env, selectMcpEntries(found, maxEntries), complete);
+  const count = await upsertMcpSnapshot(
+    env,
+    selectMcpEntries(found, maxEntries),
+    complete,
+    !Number.isFinite(maxEntries),
+  );
+  if (complete && count === found.size) {
+    await recordSyncState(env, "mcp", "ready");
+  } else {
+    await recordSyncState(env, "mcp", "unavailable", "snapshot não promovido");
+  }
+  return count;
 }
 
 function selectMcpEntries(
@@ -256,16 +323,15 @@ async function upsertMcpSnapshot(
   env: Env,
   found: Map<string, DiscoveredMcp>,
   complete: boolean,
+  reconcile: boolean,
 ): Promise<number> {
-  if (found.size === 0) return 0;
-
   const snapshotId = crypto.randomUUID();
-  let upserted = 0;
-  let writesComplete = true;
-  for (const c of found.values()) {
-    try {
-      await env.DB.prepare(
-        `INSERT INTO mcp_catalog
+  const statements: D1PreparedStatement[] = [];
+  try {
+    for (const c of found.values()) {
+      statements.push(
+        env.DB.prepare(
+          `INSERT INTO mcp_catalog
            (id, name, description, install_cmd, env_vars, homepage, category, icon_url, publisher, publisher_url, stars_count, downloads_count, runtime_hint, package_identifier, transport, server_url, vectora_verified, catalog_source, snapshot_id, last_seen_at, catalog_status, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'official', ?, datetime('now'), 'active', datetime('now'))
          ON CONFLICT(id) DO UPDATE SET
@@ -284,14 +350,12 @@ async function upsertMcpSnapshot(
            package_identifier = excluded.package_identifier,
            transport = excluded.transport,
            server_url = excluded.server_url,
-           catalog_source = excluded.catalog_source,
            snapshot_id = excluded.snapshot_id,
            last_seen_at = excluded.last_seen_at,
            catalog_status = 'active',
            updated_at = datetime('now')
-         `,
-      )
-        .bind(
+           WHERE mcp_catalog.catalog_source != 'curated'`,
+        ).bind(
           c.id,
           c.name,
           c.description,
@@ -309,22 +373,25 @@ async function upsertMcpSnapshot(
           c.transport,
           c.server_url,
           snapshotId,
-        )
-        .run();
-      upserted++;
-    } catch {
-      // isola falha por entrada — uma linha malformada não derruba as demais
-      writesComplete = false;
+        ),
+      );
     }
+    if (complete && reconcile) {
+      statements.push(
+        env.DB.prepare(
+          "UPDATE mcp_catalog SET catalog_status = 'missing' WHERE catalog_source IN ('official', 'github') AND COALESCE(snapshot_id, '') != ?",
+        ).bind(snapshotId),
+      );
+    }
+    if (statements.length > 0) await env.DB.batch(statements);
+    return found.size;
+  } catch (error) {
+    console.error("registry discovery: snapshot MCP não foi promovido", {
+      operation: "mcp_discovery",
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return 0;
   }
-  if (complete && writesComplete) {
-    await env.DB.prepare(
-      "UPDATE mcp_catalog SET catalog_status = 'missing' WHERE catalog_source IN ('official', 'github') AND COALESCE(snapshot_id, '') != ?",
-    )
-      .bind(snapshotId)
-      .run();
-  }
-  return upserted;
 }
 
 interface GithubCodeSearchItem {
@@ -342,6 +409,7 @@ export async function discoverSkills(
   maxEntries = 50,
 ): Promise<number> {
   if (!env.GITHUB_TOKEN) {
+    await recordSyncState(env, "skills", "disabled", "GITHUB_TOKEN ausente");
     console.warn(
       "registry discovery: GITHUB_TOKEN ausente; skills de terceiros não foram descobertas",
     );
@@ -360,10 +428,24 @@ export async function discoverSkills(
         "User-Agent": "vectora-services-registry-discovery",
       },
     });
-    if (!resp.ok) return 0;
+    if (!resp.ok) {
+      await recordSyncState(
+        env,
+        "skills",
+        "unavailable",
+        `HTTP ${resp.status}`,
+      );
+      return 0;
+    }
     const data = (await resp.json()) as { items?: GithubCodeSearchItem[] };
     items = data.items ?? [];
-  } catch {
+  } catch (error) {
+    await recordSyncState(
+      env,
+      "skills",
+      "unavailable",
+      error instanceof Error ? error.message : String(error),
+    );
     return 0;
   }
 
@@ -401,6 +483,7 @@ export async function discoverSkills(
       // isola falha por entrada
     }
   }
+  await recordSyncState(env, "skills", "ready");
   return upserted;
 }
 

@@ -142,6 +142,9 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
 
 function SkillsCatalog({ query }: { query: string }) {
   const entries = useLibraryStore((s) => s.skillsItems);
+  const sourceStatus = useLibraryStore(
+    (s) => s.skillsStatus ?? { status: "never" },
+  );
   const loading = useLibraryStore((s) => s.skillsLoading);
   const error = useLibraryStore((s) => s.skillsError);
   const ensureSkillsLoaded = useLibraryStore((s) => s.ensureSkillsLoaded);
@@ -163,6 +166,21 @@ function SkillsCatalog({ query }: { query: string }) {
     </div>
   ) : entries.length === 0 ? (
     <div className="py-2 space-y-1">
+      {sourceStatus.status === "disabled" && (
+        <p className="text-xs text-muted-foreground text-center" role="status">
+          {m.library_skills_status_disabled()}
+        </p>
+      )}
+      {sourceStatus.status === "unavailable" && (
+        <p className="text-xs text-destructive text-center" role="status">
+          {m.library_skills_status_unavailable()}
+        </p>
+      )}
+      {sourceStatus.status === "never" && (
+        <p className="text-xs text-muted-foreground text-center" role="status">
+          {m.library_skills_status_never()}
+        </p>
+      )}
       <p className="text-xs text-muted-foreground text-center">
         {m.library_skills_catalog_empty()}
       </p>
@@ -170,6 +188,16 @@ function SkillsCatalog({ query }: { query: string }) {
     </div>
   ) : (
     <div className="space-y-2 py-1">
+      {sourceStatus.status === "disabled" && (
+        <p className="text-xs text-muted-foreground" role="status">
+          {m.library_skills_status_disabled()}
+        </p>
+      )}
+      {sourceStatus.status === "unavailable" && (
+        <p className="text-xs text-destructive" role="status">
+          {m.library_skills_status_unavailable()}
+        </p>
+      )}
       {error && <p className="text-xs text-destructive">{error}</p>}
       {entries.map((skill) => (
         <CatalogCard key={skill.id} skill={skill} />

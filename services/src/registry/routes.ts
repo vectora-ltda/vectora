@@ -5,7 +5,7 @@
  * `mcp` e `skills` são catálogos reais em D1 (`mcp_catalog`/`skills_catalog`,
  * `migrations/0001_schema.sql`). Curadoria
  * O catálogo MCP público só expõe linhas sincronizadas do GitHub MCP
- * Registry (`catalog_source='official'`). Seeds locais e snapshots antigos
+ * Official MCP Registry (`catalog_source='official'`). Seeds locais e snapshots antigos
  * ficam fora da resposta até serem confirmados pelo próximo snapshot oficial.
  * O cliente Vectora (`backend/services/registry_client.py`) consome esse
  * catálogo único; uma lista vazia é um estado válido, não um fallback para
@@ -63,6 +63,41 @@ registry.get("/mcp", async (c) => {
   } catch (error) {
     console.error("registry mcp query failed", error);
     return c.json({ error: "registry unavailable" }, 503);
+  }
+});
+
+registry.get("/status/:source", async (c) => {
+  const source = c.req.param("source");
+  if (source !== "mcp" && source !== "skills") {
+    return c.json({ error: "invalid source" }, 400);
+  }
+  try {
+    const state = await c.env.DB.prepare(
+      "SELECT status, last_synced_at, last_error FROM registry_sync_state WHERE source = ?",
+    )
+      .bind(source)
+      .first<{
+        status: string;
+        last_synced_at: string | null;
+        last_error: string | null;
+      }>();
+    return c.json({
+      source,
+      status: state?.status ?? "never",
+      last_synced_at: state?.last_synced_at ?? null,
+      error: state?.last_error ?? null,
+    });
+  } catch (error) {
+    console.error("registry status query failed", { source, error });
+    return c.json(
+      {
+        source,
+        status: "unavailable",
+        last_synced_at: null,
+        error: "status unavailable",
+      },
+      503,
+    );
   }
 });
 

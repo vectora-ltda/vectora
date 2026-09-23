@@ -404,6 +404,12 @@ async def get_registry(
     return _filter_registry(await list_registry(), q=q, category=category)
 
 
+@router.get("/registry/status")
+async def get_registry_status() -> registry_client.RegistryStatus:
+    """Expõe se o snapshot MCP está pronto, vazio ou indisponível."""
+    return await registry_client.fetch_catalog_status("mcp")
+
+
 @router.post("/install")
 async def post_install(req: InstallRequest, request: Request) -> dict:
     req.target = _authorized_target(request, req.scope, req.target, req.workspace_id)

@@ -191,6 +191,12 @@ async def get_skills_catalog(
     return SkillCatalogResponse(entries=filtered, total=len(filtered))
 
 
+@router.get("/catalog/status")
+async def get_skills_catalog_status() -> registry_client.RegistryStatus:
+    """Expõe configuração e disponibilidade do discovery de Skills."""
+    return await registry_client.fetch_catalog_status("skills")
+
+
 async def _resolve_catalog_skill(skill_id: str) -> SkillCatalogEntry | None:
     """Resolve um identificador nas fontes permitidas do catálogo."""
     remote_raw, enterprise_raw = await asyncio.gather(

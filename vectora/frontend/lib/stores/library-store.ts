@@ -79,6 +79,13 @@ export interface MemoryBucket {
   publisher?: string | null;
 }
 
+export interface CatalogStatus {
+  source: "mcp" | "skills";
+  status: "ready" | "unavailable" | "disabled" | "never";
+  last_synced_at: string | null;
+  error: string | null;
+}
+
 const TTL_MS = 5 * 60 * 1000;
 
 async function fetchMcpRegistry(q: string): Promise<MCPConnector[]> {
@@ -93,6 +100,25 @@ async function fetchMcpInstalledIds(): Promise<Set<string>> {
   if (!res.ok) throw new Error(`Erro ${res.status}`);
   const data = (await res.json()) as { servers?: { name: string }[] };
   return new Set((data.servers ?? []).map((s) => s.name));
+}
+
+async function fetchCatalogStatus(
+  source: "mcp" | "skills",
+): Promise<CatalogStatus> {
+  const path =
+    source === "mcp" ? "/mcp/registry/status" : "/skills/catalog/status";
+  try {
+    const res = await fetch(path);
+    if (!res.ok) throw new Error(`Erro ${res.status}`);
+    return (await res.json()) as CatalogStatus;
+  } catch {
+    return {
+      source,
+      status: "unavailable",
+      last_synced_at: null,
+      error: "status unavailable",
+    };
+  }
 }
 
 async function fetchSkillsCatalog(q: string): Promise<CatalogSkill[]> {
@@ -126,12 +152,14 @@ interface LibraryStoreState {
   mcpFetchedAt: number | null;
   mcpQuery: string;
   mcpError: string | null;
+  mcpStatus: CatalogStatus;
 
   skillsItems: CatalogSkill[];
   skillsLoading: boolean;
   skillsFetchedAt: number | null;
   skillsQuery: string;
   skillsError: string | null;
+  skillsStatus: CatalogStatus;
 
   memoryItems: MemoryBucket[];
   memoryLoading: boolean;
@@ -158,12 +186,24 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   mcpFetchedAt: null,
   mcpQuery: "",
   mcpError: null,
+  mcpStatus: {
+    source: "mcp",
+    status: "never",
+    last_synced_at: null,
+    error: null,
+  },
 
   skillsItems: [],
   skillsLoading: false,
   skillsFetchedAt: null,
   skillsQuery: "",
   skillsError: null,
+  skillsStatus: {
+    source: "skills",
+    status: "never",
+    last_synced_at: null,
+    error: null,
+  },
 
   memoryItems: [],
   memoryLoading: false,
@@ -176,9 +216,10 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
     if (s.mcpLoading || (isFresh(s.mcpFetchedAt) && s.mcpQuery === q)) return;
     set({ mcpLoading: true });
     try {
-      const [items, installedIds] = await Promise.all([
+      const [items, installedIds, status] = await Promise.all([
         fetchMcpRegistry(q),
         fetchMcpInstalledIds(),
+        fetchCatalogStatus("mcp"),
       ]);
       set({
         mcpItems: items,
@@ -186,6 +227,7 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
         mcpFetchedAt: Date.now(),
         mcpQuery: q,
         mcpError: null,
+        mcpStatus: status,
       });
     } catch {
       set({ mcpError: m.library_mcp_error_search() });
@@ -202,12 +244,16 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
       return;
     set({ skillsLoading: true });
     try {
-      const items = await fetchSkillsCatalog(q);
+      const [items, status] = await Promise.all([
+        fetchSkillsCatalog(q),
+        fetchCatalogStatus("skills"),
+      ]);
       set({
         skillsItems: items,
         skillsFetchedAt: Date.now(),
         skillsQuery: q,
         skillsError: null,
+        skillsStatus: status,
       });
     } catch {
       set({ skillsError: m.library_skills_catalog_error_search() });

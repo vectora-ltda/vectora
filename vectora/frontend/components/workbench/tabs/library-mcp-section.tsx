@@ -350,6 +350,9 @@ export function McpSection({
   threadId?: string;
 }) {
   const connectors = useLibraryStore((s) => s.mcpItems);
+  const sourceStatus = useLibraryStore(
+    (s) => s.mcpStatus ?? { status: "never" },
+  );
   const installedIds = useLibraryStore((s) => s.mcpInstalledIds);
   const loading = useLibraryStore((s) => s.mcpLoading);
   const error = useLibraryStore((s) => s.mcpError);
@@ -415,6 +418,19 @@ export function McpSection({
   if (connectors.length === 0) {
     return (
       <div className="py-4 space-y-3">
+        {sourceStatus.status === "unavailable" && (
+          <p className="text-xs text-destructive text-center" role="status">
+            {m.library_mcp_status_unavailable()}
+          </p>
+        )}
+        {sourceStatus.status === "never" && (
+          <p
+            className="text-xs text-muted-foreground text-center"
+            role="status"
+          >
+            {m.library_mcp_status_never()}
+          </p>
+        )}
         <p className="text-xs text-muted-foreground text-center">
           {m.library_empty_mcp()}
         </p>
@@ -427,6 +443,11 @@ export function McpSection({
 
   return (
     <div className="space-y-2 py-1">
+      {sourceStatus.status === "unavailable" && (
+        <p className="text-xs text-destructive" role="status">
+          {m.library_mcp_status_unavailable()}
+        </p>
+      )}
       {error && <p className="text-xs text-destructive">{error}</p>}
       {connectors.map((connector) => (
         <ConnectorCard

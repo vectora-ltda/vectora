@@ -233,8 +233,8 @@ CREATE TABLE IF NOT EXISTS rag_packages (
 --
 -- `catalog_source` distingue linhas curadas manualmente (seed abaixo,
 -- sempre 'curated') das descobertas automaticamente pelo discovery cron
--- (`services/src/registry/discovery.ts`) — 'official' para o registry
--- oficial de MCP, 'github' para skills achadas via GitHub code search. O
+-- (`services/src/registry/discovery.ts`) — 'official' para o Official MCP
+-- Registry, 'github' para skills achadas via GitHub code search. O
 -- upsert do discovery nunca sobrescreve uma linha 'curated', mesmo que o
 -- id colida.
 CREATE TABLE IF NOT EXISTS mcp_catalog (

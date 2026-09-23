@@ -87,7 +87,7 @@ function packageOnlyServer(id: string) {
 }
 
 describe("discoverMcp", () => {
-  it("sincroniza o catálogo oficial e substitui entradas locais com o mesmo id", async () => {
+  it("sincroniza o catálogo oficial sem substituir entradas curadas", async () => {
     await env.DB.prepare(
       "INSERT INTO mcp_catalog (id, name, description, install_cmd, category, vectora_verified, catalog_source) VALUES (?, ?, ?, ?, ?, 1, 'curated')",
     )
@@ -112,8 +112,8 @@ describe("discoverMcp", () => {
       "SELECT name, catalog_source FROM mcp_catalog WHERE id = 'already-curated'",
     ).first<{ name: string; catalog_source: string }>();
     expect(curated).toEqual({
-      name: "Descoberto",
-      catalog_source: "official",
+      name: "Já curado manualmente",
+      catalog_source: "curated",
     });
 
     const discovered = await env.DB.prepare(
@@ -148,6 +148,49 @@ describe("discoverMcp", () => {
     );
 
     await expect(discoverMcp(env)).resolves.toBe(0);
+  });
+
+  it("consulta o registry oficial com paginação de 100 e sem autorização", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toContain(
+          "registry.modelcontextprotocol.io/v0.1/servers",
+        );
+        expect(String(input)).toContain("limit=100");
+        expect(String(input)).toContain("version=latest");
+        expect(init?.headers).toEqual({ Accept: "application/json" });
+        return mcpRegistryResponse([]);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(discoverMcp(env)).resolves.toBe(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("não promove linhas quando a escrita do snapshot falha", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => mcpRegistryResponse([npmServer("atomic", "Atomic")])),
+    );
+    const originalPrepare = env.DB.prepare.bind(env.DB);
+    let writes = 0;
+    const failingDb = {
+      ...env.DB,
+      prepare(query: string) {
+        if (query.includes("INSERT INTO mcp_catalog")) {
+          writes += 1;
+          if (writes === 1) throw new Error("D1 indisponível");
+        }
+        return originalPrepare(query);
+      },
+    } as unknown as typeof env.DB;
+
+    await expect(discoverMcp({ ...env, DB: failingDb })).resolves.toBe(0);
+    const row = await env.DB.prepare(
+      "SELECT id FROM mcp_catalog WHERE id = 'atomic'",
+    ).first();
+    expect(row).toBeNull();
   });
 
   it("não promove snapshot parcial quando uma página posterior falha", async () => {
