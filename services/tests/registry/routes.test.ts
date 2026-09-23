@@ -122,6 +122,41 @@ describe("GET /registry/skills", () => {
     ).toMatchObject({ publisher: "Test User" });
   });
 
+  it("não expõe o e-mail quando a skill não tem nome público", async () => {
+    const userId = crypto.randomUUID();
+    const email = `${userId}@example.com`;
+    await env.DB.prepare(
+      "INSERT INTO users (id, email, password_hash, full_name, role) VALUES (?, ?, ?, ?, ?)",
+    )
+      .bind(userId, email, "pbkdf2$1$AA==$AA==", "", "user")
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO skills_catalog
+       (id, name, description, source, catalog_source, publisher_id)
+       VALUES (?, ?, ?, ?, 'curated', ?)`,
+    )
+      .bind(
+        "anonymous-skill",
+        "Anonymous Skill",
+        "skill sem nome público",
+        "https://github.com/example/anonymous-skill",
+        userId,
+      )
+      .run();
+
+    const res = await registry.request("/skills", {}, env);
+    const body = await res.text();
+
+    expect(body).not.toContain(email);
+    expect(JSON.parse(body)).toEqual(
+      expect.objectContaining({
+        entries: expect.arrayContaining([
+          expect.objectContaining({ id: "anonymous-skill", publisher: null }),
+        ]),
+      }),
+    );
+  });
+
   it("?q= filtra por nome/descrição", async () => {
     await makeSkill({ name: "Godot Helper", description: "ajuda com Godot" });
     await makeSkill({ name: "Outra Skill", description: "nada a ver" });
