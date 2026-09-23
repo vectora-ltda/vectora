@@ -111,6 +111,10 @@ const PENDING_IDLE: WorkspacesPending = {
   gitInit: false,
 };
 
+let accountGeneration = 0;
+let latestHydrateRequest = 0;
+let latestSafeRootsRequest = 0;
+
 interface WorkspacesState {
   workspaces: WorkspaceInfo[];
   active_id: string | null;
@@ -132,6 +136,8 @@ interface WorkspacesState {
   // ── Local writes ────────────────────────────────────────────────────────────
   setWorkspaces: (list: WorkspaceInfo[], activeId: string | null) => void;
   invalidate: () => void;
+  /** Invalida respostas pendentes e remove dados da conta anterior. */
+  resetForUser: () => void;
 
   // ── Async (proxy Hono) ──────────────────────────────────────────────────────
   hydrate: () => Promise<void>;
@@ -275,7 +281,23 @@ export const useWorkspacesStore = create<WorkspacesState>()(
 
       invalidate: () => set({ fetchedAt: null }),
 
+      resetForUser: () => {
+        accountGeneration += 1;
+        latestHydrateRequest += 1;
+        latestSafeRootsRequest += 1;
+        set({
+          workspaces: [],
+          active_id: null,
+          safeRoots: [],
+          fetchedAt: null,
+          status: "idle",
+          error: null,
+        });
+      },
+
       hydrate: async () => {
+        const generation = accountGeneration;
+        const requestId = ++latestHydrateRequest;
         set((s) => ({
           ...asyncLoading(),
           pending: { ...s.pending, hydrate: true },
@@ -290,6 +312,11 @@ export const useWorkspacesStore = create<WorkspacesState>()(
           if (!data?.workspaces) {
             throw new Error("Resposta inesperada do servidor.");
           }
+          if (
+            generation !== accountGeneration ||
+            requestId !== latestHydrateRequest
+          )
+            return;
           set((s) => {
             const nextIds = new Set(
               data.workspaces.map((workspace) => workspace.id),
@@ -308,6 +335,11 @@ export const useWorkspacesStore = create<WorkspacesState>()(
             };
           });
         } catch (err) {
+          if (
+            generation !== accountGeneration ||
+            requestId !== latestHydrateRequest
+          )
+            return;
           const message = httpErrorMessage(err) ?? toErrorMessage(err);
           set((s) => ({
             ...asyncError(message),
@@ -320,6 +352,7 @@ export const useWorkspacesStore = create<WorkspacesState>()(
       },
 
       setActive: async (id) => {
+        latestHydrateRequest += 1;
         set({ active_id: id });
         await fetchJson("/workspaces/set-active", {
           method: "POST",
@@ -329,6 +362,7 @@ export const useWorkspacesStore = create<WorkspacesState>()(
       },
 
       syncActiveLocal: (id) => {
+        latestHydrateRequest += 1;
         set({ active_id: id });
         void get().hydrate();
       },
@@ -444,8 +478,15 @@ export const useWorkspacesStore = create<WorkspacesState>()(
       },
 
       loadSafeRoots: async () => {
+        const generation = accountGeneration;
+        const requestId = ++latestSafeRootsRequest;
         const data = await fetchJson("/workspaces/safe-roots");
-        if (data?.roots && Array.isArray(data.roots)) {
+        if (
+          generation === accountGeneration &&
+          requestId === latestSafeRootsRequest &&
+          data?.roots &&
+          Array.isArray(data.roots)
+        ) {
           set({ safeRoots: data.roots as SafeRootSummary[] });
         }
       },

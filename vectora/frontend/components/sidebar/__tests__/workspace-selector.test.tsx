@@ -63,13 +63,12 @@ afterEach(() => {
 });
 
 describe("WorkspaceSelector", () => {
-  it("exibe workspaces e safe-roots revalidados", () => {
+  it("exibe workspaces e safe-roots já carregados pela raiz", () => {
     render(<WorkspaceSelector />);
     fireEvent.click(screen.getAllByRole("button")[0]);
 
     expect(screen.getAllByText("Vectora").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("Projetos")).toBeInTheDocument();
-    expect(state.loadSafeRoots).toHaveBeenCalled();
   });
 
   it("abre o diálogo já posicionado na safe-root escolhida", () => {

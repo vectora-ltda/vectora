@@ -72,8 +72,6 @@ function getSpecialFolderIcon(name: string) {
   return SPECIAL_FOLDER_ICONS[name.trim().toLowerCase()];
 }
 
-const noopLoadSafeRoots = async (): Promise<void> => undefined;
-
 /** Ícone do workspace: pasta especial do SO > repositório git > pasta genérica. */
 function WorkspaceFolderIcon({
   workspace,
@@ -98,14 +96,12 @@ export function WorkspaceSelector({ compact = false }: WorkspaceSelectorProps) {
   // essas ações só produziriam erro silencioso.
   const { offline } = useNetworkStatus();
   const workspaces = useWorkspacesStore((s) => s.workspaces);
+  const hydrate = useWorkspacesStore((s) => s.hydrate);
   const safeRoots = useWorkspacesStore((s) => s.safeRoots) ?? [];
   const activeId = useWorkspacesStore((s) => s.active_id);
   const status = useWorkspacesStore((s) => s.status);
   const error = useWorkspacesStore((s) => s.error);
-  const hydrate = useWorkspacesStore((s) => s.hydrate);
   const setActive = useWorkspacesStore((s) => s.setActive);
-  const loadSafeRoots =
-    useWorkspacesStore((s) => s.loadSafeRoots) ?? noopLoadSafeRoots;
 
   const [open, setOpen] = useState(false);
   const [trustOpen, setTrustOpen] = useState(false);
@@ -113,12 +109,6 @@ export function WorkspaceSelector({ compact = false }: WorkspaceSelectorProps) {
     string | undefined
   >();
   const ref = useRef<HTMLDivElement>(null);
-
-  // Hidrata no boot
-  useEffect(() => {
-    void hydrate();
-    void loadSafeRoots();
-  }, [hydrate, loadSafeRoots]);
 
   // Fecha ao clicar fora
   useEffect(() => {

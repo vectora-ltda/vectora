@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from "react";
+
 /**
  * Registro de threads cujo workspace já foi escolhido nesta navegação SPA.
  *
@@ -14,10 +16,29 @@
 const TTL_MS = 5 * 60 * 1000;
 
 const chosen = new Map<string, number>();
+const listeners = new Map<string, Set<() => void>>();
+
+function notify(threadId: string): void {
+  listeners.get(threadId)?.forEach((listener) => listener());
+}
+
+export function subscribeWorkspaceChosen(
+  threadId: string,
+  listener: () => void,
+): () => void {
+  const bucket = listeners.get(threadId) ?? new Set<() => void>();
+  bucket.add(listener);
+  listeners.set(threadId, bucket);
+  return () => {
+    bucket.delete(listener);
+    if (!bucket.size) listeners.delete(threadId);
+  };
+}
 
 /** Marca que o workspace desta thread já foi escolhido pelo usuário. */
 export function markWorkspaceChosen(threadId: string): void {
   chosen.set(threadId, Date.now());
+  notify(threadId);
 }
 
 /** Retorna true se o usuário já escolheu o workspace desta thread. */
@@ -26,9 +47,19 @@ export function isWorkspaceChosen(threadId: string): boolean {
   if (at === undefined) return false;
   if (Date.now() - at > TTL_MS) {
     chosen.delete(threadId);
+    notify(threadId);
     return false;
   }
   return true;
+}
+
+/** Expõe a escolha de workspace de forma reativa para a UI. */
+export function useIsWorkspaceChosen(threadId: string): boolean {
+  return useSyncExternalStore(
+    (listener) => subscribeWorkspaceChosen(threadId, listener),
+    () => isWorkspaceChosen(threadId),
+    () => false,
+  );
 }
 
 /**

@@ -260,21 +260,17 @@ function RootComponent() {
   // usuário, limpe o estado antes de buscar para não exibir caminhos da conta
   // anterior durante a revalidação.
   const workspaceUserRef = useRef<string | null>(null);
+  const privateRoute = Boolean(userId) && !isPublicPath(location.pathname);
   useEffect(() => {
     const store = useWorkspacesStore.getState();
     if (workspaceUserRef.current !== userId) {
       workspaceUserRef.current = userId;
-      useWorkspacesStore.setState({
-        workspaces: [],
-        active_id: null,
-        safeRoots: [],
-        fetchedAt: null,
-      });
+      store.resetForUser();
     }
-    if (isPublicPath(location.pathname) || !userId) return;
+    if (!privateRoute) return;
     void store.hydrate();
     void store.loadSafeRoots();
-  }, [location.pathname, userId]);
+  }, [privateRoute, userId]);
   // Aplica as preferências durável do backend (fonte de verdade) por cima do
   // cache local — uma vez por sessão, depois que a rota deixa de ser pública
   // (usuário resolvido). Ver settings-store.ts::hydrateFromBackend.

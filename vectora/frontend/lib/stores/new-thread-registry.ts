@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from "react";
+
 /**
  * Registro de threads "novas" — persiste entre navegações SPA sem reload.
  *
@@ -18,10 +20,29 @@ interface NewEntry {
 }
 
 const newThreads = new Map<string, NewEntry>();
+const listeners = new Map<string, Set<() => void>>();
+
+function notify(threadId: string): void {
+  listeners.get(threadId)?.forEach((listener) => listener());
+}
+
+export function subscribeNewThread(
+  threadId: string,
+  listener: () => void,
+): () => void {
+  const bucket = listeners.get(threadId) ?? new Set<() => void>();
+  bucket.add(listener);
+  listeners.set(threadId, bucket);
+  return () => {
+    bucket.delete(listener);
+    if (!bucket.size) listeners.delete(threadId);
+  };
+}
 
 /** Marca um thread como recém-criado (não existe no backend ainda). */
 export function markAsNew(threadId: string): void {
   newThreads.set(threadId, { createdAt: Date.now() });
+  notify(threadId);
 }
 
 /** Retorna true se o thread foi criado localmente e ainda não persistido. */
@@ -30,6 +51,7 @@ export function isNew(threadId: string): boolean {
   if (!entry) return false;
   if (Date.now() - entry.createdAt > TTL_MS) {
     newThreads.delete(threadId);
+    notify(threadId);
     return false;
   }
   return true;
@@ -38,4 +60,14 @@ export function isNew(threadId: string): boolean {
 /** Remove a marcação (chamado quando o thread é persistido no backend). */
 export function clearNew(threadId: string): void {
   newThreads.delete(threadId);
+  notify(threadId);
+}
+
+/** Expõe o estado de nova sessão de forma reativa para a UI. */
+export function useIsNewThread(threadId: string): boolean {
+  return useSyncExternalStore(
+    (listener) => subscribeNewThread(threadId, listener),
+    () => isNew(threadId),
+    () => false,
+  );
 }
