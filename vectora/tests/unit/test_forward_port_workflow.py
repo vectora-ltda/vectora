@@ -104,6 +104,9 @@ def test_release_rotation_workflow_declares_release_entrypoint() -> None:
     assert "gh pr create" in content
     assert 'git push origin "HEAD:$MAINTENANCE_BRANCH"' in content
     assert "activate_release_line.py" in content
+    assert "cleanup_activation_fallback" in content
+    assert 'gh pr close "$activation_pr"' in content
+    assert 'git push origin --delete "$maintenance_rotation_branch"' in content
     assert (
         'git ls-remote --heads origin "refs/heads/$maintenance_rotation_branch"'
         in content

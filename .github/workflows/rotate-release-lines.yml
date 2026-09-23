@@ -283,11 +283,32 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .github/release-lines.json "$maintenance_manifest" "$maintenance_config" "$development_config"
+          cleanup_activation_fallback() {
+            local activation_pr_numbers
+            activation_pr_numbers="$(gh pr list \
+              --repo "$GITHUB_REPOSITORY" \
+              --head "$maintenance_rotation_branch" \
+              --base "$MAINTENANCE_BRANCH" \
+              --state open --json number --jq '.[].number')"
+            if [[ -n "$activation_pr_numbers" ]]; then
+              while IFS= read -r activation_pr; do
+                gh pr close "$activation_pr" \
+                  --repo "$GITHUB_REPOSITORY" \
+                  --comment "A ativação direta da linha de manutenção foi concluída; esta PR de fallback ficou obsoleta."
+              done <<< "$activation_pr_numbers"
+            fi
+            if [[ -n "$(git ls-remote --heads origin "refs/heads/$maintenance_rotation_branch")" ]]; then
+              git push origin --delete "$maintenance_rotation_branch"
+            fi
+          }
           if git diff --cached --quiet; then
             echo "A branch de manutenção já contém a configuração da rotação."
+            cleanup_activation_fallback
           else
             git commit -m "chore: activate ${MAINTENANCE_BRANCH} release line"
-            if ! git push origin "HEAD:$MAINTENANCE_BRANCH"; then
+            if git push origin "HEAD:$MAINTENANCE_BRANCH"; then
+              cleanup_activation_fallback
+            else
               if [[ -n "$activation_remote_ref" ]]; then
                 git push --force-with-lease="$maintenance_rotation_branch:$activation_remote_ref" \
                   origin "HEAD:$maintenance_rotation_branch"

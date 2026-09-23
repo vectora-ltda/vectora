@@ -46,6 +46,7 @@ def _read_from_git(source_ref: str, relative_file: str) -> str:
 
 
 def main() -> None:
+    """Valida os argumentos e copia arquivos de release para o checkout alvo."""
     if len(sys.argv) < 4:
         raise SystemExit("uso: activate_release_line.py REF DESTINO ARQUIVO...")
     copy_release_files(sys.argv[1], Path(sys.argv[2]), sys.argv[3:])
