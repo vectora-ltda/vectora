@@ -1,11 +1,7 @@
 // @vitest-environment jsdom
 /**
- * SkillsSection — seção Skills da Library. Cobre a sub-área "Catálogo":
- * vem expandida por padrão (não escondida atrás de um toggle fechado —
- * regressão de descoberta), lista GET /skills/catalog, instalar chama
- * POST /skills {skill_id}, toggle ainda permite recolher/reabrir; erro/borda:
- * catálogo vazio mostra estado específico, não quebra a lista de instaladas
- * ao lado (SkillsTab, mockado).
+ * SkillsSection lista diretamente o catálogo remoto, lista GET /skills/catalog
+ * e instala uma skill com POST /skills {skill_id}.
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import {
@@ -16,10 +12,6 @@ import {
   fireEvent,
   act,
 } from "@testing-library/react";
-
-vi.mock("@/components/settings/environment/tabs/skills-tab", () => ({
-  SkillsTab: () => <div>stub-skills-tab</div>,
-}));
 
 import { SkillsSection } from "../library-skills-section";
 import { useLibraryStore, type CatalogSkill } from "@/lib/stores/library-store";
@@ -70,7 +62,7 @@ function mockFetch({
 }
 
 describe("SkillsSection — Catálogo", () => {
-  it("vem expandido por padrão e lista as skills curadas do registry remoto sem precisar de clique", async () => {
+  it("lista as skills disponíveis do registry remoto", async () => {
     mockFetch();
     render(<SkillsSection query="" />);
 
@@ -78,20 +70,6 @@ describe("SkillsSection — Catálogo", () => {
       expect(screen.getByText("PDF Extract")).toBeTruthy();
     });
     expect(screen.getByText(/Example Maintainers/)).toBeTruthy();
-  });
-
-  it("toggle ainda permite recolher e reabrir o catálogo", async () => {
-    mockFetch();
-    render(<SkillsSection query="" />);
-    await waitFor(() => screen.getByText("PDF Extract"));
-
-    fireEvent.click(screen.getByText("Browse catalog"));
-    expect(screen.queryByText("PDF Extract")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByText("Browse catalog"));
-    await waitFor(() => {
-      expect(screen.getByText("PDF Extract")).toBeTruthy();
-    });
   });
 
   it("instalar chama POST /skills com o id do catálogo", async () => {
@@ -173,13 +151,11 @@ describe("SkillsSection — Catálogo", () => {
     vi.useRealTimers();
   });
 
-  it("catálogo vazio mostra estado específico, não erro e não quebra SkillsTab", async () => {
+  it("catálogo vazio mostra estado específico", async () => {
     mockFetch({ entries: [] });
     render(<SkillsSection query="" />);
-    expect(screen.getByText("stub-skills-tab")).toBeTruthy();
-
     await waitFor(() => {
-      expect(screen.getByText("No curated skills available yet.")).toBeTruthy();
+      expect(screen.getByText("No skills available yet.")).toBeTruthy();
     });
   });
 

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * LibraryTab — 3 seções fecháveis (MCP, Skills, Memory Library) com busca
+ * LibraryTab — 3 seções fecháveis (MCP, Skills, Memory Buckets) com busca
  * e seleção única de categoria. A busca é client-side sobre os itens já
  * carregados de cada seção, sem endpoint agregado.
  */
@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/accordion";
 import { m } from "@/lib/paraglide/messages";
 import { McpSection } from "./library-mcp-section";
-import { MemorySection } from "./library-memory-section";
+import { MemoryBucketsSection } from "./library-memory-buckets-section";
 import { SkillsSection } from "./library-skills-section";
 
 interface LibraryTabProps {
@@ -167,7 +167,7 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
           />
           <FilterPill
             value="memory"
-            label={m.library_filter_memory()}
+            label={m.library_filter_memory_buckets()}
             active={activeSection === "memory"}
             onSelect={() => setActiveSection("memory")}
             onKeyDown={(event) => handleSectionKeyDown(event, "memory")}
@@ -240,7 +240,7 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
               <span className="flex min-w-0 items-center gap-2">
                 <Archive className="size-3.5 shrink-0 text-muted-foreground" />
                 <span className="truncate text-sm leading-5">
-                  {m.library_section_memory()}
+                  {m.library_section_memory_buckets()}
                 </span>
               </span>
             </AccordionTrigger>
@@ -251,7 +251,7 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
               containerClassName="data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:overflow-hidden"
               className="h-full overflow-y-auto pb-2 pl-2 pr-1"
             >
-              <MemorySection query={query} />
+              <MemoryBucketsSection query={query} />
             </AccordionContent>
           </AccordionItem>
         </Accordion>

@@ -1,7 +1,7 @@
-"""Memory Library (handler HTTP).
+"""Memory Buckets (handler HTTP).
 
-GET  /rag-library/catalog — lista buckets publicados
-POST /rag-library/install — baixa e instala um bucket como coleção LanceDB
+GET  /memory-buckets/catalog — lista buckets publicados
+POST /memory-buckets/install — baixa e instala um bucket como coleção LanceDB
 """
 
 from __future__ import annotations
@@ -10,22 +10,22 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.api.handlers.memory_library import (
+from backend.api.handlers.memory_buckets import (
     InstallRequest,
     PublishRequest,
     get_catalog,
     post_install,
     post_publish,
 )
-from backend.services.memory_library import MemoryLibraryError
+from backend.services.memory_buckets import MemoryBucketsError
 
 
 @pytest.mark.asyncio
 async def test_get_catalog_returns_entries_from_service(monkeypatch):
-    from backend.api.handlers import memory_library
+    from backend.api.handlers import memory_buckets
 
     monkeypatch.setattr(
-        memory_library,
+        memory_buckets,
         "_list_catalog",
         AsyncMock(return_value=[{"id": "b1", "name": "Bucket 1", "verified": True}]),
     )
@@ -37,9 +37,9 @@ async def test_get_catalog_returns_entries_from_service(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_get_catalog_degrades_to_empty_list_on_service_failure(monkeypatch):
-    from backend.api.handlers import memory_library
+    from backend.api.handlers import memory_buckets
 
-    monkeypatch.setattr(memory_library, "_list_catalog", AsyncMock(return_value=[]))
+    monkeypatch.setattr(memory_buckets, "_list_catalog", AsyncMock(return_value=[]))
 
     result = await get_catalog()
 
@@ -49,10 +49,10 @@ async def test_get_catalog_degrades_to_empty_list_on_service_failure(monkeypatch
 @pytest.mark.asyncio
 async def test_get_catalog_repassa_q_pro_service(monkeypatch):
     """`?q=` chega no handler e é repassado pro service — não fica órfão."""
-    from backend.api.handlers import memory_library
+    from backend.api.handlers import memory_buckets
 
     list_catalog_mock = AsyncMock(return_value=[{"id": "b1"}])
-    monkeypatch.setattr(memory_library, "_list_catalog", list_catalog_mock)
+    monkeypatch.setattr(memory_buckets, "_list_catalog", list_catalog_mock)
 
     result = await get_catalog(q="godot")
 
@@ -62,10 +62,10 @@ async def test_get_catalog_repassa_q_pro_service(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_post_install_returns_collection_on_success(monkeypatch):
-    from backend.api.handlers import memory_library
+    from backend.api.handlers import memory_buckets
 
     monkeypatch.setattr(
-        memory_library,
+        memory_buckets,
         "download_memory_bucket",
         AsyncMock(return_value="shared_b1"),
     )
@@ -79,12 +79,12 @@ async def test_post_install_returns_collection_on_success(monkeypatch):
 async def test_post_install_incompatible_embed_model_returns_error_not_exception(
     monkeypatch,
 ):
-    from backend.api.handlers import memory_library
+    from backend.api.handlers import memory_buckets
 
     monkeypatch.setattr(
-        memory_library,
+        memory_buckets,
         "download_memory_bucket",
-        AsyncMock(side_effect=MemoryLibraryError("embedder incompatível")),
+        AsyncMock(side_effect=MemoryBucketsError("embedder incompatível")),
     )
 
     result = await post_install(InstallRequest(bucket_id="b1"))
@@ -107,10 +107,10 @@ async def test_post_publish_returns_bucket_id_on_success(monkeypatch):
     from backend.services import license
 
     monkeypatch.setattr(license, "_get_token", lambda: "tok-123")
-    from backend.api.handlers import memory_library
+    from backend.api.handlers import memory_buckets
 
     monkeypatch.setattr(
-        memory_library,
+        memory_buckets,
         "publish_memory_bucket",
         AsyncMock(return_value="b-new"),
     )
@@ -129,10 +129,10 @@ async def test_post_publish_sem_vectora_token_retorna_erro_sem_tentar_publicar(
     from backend.services import license
 
     monkeypatch.setattr(license, "_get_token", lambda: None)
-    from backend.api.handlers import memory_library
+    from backend.api.handlers import memory_buckets
 
     publish_mock = AsyncMock()
-    monkeypatch.setattr(memory_library, "publish_memory_bucket", publish_mock)
+    monkeypatch.setattr(memory_buckets, "publish_memory_bucket", publish_mock)
 
     result = await post_publish(_publish_req())
 
@@ -146,12 +146,12 @@ async def test_post_publish_falha_do_service_vira_status_error(monkeypatch):
     from backend.services import license
 
     monkeypatch.setattr(license, "_get_token", lambda: "tok-123")
-    from backend.api.handlers import memory_library
+    from backend.api.handlers import memory_buckets
 
     monkeypatch.setattr(
-        memory_library,
+        memory_buckets,
         "publish_memory_bucket",
-        AsyncMock(side_effect=MemoryLibraryError("workspace sem coleção local")),
+        AsyncMock(side_effect=MemoryBucketsError("workspace sem coleção local")),
     )
 
     result = await post_publish(_publish_req())

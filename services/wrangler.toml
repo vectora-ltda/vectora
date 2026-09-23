@@ -65,7 +65,7 @@ bucket_name = "vectora-r2"
 binding = "KV"
 id = "0bed7e9f6db54ff3bb8d04c015c7a0e2"
 
-# auth/billing/license/gdpr/api-keys/issues/rag-library (Fase B/C) — substitui
+# auth/billing/license/gdpr/api-keys/issues/memory-buckets - substitui
 # o Postgres do Supabase. Sem RLS: autorização é feita em código, em cada
 # handler (CLAUDE.md regra 7). Provisionar com `wrangler d1 create vectora-db`
 # e colar o `database_id` gerado abaixo.

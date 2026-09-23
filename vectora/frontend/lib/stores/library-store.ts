@@ -114,7 +114,7 @@ async function fetchSkillsCatalog(q: string): Promise<CatalogSkill[]> {
 
 async function fetchMemoryCatalog(q: string): Promise<MemoryBucket[]> {
   const qs = q ? `?${new URLSearchParams({ q })}` : "";
-  const res = await fetch(`/rag-library/catalog${qs}`);
+  const res = await fetch(`/memory-buckets/catalog${qs}`);
   if (!res.ok) throw new Error(`Erro ${res.status}`);
   return res.json();
 }
@@ -232,7 +232,7 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
         memoryError: null,
       });
     } catch {
-      set({ memoryError: m.library_memory_error_search() });
+      set({ memoryError: m.library_memory_buckets_error_search() });
     } finally {
       set({ memoryLoading: false });
     }

@@ -1,4 +1,4 @@
-"""Tools de auto-instalação da Library: MCP/Skills/Memory Library.
+"""Tools de auto-instalação da Library: MCP/Skills/Memory Buckets.
 
 Cobre `install_mcp_from_registry`, `install_skill_from_catalog` e
 `install_memory_bucket` — happy path e erro/borda de cada uma, reaproveitando
@@ -166,10 +166,10 @@ async def test_install_skill_from_catalog_unknown_skill_returns_error(monkeypatc
 
 @pytest.mark.asyncio
 async def test_install_memory_bucket_installs_collection(monkeypatch):
-    from backend.services import memory_library
+    from backend.services import memory_buckets
 
     monkeypatch.setattr(
-        memory_library,
+        memory_buckets,
         "download_memory_bucket",
         AsyncMock(return_value="shared_docs-2024"),
     )
@@ -183,12 +183,12 @@ async def test_install_memory_bucket_installs_collection(monkeypatch):
 async def test_install_memory_bucket_error_returns_status_error_not_raised(
     monkeypatch,
 ):
-    from backend.services import memory_library
+    from backend.services import memory_buckets
 
     async def _boom(bucket_id: str) -> str:
-        raise memory_library.MemoryLibraryError("embed_model incompatível")
+        raise memory_buckets.MemoryBucketsError("embed_model incompatível")
 
-    monkeypatch.setattr(memory_library, "download_memory_bucket", _boom)
+    monkeypatch.setattr(memory_buckets, "download_memory_bucket", _boom)
 
     result = json.loads(await install_memory_bucket(bucket_id="docs-2024"))
 
@@ -300,11 +300,11 @@ async def test_verify_skill_propagates_internal_error_as_typed_error(monkeypatch
 @pytest.mark.asyncio
 async def test_publish_memory_bucket_tool_publishes_with_token(monkeypatch):
     from backend.services import license as license_service
-    from backend.services import memory_library
+    from backend.services import memory_buckets
 
     monkeypatch.setattr(license_service, "_get_token", lambda: "tok-123")
     monkeypatch.setattr(
-        memory_library,
+        memory_buckets,
         "publish_memory_bucket",
         AsyncMock(return_value="remote-bucket-1"),
     )
@@ -326,11 +326,11 @@ async def test_publish_memory_bucket_tool_no_token_returns_error_without_publish
     monkeypatch,
 ):
     from backend.services import license as license_service
-    from backend.services import memory_library
+    from backend.services import memory_buckets
 
     monkeypatch.setattr(license_service, "_get_token", lambda: None)
     publish_spy = AsyncMock()
-    monkeypatch.setattr(memory_library, "publish_memory_bucket", publish_spy)
+    monkeypatch.setattr(memory_buckets, "publish_memory_bucket", publish_spy)
 
     result = json.loads(
         await publish_memory_bucket_tool(

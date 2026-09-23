@@ -1,14 +1,14 @@
 # vectora-services
 
 Worker único no Cloudflare que serve `gateway/`, `updates/` e
-auth/billing/license/GDPR/api-keys/issues/rag-library/registry. Domínios:
+auth/billing/license/GDPR/api-keys/issues/memory-buckets/registry. Domínios:
 
 - `gateway.vectora.chat` + `{token}.vectora.chat` — proxy WebSocket
   bidirecional de OAuth/webhooks pro app desktop (`src/gateway/`, ex-relay —
   renomeado sem alias de transição, decisão do produto: não havia clientes
   antigos em produção pra coordenar).
 - `services.vectora.company` — tudo o mais montado num único Hono app em
-  `src/index.ts`: auth/billing/license/GDPR/api-keys/issues/rag-library/
+  `src/index.ts`: auth/billing/license/GDPR/api-keys/issues/memory-buckets/
   registry/telemetry **e** updates (distribuição de releases pro
   `electron-updater` + download público de primeira instalação,
   `src/updates/`) — mesclado na raiz via `.route("/", updatesApp)`, sem
@@ -71,7 +71,7 @@ handler):
   `gdpr_delete_user` por usuário expirado (hard-delete de verdade acontece
   no consumer, `hardDeleteOneUser`).
 - `/api-keys/*`, `/issues/*` — gestão de chaves e tickets de suporte.
-- `/rag-library/*` — catálogo + download de bancos RAG pré-indexados (Fase E
+- `/memory-buckets/*` — catálogo + download de bancos RAG pré-indexados (Fase E
   segue fora de escopo — nenhum pacote real ainda). `POST /:id/reindex`
   enfileira de verdade (`rag_reindex`), mas o consumer sempre marca
   `status='failed'`: não existe provedor de storage externo configurado.

@@ -1,27 +1,14 @@
 "use client";
 
 /**
- * SkillsSection — gerencia skills instaladas (backend/workspace/skills.py,
- * GET/POST /skills, DELETE /skills/:id, POST /skills/:id/verify).
- * Reaproveita o componente SkillsTab sem duplicar o fetch das skills locais.
- *
- * Abaixo dela, "Catálogo" lista skills curadas do registry remoto
- * (GET /skills/catalog, distinto de GET /skills que lista as instaladas) —
- * instalar uma skill referencia o identificador publicado no catálogo. Não existe entrada manual:
- * toda instalação começa em um item publicado no catálogo.
+ * SkillsSection lista as skills disponíveis no catálogo remoto e permite
+ * instalar uma entrada diretamente a partir dela.
  */
 
 import { useEffect, useState } from "react";
-import {
-  ChevronDown,
-  ChevronUp,
-  Download,
-  Loader2,
-  Sparkles,
-} from "lucide-react";
+import { Download, Loader2, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { SkillsTab } from "@/components/settings/environment/tabs/skills-tab";
 import { m } from "@/lib/paraglide/messages";
 import { useLibraryStore, type CatalogSkill } from "@/lib/stores/library-store";
 import { LibraryCard, LibraryTag } from "./library-card";
@@ -154,14 +141,12 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
 }
 
 function SkillsCatalog({ query }: { query: string }) {
-  const [open, setOpen] = useState(true);
   const entries = useLibraryStore((s) => s.skillsItems);
   const loading = useLibraryStore((s) => s.skillsLoading);
   const error = useLibraryStore((s) => s.skillsError);
   const ensureSkillsLoaded = useLibraryStore((s) => s.ensureSkillsLoaded);
 
   useEffect(() => {
-    if (!open) return;
     if (!query.trim()) {
       void ensureSkillsLoaded(query);
       return;
@@ -170,7 +155,7 @@ function SkillsCatalog({ query }: { query: string }) {
       void ensureSkillsLoaded(query);
     }, 350);
     return () => clearTimeout(timer);
-  }, [open, query, ensureSkillsLoaded]);
+  }, [query, ensureSkillsLoaded]);
 
   const content = loading ? (
     <div className="flex justify-center py-4">
@@ -192,30 +177,9 @@ function SkillsCatalog({ query }: { query: string }) {
     </div>
   );
 
-  return (
-    <div className="pt-2">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-      >
-        {open ? (
-          <ChevronUp className="w-3.5 h-3.5" />
-        ) : (
-          <ChevronDown className="w-3.5 h-3.5" />
-        )}
-        {m.library_skills_catalog_toggle()}
-      </button>
-      {open && content}
-    </div>
-  );
+  return <div className="pt-2">{content}</div>;
 }
 
 export function SkillsSection({ query }: { query: string }) {
-  return (
-    <div className="space-y-1">
-      <SkillsTab />
-      <SkillsCatalog query={query} />
-    </div>
-  );
+  return <SkillsCatalog query={query} />;
 }

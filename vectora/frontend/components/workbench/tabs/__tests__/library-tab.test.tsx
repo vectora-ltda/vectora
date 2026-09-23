@@ -6,7 +6,7 @@
  * filtros; exclusão mútua das seções abertas; e o viewport de scroll interno.
  * MCP, Skills e Memory são mockadas aqui pra testar só o shell; suas próprias
  * suítes cobrem o comportamento real (library-mcp-section.test.tsx,
- * skills-tab.test.tsx, library-memory-section.test.tsx).
+ * skills-tab.test.tsx, library-memory-buckets-section.test.tsx).
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
@@ -29,8 +29,8 @@ vi.mock("../library-skills-section", () => ({
     ),
 }));
 
-vi.mock("../library-memory-section", () => ({
-  MemorySection: () =>
+vi.mock("../library-memory-buckets-section", () => ({
+  MemoryBucketsSection: () =>
     fixtures.populated ? (
       <article>Godot Engine 4.6</article>
     ) : (
@@ -48,12 +48,12 @@ afterEach(() => {
 });
 
 describe("LibraryTab", () => {
-  it("renderiza as 3 seções (MCP, Skills, Memory Library)", () => {
+  it("renderiza as 3 seções (MCP, Skills, Memory Buckets)", () => {
     render(<LibraryTab threadId="t1" />);
     expect(screen.getByText("MCP", { selector: "span" })).toBeTruthy();
     expect(screen.getByText("Skills", { selector: "span" })).toBeTruthy();
     expect(
-      screen.getByText("Memory Library", { selector: "span" }),
+      screen.getByText("Memory Buckets", { selector: "span" }),
     ).toBeTruthy();
   });
 
@@ -115,7 +115,7 @@ describe("LibraryTab", () => {
 
   it("permite recolher a seção ativa sem ativar outra", () => {
     render(<LibraryTab threadId="t1" />);
-    const memoryHeader = screen.getByText("Memory Library", {
+    const memoryHeader = screen.getByText("Memory Buckets", {
       selector: "span",
     });
     fireEvent.click(memoryHeader);

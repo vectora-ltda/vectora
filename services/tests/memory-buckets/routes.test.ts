@@ -4,7 +4,7 @@ import {
   ragLibrary,
   processRagReindex,
   NO_STORAGE_PROVIDER_REASON,
-} from "../../src/rag-library/routes";
+} from "../../src/memory-buckets/routes";
 import { createSession } from "../../src/auth/session";
 
 async function createUser(role: "user" | "admin" = "user") {
@@ -50,7 +50,7 @@ async function makePackage(status: "ready" | "pending" | "failed" = "ready") {
   return id;
 }
 
-describe("GET /rag-library", () => {
+describe("GET /memory-buckets", () => {
   it("lists the catalog and redirects a known package to its storage URL, 404 for unknown", async () => {
     const id = crypto.randomUUID();
     await env.DB.prepare(
@@ -114,7 +114,7 @@ describe("GET /rag-library", () => {
   });
 });
 
-describe("GET /rag-library?q=", () => {
+describe("GET /memory-buckets?q=", () => {
   it("filtra por nome/descrição", async () => {
     const id = crypto.randomUUID();
     await env.DB.prepare(
@@ -154,7 +154,7 @@ describe("GET /rag-library?q=", () => {
   });
 });
 
-describe("POST /rag-library/:id/reindex", () => {
+describe("POST /memory-buckets/:id/reindex", () => {
   it("marca status=pending e enfileira o job rag_reindex", async () => {
     const id = await makePackage("ready");
     const sendSpy = vi.spyOn(env.JOBS_QUEUE, "send");
@@ -189,7 +189,7 @@ describe("POST /rag-library/:id/reindex", () => {
   });
 });
 
-describe("POST /rag-library/publish", () => {
+describe("POST /memory-buckets/publish", () => {
   it("publica um bucket autenticado — grava R2 + linha D1 com publisher_id", async () => {
     const { userId, token } = await createUser("user");
 
@@ -260,7 +260,7 @@ describe("POST /rag-library/publish", () => {
   });
 });
 
-describe("PATCH /rag-library/admin/:id/verify", () => {
+describe("PATCH /memory-buckets/admin/:id/verify", () => {
   it("seta verified=1 quando chamado por admin", async () => {
     const id = await makePackage("ready");
     const { token } = await createUser("admin");
