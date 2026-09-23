@@ -643,14 +643,22 @@ export function ChatInput({
               <CompactControlGroup>
                 <PermissionModeMenu compact />
                 <EffortMenu compact />
-                {agentConfig && onAgentConfigChange && (
-                  <ModelSelector
-                    value={agentConfig.model}
-                    onChange={handleModelChange}
-                    compact
-                    codeMode={!chatMode && !!wsId}
-                  />
-                )}
+                <div className="flex min-w-0 items-center gap-1">
+                  {agentConfig && onAgentConfigChange && (
+                    <ModelSelector
+                      value={agentConfig.model}
+                      onChange={handleModelChange}
+                      compact
+                      codeMode={!chatMode && !!wsId}
+                    />
+                  )}
+                  {modelId && (
+                    <UsagePopover
+                      tokensUsed={tokensUsed ?? 0}
+                      modelId={modelId}
+                    />
+                  )}
+                </div>
               </CompactControlGroup>
             ) : (
               <>
@@ -660,21 +668,26 @@ export function ChatInput({
                 <div className="min-w-0 flex-[0_1_auto] overflow-hidden">
                   <EffortMenu />
                 </div>
-                {agentConfig && onAgentConfigChange && (
-                  <div className="min-w-0 flex-[1_1_auto] overflow-hidden">
-                    <ModelSelector
-                      value={agentConfig.model}
-                      onChange={handleModelChange}
-                      codeMode={!chatMode && !!wsId}
-                    />
-                  </div>
-                )}
+                <div className="flex min-w-0 flex-[1_1_auto] items-center gap-1 overflow-hidden">
+                  {agentConfig && onAgentConfigChange && (
+                    <div className="min-w-0 flex-1 overflow-hidden">
+                      <ModelSelector
+                        value={agentConfig.model}
+                        onChange={handleModelChange}
+                        codeMode={!chatMode && !!wsId}
+                      />
+                    </div>
+                  )}
+                  {modelId && (
+                    <div className="shrink-0">
+                      <UsagePopover
+                        tokensUsed={tokensUsed ?? 0}
+                        modelId={modelId}
+                      />
+                    </div>
+                  )}
+                </div>
               </>
-            )}
-            {modelId && (
-              <div className="shrink-0">
-                <UsagePopover tokensUsed={tokensUsed ?? 0} modelId={modelId} />
-              </div>
             )}
           </div>
         </div>
