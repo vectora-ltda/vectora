@@ -9,6 +9,10 @@ on:
     branches:
       - "**"
 
+concurrency:
+  group: release-line-migration-${{ github.repository }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
   issues: write
@@ -34,6 +38,15 @@ jobs:
         run: |
           set -euo pipefail
           git show "$BASE_SHA:.github/release-lines.json" > .github/release-lines.previous.json
+      - name: Carregar configuração após o merge
+        env:
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$MERGE_SHA" || { echo "::error::Merge commit ausente."; exit 1; }
+          git fetch --no-tags origin "$MERGE_SHA"
+          git show "$MERGE_SHA:.github/release-lines.json" > .github/release-lines.current.json
       - uses: actions/github-script@v8
         with:
           github-token: ${{ github.token }}
@@ -49,7 +62,7 @@ jobs:
               fs.readFileSync(".github/release-lines.previous.json", "utf8"),
             );
             const config = JSON.parse(
-              fs.readFileSync(".github/release-lines.json", "utf8"),
+              fs.readFileSync(".github/release-lines.current.json", "utf8"),
             );
             if (context.payload.pull_request.base.ref !== config.development.branch) {
               core.info(

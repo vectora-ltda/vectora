@@ -112,7 +112,10 @@ def test_release_rotation_workflow_declares_release_entrypoint() -> None:
     assert "pull_request_target" in migration_content
     assert "migrate_release_line_prs.js" in migration_content
     assert "pull_request.base.sha" in migration_content
+    assert "pull_request.merge_commit_sha" in migration_content
+    assert "release-lines.current.json" in migration_content
     assert "release-lines.previous.json" in migration_content
+    assert "cancel-in-progress: false" in migration_content
     assert "ROTATION_BODY" not in migration_content
     assert "releaseLineTransition" in helper_content
     assert '      - "**"' in migration_content

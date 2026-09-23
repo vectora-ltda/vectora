@@ -94,12 +94,29 @@ test("deriva a rotação somente de configurações versionadas", () => {
   );
 });
 
+test("rejeita configurações nulas ou vazias", () => {
+  assert.equal(releaseLineTransition(null, config), null);
+  assert.equal(releaseLineTransition(config, null), null);
+  assert.equal(releaseLineTransition({}, config), null);
+  assert.equal(releaseLineTransition(config, {}), null);
+});
+
 test("rejeita uma configuração que não representa rotação", () => {
   assert.equal(releaseLineTransition(config, config), null);
   assert.equal(
     releaseLineTransition(
       {
         development: { branch: "feature/falsa", milestone: "0.2" },
+        maintenance: { branch: "release/0.1", milestone: "0.1.x" },
+      },
+      config,
+    ),
+    null,
+  );
+  assert.equal(
+    releaseLineTransition(
+      {
+        development: { branch: "master", milestone: "0.1" },
         maintenance: { branch: "release/0.1", milestone: "0.1.x" },
       },
       config,
