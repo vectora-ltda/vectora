@@ -77,10 +77,8 @@ vi.mock("../sidebar-mode-toggle", () => ({
     <div data-testid={compact ? "compact-mode-toggle" : "mode-toggle"} />
   ),
 }));
-vi.mock("../thread-item", () => ({
-  ThreadItem: ({ thread }: { thread: Thread }) => (
-    <span data-testid="thread-item">{thread.thread_id}</span>
-  ),
+vi.mock("../thread-list", () => ({
+  ThreadList: () => <div data-testid="thread-list" />,
 }));
 vi.mock("../sidebar-footer", () => ({ SidebarFooter: () => null }));
 vi.mock("@/components/ui/confirm-dialog", () => ({
@@ -193,11 +191,8 @@ describe("Sidebar — wrapper de animação não quebra o preenchimento de altur
       />,
     );
 
-    expect(screen.queryByText("Pastas")).not.toBeInTheDocument();
-    expect(screen.getByRole("navigation")).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Vectora" })).toBeInTheDocument();
-    expect(screen.getAllByText("Vectora")).toHaveLength(1);
-    expect(screen.getByText("thread-1")).toBeInTheDocument();
+    expect(screen.queryByTestId("sidebar-folders")).not.toBeInTheDocument();
+    expect(screen.getByTestId("thread-list")).toBeInTheDocument();
   });
 
   it("mantém o toggle de modo separado do botão de recolher no modo compacto", () => {

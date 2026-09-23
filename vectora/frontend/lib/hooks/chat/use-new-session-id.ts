@@ -12,7 +12,7 @@
  * client-side que o backend nunca viu (getHistory 404 → tela "Not Found").
  */
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { markAsNew } from "@/lib/stores/new-thread-registry";
 import {
   markWorkspaceChosen,
@@ -28,12 +28,10 @@ import { safeRandomUUID } from "@/lib/utils/uuid";
  * Gera um novo id de sessão local e consome os sinais one-shot de
  * workspace pré-escolhido antes da navegação (handleConfirmNewChat).
  */
-export function generateLocalNewId(): string {
-  const id = safeRandomUUID();
+function commitNewSessionId(id: string): void {
   markAsNew(id);
   if (consumeWorkspacePreChosen()) markWorkspaceChosen(id);
   if (consumeCreateNewWorkspacePreNav()) markCreateNewWorkspace(id);
-  return id;
 }
 
 /**
@@ -42,23 +40,22 @@ export function generateLocalNewId(): string {
  * primeira montagem). Fora do modo "new", devolve string vazia.
  */
 export function useNewSessionId(routeParam: string): string {
+  const isNewRoute = routeParam === "new";
+  const committedIdRef = useRef("");
   // Router mantém a instância da rota entre /session/:id e /session/new.
-  // A dependência no parâmetro gera um id novo ao voltar para "new" e mantém
-  // o mesmo id enquanto a rota não muda, sem ler refs durante o render.
-  // Keep ID generation pure during render: StrictMode may invoke memo
-  // calculators more than once. Registration and one-shot signal consumption
-  // belong to the committed effect instead.
-  const id = useMemo(
-    () => (routeParam === "new" ? safeRandomUUID() : ""),
-    [routeParam],
+  // O valor é puro e estável por parâmetro; os registros globais só são
+  // atualizados no efeito, depois que a árvore for confirmada.
+  const localNewId = useMemo(
+    () => (isNewRoute ? safeRandomUUID() : ""),
+    [isNewRoute],
   );
 
   useEffect(() => {
-    if (routeParam !== "new" || !id) return;
-    markAsNew(id);
-    if (consumeWorkspacePreChosen()) markWorkspaceChosen(id);
-    if (consumeCreateNewWorkspacePreNav()) markCreateNewWorkspace(id);
-  }, [id, routeParam]);
+    if (!isNewRoute || !localNewId) return;
+    if (committedIdRef.current === localNewId) return;
+    committedIdRef.current = localNewId;
+    commitNewSessionId(localNewId);
+  }, [isNewRoute, localNewId]);
 
-  return id;
+  return isNewRoute ? localNewId : "";
 }

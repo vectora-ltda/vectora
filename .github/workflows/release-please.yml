@@ -7,7 +7,9 @@ name: Release Please
 
 on:
   push:
-    branches: [master, release/0.1]
+    branches:
+      - master
+      - "release/**"
 
 concurrency:
   group: release-please-${{ github.ref_name }}
@@ -19,14 +21,76 @@ permissions:
 
 jobs:
   release-please:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
+      - name: Load release line configuration
+        id: release-lines
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref_name }}
+          token: ${{ github.token }}
+          persist-credentials: false
+      - name: Select configured release line
+        id: release-line
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f .github/release-lines.json ]]; then
+            echo "Release-line configuration is not present on the trusted default branch; skipping."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          jq -e '
+            (.development.branch | type == "string" and length > 0) and
+            (.maintenance.branch | type == "string" and length > 0) and
+            (.development.milestone | type == "string" and length > 0) and
+            (.maintenance.milestone | type == "string" and length > 0) and
+            (.development.branch != .maintenance.branch)
+          ' .github/release-lines.json >/dev/null
+          development_branch="$(jq -er '.development.branch' .github/release-lines.json)"
+          maintenance_branch="$(jq -er '.maintenance.branch' .github/release-lines.json)"
+          development_milestone="$(jq -er '.development.milestone' .github/release-lines.json)"
+          maintenance_milestone="$(jq -er '.maintenance.milestone' .github/release-lines.json)"
+          if [[ "$GITHUB_REF_NAME" == "$development_branch" ]]; then
+            line_key="development"
+          elif [[ "$GITHUB_REF_NAME" == "$maintenance_branch" ]]; then
+            line_key="maintenance"
+          else
+            line_key=""
+          fi
+          if [[ -n "$line_key" ]]; then
+            config_file="$(jq -er ".${line_key}.release_please_config" .github/release-lines.json)"
+            manifest_file="$(jq -er ".${line_key}.release_please_manifest" .github/release-lines.json)"
+            if [[ "$config_file" == /* || "$config_file" == *..* || "$manifest_file" == /* || "$manifest_file" == *..* ]]; then
+              echo "::error::Os caminhos do Release Please devem ser relativos e não podem subir diretórios." >&2
+              exit 1
+            fi
+            test -f "$config_file" || { echo "::error::Configuração ausente: $config_file" >&2; exit 1; }
+            test -f "$manifest_file" || { echo "::error::Manifesto ausente: $manifest_file" >&2; exit 1; }
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            config_file=""
+            manifest_file=""
+          fi
+          {
+            echo "development_branch=$development_branch"
+            echo "maintenance_branch=$maintenance_branch"
+            echo "development_milestone=$development_milestone"
+            echo "maintenance_milestone=$maintenance_milestone"
+            echo "config_file=$config_file"
+            echo "manifest_file=$manifest_file"
+          } >> "$GITHUB_OUTPUT"
+          if [[ "$(grep '^enabled=' "$GITHUB_OUTPUT" | tail -n 1)" == "enabled=false" ]]; then
+            echo "Skipping release-please on unconfigured branch $GITHUB_REF_NAME."
+          fi
       - uses: googleapis/release-please-action@v5
+        if: steps.release-line.outputs.enabled == 'true'
         id: release
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
+          config-file: ${{ steps.release-line.outputs.config_file }}
+          manifest-file: ${{ steps.release-line.outputs.manifest_file }}
           target-branch: ${{ github.ref_name }}
           # O Release Please deve manter `autorelease: pending`: a validação
           # do branch confiável e a exceção de milestone dependem desse label.
@@ -34,6 +98,7 @@ jobs:
       # Somente o branch exato gerado para este alvo pode receber o token de
       # publicação. As validações evitam branches parecidos de colaboradores.
       - name: Find Release Please branch
+        if: steps.release-line.outputs.enabled == 'true'
         id: release-branch
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
@@ -62,19 +127,19 @@ jobs:
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
 
       - name: Check out Release Please branch
-        if: steps.release-branch.outputs.branch != ''
-        uses: actions/checkout@v4
+        if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.release-branch.outputs.branch }}
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          token: ${{ github.token }}
           persist-credentials: false
 
       - name: Normalize generated changelog list markers
-        if: steps.release-branch.outputs.branch != ''
+        if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
         run: python utils/normalize_changelog_lists.py
 
       - name: Commit normalized changelog
-        if: steps.release-branch.outputs.branch != ''
+        if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
         env:
           RELEASE_BRANCH: ${{ steps.release-branch.outputs.branch }}
           RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}

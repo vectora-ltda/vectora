@@ -1,0 +1,14 @@
+{
+  "development": {
+    "branch": "master",
+    "milestone": "0.2",
+    "release_please_config": "release-please-config.development.json",
+    "release_please_manifest": ".release-please-manifest.development.json"
+  },
+  "maintenance": {
+    "branch": "release/0.1",
+    "milestone": "0.1.x",
+    "release_please_config": "release-please-config.maintenance.json",
+    "release_please_manifest": ".release-please-manifest.maintenance.json"
+  }
+}

@@ -1,8 +1,9 @@
-"""Regression tests for the pull-request release-line contract."""
+"""Testes de regressão do contrato de linha de release das pull requests."""
 
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 from types import ModuleType
 from typing import NotRequired, Protocol, TypedDict, cast
@@ -68,6 +69,15 @@ def _load_validator() -> ValidatorModule:
 
 
 validator = _load_validator()
+RELEASE_CONFIG: dict[str, dict[str, str]] = json.loads(
+    (Path(__file__).parents[3] / ".github" / "release-lines.json").read_text(
+        encoding="utf-8"
+    )
+)
+DEVELOPMENT_BRANCH: str = RELEASE_CONFIG["development"]["branch"]
+DEVELOPMENT_MILESTONE: str = RELEASE_CONFIG["development"]["milestone"]
+MAINTENANCE_BRANCH: str = RELEASE_CONFIG["maintenance"]["branch"]
+MAINTENANCE_MILESTONE: str = RELEASE_CONFIG["maintenance"]["milestone"]
 
 
 def _event(
@@ -105,19 +115,42 @@ def test_main_rejects_malformed_event(
     assert validator.main() == 2
 
 
+def test_main_uses_milestone_assigned_during_workflow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Valida a milestone atualizada em vez do snapshot obsoleto do webhook."""
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(_event(base=MAINTENANCE_BRANCH, milestone=None)),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
+    monkeypatch.setenv("CURRENT_RELEASE_MILESTONE", DEVELOPMENT_MILESTONE)
+    monkeypatch.setenv("CURRENT_PR_BASE", DEVELOPMENT_BRANCH)
+
+    assert validator.main() == 0
+
+
 def test_master_feature_pr_is_accepted() -> None:
-    assert validator.validate_pull_request(_event(base="master", milestone="0.2")) == []
+    assert (
+        validator.validate_pull_request(
+            _event(base=DEVELOPMENT_BRANCH, milestone=DEVELOPMENT_MILESTONE)
+        )
+        == []
+    )
 
 
 def test_master_pr_rejects_maintenance_milestone() -> None:
-    errors = validator.validate_pull_request(_event(base="master", milestone="0.1.x"))
-    assert errors and "0.2" in errors[0]
+    errors = validator.validate_pull_request(
+        _event(base=DEVELOPMENT_BRANCH, milestone=MAINTENANCE_MILESTONE)
+    )
+    assert errors and DEVELOPMENT_MILESTONE in errors[0]
 
 
 def test_scoped_vext_pr_accepts_minor_milestone() -> None:
     event = _event(
-        base="master",
-        milestone="0.2",
+        base=DEVELOPMENT_BRANCH,
+        milestone=DEVELOPMENT_MILESTONE,
         title="feat(vext): build ecosystem artifacts",
     )
     assert validator.validate_pull_request(event) == []
@@ -125,45 +158,49 @@ def test_scoped_vext_pr_accepts_minor_milestone() -> None:
 
 def test_vext_pr_rejects_maintenance_milestone() -> None:
     event = _event(
-        base="master",
-        milestone="0.1.x",
+        base=DEVELOPMENT_BRANCH,
+        milestone=MAINTENANCE_MILESTONE,
         title="feat(vext): build ecosystem artifacts",
     )
     errors = validator.validate_pull_request(event)
-    assert errors and "0.2" in errors[0] and "VEXT" in errors[0]
+    assert errors and DEVELOPMENT_MILESTONE in errors[0] and "VEXT" in errors[0]
 
 
 def test_master_pr_requires_a_milestone() -> None:
-    errors = validator.validate_pull_request(_event(base="master", milestone=None))
+    errors = validator.validate_pull_request(
+        _event(base=DEVELOPMENT_BRANCH, milestone=None)
+    )
     assert errors and "milestone" in errors[0]
 
 
 def test_maintenance_accepts_the_rolling_patch_milestone() -> None:
     assert (
-        validator.validate_pull_request(_event(base="release/0.1", milestone="0.1.x"))
+        validator.validate_pull_request(
+            _event(base=MAINTENANCE_BRANCH, milestone=MAINTENANCE_MILESTONE)
+        )
         == []
     )
 
 
 def test_maintenance_rejects_exact_patch() -> None:
     errors = validator.validate_pull_request(
-        _event(base="release/0.1", milestone="0.1.23")
+        _event(base=MAINTENANCE_BRANCH, milestone="0.1.23")
     )
-    assert errors and "0.1.x" in errors[0]
+    assert errors and MAINTENANCE_MILESTONE in errors[0]
 
 
 def test_maintenance_rejects_minor() -> None:
     errors = validator.validate_pull_request(
-        _event(base="release/0.1", milestone="0.2")
+        _event(base=MAINTENANCE_BRANCH, milestone=DEVELOPMENT_MILESTONE)
     )
-    assert errors and "0.1.x" in errors[0]
+    assert errors and MAINTENANCE_MILESTONE in errors[0]
 
 
 def test_release_please_pr_is_exempt_with_controlled_source_and_label() -> None:
     event = _event(
-        base="master",
+        base=DEVELOPMENT_BRANCH,
         milestone=None,
-        head="release-please--branches--master--components--vectora",
+        head=f"release-please--branches--{DEVELOPMENT_BRANCH}--components--vectora",
         labels=["autorelease: pending"],
     )
     assert validator.validate_pull_request(event) == []
@@ -171,9 +208,9 @@ def test_release_please_pr_is_exempt_with_controlled_source_and_label() -> None:
 
 def test_release_please_pr_from_another_repo_is_rejected() -> None:
     event = _event(
-        base="master",
+        base=DEVELOPMENT_BRANCH,
         milestone=None,
-        head="release-please--branches--master--components--vectora",
+        head=f"release-please--branches--{DEVELOPMENT_BRANCH}--components--vectora",
         labels=["autorelease: pending"],
         head_repo="attacker/vectora",
     )
@@ -183,9 +220,9 @@ def test_release_please_pr_from_another_repo_is_rejected() -> None:
 
 def test_release_please_pr_without_pending_label_is_rejected() -> None:
     event = _event(
-        base="master",
+        base=DEVELOPMENT_BRANCH,
         milestone=None,
-        head="release-please--branches--master--components--vectora",
+        head=f"release-please--branches--{DEVELOPMENT_BRANCH}--components--vectora",
     )
     errors = validator.validate_pull_request(event)
     assert errors and "milestone" in errors[0]
@@ -193,9 +230,9 @@ def test_release_please_pr_without_pending_label_is_rejected() -> None:
 
 def test_release_please_lookalike_branch_is_rejected() -> None:
     event = _event(
-        base="master",
+        base=DEVELOPMENT_BRANCH,
         milestone=None,
-        head="release-please--branches--master--components--vectora-lookalike",
+        head=f"release-please--branches--{DEVELOPMENT_BRANCH}--components--vectora-lookalike",
         labels=["autorelease: pending"],
     )
     errors = validator.validate_pull_request(event)
@@ -204,9 +241,9 @@ def test_release_please_lookalike_branch_is_rejected() -> None:
 
 def test_release_please_branch_retargeted_to_maintenance_is_rejected() -> None:
     event = _event(
-        base="release/0.1",
+        base=MAINTENANCE_BRANCH,
         milestone=None,
-        head="release-please--branches--master--components--vectora",
+        head=f"release-please--branches--{DEVELOPMENT_BRANCH}--components--vectora",
         labels=["autorelease: pending"],
     )
     errors = validator.validate_pull_request(event)
@@ -214,5 +251,7 @@ def test_release_please_branch_retargeted_to_maintenance_is_rejected() -> None:
 
 
 def test_unsupported_base_is_rejected() -> None:
-    errors = validator.validate_pull_request(_event(base="develop", milestone="0.2"))
-    assert errors and "master" in errors[0]
+    errors = validator.validate_pull_request(
+        _event(base="develop", milestone=DEVELOPMENT_MILESTONE)
+    )
+    assert errors and DEVELOPMENT_BRANCH in errors[0]

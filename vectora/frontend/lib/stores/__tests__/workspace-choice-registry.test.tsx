@@ -1,22 +1,58 @@
-// @vitest-environment node
+// @vitest-environment jsdom
 /**
  * workspace-choice-registry — lembra se o usuário já escolheu o workspace de uma
  * thread, para a rota de sessão não reabrir o seletor (evita loop no confirm).
  */
 
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { act, render } from "@testing-library/react";
 import {
   markWorkspaceChosen,
   isWorkspaceChosen,
+  clearWorkspaceChosen,
+  useIsWorkspaceChosen,
   markCreateNewWorkspace,
   consumeCreateNewWorkspace,
 } from "../workspace-choice-registry";
 
 afterEach(() => {
   vi.useRealTimers();
+  for (const id of ["t1", "t2", "a", "b", "reativa", "timer"]) {
+    clearWorkspaceChosen(id);
+  }
 });
 
 describe("workspace-choice-registry", () => {
+  it("atualiza o hook quando a escolha muda", () => {
+    function Probe() {
+      return (
+        <output data-testid="state">
+          {String(useIsWorkspaceChosen("reativa"))}
+        </output>
+      );
+    }
+    const view = render(<Probe />);
+    expect(view.getByTestId("state").textContent).toBe("false");
+    act(() => markWorkspaceChosen("reativa"));
+    expect(view.getByTestId("state").textContent).toBe("true");
+    act(() => clearWorkspaceChosen("reativa"));
+    expect(view.getByTestId("state").textContent).toBe("false");
+  });
+
+  it("notifica o hook quando a escolha expira", () => {
+    vi.useFakeTimers();
+    function Probe() {
+      return (
+        <output data-testid="state">
+          {String(useIsWorkspaceChosen("timer"))}
+        </output>
+      );
+    }
+    const view = render(<Probe />);
+    act(() => markWorkspaceChosen("timer"));
+    act(() => vi.advanceTimersByTime(5 * 60 * 1000 + 1));
+    expect(view.getByTestId("state").textContent).toBe("false");
+  });
   it("thread desconhecida não foi escolhida", () => {
     expect(isWorkspaceChosen("nunca-visto")).toBe(false);
   });
@@ -38,6 +74,22 @@ describe("workspace-choice-registry", () => {
     markWorkspaceChosen("a");
     expect(isWorkspaceChosen("a")).toBe(true);
     expect(isWorkspaceChosen("b")).toBe(false);
+  });
+
+  it("mantém um identificador vazio de forma reativa", () => {
+    function Probe() {
+      return (
+        <output data-testid="empty-state">
+          {String(useIsWorkspaceChosen(""))}
+        </output>
+      );
+    }
+    const view = render(<Probe />);
+    expect(view.getByTestId("empty-state").textContent).toBe("false");
+    act(() => markWorkspaceChosen(""));
+    expect(view.getByTestId("empty-state").textContent).toBe("true");
+    act(() => clearWorkspaceChosen(""));
+    expect(view.getByTestId("empty-state").textContent).toBe("false");
   });
 });
 

@@ -1,20 +1,56 @@
+// @vitest-environment jsdom
 /**
  * Tests para o new-thread-registry: marca/limpa threads recém-criadas e
  * expira por TTL (5 min).
  */
 
 import { describe, expect, it, afterEach, vi } from "vitest";
-import { markAsNew, isNew, clearNew } from "../new-thread-registry";
+import { act, render } from "@testing-library/react";
+import {
+  markAsNew,
+  isNew,
+  clearNew,
+  useIsNewThread,
+} from "../new-thread-registry";
 
 afterEach(() => {
   vi.useRealTimers();
   for (let i = 0; i < 10; i++) clearNew(`t${i}`);
   clearNew("t1");
   clearNew("t2");
+  clearNew("reativa");
+  clearNew("timer");
   clearNew("");
 });
 
 describe("new-thread-registry", () => {
+  it("atualiza o hook quando o registro muda", () => {
+    function Probe() {
+      const value = useIsNewThread("reativa");
+      return <output data-testid="state">{String(value)}</output>;
+    }
+    const view = render(<Probe />);
+    expect(view.getByTestId("state").textContent).toBe("false");
+    act(() => markAsNew("reativa"));
+    expect(view.getByTestId("state").textContent).toBe("true");
+    act(() => clearNew("reativa"));
+    expect(view.getByTestId("state").textContent).toBe("false");
+  });
+
+  it("notifica o hook quando a marca expira", () => {
+    vi.useFakeTimers();
+    function Probe() {
+      return (
+        <output data-testid="state">{String(useIsNewThread("timer"))}</output>
+      );
+    }
+    const view = render(<Probe />);
+    act(() => markAsNew("timer"));
+    expect(view.getByTestId("state").textContent).toBe("true");
+    act(() => vi.advanceTimersByTime(5 * 60 * 1000 + 1));
+    expect(view.getByTestId("state").textContent).toBe("false");
+  });
+
   it("isNew é false para thread nunca marcada", () => {
     expect(isNew("desconhecida")).toBe(false);
   });
@@ -87,6 +123,20 @@ describe("new-thread-registry", () => {
     expect(isNew("")).toBe(true);
     clearNew("");
     expect(isNew("")).toBe(false);
+  });
+
+  it("atualiza o hook para uma thread com identificador vazio", () => {
+    function Probe() {
+      return (
+        <output data-testid="empty-state">{String(useIsNewThread(""))}</output>
+      );
+    }
+    const view = render(<Probe />);
+    expect(view.getByTestId("empty-state").textContent).toBe("false");
+    act(() => markAsNew(""));
+    expect(view.getByTestId("empty-state").textContent).toBe("true");
+    act(() => clearNew(""));
+    expect(view.getByTestId("empty-state").textContent).toBe("false");
   });
 
   it("isNew após expiração remove a entrada internamente", () => {

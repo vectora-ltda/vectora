@@ -1,0 +1,107 @@
+name: Migrate release-line pull requests
+
+# A ativação da configuração é o limite para migrar pull requests existentes.
+# Isso impede que o validador de milestones observe a política antiga enquanto
+# a PR de configuração das linhas de release ainda aguarda merge.
+on:
+  pull_request_target:
+    types: [closed]
+    branches:
+      - "**"
+
+concurrency:
+  group: release-line-migration-${{ github.repository }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  migrate:
+    if: >-
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'chore/rotate-release-lines-') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Carregar configuração anterior confiável
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show "$BASE_SHA:.github/release-lines.json" > .github/release-lines.previous.json
+      - name: Carregar configuração após o merge
+        env:
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$MERGE_SHA" || { echo "::error::Merge commit ausente."; exit 1; }
+          git -c "http.extraheader=AUTHORIZATION: bearer $GITHUB_TOKEN" fetch --no-tags origin "$MERGE_SHA"
+          git show "$MERGE_SHA:.github/release-lines.json" > .github/release-lines.current.json
+      - uses: actions/github-script@v8
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const {
+              findMigrationTargets,
+              applyMigrationUpdates,
+              releaseLineTransition,
+            } = require("./.github/scripts/migrate_release_line_prs.js");
+            const { owner, repo } = context.repo;
+            const fs = require("fs");
+            const previousConfig = JSON.parse(
+              fs.readFileSync(".github/release-lines.previous.json", "utf8"),
+            );
+            const config = JSON.parse(
+              fs.readFileSync(".github/release-lines.current.json", "utf8"),
+            );
+            if (context.payload.pull_request.base.ref !== config.development.branch) {
+              core.info(
+                `Ignorando PR fechada na base não configurada: ${context.payload.pull_request.base.ref}`,
+              );
+              return;
+            }
+            const metadata = releaseLineTransition(previousConfig, config);
+            if (!metadata) {
+              core.setFailed("A configuração atual não representa uma rotação válida de linhas de release.");
+              return;
+            }
+            const { classifyPullRequest } = require(
+              "./.github/scripts/migrate_release_line_prs.js",
+            );
+            const milestones = await github.paginate(
+              github.rest.issues.listMilestones,
+              { owner, repo, state: "open", per_page: 100 },
+            );
+            const targets = findMigrationTargets(config, milestones);
+            if (!targets) {
+              core.setFailed("As milestones ativas de release estão ausentes após a rotação.");
+              return;
+            }
+            const prs = await github.paginate(
+              github.rest.pulls.list,
+              { owner, repo, state: "open", per_page: 100 },
+            );
+            for (const pr of prs) {
+              const migration = classifyPullRequest(pr, config, {
+                ...metadata,
+              });
+              if (!migration) continue;
+              await applyMigrationUpdates(pr, migration, targets, {
+                owner,
+                repo,
+                pulls: github.rest.pulls,
+                issues: github.rest.issues,
+              });
+              core.info(`PR #${pr.number} migrada.`);
+            }
