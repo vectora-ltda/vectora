@@ -99,10 +99,21 @@ def test_release_rotation_workflow_declares_release_entrypoint() -> None:
     assert "release:" in content
     assert "types: [published]" in content
     assert "utils/rotate_release_lines.py" in content
+    assert "utils/activate_release_line.py" in content
     assert "release-lines.json" in content
     assert "gh pr create" in content
     assert 'git push origin "HEAD:$MAINTENANCE_BRANCH"' in content
-    assert 'git show "$rotation_branch:$file"' in content
+    assert "activate_release_line.py" in content
+    assert (
+        'git ls-remote --heads origin "refs/heads/$maintenance_rotation_branch"'
+        in content
+    )
+    assert (
+        'git push --force-with-lease="$maintenance_rotation_branch:$activation_remote_ref"'
+        in content
+    )
+    assert 'gh pr list --repo "$GITHUB_REPOSITORY"' in content
+    assert '--head "$maintenance_rotation_branch"' in content
     assert '--milestone "$DEVELOPMENT_MILESTONE"' in content
     assert "release_version" in content
     assert "RELEASE_PLEASE_TOKEN" in content

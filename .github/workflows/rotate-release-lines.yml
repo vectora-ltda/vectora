@@ -268,11 +268,18 @@ jobs:
           # A nova branch precisa nascer com a configuração já apontando para si.
           # Caso a proteção impeça o push direto, publica uma PR de ativação como
           # fallback para que a linha não fique silenciosamente sem Release Please.
+          # A referência de fallback é reaproveitada para que uma nova execução
+          # atualize a PR existente sem falhar por non-fast-forward.
+          maintenance_rotation_branch="chore/activate-${MAINTENANCE_BRANCH//\//-}-${RELEASE_TAG//[^A-Za-z0-9._-]/-}"
+          activation_remote_ref="$(git ls-remote --heads origin "refs/heads/$maintenance_rotation_branch" | awk '{print $1}')"
           git fetch origin "$MAINTENANCE_BRANCH"
           git switch --detach "origin/$MAINTENANCE_BRANCH"
-          for file in .github/release-lines.json "$maintenance_manifest" "$maintenance_config" "$development_config"; do
-            git show "$rotation_branch:$file" > "$file"
-          done
+          uv run --project vectora python utils/activate_release_line.py \
+            "$rotation_branch" . \
+            .github/release-lines.json \
+            "$maintenance_manifest" \
+            "$maintenance_config" \
+            "$development_config"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .github/release-lines.json "$maintenance_manifest" "$maintenance_config" "$development_config"
@@ -281,14 +288,25 @@ jobs:
           else
             git commit -m "chore: activate ${MAINTENANCE_BRANCH} release line"
             if ! git push origin "HEAD:$MAINTENANCE_BRANCH"; then
-              maintenance_rotation_branch="chore/activate-${MAINTENANCE_BRANCH//\//-}-${RELEASE_TAG//[^A-Za-z0-9._-]/-}"
-              git push --set-upstream origin "HEAD:$maintenance_rotation_branch"
-              gh pr create \
-                --repo "$GITHUB_REPOSITORY" \
+              if [[ -n "$activation_remote_ref" ]]; then
+                git push --force-with-lease="$maintenance_rotation_branch:$activation_remote_ref" \
+                  origin "HEAD:$maintenance_rotation_branch"
+              else
+                git push --set-upstream origin "HEAD:$maintenance_rotation_branch"
+              fi
+              if gh pr list --repo "$GITHUB_REPOSITORY" \
                 --head "$maintenance_rotation_branch" \
                 --base "$MAINTENANCE_BRANCH" \
-                --milestone "$MAINTENANCE_MILESTONE" \
-                --title "chore: activate ${MAINTENANCE_BRANCH} release line" \
-                --body "Ativa a configuração do Release Please na nova linha ${MAINTENANCE_BRANCH}, criada a partir de ${RELEASE_TAG}."
+                --state open --json number --jq 'length == 0' | grep -qx true; then
+                gh pr create \
+                  --repo "$GITHUB_REPOSITORY" \
+                  --head "$maintenance_rotation_branch" \
+                  --base "$MAINTENANCE_BRANCH" \
+                  --milestone "$MAINTENANCE_MILESTONE" \
+                  --title "chore: activate ${MAINTENANCE_BRANCH} release line" \
+                  --body "Ativa a configuração do Release Please na nova linha ${MAINTENANCE_BRANCH}, criada a partir de ${RELEASE_TAG}."
+              else
+                echo "Já existe uma PR aberta para ativar a linha de manutenção."
+              fi
             fi
           fi

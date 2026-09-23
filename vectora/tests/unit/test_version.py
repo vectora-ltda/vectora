@@ -144,22 +144,33 @@ def test_release_please_separa_bump_de_desenvolvimento_e_manutencao() -> None:
 
 def test_active_lines_do_not_propose_same_tag_for_fixes() -> None:
     """Uma correção da manutenção não pode colidir com o release minor de master."""
-    development = json.loads(
+    development_manifest = json.loads(
         (_MONOREPO_ROOT / ".release-please-manifest.development.json").read_text(
             encoding="utf-8"
         )
     )
-    maintenance = json.loads(
+    maintenance_manifest = json.loads(
         (_MONOREPO_ROOT / ".release-please-manifest.maintenance.json").read_text(
             encoding="utf-8"
         )
     )
-    assert development["."] == maintenance["."] == "0.1.23"
-    assert (
-        json.loads(
-            (_MONOREPO_ROOT / "release-please-config.development.json").read_text(
-                encoding="utf-8"
-            )
-        )["release-as"]
-        != "0.1.24"
+    development_config = json.loads(
+        (_MONOREPO_ROOT / "release-please-config.development.json").read_text(
+            encoding="utf-8"
+        )
     )
+    maintenance_config = json.loads(
+        (_MONOREPO_ROOT / "release-please-config.maintenance.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    development_version = development_config["release-as"]
+    maintenance_major, maintenance_minor, maintenance_patch = map(
+        int, maintenance_manifest["."].split(".")
+    )
+    maintenance_version = (
+        f"{maintenance_major}.{maintenance_minor}.{maintenance_patch + 1}"
+    )
+    assert development_manifest["."] == maintenance_manifest["."]
+    assert maintenance_config["bump-patch-for-minor-pre-major"] is True
+    assert development_version != maintenance_version
