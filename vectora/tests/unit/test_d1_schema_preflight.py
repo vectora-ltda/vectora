@@ -155,6 +155,17 @@ def test_workflow_gates_schema_on_preflight() -> None:
     assert "services_schema_legacy_catalog" not in workflow
 
 
+def test_catalog_timestamp_commands_use_configured_d1_target() -> None:
+    script = (
+        ROOT.parent / "services" / "scripts" / "d1_catalog_preflight.sh"
+    ).read_text(
+        encoding="utf-8",
+    )
+
+    assert script.count("pnpm --silent wrangler d1 execute vectora-db --remote") == 2
+    assert 'd1 execute "$DB_NAME" "$REMOTE_FLAG"' not in script
+
+
 def test_legacy_timestamp_is_backfilled_and_defaulted() -> None:
     connection = sqlite3.connect(":memory:")
     connection.execute("CREATE TABLE skills_catalog (id TEXT PRIMARY KEY)")

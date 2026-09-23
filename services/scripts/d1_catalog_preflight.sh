@@ -116,9 +116,9 @@ if [ "$mcp_table_exists" = true ]; then
   ensure_missing_mcp_column last_seen_at "TEXT"
   ensure_missing_mcp_column catalog_status "TEXT NOT NULL DEFAULT 'active'"
   ensure_missing_mcp_column updated_at "TEXT"
-  pnpm --silent wrangler d1 execute "$DB_NAME" "$REMOTE_FLAG" \
+  pnpm --silent wrangler d1 execute vectora-db --remote \
     --command "CREATE TRIGGER IF NOT EXISTS mcp_catalog_updated_at_default AFTER INSERT ON mcp_catalog WHEN NEW.updated_at IS NULL BEGIN UPDATE mcp_catalog SET updated_at = datetime('now') WHERE id = NEW.id AND updated_at IS NULL; END"
-  pnpm --silent wrangler d1 execute "$DB_NAME" "$REMOTE_FLAG" \
+  pnpm --silent wrangler d1 execute vectora-db --remote \
     --command "UPDATE mcp_catalog SET updated_at = datetime('now') WHERE updated_at IS NULL"
   pnpm exec wrangler d1 execute vectora-db --remote \
     --command "CREATE INDEX IF NOT EXISTS idx_mcp_catalog_public_rank ON mcp_catalog(catalog_status, stars_count DESC, updated_at DESC)"
