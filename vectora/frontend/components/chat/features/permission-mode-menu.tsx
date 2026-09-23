@@ -37,14 +37,12 @@ export function PermissionModeMenu({ compact = false }: { compact?: boolean }) {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
-          className={`flex min-w-0 max-w-full shrink items-center overflow-hidden rounded-md text-xs text-muted-foreground transition-colors select-none hover:bg-muted/50 hover:text-foreground ${compact ? "h-7 w-max gap-0.5 px-1" : "gap-1.5 px-2 py-1.5"}`}
+          className={`flex min-w-0 max-w-full shrink items-center overflow-hidden rounded-md text-xs leading-4 font-medium text-muted-foreground transition-colors select-none hover:bg-muted/50 hover:text-foreground ${compact ? "h-7 w-max gap-0.5 px-1" : "gap-1.5 px-2 py-1.5"}`}
           title={msg.permission_title()}
           aria-label={`${msg.permission_title()}: ${mDyn(`permission.mode.${mode}`)}`}
           aria-expanded={open}
         >
-          <span
-            className={`inline min-w-0 truncate font-medium ${compact ? "max-w-full" : "max-w-20"}`}
-          >
+          <span className="inline min-w-0 truncate font-medium">
             {mDyn(`permission.mode.${mode}`)}
           </span>
           {!compact && <ChevronDown className="h-3 w-3 shrink-0" />}

@@ -207,7 +207,7 @@ function CompactControlGroup({ children }: { children: ReactNode }) {
   return (
     <div
       ref={groupRef}
-      className="flex min-w-0 flex-1 justify-between overflow-hidden"
+      className="flex min-w-0 flex-1 items-center justify-between overflow-hidden"
     >
       {Children.toArray(children).map((child, index) => (
         <div
@@ -610,7 +610,7 @@ export function ChatInput({
               flexível e cedem espaço aos rótulos antes de serem ocultados. */}
           <div
             data-testid="chat-input-footer"
-            className={`flex min-h-10 w-full min-w-0 items-center overflow-hidden border-t border-border/60 ${compact ? "flex-nowrap justify-between gap-x-0 px-2 py-1" : "flex-wrap gap-x-2 gap-y-1 px-4 py-2"}`}
+            className={`flex min-h-10 w-full min-w-0 items-center border-t border-border/60 ${compact ? "flex-nowrap gap-x-1 overflow-visible px-2 py-1" : "flex-wrap gap-x-2 gap-y-1 overflow-visible px-4 py-2"}`}
           >
             <div
               className={`flex shrink-0 items-center ${compact ? "gap-x-0.5" : "gap-1"}`}
