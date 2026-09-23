@@ -17,22 +17,33 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, waitFor, act } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 
-const { navigateSpy } = vi.hoisted(() => ({ navigateSpy: vi.fn() }));
+const { navigateSpy, chatProps, routeParam } = vi.hoisted(() => ({
+  navigateSpy: vi.fn(),
+  chatProps: vi.fn(),
+  routeParam: { value: "t1" },
+}));
 
 vi.mock("@tanstack/react-router", () => ({
   // O componente lê `Route.useParams()`, então o objeto devolvido por
   // createFileRoute precisa carregá-lo — não basta repassar as opções.
   createFileRoute: () => (opts: Record<string, unknown>) => ({
     ...opts,
-    useParams: () => ({ threadId: "t1" }),
+    useParams: () => ({ threadId: routeParam.value }),
   }),
   useNavigate: () => navigateSpy,
 }));
 
 vi.mock("@/components/chat/chat-interface", () => ({
-  ChatInterface: ({ compact }: { compact?: boolean }) => (
-    <div data-testid="chat" data-compact={String(!!compact)} />
-  ),
+  ChatInterface: ({
+    compact,
+    isNewThread,
+  }: {
+    compact?: boolean;
+    isNewThread?: boolean;
+  }) => {
+    chatProps({ compact, isNewThread });
+    return <div data-testid="chat" data-compact={String(!!compact)} />;
+  },
 }));
 vi.mock("@/components/kanban/kanban-board", () => ({
   KanbanBoard: () => <div data-testid="kanban" />,
@@ -164,6 +175,8 @@ function setMode(uiMode: "assistant" | "ide" | "kanban", chatMode = false) {
 
 beforeEach(() => {
   navigateSpy.mockClear();
+  chatProps.mockClear();
+  routeParam.value = "t1";
   // jsdom não implementa matchMedia — useIsNarrowViewport depende dele.
   // Sempre "largo": é o layout de 3 painéis que os testes afirmam.
   // jsdom não implementa EventSource — hooks de webhook o instanciam no
@@ -206,6 +219,17 @@ afterEach(() => {
 });
 
 describe("SessionPage — um modo por vez, nunca dois", () => {
+  it("marca a rota de nova conversa antes dos efeitos de registro", () => {
+    routeParam.value = "new";
+    setMode("assistant");
+
+    render(<SessionPage />);
+
+    expect(chatProps).toHaveBeenCalledWith(
+      expect.objectContaining({ isNewThread: true }),
+    );
+  });
+
   it("Kanban mostra o board e NENHUM chat", () => {
     // Regressão: o chat era um overlay absoluto irmão das branches de modo,
     // então continuava desenhado por cima do board depois da troca.

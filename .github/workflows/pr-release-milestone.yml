@@ -1,8 +1,8 @@
 name: PR Release Milestone
 
-# Metadata validation runs in the trusted base context. The pull-request
-# revision is never checked out or executed, so contributors cannot replace
-# the validator and bypass the release-line gate.
+# A validação de metadados roda no contexto confiável da base. A revisão da
+# pull request nunca é baixada nem executada, portanto colaboradores não podem
+# substituir o validador e contornar o bloqueio da linha de release.
 on:
   pull_request_target:
     types:
@@ -16,26 +16,108 @@ on:
         labeled,
         unlabeled,
       ]
-    branches: [master, release/0.1]
+    branches: ["**"]
 
 concurrency:
-  group: pr-release-milestone-${{ github.event.pull_request.number }}
+  group: pr-release-milestone-${{ github.repository }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   release-milestone:
     name: Validate release milestone
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      # Use the trusted revision that contains this workflow and validator. A
-      # maintenance branch may predate the validator entirely.
+      # Usa a revisão confiável que contém este workflow e a configuração.
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
+      - name: Assign release milestone from base branch
+        id: assign-milestone
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require("fs");
+            const config = JSON.parse(
+              fs.readFileSync(".github/release-lines.json", "utf8"),
+            );
+            const base = context.payload.pull_request.base.ref;
+            const line = [config.development, config.maintenance].find(
+              ({ branch }) => branch === base,
+            );
+
+            if (!line) {
+              core.info(`Skipping unsupported pull-request base: ${base}`);
+              return;
+            }
+            const milestoneTitle = line.milestone;
+
+            const { owner, repo } = context.repo;
+            const currentPullRequest = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: context.issue.number,
+            });
+            const milestones = await github.paginate(
+              github.rest.issues.listMilestones,
+              { owner, repo, state: "open", per_page: 100 },
+            );
+            let milestone = milestones.find(
+              ({ title }) => title === milestoneTitle,
+            );
+            if (!milestone) {
+              try {
+                const created = await github.rest.issues.createMilestone({
+                  owner,
+                  repo,
+                  title: milestoneTitle,
+                  description: `Release line ${line.branch}`,
+                });
+                milestone = created.data;
+                core.info(`Created release milestone ${milestoneTitle}.`);
+              } catch (error) {
+                if (error.status !== 422) throw error;
+                const refreshed = await github.paginate(
+                  github.rest.issues.listMilestones,
+                  { owner, repo, state: "open", per_page: 100 },
+                );
+                milestone = refreshed.find(
+                  ({ title }) => title === milestoneTitle,
+                );
+                if (!milestone) throw error;
+                core.info(`Reused concurrently created milestone ${milestoneTitle}.`);
+              }
+            }
+
+            core.setOutput("milestone", milestoneTitle);
+            const current = currentPullRequest.data.milestone?.title;
+            if (current === milestoneTitle) {
+              core.info(`Pull request already uses milestone ${milestoneTitle}.`);
+            } else {
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: context.issue.number,
+                milestone: milestone.number,
+              });
+              core.info(`Assigned milestone ${milestoneTitle} for base ${base}.`);
+            }
+
+            const refreshedPullRequest = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: context.issue.number,
+            });
+            core.setOutput(
+              "current_milestone",
+              refreshedPullRequest.data.milestone?.title ?? "",
+            );
+            core.setOutput("current_base", refreshedPullRequest.data.base.ref);
+
       - uses: ./.github/actions/setup-uv
         with:
           python-version: "3.13"
@@ -45,3 +127,5 @@ jobs:
         run: uv run --project vectora python utils/validate_pr_milestone.py
         env:
           GITHUB_EVENT_PATH: ${{ github.event_path }}
+          CURRENT_RELEASE_MILESTONE: ${{ steps.assign-milestone.outputs.current_milestone }}
+          CURRENT_PR_BASE: ${{ steps.assign-milestone.outputs.current_base }}

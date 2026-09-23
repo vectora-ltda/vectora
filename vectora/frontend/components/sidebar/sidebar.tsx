@@ -15,7 +15,6 @@ import { SidebarHeader } from "./sidebar-header";
 import { NewChatButton } from "./new-chat-button";
 import { SessionSearch } from "./session-search";
 import { SidebarModeToggle } from "./sidebar-mode-toggle";
-import { SidebarFolders } from "./sidebar-folders";
 import { ThreadList } from "./thread-list";
 import { SidebarFooter } from "./sidebar-footer";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -239,8 +238,6 @@ export const Sidebar = memo(function Sidebar({
                 onChange={setSearchQuery}
                 onClear={handleClearSearch}
               />
-
-              <SidebarFolders />
 
               <ThreadList
                 isLoading={isLoading}

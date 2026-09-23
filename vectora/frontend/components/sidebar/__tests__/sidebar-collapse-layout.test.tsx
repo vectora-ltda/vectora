@@ -48,10 +48,9 @@ vi.mock("../sidebar-mode-toggle", () => ({
     <div data-testid={compact ? "compact-mode-toggle" : "mode-toggle"} />
   ),
 }));
-vi.mock("../sidebar-folders", () => ({
-  SidebarFolders: () => <div data-testid="sidebar-folders" />,
+vi.mock("../thread-list", () => ({
+  ThreadList: () => <div data-testid="thread-list" />,
 }));
-vi.mock("../thread-list", () => ({ ThreadList: () => null }));
 vi.mock("../sidebar-footer", () => ({ SidebarFooter: () => null }));
 vi.mock("@/components/ui/confirm-dialog", () => ({
   ConfirmDialog: () => null,
@@ -128,7 +127,7 @@ describe("Sidebar — wrapper de animação não quebra o preenchimento de altur
     expect(screen.getByTestId("compact-mode-toggle")).toBeInTheDocument();
   });
 
-  it("renderiza a navegação de pastas na sidebar expandida", () => {
+  it("não renderiza pastas duplicadas e mantém a lista de sessões expandida", () => {
     render(
       <Sidebar
         isCollapsed={false}
@@ -140,7 +139,8 @@ describe("Sidebar — wrapper de animação não quebra o preenchimento de altur
       />,
     );
 
-    expect(screen.getByTestId("sidebar-folders")).toBeInTheDocument();
+    expect(screen.queryByTestId("sidebar-folders")).not.toBeInTheDocument();
+    expect(screen.getByTestId("thread-list")).toBeInTheDocument();
   });
 
   it("mantém o toggle de modo separado do botão de recolher no modo compacto", () => {

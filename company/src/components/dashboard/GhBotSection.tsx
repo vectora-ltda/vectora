@@ -44,7 +44,7 @@ permissions:
 
 jobs:
   review:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: vectora-bot
     steps:
       - uses: actions/checkout@v6

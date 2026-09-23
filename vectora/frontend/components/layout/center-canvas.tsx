@@ -10,6 +10,10 @@ export interface CenterCanvasTab {
 
 const EMPTY_TABS: CenterCanvasTab[] = [];
 
+function tabDomId(id: string, index: number): string {
+  return `vectora-center-canvas-tab-${id.replace(/[^a-zA-Z0-9_-]/g, "-")}-${index}`;
+}
+
 interface CenterCanvasProps {
   tabs?: CenterCanvasTab[];
   activeTab?: string;
@@ -34,8 +38,6 @@ export function CenterCanvas({
   const selected = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
   const selectedIndex = selected ? tabs.indexOf(selected) : -1;
   const tabpanelId = "vectora-center-canvas-panel";
-  const tabDomId = (id: string, index: number) =>
-    `vectora-center-canvas-tab-${id.replace(/[^a-zA-Z0-9_-]/g, "-")}-${index}`;
   return (
     <section
       aria-label={mDyn("ide.canvas")}
@@ -68,9 +70,7 @@ export function CenterCanvas({
         role={tabs.length > 0 ? "tabpanel" : undefined}
         id={tabpanelId}
         aria-labelledby={
-          selected
-            ? tabDomId(selected.id, selectedIndex)
-            : undefined
+          selected ? tabDomId(selected.id, selectedIndex) : undefined
         }
         className="flex min-h-0 min-w-0 flex-1 overflow-hidden"
       >

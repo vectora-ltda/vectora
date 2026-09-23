@@ -57,6 +57,14 @@ class VectoraContext:
     uma task se auto-atualizando (`kanban_update_status` no próprio id, sem
     aprovação) de uma task tentando mudar o status de OUTRA."""
 
+    background_run_id: str = ""
+    """ID da execução que detém o claim do card de background.
+
+    Preenchido junto com ``background_task_id`` por ``run_task`` e pelo
+    fluxo de resume. A camada Kanban compara este valor com ``claim_lock``
+    antes de aceitar uma mutação feita por uma execução em background.
+    """
+
     store: Any = None
     """Store persistente injetado pelo motor de execução (mesma instância
     de ``backend.services.agent_factory.get_store()``). ``Any`` porque o
@@ -98,4 +106,5 @@ def ctx_from_config(config: dict | None) -> VectoraContext:
         thread_id=str(c.get("thread_id") or ""),
         tool_call_id=str(c.get("tool_call_id") or ""),
         background_task_id=str(c.get("background_task_id") or ""),
+        background_run_id=str(c.get("background_run_id") or ""),
     )

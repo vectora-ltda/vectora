@@ -783,7 +783,10 @@ function SessionPage() {
               onThreadPersistFailed={handleThreadPersistFailed}
               onThreadNotFound={handleThreadNotFound}
               inputLocked={inputLocked}
-              isNewThread={isNew(threadId)}
+              // The route is already known to be new during the first render,
+              // before useNewSessionId's committed effect registers the local
+              // id. Keep the history loader from treating that id as persisted.
+              isNewThread={isNewRoute || isNew(threadId)}
               compact={compact}
               onStartChat={
                 welcomeActions ? handleStartChatFromWelcome : undefined
