@@ -142,7 +142,7 @@ def test_release_please_separa_bump_de_desenvolvimento_e_manutencao() -> None:
     assert maintenance["bump-patch-for-minor-pre-major"] is True
 
 
-def test_linhas_ativas_nao_propõem_a_mesma_tag_em_correções() -> None:
+def test_active_lines_do_not_propose_same_tag_for_fixes() -> None:
     """Uma correção da manutenção não pode colidir com o release minor de master."""
     development = json.loads(
         (_MONOREPO_ROOT / ".release-please-manifest.development.json").read_text(
