@@ -292,13 +292,25 @@ jobs:
               --state open --json number --jq '.[].number')"
             if [[ -n "$activation_pr_numbers" ]]; then
               while IFS= read -r activation_pr; do
-                gh pr close "$activation_pr" \
+                if ! gh pr close "$activation_pr" \
                   --repo "$GITHUB_REPOSITORY" \
-                  --comment "A ativação direta da linha de manutenção foi concluída; esta PR de fallback ficou obsoleta."
+                  --comment "A ativação direta da linha de manutenção foi concluída; esta PR de fallback ficou obsoleta."; then
+                  activation_pr_state="$(gh pr view "$activation_pr" \
+                    --repo "$GITHUB_REPOSITORY" --json state --jq '.state')"
+                  if [[ "$activation_pr_state" == "OPEN" ]]; then
+                    echo "Não foi possível fechar a PR de ativação $activation_pr." >&2
+                    return 1
+                  fi
+                fi
               done <<< "$activation_pr_numbers"
             fi
             if [[ -n "$(git ls-remote --heads origin "refs/heads/$maintenance_rotation_branch")" ]]; then
-              git push origin --delete "$maintenance_rotation_branch"
+              if ! git push origin --delete "$maintenance_rotation_branch"; then
+                if [[ -n "$(git ls-remote --heads origin "refs/heads/$maintenance_rotation_branch")" ]]; then
+                  echo "Não foi possível remover a branch de fallback $maintenance_rotation_branch." >&2
+                  return 1
+                fi
+            fi
             fi
           }
           if git diff --cached --quiet; then
