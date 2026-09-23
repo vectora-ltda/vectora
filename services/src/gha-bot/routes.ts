@@ -4,7 +4,7 @@ import type { Env } from "../gateway/types";
 import { requireUserId } from "../auth/routes";
 import { bearerToken, sha256Hex } from "../auth/session";
 import { decryptProviderKey, encryptProviderKey } from "./crypto";
-import { checkGatewayHealth, dispatchReviewJob } from "../gateway";
+import { dispatchReviewJob } from "../gateway";
 import { timingSafeEqual } from "../gateway/auth";
 
 export const ghaBot = new Hono<{ Bindings: Env }>();
@@ -325,32 +325,6 @@ ghaBot.get("/config", async (c) => {
   if (!row) return c.json({ error: "not_configured" }, 404);
   if (!VALID_GHA_PROVIDERS.has(row.provider)) {
     return c.json({ error: "reconfigure_required" }, 409);
-  }
-
-  // Modo self-hosted só é oferecido se o usuário optou E o túnel do
-  // gateway está de fato conectado agora — comportamento default (runner
-  // efêmero) continua intacto pra quem não optou, e cai pra ele
-  // automaticamente se a instância do usuário estiver offline no momento
-  // exato desta checagem (sem retry aqui — a Action já roda de novo no
-  // próximo PR).
-  if (row.self_hosted_enabled === 1) {
-    const tokenRow = await c.env.DB.prepare(
-      "SELECT token FROM tokens WHERE user_id = ?",
-    )
-      .bind(userId)
-      .first<{ token: string | null }>();
-    if (tokenRow?.token) {
-      const health = await checkGatewayHealth(c.env, tokenRow.token);
-      if (health.connected) {
-        return c.json({
-          mode: "self-hosted",
-          // services.vectora.company (não APP_URL — esse é o site da
-          // company, um deploy diferente; mesma convenção hardcoded já
-          // usada em rag-library/routes.ts pra auto-referenciar este Worker).
-          job_endpoint: "https://services.vectora.company/gha-bot/review",
-        });
-      }
-    }
   }
 
   const apiKey = await decryptProviderKey(
