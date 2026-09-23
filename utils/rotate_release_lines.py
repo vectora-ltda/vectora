@@ -137,6 +137,7 @@ def rotation_for_release(
     major = int(match.group("major"))
     minor = int(match.group("minor"))
     expected = f"{major}.{minor}"
+    release_version = f"{major}.{minor}.0"
     configured = config.development.milestone
     configured_match = re.fullmatch(r"(?P<major>\d+)\.(?P<minor>\d+)", configured)
     if configured_match is None:
@@ -156,7 +157,7 @@ def rotation_for_release(
     next_minor = minor + 1
     return {
         "release_tag": tag,
-        "release_version": expected,
+        "release_version": release_version,
         "maintenance_branch": f"release/{expected}",
         "maintenance_milestone": f"{expected}.x",
         "development_branch": config.development.branch,

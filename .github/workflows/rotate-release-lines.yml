@@ -182,7 +182,10 @@ jobs:
           RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           EVENT_PATH: ${{ github.event_path }}
+          MAINTENANCE_BRANCH: ${{ steps.rotation.outputs.maintenance_branch }}
+          MAINTENANCE_MILESTONE: ${{ steps.rotation.outputs.maintenance_milestone }}
           DEVELOPMENT_BRANCH: ${{ steps.rotation.outputs.development_branch }}
+          DEVELOPMENT_MILESTONE: ${{ steps.rotation.outputs.development_milestone }}
           RELEASE_VERSION: ${{ steps.rotation.outputs.release_version }}
           RELEASE_TAG: ${{ steps.rotation.outputs.release_tag }}
           PREVIOUS_MAINTENANCE_BRANCH: ${{ steps.rotation.outputs.previous_maintenance_branch }}
@@ -206,26 +209,43 @@ jobs:
           fi
           uv run --project vectora python utils/rotate_release_lines.py "$EVENT_PATH" --write .github/release-lines.json
           maintenance_manifest="$(jq -er '.maintenance.release_please_manifest' .github/release-lines.json)"
+          maintenance_config="$(jq -er '.maintenance.release_please_config' .github/release-lines.json)"
+          development_config="$(jq -er '.development.release_please_config' .github/release-lines.json)"
           if [[ "$maintenance_manifest" == /* || "$maintenance_manifest" == *..* ]]; then
             echo "::error::O manifesto da linha de manutenção precisa ser um caminho relativo seguro." >&2
             exit 1
           fi
-          python - "$maintenance_manifest" "$RELEASE_VERSION" <<'PY'
+          if [[ "$development_config" == /* || "$development_config" == *..* ]]; then
+            echo "::error::A configuração de desenvolvimento precisa ser um caminho relativo seguro." >&2
+            exit 1
+          fi
+          if [[ "$maintenance_config" == /* || "$maintenance_config" == *..* ]]; then
+            echo "::error::A configuração de manutenção precisa ser um caminho relativo seguro." >&2
+            exit 1
+          fi
+          python - "$maintenance_manifest" "$RELEASE_VERSION" "$development_config" "$DEVELOPMENT_MILESTONE" <<'PY'
           import json
           import sys
           from pathlib import Path
 
           # A nova linha de manutenção começa na versão publicada que a criou.
-          path = Path(sys.argv[1])
+          manifest_path = Path(sys.argv[1])
           version = sys.argv[2].removeprefix("v")
-          path.write_text(
+          manifest_path.write_text(
               json.dumps({".": version}, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          config_path = Path(sys.argv[3])
+          config = json.loads(config_path.read_text(encoding="utf-8"))
+          config["release-as"] = f"{sys.argv[4]}.0"
+          config_path.write_text(
+              json.dumps(config, indent=2) + "\n",
               encoding="utf-8",
           )
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/release-lines.json "$maintenance_manifest"
+          git add .github/release-lines.json "$maintenance_manifest" "$development_config"
           if git diff --cached --quiet; then
             echo "A configuração da rotação já está commitada."
           else
@@ -237,9 +257,38 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --head "$rotation_branch" \
               --base "$DEVELOPMENT_BRANCH" \
+              --milestone "$DEVELOPMENT_MILESTONE" \
               --title "chore: rotate release lines for ${RELEASE_TAG}" \
               --body "$(printf 'Atualiza .github/release-lines.json e o manifesto do Release Please após %s, mantendo as linhas de manutenção e desenvolvimento alinhadas.\n\n<!-- rotation: previous_maintenance_branch=%s; previous_maintenance_milestone=%s; previous_development_milestone=%s -->' \
                 "$RELEASE_TAG" "$PREVIOUS_MAINTENANCE_BRANCH" "$PREVIOUS_MAINTENANCE_MILESTONE" "$PREVIOUS_DEVELOPMENT_MILESTONE")"
           else
             echo "Já existe uma PR aberta para a rotação da configuração."
+          fi
+
+          # A nova branch precisa nascer com a configuração já apontando para si.
+          # Caso a proteção impeça o push direto, publica uma PR de ativação como
+          # fallback para que a linha não fique silenciosamente sem Release Please.
+          git fetch origin "$MAINTENANCE_BRANCH"
+          git switch --detach "origin/$MAINTENANCE_BRANCH"
+          for file in .github/release-lines.json "$maintenance_manifest" "$maintenance_config" "$development_config"; do
+            git show "$rotation_branch:$file" > "$file"
+          done
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/release-lines.json "$maintenance_manifest" "$maintenance_config" "$development_config"
+          if git diff --cached --quiet; then
+            echo "A branch de manutenção já contém a configuração da rotação."
+          else
+            git commit -m "chore: activate ${MAINTENANCE_BRANCH} release line"
+            if ! git push origin "HEAD:$MAINTENANCE_BRANCH"; then
+              maintenance_rotation_branch="chore/activate-${MAINTENANCE_BRANCH//\//-}-${RELEASE_TAG//[^A-Za-z0-9._-]/-}"
+              git push --set-upstream origin "HEAD:$maintenance_rotation_branch"
+              gh pr create \
+                --repo "$GITHUB_REPOSITORY" \
+                --head "$maintenance_rotation_branch" \
+                --base "$MAINTENANCE_BRANCH" \
+                --milestone "$MAINTENANCE_MILESTONE" \
+                --title "chore: activate ${MAINTENANCE_BRANCH} release line" \
+                --body "Ativa a configuração do Release Please na nova linha ${MAINTENANCE_BRANCH}, criada a partir de ${RELEASE_TAG}."
+            fi
           fi

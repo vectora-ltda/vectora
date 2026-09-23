@@ -75,6 +75,22 @@ describe("workspace-choice-registry", () => {
     expect(isWorkspaceChosen("a")).toBe(true);
     expect(isWorkspaceChosen("b")).toBe(false);
   });
+
+  it("mantém um identificador vazio de forma reativa", () => {
+    function Probe() {
+      return (
+        <output data-testid="empty-state">
+          {String(useIsWorkspaceChosen(""))}
+        </output>
+      );
+    }
+    const view = render(<Probe />);
+    expect(view.getByTestId("empty-state").textContent).toBe("false");
+    act(() => markWorkspaceChosen(""));
+    expect(view.getByTestId("empty-state").textContent).toBe("true");
+    act(() => clearWorkspaceChosen(""));
+    expect(view.getByTestId("empty-state").textContent).toBe("false");
+  });
 });
 
 describe("workspace-choice-registry — sinal de 'criar novo workspace'", () => {

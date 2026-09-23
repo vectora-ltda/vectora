@@ -125,6 +125,20 @@ describe("new-thread-registry", () => {
     expect(isNew("")).toBe(false);
   });
 
+  it("atualiza o hook para uma thread com identificador vazio", () => {
+    function Probe() {
+      return (
+        <output data-testid="empty-state">{String(useIsNewThread(""))}</output>
+      );
+    }
+    const view = render(<Probe />);
+    expect(view.getByTestId("empty-state").textContent).toBe("false");
+    act(() => markAsNew(""));
+    expect(view.getByTestId("empty-state").textContent).toBe("true");
+    act(() => clearNew(""));
+    expect(view.getByTestId("empty-state").textContent).toBe("false");
+  });
+
   it("isNew após expiração remove a entrada internamente", () => {
     vi.useFakeTimers();
     markAsNew("t6");

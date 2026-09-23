@@ -37,6 +37,7 @@ def test_release_tag_rotates_active_lines() -> None:
     assert rotation is not None
     assert rotation["maintenance_branch"] == "release/0.2"
     assert rotation["maintenance_milestone"] == "0.2.x"
+    assert rotation["release_version"] == "0.2.0"
     assert rotation["development_milestone"] == "0.3"
     assert rotation["previous_maintenance_branch"] == "release/0.1"
 

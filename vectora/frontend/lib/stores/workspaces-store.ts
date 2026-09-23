@@ -114,6 +114,7 @@ const PENDING_IDLE: WorkspacesPending = {
 let accountGeneration = 0;
 let latestHydrateRequest = 0;
 let latestSafeRootsRequest = 0;
+let activeSelectionRevision = 0;
 
 interface WorkspacesState {
   workspaces: WorkspaceInfo[];
@@ -201,6 +202,37 @@ async function fetchJson(url: string, init?: RequestInit): Promise<any | null> {
   }
 }
 
+interface StatusMutationResponse {
+  status?: string;
+  message?: string;
+}
+
+type MutationResult =
+  | { kind: "response"; data: StatusMutationResponse | null }
+  | { kind: "rejected"; data: StatusMutationResponse | null }
+  | { kind: "ambiguous" };
+
+/** Executa uma mutação sem confundir rejeição explícita com falha de transporte. */
+async function fetchMutation(
+  url: string,
+  init: RequestInit,
+): Promise<MutationResult> {
+  try {
+    const response = await fetch(url, init);
+    const payload = await response.json().catch(() => null);
+    const data =
+      payload && typeof payload === "object"
+        ? (payload as StatusMutationResponse)
+        : null;
+    return response.ok
+      ? { kind: "response", data }
+      : { kind: "rejected", data };
+  } catch {
+    // O servidor pode ter aplicado a mutação antes da conexão cair.
+    return { kind: "ambiguous" };
+  }
+}
+
 /** Extrai uma mensagem de erro de uma resposta `{status, message?}` ou HTTP cru. */
 async function readErrorMessage(res: Response): Promise<string> {
   const data = await res.json().catch(() => null);
@@ -285,6 +317,7 @@ export const useWorkspacesStore = create<WorkspacesState>()(
         accountGeneration += 1;
         latestHydrateRequest += 1;
         latestSafeRootsRequest += 1;
+        activeSelectionRevision += 1;
         for (const workspace of get().workspaces) {
           disposeBrowserWorkspace(workspace.id);
         }
@@ -301,7 +334,7 @@ export const useWorkspacesStore = create<WorkspacesState>()(
       hydrate: async () => {
         const generation = accountGeneration;
         const requestId = ++latestHydrateRequest;
-        const activeAtStart = get().active_id;
+        const selectionRevisionAtStart = activeSelectionRevision;
         set((s) => ({
           ...asyncLoading(),
           pending: { ...s.pending, hydrate: true },
@@ -330,7 +363,8 @@ export const useWorkspacesStore = create<WorkspacesState>()(
                 disposeBrowserWorkspace(workspace.id);
               }
             }
-            const localSelectionChanged = s.active_id !== activeAtStart;
+            const localSelectionChanged =
+              activeSelectionRevision !== selectionRevisionAtStart;
             const localSelectionIsValid =
               localSelectionChanged &&
               s.active_id !== null &&
@@ -364,19 +398,28 @@ export const useWorkspacesStore = create<WorkspacesState>()(
 
       setActive: async (id) => {
         const previousId = get().active_id;
+        activeSelectionRevision += 1;
         set({ active_id: id });
-        const result = await fetchJson("/workspaces/set-active", {
+        const result = await fetchMutation("/workspaces/set-active", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ workspace_id: id }),
         });
-        if (!result && get().active_id === id) {
+        if (result.kind === "response" && result.data?.status === "ok") {
+          return;
+        }
+        if (result.kind === "ambiguous") {
+          await get().hydrate();
+          return;
+        }
+        if (get().active_id === id) {
           set({ active_id: previousId });
         }
       },
 
       syncActiveLocal: (id) => {
         latestHydrateRequest += 1;
+        activeSelectionRevision += 1;
         set({ active_id: id });
         void get().hydrate();
       },
