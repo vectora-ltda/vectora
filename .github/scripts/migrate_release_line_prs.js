@@ -1,5 +1,48 @@
 /** Decide o destino convergente de uma pull request durante a rotação. */
 
+function releaseLineTransition(previousConfig, currentConfig) {
+  if (!previousConfig?.development || !previousConfig?.maintenance) return null;
+  if (!currentConfig?.development || !currentConfig?.maintenance) return null;
+  const previous = previousConfig;
+  const current = currentConfig;
+  if (previous.development.branch !== current.development.branch) return null;
+
+  const previousVersion = String(previous.development.milestone).match(
+    /^(\d+)\.(\d+)$/,
+  );
+  const currentVersion = String(current.development.milestone).match(
+    /^(\d+)\.(\d+)$/,
+  );
+  const previousMaintenanceVersion = String(
+    previous.maintenance.milestone,
+  ).match(/^(\d+)\.(\d+)\.x$/);
+  if (!previousVersion || !currentVersion || !previousMaintenanceVersion)
+    return null;
+  if (
+    currentVersion[1] !== previousVersion[1] ||
+    Number(currentVersion[2]) !== Number(previousVersion[2]) + 1
+  )
+    return null;
+  if (
+    current.maintenance.branch !== `release/${previous.development.milestone}`
+  )
+    return null;
+  if (current.maintenance.milestone !== `${previous.development.milestone}.x`)
+    return null;
+  if (
+    previous.maintenance.branch !==
+    `release/${previous.maintenance.milestone.slice(0, -2)}`
+  )
+    return null;
+  if (current.development.branch !== previous.development.branch) return null;
+
+  return {
+    maintenanceBranch: previous.maintenance.branch,
+    maintenanceMilestone: previous.maintenance.milestone,
+    developmentMilestone: previous.development.milestone,
+  };
+}
+
 function parseRotationMetadata(body) {
   const metadata = String(body ?? "").match(
     /<!-- rotation: previous_maintenance_branch=([^;]+); previous_maintenance_milestone=([^;]+); previous_development_milestone=([^ ]+) -->/,
@@ -111,4 +154,5 @@ module.exports = {
   findMigrationTargets,
   migrationUpdates,
   parseRotationMetadata,
+  releaseLineTransition,
 };

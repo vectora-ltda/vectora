@@ -17,7 +17,7 @@ name: Vectora (app)
 # versão do release-please em vectora/pyproject.toml, que já bate no path.
 on:
   push:
-    branches: [master, release/0.1]
+    branches: [master, "release/**"]
     tags: ["v*"]
     paths:
       - "vectora/**"
@@ -25,7 +25,7 @@ on:
       - ".github/workflows/vectora.yml"
       - ".github/actions/**"
   pull_request:
-    branches: [master, release/0.1]
+    branches: [master, "release/**"]
     paths:
       - "vectora/**"
       - "utils/**"

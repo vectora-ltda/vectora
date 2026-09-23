@@ -52,8 +52,9 @@ function flagsRes(authRequired: boolean, localConfigured = true): Response {
 const VIRTUAL_LOCAL_USER = {
   id: "local",
   email: "local@vectora.internal",
-  role: "root",
+  role: "root" as const,
   name: "Bruno",
+  created_at: "2026-01-01T00:00:00Z",
 };
 
 beforeEach(() => {
@@ -291,6 +292,7 @@ describe("RootComponent — hydrate de workspaces", () => {
   });
 
   it("hidrata workspaces ao montar numa rota protegida", async () => {
+    useAuthStore.setState({ user: VIRTUAL_LOCAL_USER, isAuthenticated: true });
     const hydrateSpy = vi
       .spyOn(useWorkspacesStore.getState(), "hydrate")
       .mockResolvedValue(undefined);
@@ -319,7 +321,8 @@ describe("RootComponent — hydrate de workspaces", () => {
     expect(hydrateSpy).not.toHaveBeenCalled();
   });
 
-  it("erro: não re-hidrata se workspaces já foram carregados", async () => {
+  it("revalida workspaces ao montar numa rota protegida", async () => {
+    useAuthStore.setState({ user: VIRTUAL_LOCAL_USER, isAuthenticated: true });
     useWorkspacesStore.setState({
       workspaces: [
         {
@@ -339,6 +342,17 @@ describe("RootComponent — hydrate de workspaces", () => {
       .component;
     render(<Component />);
 
+    expect(hydrateSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("não hidrata rota protegida sem usuário autenticado", () => {
+    currentPathname.value = "/session/abc";
+    const hydrateSpy = vi
+      .spyOn(useWorkspacesStore.getState(), "hydrate")
+      .mockResolvedValue(undefined);
+    const Component = (Route as unknown as { component: ComponentType })
+      .component;
+    render(<Component />);
     expect(hydrateSpy).not.toHaveBeenCalled();
   });
 });
