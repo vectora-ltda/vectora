@@ -11,14 +11,14 @@ name: Edge (company + services + docs)
 
 on:
   push:
-    branches: [master, release/0.1]
+    branches: [master, "release/**"]
     paths:
       - "company/**"
       - "services/**"
       - "docs/**"
       - ".github/workflows/edge.yml"
   pull_request:
-    branches: [master, release/0.1]
+    branches: [master, "release/**"]
     paths:
       - "company/**"
       - "services/**"

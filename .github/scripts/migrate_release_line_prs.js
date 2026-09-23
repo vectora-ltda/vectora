@@ -1,5 +1,26 @@
 /** Decide o destino convergente de uma pull request durante a rotação. */
 
+function releaseLineTransition(previousConfig, currentConfig) {
+  if (!previousConfig?.development || !previousConfig?.maintenance) return null;
+  if (!currentConfig?.development || !currentConfig?.maintenance) return null;
+  const previous = previousConfig;
+  const current = currentConfig;
+  if (
+    previous.development.branch !== current.development.branch ||
+    previous.maintenance.branch === current.maintenance.branch ||
+    previous.maintenance.milestone === current.maintenance.milestone ||
+    previous.development.milestone === current.development.milestone
+  ) {
+    return null;
+  }
+  if (!/^release\/[^/]+$/.test(current.maintenance.branch)) return null;
+  return {
+    maintenanceBranch: previous.maintenance.branch,
+    maintenanceMilestone: previous.maintenance.milestone,
+    developmentMilestone: previous.development.milestone,
+  };
+}
+
 function parseRotationMetadata(body) {
   const metadata = String(body ?? "").match(
     /<!-- rotation: previous_maintenance_branch=([^;]+); previous_maintenance_milestone=([^;]+); previous_development_milestone=([^ ]+) -->/,
@@ -111,4 +132,5 @@ module.exports = {
   findMigrationTargets,
   migrationUpdates,
   parseRotationMetadata,
+  releaseLineTransition,
 };

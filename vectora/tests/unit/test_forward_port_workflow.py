@@ -111,6 +111,10 @@ def test_release_rotation_workflow_declares_release_entrypoint() -> None:
     assert "api.issues.update" in helper_content
     assert "pull_request_target" in migration_content
     assert "migrate_release_line_prs.js" in migration_content
+    assert "pull_request.base.sha" in migration_content
+    assert "release-lines.previous.json" in migration_content
+    assert "ROTATION_BODY" not in migration_content
+    assert "releaseLineTransition" in helper_content
     assert '      - "**"' in migration_content
     assert (
         "context.payload.pull_request.base.ref !== config.development.branch"
@@ -168,3 +172,10 @@ def test_release_workflows_pin_ubuntu_runner() -> None:
         content = workflow.read_text(encoding="utf-8")
         assert "runs-on: ubuntu-24.04" in content
         assert "ubuntu-latest" not in content
+
+
+def test_app_and_edge_workflows_cobrem_todas_as_linhas_de_manutencao() -> None:
+    """Evita que uma nova linha release/* fique sem validação de CI."""
+    for name in ("edge.yml", "vectora.yml"):
+        content = (WORKFLOW.parent / name).read_text(encoding="utf-8")
+        assert 'branches: [master, "release/**"]' in content

@@ -94,7 +94,7 @@ _RELEASE_PLEASE_LABEL = "autorelease: pending"
 class ReleaseLine(BaseModel):
     """Branch e milestone de uma linha de release ativa."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
 
     branch: str
     milestone: str
@@ -103,7 +103,7 @@ class ReleaseLine(BaseModel):
 class ReleaseLineConfig(BaseModel):
     """Fonte versionada da verdade para as linhas de release ativas."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
 
     development: ReleaseLine
     maintenance: ReleaseLine
