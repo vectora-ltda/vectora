@@ -15,8 +15,18 @@ from rotate_release_lines import (
 from select_release_line import ReleaseLines
 
 CONFIG: ReleaseLines = ReleaseLines(
-    development={"branch": "master", "milestone": "0.2"},
-    maintenance={"branch": "release/0.1", "milestone": "0.1.x"},
+    development={
+        "branch": "master",
+        "milestone": "0.2",
+        "release_please_config": "release-please-config.development.json",
+        "release_please_manifest": ".release-please-manifest.development.json",
+    },
+    maintenance={
+        "branch": "release/0.1",
+        "milestone": "0.1.x",
+        "release_please_config": "release-please-config.maintenance.json",
+        "release_please_manifest": ".release-please-manifest.maintenance.json",
+    },
 )
 
 
@@ -85,8 +95,18 @@ def test_rotation_writes_next_config(tmp_path: Path) -> None:
     write_rotated_config(path, CONFIG, rotation)
 
     assert json.loads(path.read_text(encoding="utf-8")) == {
-        "development": {"branch": "master", "milestone": "0.3"},
-        "maintenance": {"branch": "release/0.2", "milestone": "0.2.x"},
+        "development": {
+            "branch": "master",
+            "milestone": "0.3",
+            "release_please_config": "release-please-config.development.json",
+            "release_please_manifest": ".release-please-manifest.development.json",
+        },
+        "maintenance": {
+            "branch": "release/0.2",
+            "milestone": "0.2.x",
+            "release_please_config": "release-please-config.maintenance.json",
+            "release_please_manifest": ".release-please-manifest.maintenance.json",
+        },
     }
 
 

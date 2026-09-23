@@ -17,6 +17,19 @@ def test_configured_branches_enable_release_workflows() -> None:
     assert selection_for_branch(config.maintenance.branch, config)["enabled"] == "true"
 
 
+def test_each_line_selects_its_release_please_contract() -> None:
+    """Cada linha usa seu próprio bump e manifesto de versão."""
+    config = load_release_lines()
+
+    development = selection_for_branch(config.development.branch, config)
+    maintenance = selection_for_branch(config.maintenance.branch, config)
+
+    assert development["config_file"] == config.development.release_please_config
+    assert development["manifest_file"] == config.development.release_please_manifest
+    assert maintenance["config_file"] == config.maintenance.release_please_config
+    assert maintenance["manifest_file"] == config.maintenance.release_please_manifest
+
+
 def test_unknown_branch_skips_release_workflows() -> None:
     """Branches de feature não podem habilitar workflows de release que usam token."""
     config = load_release_lines()
@@ -42,8 +55,18 @@ def test_invalid_configuration_is_rejected(tmp_path: Path) -> None:
     path.write_text(
         json.dumps(
             {
-                "development": {"branch": "same", "milestone": "0.2"},
-                "maintenance": {"branch": "same", "milestone": "0.1.x"},
+                "development": {
+                    "branch": "same",
+                    "milestone": "0.2",
+                    "release_please_config": "development.json",
+                    "release_please_manifest": "development-manifest.json",
+                },
+                "maintenance": {
+                    "branch": "same",
+                    "milestone": "0.1.x",
+                    "release_please_config": "maintenance.json",
+                    "release_please_manifest": "maintenance-manifest.json",
+                },
             }
         ),
         encoding="utf-8",

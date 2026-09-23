@@ -27,7 +27,7 @@ jobs:
         id: release-lines
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ github.ref_name }}
           token: ${{ github.token }}
           persist-credentials: false
       - name: Select configured release line
@@ -51,16 +51,35 @@ jobs:
           maintenance_branch="$(jq -er '.maintenance.branch' .github/release-lines.json)"
           development_milestone="$(jq -er '.development.milestone' .github/release-lines.json)"
           maintenance_milestone="$(jq -er '.maintenance.milestone' .github/release-lines.json)"
-          if [[ "$GITHUB_REF_NAME" == "$development_branch" || "$GITHUB_REF_NAME" == "$maintenance_branch" ]]; then
+          if [[ "$GITHUB_REF_NAME" == "$development_branch" ]]; then
+            line_key="development"
+          elif [[ "$GITHUB_REF_NAME" == "$maintenance_branch" ]]; then
+            line_key="maintenance"
+          else
+            line_key=""
+          fi
+          if [[ -n "$line_key" ]]; then
+            config_file="$(jq -er ".${line_key}.release_please_config" .github/release-lines.json)"
+            manifest_file="$(jq -er ".${line_key}.release_please_manifest" .github/release-lines.json)"
+            if [[ "$config_file" == /* || "$config_file" == *..* || "$manifest_file" == /* || "$manifest_file" == *..* ]]; then
+              echo "::error::Os caminhos do Release Please devem ser relativos e não podem subir diretórios." >&2
+              exit 1
+            fi
+            test -f "$config_file" || { echo "::error::Configuração ausente: $config_file" >&2; exit 1; }
+            test -f "$manifest_file" || { echo "::error::Manifesto ausente: $manifest_file" >&2; exit 1; }
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
+            config_file=""
+            manifest_file=""
           fi
           {
             echo "development_branch=$development_branch"
             echo "maintenance_branch=$maintenance_branch"
             echo "development_milestone=$development_milestone"
             echo "maintenance_milestone=$maintenance_milestone"
+            echo "config_file=$config_file"
+            echo "manifest_file=$manifest_file"
           } >> "$GITHUB_OUTPUT"
           if [[ "$(grep '^enabled=' "$GITHUB_OUTPUT" | tail -n 1)" == "enabled=false" ]]; then
             echo "Skipping release-please on unconfigured branch $GITHUB_REF_NAME."
@@ -70,8 +89,8 @@ jobs:
         id: release
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
+          config-file: ${{ steps.release-line.outputs.config_file }}
+          manifest-file: ${{ steps.release-line.outputs.manifest_file }}
           target-branch: ${{ github.ref_name }}
           # O Release Please deve manter `autorelease: pending`: a validação
           # do branch confiável e a exceção de milestone dependem desse label.

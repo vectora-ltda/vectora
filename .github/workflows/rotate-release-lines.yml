@@ -54,6 +54,7 @@ jobs:
           MAINTENANCE_MILESTONE: ${{ steps.rotation.outputs.maintenance_milestone }}
           DEVELOPMENT_MILESTONE: ${{ steps.rotation.outputs.development_milestone }}
           DEVELOPMENT_BRANCH: ${{ steps.rotation.outputs.development_branch }}
+          RELEASE_VERSION: ${{ steps.rotation.outputs.release_version }}
           PREVIOUS_MAINTENANCE_BRANCH: ${{ steps.rotation.outputs.previous_maintenance_branch }}
           PREVIOUS_MAINTENANCE_MILESTONE: ${{ steps.rotation.outputs.previous_maintenance_milestone }}
           PREVIOUS_DEVELOPMENT_MILESTONE: ${{ steps.rotation.outputs.previous_development_milestone }}
@@ -182,6 +183,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           EVENT_PATH: ${{ github.event_path }}
           DEVELOPMENT_BRANCH: ${{ steps.rotation.outputs.development_branch }}
+          RELEASE_VERSION: ${{ steps.rotation.outputs.release_version }}
           RELEASE_TAG: ${{ steps.rotation.outputs.release_tag }}
           PREVIOUS_MAINTENANCE_BRANCH: ${{ steps.rotation.outputs.previous_maintenance_branch }}
           PREVIOUS_MAINTENANCE_MILESTONE: ${{ steps.rotation.outputs.previous_maintenance_milestone }}
@@ -203,9 +205,27 @@ jobs:
             git switch -c "$rotation_branch"
           fi
           uv run --project vectora python utils/rotate_release_lines.py "$EVENT_PATH" --write .github/release-lines.json
+          maintenance_manifest="$(jq -er '.maintenance.release_please_manifest' .github/release-lines.json)"
+          if [[ "$maintenance_manifest" == /* || "$maintenance_manifest" == *..* ]]; then
+            echo "::error::O manifesto da linha de manutenção precisa ser um caminho relativo seguro." >&2
+            exit 1
+          fi
+          python - "$maintenance_manifest" "$RELEASE_VERSION" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          # A nova linha de manutenção começa na versão publicada que a criou.
+          path = Path(sys.argv[1])
+          version = sys.argv[2].removeprefix("v")
+          path.write_text(
+              json.dumps({".": version}, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/release-lines.json
+          git add .github/release-lines.json "$maintenance_manifest"
           if git diff --cached --quiet; then
             echo "A configuração da rotação já está commitada."
           else
@@ -218,7 +238,7 @@ jobs:
               --head "$rotation_branch" \
               --base "$DEVELOPMENT_BRANCH" \
               --title "chore: rotate release lines for ${RELEASE_TAG}" \
-              --body "$(printf 'Updates .github/release-lines.json after %s, keeping maintenance and development milestones aligned with the published release.\n\n<!-- rotation: previous_maintenance_branch=%s; previous_maintenance_milestone=%s; previous_development_milestone=%s -->' \
+              --body "$(printf 'Atualiza .github/release-lines.json e o manifesto do Release Please após %s, mantendo as linhas de manutenção e desenvolvimento alinhadas.\n\n<!-- rotation: previous_maintenance_branch=%s; previous_maintenance_milestone=%s; previous_development_milestone=%s -->' \
                 "$RELEASE_TAG" "$PREVIOUS_MAINTENANCE_BRANCH" "$PREVIOUS_MAINTENANCE_MILESTONE" "$PREVIOUS_DEVELOPMENT_MILESTONE")"
           else
             echo "Já existe uma PR aberta para a rotação da configuração."

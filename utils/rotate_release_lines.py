@@ -173,10 +173,14 @@ def rotated_config(config: ReleaseLines, rotation: Rotation) -> ReleaseLines:
         development={
             "branch": rotation["development_branch"],
             "milestone": rotation["development_milestone"],
+            "release_please_config": config.development.release_please_config,
+            "release_please_manifest": config.development.release_please_manifest,
         },
         maintenance={
             "branch": rotation["maintenance_branch"],
             "milestone": rotation["maintenance_milestone"],
+            "release_please_config": config.maintenance.release_please_config,
+            "release_please_manifest": config.maintenance.release_please_manifest,
         },
     )
 

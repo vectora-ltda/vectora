@@ -120,3 +120,22 @@ def test_release_please_config_sincroniza_todos_os_arquivos_de_versao() -> None:
         "company/package.json",
         "vectora/uv.lock",
     }
+
+
+def test_release_please_separa_bump_de_desenvolvimento_e_manutencao() -> None:
+    """A linha master avança minor antes de 1.0 e a manutenção avança patch."""
+    development = json.loads(
+        (_MONOREPO_ROOT / "release-please-config.development.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    maintenance = json.loads(
+        (_MONOREPO_ROOT / "release-please-config.maintenance.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert development["bump-minor-pre-major"] is True
+    assert development["bump-patch-for-minor-pre-major"] is False
+    assert maintenance["bump-minor-pre-major"] is True
+    assert maintenance["bump-patch-for-minor-pre-major"] is True

@@ -80,12 +80,15 @@ def test_release_please_uses_trusted_config_for_branch_gate() -> None:
     workflow = WORKFLOW.parent / "release-please.yml"
     content = workflow.read_text(encoding="utf-8")
 
-    assert "github.event.repository.default_branch" in content
+    assert "ref: ${{ github.ref_name }}" in content
+    assert "github.event.repository.default_branch" not in content
     assert ".github/release-lines.json" in content
     assert '"release/**"' in content
     assert 'echo "enabled=false" >> "$GITHUB_OUTPUT"' in content
     assert "enabled=false" in content
     assert "RELEASE_PLEASE_TOKEN" in content
+    assert "config_file" in content
+    assert "manifest_file" in content
 
 
 def test_release_rotation_workflow_declares_release_entrypoint() -> None:
