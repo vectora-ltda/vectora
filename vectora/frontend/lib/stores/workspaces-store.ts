@@ -285,6 +285,9 @@ export const useWorkspacesStore = create<WorkspacesState>()(
         accountGeneration += 1;
         latestHydrateRequest += 1;
         latestSafeRootsRequest += 1;
+        for (const workspace of get().workspaces) {
+          disposeBrowserWorkspace(workspace.id);
+        }
         set({
           workspaces: [],
           active_id: null,
@@ -328,7 +331,7 @@ export const useWorkspacesStore = create<WorkspacesState>()(
             }
             return {
               workspaces: data.workspaces,
-              active_id: data.active_id ?? null,
+              active_id: s.active_id ?? data.active_id ?? null,
               fetchedAt: Date.now(),
               ...asyncSuccess(),
               pending: { ...s.pending, hydrate: false },
@@ -352,7 +355,6 @@ export const useWorkspacesStore = create<WorkspacesState>()(
       },
 
       setActive: async (id) => {
-        latestHydrateRequest += 1;
         set({ active_id: id });
         await fetchJson("/workspaces/set-active", {
           method: "POST",

@@ -41,11 +41,12 @@ jobs:
       - name: Carregar configuração após o merge
         env:
           MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           test -n "$MERGE_SHA" || { echo "::error::Merge commit ausente."; exit 1; }
-          git fetch --no-tags origin "$MERGE_SHA"
+          git -c "http.extraheader=AUTHORIZATION: bearer $GITHUB_TOKEN" fetch --no-tags origin "$MERGE_SHA"
           git show "$MERGE_SHA:.github/release-lines.json" > .github/release-lines.current.json
       - uses: actions/github-script@v8
         with:

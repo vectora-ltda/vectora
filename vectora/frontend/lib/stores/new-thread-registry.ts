@@ -21,11 +21,16 @@ interface NewEntry {
 
 const newThreads = new Map<string, NewEntry>();
 const listeners = new Map<string, Set<() => void>>();
+const expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function notify(threadId: string): void {
   listeners.get(threadId)?.forEach((listener) => listener());
 }
 
+/**
+ * Inscreve um consumidor nas mudanças de um thread e devolve a função de cancelamento.
+ * A notificação é limitada ao `threadId` informado.
+ */
 export function subscribeNewThread(
   threadId: string,
   listener: () => void,
@@ -41,7 +46,20 @@ export function subscribeNewThread(
 
 /** Marca um thread como recém-criado (não existe no backend ainda). */
 export function markAsNew(threadId: string): void {
-  newThreads.set(threadId, { createdAt: Date.now() });
+  const previousTimer = expiryTimers.get(threadId);
+  if (previousTimer) clearTimeout(previousTimer);
+  const createdAt = Date.now();
+  newThreads.set(threadId, { createdAt });
+  expiryTimers.set(
+    threadId,
+    setTimeout(() => {
+      const entry = newThreads.get(threadId);
+      if (entry?.createdAt !== createdAt) return;
+      newThreads.delete(threadId);
+      expiryTimers.delete(threadId);
+      notify(threadId);
+    }, TTL_MS + 1),
+  );
   notify(threadId);
 }
 
@@ -49,16 +67,14 @@ export function markAsNew(threadId: string): void {
 export function isNew(threadId: string): boolean {
   const entry = newThreads.get(threadId);
   if (!entry) return false;
-  if (Date.now() - entry.createdAt > TTL_MS) {
-    newThreads.delete(threadId);
-    notify(threadId);
-    return false;
-  }
-  return true;
+  return Date.now() - entry.createdAt <= TTL_MS;
 }
 
 /** Remove a marcação (chamado quando o thread é persistido no backend). */
 export function clearNew(threadId: string): void {
+  const timer = expiryTimers.get(threadId);
+  if (timer) clearTimeout(timer);
+  expiryTimers.delete(threadId);
   newThreads.delete(threadId);
   notify(threadId);
 }
