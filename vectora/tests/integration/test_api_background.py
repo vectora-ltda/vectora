@@ -963,6 +963,13 @@ async def test_resume_run_endpoint_cancel_and_approve(
     cancelled = await bg._get_run(run_id)
     assert cancelled is not None
     assert cancelled["status"] == "cancelled"
+    from backend.scheduling import kanban
+
+    # Cancelar é uma decisão terminal para a ocorrência; uma nova run exige
+    # desbloqueio humano explícito antes de recuperar o card.
+    cancel_state = await kanban.get_task_status(task.id)
+    assert cancel_state["status"] == "blocked"
+    await kanban.unblock_task(task.id)
 
     # decision='approve' num run pendente — enfileira via BackgroundTasks.
     run_id_2 = "run-http-approve"

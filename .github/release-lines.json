@@ -1,0 +1,10 @@
+{
+  "development": {
+    "branch": "master",
+    "milestone": "0.2"
+  },
+  "maintenance": {
+    "branch": "release/0.1",
+    "milestone": "0.1.x"
+  }
+}
