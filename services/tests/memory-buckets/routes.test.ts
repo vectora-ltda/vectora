@@ -112,6 +112,41 @@ describe("GET /memory-buckets", () => {
       "Test User",
     );
   });
+
+  it("não expõe o e-mail quando o publisher não tem nome público", async () => {
+    const userId = crypto.randomUUID();
+    const email = `${userId}@example.com`;
+    await env.DB.prepare(
+      "INSERT INTO users (id, email, password_hash, full_name, role) VALUES (?, ?, ?, ?, ?)",
+    )
+      .bind(userId, email, "pbkdf2$1$AA==$AA==", "", "user")
+      .run();
+    const id = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO rag_packages (id, name, source_lib, source_version, size_bytes, checksum, storage_url, publisher_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+      .bind(
+        id,
+        "anonymous-bucket",
+        "community",
+        "1",
+        10,
+        "abc",
+        "https://storage.example.com/anonymous.tar.gz",
+        userId,
+      )
+      .run();
+
+    const response = await ragLibrary.request("/", {}, env);
+    const body = await response.text();
+
+    expect(body).not.toContain(email);
+    expect(JSON.parse(body)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id, publisher: null }),
+      ]),
+    );
+  });
 });
 
 describe("GET /memory-buckets?q=", () => {

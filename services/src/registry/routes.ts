@@ -67,7 +67,7 @@ registry.get("/mcp", async (c) => {
 });
 
 const SKILLS_COLUMNS =
-  "id, name, description, source, package_name, version, tags, category, vectora_verified, publisher_id, (SELECT COALESCE(full_name, email) FROM users WHERE users.id = skills_catalog.publisher_id) AS publisher, verified, downloads_count, updated_at";
+  "id, name, description, source, package_name, version, tags, category, vectora_verified, publisher_id, (SELECT NULLIF(TRIM(full_name), '') FROM users WHERE users.id = skills_catalog.publisher_id) AS publisher, verified, downloads_count, updated_at";
 
 interface SkillRow {
   id: string;
