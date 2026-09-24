@@ -91,11 +91,11 @@ function VscodeMenu({
   return (
     <button
       onClick={handleLaunch}
-      className={`shrink-0 rounded-md text-muted-foreground hover:bg-muted/50 hover:text-foreground ${compact ? "h-7 w-7 p-1" : "p-1.5"}`}
+      className={`shrink-0 rounded-md text-muted-foreground hover:bg-muted/50 hover:text-foreground ${compact ? "h-6 w-auto p-0" : "p-1.5"}`}
       title={m.workbench_open_vscode()}
       aria-label={m.workbench_open_vscode()}
     >
-      <VscodeIcon className="w-4 h-4" />
+      <VscodeIcon className={compact ? "size-3" : "size-4"} />
     </button>
   );
 }
@@ -644,12 +644,13 @@ export function ChatInput({
               flexível e cedem espaço aos rótulos antes de serem ocultados. */}
           <div
             data-testid="chat-input-footer"
-            className={`flex min-h-10 w-full min-w-0 items-center border-t border-border/60 ${compactMode ? "flex-nowrap gap-x-1 overflow-visible px-2 py-1" : "flex-nowrap gap-x-2 overflow-hidden px-4 py-2"}`}
+            className={`flex min-h-10 w-full min-w-0 items-center border-t border-border/60 ${compactMode ? "flex-nowrap gap-x-1.5 overflow-visible px-1.5 py-2" : "flex-nowrap gap-x-2 overflow-hidden px-4 py-2"}`}
           >
             <div
-              className={`flex shrink-0 items-center ${compactMode ? "gap-x-0.5" : "gap-1"}`}
+              className={`flex shrink-0 items-center ${compactMode ? "gap-x-1.5" : "gap-1"}`}
             >
               <PlusMenu
+                compact={compactMode}
                 disabled={!userId || offline}
                 onAddFiles={onFileButtonClick}
                 onCaptureScreenshot={onCaptureScreenshot}

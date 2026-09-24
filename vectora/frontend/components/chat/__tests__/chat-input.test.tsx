@@ -374,11 +374,23 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
   });
 
   it("não exibe scrollbar horizontal no input compacto vazio", () => {
-    render(<ChatInput {...baseProps({ compact: true })} />);
+    const { container } = render(
+      <ChatInput {...baseProps({ compact: true })} />,
+    );
 
     const textarea = screen.getByRole("textbox");
     expect(textarea.className).toContain("overflow-x-hidden");
     expect(textarea.className).not.toContain("overflow-x-auto");
+
+    const footer = container.querySelector('[data-testid="chat-input-footer"]');
+    expect(footer).toHaveClass("px-1.5", "py-2", "gap-x-1.5");
+    expect(screen.getByTestId("plus-menu-trigger")).toHaveClass(
+      "h-6",
+      "w-auto",
+    );
+    expect(
+      screen.getByTestId("plus-menu-trigger").querySelector("svg"),
+    ).toHaveClass("size-3");
   });
 
   it("preserva o estado de erro sem criar overflow no composer compacto", () => {
