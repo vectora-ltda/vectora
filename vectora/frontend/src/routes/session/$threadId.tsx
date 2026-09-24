@@ -44,6 +44,7 @@ import {
   WORKBENCH_CONTENT_MIN_WIDTH,
   WORKBENCH_RAIL_WIDTH,
 } from "@/lib/layout/workbench-geometry";
+import { CHAT_SIDEBAR_OPEN_MIN_WIDTH } from "@/lib/layout/panel-geometry";
 import { useWebhookWorkbench } from "@/lib/hooks/use-webhook-workbench";
 import { useClampPanelWidths } from "@/lib/hooks/use-clamp-panel-widths";
 import { useWorkbenchStore } from "@/lib/stores/workbench-store";
@@ -262,7 +263,9 @@ function SessionPage() {
           // quando é LTR; o divisor acompanha a borda interna correspondente.
           sidebarOnRight ? "left" : "right",
         );
-        setChatSidebarWidth(Math.min(520, Math.max(240, width)));
+        setChatSidebarWidth(
+          Math.min(520, Math.max(CHAT_SIDEBAR_OPEN_MIN_WIDTH, width)),
+        );
       }
     },
     [setChatSidebarWidth, sidebarOnRight],
@@ -275,7 +278,7 @@ function SessionPage() {
         Math.min(
           520,
           Math.max(
-            240,
+            CHAT_SIDEBAR_OPEN_MIN_WIDTH,
             chatSidebarWidth +
               getResizeDelta(e.key, sidebarOnRight ? "left" : "right"),
           ),
@@ -919,7 +922,7 @@ function SessionPage() {
                   WORKBENCH_CONTENT_MAX_WIDTH + WORKBENCH_RAIL_WIDTH
                 }
                 chatWidth={hydrated ? chatSidebarWidth : 256}
-                chatMinWidth={240}
+                chatMinWidth={CHAT_SIDEBAR_OPEN_MIN_WIDTH}
                 chatMaxWidth={520}
                 header={headerEl}
                 navBar={
@@ -997,7 +1000,7 @@ function SessionPage() {
                         role="separator"
                         aria-orientation="vertical"
                         aria-label={m.resize_chat()}
-                        aria-valuemin={240}
+                        aria-valuemin={CHAT_SIDEBAR_OPEN_MIN_WIDTH}
                         aria-valuemax={520}
                         aria-valuenow={chatSidebarWidth}
                         tabIndex={0}

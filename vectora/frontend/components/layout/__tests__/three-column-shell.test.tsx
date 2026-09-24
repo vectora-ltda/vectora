@@ -235,4 +235,51 @@ describe("ThreeColumnShell", () => {
       ).toHaveStyle({ width: "328px" });
     },
   );
+
+  it("mantém as colunas laterais abertas em pelo menos 240px e preserva a rail fechada", () => {
+    const { rerender } = render(
+      <ThreeColumnShell
+        centerHeader={<header />}
+        left={<div />}
+        center={<div />}
+        right={<div data-testid="chat" />}
+        columns={{
+          left: { label: "Workbench" },
+          center: { label: "Canvas" },
+          right: { label: "Chat", width: 180, minWidth: 0 },
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByRole("complementary", { name: "Workbench" }),
+    ).toHaveStyle({
+      minWidth: "240px",
+    });
+    expect(screen.getByRole("complementary", { name: "Chat" })).toHaveStyle({
+      minWidth: "240px",
+    });
+
+    rerender(
+      <ThreeColumnShell
+        centerHeader={<header />}
+        left={<div />}
+        center={<div />}
+        right={<div data-testid="chat" />}
+        columns={{
+          left: { label: "Workbench" },
+          center: { label: "Canvas" },
+          right: {
+            label: "Chat",
+            visibility: "collapsed",
+            onExpand: () => undefined,
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("complementary", { name: "Chat" })).toHaveStyle({
+      width: "48px",
+    });
+  });
 });

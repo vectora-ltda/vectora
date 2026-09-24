@@ -6,6 +6,10 @@ import {
   WORKBENCH_RAIL_WIDTH,
   WORKBENCH_WIDTH_TRANSITION,
 } from "@/lib/layout/workbench-geometry";
+import {
+  COLLAPSED_RAIL_WIDTH,
+  SIDE_COLUMN_MIN_WIDTH,
+} from "@/lib/layout/panel-geometry";
 
 export type ShellColumnVisibility = "visible" | "collapsed" | "hidden";
 
@@ -67,6 +71,13 @@ function columnStyle(
   };
 }
 
+function expandedColumnStyle(column: ShellColumnState): React.CSSProperties {
+  return {
+    ...columnStyle(column),
+    minWidth: Math.max(SIDE_COLUMN_MIN_WIDTH, column.minWidth ?? 0),
+  };
+}
+
 /** Stable geometry for every mode. The application header belongs only here. */
 export function ThreeColumnShell({
   centerHeader,
@@ -112,7 +123,7 @@ export function ThreeColumnShell({
             style={
               leftVisibility === "collapsed"
                 ? { width: WORKBENCH_RAIL_WIDTH }
-                : columnStyle(columns.left)
+                : expandedColumnStyle(columns.left)
             }
           >
             {leftVisibility === "collapsed" ? (
@@ -170,8 +181,8 @@ export function ThreeColumnShell({
             }`}
             style={
               rightVisibility === "collapsed"
-                ? { width: WORKBENCH_RAIL_WIDTH }
-                : columnStyle(columns.right)
+                ? { width: COLLAPSED_RAIL_WIDTH }
+                : expandedColumnStyle(columns.right)
             }
           >
             {rightVisibility === "collapsed" ? (
