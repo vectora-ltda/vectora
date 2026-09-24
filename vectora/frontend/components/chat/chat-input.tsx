@@ -382,7 +382,7 @@ export function ChatInput({
     el.style.height = compactSingleLine ? "38px" : "auto";
     // oxlint-disable-next-line react/immutability
     el.style.overflowY = compactSingleLine ? "hidden" : "auto";
-    el.style.overflowX = "hidden";
+    el.style.overflowX = compactSingleLine ? "auto" : "hidden";
     if (compactSingleLine) return;
     const next = Math.min(240, el.scrollHeight);
     // oxlint-disable-next-line react/immutability
@@ -569,7 +569,7 @@ export function ChatInput({
                             : m.input_placeholder()
                     }
                     title={offline ? m.network_disabled_offline() : undefined}
-                    className={`relative z-10 min-h-[38px] min-w-0 flex-1 basis-0 resize-none rounded-md border border-[#2a2a2a]/60 bg-[#252525]/30 w-full px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground shadow-sm focus:outline-none focus-visible:outline-none focus-visible:border-[#2a2a2a]/60 focus:ring-1 focus:ring-primary/50 focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-offset-0 transition-[height] duration-150 ${compactMode && !input.includes("\n") ? "max-h-[38px] overflow-x-hidden overflow-y-hidden whitespace-nowrap" : "max-h-[240px] overflow-y-auto break-words custom-scrollbar"}`}
+                    className={`relative z-10 min-h-[38px] min-w-0 flex-1 basis-0 resize-none rounded-md border border-[#2a2a2a]/60 bg-[#252525]/30 w-full px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground shadow-sm focus:outline-none focus-visible:outline-none focus-visible:border-[#2a2a2a]/60 focus:ring-1 focus:ring-primary/50 focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-offset-0 transition-[height] duration-150 ${compactMode && !input.includes("\n") ? "max-h-[38px] overflow-x-auto overflow-y-hidden whitespace-nowrap" : "max-h-[240px] overflow-y-auto break-words custom-scrollbar"}`}
                     disabled={!userId || offline}
                     rows={1}
                   />

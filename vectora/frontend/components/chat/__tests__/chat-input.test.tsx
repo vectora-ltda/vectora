@@ -373,14 +373,19 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     expect(controlGroup).not.toHaveClass("justify-between");
   });
 
-  it("não exibe scrollbar horizontal no input compacto vazio", () => {
+  it("mantém acesso horizontal ao texto longo no input compacto", () => {
     const { container } = render(
-      <ChatInput {...baseProps({ compact: true })} />,
+      <ChatInput
+        {...baseProps({
+          compact: true,
+          input: "uma mensagem muito longa que precisa continuar acessível",
+        })}
+      />,
     );
 
     const textarea = screen.getByRole("textbox");
-    expect(textarea.className).toContain("overflow-x-hidden");
-    expect(textarea.className).not.toContain("overflow-x-auto");
+    expect(textarea.className).toContain("overflow-x-auto");
+    expect(textarea.className).toContain("overflow-y-hidden");
 
     const footer = container.querySelector('[data-testid="chat-input-footer"]');
     expect(footer).toHaveClass("px-1.5", "py-2", "gap-x-1.5");

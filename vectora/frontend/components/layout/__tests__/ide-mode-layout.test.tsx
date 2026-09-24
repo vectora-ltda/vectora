@@ -76,7 +76,9 @@ describe("IdeModeLayout", () => {
       />,
     );
 
-    expect(screen.queryByTestId("panel-chat")).not.toBeInTheDocument();
+    const hiddenChat = screen.getByTestId("panel-chat");
+    expect(hiddenChat).toBeInTheDocument();
+    expect(hiddenChat.parentElement).toHaveClass("invisible");
     fireEvent.click(screen.getByRole("button", { name: "Abrir chat" }));
     expect(onOpenChat).toHaveBeenCalledOnce();
 

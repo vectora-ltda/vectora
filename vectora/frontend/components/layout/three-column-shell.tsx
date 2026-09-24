@@ -78,6 +78,37 @@ function expandedColumnStyle(column: ShellColumnState): React.CSSProperties {
   };
 }
 
+function CollapsedRail({
+  side,
+  ariaLabel,
+  onExpand,
+  content,
+}: {
+  side: "left" | "right";
+  ariaLabel: string;
+  onExpand: () => void;
+  content: ReactNode | null;
+}) {
+  return (
+    <div className="relative flex h-full min-h-0 w-full flex-col bg-sidebar">
+      <div className="flex h-[var(--app-header-height)] min-h-[var(--app-header-height)] shrink-0 items-center justify-center border-b border-border/40 bg-sidebar">
+        <RailToggleButton
+          side={side}
+          ariaLabel={ariaLabel}
+          ariaExpanded={false}
+          onClick={onExpand}
+        />
+      </div>
+      <div
+        aria-hidden="true"
+        className="invisible pointer-events-none absolute inset-x-0 bottom-0 top-[var(--app-header-height)] overflow-hidden"
+      >
+        {content}
+      </div>
+    </div>
+  );
+}
+
 /** Stable geometry for every mode. The application header belongs only here. */
 export function ThreeColumnShell({
   centerHeader,
@@ -129,16 +160,14 @@ export function ThreeColumnShell({
             }
           >
             {leftVisibility === "collapsed" ? (
-              <div className="flex h-full w-full items-start justify-center pt-3">
-                <RailToggleButton
-                  side={direction === "rtl" ? "right" : "left"}
-                  ariaLabel={
-                    columns.left.expandLabel ?? `Expandir ${columns.left.label}`
-                  }
-                  ariaExpanded={false}
-                  onClick={columns.left.onExpand}
-                />
-              </div>
+              <CollapsedRail
+                side={direction === "rtl" ? "right" : "left"}
+                ariaLabel={
+                  columns.left.expandLabel ?? `Expandir ${columns.left.label}`
+                }
+                onExpand={columns.left.onExpand ?? (() => undefined)}
+                content={left}
+              />
             ) : (
               left
             )}
@@ -190,17 +219,14 @@ export function ThreeColumnShell({
             }
           >
             {rightVisibility === "collapsed" ? (
-              <div className="flex h-full w-full items-start justify-center pt-3">
-                <RailToggleButton
-                  side={direction === "rtl" ? "left" : "right"}
-                  ariaLabel={
-                    columns.right.expandLabel ??
-                    `Expandir ${columns.right.label}`
-                  }
-                  ariaExpanded={false}
-                  onClick={columns.right.onExpand}
-                />
-              </div>
+              <CollapsedRail
+                side={direction === "rtl" ? "left" : "right"}
+                ariaLabel={
+                  columns.right.expandLabel ?? `Expandir ${columns.right.label}`
+                }
+                onExpand={columns.right.onExpand ?? (() => undefined)}
+                content={right}
+              />
             ) : (
               right
             )}
