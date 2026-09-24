@@ -14,13 +14,21 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { ChatInput } from "../chat-input";
+import { ChatInput, isComposerCompactWidth } from "../chat-input";
 import { m } from "@/lib/paraglide/messages";
 import { checkOpenRouterModelSupportsImage } from "@/lib/api/openrouter-vision";
 
 vi.mock("@/lib/api/openrouter-vision", () => ({
   checkOpenRouterModelSupportsImage: vi.fn(),
 }));
+
+describe("ChatInput — breakpoint do container", () => {
+  it("usa o modo compacto abaixo do breakpoint @md de 28rem", () => {
+    expect(isComposerCompactWidth(28 * 16 - 1, 16)).toBe(true);
+    expect(isComposerCompactWidth(28 * 16, 16)).toBe(false);
+    expect(isComposerCompactWidth(28 * 18 - 1, 18)).toBe(true);
+  });
+});
 
 // Estado mockável para o settings store — cobre ChatInput e EffortMenu.
 const mockSettings = {
