@@ -390,6 +390,100 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     expect(modelControls?.querySelector("button")).toBeInTheDocument();
   });
 
+  it("mede os grupos wide e redistribui após o ResizeObserver", () => {
+    let groupWidth = 200;
+    const resizeCallbacks: ResizeObserverCallback[] = [];
+    const OriginalResizeObserver = globalThis.ResizeObserver;
+    const originalClientWidth = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "clientWidth",
+    );
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          resizeCallbacks.push(callback);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get() {
+        if (this.getAttribute("data-testid") === "wide-control-group") {
+          return groupWidth;
+        }
+        return typeof this.className === "string" &&
+          this.className.includes("composer")
+          ? 640
+          : 0;
+      },
+    });
+    const bounds = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const width =
+          typeof this.className === "string" &&
+          this.className.includes("composer")
+            ? 640
+            : 100;
+        return {
+          x: 0,
+          y: 0,
+          top: 0,
+          left: 0,
+          right: width,
+          bottom: 24,
+          width,
+          height: 24,
+          toJSON: () => ({}),
+        };
+      });
+
+    try {
+      const { container } = render(
+        <ChatInput
+          {...baseProps({
+            agentConfig: { model: "openrouter:openai/gpt-4o" },
+            onAgentConfigChange: vi.fn(),
+            modelId: "openrouter:openai/gpt-4o",
+          })}
+        />,
+      );
+      const group = container.querySelector(
+        '[data-testid="wide-control-group"]',
+      )!;
+      const initialWidths = [...group.children].map((item) =>
+        Number.parseFloat((item as HTMLElement).style.width),
+      );
+      expect(initialWidths.some((width) => width > 0)).toBe(true);
+
+      groupWidth = 320;
+      for (const callback of resizeCallbacks)
+        callback([], {} as ResizeObserver);
+
+      const expandedWidths = [...group.children].map((item) =>
+        Number.parseFloat((item as HTMLElement).style.width),
+      );
+      expect(
+        expandedWidths.some((width, index) => width > initialWidths[index]!),
+      ).toBe(true);
+    } finally {
+      bounds.mockRestore();
+      vi.unstubAllGlobals();
+      if (originalClientWidth) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "clientWidth",
+          originalClientWidth,
+        );
+      }
+      if (OriginalResizeObserver)
+        vi.stubGlobal("ResizeObserver", OriginalResizeObserver);
+    }
+  });
+
   it("mantém acesso horizontal ao texto longo no input compacto", () => {
     const { container } = render(
       <ChatInput

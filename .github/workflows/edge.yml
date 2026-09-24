@@ -364,6 +364,23 @@ jobs:
           pnpm exec wrangler d1 execute vectora-db --remote \
             --command "CREATE INDEX IF NOT EXISTS idx_mcp_catalog_public_rank ON mcp_catalog(catalog_status, stars_count DESC, updated_at DESC)"
 
+          # Verificação de regressão para bancos legados: falhe o job se uma
+          # coluna adicionada acima não estiver disponível após o upgrade.
+          for expected in \
+            "gha_bot_config:self_hosted_enabled" \
+            "mcp_catalog:catalog_status" \
+            "skills_catalog:catalog_source" \
+            "rag_packages:status"; do
+            table="${expected%%:*}"
+            column="${expected##*:}"
+            schema=$(pnpm exec wrangler d1 execute vectora-db --remote \
+              --command "PRAGMA table_info(${table})" --json)
+            if ! grep -Eq "\\\"name\\\"[[:space:]]*:[[:space:]]*\\\"${column}\\\"" <<< "$schema"; then
+              echo "D1 legacy upgrade missing ${table}.${column}" >&2
+              exit 1
+            fi
+          done
+
       - name: Deploy services (Worker Cloudflare)
         if: >-
           always() && steps.services_schema_upgrade.outcome == 'success' &&
