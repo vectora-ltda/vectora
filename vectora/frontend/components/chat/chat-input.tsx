@@ -160,7 +160,13 @@ interface ChatInputProps {
 
 const EMPTY_QUEUED_MESSAGES: NonNullable<ChatInputProps["queuedMessages"]> = [];
 
-function CompactControlGroup({ children }: { children: ReactNode }) {
+function ControlGroup({
+  children,
+  compact,
+}: {
+  children: ReactNode;
+  compact: boolean;
+}) {
   const groupRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Array<HTMLDivElement | null>>([]);
 
@@ -181,7 +187,7 @@ function CompactControlGroup({ children }: { children: ReactNode }) {
     const naturalWidths = items.map((item) =>
       Math.ceil(item.getBoundingClientRect().width),
     );
-    const availableWidth = group.clientWidth;
+    const availableWidth = Math.max(0, group.clientWidth - (compact ? 0 : 16));
     items.forEach((item, index) => {
       item.style.cssText = previousStyles[index] ?? "";
     });
@@ -193,7 +199,7 @@ function CompactControlGroup({ children }: { children: ReactNode }) {
     items.forEach((item, index) => {
       item.style.width = `${balancedWidths[index]}px`;
     });
-  }, []);
+  }, [compact]);
 
   useLayoutEffect(() => {
     measureAndBalance();
@@ -202,12 +208,13 @@ function CompactControlGroup({ children }: { children: ReactNode }) {
     const observer = new ResizeObserver(measureAndBalance);
     observer.observe(group);
     return () => observer.disconnect();
-  });
+  }, [measureAndBalance]);
 
   return (
     <div
       ref={groupRef}
-      className="flex min-w-0 flex-1 items-center justify-between overflow-hidden"
+      data-testid={compact ? "compact-control-group" : "wide-control-group"}
+      className={`flex min-w-0 flex-1 items-center overflow-hidden ${compact ? "justify-between" : "gap-2"}`}
     >
       {Children.toArray(children).map((child, index) => (
         <div
@@ -215,7 +222,7 @@ function CompactControlGroup({ children }: { children: ReactNode }) {
           ref={(item) => {
             itemRefs.current[index] = item;
           }}
-          className="min-w-0 overflow-hidden"
+          className="min-w-0 shrink-0 overflow-hidden"
         >
           {child}
         </div>
@@ -640,7 +647,7 @@ export function ChatInput({
               )}
             </div>
             {compact ? (
-              <CompactControlGroup>
+              <ControlGroup compact>
                 <PermissionModeMenu compact />
                 <EffortMenu compact />
                 <div className="flex min-w-0 items-center gap-1">
@@ -659,27 +666,21 @@ export function ChatInput({
                     />
                   )}
                 </div>
-              </CompactControlGroup>
+              </ControlGroup>
             ) : (
-              <>
-                <div className="min-w-0 flex-[1_1_auto] overflow-hidden">
-                  <PermissionModeMenu />
-                </div>
-                <div className="min-w-0 flex-[0_1_auto] overflow-hidden">
-                  <EffortMenu />
-                </div>
+              <ControlGroup compact={false}>
+                <PermissionModeMenu />
+                <EffortMenu />
                 <div
                   data-testid="wide-model-controls"
                   className="flex min-w-0 w-fit max-w-full flex-[0_1_auto] items-center gap-1 overflow-hidden"
                 >
                   {agentConfig && onAgentConfigChange && (
-                    <div className="min-w-0 w-fit max-w-full flex-[0_1_auto] overflow-hidden">
-                      <ModelSelector
-                        value={agentConfig.model}
-                        onChange={handleModelChange}
-                        codeMode={!chatMode && !!wsId}
-                      />
-                    </div>
+                    <ModelSelector
+                      value={agentConfig.model}
+                      onChange={handleModelChange}
+                      codeMode={!chatMode && !!wsId}
+                    />
                   )}
                   {modelId && (
                     <div className="shrink-0">
@@ -690,7 +691,7 @@ export function ChatInput({
                     </div>
                   )}
                 </div>
-              </>
+              </ControlGroup>
             )}
           </div>
         </div>

@@ -357,6 +357,12 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     expect(modelControls).toHaveClass("max-w-full");
     expect(modelControls).toHaveClass("flex-[0_1_auto]");
     expect(modelControls).not.toHaveClass("flex-[1_1_auto]");
+
+    const controlGroup = container.querySelector(
+      '[data-testid="wide-control-group"]',
+    );
+    expect(controlGroup).toHaveClass("gap-2");
+    expect(controlGroup).not.toHaveClass("justify-between");
   });
 
   it("não exibe scrollbar horizontal no input compacto vazio", () => {

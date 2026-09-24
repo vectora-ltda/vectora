@@ -1,5 +1,5 @@
 /**
- * Allocates compact controls by progressively lowering a shared width ceiling.
+ * Allocates composer controls by progressively lowering a shared width ceiling.
  * The widest label yields space first; shorter labels keep their intrinsic
  * width until the ceiling reaches them.
  */
