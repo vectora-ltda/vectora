@@ -41,6 +41,7 @@ import type { SlashCommand } from "@/lib/constants/slash-commands";
 import type { AgentConfig } from "@/components/layout/agent-settings";
 import type { ImageAttachment } from "@/lib/types";
 import { useNetworkStatus } from "@/lib/hooks/use-network-status";
+import { useElementWidth } from "@/lib/hooks/use-element-width";
 import { useToastStore } from "@/lib/stores/toast-store";
 import {
   getModelProvider,
@@ -90,11 +91,11 @@ function VscodeMenu({
   return (
     <button
       onClick={handleLaunch}
-      className={`shrink-0 rounded-md text-muted-foreground hover:bg-muted/50 hover:text-foreground ${compact ? "h-7 w-7 p-1" : "p-1.5"}`}
+      className={`shrink-0 rounded-md text-muted-foreground hover:bg-muted/50 hover:text-foreground ${compact ? "h-6 w-auto p-0" : "p-1.5"}`}
       title={m.workbench_open_vscode()}
       aria-label={m.workbench_open_vscode()}
     >
-      <VscodeIcon className="w-4 h-4" />
+      <VscodeIcon className={compact ? "size-3" : "size-4"} />
     </button>
   );
 }
@@ -160,6 +161,25 @@ interface ChatInputProps {
 
 const EMPTY_QUEUED_MESSAGES: NonNullable<ChatInputProps["queuedMessages"]> = [];
 
+// O breakpoint @md dos container queries do Tailwind usa 28rem (448px),
+// ficando ligeiramente acima do alvo de 420px pedido para o composer.
+const COMPOSER_COMPACT_BREAKPOINT_REM = 28;
+
+function remToCssPixels(rem: number): number {
+  if (typeof document === "undefined") return rem * 16;
+  const rootFontSize = Number.parseFloat(
+    getComputedStyle(document.documentElement).fontSize,
+  );
+  return rem * (Number.isFinite(rootFontSize) ? rootFontSize : 16);
+}
+
+export function isComposerCompactWidth(
+  width: number,
+  rootFontSize: number,
+): boolean {
+  return width > 0 && width < COMPOSER_COMPACT_BREAKPOINT_REM * rootFontSize;
+}
+
 function ControlGroup({
   children,
   compact,
@@ -187,7 +207,13 @@ function ControlGroup({
     const naturalWidths = items.map((item) =>
       Math.ceil(item.getBoundingClientRect().width),
     );
-    const availableWidth = Math.max(0, group.clientWidth - (compact ? 0 : 16));
+    const computedGap = compact
+      ? 0
+      : Number.parseFloat(getComputedStyle(group).columnGap || "0") || 0;
+    const availableWidth = Math.max(
+      0,
+      group.clientWidth - computedGap * Math.max(0, items.length - 1),
+    );
     items.forEach((item, index) => {
       item.style.cssText = previousStyles[index] ?? "";
     });
@@ -207,7 +233,19 @@ function ControlGroup({
     if (!group || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measureAndBalance);
     observer.observe(group);
-    return () => observer.disconnect();
+    const mutationObserver =
+      typeof MutationObserver === "undefined"
+        ? null
+        : new MutationObserver(measureAndBalance);
+    mutationObserver?.observe(group, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+    });
+    return () => {
+      observer.disconnect();
+      mutationObserver?.disconnect();
+    };
   }, [measureAndBalance]);
 
   return (
@@ -275,6 +313,12 @@ export function ChatInput({
   onStructuredPasteText,
   onStructuredPasteCancel,
 }: ChatInputProps) {
+  const [composerRef, composerWidth] = useElementWidth<HTMLDivElement>();
+  const compactByContainer = isComposerCompactWidth(
+    composerWidth,
+    remToCssPixels(1),
+  );
+  const compactMode = compact || compactByContainer;
   const wsId = useWorkspacesStore((s) => s.getActive())?.id ?? "";
   const chatMode = useSettingsStore((s) => s.chatMode);
   // Sem rede não há para onde enviar; desabilita entrada e ações
@@ -342,42 +386,43 @@ export function ChatInput({
   // Auto-grow do textarea: ajusta a altura ao conteúdo até o teto de 240px;
   // depois disso o próprio textarea passa a scrollar internamente. Resolve
   // a queixa "ele não expande pra cima e com scroll visível".
-  // Sem array de dependências: precisa recalcular a cada render em que o
-  // texto exibido no textarea mudou (digitação, @mention, limpeza após
-  // envio, etc.) — `input` não é lido diretamente no corpo (o cálculo usa
-  // o `scrollHeight` real do DOM, já refletindo o valor atual), então
-  // rastrear isso via array de deps não captura a intenção real do efeito.
+  // Recalcula quando o texto ou o modo do composer muda (digitação, @mention,
+  // limpeza após envio ou uma troca de largura que ativa o modo compacto).
+  // O cálculo usa o `scrollHeight` real do DOM, já refletindo o valor atual.
   useEffect(() => {
     const el = textareaRef?.current;
     if (!el) return;
     // Mutação imperativa do DOM via ref encaminhado (padrão do próprio
     // React para refs) — não é o objeto prop sendo reatribuído, só o nó
     // DOM que ele aponta.
-    const compactSingleLine = compact && !input.includes("\n");
+    const compactSingleLine = compactMode && !input.includes("\n");
     // oxlint-disable-next-line react/immutability
     el.style.height = compactSingleLine ? "38px" : "auto";
     // oxlint-disable-next-line react/immutability
     el.style.overflowY = compactSingleLine ? "hidden" : "auto";
-    el.style.overflowX = "hidden";
+    el.style.overflowX = compactSingleLine ? "auto" : "hidden";
     if (compactSingleLine) return;
     const next = Math.min(240, el.scrollHeight);
     // oxlint-disable-next-line react/immutability
     el.style.height = `${next}px`;
-  });
+  }, [compactMode, input, textareaRef]);
   return (
     <div className="relative">
       {/* Enhanced visibility layer */}
       <div className="absolute inset-0 pointer-events-none" />
 
       <div
-        className={`relative z-[50] backdrop-blur-sm ${compact ? "bg-sidebar" : "bg-background"}`}
+        className={`relative z-[50] backdrop-blur-sm ${compactMode ? "bg-sidebar" : "bg-background"}`}
       >
         {/* @container/composer: o rodapé de controles reage à largura do
             PRÓPRIO composer, não da viewport. No modo IDE o ChatInput vive numa
             sidebar de chat estreita enquanto a janela segue larga — breakpoints
             de viewport (sm:) nunca disparavam ali e os controles transbordavam.
             Container queries resolvem chat largo e IDE estreito com uma regra. */}
-        <div className="@container/composer w-full max-w-4xl mx-auto">
+        <div
+          ref={composerRef}
+          className="@container/composer w-full max-w-4xl min-w-0 mx-auto"
+        >
           {structuredPaste && (
             <div
               className="mb-2 rounded-lg border border-border bg-muted/40 p-3"
@@ -496,7 +541,7 @@ export function ChatInput({
                 contorno visual pertence ao próprio textarea. */}
             <div className="relative">
               <div
-                className={`relative transition-colors duration-200 ${compact ? "bg-sidebar" : "bg-background"}`}
+                className={`relative transition-colors duration-200 ${compactMode ? "bg-sidebar" : "bg-background"}`}
                 onDragOver={onDragOver}
                 onDragLeave={onDragLeave}
                 onDrop={onDrop}
@@ -542,7 +587,7 @@ export function ChatInput({
                             : m.input_placeholder()
                     }
                     title={offline ? m.network_disabled_offline() : undefined}
-                    className={`relative z-10 min-h-[38px] min-w-0 flex-1 basis-0 resize-none rounded-md border border-[#2a2a2a]/60 bg-[#252525]/30 w-full px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground shadow-sm focus:outline-none focus-visible:outline-none focus-visible:border-[#2a2a2a]/60 focus:ring-1 focus:ring-primary/50 focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-offset-0 transition-[height] duration-150 ${compact && !input.includes("\n") ? "max-h-[38px] overflow-x-hidden overflow-y-hidden whitespace-nowrap" : "max-h-[240px] overflow-y-auto break-words custom-scrollbar"}`}
+                    className={`relative z-10 min-h-[38px] min-w-0 flex-1 basis-0 resize-none rounded-md border border-[#2a2a2a]/60 bg-[#252525]/30 w-full px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground shadow-sm focus:outline-none focus-visible:outline-none focus-visible:border-[#2a2a2a]/60 focus:ring-1 focus:ring-primary/50 focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-offset-0 transition-[height] duration-150 ${compactMode && !input.includes("\n") ? "max-h-[38px] overflow-x-auto overflow-y-hidden whitespace-nowrap" : "max-h-[240px] overflow-y-auto break-words custom-scrollbar"}`}
                     disabled={!userId || offline}
                     rows={1}
                   />
@@ -617,12 +662,13 @@ export function ChatInput({
               flexível e cedem espaço aos rótulos antes de serem ocultados. */}
           <div
             data-testid="chat-input-footer"
-            className={`flex min-h-10 w-full min-w-0 items-center border-t border-border/60 ${compact ? "flex-nowrap gap-x-1 overflow-visible px-2 py-1" : "flex-nowrap gap-x-2 overflow-hidden px-4 py-2"}`}
+            className={`flex min-h-10 w-full min-w-0 items-center border-t border-border/60 ${compactMode ? "flex-nowrap gap-x-1.5 overflow-visible px-1.5 py-2" : "flex-nowrap gap-x-2 overflow-hidden px-4 py-2"}`}
           >
             <div
-              className={`flex shrink-0 items-center ${compact ? "gap-x-0.5" : "gap-1"}`}
+              className={`flex shrink-0 items-center ${compactMode ? "gap-x-1.5" : "gap-1"}`}
             >
               <PlusMenu
+                compact={compactMode}
                 disabled={!userId || offline}
                 onAddFiles={onFileButtonClick}
                 onCaptureScreenshot={onCaptureScreenshot}
@@ -633,7 +679,7 @@ export function ChatInput({
                   disabled={!userId || offline}
                   onClick={onVoiceToggle}
                   size="sm"
-                  compact={compact}
+                  compact={compactMode}
                 />
               )}
               <div className="hidden @sm/composer:block h-4 w-px shrink-0 bg-border/60" />
@@ -641,12 +687,12 @@ export function ChatInput({
                   depois disso — por isso não há seletor de workspace na appbar. */}
               {!chatMode && wsId && (
                 <>
-                  <VscodeMenu workspaceId={wsId} compact={compact} />
+                  <VscodeMenu workspaceId={wsId} compact={compactMode} />
                   <div className="hidden @sm/composer:block h-4 w-px shrink-0 bg-border/60" />
                 </>
               )}
             </div>
-            {compact ? (
+            {compactMode ? (
               <ControlGroup compact>
                 <PermissionModeMenu compact />
                 <EffortMenu compact />

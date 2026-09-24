@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion, useReducedMotion } from "motion/react";
+import { PanelRightClose } from "lucide-react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 
 import { Sidebar } from "@/components/sidebar/sidebar";
@@ -25,6 +26,7 @@ import { NewChatDialog } from "@/components/sidebar/new-chat-dialog";
 import { WindowLayer } from "@/components/workbench/windows/window-layer";
 import { WindowDock } from "@/components/workbench/windows/window-dock";
 import { DockedEditor } from "@/components/workbench/windows/docked-editor";
+import { FileEditor } from "@/components/workbench/file-editor";
 import { SessionSwitcher } from "@/components/header/session-switcher";
 import { ColumnHeader } from "@/components/layout/column-header";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -44,6 +46,7 @@ import {
   WORKBENCH_CONTENT_MIN_WIDTH,
   WORKBENCH_RAIL_WIDTH,
 } from "@/lib/layout/workbench-geometry";
+import { CHAT_SIDEBAR_OPEN_MIN_WIDTH } from "@/lib/layout/panel-geometry";
 import { useWebhookWorkbench } from "@/lib/hooks/use-webhook-workbench";
 import { useClampPanelWidths } from "@/lib/hooks/use-clamp-panel-widths";
 import { useWorkbenchStore } from "@/lib/stores/workbench-store";
@@ -145,6 +148,10 @@ function SessionPage() {
   const userId = useAuthStore((s) => s.user?.id);
   const pushMention = useChatInputStore((s) => s.pushMention);
   const pushDraft = useChatInputStore((s) => s.pushDraft);
+  const canvasDocuments = useWindowsStore((s) => s.canvasDocuments);
+  const activeCanvasDocumentId = useWindowsStore(
+    (s) => s.activeCanvasDocumentId,
+  );
 
   // Painel do workbench: visível e redimensionável via workbench-store. O gate
   // de hidratação evita divergência SSR/cliente do estado persistido.
@@ -175,6 +182,7 @@ function SessionPage() {
   const chatMode = useSettingsStore((s) => s.chatMode);
   const reducedMotion = useReducedMotion();
   const assistantWorkbenchVisible = hydrated && !chatMode && workbenchOpen;
+  const [chatSidebarOpen, setChatSidebarOpen] = useState(true);
   const setChatMode = useSettingsStore((s) => s.setChatMode);
   const uiMode = useSettingsStore((s) => s.uiMode);
   const setChatSidebarWidth = useSettingsStore((s) => s.setChatSidebarWidth);
@@ -262,7 +270,9 @@ function SessionPage() {
           // quando é LTR; o divisor acompanha a borda interna correspondente.
           sidebarOnRight ? "left" : "right",
         );
-        setChatSidebarWidth(Math.min(520, Math.max(240, width)));
+        setChatSidebarWidth(
+          Math.min(520, Math.max(CHAT_SIDEBAR_OPEN_MIN_WIDTH, width)),
+        );
       }
     },
     [setChatSidebarWidth, sidebarOnRight],
@@ -275,7 +285,7 @@ function SessionPage() {
         Math.min(
           520,
           Math.max(
-            240,
+            CHAT_SIDEBAR_OPEN_MIN_WIDTH,
             chatSidebarWidth +
               getResizeDelta(e.key, sidebarOnRight ? "left" : "right"),
           ),
@@ -765,7 +775,7 @@ function SessionPage() {
   // do scroll sobrevive à troca de modo via `message-list.tsx`, que
   // guarda e restaura por thread — não por manter a instância montada.
   const renderChatPanel = useCallback(
-    (compact: boolean) => {
+    (compact: boolean, onCollapse?: () => void) => {
       const welcomeActions =
         !compact && hydrated && isNewRoute && !workspaceChosen;
       return (
@@ -778,6 +788,17 @@ function SessionPage() {
                 onSelectThread={handleSelectThread}
                 onNewSession={handleNewChat}
               />
+              {onCollapse && (
+                <button
+                  type="button"
+                  aria-label={m.sidebar_collapse()}
+                  title={m.sidebar_collapse()}
+                  onClick={onCollapse}
+                  className="ml-auto rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <PanelRightClose className="h-4 w-4" />
+                </button>
+              )}
             </ColumnHeader>
           )}
           <div className="flex-1 min-h-0">
@@ -919,8 +940,10 @@ function SessionPage() {
                   WORKBENCH_CONTENT_MAX_WIDTH + WORKBENCH_RAIL_WIDTH
                 }
                 chatWidth={hydrated ? chatSidebarWidth : 256}
-                chatMinWidth={240}
+                chatMinWidth={CHAT_SIDEBAR_OPEN_MIN_WIDTH}
                 chatMaxWidth={520}
+                showChat={chatSidebarOpen}
+                onOpenChat={() => setChatSidebarOpen(true)}
                 header={headerEl}
                 navBar={
                   <WorkbenchNavBar
@@ -973,7 +996,20 @@ function SessionPage() {
                   // min-w-[360px]: piso mínimo pro editor continuar usável
                   // ao encolher a janela ou puxar o painel do workbench largo.
                   <div className="flex flex-col flex-1 min-w-0 h-full overflow-hidden">
-                    <CenterCanvas>
+                    <CenterCanvas
+                      documents={canvasDocuments}
+                      activeTab={activeCanvasDocumentId ?? "editor"}
+                      renderDocument={(document) =>
+                        document.kind === "file" &&
+                        document.workspaceId &&
+                        document.path ? (
+                          <FileEditor
+                            workspaceId={document.workspaceId}
+                            path={document.path}
+                          />
+                        ) : null
+                      }
+                    >
                       <DockedEditor activeWorkspaceId={activeWorkspaceId} />
                     </CenterCanvas>
                   </div>
@@ -997,7 +1033,7 @@ function SessionPage() {
                         role="separator"
                         aria-orientation="vertical"
                         aria-label={m.resize_chat()}
-                        aria-valuemin={240}
+                        aria-valuemin={CHAT_SIDEBAR_OPEN_MIN_WIDTH}
                         aria-valuemax={520}
                         aria-valuenow={chatSidebarWidth}
                         tabIndex={0}
@@ -1010,7 +1046,12 @@ function SessionPage() {
                       />
                     )}
                     <div className="flex-1 min-h-0 min-w-0">
-                      {renderChatPanel(true)}
+                      {renderChatPanel(
+                        true,
+                        !isCompactSession
+                          ? () => setChatSidebarOpen(false)
+                          : undefined,
+                      )}
                     </div>
                   </div>
                 }
@@ -1121,7 +1162,14 @@ function SessionPage() {
                     visibility: showSidebarPanel ? "visible" : "hidden",
                   },
                   center: { label: "Chat" },
-                  right: { label: "Workbench" },
+                  right: assistantWorkbenchVisible
+                    ? { label: "Workbench", visibility: "visible" }
+                    : {
+                        label: "Workbench",
+                        visibility: "collapsed",
+                        onExpand: openWorkbench,
+                        expandLabel: m.layout_open_workbench(),
+                      },
                 }}
               />
 

@@ -12,6 +12,7 @@ class GitContract(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
+    # Any is intentional: this compatibility boundary mirrors dynamic JSON access.
     def __getitem__(self, key: str) -> Any:
         """Compatibilidade de leitura para callers JSON legados.
 
@@ -21,6 +22,7 @@ class GitContract(BaseModel):
         """
         return getattr(self, key)
 
+    # Any is intentional: legacy mapping callers expect the stored field type.
     def get(self, key: str, default: object = None) -> Any:
         """Lê um campo opcional para callers JSON legados.
 

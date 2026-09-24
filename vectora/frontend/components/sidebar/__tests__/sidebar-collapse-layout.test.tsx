@@ -44,24 +44,6 @@ vi.mock("@/lib/stores/rag-jobs-store", () => ({
 vi.mock("@/lib/hooks/use-webhook-events", () => ({
   useWebhookEvents: () => {},
 }));
-vi.mock("../sidebar-utils", () => ({
-  groupThreads: () => [],
-  groupThreadsByWorkspace: (items: Thread[]) => ({
-    groups: items.length
-      ? [
-          {
-            workspace: {
-              id: "workspace-1",
-              name: "Vectora",
-              cwd: "/tmp/vectora",
-            },
-            threads: items,
-          },
-        ]
-      : [],
-    orphans: [],
-  }),
-}));
 vi.mock("@/lib/hooks/use-network-status", () => ({
   useNetworkStatus: () => ({ offline: false }),
 }));

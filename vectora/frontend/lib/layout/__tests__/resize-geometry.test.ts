@@ -23,8 +23,8 @@ describe("resize geometry", () => {
 
   it("mede o chat pela borda interna correta em cada composição", () => {
     // Chat à esquerda (composição RTL): a borda interna é a direita.
-    expect(getPanelWidthFromPointer(300, rect, "left")).toBe(200);
+    expect(getPanelWidthFromPointer(250, rect, "left")).toBe(150);
     // Chat à direita (composição LTR): a borda interna é a esquerda.
-    expect(getPanelWidthFromPointer(300, rect, "right")).toBe(200);
+    expect(getPanelWidthFromPointer(250, rect, "right")).toBe(250);
   });
 });

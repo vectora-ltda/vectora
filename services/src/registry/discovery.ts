@@ -458,6 +458,7 @@ export async function discoverSkills(
   }
 
   let upserted = 0;
+  let failed = 0;
   for (const repo of seen.values()) {
     if (!repo?.full_name) continue;
     const id = repo.full_name;
@@ -479,11 +480,26 @@ export async function discoverSkills(
         .bind(id, name, description, source)
         .run();
       upserted++;
-    } catch {
-      // isola falha por entrada
+    } catch (error) {
+      failed++;
+      const cause = error instanceof Error ? error.message : String(error);
+      console.error("registry discovery: falha ao gravar skill", {
+        operation: "skills_upsert",
+        skillId: id,
+        error: cause,
+      });
     }
   }
-  await recordSyncState(env, "skills", "ready");
+  if (failed > 0) {
+    await recordSyncState(
+      env,
+      "skills",
+      "unavailable",
+      `skills_sync_failed:${failed}`,
+    );
+  } else {
+    await recordSyncState(env, "skills", "ready");
+  }
   return upserted;
 }
 

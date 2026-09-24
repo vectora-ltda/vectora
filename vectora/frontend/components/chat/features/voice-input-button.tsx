@@ -28,12 +28,12 @@ export function VoiceInputButton({
   compact = false,
 }: VoiceInputButtonProps) {
   const dimensions = compact
-    ? "h-7 w-7"
+    ? "h-6 w-auto"
     : size === "sm"
       ? "h-9 w-9"
       : "h-10 w-10";
   const iconSize = compact
-    ? "w-3.5 h-3.5"
+    ? "size-3"
     : size === "sm"
       ? "w-4 h-4"
       : "w-4.5 h-4.5";

@@ -21,7 +21,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MEMORY_BUCKETS_URL = "https://services.vectora.company/memory-buckets"
+DEFAULT_MEMORY_BUCKETS_URL: str = "https://services.vectora.company/memory-buckets"
 HTTP_TIMEOUT = 30.0
 
 
@@ -31,7 +31,11 @@ class MemoryBucketsError(RuntimeError):
 
 
 def _memory_buckets_url() -> str:
-    return os.getenv("VECTORA_MEMORY_BUCKETS_URL", DEFAULT_MEMORY_BUCKETS_URL).strip()
+    return (
+        os.getenv("VECTORA_MEMORY_BUCKETS_URL")
+        or os.getenv("VECTORA_RAG_LIBRARY_URL")
+        or DEFAULT_MEMORY_BUCKETS_URL
+    ).strip()
 
 
 async def list_catalog(q: str | None = None) -> list[dict]:

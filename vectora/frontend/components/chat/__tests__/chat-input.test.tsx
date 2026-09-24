@@ -14,13 +14,21 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { ChatInput } from "../chat-input";
+import { ChatInput, isComposerCompactWidth } from "../chat-input";
 import { m } from "@/lib/paraglide/messages";
 import { checkOpenRouterModelSupportsImage } from "@/lib/api/openrouter-vision";
 
 vi.mock("@/lib/api/openrouter-vision", () => ({
   checkOpenRouterModelSupportsImage: vi.fn(),
 }));
+
+describe("ChatInput — breakpoint do container", () => {
+  it("usa o modo compacto abaixo do breakpoint @md de 28rem", () => {
+    expect(isComposerCompactWidth(28 * 16 - 1, 16)).toBe(true);
+    expect(isComposerCompactWidth(28 * 16, 16)).toBe(false);
+    expect(isComposerCompactWidth(28 * 18 - 1, 18)).toBe(true);
+  });
+});
 
 // Estado mockável para o settings store — cobre ChatInput e EffortMenu.
 const mockSettings = {
@@ -322,7 +330,15 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
   // precisa reagir à largura do próprio composer via container queries do
   // Tailwind v4, não a breakpoints `sm:` de viewport.
   it("o rodapé usa o container do composer sem overflow horizontal", () => {
-    const { container } = render(<ChatInput {...baseProps()} />);
+    const { container } = render(
+      <ChatInput
+        {...baseProps({
+          agentConfig: { model: "openrouter:openai/gpt-4o" },
+          onAgentConfigChange: vi.fn(),
+          modelId: "openrouter:openai/gpt-4o",
+        })}
+      />,
+    );
 
     // O wrapper do composer estabelece o contexto de container nomeado.
     expect(container.querySelector(".\\@container\\/composer")).not.toBeNull();
@@ -348,7 +364,15 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
   });
 
   it("mantém modelo e limite de contexto juntos no modo wide", () => {
-    const { container } = render(<ChatInput {...baseProps()} />);
+    const { container } = render(
+      <ChatInput
+        {...baseProps({
+          agentConfig: { model: "openrouter:openai/gpt-4o" },
+          onAgentConfigChange: vi.fn(),
+          modelId: "openrouter:openai/gpt-4o",
+        })}
+      />,
+    );
     const modelControls = container.querySelector(
       '[data-testid="wide-model-controls"]',
     );
@@ -363,14 +387,125 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     );
     expect(controlGroup).toHaveClass("gap-2");
     expect(controlGroup).not.toHaveClass("justify-between");
+    expect(modelControls?.querySelector("button")).toBeInTheDocument();
   });
 
-  it("não exibe scrollbar horizontal no input compacto vazio", () => {
-    render(<ChatInput {...baseProps({ compact: true })} />);
+  it("mede os grupos wide e redistribui após o ResizeObserver", () => {
+    let groupWidth = 200;
+    const resizeCallbacks: ResizeObserverCallback[] = [];
+    const originalClientWidth = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "clientWidth",
+    );
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          resizeCallbacks.push(callback);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get() {
+        if (this.getAttribute("data-testid") === "wide-control-group") {
+          return groupWidth;
+        }
+        return typeof this.className === "string" &&
+          this.className.includes("composer")
+          ? 640
+          : 0;
+      },
+    });
+    const bounds = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const width =
+          typeof this.className === "string" &&
+          this.className.includes("composer")
+            ? 640
+            : 100;
+        return {
+          x: 0,
+          y: 0,
+          top: 0,
+          left: 0,
+          right: width,
+          bottom: 24,
+          width,
+          height: 24,
+          toJSON: () => ({}),
+        };
+      });
+
+    try {
+      const { container } = render(
+        <ChatInput
+          {...baseProps({
+            agentConfig: { model: "openrouter:openai/gpt-4o" },
+            onAgentConfigChange: vi.fn(),
+            modelId: "openrouter:openai/gpt-4o",
+          })}
+        />,
+      );
+      const group = container.querySelector(
+        '[data-testid="wide-control-group"]',
+      )!;
+      const initialWidths = [...group.children].map((item) =>
+        Number.parseFloat((item as HTMLElement).style.width),
+      );
+      expect(initialWidths.some((width) => width > 0)).toBe(true);
+
+      groupWidth = 320;
+      for (const callback of resizeCallbacks)
+        callback([], {} as ResizeObserver);
+
+      const expandedWidths = [...group.children].map((item) =>
+        Number.parseFloat((item as HTMLElement).style.width),
+      );
+      expect(
+        expandedWidths.some((width, index) => width > initialWidths[index]!),
+      ).toBe(true);
+    } finally {
+      bounds.mockRestore();
+      vi.unstubAllGlobals();
+      if (originalClientWidth) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "clientWidth",
+          originalClientWidth,
+        );
+      } else {
+        delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+      }
+    }
+  });
+
+  it("mantém acesso horizontal ao texto longo no input compacto", () => {
+    const { container } = render(
+      <ChatInput
+        {...baseProps({
+          compact: true,
+          input: "uma mensagem muito longa que precisa continuar acessível",
+        })}
+      />,
+    );
 
     const textarea = screen.getByRole("textbox");
-    expect(textarea.className).toContain("overflow-x-hidden");
-    expect(textarea.className).not.toContain("overflow-x-auto");
+    expect(textarea.className).toContain("overflow-x-auto");
+    expect(textarea.className).toContain("overflow-y-hidden");
+
+    const footer = container.querySelector('[data-testid="chat-input-footer"]');
+    expect(footer).toHaveClass("px-1.5", "py-2", "gap-x-1.5");
+    expect(screen.getByTestId("plus-menu-trigger")).toHaveClass(
+      "h-6",
+      "w-auto",
+    );
+    expect(
+      screen.getByTestId("plus-menu-trigger").querySelector("svg"),
+    ).toHaveClass("size-3");
   });
 
   it("preserva o estado de erro sem criar overflow no composer compacto", () => {

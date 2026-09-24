@@ -85,7 +85,7 @@ registry.get("/status/:source", async (c) => {
       source,
       status: state?.status ?? "never",
       last_synced_at: state?.last_synced_at ?? null,
-      error: state?.last_error ?? null,
+      error: state?.last_error?.split(":", 1)[0] ?? null,
     });
   } catch (error) {
     console.error("registry status query failed", { source, error });

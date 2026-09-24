@@ -4,7 +4,7 @@ import {
   type ShellColumnState,
 } from "@/components/layout/three-column-shell";
 
-type ColumnSizing = Pick<ShellColumnState, "width" | "minWidth" | "maxWidth">;
+type ColumnConfig = Omit<ShellColumnState, "label">;
 
 export interface ModeColumnLayoutProps {
   header: ReactNode;
@@ -13,8 +13,8 @@ export interface ModeColumnLayoutProps {
   right?: ReactNode;
   showRight?: boolean;
   direction?: "ltr" | "rtl";
-  leftColumn?: ColumnSizing;
-  rightColumn?: ColumnSizing;
+  leftColumn?: ColumnConfig;
+  rightColumn?: ColumnConfig;
   className?: string;
 }
 
@@ -48,13 +48,16 @@ export function ModeColumnLayout({
       right={right}
       direction={direction}
       columns={{
-        left: { label: "Workbench", ...leftColumn },
+        left: { label: "Workbench", ...leftColumn } as ShellColumnState,
         center: { label: "Conteúdo principal" },
         right: {
           label: "Chat",
           ...rightColumn,
-          visibility: showRight && right ? "visible" : "hidden",
-        },
+          visibility:
+            !showRight || !right
+              ? "hidden"
+              : (rightColumn?.visibility ?? "visible"),
+        } as ShellColumnState,
       }}
       className={className}
     />

@@ -12,7 +12,10 @@ import type { BaseThemeColors, ThemePresetDef } from "@/lib/theme/presets";
 import { classifyMode } from "@/lib/theme/mode";
 import { getDefaultModel } from "@/lib/config/deployment-config";
 import { fetchPrefs, pushPrefs } from "@/lib/api/settings-prefs";
-import { SIDE_COLUMN_MIN_WIDTH } from "@/lib/layout/panel-geometry";
+import {
+  CHAT_SIDEBAR_OPEN_MIN_WIDTH,
+  SIDE_COLUMN_MIN_WIDTH,
+} from "@/lib/layout/panel-geometry";
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -183,7 +186,7 @@ const SIDEBAR_MAX_WIDTH = 480;
  * valor arrastado até 800px deixava o chat maior que o próprio editor —
  * nenhum caso de uso legítimo precisa de um rail de chat mais largo que o
  * teto da sidebar de sessões. */
-const CHAT_SIDEBAR_MIN_WIDTH = SIDE_COLUMN_MIN_WIDTH;
+const CHAT_SIDEBAR_MIN_WIDTH = CHAT_SIDEBAR_OPEN_MIN_WIDTH;
 const CHAT_SIDEBAR_MAX_WIDTH = 480;
 
 /** Referência de conversão: 16px = "100%" no range legado em porcentagem. */
