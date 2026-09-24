@@ -119,7 +119,9 @@ export function ThreeColumnShell({
             transition={workbenchTransition}
             aria-label={columns.left.label}
             data-column-visibility={leftVisibility}
-            className="flex shrink-0 min-h-0 min-w-0 overflow-hidden"
+            className={`flex shrink-0 min-h-0 min-w-0 overflow-hidden ${
+              leftVisibility === "collapsed" ? "bg-sidebar" : ""
+            }`}
             style={
               leftVisibility === "collapsed"
                 ? { width: WORKBENCH_RAIL_WIDTH }
@@ -173,6 +175,8 @@ export function ThreeColumnShell({
             aria-label={columns.right.label}
             data-column-visibility={rightVisibility}
             className={`flex shrink-0 min-h-0 min-w-0 overflow-hidden ${
+              rightVisibility === "collapsed" ? "bg-sidebar" : ""
+            } ${
               columns.right.label === "Chat"
                 ? rightVisibility === "collapsed"
                   ? "min-w-12"

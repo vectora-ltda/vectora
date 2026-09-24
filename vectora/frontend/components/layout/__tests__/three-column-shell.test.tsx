@@ -203,6 +203,37 @@ describe("ThreeColumnShell", () => {
     },
   );
 
+  it("aplica à rail direita o mesmo fundo e altura integral da rail esquerda", () => {
+    render(
+      <ThreeColumnShell
+        centerHeader={<header />}
+        left={<div />}
+        center={<div />}
+        right={<div />}
+        columns={{
+          left: {
+            label: "Sessões",
+            visibility: "collapsed",
+            onExpand: () => undefined,
+          },
+          center: { label: "Canvas" },
+          right: {
+            label: "Chat",
+            visibility: "collapsed",
+            onExpand: () => undefined,
+          },
+        }}
+      />,
+    );
+
+    const rails = screen.getAllByRole("complementary");
+    expect(rails).toHaveLength(2);
+    for (const rail of rails) {
+      expect(rail).toHaveClass("bg-sidebar");
+      expect(rail.firstElementChild).toHaveClass("h-full");
+    }
+  });
+
   it.each([
     ["ltr", "left"],
     ["rtl", "right"],
