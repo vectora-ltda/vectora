@@ -646,11 +646,13 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       const rect = el.getBoundingClientRect();
       const width = Math.max(0, Math.round(rect.width));
       const height = Math.max(0, Math.round(rect.height));
+      const nativeViewVisible =
+        visible && !settingsOpen && !browserSettingsOpen;
       // A native WebContentsView is painted above the DOM. When a shared
       // shell column is collapsed its React content remains mounted, so the
       // native view must be hidden and given empty bounds explicitly instead
       // of retaining the last open position outside the application window.
-      if (!visible || width === 0 || height === 0) {
+      if (!nativeViewVisible || width === 0 || height === 0) {
         desktopBrowser.setVisible(activeViewId, false);
         desktopBrowser.setBounds(activeViewId, {
           x: Math.round(rect.x),
@@ -676,7 +678,14 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       observer.disconnect();
       window.removeEventListener("resize", report);
     };
-  }, [desktopBrowser, activeViewId, hasUrl, visible]);
+  }, [
+    activeViewId,
+    browserSettingsOpen,
+    desktopBrowser,
+    hasUrl,
+    settingsOpen,
+    visible,
+  ]);
 
   useEffect(() => {
     if (!desktopBrowser || settingsViewId === null) return;
