@@ -10,8 +10,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function mcpRegistryResponse(servers: unknown[]) {
-  return new Response(JSON.stringify({ servers, metadata: {} }), {
+function mcpRegistryResponse(
+  servers: unknown[],
+  metadata: { nextCursor?: string | null } = {},
+) {
+  return new Response(JSON.stringify({ servers, metadata }), {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
@@ -33,11 +36,58 @@ function npmServer(id: string, name: string) {
         },
       ],
     },
+    _meta: {
+      "io.modelcontextprotocol.registry/publisher-provided": {
+        github: {
+          name_with_owner: `example/${id}`,
+          preferred_image: "https://github.com/example/icon.png",
+          stargazer_count: 42,
+        },
+      },
+    },
+  };
+}
+
+function packagedServer(
+  id: string,
+  registryType: "npm" | "pypi" | "oci",
+  identifier: string,
+) {
+  return {
+    server: {
+      name: id,
+      title: id,
+      description: id,
+      packages: [
+        {
+          registryType,
+          transport: { type: "stdio" },
+          identifier,
+        },
+      ],
+    },
+  };
+}
+
+function packageOnlyServer(id: string) {
+  return {
+    server: {
+      name: id,
+      title: "Package only",
+      packages: [
+        {
+          registry_name: "npm",
+          runtime_hint: "npx",
+          identifier: "@example/package-only",
+          transport: { type: "stdio" },
+        },
+      ],
+    },
   };
 }
 
 describe("discoverMcp", () => {
-  it("insere entradas novas do registry oficial e nunca sobrescreve uma linha curated com id colidindo", async () => {
+  it("sincroniza o catálogo oficial sem substituir entradas curadas", async () => {
     await env.DB.prepare(
       "INSERT INTO mcp_catalog (id, name, description, install_cmd, category, vectora_verified, catalog_source) VALUES (?, ?, ?, ?, ?, 1, 'curated')",
     )
@@ -48,7 +98,7 @@ describe("discoverMcp", () => {
       "fetch",
       vi.fn(async () =>
         mcpRegistryResponse([
-          npmServer("already-curated", "Descoberto (não deve vencer)"),
+          npmServer("already-curated", "Descoberto"),
           npmServer("com.example/new-server", "Novo Server"),
         ]),
       ),
@@ -76,7 +126,16 @@ describe("discoverMcp", () => {
     expect(discovered).toEqual({
       name: "Novo Server",
       catalog_source: "official",
-      icon_url: null,
+      icon_url: "https://github.com/example/icon.png",
+    });
+
+    const attribution = await env.DB.prepare(
+      "SELECT publisher, publisher_url, homepage FROM mcp_catalog WHERE id = 'com.example/new-server'",
+    ).first<{ publisher: string; publisher_url: string; homepage: string }>();
+    expect(attribution).toEqual({
+      publisher: "example",
+      publisher_url: "https://github.com/example",
+      homepage: "https://github.com/example/com.example/new-server",
     });
   });
 
@@ -89,6 +148,179 @@ describe("discoverMcp", () => {
     );
 
     await expect(discoverMcp(env)).resolves.toBe(0);
+  });
+
+  it("consulta o registry oficial com paginação de 100 e sem autorização", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(input)).toContain(
+          "registry.modelcontextprotocol.io/v0.1/servers",
+        );
+        expect(String(input)).toContain("limit=100");
+        expect(String(input)).toContain("version=latest");
+        expect(init?.headers).toEqual({ Accept: "application/json" });
+        return mcpRegistryResponse([]);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(discoverMcp(env)).resolves.toBe(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("não promove linhas quando a escrita do snapshot falha", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => mcpRegistryResponse([npmServer("atomic", "Atomic")])),
+    );
+    const originalPrepare = env.DB.prepare.bind(env.DB);
+    let writes = 0;
+    const failingDb = {
+      ...env.DB,
+      prepare(query: string) {
+        if (query.includes("INSERT INTO mcp_catalog")) {
+          writes += 1;
+          if (writes === 1) throw new Error("D1 indisponível");
+        }
+        return originalPrepare(query);
+      },
+    } as unknown as typeof env.DB;
+
+    await expect(discoverMcp({ ...env, DB: failingDb })).resolves.toBe(0);
+    const row = await env.DB.prepare(
+      "SELECT id FROM mcp_catalog WHERE id = 'atomic'",
+    ).first();
+    expect(row).toBeNull();
+  });
+
+  it("não promove snapshot parcial quando uma página posterior falha", async () => {
+    await env.DB.prepare(
+      "INSERT INTO mcp_catalog (id, name, description, install_cmd, category, catalog_source, snapshot_id) VALUES (?, ?, ?, ?, ?, 'github', ?)",
+    )
+      .bind("kept-old", "Old", "d", "npx old", "custom", "old-snapshot")
+      .run();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mcpRegistryResponse(
+          Array.from({ length: 30 }, (_, i) =>
+            npmServer(`page-one-${i}`, `Page ${i}`),
+          ),
+          { nextCursor: "page-two" },
+        ),
+      )
+      .mockResolvedValueOnce(new Response("upstream failure", { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(discoverMcp(env)).resolves.toBe(0);
+    const old = await env.DB.prepare(
+      "SELECT catalog_status FROM mcp_catalog WHERE id = 'kept-old'",
+    ).first<{ catalog_status: string }>();
+    expect(old?.catalog_status).toBe("active");
+  });
+
+  it("marca como ausente uma entrada GitHub que saiu do snapshot completo", async () => {
+    await env.DB.prepare(
+      "INSERT INTO mcp_catalog (id, name, description, install_cmd, category, catalog_source, snapshot_id) VALUES (?, ?, ?, ?, ?, 'github', ?)",
+    )
+      .bind("gone-server", "Gone", "d", "npx gone", "custom", "old-snapshot")
+      .run();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => mcpRegistryResponse([npmServer("kept", "Kept")])),
+    );
+
+    await discoverMcp(env);
+    const gone = await env.DB.prepare(
+      "SELECT catalog_status FROM mcp_catalog WHERE id = 'gone-server'",
+    ).first<{ catalog_status: string }>();
+    expect(gone?.catalog_status).toBe("missing");
+  });
+
+  it("mapeia runtimes do registry oficial sem forçar Node", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        mcpRegistryResponse([
+          packagedServer("python-server", "pypi", "python-mcp"),
+          packagedServer("container-server", "oci", "ghcr.io/example/mcp:1"),
+        ]),
+      ),
+    );
+
+    await discoverMcp(env);
+
+    const rows = await env.DB.prepare(
+      "SELECT id, install_cmd FROM mcp_catalog WHERE id IN ('python-server', 'container-server') ORDER BY id",
+    ).all<{ id: string; install_cmd: string }>();
+    expect(rows.results).toEqual([
+      {
+        id: "container-server",
+        install_cmd: "docker run --rm ghcr.io/example/mcp:1",
+      },
+      { id: "python-server", install_cmd: "uvx python-mcp" },
+    ]);
+  });
+
+  it("inclui pacotes package-only com metadados snake_case do registry", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        mcpRegistryResponse([packageOnlyServer("package-only")]),
+      ),
+    );
+
+    await expect(discoverMcp(env)).resolves.toBe(1);
+    const row = await env.DB.prepare(
+      "SELECT install_cmd, runtime_hint, package_identifier FROM mcp_catalog WHERE id = 'package-only'",
+    ).first<{
+      install_cmd: string;
+      runtime_hint: string;
+      package_identifier: string;
+    }>();
+    expect(row).toEqual({
+      install_cmd: "npx -y @example/package-only",
+      runtime_hint: "npx",
+      package_identifier: "@example/package-only",
+    });
+  });
+
+  it("respeita maxEntries e não grava o restante da página", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        mcpRegistryResponse([
+          npmServer("limited-one", "One"),
+          npmServer("limited-two", "Two"),
+        ]),
+      ),
+    );
+
+    await expect(discoverMcp(env, 1)).resolves.toBe(1);
+    const rows = await env.DB.prepare(
+      "SELECT id FROM mcp_catalog WHERE id LIKE 'limited-%'",
+    ).all<{ id: string }>();
+    expect(rows.results).toHaveLength(1);
+  });
+
+  it("respeita maxEntries quando uma entrada posterior interrompe a página", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        mcpRegistryResponse([
+          npmServer("limited-error-one", "One"),
+          npmServer("limited-error-two", "Two"),
+          null,
+        ]),
+      ),
+    );
+
+    await expect(discoverMcp(env, 1)).resolves.toBe(1);
+    const rows = await env.DB.prepare(
+      "SELECT id FROM mcp_catalog WHERE id LIKE 'limited-error-%'",
+    ).all<{ id: string }>();
+    expect(rows.results).toEqual([{ id: "limited-error-one" }]);
   });
 });
 

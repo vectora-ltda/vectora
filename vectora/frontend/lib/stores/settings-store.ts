@@ -12,6 +12,7 @@ import type { BaseThemeColors, ThemePresetDef } from "@/lib/theme/presets";
 import { classifyMode } from "@/lib/theme/mode";
 import { getDefaultModel } from "@/lib/config/deployment-config";
 import { fetchPrefs, pushPrefs } from "@/lib/api/settings-prefs";
+import { SIDE_COLUMN_MIN_WIDTH } from "@/lib/layout/panel-geometry";
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -134,6 +135,12 @@ export interface SettingsState {
   fontScaleMarkdown: number;
   /** Tamanho de fonte (px) do editor Monaco. */
   monacoFontSize: number;
+  /** Executa hooks locais antes do commit. */
+  gitHooksEnabled: boolean;
+  /** Adiciona o trailer Signed-off-by usando a identidade Git configurada. */
+  gitSignoffEnabled: boolean;
+  /** Permite solicitar bypass de proteções Git no Workbench. */
+  gitBypassEnabled: boolean;
 
   // Ações
   setShowToolCalls: (v: boolean) => void;
@@ -162,18 +169,21 @@ export interface SettingsState {
   setFontScaleChat: (v: number) => void;
   setFontScaleMarkdown: (v: number) => void;
   setMonacoFontSize: (v: number) => void;
+  setGitHooksEnabled: (v: boolean) => void;
+  setGitSignoffEnabled: (v: boolean) => void;
+  setGitBypassEnabled: (v: boolean) => void;
   resetSettings: () => void;
 }
 
-/** Limites de largura da sidebar (px). */
-const SIDEBAR_MIN_WIDTH = 180;
+/** Limites de largura da sidebar; o piso corresponde ao token Tailwind min-w-60. */
+const SIDEBAR_MIN_WIDTH = SIDE_COLUMN_MIN_WIDTH;
 const SIDEBAR_MAX_WIDTH = 480;
 
 /** Limites de largura do painel de chat no modo IDE (px). Teto de 480: um
  * valor arrastado até 800px deixava o chat maior que o próprio editor —
  * nenhum caso de uso legítimo precisa de um rail de chat mais largo que o
  * teto da sidebar de sessões. */
-const CHAT_SIDEBAR_MIN_WIDTH = 240;
+const CHAT_SIDEBAR_MIN_WIDTH = SIDE_COLUMN_MIN_WIDTH;
 const CHAT_SIDEBAR_MAX_WIDTH = 480;
 
 /** Referência de conversão: 16px = "100%" no range legado em porcentagem. */
@@ -335,6 +345,9 @@ const DEFAULTS = {
   fontScaleChat: FONT_SCALE_BASE_PX,
   fontScaleMarkdown: FONT_SCALE_BASE_PX,
   monacoFontSize: 13,
+  gitHooksEnabled: false,
+  gitSignoffEnabled: false,
+  gitBypassEnabled: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -480,6 +493,9 @@ export const useSettingsStore = create<SettingsState>()(
       setFontScaleMarkdown: (v) =>
         set({ fontScaleMarkdown: clampFontScale(v) }),
       setMonacoFontSize: (v) => set({ monacoFontSize: clampMonacoFontSize(v) }),
+      setGitHooksEnabled: (v) => set({ gitHooksEnabled: v }),
+      setGitSignoffEnabled: (v) => set({ gitSignoffEnabled: v }),
+      setGitBypassEnabled: (v) => set({ gitBypassEnabled: v }),
       resetSettings: () =>
         set({
           ...DEFAULTS,
@@ -549,6 +565,9 @@ export const useSettingsStore = create<SettingsState>()(
         fontScaleChat: state.fontScaleChat,
         fontScaleMarkdown: state.fontScaleMarkdown,
         monacoFontSize: state.monacoFontSize,
+        gitHooksEnabled: state.gitHooksEnabled,
+        gitSignoffEnabled: state.gitSignoffEnabled,
+        gitBypassEnabled: state.gitBypassEnabled,
       }),
     },
   ),

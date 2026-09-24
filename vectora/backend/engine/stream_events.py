@@ -136,6 +136,13 @@ class WorkbenchInvalidate:
 
 
 @dataclass(frozen=True, slots=True)
+class TurnFilesChanged:
+    """Arquivos alterados pela resposta atual, com hunks para revisão."""
+
+    files: list[dict[str, object]] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
 class TodoItem:
     content: str
     status: Literal["pending", "in_progress", "completed"]
@@ -187,6 +194,7 @@ EngineEvent = (
     | HitlRequested
     | StructuredQuestionRequested
     | WorkbenchInvalidate
+    | TurnFilesChanged
     | TodosUpdated
     | ModelSwitched
     | UIMetrics

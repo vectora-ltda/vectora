@@ -67,13 +67,6 @@ const ConnectTab = lazyWithRetry(
     })),
   "settings-connect-tab",
 );
-const PluginsTab = lazyWithRetry(
-  () =>
-    import("./environment/tabs/plugins-tab").then((mod) => ({
-      default: mod.PluginsTab,
-    })),
-  "settings-plugins-tab",
-);
 const SkillsTab = lazyWithRetry(
   () =>
     import("./environment/tabs/skills-tab").then((mod) => {
@@ -92,6 +85,13 @@ const ToolPolicyPanel = lazyWithRetry(
       default: mod.ToolPolicyPanel,
     })),
   "settings-tool-policy-tab",
+);
+const GitSettingsTab = lazyWithRetry(
+  () =>
+    import("./git-settings-tab").then((mod) => ({
+      default: mod.GitSettingsTab,
+    })),
+  "settings-git-tab",
 );
 const HitlAllowlistPanel = lazyWithRetry(
   () =>
@@ -250,12 +250,6 @@ export function buildSettingsCategoryGroups({
         ] as SettingsCategory[])
       : []),
     {
-      id: "plugins",
-      group: "ambiente",
-      label: m.settings_category_plugins(),
-      Component: PluginsTab,
-    },
-    {
       id: "skills",
       group: "ambiente",
       label: m.settings_category_skills(),
@@ -272,6 +266,12 @@ export function buildSettingsCategoryGroups({
       group: "ambiente",
       label: m.settings_category_hitl_allowlist(),
       Component: HitlAllowlistPanel,
+    },
+    {
+      id: "git",
+      group: "ambiente",
+      label: m.settings_category_git(),
+      Component: GitSettingsTab,
     },
   ];
 

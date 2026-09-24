@@ -18,9 +18,9 @@ export const SessionSearch = memo(function SessionSearch({
 }: SessionSearchProps) {
   return (
     <div className="px-3 py-1.5">
-      <div className="relative group">
+      <div className="relative">
         <div className="absolute left-2.5 top-1/2 -translate-y-1/2 z-10">
-          <Search className="w-3.5 h-3.5 text-muted-foreground/60 group-focus-within:text-muted-foreground transition-colors duration-150" />
+          <Search className="w-3.5 h-3.5 text-muted-foreground" />
         </div>
         <Input
           type="search"
@@ -29,7 +29,7 @@ export const SessionSearch = memo(function SessionSearch({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           autoComplete="off"
-          className="pl-8 pr-7 h-8 text-xs bg-background/60 border-border/40 focus:border-border/70 focus:bg-background/80 transition-colors duration-150 rounded-md"
+          className="h-8 w-full rounded-md border border-[#2a2a2a]/60 bg-[#252525]/30 py-2 pl-8 pr-7 text-xs text-foreground placeholder:text-muted-foreground shadow-sm focus:outline-none focus-visible:outline-none focus-visible:border-[#2a2a2a]/60 focus:ring-1 focus:ring-primary/50 focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-offset-0"
         />
         {value && (
           <button

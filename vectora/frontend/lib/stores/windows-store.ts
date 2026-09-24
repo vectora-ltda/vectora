@@ -10,6 +10,9 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { useSettingsStore } from "./settings-store";
+import type { EditedFile } from "@/lib/types";
+import type { GitCommitDetailsState } from "@/components/workbench/git/history-view";
+import type { PlanItem } from "./workbench-store";
 
 export interface FileWindowState {
   /** workspaceId — uma janela por workspace */
@@ -29,6 +32,41 @@ export interface FileWindowState {
   zIndex: number;
 }
 
+export type CanvasDocumentKind =
+  "file" | "file-diff" | "commit-details" | "plan" | "mcp-preview";
+
+export interface McpCanvasPreviewData {
+  id: string;
+  name: string;
+  description: string;
+  installCommand: string;
+  envVars: string[];
+  homepage: string;
+  category: string;
+  iconUrl?: string | null;
+  publisher?: string | null;
+  publisherUrl?: string | null;
+  starsCount?: number;
+  downloadsCount?: number;
+  runtimeHint?: string | null;
+  transport?: string;
+}
+
+/** Serializable document descriptor shared by IDE and assistant canvases. */
+export interface CanvasDocumentDescriptor {
+  id: string;
+  kind: CanvasDocumentKind;
+  workspaceId: string | null;
+  threadId?: string;
+  title: string;
+  path?: string;
+  commitSha?: string;
+  editedFile?: EditedFile;
+  commitDetails?: GitCommitDetailsState;
+  plan?: { item: PlanItem; content: string | null };
+  mcp?: McpCanvasPreviewData;
+}
+
 interface WindowsState {
   windows: FileWindowState[];
   /** Maior zIndex já atribuído (cresce ao focar). */
@@ -38,6 +76,8 @@ interface WindowsState {
   dockedWorkspaceId: string | null;
   dockedTabs: string[];
   dockedActiveTab: string | null;
+  canvasDocuments: CanvasDocumentDescriptor[];
+  activeCanvasDocumentId: string | null;
 
   /** Abre path na janela do workspace. Cria a janela se não existir, ou
    * adiciona uma aba se a janela já existir. */
@@ -63,6 +103,11 @@ interface WindowsState {
   setDockedActiveTab: (path: string) => void;
   /** Fecha uma tab docked; última tab → zera tudo. */
   closeDockedTab: (path: string) => void;
+  openCanvasDocument: (document: CanvasDocumentDescriptor) => void;
+  activateCanvasDocument: (id: string) => void;
+  closeCanvasDocument: (id: string) => void;
+  closeCanvasDocumentModal: (id: string) => void;
+  clearCanvasDocumentsForWorkspace: (workspaceId: string) => void;
 }
 
 const BASE_Z = 100;
@@ -73,6 +118,50 @@ function basename(path: string): string {
 
 const DEFAULT_WIN_W = 640;
 const DEFAULT_WIN_H = 460;
+
+interface PersistedWindowsState {
+  windows?: FileWindowState[];
+  topZ?: number;
+  canvasDocuments?: unknown;
+  activeCanvasDocumentId?: string | null;
+}
+
+function sanitizePersistedCanvas(state: PersistedWindowsState) {
+  const rawDocuments = Array.isArray(state.canvasDocuments)
+    ? state.canvasDocuments
+    : [];
+  const documents = rawDocuments.filter(
+    (document): document is CanvasDocumentDescriptor => {
+      if (!document || typeof document !== "object") return false;
+      const candidate = document as Partial<CanvasDocumentDescriptor>;
+      if (
+        typeof candidate.id !== "string" ||
+        candidate.id.trim().length === 0 ||
+        typeof candidate.workspaceId !== "string" ||
+        candidate.workspaceId.trim().length === 0 ||
+        typeof candidate.title !== "string"
+      ) {
+        return false;
+      }
+      if (candidate.kind === "file" || candidate.kind === "file-diff") {
+        return (
+          typeof candidate.path === "string" && candidate.path.trim().length > 0
+        );
+      }
+      return (
+        candidate.kind === "commit-details" ||
+        candidate.kind === "plan" ||
+        candidate.kind === "mcp-preview"
+      );
+    },
+  );
+  const activeCanvasDocumentId = documents.some(
+    (document) => document.id === state.activeCanvasDocumentId,
+  )
+    ? (state.activeCanvasDocumentId ?? null)
+    : null;
+  return { documents, activeCanvasDocumentId };
+}
 
 /** Posição inicial centralizada na área de conteúdo VISÍVEL (descontando a
  * sidebar esquerda), não no viewport inteiro. `count` escalona janelas
@@ -104,25 +193,116 @@ export const useWindowsStore = create<WindowsState>()(
       dockedWorkspaceId: null,
       dockedTabs: [],
       dockedActiveTab: null,
+      canvasDocuments: [],
+      activeCanvasDocumentId: null,
+
+      openCanvasDocument: (document) =>
+        set((s) => {
+          const existing = s.canvasDocuments.find(
+            (item) => item.id === document.id,
+          );
+          const documents = existing
+            ? s.canvasDocuments.map((item) =>
+                item.id === document.id ? document : item,
+              )
+            : [...s.canvasDocuments, document];
+          return {
+            canvasDocuments: documents,
+            activeCanvasDocumentId: document.id,
+          };
+        }),
+
+      activateCanvasDocument: (id) =>
+        set((s) =>
+          s.canvasDocuments.some((document) => document.id === id)
+            ? { activeCanvasDocumentId: id }
+            : s,
+        ),
+
+      closeCanvasDocument: (id) =>
+        set((s) => {
+          const documents = s.canvasDocuments.filter(
+            (document) => document.id !== id,
+          );
+          return {
+            canvasDocuments: documents,
+            activeCanvasDocumentId:
+              s.activeCanvasDocumentId === id
+                ? (documents.at(-1)?.id ?? null)
+                : s.activeCanvasDocumentId,
+          };
+        }),
+
+      closeCanvasDocumentModal: (id) =>
+        set((s) => ({
+          canvasDocuments: s.canvasDocuments.filter(
+            (document) => document.id !== id,
+          ),
+          activeCanvasDocumentId:
+            s.activeCanvasDocumentId === id ? null : s.activeCanvasDocumentId,
+        })),
+
+      clearCanvasDocumentsForWorkspace: (workspaceId) =>
+        set((s) => {
+          const documents = s.canvasDocuments.filter(
+            (document) => document.workspaceId !== workspaceId,
+          );
+          return {
+            canvasDocuments: documents,
+            activeCanvasDocumentId: documents.some(
+              (document) => document.id === s.activeCanvasDocumentId,
+            )
+              ? s.activeCanvasDocumentId
+              : (documents.at(-1)?.id ?? null),
+          };
+        }),
 
       openDocked: (workspaceId, path) =>
         set((s) => {
+          const document: CanvasDocumentDescriptor = {
+            id: `file:${workspaceId}:${path}`,
+            kind: "file",
+            workspaceId,
+            title: basename(path),
+            path,
+          };
+          const canvasDocuments = [
+            ...s.canvasDocuments.filter(
+              (item) =>
+                item.workspaceId !== workspaceId || item.id !== document.id,
+            ),
+            document,
+          ];
           if (s.dockedWorkspaceId !== workspaceId) {
             return {
               dockedWorkspaceId: workspaceId,
               dockedTabs: [path],
               dockedActiveTab: path,
+              canvasDocuments,
+              activeCanvasDocumentId: document.id,
             };
           }
           const tabs = s.dockedTabs.includes(path)
             ? s.dockedTabs
             : [...s.dockedTabs, path];
-          return { dockedTabs: tabs, dockedActiveTab: path };
+          return {
+            dockedTabs: tabs,
+            dockedActiveTab: path,
+            canvasDocuments,
+            activeCanvasDocumentId: document.id,
+          };
         }),
 
       setDockedActiveTab: (path) =>
         set((s) =>
-          s.dockedTabs.includes(path) ? { dockedActiveTab: path } : s,
+          s.dockedTabs.includes(path)
+            ? {
+                dockedActiveTab: path,
+                activeCanvasDocumentId: s.dockedWorkspaceId
+                  ? `file:${s.dockedWorkspaceId}:${path}`
+                  : s.activeCanvasDocumentId,
+              }
+            : s,
         ),
 
       closeDockedTab: (path) =>
@@ -133,13 +313,36 @@ export const useWindowsStore = create<WindowsState>()(
               dockedWorkspaceId: null,
               dockedTabs: [],
               dockedActiveTab: null,
+              canvasDocuments: s.canvasDocuments.filter(
+                (document) =>
+                  document.workspaceId !== s.dockedWorkspaceId ||
+                  document.kind !== "file",
+              ),
+              activeCanvasDocumentId:
+                s.activeCanvasDocumentId ===
+                `file:${s.dockedWorkspaceId ?? ""}:${path}`
+                  ? null
+                  : s.activeCanvasDocumentId,
             };
           }
           const activeTab =
             s.dockedActiveTab === path
               ? (tabs[Math.max(0, s.dockedTabs.indexOf(path) - 1)] ?? tabs[0])
               : s.dockedActiveTab;
-          return { dockedTabs: tabs, dockedActiveTab: activeTab };
+          return {
+            dockedTabs: tabs,
+            dockedActiveTab: activeTab,
+            canvasDocuments: s.canvasDocuments.filter(
+              (document) =>
+                document.id !== `file:${s.dockedWorkspaceId ?? ""}:${path}`,
+            ),
+            activeCanvasDocumentId:
+              s.activeCanvasDocumentId ===
+                `file:${s.dockedWorkspaceId ?? ""}:${path}` &&
+              s.dockedWorkspaceId
+                ? `file:${s.dockedWorkspaceId}:${activeTab}`
+                : s.activeCanvasDocumentId,
+          };
         }),
 
       open: (workspaceId, path) =>
@@ -196,6 +399,8 @@ export const useWindowsStore = create<WindowsState>()(
           dockedWorkspaceId: null,
           dockedTabs: [],
           dockedActiveTab: null,
+          canvasDocuments: [],
+          activeCanvasDocumentId: null,
         }),
 
       closeTab: (id, path) =>
@@ -268,6 +473,17 @@ export const useWindowsStore = create<WindowsState>()(
     }),
     {
       name: "vectora-windows",
+      version: 1,
+      migrate: (persistedState: unknown) => {
+        const state = (persistedState ?? {}) as PersistedWindowsState;
+        const canvas = sanitizePersistedCanvas(state);
+        return {
+          windows: Array.isArray(state.windows) ? state.windows : [],
+          topZ: typeof state.topZ === "number" ? state.topZ : BASE_Z,
+          canvasDocuments: canvas.documents,
+          activeCanvasDocumentId: canvas.activeCanvasDocumentId,
+        };
+      },
       storage: createJSONStorage(() =>
         typeof window !== "undefined"
           ? localStorage
@@ -285,6 +501,8 @@ export const useWindowsStore = create<WindowsState>()(
       partialize: (state) => ({
         windows: state.windows,
         topZ: state.topZ,
+        canvasDocuments: state.canvasDocuments,
+        activeCanvasDocumentId: state.activeCanvasDocumentId,
       }),
     },
   ),

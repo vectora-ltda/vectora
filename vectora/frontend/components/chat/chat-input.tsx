@@ -5,7 +5,16 @@
  * Includes file upload, drag & drop, and paste support.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Children,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Send, TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -41,6 +50,7 @@ import {
 import { checkOpenRouterModelSupportsImage } from "@/lib/api/openrouter-vision";
 import { m } from "@/lib/paraglide/messages";
 import { classifySmartPaste } from "@/lib/utils/chat/smart-paste";
+import { balanceCompactControlWidths } from "@/lib/layout/compact-control-layout";
 
 interface VscodeOption {
   strategy: string;
@@ -53,7 +63,13 @@ interface VscodeOption {
  * Prefere a estratégia "local" (vscode://file/...) e cai para a primeira
  * opção disponível (ssh/devcontainer) quando o workspace não é local.
  */
-function VscodeMenu({ workspaceId }: { workspaceId: string }) {
+function VscodeMenu({
+  workspaceId,
+  compact = false,
+}: {
+  workspaceId: string;
+  compact?: boolean;
+}) {
   const handleLaunch = useCallback(async () => {
     if (!workspaceId) return;
     const res = await fetch(
@@ -74,7 +90,7 @@ function VscodeMenu({ workspaceId }: { workspaceId: string }) {
   return (
     <button
       onClick={handleLaunch}
-      className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 shrink-0"
+      className={`shrink-0 rounded-md text-muted-foreground hover:bg-muted/50 hover:text-foreground ${compact ? "h-7 w-7 p-1" : "p-1.5"}`}
       title={m.workbench_open_vscode()}
       aria-label={m.workbench_open_vscode()}
     >
@@ -144,6 +160,77 @@ interface ChatInputProps {
 
 const EMPTY_QUEUED_MESSAGES: NonNullable<ChatInputProps["queuedMessages"]> = [];
 
+function ControlGroup({
+  children,
+  compact,
+}: {
+  children: ReactNode;
+  compact: boolean;
+}) {
+  const groupRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<Array<HTMLDivElement | null>>([]);
+
+  const measureAndBalance = useCallback(() => {
+    const group = groupRef.current;
+    const items = itemRefs.current.filter(
+      (item): item is HTMLDivElement => item !== null,
+    );
+    if (!group || items.length === 0 || group.clientWidth <= 0) return;
+
+    const previousStyles = items.map((item) => item.style.cssText);
+    items.forEach((item) => {
+      item.style.flex = "0 0 auto";
+      item.style.width = "max-content";
+      item.style.maxWidth = "none";
+      item.style.overflow = "visible";
+    });
+    const naturalWidths = items.map((item) =>
+      Math.ceil(item.getBoundingClientRect().width),
+    );
+    const availableWidth = Math.max(0, group.clientWidth - (compact ? 0 : 16));
+    items.forEach((item, index) => {
+      item.style.cssText = previousStyles[index] ?? "";
+    });
+
+    const balancedWidths = balanceCompactControlWidths(
+      naturalWidths,
+      availableWidth,
+    );
+    items.forEach((item, index) => {
+      item.style.width = `${balancedWidths[index]}px`;
+    });
+  }, [compact]);
+
+  useLayoutEffect(() => {
+    measureAndBalance();
+    const group = groupRef.current;
+    if (!group || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measureAndBalance);
+    observer.observe(group);
+    return () => observer.disconnect();
+  }, [measureAndBalance]);
+
+  return (
+    <div
+      ref={groupRef}
+      data-testid={compact ? "compact-control-group" : "wide-control-group"}
+      className={`flex min-w-0 flex-1 items-center overflow-hidden ${compact ? "justify-between" : "gap-2"}`}
+    >
+      {Children.toArray(children).map((child, index) => (
+        <div
+          key={index}
+          ref={(item) => {
+            itemRefs.current[index] = item;
+          }}
+          className="min-w-0 shrink-0 overflow-hidden"
+        >
+          {child}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /**
  * Chat input area with file upload support.
  * Displays at the bottom of the chat interface when there are existing messages.
@@ -190,7 +277,6 @@ export function ChatInput({
 }: ChatInputProps) {
   const wsId = useWorkspacesStore((s) => s.getActive())?.id ?? "";
   const chatMode = useSettingsStore((s) => s.chatMode);
-  const uiMode = useSettingsStore((s) => s.uiMode);
   // Sem rede não há para onde enviar; desabilita entrada e ações
   // que dependem do backend (anexos, voz) em vez de deixar o usuário digitar
   // para uma falha certa.
@@ -267,9 +353,15 @@ export function ChatInput({
     // Mutação imperativa do DOM via ref encaminhado (padrão do próprio
     // React para refs) — não é o objeto prop sendo reatribuído, só o nó
     // DOM que ele aponta.
+    const compactSingleLine = compact && !input.includes("\n");
     // oxlint-disable-next-line react/immutability
-    el.style.height = "auto";
+    el.style.height = compactSingleLine ? "38px" : "auto";
+    // oxlint-disable-next-line react/immutability
+    el.style.overflowY = compactSingleLine ? "hidden" : "auto";
+    el.style.overflowX = "hidden";
+    if (compactSingleLine) return;
     const next = Math.min(240, el.scrollHeight);
+    // oxlint-disable-next-line react/immutability
     el.style.height = `${next}px`;
   });
   return (
@@ -400,14 +492,11 @@ export function ChatInput({
               }}
             />
 
-            {/* Input container — borda única, sem glow nem ring duplicado. */}
+            {/* Input container — mantém o fundo e o comportamento de drop; o
+                contorno visual pertence ao próprio textarea. */}
             <div className="relative">
               <div
-                // Uma única cor de destaque (primary) e uma única camada de
-                // fundo — o overlay de drop já dá o feedback de cor durante o
-                // drag (abaixo), então o container não precisa de um segundo
-                // tom de fundo próprio (`bg-primary/5`) competindo com ele.
-                className={`relative rounded-xl border transition-colors duration-200 ${compact ? "bg-sidebar" : "bg-background"} ${isDragging ? "border-primary" : "border-border/60 group-focus-within:border-primary/70"}`}
+                className={`relative transition-colors duration-200 ${compact ? "bg-sidebar" : "bg-background"}`}
                 onDragOver={onDragOver}
                 onDragLeave={onDragLeave}
                 onDrop={onDrop}
@@ -425,7 +514,7 @@ export function ChatInput({
                     </div>
                   </div>
                 )}
-                <div className="flex items-end gap-2 px-3 py-1.5">
+                <div className="flex items-center gap-2 px-2 py-1.5">
                   {/* Hidden File Input */}
                   <input
                     ref={fileInputRef}
@@ -453,7 +542,7 @@ export function ChatInput({
                             : m.input_placeholder()
                     }
                     title={offline ? m.network_disabled_offline() : undefined}
-                    className="relative z-10 min-h-[36px] max-h-[240px] resize-none overflow-y-auto bg-transparent border-0 w-full px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus-visible:ring-0 focus-visible:ring-offset-0 transition-[height] duration-150 break-words custom-scrollbar"
+                    className={`relative z-10 min-h-[38px] min-w-0 flex-1 basis-0 resize-none rounded-md border border-[#2a2a2a]/60 bg-[#252525]/30 w-full px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground shadow-sm focus:outline-none focus-visible:outline-none focus-visible:border-[#2a2a2a]/60 focus:ring-1 focus:ring-primary/50 focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-offset-0 transition-[height] duration-150 ${compact && !input.includes("\n") ? "max-h-[38px] overflow-x-hidden overflow-y-hidden whitespace-nowrap" : "max-h-[240px] overflow-y-auto break-words custom-scrollbar"}`}
                     disabled={!userId || offline}
                     rows={1}
                   />
@@ -467,7 +556,7 @@ export function ChatInput({
                           variant="ghost"
                           size="sm"
                           disabled={!input.trim() || !userId || offline}
-                          className="h-8 w-8 p-0 mb-0.5 shrink-0 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:bg-muted disabled:text-muted-foreground"
+                          className="h-[38px] w-[38px] p-0 shrink-0 rounded-full bg-muted/40 text-primary hover:bg-muted disabled:opacity-40 disabled:bg-muted disabled:text-muted-foreground"
                           type="button"
                           aria-label={m.tooltip_chat_send()}
                         >
@@ -524,12 +613,15 @@ export function ChatInput({
             </div>
           )}
 
-          {/* Rodapé do input — dois grupos minimalistas de texto/ícone, sem
-              barra de contexto acima do input (poluição visual
-              desnecessária). Grupo esquerdo: workspace (onde) → modo de
-              permissão; direita: modelo e medidor de uso. */}
-          <div className="flex min-w-0 w-full flex-nowrap items-center justify-between gap-x-2 gap-y-1 mt-1 px-1 overflow-hidden">
-            <div className="flex min-w-0 flex-1 shrink items-center gap-1 overflow-hidden">
+          {/* Rodapé do input — todos os controles compartilham uma única linha
+              flexível e cedem espaço aos rótulos antes de serem ocultados. */}
+          <div
+            data-testid="chat-input-footer"
+            className={`flex min-h-10 w-full min-w-0 items-center border-t border-border/60 ${compact ? "flex-nowrap gap-x-1 overflow-visible px-2 py-1" : "flex-nowrap gap-x-2 overflow-hidden px-4 py-2"}`}
+          >
+            <div
+              className={`flex shrink-0 items-center ${compact ? "gap-x-0.5" : "gap-1"}`}
+            >
               <PlusMenu
                 disabled={!userId || offline}
                 onAddFiles={onFileButtonClick}
@@ -541,43 +633,66 @@ export function ChatInput({
                   disabled={!userId || offline}
                   onClick={onVoiceToggle}
                   size="sm"
+                  compact={compact}
                 />
               )}
-              <div className="hidden @sm/composer:block h-4 w-px bg-border/60" />
+              <div className="hidden @sm/composer:block h-4 w-px shrink-0 bg-border/60" />
               {/* O workspace é escolhido só no modal de nova conversa e é imutável
                   depois disso — por isso não há seletor de workspace na appbar. */}
-              {!chatMode && uiMode === "assistant" && wsId && (
+              {!chatMode && wsId && (
                 <>
-                  <VscodeMenu workspaceId={wsId} />
-                  <div className="hidden @sm/composer:block h-4 w-px bg-border/60" />
+                  <VscodeMenu workspaceId={wsId} compact={compact} />
+                  <div className="hidden @sm/composer:block h-4 w-px shrink-0 bg-border/60" />
                 </>
               )}
-              <div className="min-w-0 max-w-full shrink overflow-hidden">
-                <PermissionModeMenu />
-              </div>
             </div>
-
-            <div className="flex min-w-0 shrink items-center justify-end gap-1 overflow-hidden">
-              <div className="shrink-0">
-                <EffortMenu />
-              </div>
-              {agentConfig && onAgentConfigChange && (
-                <ModelSelector
-                  value={agentConfig.model}
-                  onChange={handleModelChange}
-                  compact
-                  codeMode={!chatMode && uiMode === "assistant" && !!wsId}
-                />
-              )}
-              {modelId && (
-                <div className="shrink-0">
-                  <UsagePopover
-                    tokensUsed={tokensUsed ?? 0}
-                    modelId={modelId}
-                  />
+            {compact ? (
+              <ControlGroup compact>
+                <PermissionModeMenu compact />
+                <EffortMenu compact />
+                <div className="flex min-w-0 items-center gap-1">
+                  {agentConfig && onAgentConfigChange && (
+                    <ModelSelector
+                      value={agentConfig.model}
+                      onChange={handleModelChange}
+                      compact
+                      codeMode={!chatMode && !!wsId}
+                    />
+                  )}
+                  {modelId && (
+                    <UsagePopover
+                      tokensUsed={tokensUsed ?? 0}
+                      modelId={modelId}
+                    />
+                  )}
                 </div>
-              )}
-            </div>
+              </ControlGroup>
+            ) : (
+              <ControlGroup compact={false}>
+                <PermissionModeMenu />
+                <EffortMenu />
+                <div
+                  data-testid="wide-model-controls"
+                  className="flex min-w-0 w-fit max-w-full flex-[0_1_auto] items-center gap-1 overflow-hidden"
+                >
+                  {agentConfig && onAgentConfigChange && (
+                    <ModelSelector
+                      value={agentConfig.model}
+                      onChange={handleModelChange}
+                      codeMode={!chatMode && !!wsId}
+                    />
+                  )}
+                  {modelId && (
+                    <div className="shrink-0">
+                      <UsagePopover
+                        tokensUsed={tokensUsed ?? 0}
+                        modelId={modelId}
+                      />
+                    </div>
+                  )}
+                </div>
+              </ControlGroup>
+            )}
           </div>
         </div>
       </div>

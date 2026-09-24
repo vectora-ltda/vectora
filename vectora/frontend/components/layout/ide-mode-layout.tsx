@@ -59,6 +59,8 @@ interface IdeModeLayoutProps {
   chatWidth?: number;
   chatMinWidth?: number;
   chatMaxWidth?: number;
+  /** Keep the chat column mounted while allowing it to collapse to a rail. */
+  showChat?: boolean;
 }
 
 export function IdeModeLayout({
@@ -80,6 +82,7 @@ export function IdeModeLayout({
   chatWidth,
   chatMinWidth,
   chatMaxWidth,
+  showChat = true,
 }: IdeModeLayoutProps) {
   const resolvedLayoutState = layoutState ?? (isNarrow ? "mobile" : "wide");
   const [mobilePanel, setMobilePanel] =
@@ -117,7 +120,7 @@ export function IdeModeLayout({
         }}
         rightColumn={{
           width: chatWidth,
-          minWidth: chatMinWidth,
+          minWidth: showChat ? chatMinWidth : 48,
           maxWidth: chatMaxWidth,
         }}
       />

@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { ClientProfile } from "@/lib/hooks";
-import type { Message, ImageAttachment } from "@/lib/types";
+import type { EditedFile, Message, ImageAttachment } from "@/lib/types";
 import {
   createUserMessage,
   generateMessageId,
@@ -99,6 +99,7 @@ interface ChatInterfaceProps {
   onStartCode?: () => void;
   /** IDE sidebar: oculta avatar do assistente e usa espaçamento compacto. */
   compact?: boolean;
+  onOpenEditedFile?: (file: EditedFile) => void;
 }
 
 interface QueuedMessage {
@@ -124,6 +125,7 @@ export function ChatInterface({
   onStartChat,
   onStartCode,
   compact = false,
+  onOpenEditedFile,
 }: ChatInterfaceProps) {
   // ============================================================================
   // State Management
@@ -1395,6 +1397,7 @@ export function ChatInterface({
             threadId={threadId}
             onRetry={handleRegenerate}
             workspaceId={activeWorkspaceId}
+            onOpenEditedFile={onOpenEditedFile}
           />
         )}
 

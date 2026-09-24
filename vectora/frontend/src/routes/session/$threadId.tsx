@@ -153,7 +153,7 @@ function SessionPage() {
   // por vez. A largura é medida sem a escala visual do Electron.
   const isNarrowViewport = useIsNarrowViewport();
   const sessionLayoutState = useSessionLayoutState();
-  const isCompactSession = sessionLayoutState !== "wide";
+  const isCompactSession = sessionLayoutState === "compact";
   const ideLayoutState = useIdeLayoutState();
   const workbenchOpen = useWorkbenchStore((s) => s.isOpen(threadId));
   const setWorkbenchOpen = useWorkbenchStore((s) => s.setPanelOpen);
@@ -258,7 +258,9 @@ function SessionPage() {
         const width = getPanelWidthFromPointer(
           e.clientX,
           rect,
-          sidebarOnRight ? "right" : "left",
+          // O chat fica à esquerda quando a composição é RTL e à direita
+          // quando é LTR; o divisor acompanha a borda interna correspondente.
+          sidebarOnRight ? "left" : "right",
         );
         setChatSidebarWidth(Math.min(520, Math.max(240, width)));
       }
@@ -275,7 +277,7 @@ function SessionPage() {
           Math.max(
             240,
             chatSidebarWidth +
-              getResizeDelta(e.key, sidebarOnRight ? "right" : "left"),
+              getResizeDelta(e.key, sidebarOnRight ? "left" : "right"),
           ),
         ),
       );
@@ -791,7 +793,7 @@ function SessionPage() {
               // The route is already known to be new during the first render,
               // before useNewSessionId's committed effect registers the local
               // id. Keep the history loader from treating that id as persisted.
-              isNewThread={isNewRoute || isNewSession}
+              isNewThread={isNewRoute || isNew(threadId) || isNewSession}
               compact={compact}
               onStartChat={
                 welcomeActions ? handleStartChatFromWelcome : undefined
@@ -1004,7 +1006,7 @@ function SessionPage() {
                         onPointerMove={onChatSidebarResizeMove}
                         onPointerUp={onChatSidebarResizeUp}
                         onPointerCancel={onChatSidebarResizeUp}
-                        className={`absolute ${sidebarOnRight ? "left-0" : "right-0"} top-0 z-10 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors`}
+                        className={`absolute ${sidebarOnRight ? "right-0" : "left-0"} top-0 z-10 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors`}
                       />
                     )}
                     <div className="flex-1 min-h-0 min-w-0">

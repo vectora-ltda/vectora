@@ -1,10 +1,10 @@
 /**
- * rag-library/ — catálogo de bancos RAG pré-indexados, dois tipos de
+ * memory-buckets/ — catálogo de bancos RAG pré-indexados, dois tipos de
  * linha na mesma tabela `rag_packages`:
  *
  * - First-party: bibliotecas de código pré-indexadas pela Vectora
  *   (`source_lib`/`source_version`, ex. "requests 2.31.0"), sem publisher.
- * - Comunidade (Memory Library): buckets publicados por usuários via
+ * - Comunidade (Memory Buckets): buckets publicados por usuários via
  *   `POST /publish`, com `publisher_id`/`embed_model`/`license`, curados
  *   via `PATCH /admin/:id/verify` (community aberta + selo first-party).
  *
@@ -43,6 +43,7 @@ interface RagPackageRow {
   storage_url: string;
   embed_model: string | null;
   publisher_id: string | null;
+  publisher: string | null;
   verified: number;
   downloads_count: number;
   license: string | null;
@@ -50,7 +51,7 @@ interface RagPackageRow {
 }
 
 const RAG_PACKAGE_COLUMNS =
-  "id, name, description, source_lib, source_version, package_name, version, size_bytes, checksum, embed_model, publisher_id, verified, downloads_count, license, updated_at";
+  "id, name, description, source_lib, source_version, package_name, version, size_bytes, checksum, embed_model, publisher_id, (SELECT NULLIF(TRIM(full_name), '') FROM users WHERE users.id = rag_packages.publisher_id) AS publisher, verified, downloads_count, license, updated_at";
 
 ragLibrary.get("/", async (c) => {
   const q = c.req.query("q");
@@ -91,7 +92,7 @@ ragLibrary.get("/:name/versions", async (c) => {
 /** Serve o binário de um bucket publicado — mesmo padrão de `issues/routes.ts`. */
 ragLibrary.get("/files/*", async (c) => {
   const key = c.req.path.replace(/^.*?\/files\//, "");
-  if (!key.startsWith("rag-library/")) return c.text("not found", 404);
+  if (!key.startsWith("memory-buckets/")) return c.text("not found", 404);
   const obj = await c.env.R2.get(key);
   if (!obj) return c.text("not found", 404);
   return new Response(obj.body, {
@@ -123,7 +124,7 @@ ragLibrary.get("/:id/download", async (c) => {
 });
 
 /**
- * Publica um bucket de Memory Library — multipart (name, description,
+ * Publica um bucket de Memory Buckets — multipart (name, description,
  * embed_model, license, file, version opcional). `embed_model` é
  * obrigatório aqui (só pras publicações novas — linhas first-party
  * legadas continuam com o campo NULL, sem quebrar). Grava no R2 (mesmo
@@ -166,7 +167,7 @@ ragLibrary.post("/publish", async (c) => {
   if (!file) return c.json({ error: "file_required" }, 400);
 
   const id = crypto.randomUUID();
-  const key = `rag-library/${id}/${file.name.replace(/[^\w.-]/g, "_").slice(0, 80)}`;
+  const key = `memory-buckets/${id}/${file.name.replace(/[^\w.-]/g, "_").slice(0, 80)}`;
   const buffer = await file.arrayBuffer();
   const checksum = await sha256Hex(buffer);
 
@@ -174,7 +175,7 @@ ragLibrary.post("/publish", async (c) => {
     httpMetadata: { contentType: file.type || "application/octet-stream" },
   });
 
-  const storageUrl = `https://services.vectora.company/rag-library/files/${key}`;
+  const storageUrl = `https://services.vectora.company/memory-buckets/files/${key}`;
 
   await c.env.DB.prepare(
     `INSERT INTO rag_packages

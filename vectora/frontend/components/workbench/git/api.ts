@@ -33,6 +33,7 @@ export interface GitStatus {
   clean: boolean;
   ahead: number;
   behind: number;
+  operation_in_progress?: GitOperation | null;
 }
 
 export interface GitOperation {
@@ -56,6 +57,29 @@ export async function fetchGitOperation(
   if (!res.ok) return null;
   const data = (await res.json()) as { operation?: GitOperation | null };
   return data.operation ?? null;
+}
+
+export async function fetchGitOperationHistory(
+  workspaceId: string,
+  limit = 50,
+): Promise<GitOperation[]> {
+  const res = await fetch(`${base(workspaceId)}/git/operations?limit=${limit}`);
+  if (!res.ok) return [];
+  const data = (await res.json()) as { operations?: GitOperation[] };
+  return data.operations ?? [];
+}
+
+export interface GitCommitSuggestion {
+  title: string;
+  description: string;
+}
+
+export async function fetchGitCommitSuggestion(
+  workspaceId: string,
+): Promise<GitCommitSuggestion | null> {
+  const res = await fetch(`${base(workspaceId)}/git/commit/suggestion`);
+  if (!res.ok) return null;
+  return (await res.json()) as GitCommitSuggestion;
 }
 
 export async function fetchGitStatus(
@@ -93,8 +117,9 @@ export function apiCheckout(
 export function apiSync(
   workspaceId: string,
   action: "fetch" | "pull" | "push",
+  options: { force?: boolean } = {},
 ): Promise<{ status: string; message: string }> {
-  return postJson(`${base(workspaceId)}/git/${action}`, {});
+  return postJson(`${base(workspaceId)}/git/${action}`, options);
 }
 
 // ── Merge ─────────────────────────────────────────────────────────────────
@@ -207,13 +232,22 @@ export async function apiGitCommit(
   workspaceId: string,
   message: string,
   dryRunHooks = false,
-  opts: { body?: string; amend?: boolean } = {},
+  opts: {
+    body?: string;
+    amend?: boolean;
+    runHooks?: boolean;
+    signoff?: boolean;
+    bypass?: boolean;
+  } = {},
 ): Promise<{ status: string; message: string }> {
   return postJson(`${base(workspaceId)}/git/commit`, {
     message,
     dry_run_hooks: dryRunHooks,
     body: opts.body || null,
     amend: opts.amend ?? false,
+    ...(opts.runHooks ? { run_hooks: true } : {}),
+    ...(opts.signoff ? { signoff: true } : {}),
+    ...(opts.bypass ? { bypass: true } : {}),
   });
 }
 
@@ -256,6 +290,7 @@ export interface GitLogCommit {
   author: string;
   date: string;
   message: string;
+  body?: string;
   refs: string[];
 }
 

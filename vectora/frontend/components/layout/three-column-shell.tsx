@@ -161,7 +161,13 @@ export function ThreeColumnShell({
             transition={workbenchTransition}
             aria-label={columns.right.label}
             data-column-visibility={rightVisibility}
-            className="flex shrink-0 min-h-0 min-w-0 overflow-hidden"
+            className={`flex shrink-0 min-h-0 min-w-0 overflow-hidden ${
+              columns.right.label === "Chat"
+                ? rightVisibility === "collapsed"
+                  ? "min-w-12"
+                  : "min-w-60"
+                : ""
+            }`}
             style={
               rightVisibility === "collapsed"
                 ? { width: WORKBENCH_RAIL_WIDTH }

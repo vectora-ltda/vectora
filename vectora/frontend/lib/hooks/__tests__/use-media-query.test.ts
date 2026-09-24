@@ -12,11 +12,11 @@ import {
 
 describe("getSessionLayoutState", () => {
   it.each([
-    [320, "mobile"],
-    [639, "mobile"],
-    [640, "tablet"],
-    [767, "tablet"],
-    [1023, "tablet"],
+    [320, "compact"],
+    [639, "compact"],
+    [640, "wide"],
+    [767, "wide"],
+    [1023, "wide"],
     [1024, "wide"],
     [1440, "wide"],
   ])("classifica %s px como %s", (width, expected) => {
@@ -140,7 +140,7 @@ describe("useSessionLayoutState", () => {
 
     try {
       const { result, unmount } = renderHook(() => useSessionLayoutState());
-      expect(result.current).toBe("tablet");
+      expect(result.current).toBe("wide");
 
       Object.defineProperty(window, "innerWidth", {
         configurable: true,
@@ -156,7 +156,7 @@ describe("useSessionLayoutState", () => {
       });
       viewport.width = 500;
       act(() => onVisualResize?.());
-      expect(result.current).toBe("mobile");
+      expect(result.current).toBe("compact");
 
       unmount();
       expect(windowListener).toHaveBeenCalledOnce();

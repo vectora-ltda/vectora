@@ -43,7 +43,7 @@ jobs:
   # ── Company (site + dashboard) ──────────────────────────────────────────
   company:
     name: Company (lint + types + tests)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -71,7 +71,7 @@ jobs:
   # ── Services (Worker Cloudflare único: gateway + updates) ───────────────
   services:
     name: Services (types + tests)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -95,7 +95,7 @@ jobs:
   # ── Docs (Hugo) ───────────────────────────────────────────────────────────
   docs:
     name: Docs (Hugo build)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
@@ -119,7 +119,7 @@ jobs:
   # mesma política já documentada em .env.gha.example.
   deploy:
     name: Deploy produção (Vercel + Cloudflare)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [company, services, docs]
     # !cancelled(): sem uma função de status aqui, o GitHub Actions pula o
     # job INTEIRO se qualquer um dos `needs` falhar — os always() dos passos
@@ -347,13 +347,22 @@ jobs:
           ensure_column skills_catalog verified "INTEGER NOT NULL DEFAULT 0"
           ensure_column skills_catalog downloads_count "INTEGER NOT NULL DEFAULT 0"
           ensure_column skills_catalog updated_at "TEXT"
+          # Bancos criados antes da expansão do snapshot do registry já têm
+          # `mcp_catalog`, mas o ledger do D1 não reaplica o 0001. Complete o
+          # shape final aqui, sem criar uma nova migration numerada.
+          ensure_column mcp_catalog snapshot_id "TEXT"
+          ensure_column mcp_catalog last_seen_at "TEXT"
+          ensure_column mcp_catalog catalog_status "TEXT NOT NULL DEFAULT 'active'"
           ensure_column issue_comments updated_at "TEXT"
           ensure_column issue_comments deleted_at "TEXT"
           ensure_column github_webhook_deliveries attempt_token "TEXT"
           ensure_column github_webhook_deliveries lease_until "TEXT"
           ensure_column gha_bot_review_jobs callback_secret_hash "TEXT"
+          ensure_column gha_bot_review_jobs repository "TEXT"
           pnpm exec wrangler d1 execute vectora-db --remote \
             --command "CREATE UNIQUE INDEX IF NOT EXISTS idx_issues_github_identity ON issues(github_repo, github_number) WHERE github_repo IS NOT NULL AND github_number IS NOT NULL"
+          pnpm exec wrangler d1 execute vectora-db --remote \
+            --command "CREATE INDEX IF NOT EXISTS idx_mcp_catalog_public_rank ON mcp_catalog(catalog_status, stars_count DESC, updated_at DESC)"
 
       - name: Deploy services (Worker Cloudflare)
         if: >-

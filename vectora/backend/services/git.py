@@ -6,15 +6,22 @@ import asyncio
 import os
 import re
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 import git
 
+from backend.vtypes.git import (
+    GitDiffSnapshot,
+    GitLogSnapshot,
+    GitOperationSnapshot,
+    GitStatusSnapshot,
+)
+
 _T = TypeVar("_T")
-_REDACT_USERINFO = re.compile(r"(://[^/@\s:]+):[^/@\s]+@")
+_REDACT_USERINFO = re.compile(r"(://)[^/@\s]+@")
 _REDACT_SECRET = re.compile(
     r"(?i)(?P<key>token|secret|password)=(?P<value>[^\s&]+)"
     r"|(?P<authorization>authorization)(?P<separator>\s*[=:]\s*)"
@@ -22,9 +29,56 @@ _REDACT_SECRET = re.compile(
 )
 
 
+def classify_git_error(message: str) -> str:
+    """Map common Git failures to stable codes for REST and UI consumers."""
+    lowered = message.casefold()
+    if any(
+        marker in lowered
+        for marker in (
+            "authentication failed",
+            "could not read username",
+            "invalid username or password",
+            "permission denied",
+            "access denied",
+        )
+    ):
+        return "git_authentication_failed"
+    if any(
+        marker in lowered
+        for marker in (
+            "merge conflict",
+            "automatic merge failed",
+            "unmerged paths",
+            "fix conflicts",
+        )
+    ):
+        return "git_conflict"
+    if any(
+        marker in lowered
+        for marker in (
+            "divergent branches",
+            "non-fast-forward",
+            "fetch first",
+            "rejected",
+        )
+    ):
+        return "git_branch_diverged"
+    if any(
+        marker in lowered
+        for marker in (
+            "could not resolve host",
+            "timed out",
+            "connection refused",
+            "network is unreachable",
+        )
+    ):
+        return "git_network_failed"
+    return "git_command_failed"
+
+
 def redact_git_output(value: str) -> str:
     """Remove credenciais de URLs e parâmetros antes de expor saída Git."""
-    value = _REDACT_USERINFO.sub(r"\1:***@", value)
+    value = _REDACT_USERINFO.sub(r"\1***@", value)
 
     def replace(match: re.Match[str]) -> str:
         if match.group("authorization"):
@@ -41,7 +95,7 @@ class GitOperation:
     operation_id: str
     workspace_id: str
     operation: str
-    state: str = "queued"
+    state: Literal["queued", "running", "succeeded", "failed"] = "queued"
     phase: str = "queued"
     progress: int = 0
     output: str = ""
@@ -49,21 +103,22 @@ class GitOperation:
     error: str | None = None
     created_at: float = field(default_factory=time.time)
     finished_at: float | None = None
+    sequence: int = field(default=0, repr=False)
 
-    def snapshot(self) -> dict[str, object]:
-        return {
-            "operation_id": self.operation_id,
-            "workspace_id": self.workspace_id,
-            "operation": self.operation,
-            "state": self.state,
-            "phase": self.phase,
-            "progress": self.progress,
-            "output": redact_git_output(self.output),
-            "error_code": self.error_code,
-            "error": redact_git_output(self.error or "") or None,
-            "created_at": self.created_at,
-            "finished_at": self.finished_at,
-        }
+    def snapshot(self) -> GitOperationSnapshot:
+        return GitOperationSnapshot(
+            operation_id=self.operation_id,
+            workspace_id=self.workspace_id,
+            operation=self.operation,
+            state=self.state,
+            phase=self.phase,
+            progress=self.progress,
+            output=redact_git_output(self.output),
+            error_code=self.error_code,
+            error=redact_git_output(self.error or "") or None,
+            created_at=self.created_at,
+            finished_at=self.finished_at,
+        )
 
 
 class GitOperationError(RuntimeError):
@@ -74,6 +129,81 @@ class GitOperationError(RuntimeError):
         self.code = code
 
 
+def status_snapshot(repo: git.Repo) -> GitStatusSnapshot:
+    """Retorna o estado de trabalho do repositório sem tocar no event loop."""
+    try:
+        branch = repo.active_branch.name
+    except TypeError:
+        branch = (
+            str(repo.head.commit.hexsha[:7])
+            if not repo.head.is_detached
+            else "HEAD detached"
+        )
+
+    untracked = repo.untracked_files
+    modified = [item.a_path for item in repo.index.diff(None) if item.a_path]
+    if repo.head.is_valid():
+        staged = [item.a_path for item in repo.index.diff("HEAD") if item.a_path]
+    else:
+        staged = [str(path) for path, _stage in repo.index.entries]
+
+    ahead = behind = 0
+    try:
+        tracking = repo.active_branch.tracking_branch()
+        if tracking:
+            ahead = len(list(repo.iter_commits(f"{tracking.name}..HEAD")))
+            behind = len(list(repo.iter_commits(f"HEAD..{tracking.name}")))
+    except Exception:
+        pass
+
+    return GitStatusSnapshot(
+        status="ok",
+        branch=branch,
+        clean=not untracked and not modified and not staged,
+        untracked=list(untracked),
+        modified=modified,
+        staged=staged,
+        ahead=ahead,
+        behind=behind,
+    )
+
+
+def log_snapshot(
+    repo: git.Repo, n: int = 10, branch: str | None = None
+) -> GitLogSnapshot:
+    """Retorna histórico de commits para consumo REST e pelas tools."""
+    try:
+        ref = branch or repo.active_branch.name
+    except TypeError:
+        ref = "HEAD"
+    try:
+        commits = list(repo.iter_commits(ref, max_count=n))
+    except git.GitCommandError:
+        return GitLogSnapshot(status="ok", commits=[], branch=ref)
+    return GitLogSnapshot(
+        status="ok",
+        branch=ref,
+        commits=[
+            {
+                "hash": commit.hexsha[:7],
+                "author": str(commit.author),
+                "date": commit.authored_datetime.isoformat(),
+                "message": commit.message.strip().splitlines()[0],
+            }
+            for commit in commits
+        ],
+    )
+
+
+def diff_snapshot(repo: git.Repo, ref: str | None = None) -> GitDiffSnapshot:
+    """Retorna o diff atual, opcionalmente comparado a uma referência."""
+    try:
+        diff_text = repo.git.diff(ref) if ref else repo.git.diff()
+        return GitDiffSnapshot(status="ok", diff=diff_text)
+    except git.GitCommandError as exc:
+        return GitDiffSnapshot(status="error", message=redact_git_output(str(exc)))
+
+
 class GitService:
     """Serializa Git por repositório e executa chamadas fora do event loop."""
 
@@ -81,6 +211,7 @@ class GitService:
         self._locks: dict[str, asyncio.Lock] = {}
         self._operations: dict[str, GitOperation] = {}
         self._guard = asyncio.Lock()
+        self._sequence = 0
 
     @staticmethod
     def repository_key(repo: git.Repo) -> str:
@@ -94,7 +225,7 @@ class GitService:
         async with self._guard:
             return self._locks.setdefault(key, asyncio.Lock())
 
-    async def latest(self, workspace_id: str) -> dict[str, object] | None:
+    async def latest(self, workspace_id: str) -> GitOperationSnapshot | None:
         async with self._guard:
             operations = [
                 operation
@@ -103,7 +234,25 @@ class GitService:
             ]
         if not operations:
             return None
-        return max(operations, key=lambda operation: operation.created_at).snapshot()
+        return max(operations, key=lambda operation: operation.sequence).snapshot()
+
+    async def history(
+        self, workspace_id: str, *, limit: int = 50
+    ) -> list[GitOperationSnapshot]:
+        """Retorna operações recentes para reconexão e diagnóstico."""
+        bounded_limit = max(1, min(limit, 200))
+        async with self._guard:
+            operations = [
+                operation
+                for operation in self._operations.values()
+                if operation.workspace_id == workspace_id
+            ]
+        return [
+            operation.snapshot()
+            for operation in sorted(
+                operations, key=lambda item: item.sequence, reverse=True
+            )[:bounded_limit]
+        ]
 
     async def execute(
         self,
@@ -112,25 +261,51 @@ class GitService:
         operation_name: str,
         callback: Callable[[], _T],
         *,
-        timeout_seconds: float = 120.0,
+        timeout_seconds: float | None = None,
+        lock_timeout_seconds: float | None = None,
+        command_timeout_seconds: float | None = None,
     ) -> tuple[GitOperation, _T | None]:
         """Enfileira uma operação e executa o callback em uma thread."""
-        operation = GitOperation(
-            operation_id=f"git-{time.time_ns()}",
-            workspace_id=workspace_id,
-            operation=operation_name,
-        )
+        if timeout_seconds is not None:
+            lock_timeout = command_timeout = timeout_seconds
+        else:
+            from backend.settings import get_settings
+
+            settings = get_settings()
+            lock_timeout = (
+                lock_timeout_seconds
+                if lock_timeout_seconds is not None
+                else settings.git_lock_timeout
+            )
+            command_timeout = (
+                command_timeout_seconds
+                if command_timeout_seconds is not None
+                else settings.git_command_timeout
+            )
         async with self._guard:
-            self._operations = {
-                operation_id: previous
-                for operation_id, previous in self._operations.items()
-                if previous.workspace_id != workspace_id
-            }
+            self._sequence += 1
+            operation = GitOperation(
+                operation_id=f"git-{time.time_ns()}",
+                workspace_id=workspace_id,
+                operation=operation_name,
+                sequence=self._sequence,
+            )
             self._operations[operation.operation_id] = operation
+            workspace_operations = sorted(
+                (
+                    previous
+                    for previous in self._operations.values()
+                    if previous.workspace_id == workspace_id
+                ),
+                key=lambda item: item.sequence,
+                reverse=True,
+            )
+            for stale in workspace_operations[50:]:
+                self._operations.pop(stale.operation_id, None)
         lock = await self._lock_for(repo)
         try:
             operation.phase = "waiting_for_repository"
-            await asyncio.wait_for(lock.acquire(), timeout=timeout_seconds)
+            await asyncio.wait_for(lock.acquire(), timeout=lock_timeout)
         except TimeoutError as exc:
             operation.state = "failed"
             operation.phase = "terminal"
@@ -145,8 +320,22 @@ class GitService:
             operation.phase = operation_name
             operation.progress = 10
             result = await asyncio.wait_for(
-                asyncio.shield(callback_task), timeout=timeout_seconds
+                asyncio.shield(callback_task), timeout=command_timeout
             )
+            if isinstance(result, Mapping) and str(
+                result.get("status", "")
+            ).casefold() in {
+                "error",
+                "failed",
+            }:
+                message = str(result.get("message", "Falha na operação Git"))
+                operation.state = "failed"
+                operation.phase = "terminal"
+                operation.error_code = classify_git_error(message)
+                operation.error = redact_git_output(message)
+                operation.output = operation.error
+                operation.finished_at = time.time()
+                raise GitOperationError(operation.error_code, operation.error)
             operation.state = "succeeded"
             operation.phase = "terminal"
             operation.progress = 100
@@ -182,11 +371,16 @@ class GitService:
         except git.GitCommandError as exc:
             operation.state = "failed"
             operation.phase = "terminal"
-            operation.error_code = "git_command_failed"
             operation.error = redact_git_output(str(exc.stderr or exc.stdout or exc))
+            operation.error_code = classify_git_error(operation.error)
             operation.output = operation.error
             operation.finished_at = time.time()
             raise GitOperationError(operation.error_code, operation.error) from exc
+        except GitOperationError:
+            # Resultos estruturados com ``status=error`` já foram registrados
+            # acima com seu código específico; não os reclassifique como uma
+            # falha genérica no bloco seguinte.
+            raise
         except Exception as exc:
             operation.state = "failed"
             operation.phase = "terminal"
@@ -198,10 +392,16 @@ class GitService:
         finally:
             lock.release()
 
-    async def status(self, workspace_id: str, repo: git.Repo) -> dict[str, object]:
-        from backend.tools.git import _git_status_impl
-
-        return await asyncio.to_thread(_git_status_impl, repo)
+    async def status(self, workspace_id: str, repo: git.Repo) -> GitStatusSnapshot:
+        snapshot = await asyncio.to_thread(status_snapshot, repo)
+        latest = await self.latest(workspace_id)
+        return snapshot.model_copy(
+            update={
+                "operation_in_progress": latest
+                if latest is not None and latest.state in {"queued", "running"}
+                else None
+            }
+        )
 
 
 git_service = GitService()

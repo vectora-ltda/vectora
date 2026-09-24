@@ -32,7 +32,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 def _read_relative_nofollow(root: Path, parts: list[str]) -> bytes:
@@ -68,6 +68,7 @@ from backend.api.schemas import (
     ConversationBranchesResponse,
     CreateThreadRequest,
     DeleteThreadRequest,
+    DiffHunk,
     GenerateTitleRequest,
     GenerateTitleResponse,
     GetHistoryRequest,
@@ -1245,13 +1246,19 @@ async def get_history(request: GetHistoryRequest) -> GetHistoryResponse:
         from backend.services import agent_factory
 
         thread = await get_thread(GetThreadRequest(thread_id=request.thread_id))
-        pairs = await agent_factory.aget_thread_messages(
+        pairs = await agent_factory.aget_thread_messages_with_files(
             request.thread_id,
             workspace_id=thread.workspace_id or None,
         )
         history = [
-            HistoryMessage(role=role, content=text, checkpoint_id=checkpoint_id)
-            for role, text, checkpoint_id, _att in pairs
+            HistoryMessage(
+                role=entry.role,
+                content=entry.text,
+                checkpoint_id=entry.checkpoint_id,
+                attachments=entry.attachments,
+                edited_files=[file.model_dump() for file in entry.edited_files],
+            )
+            for entry in pairs
         ]
         todos = await agent_factory.aget_thread_todos(
             request.thread_id,
@@ -1732,7 +1739,7 @@ async def get_thread_history_paginated(
         thread = await get_thread(
             GetThreadRequest(thread_id=thread_id), http_request=request
         )
-        pairs = await agent_factory.aget_thread_messages(
+        pairs = await agent_factory.aget_thread_messages_with_files(
             thread_id,
             workspace_id=thread.workspace_id or None,
         )
@@ -1755,9 +1762,13 @@ async def get_thread_history_paginated(
 
     messages = [
         HistoryMessage(
-            role=role, content=text, checkpoint_id=checkpoint_id, attachments=att
+            role=entry.role,
+            content=entry.text,
+            checkpoint_id=entry.checkpoint_id,
+            attachments=entry.attachments,
+            edited_files=[file.model_dump() for file in entry.edited_files],
         )
-        for role, text, checkpoint_id, att in page
+        for entry in page
     ]
 
     if offset == 0:
@@ -1870,6 +1881,72 @@ class ActivityResponse(BaseModel):
     files_touched: list[str]
     tool_call_counts: dict[str, int]
     turn_count: int
+
+
+class TurnFileChangeResponse(BaseModel):
+    """Arquivo alterado no turno retornado pelo fallback REST."""
+
+    path: str
+    status: str = "M"
+    additions: int = 0
+    deletions: int = 0
+    hunks: list[DiffHunk] = Field(default_factory=list)
+
+
+class TurnFilesChangedResponse(BaseModel):
+    """Snapshot de arquivos editados, com estado do run."""
+
+    run_id: str = ""
+    status: str = "finalized"
+    files: list[TurnFileChangeResponse]
+
+
+@router.get(
+    "/threads/{thread_id}/turn-files/{workspace_id}",
+    response_model=TurnFilesChangedResponse,
+)
+async def latest_turn_files(
+    thread_id: str,
+    workspace_id: str,
+    request: Request,
+    run_id: Annotated[str | None, Query()] = None,
+) -> TurnFilesChangedResponse:
+    """Fallback do cartão de arquivos quando a conexão SSE caiu.
+
+    O estado é indexado pelo workspace porque o stream pode continuar no
+    backend depois de o navegador perder a conexão. ``thread_id`` é mantido
+    na rota para preservar o escopo sem expor dados de outro fluxo futuro.
+    """
+    await _assert_owns_thread(thread_id, request, require_existing=True)
+    from backend.api.handlers.workspaces import require_workspace_access
+
+    require_workspace_access(workspace_id, request)
+    store = await _get_session_store()
+    session = await store.get_session(thread_id)
+    if session is not None and session.get("workspace_id") not in {None, workspace_id}:
+        raise HTTPException(status_code=404, detail="Workspace não pertence à thread")
+    import asyncio
+
+    from backend.api.turn_files import latest
+
+    resolved_run_id, status, files = await asyncio.to_thread(
+        latest, thread_id, workspace_id, run_id
+    )
+
+    return TurnFilesChangedResponse(
+        run_id=resolved_run_id,
+        status=status,
+        files=[
+            TurnFileChangeResponse(
+                path=file.path,
+                status=file.status,
+                additions=file.additions,
+                deletions=file.deletions,
+                hunks=file.hunks,
+            )
+            for file in files
+        ],
+    )
 
 
 @router.get("/threads/{thread_id}/activity", response_model=ActivityResponse)

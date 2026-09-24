@@ -9,9 +9,9 @@ por-usuário (servidores configurados via marketplace).
 Subprocess stdio nunca herda `os.environ` inteiro do processo pai — só um
 allowlist mínimo (`_SAFE_SUBPROCESS_ENV_KEYS`) é repassado, fechando o vazamento
 de API keys de LLM/tokens pro servidor MCP local. Um servidor específico pode
-declarar variáveis extras necessárias via `env_vars` na conexão (`McpServer.env_vars`
-em `backend/workspace/plugins.py` ou `settings.mcp_command_env_vars`) — só essas,
-por nome, se somam ao allowlist mínimo.
+declarar nomes de variáveis obrigatórias via `env_vars`, mas os valores só entram
+quando foram atribuídos explicitamente no campo `env` da conexão
+(`McpServer.env` ou `settings.mcp_command_env_vars`).
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ import logging
 import os
 import shutil
 import time
+from collections.abc import Mapping
 from contextlib import AsyncExitStack
 from typing import Any
 
@@ -58,14 +59,25 @@ _SAFE_SUBPROCESS_ENV_KEYS = frozenset(
 )
 
 
-def _safe_subprocess_env(extra_keys: frozenset[str] | None = None) -> dict[str, str]:
+def _safe_subprocess_env(
+    explicit_env: Mapping[str, str] | None = None,
+) -> dict[str, str]:
     """Allowlist do ambiente do processo pai — nunca `os.environ` cru.
 
-    `extra_keys` é a lista de variáveis que o servidor MCP específico
-    declarou precisar (``McpServer.env_vars`` / `settings.mcp_command_env_vars`)
-    — só essas, além do mínimo pra o subprocess rodar, atravessam."""
-    keys = _SAFE_SUBPROCESS_ENV_KEYS | (extra_keys or frozenset())
-    return {k: v for k, v in os.environ.items() if k in keys}
+    `explicit_env` contém somente valores atribuídos explicitamente ao servidor
+    pelo usuário. Nomes declarados pelo catálogo (`env_vars`) nunca autorizam
+    leitura automática de `os.environ`."""
+    environment = {
+        k: v for k, v in os.environ.items() if k in _SAFE_SUBPROCESS_ENV_KEYS
+    }
+    environment.update(
+        {
+            key: value
+            for key, value in (explicit_env or {}).items()
+            if key and isinstance(value, str)
+        }
+    )
+    return environment
 
 
 def stdio_sandbox_available(launcher: str | None = None) -> bool:
@@ -140,7 +152,7 @@ class VectoraMCPClient:
                 raise RuntimeError(
                     "sandbox protocol-aware obrigatório para servidor MCP stdio indisponível"
                 )
-            extra_keys = frozenset(cfg.get("env_vars") or ())
+            explicit_env = cfg.get("env") or {}
             command = cfg["command"]
             args = list(cfg.get("args") or [])
             if cfg.get("require_sandbox"):
@@ -148,7 +160,7 @@ class VectoraMCPClient:
             params = StdioServerParameters(
                 command=command,
                 args=args,
-                env=_safe_subprocess_env(extra_keys),
+                env=_safe_subprocess_env(explicit_env),
             )
             read, write = await self._stack.enter_async_context(stdio_client(params))
         elif transport == "sse":
@@ -255,6 +267,11 @@ def _build_connections() -> dict[str, dict[str, Any]]:
             "command": settings.mcp_command,
             "args": settings.mcp_command_args or [],
             "env_vars": settings.mcp_command_env_vars or [],
+            "env": {
+                key: os.environ[key]
+                for key in settings.mcp_command_env_vars or []
+                if key in os.environ
+            },
         }
 
     return connections

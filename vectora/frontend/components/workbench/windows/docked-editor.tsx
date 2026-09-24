@@ -31,7 +31,7 @@ export function DockedEditor({ activeWorkspaceId }: DockedEditorProps = {}) {
     belongsToOtherWorkspace
   ) {
     return (
-      <div className="h-full flex flex-col items-center justify-center gap-3 p-6 text-center bg-background">
+      <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-background p-6 text-center">
         <Code2 className="w-8 h-8 text-muted-foreground/40" />
         <p className="text-xs text-muted-foreground">
           {m.docked_editor_empty()}
@@ -44,7 +44,7 @@ export function DockedEditor({ activeWorkspaceId }: DockedEditorProps = {}) {
   }
 
   return (
-    <div className="h-full flex flex-col bg-background">
+    <div className="flex h-full w-full min-w-0 flex-col bg-background">
       <div className="flex shrink-0 overflow-x-auto border-b border-border/60 bg-sidebar">
         {dockedTabs.map((tab) => {
           const name = tab.split(/[/\\]/).pop() || tab;

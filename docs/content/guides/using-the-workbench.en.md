@@ -37,7 +37,7 @@ Both a dev-server preview and a free-navigation browser in one panel. An always-
 
 A live timeline of RAG and web searches in progress, with retrieved excerpts (expandable pills, separated into "knowledge base" vs. "web results"). A RAG settings panel lets you adjust reranker, top_k, and embedding provider.
 
-This tab also holds the **"What I've learned about you"** panel — a read-only view of the durable facts and skills [Remember](../agent-automation) has saved on your behalf, so you don't have to remember which thread first taught the agent something. Buckets you pull in from other users live here too, under **Memory Library**.
+This tab also holds the **"What I've learned about you"** panel — a read-only view of the durable facts and skills [Remember](../agent-automation) has saved on your behalf, so you don't have to remember which thread first taught the agent something. Buckets you pull in from other users live here too, under **Memory Buckets**.
 
 A search box at the top of the tab queries facts, skills, and RAG buckets at once — type-filter chips narrow results to just one of the three when you know what you're after.
 

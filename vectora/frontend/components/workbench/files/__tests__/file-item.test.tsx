@@ -3,7 +3,7 @@
  * FileItem — comportamento de abertura de arquivo em modo IDE vs Assistente.
  *
  * Em uiMode='ide': clique chama openDocked.
- * Em uiMode='assistant': clique chama openWindow (open).
+ * Em uiMode='assistant': clique abre um documento no canvas compartilhado.
  */
 
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
@@ -11,6 +11,7 @@ import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 
 const mockOpenWindow = vi.fn();
 const mockOpenDocked = vi.fn();
+const mockOpenCanvasDocument = vi.fn();
 const mockTogglePinned = vi.fn();
 const mockSettings = { uiMode: "assistant" };
 
@@ -19,8 +20,14 @@ vi.mock("@/lib/stores/windows-store", () => ({
     sel: (s: {
       open: typeof mockOpenWindow;
       openDocked: typeof mockOpenDocked;
+      openCanvasDocument: typeof mockOpenCanvasDocument;
     }) => unknown,
-  ) => sel({ open: mockOpenWindow, openDocked: mockOpenDocked }),
+  ) =>
+    sel({
+      open: mockOpenWindow,
+      openDocked: mockOpenDocked,
+      openCanvasDocument: mockOpenCanvasDocument,
+    }),
 }));
 
 vi.mock("@/lib/stores/settings-store", () => ({
@@ -94,10 +101,18 @@ beforeEach(() => {
 });
 
 describe("FileItem — abertura em modo IDE vs Assistente", () => {
-  it("uiMode='assistant': clicar no arquivo chama openWindow", () => {
+  it("uiMode='assistant': clicar no arquivo abre documento no canvas", () => {
     renderItem("assistant");
     fireEvent.click(screen.getByText("main.ts"));
-    expect(mockOpenWindow).toHaveBeenCalledWith("ws1", "src/main.ts");
+    expect(mockOpenCanvasDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "file:ws1:src/main.ts",
+        kind: "file",
+        workspaceId: "ws1",
+        threadId: "t1",
+        path: "src/main.ts",
+      }),
+    );
     expect(mockOpenDocked).not.toHaveBeenCalled();
   });
 
@@ -108,13 +123,15 @@ describe("FileItem — abertura em modo IDE vs Assistente", () => {
     expect(mockOpenWindow).not.toHaveBeenCalled();
   });
 
-  it("uiMode='assistant': openWindow recebe o workspaceId e path corretos", () => {
+  it("uiMode='assistant': descritor recebe workspace, thread e path", () => {
     renderItem("assistant");
     fireEvent.click(screen.getByText("main.ts"));
-    expect(mockOpenWindow).toHaveBeenCalledOnce();
-    const [wsId, path] = mockOpenWindow.mock.calls[0];
-    expect(wsId).toBe("ws1");
-    expect(path).toBe("src/main.ts");
+    expect(mockOpenCanvasDocument).toHaveBeenCalledOnce();
+    expect(mockOpenCanvasDocument.mock.calls[0][0]).toMatchObject({
+      workspaceId: "ws1",
+      threadId: "t1",
+      path: "src/main.ts",
+    });
   });
 
   it("uiMode='ide': openDocked recebe o workspaceId e path corretos", () => {

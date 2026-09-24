@@ -190,7 +190,7 @@ def _build_parser() -> argparse.ArgumentParser:
         if resource == "mcp":
             install_parser.add_argument("identifier")
         else:
-            install_parser.add_argument("source")
+            install_parser.add_argument("identifier")
         install_parser.set_defaults(output="human")
         remove_parser = resource_sub.add_parser(
             "remove", help="remove um item instalado"
@@ -203,17 +203,6 @@ def _build_parser() -> argparse.ArgumentParser:
             )
             validate_parser.add_argument("identifier")
             validate_parser.set_defaults(output="human")
-            publish_parser = resource_sub.add_parser(
-                "publish", help="publica uma skill no catálogo"
-            )
-            publish_parser.add_argument("source")
-            publish_parser.add_argument("name")
-            publish_parser.add_argument("description")
-            publish_parser.add_argument("--category", default=None)
-            publish_parser.add_argument(
-                "--tag", dest="tags", action="append", default=[]
-            )
-            publish_parser.set_defaults(output="human")
         for child in resource_sub.choices.values():
             child.add_argument("--output", choices=("human", "json"), default="human")
 

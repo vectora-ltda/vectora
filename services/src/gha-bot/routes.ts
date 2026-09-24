@@ -346,7 +346,7 @@ ghaBot.get("/config", async (c) => {
           mode: "self-hosted",
           // services.vectora.company (não APP_URL — esse é o site da
           // company, um deploy diferente; mesma convenção hardcoded já
-          // usada em rag-library/routes.ts pra auto-referenciar este Worker).
+          // usada em memory-buckets/routes.ts pra auto-referenciar este Worker).
           job_endpoint: "https://services.vectora.company/gha-bot/review",
         });
       }
@@ -478,7 +478,6 @@ ghaBot.get("/review/:id", async (c) => {
   const scope = tokenAllowsRepository(identity, row.repository);
   if (!scope.ok) return c.json({ error: scope.error }, 403);
   return c.json(row);
-
 });
 
 /**

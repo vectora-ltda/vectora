@@ -93,6 +93,7 @@ export function languageFromPath(path: string): string {
     xml: "xml",
     md: "markdown",
     markdown: "markdown",
+    diff: "diff",
     py: "python",
     rs: "rust",
     go: "go",
