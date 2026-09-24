@@ -458,6 +458,7 @@ export async function discoverSkills(
   }
 
   let upserted = 0;
+  let failed = 0;
   for (const repo of seen.values()) {
     if (!repo?.full_name) continue;
     const id = repo.full_name;
@@ -480,10 +481,19 @@ export async function discoverSkills(
         .run();
       upserted++;
     } catch {
-      // isola falha por entrada
+      failed++;
     }
   }
-  await recordSyncState(env, "skills", "ready");
+  if (failed > 0) {
+    await recordSyncState(
+      env,
+      "skills",
+      "unavailable",
+      `${failed} skill catalog writes failed`,
+    );
+  } else {
+    await recordSyncState(env, "skills", "ready");
+  }
   return upserted;
 }
 

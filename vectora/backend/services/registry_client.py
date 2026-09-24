@@ -15,7 +15,7 @@ import os
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Literal, TypedDict
+from typing import Literal
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -34,11 +34,15 @@ HTTP_TIMEOUT = 10.0
 RegistryKind = Literal["mcp", "skills", "mcp_official"]
 
 
-class RegistryStatus(TypedDict):
-    source: str
-    status: str
-    last_synced_at: str | None
-    error: str | None
+class RegistryStatus(BaseModel):
+    """Validated synchronization status returned by the registry service."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    source: Literal["mcp", "skills"]
+    status: Literal["ready", "unavailable", "disabled", "never"]
+    last_synced_at: str | None = None
+    error: str | None = None
 
 
 OFFICIAL_MCP_REGISTRY_URL = "https://registry.modelcontextprotocol.io/v0.1/servers"
@@ -196,23 +200,25 @@ async def fetch_catalog(kind: RegistryKind) -> list[dict]:
 
 async def fetch_catalog_status(kind: Literal["mcp", "skills"]) -> RegistryStatus:
     """Obtém o estado da fonte sem confundir catálogo vazio com falha."""
-    fallback: RegistryStatus = {
-        "source": kind,
-        "status": "unavailable",
-        "last_synced_at": None,
-        "error": "status unavailable",
-    }
+    fallback = RegistryStatus(
+        source=kind,
+        status="unavailable",
+        last_synced_at=None,
+        error="status unavailable",
+    )
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
             response = await client.get(f"{_registry_url()}/status/{kind}")
             response.raise_for_status()
             payload = response.json()
-        return {
-            "source": str(payload.get("source", kind)),
-            "status": str(payload.get("status", "never")),
-            "last_synced_at": payload.get("last_synced_at"),
-            "error": payload.get("error"),
-        }
+        return RegistryStatus.model_validate(
+            {
+                "source": payload.get("source", kind),
+                "status": payload.get("status", "never"),
+                "last_synced_at": payload.get("last_synced_at"),
+                "error": payload.get("error"),
+            }
+        )
     except Exception as exc:
         logger.warning(
             "registry_client: estado da fonte indisponível",
