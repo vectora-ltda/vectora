@@ -15,6 +15,30 @@ describe("ThreeColumnShell", () => {
     expect(screen.getByTestId("editor")).toBeInTheDocument();
   });
 
+  it("mantém o editor implícito visível enquanto documentos ficam abertos", () => {
+    render(
+      <CenterCanvas
+        activeTab="editor"
+        documents={[
+          {
+            id: "file:main.ts",
+            kind: "file",
+            workspaceId: "workspace",
+            title: "main.ts",
+            path: "main.ts",
+          },
+        ]}
+        renderDocument={() => <div data-testid="document" />}
+      >
+        <div data-testid="editor" />
+      </CenterCanvas>,
+    );
+
+    expect(screen.getByRole("tab", { name: "main.ts" })).toBeInTheDocument();
+    expect(screen.getByTestId("editor")).toBeInTheDocument();
+    expect(screen.queryByTestId("document")).not.toBeInTheDocument();
+  });
+
   it("rejeita tabs com ids duplicados", () => {
     expect(() =>
       render(
@@ -71,6 +95,26 @@ describe("ThreeColumnShell", () => {
     expect(
       screen.queryByRole("complementary", { name: "Chat" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("respeita a largura compacta da lista de sessões sem reservar o mínimo aberto", () => {
+    render(
+      <ThreeColumnShell
+        centerHeader={<header />}
+        left={<div />}
+        center={<div />}
+        right={null}
+        columns={{
+          left: { label: "Sessões", width: 64 },
+          center: { label: "Chat" },
+          right: { label: "Workbench", visibility: "hidden" },
+        }}
+      />,
+    );
+
+    const sessions = screen.getByRole("complementary", { name: "Sessões" });
+    expect(sessions).toHaveStyle({ width: "64px" });
+    expect(sessions).not.toHaveClass("min-w-60");
   });
 
   it("inverte a ordem física das rails sem mover o header do centro", () => {

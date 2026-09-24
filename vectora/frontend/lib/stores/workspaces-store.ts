@@ -13,7 +13,8 @@
  * - Falhas de rede/servidor em ações do usuário viram toast (canal único de
  *   feedback); nenhuma ação retorna silenciosamente `null`.
  * - Persistência via `localStorage`, mas só de `active_id`: a lista de
- *   workspaces é sempre revalidada do backend (source of truth).
+ *   workspaces é sempre revalidada do backend (source of truth) e nunca cruza
+ *   contas diferentes no mesmo navegador.
  */
 
 import { create } from "zustand";
@@ -110,6 +111,11 @@ const PENDING_IDLE: WorkspacesPending = {
   gitInit: false,
 };
 
+let accountGeneration = 0;
+let latestHydrateRequest = 0;
+let latestSafeRootsRequest = 0;
+let activeSelectionRevision = 0;
+
 interface WorkspacesState {
   workspaces: WorkspaceInfo[];
   active_id: string | null;
@@ -131,6 +137,8 @@ interface WorkspacesState {
   // ── Local writes ────────────────────────────────────────────────────────────
   setWorkspaces: (list: WorkspaceInfo[], activeId: string | null) => void;
   invalidate: () => void;
+  /** Invalida respostas pendentes e remove dados da conta anterior. */
+  resetForUser: () => void;
 
   // ── Async (proxy Hono) ──────────────────────────────────────────────────────
   hydrate: () => Promise<void>;
@@ -191,6 +199,37 @@ async function fetchJson(url: string, init?: RequestInit): Promise<any | null> {
     return await res.json();
   } catch {
     return null;
+  }
+}
+
+interface StatusMutationResponse {
+  status?: string;
+  message?: string;
+}
+
+type MutationResult =
+  | { kind: "response"; data: StatusMutationResponse | null }
+  | { kind: "rejected"; data: StatusMutationResponse | null }
+  | { kind: "ambiguous" };
+
+/** Executa uma mutação sem confundir rejeição explícita com falha de transporte. */
+async function fetchMutation(
+  url: string,
+  init: RequestInit,
+): Promise<MutationResult> {
+  try {
+    const response = await fetch(url, init);
+    const payload = await response.json().catch(() => null);
+    const data =
+      payload && typeof payload === "object"
+        ? (payload as StatusMutationResponse)
+        : null;
+    return response.ok
+      ? { kind: "response", data }
+      : { kind: "rejected", data };
+  } catch {
+    // O servidor pode ter aplicado a mutação antes da conexão cair.
+    return { kind: "ambiguous" };
   }
 }
 
@@ -274,7 +313,28 @@ export const useWorkspacesStore = create<WorkspacesState>()(
 
       invalidate: () => set({ fetchedAt: null }),
 
+      resetForUser: () => {
+        accountGeneration += 1;
+        latestHydrateRequest += 1;
+        latestSafeRootsRequest += 1;
+        activeSelectionRevision += 1;
+        for (const workspace of get().workspaces) {
+          disposeBrowserWorkspace(workspace.id);
+        }
+        set({
+          workspaces: [],
+          active_id: null,
+          safeRoots: [],
+          fetchedAt: null,
+          status: "idle",
+          error: null,
+        });
+      },
+
       hydrate: async () => {
+        const generation = accountGeneration;
+        const requestId = ++latestHydrateRequest;
+        const selectionRevisionAtStart = activeSelectionRevision;
         set((s) => ({
           ...asyncLoading(),
           pending: { ...s.pending, hydrate: true },
@@ -289,6 +349,11 @@ export const useWorkspacesStore = create<WorkspacesState>()(
           if (!data?.workspaces) {
             throw new Error("Resposta inesperada do servidor.");
           }
+          if (
+            generation !== accountGeneration ||
+            requestId !== latestHydrateRequest
+          )
+            return;
           set((s) => {
             const nextIds = new Set(
               data.workspaces.map((workspace) => workspace.id),
@@ -298,15 +363,28 @@ export const useWorkspacesStore = create<WorkspacesState>()(
                 disposeBrowserWorkspace(workspace.id);
               }
             }
+            const localSelectionChanged =
+              activeSelectionRevision !== selectionRevisionAtStart;
+            const localSelectionIsValid =
+              localSelectionChanged &&
+              s.active_id !== null &&
+              nextIds.has(s.active_id);
             return {
               workspaces: data.workspaces,
-              active_id: data.active_id ?? null,
+              active_id: localSelectionIsValid
+                ? s.active_id
+                : (data.active_id ?? null),
               fetchedAt: Date.now(),
               ...asyncSuccess(),
               pending: { ...s.pending, hydrate: false },
             };
           });
         } catch (err) {
+          if (
+            generation !== accountGeneration ||
+            requestId !== latestHydrateRequest
+          )
+            return;
           const message = httpErrorMessage(err) ?? toErrorMessage(err);
           set((s) => ({
             ...asyncError(message),
@@ -319,15 +397,29 @@ export const useWorkspacesStore = create<WorkspacesState>()(
       },
 
       setActive: async (id) => {
+        const previousId = get().active_id;
+        activeSelectionRevision += 1;
         set({ active_id: id });
-        await fetchJson("/workspaces/set-active", {
+        const result = await fetchMutation("/workspaces/set-active", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ workspace_id: id }),
         });
+        if (result.kind === "response" && result.data?.status === "ok") {
+          return;
+        }
+        if (result.kind === "ambiguous") {
+          await get().hydrate();
+          return;
+        }
+        if (get().active_id === id) {
+          set({ active_id: previousId });
+        }
       },
 
       syncActiveLocal: (id) => {
+        latestHydrateRequest += 1;
+        activeSelectionRevision += 1;
         set({ active_id: id });
         void get().hydrate();
       },
@@ -443,8 +535,15 @@ export const useWorkspacesStore = create<WorkspacesState>()(
       },
 
       loadSafeRoots: async () => {
+        const generation = accountGeneration;
+        const requestId = ++latestSafeRootsRequest;
         const data = await fetchJson("/workspaces/safe-roots");
-        if (data?.roots && Array.isArray(data.roots)) {
+        if (
+          generation === accountGeneration &&
+          requestId === latestSafeRootsRequest &&
+          data?.roots &&
+          Array.isArray(data.roots)
+        ) {
           set({ safeRoots: data.roots as SafeRootSummary[] });
         }
       },
@@ -543,13 +642,19 @@ export const useWorkspacesStore = create<WorkspacesState>()(
               removeItem: () => {},
             },
       ),
-      // Persiste `active_id` e a lista de `workspaces` (stale-while-revalidate).
-      // A lista precisa existir no 1º paint: `groupThreadsByWorkspace` casa cada
-      // sessão de código ao seu workspace por id. `hydrate()` revalida logo, então
-      // a janela de dado stale é mínima.
+      // Persiste somente o id selecionado. A lista completa pode conter caminhos
+      // privados de outro usuário e deve sempre vir da API autenticada.
       partialize: (state) => ({
         active_id: state.active_id,
-        workspaces: state.workspaces,
+      }),
+      merge: (persisted, current) => ({
+        ...current,
+        active_id:
+          persisted && typeof persisted === "object" && "active_id" in persisted
+            ? ((persisted as { active_id?: string | null }).active_id ?? null)
+            : null,
+        workspaces: [],
+        safeRoots: [],
       }),
     },
   ),

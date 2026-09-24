@@ -3,7 +3,7 @@
  * PinnedSection — abertura de arquivo fixado em modo IDE vs Assistente.
  *
  * Em uiMode='ide': clique chama openDocked.
- * Em uiMode='assistant': clique chama openWindow (open).
+ * Em uiMode='assistant': clique abre documento no canvas compartilhado.
  * Sem pins: não renderiza nada.
  */
 
@@ -12,6 +12,7 @@ import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 
 const mockOpenWindow = vi.fn();
 const mockOpenDocked = vi.fn();
+const mockOpenCanvasDocument = vi.fn();
 const mockTogglePinned = vi.fn();
 const mockSettings = { uiMode: "assistant" };
 
@@ -22,8 +23,14 @@ vi.mock("@/lib/stores/windows-store", () => ({
     sel: (s: {
       open: typeof mockOpenWindow;
       openDocked: typeof mockOpenDocked;
+      openCanvasDocument: typeof mockOpenCanvasDocument;
     }) => unknown,
-  ) => sel({ open: mockOpenWindow, openDocked: mockOpenDocked }),
+  ) =>
+    sel({
+      open: mockOpenWindow,
+      openDocked: mockOpenDocked,
+      openCanvasDocument: mockOpenCanvasDocument,
+    }),
 }));
 
 vi.mock("@/lib/stores/settings-store", () => ({
@@ -66,11 +73,19 @@ describe("PinnedSection — abertura em modo IDE vs Assistente", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("uiMode='assistant': clicar em pin chama openWindow", () => {
+  it("uiMode='assistant': clicar em pin abre documento no canvas", () => {
     mockPinnedFiles["t1"] = ["src/important.ts"];
     render(<PinnedSection threadId="t1" workspaceId="ws1" />);
     fireEvent.click(screen.getByText("important.ts"));
-    expect(mockOpenWindow).toHaveBeenCalledWith("ws1", "src/important.ts");
+    expect(mockOpenCanvasDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "file:ws1:src/important.ts",
+        kind: "file",
+        workspaceId: "ws1",
+        threadId: "t1",
+        path: "src/important.ts",
+      }),
+    );
     expect(mockOpenDocked).not.toHaveBeenCalled();
   });
 
@@ -93,9 +108,13 @@ describe("PinnedSection — abertura em modo IDE vs Assistente", () => {
     mockPinnedFiles["t1"] = ["a/foo.ts", "b/bar.ts"];
     render(<PinnedSection threadId="t1" workspaceId="ws1" />);
     fireEvent.click(screen.getByText("foo.ts"));
-    expect(mockOpenWindow).toHaveBeenCalledWith("ws1", "a/foo.ts");
+    expect(mockOpenCanvasDocument).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "a/foo.ts" }),
+    );
     vi.clearAllMocks();
     fireEvent.click(screen.getByText("bar.ts"));
-    expect(mockOpenWindow).toHaveBeenCalledWith("ws1", "b/bar.ts");
+    expect(mockOpenCanvasDocument).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "b/bar.ts" }),
+    );
   });
 });

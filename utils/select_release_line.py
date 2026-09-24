@@ -17,6 +17,8 @@ class ReleaseLine(BaseModel):
 
     branch: str
     milestone: str
+    release_please_config: str
+    release_please_manifest: str
 
 
 class ReleaseLines(BaseModel):
@@ -60,6 +62,8 @@ def selection_for_branch(branch: str | None, config: ReleaseLines) -> dict[str, 
         "maintenance_branch": config.maintenance.branch,
         "development_branch": config.development.branch,
         "development_milestone": config.development.milestone,
+        "config_file": selected.release_please_config if selected else "",
+        "manifest_file": selected.release_please_manifest if selected else "",
     }
     return outputs
 

@@ -1,14 +1,14 @@
 # vectora-services
 
 Worker único no Cloudflare que serve `gateway/`, `updates/` e
-auth/billing/license/GDPR/api-keys/issues/rag-library/registry. Domínios:
+auth/billing/license/GDPR/api-keys/issues/memory-buckets/registry. Domínios:
 
 - `gateway.vectora.chat` + `{token}.vectora.chat` — proxy WebSocket
   bidirecional de OAuth/webhooks pro app desktop (`src/gateway/`, ex-relay —
   renomeado sem alias de transição, decisão do produto: não havia clientes
   antigos em produção pra coordenar).
 - `services.vectora.company` — tudo o mais montado num único Hono app em
-  `src/index.ts`: auth/billing/license/GDPR/api-keys/issues/rag-library/
+  `src/index.ts`: auth/billing/license/GDPR/api-keys/issues/memory-buckets/
   registry/telemetry **e** updates (distribuição de releases pro
   `electron-updater` + download público de primeira instalação,
   `src/updates/`) — mesclado na raiz via `.route("/", updatesApp)`, sem
@@ -71,7 +71,7 @@ handler):
   `gdpr_delete_user` por usuário expirado (hard-delete de verdade acontece
   no consumer, `hardDeleteOneUser`).
 - `/api-keys/*`, `/issues/*` — gestão de chaves e tickets de suporte.
-- `/rag-library/*` — catálogo + download de bancos RAG pré-indexados (Fase E
+- `/memory-buckets/*` — catálogo + download de bancos RAG pré-indexados (Fase E
   segue fora de escopo — nenhum pacote real ainda). `POST /:id/reindex`
   enfileira de verdade (`rag_reindex`), mas o consumer sempre marca
   `status='failed'`: não existe provedor de storage externo configurado.
@@ -107,26 +107,29 @@ handler):
   `update_telemetry`, `telemetry_ingest`, `rag_reindex`; DLQ
   `vectora-jobs-dlq`.
 
-The deployment upgrade below keeps existing issue-synchronization databases
-compatible when columns are added after the base schema.
+### Schema D1
 
-### Atualização do schema da sincronização de issues
+`migrations/0001_schema.sql` é a única migration SQL do serviço. Ela declara o
+shape completo das tabelas e índices e usa apenas operações idempotentes
+(`CREATE ... IF NOT EXISTS`, `INSERT OR IGNORE` e `ON CONFLICT`). Reaplique o
+arquivo inteiro quando necessário. Em um banco já existente, execute primeiro
+o preflight de compatibilidade para adicionar colunas legadas ausentes:
 
-O `0001_schema.sql` continua sendo o único schema base, idempotente para bancos
-novos. Os fluxos de deploy (`.github/workflows/edge.yml`,
-`.github/workflows/vectora.yml` e `scons prod`) consultam `PRAGMA table_info`
-antes de cada `ALTER TABLE` e adicionam somente as colunas ausentes. Isso
-atualiza bancos D1 existentes sem apagar dados ou repetir alterações:
+```bash
+pnpm install --frozen-lockfile
+bash scripts/d1_catalog_preflight.sh
+pnpm exec wrangler d1 execute vectora-db --remote --file=migrations/0001_schema.sql
+```
 
-- `issues`: colunas de sincronização pública e promoção (`github_*`, `core_*` e
-  `approved_*`);
-- `issue_comments`: `updated_at` e `deleted_at`;
-- `gha_bot_review_jobs`: `callback_secret_hash`;
-- `gha_bot_config`: `self_hosted_enabled` para instalações legadas.
+O preflight consulta o schema antes de cada alteração e pode ser repetido com
+segurança. Em bancos novos, ele não altera nada e o `CREATE TABLE` do 0001
+provisiona o shape completo.
 
-Se o deploy for executado manualmente, rode o mesmo fluxo com `scons prod` ou
-reproduza a consulta antes de cada comando `ALTER TABLE`; nunca execute um
-`ALTER TABLE` já aplicado.
+O workflow de deploy mantém uma etapa de compatibilidade separada somente para
+bancos D1 legados que ainda não possuem colunas introduzidas antes da
+consolidação; essa etapa consulta `PRAGMA table_info` antes de cada alteração e
+é segura para ser executada novamente. Nenhuma nova migration numerada deve
+ser criada.
 
 - Secrets (via `wrangler secret put`, não no `.toml`): `VECTORA_APP_SECRET`
   (secret fixo por produto, autentica `POST /register`), `GATEWAY_HMAC_SECRET`,
@@ -135,7 +138,9 @@ reproduza a consulta antes de cada comando `ALTER TABLE`; nunca execute um
   `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_PRO_USD` (billing INTL);
   `ASAAS_API_KEY`, `ASAAS_API_URL`, `ASAAS_WEBHOOK_SECRET` (billing BR);
   `GHA_BOT_ENCRYPTION_KEY` (gha-bot, chave mestra AES-256-GCM);
-  `GITHUB_TOKEN` (registry discovery, opcional).
+  `GITHUB_TOKEN` (registry discovery de skills no GitHub, necessário para a
+  busca autenticada de `SKILL.md`; sem ele a descoberta de terceiros fica
+  desabilitada e o catálogo ainda pode receber publicações via `POST /skills`).
 
 ## Publicar um release
 

@@ -14,6 +14,8 @@ import { describe, expect, it } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { useNewSessionId } from "../use-new-session-id";
 import { isNew } from "@/lib/stores/new-thread-registry";
+import { signalWorkspacePreChosen } from "@/lib/stores/new-session-signal";
+import { isWorkspaceChosen } from "@/lib/stores/workspace-choice-registry";
 
 describe("useNewSessionId", () => {
   it("gera um id em /session/new e string vazia fora dele", () => {
@@ -58,5 +60,12 @@ describe("useNewSessionId", () => {
     const firstId = result.current;
     rerender({ routeParam: "new" });
     expect(result.current).toBe(firstId);
+  });
+
+  it("consome a escolha de workspace somente depois do commit", () => {
+    signalWorkspacePreChosen();
+    const { result } = renderHook(() => useNewSessionId("new"));
+
+    expect(isWorkspaceChosen(result.current)).toBe(true);
   });
 });

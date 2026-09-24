@@ -246,6 +246,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 
 function RootComponent() {
   const location = useLocation();
+  const userId = useAuthStore((s) => s.user?.id ?? null);
   // Idioma persistido em settings-store — reflete a preferência de fato
   // escolhida pelo usuário no atributo `lang` do HTML.
   const language = useSettingsStore((s) => s.language);
@@ -255,19 +256,21 @@ function RootComponent() {
   // Agenda o aviso "sessão expira em breve" perto da raiz, uma única vez
   // por árvore (não por tela).
   useSessionExpiry();
-  // `workspaces` do useWorkspacesStore não é persistido (só `active_id`
-  // é — ver partialize do store), então precisa ser buscado a cada carga
-  // do app. Antes, o único gatilho era o useEffect de mount do
-  // WorkspaceSelector (removido da AppBar do chat no commit 84f07292),
-  // deixando `workspaces` vazio na maioria das sessões — a sidebar então
-  // caía no fallback de agrupamento por data em vez da árvore por
-  // workspace. Roda aqui (raiz, monta antes de qualquer sidebar) em vez
-  // de depender de qual componente específico está montado.
+  // Workspaces e safe-roots vêm sempre da API autenticada. Ao trocar de
+  // usuário, limpe o estado antes de buscar para não exibir caminhos da conta
+  // anterior durante a revalidação.
+  const workspaceUserRef = useRef<string | null>(null);
+  const privateRoute = Boolean(userId) && !isPublicPath(location.pathname);
   useEffect(() => {
-    if (isPublicPath(location.pathname)) return;
-    const { workspaces, hydrate } = useWorkspacesStore.getState();
-    if (workspaces.length === 0) void hydrate();
-  }, [location.pathname]);
+    const store = useWorkspacesStore.getState();
+    if (workspaceUserRef.current !== userId) {
+      workspaceUserRef.current = userId;
+      store.resetForUser();
+    }
+    if (!privateRoute) return;
+    void store.hydrate();
+    void store.loadSafeRoots();
+  }, [privateRoute, userId]);
   // Aplica as preferências durável do backend (fonte de verdade) por cima do
   // cache local — uma vez por sessão, depois que a rota deixa de ser pública
   // (usuário resolvido). Ver settings-store.ts::hydrateFromBackend.
@@ -366,7 +369,7 @@ function RootComponent() {
           porcentagem contra um ancestral só com min-h-screen (altura
           indefinida), e o overflow acaba subindo pro documento inteiro,
           arrastando a TitleBar (que não é fixed) junto no scroll. */}
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
+      <div className="flex-1 min-h-0 overflow-hidden">
         <Outlet />
       </div>
       <Toaster />

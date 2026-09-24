@@ -40,7 +40,9 @@ async def test_fetch_catalog_success_writes_cache_and_returns_entries(monkeypatc
 
 @pytest.mark.asyncio
 async def test_fetch_catalog_network_error_falls_back_to_existing_cache(monkeypatch):
-    registry_client._write_cache("mcp", [{"id": "cached-entry"}])
+    registry_client._write_cache(
+        "mcp", [{"id": "cached-entry", "catalog_source": "official"}]
+    )
 
     async def _fake_get(self, url, **kwargs):
         raise httpx.ConnectError("offline")
@@ -49,7 +51,7 @@ async def test_fetch_catalog_network_error_falls_back_to_existing_cache(monkeypa
 
     entries = await registry_client.fetch_catalog("mcp")
 
-    assert entries == [{"id": "cached-entry"}]
+    assert entries == [{"id": "cached-entry", "catalog_source": "official"}]
 
 
 @pytest.mark.asyncio
@@ -73,7 +75,7 @@ async def test_fetch_catalog_cache_within_offline_ttl_but_past_online_ttl_is_ser
     # Dentro do TTL de 48h (offline) mas fora do TTL de 6h (online) — ainda
     # é servido: "stale mas utilizável" é o contrato de fallback gracioso.
     stale_but_usable = {
-        "entries": [{"id": "old-but-usable"}],
+        "entries": [{"id": "old-but-usable", "catalog_source": "official"}],
         "fetched_at": (datetime.now(UTC) - timedelta(hours=20)).isoformat(),
     }
     registry_client._cache_path("mcp").parent.mkdir(parents=True, exist_ok=True)
@@ -88,7 +90,7 @@ async def test_fetch_catalog_cache_within_offline_ttl_but_past_online_ttl_is_ser
 
     entries = await registry_client.fetch_catalog("mcp")
 
-    assert entries == [{"id": "old-but-usable"}]
+    assert entries == [{"id": "old-but-usable", "catalog_source": "official"}]
 
 
 @pytest.mark.asyncio
@@ -371,7 +373,9 @@ async def test_fetch_catalog_empty_entries_from_remote_overwrites_cache(monkeypa
 async def test_fetch_catalog_fresh_cache_is_served_without_touching_network(
     monkeypatch,
 ):
-    registry_client._write_cache("mcp", [{"id": "fresh-cached"}])
+    registry_client._write_cache(
+        "mcp", [{"id": "fresh-cached", "catalog_source": "official"}]
+    )
     called = False
 
     async def _fake_get(self, url, **kwargs):
@@ -387,7 +391,7 @@ async def test_fetch_catalog_fresh_cache_is_served_without_touching_network(
 
     entries = await registry_client.fetch_catalog("mcp")
 
-    assert entries == [{"id": "fresh-cached"}]
+    assert entries == [{"id": "fresh-cached", "catalog_source": "official"}]
     assert called is False
 
 
@@ -415,7 +419,9 @@ async def test_fetch_official_mcp_registry_fresh_cache_is_served_without_network
 
 @pytest.mark.asyncio
 async def test_fetch_catalog_http_error_status_falls_back_to_cache(monkeypatch):
-    registry_client._write_cache("mcp", [{"id": "cached-entry"}])
+    registry_client._write_cache(
+        "mcp", [{"id": "cached-entry", "catalog_source": "official"}]
+    )
 
     async def _fake_get(self, url, **kwargs):
         return httpx.Response(
@@ -426,7 +432,7 @@ async def test_fetch_catalog_http_error_status_falls_back_to_cache(monkeypatch):
 
     entries = await registry_client.fetch_catalog("mcp")
 
-    assert entries == [{"id": "cached-entry"}]
+    assert entries == [{"id": "cached-entry", "catalog_source": "official"}]
 
 
 def test_clear_registry_cache_when_nothing_cached_does_not_raise():
@@ -436,83 +442,35 @@ def test_clear_registry_cache_when_nothing_cached_does_not_raise():
     assert not registry_client._cache_path("mcp").exists()
 
 
-class TestPublishSkill:
-    @pytest.mark.asyncio
-    async def test_sucesso_retorna_id_remoto(self, monkeypatch):
-        captured = {}
+@pytest.mark.asyncio
+async def test_fetch_catalog_descarta_cache_mcp_legado_e_atualiza(monkeypatch):
+    legacy = {
+        "entries": [{"id": "old", "name": "Old"}],
+        "fetched_at": datetime.now(UTC).isoformat(),
+    }
+    refreshed = [{"id": "new", "name": "New", "catalog_source": "official"}]
 
-        async def _fake_post(self, url, **kwargs):
-            captured["url"] = url
-            captured["json"] = kwargs.get("json")
-            captured["headers"] = kwargs.get("headers")
-            return httpx.Response(
-                200,
-                json={"ok": True, "id": "skill-abc", "verified": False},
-                request=httpx.Request("POST", url),
-            )
+    class Response:
+        def raise_for_status(self):
+            return None
 
-        monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+        def json(self):
+            return {"entries": refreshed}
 
-        remote_id = await registry_client.publish_skill(
-            "Minha Skill",
-            "faz coisas",
-            "https://github.com/user/skill",
-            category="devtools",
-            tags=["cli"],
-            session_token="tok123",
-        )
+    class Client:
+        async def __aenter__(self):
+            return self
 
-        assert remote_id == "skill-abc"
-        assert captured["url"].endswith("/registry/skills")
-        assert captured["headers"] == {"Authorization": "Bearer tok123"}
-        assert captured["json"] == {
-            "name": "Minha Skill",
-            "description": "faz coisas",
-            "source": "https://github.com/user/skill",
-            "category": "devtools",
-            "tags": ["cli"],
-        }
+        async def __aexit__(self, *_args):
+            return None
 
-    @pytest.mark.asyncio
-    async def test_erro_http_levanta_registry_client_error_tipado(self, monkeypatch):
-        async def _fake_post(self, url, **kwargs):
-            return httpx.Response(
-                400,
-                json={"error": "invalid_source"},
-                request=httpx.Request("POST", url),
-            )
+        async def get(self, _url):
+            return Response()
 
-        monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+    monkeypatch.setattr(registry_client, "_read_cache", lambda _kind: legacy)
+    monkeypatch.setattr(registry_client, "_write_cache", lambda *_args: None)
+    monkeypatch.setattr(
+        registry_client.httpx, "AsyncClient", lambda **_kwargs: Client()
+    )
 
-        with pytest.raises(registry_client.RegistryClientError):
-            await registry_client.publish_skill(
-                "x", "y", "não é url", session_token="tok"
-            )
-
-    @pytest.mark.asyncio
-    async def test_falha_de_rede_levanta_registry_client_error_nao_propaga_crua(
-        self, monkeypatch
-    ):
-        async def _fake_post(self, url, **kwargs):
-            raise httpx.ConnectError("conexão recusada")
-
-        monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
-
-        with pytest.raises(registry_client.RegistryClientError):
-            await registry_client.publish_skill(
-                "x", "y", "https://github.com/a/b", session_token="tok"
-            )
-
-    @pytest.mark.asyncio
-    async def test_resposta_sem_id_levanta_erro(self, monkeypatch):
-        async def _fake_post(self, url, **kwargs):
-            return httpx.Response(
-                200, json={"ok": True}, request=httpx.Request("POST", url)
-            )
-
-        monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
-
-        with pytest.raises(registry_client.RegistryClientError):
-            await registry_client.publish_skill(
-                "x", "y", "https://github.com/a/b", session_token="tok"
-            )
+    assert await registry_client.fetch_catalog("mcp") == refreshed

@@ -80,12 +80,15 @@ def test_release_please_uses_trusted_config_for_branch_gate() -> None:
     workflow = WORKFLOW.parent / "release-please.yml"
     content = workflow.read_text(encoding="utf-8")
 
-    assert "github.event.repository.default_branch" in content
+    assert "ref: ${{ github.ref_name }}" in content
+    assert "github.event.repository.default_branch" not in content
     assert ".github/release-lines.json" in content
     assert '"release/**"' in content
     assert 'echo "enabled=false" >> "$GITHUB_OUTPUT"' in content
     assert "enabled=false" in content
     assert "RELEASE_PLEASE_TOKEN" in content
+    assert "config_file" in content
+    assert "manifest_file" in content
 
 
 def test_release_rotation_workflow_declares_release_entrypoint() -> None:
@@ -96,8 +99,25 @@ def test_release_rotation_workflow_declares_release_entrypoint() -> None:
     assert "release:" in content
     assert "types: [published]" in content
     assert "utils/rotate_release_lines.py" in content
+    assert "utils/activate_release_line.py" in content
     assert "release-lines.json" in content
     assert "gh pr create" in content
+    assert 'git push origin "HEAD:$MAINTENANCE_BRANCH"' in content
+    assert "activate_release_line.py" in content
+    assert "cleanup_activation_fallback" in content
+    assert "utils/cleanup_release_activation.py" in content
+    assert (
+        'git ls-remote --heads origin "refs/heads/$maintenance_rotation_branch"'
+        in content
+    )
+    assert (
+        'git push --force-with-lease="$maintenance_rotation_branch:$activation_remote_ref"'
+        in content
+    )
+    assert 'gh pr list --repo "$GITHUB_REPOSITORY"' in content
+    assert '--head "$maintenance_rotation_branch"' in content
+    assert '--milestone "$DEVELOPMENT_MILESTONE"' in content
+    assert "release_version" in content
     assert "RELEASE_PLEASE_TOKEN" in content
     assert "compareCommits" in content
     migration = workflow.parent / "migrate-release-line-prs.yml"
@@ -111,6 +131,13 @@ def test_release_rotation_workflow_declares_release_entrypoint() -> None:
     assert "api.issues.update" in helper_content
     assert "pull_request_target" in migration_content
     assert "migrate_release_line_prs.js" in migration_content
+    assert "pull_request.base.sha" in migration_content
+    assert "pull_request.merge_commit_sha" in migration_content
+    assert "release-lines.current.json" in migration_content
+    assert "release-lines.previous.json" in migration_content
+    assert "cancel-in-progress: false" in migration_content
+    assert "ROTATION_BODY" not in migration_content
+    assert "releaseLineTransition" in helper_content
     assert '      - "**"' in migration_content
     assert (
         "context.payload.pull_request.base.ref !== config.development.branch"
@@ -168,3 +195,10 @@ def test_release_workflows_pin_ubuntu_runner() -> None:
         content = workflow.read_text(encoding="utf-8")
         assert "runs-on: ubuntu-24.04" in content
         assert "ubuntu-latest" not in content
+
+
+def test_app_and_edge_workflows_cobrem_todas_as_linhas_de_manutencao() -> None:
+    """Evita que uma nova linha release/* fique sem validação de CI."""
+    for name in ("edge.yml", "vectora.yml"):
+        content = (WORKFLOW.parent / name).read_text(encoding="utf-8")
+        assert 'branches: [master, "release/**"]' in content

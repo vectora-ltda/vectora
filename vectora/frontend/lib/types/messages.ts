@@ -9,6 +9,14 @@ import type { SubgraphOutput } from "./tools";
 import type { UsageMetadata } from "./metadata";
 import type { ImageAttachment } from "./images";
 
+export interface EditedFile {
+  path: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  hunks: Array<{ header: string; lines: string[] }>;
+}
+
 /**
  * Represents a chat message from either user or assistant.
  * Contains metadata for streaming, tool calls, feedback, and tracing.
@@ -60,6 +68,9 @@ export interface Message {
 
   /** Mensagem é uma falha de stream — exibe botão de retry */
   isError?: boolean;
+
+  /** Arquivos alterados durante a resposta, inclusive em parada/erro. */
+  editedFiles?: EditedFile[];
 
   /** Fontes RAG retornadas durante a resposta, para renderizar referências [N]. */
   ragCitations?: Array<{ index: number; source: string; chunk: string }>;

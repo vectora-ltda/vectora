@@ -26,7 +26,6 @@ export type SettingsCategoryId =
   | "integracoes"
   | "provider_routing"
   | "connect"
-  | "plugins"
   | "skills"
   | "tool_policy"
   | "hitl_allowlist"
@@ -36,6 +35,7 @@ export type SettingsCategoryId =
   | "admin_system"
   | "admin_storage"
   | "billing"
+  | "git"
   | "about";
 
 interface SettingsOverlayState {

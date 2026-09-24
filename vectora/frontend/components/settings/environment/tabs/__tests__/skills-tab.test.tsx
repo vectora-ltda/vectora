@@ -42,6 +42,9 @@ describe("SkillsTab", () => {
     await waitFor(() => {
       expect(screen.getByText("Skill 1")).toBeTruthy();
     });
+    expect(
+      screen.queryByPlaceholderText(/github\.com|local path|caminho/i),
+    ).toBeNull();
   });
 
   it("chama onSkillsChange com a contagem após carregar", async () => {

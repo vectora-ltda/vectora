@@ -17,6 +17,7 @@ interface VoiceInputButtonProps {
   disabled?: boolean;
   onClick: () => void;
   size?: "sm" | "md";
+  compact?: boolean;
 }
 
 export function VoiceInputButton({
@@ -24,9 +25,18 @@ export function VoiceInputButton({
   disabled,
   onClick,
   size = "sm",
+  compact = false,
 }: VoiceInputButtonProps) {
-  const dimensions = size === "sm" ? "h-9 w-9" : "h-10 w-10";
-  const iconSize = size === "sm" ? "w-4 h-4" : "w-4.5 h-4.5";
+  const dimensions = compact
+    ? "h-7 w-7"
+    : size === "sm"
+      ? "h-9 w-9"
+      : "h-10 w-10";
+  const iconSize = compact
+    ? "w-3.5 h-3.5"
+    : size === "sm"
+      ? "w-4 h-4"
+      : "w-4.5 h-4.5";
   const tooltipText = isListening ? m.input_stop() : m.tooltip_chat_audio();
 
   return (

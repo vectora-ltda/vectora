@@ -3,8 +3,8 @@
 /**
  * WorkspaceSelector
  *
- * Chip de pasta — vive no rodapé do composer (estilo "chip row" do Codex,
- * mesclado ao rodapé minimalista do Claude Code; ver `chat-input.tsx:330`).
+ * Chip de pasta — vive no rodapé do composer, integrado aos demais controles
+ * compactos da entrada de mensagem.
  * Mostra o workspace ativo e, ao clicar, abre um dropdown com a lista de
  * workspaces conhecidos (com indicador de confiança) e a opção de adicionar
  * uma nova pasta via trust dialog.
@@ -96,20 +96,19 @@ export function WorkspaceSelector({ compact = false }: WorkspaceSelectorProps) {
   // essas ações só produziriam erro silencioso.
   const { offline } = useNetworkStatus();
   const workspaces = useWorkspacesStore((s) => s.workspaces);
+  const hydrate = useWorkspacesStore((s) => s.hydrate);
+  const safeRoots = useWorkspacesStore((s) => s.safeRoots) ?? [];
   const activeId = useWorkspacesStore((s) => s.active_id);
   const status = useWorkspacesStore((s) => s.status);
   const error = useWorkspacesStore((s) => s.error);
-  const hydrate = useWorkspacesStore((s) => s.hydrate);
   const setActive = useWorkspacesStore((s) => s.setActive);
 
   const [open, setOpen] = useState(false);
   const [trustOpen, setTrustOpen] = useState(false);
+  const [trustInitialPath, setTrustInitialPath] = useState<
+    string | undefined
+  >();
   const ref = useRef<HTMLDivElement>(null);
-
-  // Hidrata no boot
-  useEffect(() => {
-    void hydrate();
-  }, [hydrate]);
 
   // Fecha ao clicar fora
   useEffect(() => {
@@ -223,6 +222,29 @@ export function WorkspaceSelector({ compact = false }: WorkspaceSelectorProps) {
                   </span>
                 </button>
               ))}
+
+              {safeRoots.map((root) => (
+                <button
+                  key={`safe-root-${root.id}`}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent text-left transition-colors"
+                  title={root.path}
+                  onClick={() => {
+                    setTrustInitialPath(root.path);
+                    setOpen(false);
+                    setTrustOpen(true);
+                  }}
+                >
+                  <FolderOpen className="w-4 h-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium text-foreground">
+                      {root.label}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground font-mono">
+                      {root.path}
+                    </span>
+                  </span>
+                </button>
+              ))}
             </div>
 
             <div className="border-t border-border/60 mt-1 pt-1">
@@ -243,7 +265,14 @@ export function WorkspaceSelector({ compact = false }: WorkspaceSelectorProps) {
         )}
       </div>
 
-      <WorkspaceTrustDialog open={trustOpen} onOpenChange={setTrustOpen} />
+      <WorkspaceTrustDialog
+        open={trustOpen}
+        onOpenChange={(nextOpen) => {
+          setTrustOpen(nextOpen);
+          if (!nextOpen) setTrustInitialPath(undefined);
+        }}
+        initialPath={trustInitialPath}
+      />
     </>
   );
 }

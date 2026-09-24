@@ -117,7 +117,8 @@ def test_untracked_as_diff_single_line() -> None:
     hunks = _untracked_as_diff("hello\n")
     assert len(hunks) == 1
     assert hunks[0].header == "@@ -0,0 +1,1 @@"
-    assert hunks[0].lines == ["+hello"]
+    assert [line.text for line in hunks[0].lines] == ["+hello"]
+    assert hunks[0].lines[0].new_line_number == 1
 
 
 def test_untracked_as_diff_multiline() -> None:
@@ -127,7 +128,12 @@ def test_untracked_as_diff_multiline() -> None:
     content = "linha1\nlinha2\nlinha3\n"
     hunks = _untracked_as_diff(content)
     assert hunks[0].header == "@@ -0,0 +1,3 @@"
-    assert hunks[0].lines == ["+linha1", "+linha2", "+linha3"]
+    assert [line.text for line in hunks[0].lines] == [
+        "+linha1",
+        "+linha2",
+        "+linha3",
+    ]
+    assert [line.new_line_number for line in hunks[0].lines] == [1, 2, 3]
 
 
 def test_untracked_as_diff_empty_content() -> None:
@@ -143,7 +149,7 @@ def test_untracked_as_diff_no_trailing_newline() -> None:
     from backend.api.handlers.workspaces import _untracked_as_diff
 
     hunks = _untracked_as_diff("abc")
-    assert hunks[0].lines == ["+abc"]
+    assert [line.text for line in hunks[0].lines] == ["+abc"]
     assert hunks[0].header == "@@ -0,0 +1,1 @@"
 
 
@@ -154,5 +160,5 @@ def test_parse_unified_diff_staged_only() -> None:
     diff = "@@ -0,0 +1,2 @@\n+nova linha 1\n+nova linha 2\n"
     hunks = _parse_unified_diff(diff)
     assert len(hunks) == 1
-    assert "+nova linha 1" in hunks[0].lines
-    assert "+nova linha 2" in hunks[0].lines
+    assert any(line.text == "+nova linha 1" for line in hunks[0].lines)
+    assert any(line.text == "+nova linha 2" for line in hunks[0].lines)

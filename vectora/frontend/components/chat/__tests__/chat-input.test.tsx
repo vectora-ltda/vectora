@@ -237,13 +237,13 @@ describe("ChatInput", () => {
     expect(sendButton().disabled).toBe(true);
   });
 
-  it("botão VS Code NÃO aparece no modo IDE mesmo com workspace ativo", () => {
+  it("botão VS Code aparece no modo IDE com workspace ativo", () => {
     mockSettings.chatMode = false;
     mockSettings.uiMode = "ide";
     mockWsState.getActive = () => ({ id: "ws1" }) as never;
     try {
       render(<ChatInput {...baseProps()} />);
-      expect(screen.queryByLabelText(m.workbench_open_vscode())).toBeNull();
+      expect(screen.queryByLabelText(m.workbench_open_vscode())).toBeTruthy();
     } finally {
       mockWsState.getActive = () => null;
       mockSettings.uiMode = "assistant";
@@ -327,9 +327,12 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     // O wrapper do composer estabelece o contexto de container nomeado.
     expect(container.querySelector(".\\@container\\/composer")).not.toBeNull();
 
-    // O rodapé mantém uma linha controlada e corta apenas os grupos flexíveis.
-    const footer = container.querySelector(".flex-nowrap.overflow-hidden");
+    // O rodapé permanece em uma única linha; os controles internos cedem
+    // largura e truncam seus rótulos quando a coluna fica estreita.
+    const footer = container.querySelector('[data-testid="chat-input-footer"]');
     expect(footer).not.toBeNull();
+    expect(footer).toHaveClass("flex-nowrap");
+    expect(footer).not.toHaveClass("flex-wrap");
 
     // Nenhum breakpoint de viewport (`sm:`) deve sobrar no rodapé — só container.
     expect(container.querySelector(".sm\\:flex-nowrap")).toBeNull();
@@ -337,11 +340,50 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     // Em containers estreitos os rótulos cedem espaço, mas os botões continuam
     // identificáveis por acessibilidade e tooltip.
     expect(
-      container.querySelectorAll(".\\@sm\\/composer\\:inline").length,
+      container.querySelectorAll('[aria-expanded="false"]').length,
     ).toBeGreaterThanOrEqual(2);
     expect(
       container.querySelectorAll("button[aria-label]").length,
     ).toBeGreaterThan(0);
+  });
+
+  it("mantém modelo e limite de contexto juntos no modo wide", () => {
+    const { container } = render(<ChatInput {...baseProps()} />);
+    const modelControls = container.querySelector(
+      '[data-testid="wide-model-controls"]',
+    );
+
+    expect(modelControls).toHaveClass("w-fit");
+    expect(modelControls).toHaveClass("max-w-full");
+    expect(modelControls).toHaveClass("flex-[0_1_auto]");
+    expect(modelControls).not.toHaveClass("flex-[1_1_auto]");
+
+    const controlGroup = container.querySelector(
+      '[data-testid="wide-control-group"]',
+    );
+    expect(controlGroup).toHaveClass("gap-2");
+    expect(controlGroup).not.toHaveClass("justify-between");
+  });
+
+  it("não exibe scrollbar horizontal no input compacto vazio", () => {
+    render(<ChatInput {...baseProps({ compact: true })} />);
+
+    const textarea = screen.getByRole("textbox");
+    expect(textarea.className).toContain("overflow-x-hidden");
+    expect(textarea.className).not.toContain("overflow-x-auto");
+  });
+
+  it("preserva o estado de erro sem criar overflow no composer compacto", () => {
+    const { container } = render(
+      <ChatInput
+        {...baseProps({ compact: true, inputError: "Mensagem indisponível" })}
+      />,
+    );
+
+    expect(screen.getByText("Mensagem indisponível")).toBeInTheDocument();
+    expect(
+      container.querySelector('[data-testid="chat-input-footer"]'),
+    ).toHaveClass("min-w-0");
   });
 });
 

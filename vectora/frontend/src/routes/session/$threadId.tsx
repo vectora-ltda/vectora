@@ -69,10 +69,14 @@ import { useAuthStore } from "@/lib/stores/auth-store";
 import { getDefaultModel } from "@/lib/config/deployment-config";
 import type { AgentConfig } from "@/components/layout/agent-settings";
 import { useChatInputStore } from "@/lib/stores/chat-input-store";
-import { isNew, clearNew } from "@/lib/stores/new-thread-registry";
+import {
+  isNew,
+  clearNew,
+  useIsNewThread,
+} from "@/lib/stores/new-thread-registry";
 import {
   markWorkspaceChosen,
-  isWorkspaceChosen,
+  useIsWorkspaceChosen,
   markCreateNewWorkspace,
 } from "@/lib/stores/workspace-choice-registry";
 import { signalWorkspaceChoiceForNewSession } from "@/lib/stores/new-session-signal";
@@ -149,7 +153,7 @@ function SessionPage() {
   // por vez. A largura é medida sem a escala visual do Electron.
   const isNarrowViewport = useIsNarrowViewport();
   const sessionLayoutState = useSessionLayoutState();
-  const isCompactSession = sessionLayoutState !== "wide";
+  const isCompactSession = sessionLayoutState === "compact";
   const ideLayoutState = useIdeLayoutState();
   const workbenchOpen = useWorkbenchStore((s) => s.isOpen(threadId));
   const setWorkbenchOpen = useWorkbenchStore((s) => s.setPanelOpen);
@@ -254,7 +258,9 @@ function SessionPage() {
         const width = getPanelWidthFromPointer(
           e.clientX,
           rect,
-          sidebarOnRight ? "right" : "left",
+          // O chat fica à esquerda quando a composição é RTL e à direita
+          // quando é LTR; o divisor acompanha a borda interna correspondente.
+          sidebarOnRight ? "left" : "right",
         );
         setChatSidebarWidth(Math.min(520, Math.max(240, width)));
       }
@@ -271,7 +277,7 @@ function SessionPage() {
           Math.max(
             240,
             chatSidebarWidth +
-              getResizeDelta(e.key, sidebarOnRight ? "right" : "left"),
+              getResizeDelta(e.key, sidebarOnRight ? "left" : "right"),
           ),
         ),
       );
@@ -644,7 +650,8 @@ function SessionPage() {
   );
 
   // Sessão nova/vazia (ainda sem 1ª mensagem persistida) → destaca "Nova sessão".
-  const isNewSession = isNew(threadId);
+  const isNewSession = useIsNewThread(threadId);
+  const workspaceChosen = useIsWorkspaceChosen(threadId);
 
   // Threads do workspace ativo (para o session switcher do IDE mode).
   const activeWorkspaceId = useWorkspacesStore((s) => s.active_id);
@@ -760,7 +767,7 @@ function SessionPage() {
   const renderChatPanel = useCallback(
     (compact: boolean) => {
       const welcomeActions =
-        !compact && hydrated && isNewRoute && !isWorkspaceChosen(threadId);
+        !compact && hydrated && isNewRoute && !workspaceChosen;
       return (
         <div className="flex flex-col h-full min-h-0 overflow-hidden">
           {compact && (
@@ -786,7 +793,7 @@ function SessionPage() {
               // The route is already known to be new during the first render,
               // before useNewSessionId's committed effect registers the local
               // id. Keep the history loader from treating that id as persisted.
-              isNewThread={isNewRoute || isNew(threadId)}
+              isNewThread={isNewRoute || isNew(threadId) || isNewSession}
               compact={compact}
               onStartChat={
                 welcomeActions ? handleStartChatFromWelcome : undefined
@@ -813,6 +820,8 @@ function SessionPage() {
       inputLocked,
       hydrated,
       isNewRoute,
+      isNewSession,
+      workspaceChosen,
       handleStartChatFromWelcome,
     ],
   );
@@ -997,7 +1006,7 @@ function SessionPage() {
                         onPointerMove={onChatSidebarResizeMove}
                         onPointerUp={onChatSidebarResizeUp}
                         onPointerCancel={onChatSidebarResizeUp}
-                        className={`absolute ${sidebarOnRight ? "left-0" : "right-0"} top-0 z-10 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors`}
+                        className={`absolute ${sidebarOnRight ? "right-0" : "left-0"} top-0 z-10 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors`}
                       />
                     )}
                     <div className="flex-1 min-h-0 min-w-0">

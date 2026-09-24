@@ -198,7 +198,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_issues_github_identity
 -- 'pending'/'failed'.
 -- source_lib/source_version são NOT NULL só pra linhas first-party
 -- (bibliotecas de código pré-indexadas, ex. "requests 2.31.0"); publicações
--- da comunidade (Memory Library) usam publisher_id em vez disso
+-- da comunidade (Memory Buckets) usam publisher_id em vez disso
 -- e ficam com source_lib/source_version vazios — não dá pra tornar essas
 -- colunas nullable retroativamente sem quebrar linhas antigas, então o
 -- handler de POST /publish grava string vazia ('') nesses dois campos para
@@ -233,8 +233,8 @@ CREATE TABLE IF NOT EXISTS rag_packages (
 --
 -- `catalog_source` distingue linhas curadas manualmente (seed abaixo,
 -- sempre 'curated') das descobertas automaticamente pelo discovery cron
--- (`services/src/registry/discovery.ts`) — 'official' para o registry
--- oficial de MCP, 'github' para skills achadas via GitHub code search. O
+-- (`services/src/registry/discovery.ts`) — 'official' para o Official MCP
+-- Registry, 'github' para skills achadas via GitHub code search. O
 -- upsert do discovery nunca sobrescreve uma linha 'curated', mesmo que o
 -- id colida.
 CREATE TABLE IF NOT EXISTS mcp_catalog (
@@ -246,11 +246,24 @@ CREATE TABLE IF NOT EXISTS mcp_catalog (
   homepage         TEXT,
   category         TEXT NOT NULL,
   icon_url         TEXT,
+  publisher        TEXT,
+  publisher_url    TEXT,
+  stars_count      INTEGER NOT NULL DEFAULT 0,
+  runtime_hint     TEXT,
+  package_identifier TEXT,
+  transport        TEXT NOT NULL DEFAULT 'stdio',
+  server_url       TEXT,
   catalog_source   TEXT NOT NULL DEFAULT 'curated',
   vectora_verified INTEGER NOT NULL DEFAULT 0,
   downloads_count  INTEGER NOT NULL DEFAULT 0,
+  snapshot_id      TEXT,
+  last_seen_at     TEXT,
+  catalog_status   TEXT NOT NULL DEFAULT 'active',
   updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE INDEX IF NOT EXISTS idx_mcp_catalog_public_rank
+  ON mcp_catalog (catalog_status, stars_count DESC, updated_at DESC);
 
 -- `vectora_verified` = selo oficial/curado (seed manual ou discovery), como
 -- em `mcp_catalog`. `verified` é um gate SEPARADO — curadoria de admin sobre
@@ -259,10 +272,8 @@ CREATE TABLE IF NOT EXISTS mcp_catalog (
 -- `rag_packages.verified`. Uma skill pode ter `verified=1` sem nunca ganhar
 -- o selo `vectora_verified` (que continua exclusivo de curadoria oficial).
 -- `publisher_id` NULL pra linhas curadas/discovery, preenchido só pra
--- publicações de comunidade. D1/SQLite não suporta `ALTER TABLE ... ADD
--- COLUMN IF NOT EXISTS` — bancos já provisionados antes desta mudança
--- precisam de `ALTER TABLE skills_catalog ADD COLUMN <col> ...` manual
--- (uma vez, fora deste arquivo) antes de reaplicar.
+-- publicações de comunidade. O shape completo fica declarado aqui para que
+-- bancos novos sejam provisionados em uma única migration idempotente.
 CREATE TABLE IF NOT EXISTS skills_catalog (
   id               TEXT PRIMARY KEY,
   name             TEXT NOT NULL,
@@ -287,16 +298,6 @@ INSERT OR IGNORE INTO mcp_catalog (id, name, description, install_cmd, env_vars,
   ('postgres', 'PostgreSQL', 'Consultas read-only em banco PostgreSQL.', 'npx -y @modelcontextprotocol/server-postgres', '["POSTGRES_CONNECTION_STRING"]', 'https://github.com/modelcontextprotocol/servers', 'database', 1),
   ('slack', 'Slack', 'Leitura e envio de mensagens no Slack via Bot Token.', 'npx -y @modelcontextprotocol/server-slack', '["SLACK_BOT_TOKEN", "SLACK_TEAM_ID"]', 'https://github.com/modelcontextprotocol/servers', 'communication', 1),
   ('sequential-thinking', 'Sequential Thinking', 'Raciocínio passo-a-passo estruturado antes de agir.', 'npx -y @modelcontextprotocol/server-sequential-thinking', '[]', 'https://github.com/modelcontextprotocol/servers', 'reasoning', 1);
-
--- Skills oficiais são versionadas neste repositório e fixadas por SHA e
--- subdiretório para que a instalação seja reprodutível.
-INSERT OR IGNORE INTO skills_catalog
-  (id, name, description, source, package_name, version, tags, category, catalog_source, vectora_verified)
-VALUES
-  ('vectora-code-review', 'Vectora Code Review', 'Fluxo estruturado para revisar código com evidências, riscos e testes.', 'https://github.com/vectora-ltda/vectora.git#d12e0858d24f9a360f0c5e4056ed7b9d3c65b6c8:skills/official/code-review', '@vectora/code-review', '1.0.0', '["code-review", "quality"]', 'engineering', 'curated', 1),
-  ('vectora-adr', 'Vectora ADR', 'Cria registros de decisão arquitetural com contexto, alternativas e consequências.', 'https://github.com/vectora-ltda/vectora.git#d12e0858d24f9a360f0c5e4056ed7b9d3c65b6c8:skills/official/adr', '@vectora/adr', '1.0.0', '["adr", "architecture"]', 'engineering', 'curated', 1),
-  ('vectora-rfc', 'Vectora RFC', 'Estrutura propostas técnicas para revisão, implementação e acompanhamento.', 'https://github.com/vectora-ltda/vectora.git#d12e0858d24f9a360f0c5e4056ed7b9d3c65b6c8:skills/official/rfc', '@vectora/rfc', '1.0.0', '["rfc", "design"]', 'engineering', 'curated', 1),
-  ('vectora-prd', 'Vectora PRD', 'Define problemas de produto, requisitos, métricas e critérios de aceite.', 'https://github.com/vectora-ltda/vectora.git#d12e0858d24f9a360f0c5e4056ed7b9d3c65b6c8:skills/official/prd', '@vectora/prd', '1.0.0', '["prd", "product"]', 'product', 'curated', 1);
 
 -- Tabela de telemetria genérica (crash/uso) enviada pelo backend Python do
 -- Vectora local — POST /telemetry/ingest, sempre via fila (vectora-jobs,
@@ -403,6 +404,7 @@ CREATE TABLE IF NOT EXISTS gha_bot_config (
 CREATE TABLE IF NOT EXISTS gha_bot_review_jobs (
   id              TEXT NOT NULL PRIMARY KEY,
   user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  repository      TEXT,
   callback_secret TEXT NOT NULL,
   status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'done', 'failed')),
   review_text     TEXT,
@@ -439,3 +441,47 @@ ON CONFLICT (user_id) DO UPDATE SET
   provider = 'gift',
   current_period_end = NULL,
   updated_at = datetime('now');
+
+-- Objetos auxiliares da sincronização GitHub. Eles vivem nesta migration
+-- única para que uma instalação nova e uma reaplicação tenham o mesmo shape.
+CREATE TABLE IF NOT EXISTS issue_comments (
+  id TEXT PRIMARY KEY,
+  issue_id TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+  github_comment_id INTEGER NOT NULL,
+  author TEXT NOT NULL,
+  body TEXT NOT NULL,
+  html_url TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT,
+  deleted_at TEXT,
+  UNIQUE(issue_id, github_comment_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_issue_comments_issue
+  ON issue_comments(issue_id, created_at ASC);
+
+CREATE TABLE IF NOT EXISTS issue_promotion_effects (
+  issue_id       TEXT NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
+  effect         TEXT NOT NULL CHECK (effect IN ('backlink', 'close')),
+  operation_token TEXT NOT NULL,
+  started_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  completed_at   TEXT,
+  PRIMARY KEY (issue_id, effect)
+);
+
+CREATE TABLE IF NOT EXISTS github_webhook_deliveries (
+  delivery_id TEXT PRIMARY KEY,
+  state TEXT NOT NULL CHECK (state IN ('processing', 'done', 'failed')),
+  error TEXT,
+  attempt_token TEXT,
+  lease_until TEXT,
+  received_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Seeds legados removidos da biblioteca pública. DELETE é idempotente e
+-- mantém a limpeza efetiva quando o schema é reaplicado em um banco existente.
+DELETE FROM skills_catalog
+WHERE package_name LIKE '@vectora/%'
+   OR id LIKE 'vectora/%'
+   OR id LIKE 'vectora-%';
