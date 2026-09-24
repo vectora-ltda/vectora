@@ -59,6 +59,7 @@ import {
   threadsQueryKey,
 } from "@/lib/queries/threads";
 import { useWindowsStore } from "@/lib/stores/windows-store";
+import { FileEditor } from "@/components/workbench/file-editor";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import {
   listThreads,
@@ -991,7 +992,15 @@ function SessionPage() {
                   // min-w-[360px]: piso mínimo pro editor continuar usável
                   // ao encolher a janela ou puxar o painel do workbench largo.
                   <div className="flex flex-col flex-1 min-w-0 h-full overflow-hidden">
-                    <CenterCanvas>
+                    <CenterCanvas
+                      documents={useWindowsStore((s) => s.canvasDocuments)}
+                      activeTab={useWindowsStore((s) => s.activeCanvasDocumentId ?? "editor")}
+                      renderDocument={(document) =>
+                        document.kind === "file" && document.path ? (
+                          <FileEditor workspaceId={document.workspaceId} path={document.path} />
+                        ) : null
+                      }
+                    >
                       <DockedEditor activeWorkspaceId={activeWorkspaceId} />
                     </CenterCanvas>
                   </div>
