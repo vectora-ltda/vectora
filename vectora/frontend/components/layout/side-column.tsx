@@ -95,7 +95,7 @@ export function SideColumn({
           aria-hidden={collapsed}
           className={
             collapsed
-              ? "invisible pointer-events-none absolute inset-x-0 bottom-0 top-[var(--app-header-height)] overflow-hidden"
+              ? "invisible pointer-events-none absolute inset-x-0 bottom-0 top-[var(--app-header-height)] hidden overflow-hidden"
               : "flex min-h-0 min-w-0 flex-1 overflow-hidden"
           }
         >

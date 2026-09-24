@@ -100,7 +100,7 @@ describe("IdeModeLayout", () => {
 
     const hiddenChat = screen.getByTestId("panel-chat");
     expect(hiddenChat).toHaveTextContent("preserved");
-    expect(hiddenChat.parentElement).toHaveClass("invisible");
+    expect(hiddenChat.parentElement).toHaveClass("invisible", "hidden");
 
     fireEvent.click(screen.getByRole("button", { name: "Open chat" }));
     expect(onOpenChat).toHaveBeenCalledOnce();

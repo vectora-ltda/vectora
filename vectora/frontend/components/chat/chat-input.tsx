@@ -665,7 +665,8 @@ export function ChatInput({
             className={`flex min-h-10 w-full min-w-0 items-center border-t border-border/60 ${compactMode ? "flex-nowrap gap-x-1.5 overflow-visible px-1.5 py-2" : "flex-nowrap gap-x-2 overflow-hidden px-4 py-2"}`}
           >
             <div
-              className={`flex shrink-0 items-center ${compactMode ? "gap-x-1.5" : "gap-1"}`}
+              data-testid="chat-input-icon-group"
+              className="flex shrink-0 items-center gap-1"
             >
               <PlusMenu
                 compact={compactMode}

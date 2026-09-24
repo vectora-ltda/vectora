@@ -499,6 +499,7 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
 
     const footer = container.querySelector('[data-testid="chat-input-footer"]');
     expect(footer).toHaveClass("px-1.5", "py-2", "gap-x-1.5");
+    expect(screen.getByTestId("chat-input-icon-group")).toHaveClass("gap-1");
     expect(screen.getByTestId("plus-menu-trigger")).toHaveClass(
       "h-6",
       "w-auto",
