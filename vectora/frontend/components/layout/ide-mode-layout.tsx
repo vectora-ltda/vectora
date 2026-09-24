@@ -19,6 +19,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { MessageSquare, PanelsTopLeft, Code2 } from "lucide-react";
 import { useReducedMotion } from "motion/react";
 import { mDyn } from "@/lib/i18n-dyn";
+import { m } from "@/lib/paraglide/messages";
 import { ModeColumnLayout } from "@/components/layout/mode-column-layout";
 import { WorkbenchHost } from "@/components/layout/workbench-host";
 import type { IdeLayoutState } from "@/lib/hooks/use-media-query";
@@ -127,7 +128,7 @@ export function IdeModeLayout({
           maxWidth: chatMaxWidth,
           visibility: showChat ? "visible" : "collapsed",
           onExpand: onOpenChat ?? (() => undefined),
-          expandLabel: "Abrir chat",
+          expandLabel: m.layout_open_chat(),
         }}
       />
     );

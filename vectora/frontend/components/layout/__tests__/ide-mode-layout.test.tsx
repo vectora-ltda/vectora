@@ -102,7 +102,7 @@ describe("IdeModeLayout", () => {
     expect(hiddenChat).toHaveTextContent("preserved");
     expect(hiddenChat.parentElement).toHaveClass("invisible");
 
-    fireEvent.click(screen.getByRole("button", { name: "Abrir chat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open chat" }));
     expect(onOpenChat).toHaveBeenCalledOnce();
     expect(screen.getByTestId("panel-chat")).toHaveTextContent("preserved");
   });

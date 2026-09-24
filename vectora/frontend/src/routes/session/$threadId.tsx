@@ -1150,7 +1150,7 @@ function SessionPage() {
                         label: "Workbench",
                         visibility: "collapsed",
                         onExpand: openWorkbench,
-                        expandLabel: "Abrir workbench",
+                        expandLabel: m.layout_open_workbench(),
                       },
                 }}
               />

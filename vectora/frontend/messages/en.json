@@ -30,6 +30,8 @@
   "sidebar_report_issue": "Report an issue",
   "sidebar_open": "Open sessions",
   "sidebar_collapse": "Collapse",
+  "layout_open_chat": "Open chat",
+  "layout_open_workbench": "Open workbench",
   "sidebar_expand": "Expand sidebar",
   "sidebar_untitled_chat": "Untitled chat",
   "sidebar_folders": "Folders",
