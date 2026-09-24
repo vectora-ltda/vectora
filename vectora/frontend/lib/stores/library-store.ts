@@ -179,6 +179,9 @@ function isFresh(fetchedAt: number | null): boolean {
   return fetchedAt !== null && Date.now() - fetchedAt < TTL_MS;
 }
 
+let memoryRequest: Promise<void> | null = null;
+let queuedMemoryQuery: string | null = null;
+
 export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   mcpItems: [],
   mcpInstalledIds: new Set(),
@@ -215,25 +218,29 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
     const s = get();
     if (s.mcpLoading || (isFresh(s.mcpFetchedAt) && s.mcpQuery === q)) return;
     set({ mcpLoading: true });
-    try {
-      const [items, installedIds, status] = await Promise.all([
-        fetchMcpRegistry(q),
-        fetchMcpInstalledIds(),
-        fetchCatalogStatus("mcp"),
-      ]);
+    const [catalogResult, installedResult, status] = await Promise.all([
+      fetchMcpRegistry(q).then(
+        (items) => ({ ok: true as const, items }),
+        (error) => ({ ok: false as const, error }),
+      ),
+      fetchMcpInstalledIds().then(
+        (installedIds) => ({ ok: true as const, installedIds }),
+        () => ({ ok: false as const, installedIds: new Set<string>() }),
+      ),
+      fetchCatalogStatus("mcp"),
+    ]);
+    if (catalogResult.ok && installedResult.ok) {
       set({
-        mcpItems: items,
-        mcpInstalledIds: installedIds,
+        mcpItems: catalogResult.items,
+        mcpInstalledIds: installedResult.installedIds,
         mcpFetchedAt: Date.now(),
         mcpQuery: q,
         mcpError: null,
-        mcpStatus: status,
       });
-    } catch {
+    } else {
       set({ mcpError: m.library_mcp_error_search() });
-    } finally {
-      set({ mcpLoading: false });
     }
+    set({ mcpStatus: status, mcpLoading: false });
   },
 
   invalidateMcp: () => set({ mcpFetchedAt: null }),
@@ -243,45 +250,58 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
     if (s.skillsLoading || (isFresh(s.skillsFetchedAt) && s.skillsQuery === q))
       return;
     set({ skillsLoading: true });
-    try {
-      const [items, status] = await Promise.all([
-        fetchSkillsCatalog(q),
-        fetchCatalogStatus("skills"),
-      ]);
+    const [catalogResult, status] = await Promise.all([
+      fetchSkillsCatalog(q).then(
+        (items) => ({ ok: true as const, items }),
+        (error) => ({ ok: false as const, error }),
+      ),
+      fetchCatalogStatus("skills"),
+    ]);
+    if (catalogResult.ok) {
       set({
-        skillsItems: items,
+        skillsItems: catalogResult.items,
         skillsFetchedAt: Date.now(),
         skillsQuery: q,
         skillsError: null,
-        skillsStatus: status,
       });
-    } catch {
+    } else {
       set({ skillsError: m.library_skills_catalog_error_search() });
-    } finally {
-      set({ skillsLoading: false });
     }
+    set({ skillsStatus: status, skillsLoading: false });
   },
 
   invalidateSkills: () => set({ skillsFetchedAt: null }),
 
   ensureMemoryLoaded: async (q = "") => {
     const s = get();
-    if (s.memoryLoading || (isFresh(s.memoryFetchedAt) && s.memoryQuery === q))
+    if (s.memoryLoading) {
+      queuedMemoryQuery = q;
       return;
-    set({ memoryLoading: true });
-    try {
-      const items = await fetchMemoryCatalog(q);
-      set({
-        memoryItems: items,
-        memoryFetchedAt: Date.now(),
-        memoryQuery: q,
-        memoryError: null,
-      });
-    } catch {
-      set({ memoryError: m.library_memory_buckets_error_search() });
-    } finally {
-      set({ memoryLoading: false });
     }
+    if (isFresh(s.memoryFetchedAt) && s.memoryQuery === q) return;
+    set({ memoryLoading: true });
+    memoryRequest = (async () => {
+      try {
+        const items = await fetchMemoryCatalog(q);
+        set({
+          memoryItems: items,
+          memoryFetchedAt: Date.now(),
+          memoryQuery: q,
+          memoryError: null,
+        });
+      } catch {
+        set({ memoryError: m.library_memory_buckets_error_search() });
+      } finally {
+        set({ memoryLoading: false });
+        const nextQuery = queuedMemoryQuery;
+        queuedMemoryQuery = null;
+        memoryRequest = null;
+        if (nextQuery !== null && nextQuery !== q) {
+          void get().ensureMemoryLoaded(nextQuery);
+        }
+      }
+    })();
+    await memoryRequest;
   },
 
   invalidateMemory: () => set({ memoryFetchedAt: null }),
