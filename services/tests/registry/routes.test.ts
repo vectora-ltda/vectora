@@ -86,6 +86,15 @@ describe("GET /registry/mcp", () => {
     const body = await res.json<{ entries: Array<{ id: string }> }>();
     expect(body.entries.map((e) => e.id)).toEqual(["postgres"]);
   });
+
+  it("trata filtros vazios como ausência de filtro", async () => {
+    const baseline = await registry.request("/mcp", {}, env);
+    const res = await registry.request("/mcp?q=&category=", {}, env);
+    expect(res.status).toBe(200);
+    const filtered = await res.json<{ entries: unknown[] }>();
+    const unfiltered = await baseline.json<{ entries: unknown[] }>();
+    expect(filtered.entries).toEqual(unfiltered.entries);
+  });
 });
 
 describe("GET /registry/skills", () => {
@@ -176,6 +185,15 @@ describe("GET /registry/skills", () => {
     const body = await res.json<{ entries: Array<{ name: string }> }>();
 
     expect(body.entries.map((e) => e.name)).toEqual(["A"]);
+  });
+
+  it("trata filtros vazios de skills como ausência de filtro", async () => {
+    const baseline = await registry.request("/skills", {}, env);
+    const res = await registry.request("/skills?q=&category=&tags=", {}, env);
+    expect(res.status).toBe(200);
+    const filtered = await res.json<{ entries: unknown[] }>();
+    const unfiltered = await baseline.json<{ entries: unknown[] }>();
+    expect(filtered.entries).toEqual(unfiltered.entries);
   });
 
   it("colapsa múltiplas versões do mesmo package_name na versão mais recente", async () => {
