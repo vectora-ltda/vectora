@@ -63,38 +63,48 @@ describe("IdeModeLayout", () => {
 
   it("modo wide colapsa o chat em rail e permite reabri-lo", () => {
     const onOpenChat = vi.fn();
-    const { rerender } = render(
-      <IdeModeLayout
-        layoutState="wide"
-        showChat={false}
-        onOpenChat={onOpenChat}
-        header={<div />}
-        navBar={<div />}
-        workbenchContent={<div />}
-        editor={<div />}
-        chat={<div data-testid="panel-chat" />}
-      />,
-    );
+    function StatefulChat() {
+      const [value, setValue] = useState("empty");
+      return (
+        <button data-testid="panel-chat" onClick={() => setValue("preserved")}>
+          {value}
+        </button>
+      );
+    }
+
+    function Harness() {
+      const [showChat, setShowChat] = useState(true);
+      return (
+        <>
+          <button onClick={() => setShowChat(false)}>Colapsar teste</button>
+          <IdeModeLayout
+            layoutState="wide"
+            showChat={showChat}
+            onOpenChat={() => {
+              onOpenChat();
+              setShowChat(true);
+            }}
+            header={<div />}
+            navBar={<div />}
+            workbenchContent={<div />}
+            editor={<div />}
+            chat={<StatefulChat />}
+          />
+        </>
+      );
+    }
+
+    render(<Harness />);
+    fireEvent.click(screen.getByTestId("panel-chat"));
+    fireEvent.click(screen.getByRole("button", { name: "Colapsar teste" }));
 
     const hiddenChat = screen.getByTestId("panel-chat");
-    expect(hiddenChat).toBeInTheDocument();
+    expect(hiddenChat).toHaveTextContent("preserved");
     expect(hiddenChat.parentElement).toHaveClass("invisible");
+
     fireEvent.click(screen.getByRole("button", { name: "Abrir chat" }));
     expect(onOpenChat).toHaveBeenCalledOnce();
-
-    rerender(
-      <IdeModeLayout
-        layoutState="wide"
-        showChat
-        onOpenChat={onOpenChat}
-        header={<div />}
-        navBar={<div />}
-        workbenchContent={<div />}
-        editor={<div />}
-        chat={<div data-testid="panel-chat" />}
-      />,
-    );
-    expect(screen.getByTestId("panel-chat")).toBeInTheDocument();
+    expect(screen.getByTestId("panel-chat")).toHaveTextContent("preserved");
   });
 
   it("viewport estreita: só o painel ativo aparece no DOM; trocar de aba muda qual está visível", () => {

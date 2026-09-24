@@ -78,20 +78,24 @@ function expandedColumnStyle(column: ShellColumnState): React.CSSProperties {
   };
 }
 
-function CollapsedRail({
+function ShellColumnContent({
   side,
   ariaLabel,
   onExpand,
   content,
+  collapsed,
 }: {
   side: "left" | "right";
   ariaLabel: string;
   onExpand: () => void;
   content: ReactNode | null;
+  collapsed: boolean;
 }) {
   return (
     <div className="relative flex h-full min-h-0 w-full flex-col bg-sidebar">
-      <div className="flex h-[var(--app-header-height)] min-h-[var(--app-header-height)] shrink-0 items-center justify-center border-b border-border/40 bg-sidebar">
+      <div
+        className={`flex h-[var(--app-header-height)] min-h-[var(--app-header-height)] shrink-0 items-center justify-center border-b border-border/40 bg-sidebar ${collapsed ? "" : "hidden"}`}
+      >
         <RailToggleButton
           side={side}
           ariaLabel={ariaLabel}
@@ -101,7 +105,11 @@ function CollapsedRail({
       </div>
       <div
         aria-hidden="true"
-        className="invisible pointer-events-none absolute inset-x-0 bottom-0 top-[var(--app-header-height)] overflow-hidden"
+        className={
+          collapsed
+            ? "invisible pointer-events-none absolute inset-x-0 bottom-0 top-[var(--app-header-height)] overflow-hidden"
+            : "flex min-h-0 min-w-0 flex-1 overflow-hidden"
+        }
       >
         {content}
       </div>
@@ -159,18 +167,15 @@ export function ThreeColumnShell({
                 : expandedColumnStyle(columns.left)
             }
           >
-            {leftVisibility === "collapsed" ? (
-              <CollapsedRail
-                side={direction === "rtl" ? "right" : "left"}
-                ariaLabel={
-                  columns.left.expandLabel ?? `Expandir ${columns.left.label}`
-                }
-                onExpand={columns.left.onExpand ?? (() => undefined)}
-                content={left}
-              />
-            ) : (
-              left
-            )}
+            <ShellColumnContent
+              side={direction === "rtl" ? "right" : "left"}
+              ariaLabel={
+                columns.left.expandLabel ?? `Expandir ${columns.left.label}`
+              }
+              onExpand={columns.left.onExpand ?? (() => undefined)}
+              content={left}
+              collapsed={leftVisibility === "collapsed"}
+            />
           </motion.aside>
         )}
         <main
@@ -218,18 +223,15 @@ export function ThreeColumnShell({
                 : expandedColumnStyle(columns.right)
             }
           >
-            {rightVisibility === "collapsed" ? (
-              <CollapsedRail
-                side={direction === "rtl" ? "left" : "right"}
-                ariaLabel={
-                  columns.right.expandLabel ?? `Expandir ${columns.right.label}`
-                }
-                onExpand={columns.right.onExpand ?? (() => undefined)}
-                content={right}
-              />
-            ) : (
-              right
-            )}
+            <ShellColumnContent
+              side={direction === "rtl" ? "left" : "right"}
+              ariaLabel={
+                columns.right.expandLabel ?? `Expandir ${columns.right.label}`
+              }
+              onExpand={columns.right.onExpand ?? (() => undefined)}
+              content={right}
+              collapsed={rightVisibility === "collapsed"}
+            />
           </motion.aside>
         )}
       </div>
