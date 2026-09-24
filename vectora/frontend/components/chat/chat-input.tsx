@@ -207,7 +207,13 @@ function ControlGroup({
     const naturalWidths = items.map((item) =>
       Math.ceil(item.getBoundingClientRect().width),
     );
-    const availableWidth = Math.max(0, group.clientWidth - (compact ? 0 : 16));
+    const computedGap = compact
+      ? 0
+      : Number.parseFloat(getComputedStyle(group).columnGap || "0") || 0;
+    const availableWidth = Math.max(
+      0,
+      group.clientWidth - computedGap * Math.max(0, items.length - 1),
+    );
     items.forEach((item, index) => {
       item.style.cssText = previousStyles[index] ?? "";
     });
@@ -227,7 +233,19 @@ function ControlGroup({
     if (!group || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measureAndBalance);
     observer.observe(group);
-    return () => observer.disconnect();
+    const mutationObserver =
+      typeof MutationObserver === "undefined"
+        ? null
+        : new MutationObserver(measureAndBalance);
+    mutationObserver?.observe(group, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+    });
+    return () => {
+      observer.disconnect();
+      mutationObserver?.disconnect();
+    };
   }, [measureAndBalance]);
 
   return (

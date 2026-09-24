@@ -330,7 +330,15 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
   // precisa reagir à largura do próprio composer via container queries do
   // Tailwind v4, não a breakpoints `sm:` de viewport.
   it("o rodapé usa o container do composer sem overflow horizontal", () => {
-    const { container } = render(<ChatInput {...baseProps()} />);
+    const { container } = render(
+      <ChatInput
+        {...baseProps({
+          agentConfig: { model: "openrouter:openai/gpt-4o" },
+          onAgentConfigChange: vi.fn(),
+          modelId: "openrouter:openai/gpt-4o",
+        })}
+      />,
+    );
 
     // O wrapper do composer estabelece o contexto de container nomeado.
     expect(container.querySelector(".\\@container\\/composer")).not.toBeNull();
@@ -356,7 +364,15 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
   });
 
   it("mantém modelo e limite de contexto juntos no modo wide", () => {
-    const { container } = render(<ChatInput {...baseProps()} />);
+    const { container } = render(
+      <ChatInput
+        {...baseProps({
+          agentConfig: { model: "openrouter:openai/gpt-4o" },
+          onAgentConfigChange: vi.fn(),
+          modelId: "openrouter:openai/gpt-4o",
+        })}
+      />,
+    );
     const modelControls = container.querySelector(
       '[data-testid="wide-model-controls"]',
     );
@@ -371,6 +387,7 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     );
     expect(controlGroup).toHaveClass("gap-2");
     expect(controlGroup).not.toHaveClass("justify-between");
+    expect(modelControls?.querySelector("button")).toBeInTheDocument();
   });
 
   it("mantém acesso horizontal ao texto longo no input compacto", () => {
