@@ -54,7 +54,7 @@ jobs:
   # ── 1. Lint & Format ────────────────────────────────────────────────────
   lint:
     name: Lint & Format Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-uv
@@ -70,7 +70,7 @@ jobs:
   # ── 2. Security Scanning ────────────────────────────────────────────────
   security:
     name: Security Scanning
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-uv
@@ -88,7 +88,7 @@ jobs:
   # tsc e do vitest.
   frontend:
     name: Frontend (lint + types + tests)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -123,7 +123,7 @@ jobs:
   # ── 3. Build Verification (backend compile + frontend SPA) ──────────────
   build_verification:
     name: Build Verification
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [lint, security, frontend]
     steps:
       - uses: actions/checkout@v7
@@ -152,7 +152,7 @@ jobs:
   # ── 4a. Unit Tests ──────────────────────────────────────────────────────
   test-unit:
     name: Unit Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: build_verification
     services:
       postgres:
@@ -300,7 +300,7 @@ jobs:
   # ── 4b. Integration + E2E (gate do Docker; precisam de chaves reais) ────
   test-external:
     name: Integration + E2E Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: build_verification
     services:
       postgres:
@@ -369,7 +369,7 @@ jobs:
       github.ref == 'refs/heads/master') ||
       (github.event_name == 'push' &&
       startsWith(github.ref, 'refs/tags/v'))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.value }}
       channel: ${{ steps.channel.outputs.value }}
@@ -421,7 +421,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             arch: x64
             target: linux
           - os: macos-26
@@ -625,7 +625,7 @@ jobs:
       github.ref == 'refs/heads/master') ||
       (github.event_name == 'push' &&
       startsWith(github.ref, 'refs/tags/v'))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     concurrency:
       group: vectora-production-update-channel
       cancel-in-progress: false
@@ -679,7 +679,7 @@ jobs:
       github.ref == 'refs/heads/master') ||
       (github.event_name == 'push' &&
       startsWith(github.ref, 'refs/tags/v'))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment:
       name: production
     steps:
