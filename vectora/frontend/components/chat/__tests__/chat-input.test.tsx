@@ -393,7 +393,6 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
   it("mede os grupos wide e redistribui após o ResizeObserver", () => {
     let groupWidth = 200;
     const resizeCallbacks: ResizeObserverCallback[] = [];
-    const OriginalResizeObserver = globalThis.ResizeObserver;
     const originalClientWidth = Object.getOwnPropertyDescriptor(
       HTMLElement.prototype,
       "clientWidth",
@@ -478,9 +477,9 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
           "clientWidth",
           originalClientWidth,
         );
+      } else {
+        delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
       }
-      if (OriginalResizeObserver)
-        vi.stubGlobal("ResizeObserver", OriginalResizeObserver);
     }
   });
 

@@ -88,11 +88,17 @@ describe("GET /registry/mcp", () => {
   });
 
   it("trata filtros vazios como ausência de filtro", async () => {
+    await env.DB.prepare(
+      "UPDATE mcp_catalog SET catalog_source = 'official', catalog_status = 'active' WHERE id = 'github'",
+    ).run();
     const baseline = await registry.request("/mcp", {}, env);
     const res = await registry.request("/mcp?q=&category=", {}, env);
     expect(res.status).toBe(200);
     const filtered = await res.json<{ entries: unknown[] }>();
     const unfiltered = await baseline.json<{ entries: unknown[] }>();
+    expect(unfiltered.entries).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "github" })]),
+    );
     expect(filtered.entries).toEqual(unfiltered.entries);
   });
 });
@@ -188,11 +194,18 @@ describe("GET /registry/skills", () => {
   });
 
   it("trata filtros vazios de skills como ausência de filtro", async () => {
+    const visibleId = await makeSkill({
+      id: "empty-filter-visible-skill",
+      name: "Visible empty filter skill",
+    });
     const baseline = await registry.request("/skills", {}, env);
     const res = await registry.request("/skills?q=&category=&tags=", {}, env);
     expect(res.status).toBe(200);
     const filtered = await res.json<{ entries: unknown[] }>();
     const unfiltered = await baseline.json<{ entries: unknown[] }>();
+    expect(unfiltered.entries).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: visibleId })]),
+    );
     expect(filtered.entries).toEqual(unfiltered.entries);
   });
 
