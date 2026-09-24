@@ -327,10 +327,12 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     // O wrapper do composer estabelece o contexto de container nomeado.
     expect(container.querySelector(".\\@container\\/composer")).not.toBeNull();
 
-    // O rodapé permite quebra controlada para preservar todos os controles
-    // quando a coluna do chat fica estreita.
+    // O rodapé permanece em uma única linha; os controles internos cedem
+    // largura e truncam seus rótulos quando a coluna fica estreita.
     const footer = container.querySelector('[data-testid="chat-input-footer"]');
     expect(footer).not.toBeNull();
+    expect(footer).toHaveClass("flex-nowrap");
+    expect(footer).not.toHaveClass("flex-wrap");
 
     // Nenhum breakpoint de viewport (`sm:`) deve sobrar no rodapé — só container.
     expect(container.querySelector(".sm\\:flex-nowrap")).toBeNull();
@@ -343,6 +345,18 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     expect(
       container.querySelectorAll("button[aria-label]").length,
     ).toBeGreaterThan(0);
+  });
+
+  it("mantém modelo e limite de contexto juntos no modo wide", () => {
+    const { container } = render(<ChatInput {...baseProps()} />);
+    const modelControls = container.querySelector(
+      '[data-testid="wide-model-controls"]',
+    );
+
+    expect(modelControls).toHaveClass("w-fit");
+    expect(modelControls).toHaveClass("max-w-full");
+    expect(modelControls).toHaveClass("flex-[0_1_auto]");
+    expect(modelControls).not.toHaveClass("flex-[1_1_auto]");
   });
 
   it("não exibe scrollbar horizontal no input compacto vazio", () => {

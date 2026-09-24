@@ -610,7 +610,7 @@ export function ChatInput({
               flexível e cedem espaço aos rótulos antes de serem ocultados. */}
           <div
             data-testid="chat-input-footer"
-            className={`flex min-h-10 w-full min-w-0 items-center border-t border-border/60 ${compact ? "flex-nowrap gap-x-1 overflow-visible px-2 py-1" : "flex-wrap gap-x-2 gap-y-1 overflow-visible px-4 py-2"}`}
+            className={`flex min-h-10 w-full min-w-0 items-center border-t border-border/60 ${compact ? "flex-nowrap gap-x-1 overflow-visible px-2 py-1" : "flex-nowrap gap-x-2 overflow-hidden px-4 py-2"}`}
           >
             <div
               className={`flex shrink-0 items-center ${compact ? "gap-x-0.5" : "gap-1"}`}
@@ -668,9 +668,12 @@ export function ChatInput({
                 <div className="min-w-0 flex-[0_1_auto] overflow-hidden">
                   <EffortMenu />
                 </div>
-                <div className="flex min-w-0 flex-[1_1_auto] items-center gap-1 overflow-hidden">
+                <div
+                  data-testid="wide-model-controls"
+                  className="flex min-w-0 w-fit max-w-full flex-[0_1_auto] items-center gap-1 overflow-hidden"
+                >
                   {agentConfig && onAgentConfigChange && (
-                    <div className="min-w-0 flex-1 overflow-hidden">
+                    <div className="min-w-0 w-fit max-w-full flex-[0_1_auto] overflow-hidden">
                       <ModelSelector
                         value={agentConfig.model}
                         onChange={handleModelChange}
