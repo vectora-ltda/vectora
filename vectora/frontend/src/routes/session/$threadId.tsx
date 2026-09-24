@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { motion, useReducedMotion } from "motion/react";
+import { PanelRightClose } from "lucide-react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 
 import { Sidebar } from "@/components/sidebar/sidebar";
@@ -176,6 +177,7 @@ function SessionPage() {
   const chatMode = useSettingsStore((s) => s.chatMode);
   const reducedMotion = useReducedMotion();
   const assistantWorkbenchVisible = hydrated && !chatMode && workbenchOpen;
+  const [chatSidebarOpen, setChatSidebarOpen] = useState(true);
   const setChatMode = useSettingsStore((s) => s.setChatMode);
   const uiMode = useSettingsStore((s) => s.uiMode);
   const setChatSidebarWidth = useSettingsStore((s) => s.setChatSidebarWidth);
@@ -768,7 +770,7 @@ function SessionPage() {
   // do scroll sobrevive à troca de modo via `message-list.tsx`, que
   // guarda e restaura por thread — não por manter a instância montada.
   const renderChatPanel = useCallback(
-    (compact: boolean) => {
+    (compact: boolean, onCollapse?: () => void) => {
       const welcomeActions =
         !compact && hydrated && isNewRoute && !workspaceChosen;
       return (
@@ -781,6 +783,17 @@ function SessionPage() {
                 onSelectThread={handleSelectThread}
                 onNewSession={handleNewChat}
               />
+              {onCollapse && (
+                <button
+                  type="button"
+                  aria-label={m.sidebar_collapse()}
+                  title={m.sidebar_collapse()}
+                  onClick={onCollapse}
+                  className="ml-auto rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <PanelRightClose className="h-4 w-4" />
+                </button>
+              )}
             </ColumnHeader>
           )}
           <div className="flex-1 min-h-0">
@@ -924,6 +937,8 @@ function SessionPage() {
                 chatWidth={hydrated ? chatSidebarWidth : 256}
                 chatMinWidth={CHAT_SIDEBAR_OPEN_MIN_WIDTH}
                 chatMaxWidth={520}
+                showChat={chatSidebarOpen}
+                onOpenChat={() => setChatSidebarOpen(true)}
                 header={headerEl}
                 navBar={
                   <WorkbenchNavBar
@@ -1013,7 +1028,12 @@ function SessionPage() {
                       />
                     )}
                     <div className="flex-1 min-h-0 min-w-0">
-                      {renderChatPanel(true)}
+                      {renderChatPanel(
+                        true,
+                        !isCompactSession
+                          ? () => setChatSidebarOpen(false)
+                          : undefined,
+                      )}
                     </div>
                   </div>
                 }
@@ -1124,7 +1144,14 @@ function SessionPage() {
                     visibility: showSidebarPanel ? "visible" : "hidden",
                   },
                   center: { label: "Chat" },
-                  right: { label: "Workbench" },
+                  right: assistantWorkbenchVisible
+                    ? { label: "Workbench", visibility: "visible" }
+                    : {
+                        label: "Workbench",
+                        visibility: "collapsed",
+                        onExpand: openWorkbench,
+                        expandLabel: "Abrir workbench",
+                      },
                 }}
               />
 

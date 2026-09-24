@@ -61,6 +61,40 @@ describe("IdeModeLayout", () => {
     },
   );
 
+  it("modo wide colapsa o chat em rail e permite reabri-lo", () => {
+    const onOpenChat = vi.fn();
+    const { rerender } = render(
+      <IdeModeLayout
+        layoutState="wide"
+        showChat={false}
+        onOpenChat={onOpenChat}
+        header={<div />}
+        navBar={<div />}
+        workbenchContent={<div />}
+        editor={<div />}
+        chat={<div data-testid="panel-chat" />}
+      />,
+    );
+
+    expect(screen.queryByTestId("panel-chat")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Abrir chat" }));
+    expect(onOpenChat).toHaveBeenCalledOnce();
+
+    rerender(
+      <IdeModeLayout
+        layoutState="wide"
+        showChat
+        onOpenChat={onOpenChat}
+        header={<div />}
+        navBar={<div />}
+        workbenchContent={<div />}
+        editor={<div />}
+        chat={<div data-testid="panel-chat" />}
+      />,
+    );
+    expect(screen.getByTestId("panel-chat")).toBeInTheDocument();
+  });
+
   it("viewport estreita: só o painel ativo aparece no DOM; trocar de aba muda qual está visível", () => {
     renderLayout("mobile");
 

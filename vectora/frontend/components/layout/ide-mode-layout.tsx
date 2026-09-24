@@ -61,6 +61,8 @@ interface IdeModeLayoutProps {
   chatMaxWidth?: number;
   /** Keep the chat column mounted while allowing it to collapse to a rail. */
   showChat?: boolean;
+  /** Reopens the chat rail after it was collapsed. */
+  onOpenChat?: () => void;
 }
 
 export function IdeModeLayout({
@@ -83,6 +85,7 @@ export function IdeModeLayout({
   chatMinWidth,
   chatMaxWidth,
   showChat = true,
+  onOpenChat,
 }: IdeModeLayoutProps) {
   const resolvedLayoutState = layoutState ?? (isNarrow ? "mobile" : "wide");
   const [mobilePanel, setMobilePanel] =
@@ -122,6 +125,9 @@ export function IdeModeLayout({
           width: chatWidth,
           minWidth: showChat ? chatMinWidth : 48,
           maxWidth: chatMaxWidth,
+          visibility: showChat ? "visible" : "collapsed",
+          onExpand: onOpenChat ?? (() => undefined),
+          expandLabel: "Abrir chat",
         }}
       />
     );
