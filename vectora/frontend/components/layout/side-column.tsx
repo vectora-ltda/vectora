@@ -54,15 +54,23 @@ export function SideColumn({
       ? WORKBENCH_RAIL_WIDTH
       : COLLAPSED_RAIL_WIDTH
     : undefined;
+  // A width paired with the same minWidth is an explicit fixed-size contract.
+  // It is used by rails that must be narrower than the normal open-column
+  // floor. Other columns retain the 240px usability floor, including callers
+  // that only provide a preferred width.
+  const hasFixedNarrowWidth =
+    column.width != null && column.minWidth === column.width;
 
   return (
     <motion.aside
       animate={
-        isWorkbench
-          ? {
-              width: collapsed ? WORKBENCH_RAIL_WIDTH : column.width,
-            }
-          : undefined
+        column.width != null
+          ? { width: collapsed ? width : column.width }
+          : isWorkbench
+            ? {
+                width: collapsed ? WORKBENCH_RAIL_WIDTH : column.width,
+              }
+            : undefined
       }
       transition={transition}
       aria-label={column.label}
@@ -73,7 +81,9 @@ export function SideColumn({
           ? { width }
           : {
               ...columnStyle(column),
-              minWidth: Math.max(SIDE_COLUMN_MIN_WIDTH, column.minWidth ?? 0),
+              minWidth: hasFixedNarrowWidth
+                ? column.minWidth
+                : Math.max(SIDE_COLUMN_MIN_WIDTH, column.minWidth ?? 0),
             }
       }
     >

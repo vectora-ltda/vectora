@@ -41,4 +41,8 @@ describe("balanceCompactControlWidths", () => {
   it("não reserva texto quando só cabem as partes fixas", () => {
     expect(balanceCompactControlWidths([100, 40, 100], 0)).toEqual([0, 0, 0]);
   });
+
+  it("retorna uma lista vazia para uma coleção de controles vazia", () => {
+    expect(balanceCompactControlWidths([], 240)).toEqual([]);
+  });
 });

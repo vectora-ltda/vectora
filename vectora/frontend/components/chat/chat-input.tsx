@@ -216,9 +216,8 @@ function ControlGroup({
     const naturalWidths = items.map((item) =>
       Math.ceil(item.getBoundingClientRect().width),
     );
-    const computedGap = compact
-      ? 0
-      : Number.parseFloat(getComputedStyle(group).columnGap || "0") || 0;
+    const computedGap =
+      Number.parseFloat(getComputedStyle(group).columnGap || "0") || 0;
     const availableWidth = Math.max(
       0,
       group.clientWidth - computedGap * Math.max(0, items.length - 1),
@@ -766,30 +765,35 @@ export function ChatInput({
                 )}
               </div>
             ) : (
-              <ControlGroup compact={false}>
-                <PermissionModeMenu />
-                <EffortMenu />
-                <div
-                  data-testid="wide-model-controls"
-                  className="flex min-w-0 w-fit max-w-full flex-[0_1_auto] items-center gap-1 overflow-hidden"
-                >
+              <div
+                className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden"
+                data-testid="wide-control-row"
+              >
+                <ControlGroup compact={false}>
+                  <PermissionModeMenu />
+                  <EffortMenu />
                   {agentConfig && onAgentConfigChange && (
-                    <ModelSelector
-                      value={agentConfig.model}
-                      onChange={handleModelChange}
-                      codeMode={!chatMode && !!wsId}
-                    />
-                  )}
-                  {modelId && (
-                    <div className="shrink-0">
-                      <UsagePopover
-                        tokensUsed={tokensUsed ?? 0}
-                        modelId={modelId}
+                    <div
+                      data-testid="wide-model-controls"
+                      className="flex min-w-0 w-fit max-w-full flex-[0_1_auto] items-center overflow-hidden"
+                    >
+                      <ModelSelector
+                        value={agentConfig.model}
+                        onChange={handleModelChange}
+                        codeMode={!chatMode && !!wsId}
                       />
                     </div>
                   )}
-                </div>
-              </ControlGroup>
+                </ControlGroup>
+                {modelId && (
+                  <div className="shrink-0" data-testid="wide-context-control">
+                    <UsagePopover
+                      tokensUsed={tokensUsed ?? 0}
+                      modelId={modelId}
+                    />
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>

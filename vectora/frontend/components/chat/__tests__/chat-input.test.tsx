@@ -364,7 +364,7 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("mantém modelo e limite de contexto juntos no modo wide", () => {
+  it("mantém contexto separado dos três seletores no modo wide", () => {
     const { container } = render(
       <ChatInput
         {...baseProps({
@@ -381,7 +381,14 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     expect(modelControls).toHaveClass("w-fit");
     expect(modelControls).toHaveClass("max-w-full");
     expect(modelControls).toHaveClass("flex-[0_1_auto]");
-    expect(modelControls).not.toHaveClass("flex-[1_1_auto]");
+    expect(modelControls).not.toContainElement(
+      container.querySelector(
+        '[data-testid="wide-context-control"]',
+      ) as HTMLElement,
+    );
+    expect(
+      container.querySelector('[data-testid="wide-context-control"]'),
+    ).toBeInTheDocument();
 
     const controlGroup = container.querySelector(
       '[data-testid="wide-control-group"]',
@@ -389,6 +396,9 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     expect(controlGroup).toHaveClass("gap-2");
     expect(controlGroup).not.toHaveClass("justify-between");
     expect(modelControls?.querySelector("button")).toBeInTheDocument();
+    expect(
+      container.querySelector('[data-testid="wide-control-row"]'),
+    ).toHaveClass("gap-2");
   });
 
   it("mede os grupos wide e redistribui após o ResizeObserver", () => {
@@ -535,6 +545,81 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     expect(selectorGroup?.children).toHaveLength(3);
     expect(contextControl).toBeInTheDocument();
     expect(selectorGroup).not.toContainElement(contextControl as HTMLElement);
+  });
+
+  it("desconta os gaps ao distribuir controles compactos estreitos", () => {
+    const originalClientWidth = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "clientWidth",
+    );
+    const originalGetComputedStyle = window.getComputedStyle;
+    const bounds = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const width = this.matches("[data-compact-control-label]") ? 60 : 80;
+        return {
+          x: 0,
+          y: 0,
+          top: 0,
+          left: 0,
+          right: width,
+          bottom: 24,
+          width,
+          height: 24,
+          toJSON: () => ({}),
+        };
+      });
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get() {
+        return this.getAttribute("data-testid") === "compact-control-group"
+          ? 120
+          : 0;
+      },
+    });
+    vi.spyOn(window, "getComputedStyle").mockImplementation((element) => {
+      const style = originalGetComputedStyle(element);
+      if (element.getAttribute("data-testid") === "compact-control-group") {
+        Object.defineProperty(style, "columnGap", { value: "4px" });
+      }
+      return style;
+    });
+
+    try {
+      const { container } = render(
+        <ChatInput
+          {...baseProps({
+            compact: true,
+            agentConfig: { model: "openrouter:openai/gpt-4o" },
+            onAgentConfigChange: vi.fn(),
+            modelId: "openrouter:openai/gpt-4o",
+          })}
+        />,
+      );
+      const group = container.querySelector(
+        '[data-testid="compact-control-group"]',
+      ) as HTMLElement;
+      const assignedWidths = [...group.children].map((item) =>
+        Number.parseFloat((item as HTMLElement).style.width),
+      );
+
+      expect(assignedWidths).toHaveLength(3);
+      expect(
+        assignedWidths.reduce((sum, width) => sum + width, 0) + 8,
+      ).toBeLessThanOrEqual(120);
+    } finally {
+      bounds.mockRestore();
+      vi.restoreAllMocks();
+      if (originalClientWidth) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "clientWidth",
+          originalClientWidth,
+        );
+      } else {
+        delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+      }
+    }
   });
 
   it("recalcula a altura do rascunho ao redimensionar dentro do mesmo modo", async () => {

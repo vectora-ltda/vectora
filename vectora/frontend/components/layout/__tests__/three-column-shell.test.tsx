@@ -117,6 +117,27 @@ describe("ThreeColumnShell", () => {
     expect(sessions).not.toHaveClass("min-w-60");
   });
 
+  it("aplica o mesmo contrato de rail estreita a uma coluna visível", () => {
+    render(
+      <ThreeColumnShell
+        centerHeader={<header />}
+        left={<div />}
+        center={<div />}
+        right={null}
+        columns={{
+          left: { label: "Sessões", width: 64, minWidth: 64 },
+          center: { label: "Chat" },
+          right: { label: "Workbench", visibility: "hidden" },
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("complementary", { name: "Sessões" })).toHaveStyle({
+      width: "64px",
+      minWidth: "64px",
+    });
+  });
+
   it("inverte a ordem física das rails sem mover o header do centro", () => {
     render(
       <ThreeColumnShell

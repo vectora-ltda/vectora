@@ -808,6 +808,13 @@ function SessionPage() {
   // usam a lista de sessões; IDE usa a workbench. Manter a sidebar de sessões
   // fora do IDE evitava que o shell tivesse quatro colunas concorrentes.
   const showSidebarPanel = uiMode !== "ide" && !isCompactSession;
+  // A sessão e o IDE usam o mesmo contrato de largura do shell: a coluna
+  // recolhida mede exatamente a rail, sem herdar o piso da coluna aberta.
+  const sessionSidebarWidth = isSidebarCollapsed
+    ? SIDEBAR_COLLAPSED_WIDTH
+    : hydrated
+      ? sidebarWidth
+      : 240;
   const modeComposition = getModeComposition(uiMode);
 
   // Chat renderizado no fluxo normal do layout de cada modo. `compact`
@@ -944,6 +951,10 @@ function SessionPage() {
                   left: {
                     label: "Sessões",
                     visibility: showSidebarPanel ? "visible" : "hidden",
+                    width: showSidebarPanel ? sessionSidebarWidth : undefined,
+                    minWidth: showSidebarPanel
+                      ? sessionSidebarWidth
+                      : undefined,
                   },
                   center: { label: "Kanban" },
                   right: { label: "Workbench", visibility: "hidden" },
@@ -1209,6 +1220,10 @@ function SessionPage() {
                   left: {
                     label: "Sessões",
                     visibility: showSidebarPanel ? "visible" : "hidden",
+                    width: showSidebarPanel ? sessionSidebarWidth : undefined,
+                    minWidth: showSidebarPanel
+                      ? sessionSidebarWidth
+                      : undefined,
                   },
                   center: { label: "Chat" },
                   right: assistantWorkbenchVisible
