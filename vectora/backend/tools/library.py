@@ -136,7 +136,7 @@ async def install_skill_from_catalog(skill_id: str, ctx: ToolContext) -> str:
             return json.dumps(
                 {"status": "error", "error": "entrada de skill sem source válido"}
             )
-        skill = install_skill(ctx.user_id, source)
+        skill = await asyncio.to_thread(install_skill, ctx.user_id, source)
         logger.info(
             "install_skill_from_catalog completed",
             extra={

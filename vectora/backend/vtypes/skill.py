@@ -12,7 +12,7 @@ Persistência: ``~/.vectora/skills/<user_id>/`` (uma pasta por skill instalada)
 from __future__ import annotations
 
 import json
-from typing import Literal
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -40,7 +40,7 @@ type SkillCatalogSource = Literal["remote", "enterprise", "local"]
 class SkillCatalogEntry(BaseModel):
     """Validated skill metadata crossing catalog aggregation boundaries."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="allow")
 
     id: str = Field(min_length=1)
     name: str = Field(min_length=1)

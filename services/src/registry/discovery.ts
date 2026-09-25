@@ -23,13 +23,50 @@ const GITHUB_CODE_SEARCH_URL = "https://api.github.com/search/code";
 
 type SyncStatus = "ready" | "unavailable" | "disabled";
 
+async function claimSyncRun(
+  env: Env,
+  source: "mcp" | "skills",
+): Promise<string> {
+  const token = crypto.randomUUID();
+  await env.DB.prepare(
+    `CREATE TABLE IF NOT EXISTS registry_sync_runs (
+       source TEXT PRIMARY KEY,
+       token TEXT NOT NULL,
+       started_at TEXT NOT NULL DEFAULT (datetime('now'))
+     )`,
+  ).run();
+  await env.DB.prepare(
+    `INSERT INTO registry_sync_runs (source, token)
+     VALUES (?, ?)
+     ON CONFLICT(source) DO UPDATE SET token = excluded.token, started_at = datetime('now')`,
+  )
+    .bind(source, token)
+    .run();
+  return token;
+}
+
+async function isCurrentSyncRun(
+  env: Env,
+  source: "mcp" | "skills",
+  token: string,
+): Promise<boolean> {
+  const row = await env.DB.prepare(
+    "SELECT token FROM registry_sync_runs WHERE source = ?",
+  )
+    .bind(source)
+    .first<{ token: string }>();
+  return row?.token === token;
+}
+
 async function recordSyncState(
   env: Env,
   source: "mcp" | "skills",
   status: SyncStatus,
   error: string | null = null,
+  token?: string,
 ): Promise<void> {
   try {
+    if (token && !(await isCurrentSyncRun(env, source, token))) return;
     await env.DB.prepare(
       `INSERT INTO registry_sync_state (source, status, last_synced_at, last_error)
        VALUES (?, ?, CASE WHEN ? = 'ready' THEN datetime('now') ELSE NULL END, ?)
@@ -236,6 +273,7 @@ export async function discoverMcp(
   env: Env,
   maxEntries = Number.POSITIVE_INFINITY,
 ): Promise<number> {
+  const runToken = await claimSyncRun(env, "mcp");
   const found = new Map<string, DiscoveredMcp>();
   const pageSize = 100;
   let complete = false;
@@ -251,7 +289,13 @@ export async function discoverMcp(
         headers: { Accept: "application/json" },
       });
       if (!resp.ok) {
-        await recordSyncState(env, "mcp", "unavailable", `HTTP ${resp.status}`);
+        await recordSyncState(
+          env,
+          "mcp",
+          "unavailable",
+          `HTTP ${resp.status}`,
+          runToken,
+        );
         console.error("registry discovery: resposta MCP não-OK", {
           operation: "mcp_discovery",
           status: resp.status,
@@ -273,7 +317,13 @@ export async function discoverMcp(
         break;
       }
       if (seenCursors.has(nextCursor)) {
-        await recordSyncState(env, "mcp", "unavailable", "cursor repetido");
+        await recordSyncState(
+          env,
+          "mcp",
+          "unavailable",
+          "cursor repetido",
+          runToken,
+        );
         console.error("registry discovery: cursor MCP repetido", {
           operation: "mcp_discovery",
           cursor: nextCursor,
@@ -289,6 +339,7 @@ export async function discoverMcp(
       "mcp",
       "unavailable",
       error instanceof Error ? error.message : String(error),
+      runToken,
     );
     console.error("registry discovery: falha ao ler MCP", {
       operation: "mcp_discovery",
@@ -302,11 +353,18 @@ export async function discoverMcp(
     selectMcpEntries(found, maxEntries),
     complete,
     !Number.isFinite(maxEntries),
+    runToken,
   );
   if (complete && count === found.size) {
-    await recordSyncState(env, "mcp", "ready");
+    await recordSyncState(env, "mcp", "ready", null, runToken);
   } else {
-    await recordSyncState(env, "mcp", "unavailable", "snapshot não promovido");
+    await recordSyncState(
+      env,
+      "mcp",
+      "unavailable",
+      "snapshot não promovido",
+      runToken,
+    );
   }
   return count;
 }
@@ -324,7 +382,9 @@ async function upsertMcpSnapshot(
   found: Map<string, DiscoveredMcp>,
   complete: boolean,
   reconcile: boolean,
+  runToken: string,
 ): Promise<number> {
+  if (!(await isCurrentSyncRun(env, "mcp", runToken))) return 0;
   const snapshotId = crypto.randomUUID();
   const statements: D1PreparedStatement[] = [];
   try {
@@ -383,6 +443,7 @@ async function upsertMcpSnapshot(
         ).bind(snapshotId),
       );
     }
+    if (!(await isCurrentSyncRun(env, "mcp", runToken))) return 0;
     if (statements.length > 0) await env.DB.batch(statements);
     return found.size;
   } catch (error) {
@@ -408,8 +469,15 @@ export async function discoverSkills(
   env: Env,
   maxEntries = 50,
 ): Promise<number> {
+  const runToken = await claimSyncRun(env, "skills");
   if (!env.GITHUB_TOKEN) {
-    await recordSyncState(env, "skills", "disabled", "GITHUB_TOKEN ausente");
+    await recordSyncState(
+      env,
+      "skills",
+      "disabled",
+      "GITHUB_TOKEN ausente",
+      runToken,
+    );
     console.warn(
       "registry discovery: GITHUB_TOKEN ausente; skills de terceiros não foram descobertas",
     );
@@ -434,6 +502,7 @@ export async function discoverSkills(
         "skills",
         "unavailable",
         `HTTP ${resp.status}`,
+        runToken,
       );
       return 0;
     }
@@ -445,6 +514,7 @@ export async function discoverSkills(
       "skills",
       "unavailable",
       error instanceof Error ? error.message : String(error),
+      runToken,
     );
     return 0;
   }
@@ -460,6 +530,7 @@ export async function discoverSkills(
   let upserted = 0;
   let failed = 0;
   for (const repo of seen.values()) {
+    if (!(await isCurrentSyncRun(env, "skills", runToken))) return upserted;
     if (!repo?.full_name) continue;
     const id = repo.full_name;
     const name = repo.name ?? id;
@@ -496,9 +567,10 @@ export async function discoverSkills(
       "skills",
       "unavailable",
       `skills_sync_failed:${failed}`,
+      runToken,
     );
   } else {
-    await recordSyncState(env, "skills", "ready");
+    await recordSyncState(env, "skills", "ready", null, runToken);
   }
   return upserted;
 }

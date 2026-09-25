@@ -319,13 +319,20 @@ def compute(snapshot: TurnWorkspaceSnapshot) -> list[TurnFileChange]:
                         hunks.append({"header": header, "lines": lines})
                         lines = []
                     header = line
-                elif line.startswith(("---", "+++")) and not header:
+                elif (
+                    line
+                    in {
+                        f"--- a/{path}",
+                        f"+++ b/{path}",
+                    }
+                    and not header
+                ):
                     continue
                 else:
                     lines.append(line)
-                    if line.startswith("+") and not line.startswith("+++"):
+                    if line.startswith("+"):
                         additions += 1
-                    elif line.startswith("-") and not line.startswith("---"):
+                    elif line.startswith("-"):
                         deletions += 1
             if lines:
                 hunks.append({"header": header, "lines": lines})

@@ -15,7 +15,7 @@ import os
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import ClassVar, Literal
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -37,7 +37,7 @@ RegistryKind = Literal["mcp", "skills", "mcp_official"]
 class RegistryStatus(BaseModel):
     """Validated synchronization status returned by the registry service."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
 
     source: Literal["mcp", "skills"]
     status: Literal["ready", "unavailable", "disabled", "never"]
@@ -51,7 +51,7 @@ OFFICIAL_MCP_REGISTRY_URL = "https://registry.modelcontextprotocol.io/v0.1/serve
 class McpCatalogEntry(BaseModel):
     """Validated MCP catalog contract returned by the registry service."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
 
     id: str = Field(min_length=1)
     name: str = Field(min_length=1)
@@ -75,7 +75,7 @@ class McpCatalogEntry(BaseModel):
     trust_reason: str = "catalog_listed"
 
     @model_validator(mode="after")
-    def _validate_transport(self) -> "McpCatalogEntry":
+    def _validate_transport(self) -> McpCatalogEntry:
         if self.transport == "stdio":
             if not self.install_cmd.strip():
                 raise ValueError("stdio transport requires install_cmd")

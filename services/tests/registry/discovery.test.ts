@@ -441,11 +441,12 @@ describe("discoverSkills", () => {
       ),
     );
     const originalPrepare = env.DB.prepare.bind(env.DB);
-    vi.spyOn(env.DB, "prepare")
-      .mockImplementationOnce(() => {
+    vi.spyOn(env.DB, "prepare").mockImplementation((query: string) => {
+      if (query.includes("INSERT INTO skills_catalog")) {
         throw new Error("constraint failed");
-      })
-      .mockImplementation((query: string) => originalPrepare(query));
+      }
+      return originalPrepare(query);
+    });
 
     await expect(
       discoverSkills({ ...env, GITHUB_TOKEN: "gh-test-token" }),
