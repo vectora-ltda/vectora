@@ -494,8 +494,10 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     );
 
     const textarea = screen.getByRole("textbox");
-    expect(textarea.className).toContain("overflow-x-auto");
-    expect(textarea.className).toContain("overflow-y-hidden");
+    expect(textarea.className).toContain("overflow-x-hidden");
+    expect(textarea.className).toContain("overflow-y-auto");
+    expect(textarea.className).toContain("whitespace-pre-wrap");
+    expect(textarea.className).toContain("max-h-60");
 
     const footer = container.querySelector('[data-testid="chat-input-footer"]');
     expect(footer).toHaveClass("px-1.5", "py-2", "gap-x-1.5");
@@ -503,6 +505,7 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     expect(screen.getByTestId("plus-menu-trigger")).toHaveClass(
       "h-6",
       "w-auto",
+      "!px-0",
     );
     expect(
       screen.getByTestId("plus-menu-trigger").querySelector("svg"),

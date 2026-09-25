@@ -48,7 +48,7 @@ export function VoiceInputButton({
           size="sm"
           disabled={disabled}
           className={`
-            group ${dimensions} p-0 rounded-full flex-shrink-0
+            group ${dimensions} !px-0 rounded-full flex-shrink-0
             transition-all duration-200 hover:scale-105 active:scale-95 border-0
             ${isListening ? "bg-muted text-primary hover:text-primary hover:bg-muted/80 border-2 border-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/60"}
           `}

@@ -384,8 +384,9 @@ export function ChatInput({
   }, [hasImage, provider, openRouterSupportsImage]);
 
   // Auto-grow do textarea: ajusta a altura ao conteúdo até o teto de 240px;
-  // depois disso o próprio textarea passa a scrollar internamente. Resolve
-  // a queixa "ele não expande pra cima e com scroll visível".
+  // depois disso o próprio textarea passa a scrollar verticalmente. Mesmo no
+  // modo compacto, o texto quebra linha e faz o composer crescer antes do
+  // limite, em vez de virar uma caixa horizontal com scroll.
   // Recalcula quando o texto ou o modo do composer muda (digitação, @mention,
   // limpeza após envio ou uma troca de largura que ativa o modo compacto).
   // O cálculo usa o `scrollHeight` real do DOM, já refletindo o valor atual.
@@ -395,14 +396,11 @@ export function ChatInput({
     // Mutação imperativa do DOM via ref encaminhado (padrão do próprio
     // React para refs) — não é o objeto prop sendo reatribuído, só o nó
     // DOM que ele aponta.
-    const compactSingleLine = compactMode && !input.includes("\n");
     // oxlint-disable-next-line react/immutability
-    el.style.height = compactSingleLine ? "38px" : "auto";
-    // oxlint-disable-next-line react/immutability
-    el.style.overflowY = compactSingleLine ? "hidden" : "auto";
-    el.style.overflowX = compactSingleLine ? "auto" : "hidden";
-    if (compactSingleLine) return;
-    const next = Math.min(240, el.scrollHeight);
+    el.style.height = "auto";
+    el.style.overflowY = "auto";
+    el.style.overflowX = "hidden";
+    const next = Math.max(38, Math.min(240, el.scrollHeight));
     // oxlint-disable-next-line react/immutability
     el.style.height = `${next}px`;
   }, [compactMode, input, textareaRef]);
@@ -587,7 +585,7 @@ export function ChatInput({
                             : m.input_placeholder()
                     }
                     title={offline ? m.network_disabled_offline() : undefined}
-                    className={`relative z-10 min-h-[38px] min-w-0 flex-1 basis-0 resize-none rounded-md border border-[#2a2a2a]/60 bg-[#252525]/30 w-full px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground shadow-sm focus:outline-none focus-visible:outline-none focus-visible:border-[#2a2a2a]/60 focus:ring-1 focus:ring-primary/50 focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-offset-0 transition-[height] duration-150 ${compactMode && !input.includes("\n") ? "max-h-[38px] overflow-x-auto overflow-y-hidden whitespace-nowrap" : "max-h-[240px] overflow-y-auto break-words custom-scrollbar"}`}
+                    className="relative z-10 min-h-[38px] max-h-60 min-w-0 flex-1 basis-0 resize-none overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words custom-scrollbar rounded-md border border-[#2a2a2a]/60 bg-[#252525]/30 w-full px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground shadow-sm focus:outline-none focus-visible:outline-none focus-visible:border-[#2a2a2a]/60 focus:ring-1 focus:ring-primary/50 focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-offset-0 transition-[height] duration-150"
                     disabled={!userId || offline}
                     rows={1}
                   />

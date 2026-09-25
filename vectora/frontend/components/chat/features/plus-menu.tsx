@@ -59,7 +59,7 @@ export function PlusMenu({
                 variant="ghost"
                 size="sm"
                 disabled={disabled}
-                className={`${compact ? "h-6 w-auto" : "h-7 w-7"} p-0 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 border-0 flex-shrink-0 transition-colors duration-150`}
+                className={`${compact ? "h-6 w-auto" : "h-7 w-7"} !px-0 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 border-0 flex-shrink-0 transition-colors duration-150`}
                 type="button"
                 aria-label={m.tooltip_chat_add_files()}
                 aria-expanded={open}
