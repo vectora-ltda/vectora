@@ -511,6 +511,28 @@ describe("windows-store — docked editor (IDE mode)", () => {
     expect(s().activeCanvasDocumentId).toBe("file:ws1:src/utils.ts");
   });
 
+  it("ignora um identificador vazio sem alterar Canvas nem editor docked", () => {
+    s().openDocked("ws1", "src/main.ts");
+    s().openDocked("ws1", "src/utils.ts");
+    s().setDockedActiveTab("src/main.ts");
+
+    const before = {
+      dockedWorkspaceId: s().dockedWorkspaceId,
+      dockedTabs: [...s().dockedTabs],
+      dockedActiveTab: s().dockedActiveTab,
+      canvasDocuments: [...s().canvasDocuments],
+      activeCanvasDocumentId: s().activeCanvasDocumentId,
+    };
+
+    s().closeCanvasDocumentAndDockedTab("");
+
+    expect(s().dockedWorkspaceId).toBe(before.dockedWorkspaceId);
+    expect(s().dockedTabs).toEqual(before.dockedTabs);
+    expect(s().dockedActiveTab).toBe(before.dockedActiveTab);
+    expect(s().canvasDocuments).toEqual(before.canvasDocuments);
+    expect(s().activeCanvasDocumentId).toBe(before.activeCanvasDocumentId);
+  });
+
   it("openDocked — workspace novo: inicializa com workspace + tab", () => {
     s().openDocked("ws1", "src/main.ts");
     expect(s().dockedWorkspaceId).toBe("ws1");
