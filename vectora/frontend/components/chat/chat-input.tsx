@@ -399,7 +399,7 @@ export function ChatInput({
   // Recalcula quando o texto ou o modo do composer muda (digitação, @mention,
   // limpeza após envio ou uma troca de largura que ativa o modo compacto).
   // O cálculo usa o `scrollHeight` real do DOM, já refletindo o valor atual.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = textareaRef?.current;
     if (!el) return;
     // Mutação imperativa do DOM via ref encaminhado (padrão do próprio
@@ -407,12 +407,16 @@ export function ChatInput({
     // DOM que ele aponta.
     // oxlint-disable-next-line react/immutability
     el.style.height = "auto";
-    el.style.overflowY = "auto";
+    // Keep the composer free of a scrollbar while it is growing. The
+    // vertical scrollbar only becomes useful after the 240px ceiling.
+    el.style.overflowY = "hidden";
     el.style.overflowX = "hidden";
     const next = Math.max(38, Math.min(240, el.scrollHeight));
     // oxlint-disable-next-line react/immutability
     el.style.height = `${next}px`;
-  }, [compactMode, input, textareaRef]);
+    // oxlint-disable-next-line react/immutability
+    el.style.overflowY = next >= 240 ? "auto" : "hidden";
+  }, [compactMode, input]);
   return (
     <div className="relative">
       {/* Enhanced visibility layer */}
@@ -594,9 +598,10 @@ export function ChatInput({
                             : m.input_placeholder()
                     }
                     title={offline ? m.network_disabled_offline() : undefined}
-                    className="relative z-10 min-h-[38px] max-h-60 min-w-0 flex-1 basis-0 resize-none overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words custom-scrollbar rounded-md border border-[#2a2a2a]/60 bg-[#252525]/30 w-full px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground shadow-sm focus:outline-none focus-visible:outline-none focus-visible:border-[#2a2a2a]/60 focus:ring-1 focus:ring-primary/50 focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-offset-0 transition-[height] duration-150"
+                    className="relative z-10 min-h-[38px] max-h-60 min-w-0 flex-1 basis-0 resize-none [field-sizing:fixed] overflow-x-hidden overflow-y-hidden whitespace-pre-wrap break-words [overflow-wrap:anywhere] custom-scrollbar rounded-md border border-[#2a2a2a]/60 bg-[#252525]/30 w-full px-3 py-2 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground shadow-sm focus:outline-none focus-visible:outline-none focus-visible:border-[#2a2a2a]/60 focus:ring-1 focus:ring-primary/50 focus-visible:ring-1 focus-visible:ring-primary/50 focus-visible:ring-offset-0 transition-[height] duration-150"
                     disabled={!userId || offline}
                     rows={1}
+                    wrap="soft"
                   />
 
                   {!isLoading && (
@@ -669,7 +674,7 @@ export function ChatInput({
               flexível e cedem espaço aos rótulos antes de serem ocultados. */}
           <div
             data-testid="chat-input-footer"
-            className={`flex min-h-10 w-full min-w-0 items-center border-t border-border/60 ${compactMode ? "flex-nowrap gap-x-1.5 overflow-visible px-1.5 py-2" : "flex-nowrap gap-x-2 overflow-hidden px-4 py-2"}`}
+            className={`flex min-h-10 w-full min-w-0 items-center border-t border-border/60 ${compactMode ? "flex-nowrap gap-x-1 overflow-visible px-1.5 py-2" : "flex-nowrap gap-x-2 overflow-hidden px-4 py-2"}`}
           >
             <div
               data-testid="chat-input-icon-group"
@@ -690,13 +695,17 @@ export function ChatInput({
                   compact={compactMode}
                 />
               )}
-              <div className="hidden @sm/composer:block h-4 w-px shrink-0 bg-border/60" />
+              <div
+                className={`${compactMode ? "hidden" : "hidden @sm/composer:block"} h-4 w-px shrink-0 bg-border/60`}
+              />
               {/* O workspace é escolhido só no modal de nova conversa e é imutável
                   depois disso — por isso não há seletor de workspace na appbar. */}
               {!chatMode && wsId && (
                 <>
                   <VscodeMenu workspaceId={wsId} compact={compactMode} />
-                  <div className="hidden @sm/composer:block h-4 w-px shrink-0 bg-border/60" />
+                  <div
+                    className={`${compactMode ? "hidden" : "hidden @sm/composer:block"} h-4 w-px shrink-0 bg-border/60`}
+                  />
                 </>
               )}
             </div>
