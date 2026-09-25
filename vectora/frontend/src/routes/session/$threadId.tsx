@@ -1091,7 +1091,7 @@ function SessionPage() {
                         onPointerMove={onChatSidebarResizeMove}
                         onPointerUp={onChatSidebarResizeUp}
                         onPointerCancel={onChatSidebarResizeUp}
-                        className={`absolute ${sidebarOnRight ? "right-0" : "left-0"} top-0 z-10 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors`}
+                        className={`absolute ${sidebarOnRight ? "right-0" : "left-0"} top-0 z-[60] h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors`}
                       />
                     )}
                     <div className="flex-1 min-h-0 min-w-0">
