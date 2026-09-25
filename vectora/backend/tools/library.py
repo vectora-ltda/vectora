@@ -19,16 +19,25 @@ from backend.tools.registry import ToolExtras, vtool
 logger = logging.getLogger(__name__)
 
 
-def _valid_skill_entries(entries: list[object]) -> list[Mapping[str, object]]:
-    """Remove malformed external catalog records before field access."""
+def _valid_skill_entries(
+    entries: list[object], *, require_source: bool = True
+) -> list[Mapping[str, object]]:
+    """Remove malformed catalog records before field access.
+
+    Listing only needs an identifier, while installation must have a usable
+    source URL. Keeping that distinction prevents incomplete records from
+    being installed without hiding them from catalog discovery.
+    """
     return [
         entry
         for entry in entries
         if isinstance(entry, Mapping)
         and isinstance(entry.get("id"), str)
         and bool(entry.get("id"))
-        and isinstance(entry.get("source"), str)
-        and bool(entry.get("source"))
+        and (
+            not require_source
+            or (isinstance(entry.get("source"), str) and bool(entry.get("source")))
+        )
     ]
 
 
@@ -413,7 +422,9 @@ async def list_skills_catalog(query: str = "") -> str:
         local = [entry.model_dump() for entry in local_entries]
         by_id = {
             str(entry["id"]): entry
-            for entry in _valid_skill_entries([*enterprise, *remote, *local])
+            for entry in _valid_skill_entries(
+                [*enterprise, *remote, *local], require_source=False
+            )
         }
         entries = list(by_id.values())
         items = [
