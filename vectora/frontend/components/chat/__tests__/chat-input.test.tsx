@@ -12,6 +12,7 @@ import {
   cleanup,
   fireEvent,
   waitFor,
+  act,
 } from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ChatInput, isComposerCompactWidth } from "../chat-input";
@@ -511,6 +512,96 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     expect(
       screen.getByTestId("plus-menu-trigger").querySelector("svg"),
     ).toHaveClass("size-3");
+  });
+
+  it("recalcula a altura do rascunho ao redimensionar dentro do mesmo modo", async () => {
+    const resizeCallbacks: ResizeObserverCallback[] = [];
+    let composerWidth = 300;
+    let scrollHeight = 72;
+    const bounds = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const width = this.className.toString().includes("composer")
+          ? composerWidth
+          : 100;
+        return {
+          x: 0,
+          y: 0,
+          top: 0,
+          left: 0,
+          right: width,
+          bottom: 24,
+          width,
+          height: 24,
+          toJSON: () => ({}),
+        };
+      });
+    const originalScrollHeight = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "scrollHeight",
+    );
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          resizeCallbacks.push(callback);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    Object.defineProperty(HTMLTextAreaElement.prototype, "scrollHeight", {
+      configurable: true,
+      get: () => scrollHeight,
+    });
+
+    try {
+      const textareaRef = {
+        current: null,
+      } as React.RefObject<HTMLTextAreaElement | null>;
+      render(
+        <ChatInput
+          {...baseProps({
+            compact: true,
+            input: "rascunho que quebra ao reduzir a largura",
+            textareaRef,
+          })}
+        />,
+      );
+      const textarea = screen.getByRole("textbox") as HTMLTextAreaElement;
+      await waitFor(() => expect(resizeCallbacks.length).toBeGreaterThan(0));
+      const initialHeight = textarea.style.height;
+      expect(initialHeight).not.toBe("144px");
+
+      composerWidth = 260;
+      scrollHeight = 144;
+      await act(async () => {
+        for (const callback of resizeCallbacks) {
+          callback(
+            [{ contentRect: { width: composerWidth } } as ResizeObserverEntry],
+            {} as ResizeObserver,
+          );
+        }
+      });
+
+      await waitFor(() => {
+        expect(textarea.style.height).toBe("144px");
+        expect(textarea.style.overflowY).toBe("hidden");
+      });
+    } finally {
+      bounds.mockRestore();
+      vi.unstubAllGlobals();
+      if (originalScrollHeight) {
+        Object.defineProperty(
+          HTMLTextAreaElement.prototype,
+          "scrollHeight",
+          originalScrollHeight,
+        );
+      } else {
+        delete (HTMLTextAreaElement.prototype as { scrollHeight?: number })
+          .scrollHeight;
+      }
+    }
   });
 
   it("preserva o estado de erro sem criar overflow no composer compacto", () => {
