@@ -416,7 +416,7 @@ export function ChatInput({
     el.style.height = `${next}px`;
     // oxlint-disable-next-line react/immutability
     el.style.overflowY = next >= 240 ? "auto" : "hidden";
-  }, [compactMode, input]);
+  }, [compactMode, composerWidth, input]);
   return (
     <div className="relative">
       {/* Enhanced visibility layer */}
