@@ -197,12 +197,21 @@ function ControlGroup({
     );
     if (!group || items.length === 0 || group.clientWidth <= 0) return;
 
-    const previousStyles = items.map((item) => item.style.cssText);
-    items.forEach((item) => {
-      item.style.flex = "0 0 auto";
-      item.style.width = "max-content";
-      item.style.maxWidth = "none";
-      item.style.overflow = "visible";
+    // Os controles podem conter um botão aninhado com `max-w-full`/`w-fit`
+    // (principalmente o seletor de modelo). Remover essas restrições também
+    // durante a medição evita registrar um modelo já truncado como natural.
+    const measurableElements = items.flatMap((item) => [
+      item,
+      ...Array.from(item.querySelectorAll<HTMLElement>("button, div, span")),
+    ]);
+    const previousStyles = measurableElements.map(
+      (element) => element.style.cssText,
+    );
+    measurableElements.forEach((element) => {
+      element.style.flex = "0 0 auto";
+      element.style.width = "max-content";
+      element.style.maxWidth = "none";
+      element.style.overflow = "visible";
     });
     const naturalWidths = items.map((item) =>
       Math.ceil(item.getBoundingClientRect().width),
@@ -214,8 +223,8 @@ function ControlGroup({
       0,
       group.clientWidth - computedGap * Math.max(0, items.length - 1),
     );
-    items.forEach((item, index) => {
-      item.style.cssText = previousStyles[index] ?? "";
+    measurableElements.forEach((element, index) => {
+      element.style.cssText = previousStyles[index] ?? "";
     });
 
     const balancedWidths = balanceCompactControlWidths(
