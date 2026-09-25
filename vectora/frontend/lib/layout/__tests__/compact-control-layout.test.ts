@@ -28,4 +28,17 @@ describe("balanceCompactControlWidths", () => {
       180, 100, 40,
     ]);
   });
+
+  it("redistribui o espaço liberado por um rótulo menor", () => {
+    expect(balanceCompactControlWidths([100, 40, 100], 240)).toEqual([
+      100, 40, 100,
+    ]);
+    expect(balanceCompactControlWidths([100, 40, 100], 190)).toEqual([
+      75, 40, 75,
+    ]);
+  });
+
+  it("não reserva texto quando só cabem as partes fixas", () => {
+    expect(balanceCompactControlWidths([100, 40, 100], 0)).toEqual([0, 0, 0]);
+  });
 });

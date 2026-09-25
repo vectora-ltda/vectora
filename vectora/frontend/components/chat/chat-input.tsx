@@ -223,6 +223,33 @@ function ControlGroup({
       0,
       group.clientWidth - computedGap * Math.max(0, items.length - 1),
     );
+    if (compact) {
+      const naturalTextWidths = items.map((item) => {
+        const label = item.querySelector<HTMLElement>(
+          "[data-compact-control-label]",
+        );
+        return label ? Math.ceil(label.getBoundingClientRect().width) : 0;
+      });
+      measurableElements.forEach((element, index) => {
+        element.style.cssText = previousStyles[index] ?? "";
+      });
+      const fixedWidths = naturalWidths.map((width, index) =>
+        Math.max(0, width - naturalTextWidths[index]),
+      );
+      const textBudget = Math.max(
+        0,
+        availableWidth - fixedWidths.reduce((sum, width) => sum + width, 0),
+      );
+      const balancedTextWidths = balanceCompactControlWidths(
+        naturalTextWidths,
+        textBudget,
+      );
+      items.forEach((item, index) => {
+        item.style.width = `${fixedWidths[index] + balancedTextWidths[index]}px`;
+      });
+      return;
+    }
+
     measurableElements.forEach((element, index) => {
       element.style.cssText = previousStyles[index] ?? "";
     });
@@ -261,7 +288,7 @@ function ControlGroup({
     <div
       ref={groupRef}
       data-testid={compact ? "compact-control-group" : "wide-control-group"}
-      className={`flex min-w-0 flex-1 items-center overflow-hidden ${compact ? "justify-between" : "gap-2"}`}
+      className={`flex min-w-0 flex-1 items-center overflow-hidden ${compact ? "gap-1" : "gap-2"}`}
     >
       {Children.toArray(children).map((child, index) => (
         <div
@@ -710,10 +737,13 @@ export function ChatInput({
               )}
             </div>
             {compactMode ? (
-              <ControlGroup compact>
-                <PermissionModeMenu compact />
-                <EffortMenu compact />
-                <div className="flex min-w-0 items-center gap-1">
+              <div
+                className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden"
+                data-testid="compact-control-row"
+              >
+                <ControlGroup compact>
+                  <PermissionModeMenu compact />
+                  <EffortMenu compact />
                   {agentConfig && onAgentConfigChange && (
                     <ModelSelector
                       value={agentConfig.model}
@@ -722,14 +752,19 @@ export function ChatInput({
                       codeMode={!chatMode && !!wsId}
                     />
                   )}
-                  {modelId && (
+                </ControlGroup>
+                {modelId && (
+                  <div
+                    className="shrink-0"
+                    data-testid="compact-context-control"
+                  >
                     <UsagePopover
                       tokensUsed={tokensUsed ?? 0}
                       modelId={modelId}
                     />
-                  )}
-                </div>
-              </ControlGroup>
+                  </div>
+                )}
+              </div>
             ) : (
               <ControlGroup compact={false}>
                 <PermissionModeMenu />

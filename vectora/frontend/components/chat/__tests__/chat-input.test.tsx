@@ -514,6 +514,29 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     ).toHaveClass("size-3");
   });
 
+  it("mantém contexto separado dos três seletores compactos", () => {
+    const { container } = render(
+      <ChatInput
+        {...baseProps({
+          compact: true,
+          agentConfig: { model: "openrouter:openai/gpt-4o" },
+          onAgentConfigChange: vi.fn(),
+          modelId: "openrouter:openai/gpt-4o",
+        })}
+      />,
+    );
+
+    const selectorGroup = container.querySelector(
+      '[data-testid="compact-control-group"]',
+    );
+    const contextControl = container.querySelector(
+      '[data-testid="compact-context-control"]',
+    );
+    expect(selectorGroup?.children).toHaveLength(3);
+    expect(contextControl).toBeInTheDocument();
+    expect(selectorGroup).not.toContainElement(contextControl as HTMLElement);
+  });
+
   it("recalcula a altura do rascunho ao redimensionar dentro do mesmo modo", async () => {
     const resizeCallbacks: ResizeObserverCallback[] = [];
     let composerWidth = 300;

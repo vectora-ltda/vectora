@@ -166,7 +166,7 @@ export function ModelSelector({
         <button
           className={
             compact
-              ? "flex h-7 w-max min-w-0 max-w-full shrink items-center gap-1 overflow-hidden rounded-md px-1.5 text-xs leading-4 font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors select-none"
+              ? "flex h-7 w-full min-w-0 max-w-full shrink items-center gap-1 overflow-hidden rounded-md px-1.5 text-xs leading-4 font-medium text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors select-none"
               : "flex max-w-full shrink items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs leading-4 font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors select-none"
           }
           title={m.model_select_title()}
@@ -177,7 +177,8 @@ export function ModelSelector({
             className={`shrink-0 text-muted-foreground ${compact ? "w-3.5 h-3.5" : "w-4 h-4"}`}
           />
           <span
-            className={`${compact ? "inline" : "inline"} min-w-0 truncate font-medium`}
+            className="inline min-w-0 truncate font-medium"
+            data-compact-control-label
           >
             {activeLabel}
           </span>
