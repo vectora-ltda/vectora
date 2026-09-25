@@ -26,34 +26,46 @@ vi.mock("@/lib/paraglide/messages", () => ({
   ),
 }));
 
-const mockDiffState = {
-  openFiles: [] as string[],
-  hunksByFile: {} as Record<string, unknown>,
-  fileFetchedAt: {} as Record<string, number>,
-};
-
-const mockGitOps = {
-  selectedFiles: [] as string[],
-  selectedHunks: {},
-  activeDocument: null,
-  operation: null,
-};
-
-const mockWorkbench = {
-  getDiff: (_id: string) => mockDiffState,
-  getGitOps: (_id: string) => mockGitOps,
-  setDiffOpenFile: vi.fn(),
-  setDiffHunks: vi.fn(),
-  invalidateDiff: vi.fn(),
-  clearGitSelection: vi.fn(),
-  toggleGitFileSelection: vi.fn(),
-  setGitFileSelection: vi.fn(),
-};
+const { mockDiffState, mockGitOps, mockWorkbench, mockStore } = vi.hoisted(
+  () => {
+    const diffState = {
+      openFiles: [] as string[],
+      hunksByFile: {} as Record<string, unknown>,
+      fileFetchedAt: {} as Record<string, number>,
+    };
+    const gitOps = {
+      selectedFiles: [] as string[],
+      selectedHunks: {},
+      selectionRevision: 0,
+      activeDocument: null,
+      operation: null,
+    };
+    const workbench = {
+      getDiff: (_id: string) => diffState,
+      getGitOps: (_id: string) => gitOps,
+      setDiffOpenFile: vi.fn(),
+      setDiffHunks: vi.fn(),
+      invalidateDiff: vi.fn(),
+      clearGitSelection: vi.fn(),
+      toggleGitFileSelection: vi.fn(),
+      setGitFileSelection: vi.fn(),
+    };
+    const store = Object.assign(
+      (sel: (s: typeof workbench) => unknown) => sel(workbench),
+      { getState: () => workbench },
+    );
+    return {
+      mockDiffState: diffState,
+      mockGitOps: gitOps,
+      mockWorkbench: workbench,
+      mockStore: store,
+    };
+  },
+);
 
 vi.mock("@/lib/stores/workbench-store", () => ({
   WORKBENCH_STALE_MS: 30000,
-  useWorkbenchStore: (sel: (s: typeof mockWorkbench) => unknown) =>
-    sel(mockWorkbench),
+  useWorkbenchStore: mockStore,
 }));
 
 vi.mock("@/lib/hooks/workbench/use-swr", () => ({
@@ -93,7 +105,7 @@ function summary(files: DiffFile[]): DiffSummary {
 }
 
 describe("ChangesView", () => {
-  it.skip("filtra a seleção mista e mostra contagens elegíveis por ação", async () => {
+  it("filtra a seleção mista e mostra contagens elegíveis por ação", async () => {
     mockGitOps.selectedFiles = ["staged.ts", "modified.ts", "new.ts"];
     const spy = vi
       .spyOn(api, "apiGitFileAction")
@@ -121,7 +133,7 @@ describe("ChangesView", () => {
     ).toBeInTheDocument();
   });
 
-  it.skip("mantém somente caminhos que falharam e exibe erro em lote", async () => {
+  it("mantém somente caminhos que falharam e exibe erro em lote", async () => {
     mockGitOps.selectedFiles = ["ok.ts", "failed.ts"];
     const spy = vi
       .spyOn(api, "apiGitFileAction")
@@ -142,13 +154,12 @@ describe("ChangesView", () => {
 
     fireEvent.click(screen.getByText(/workbench_git_stage_selected/));
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
-    expect(mockWorkbench.toggleGitFileSelection).toHaveBeenCalledWith(
-      "ws1",
+    expect(mockWorkbench.setGitFileSelection).toHaveBeenCalledWith("ws1", [
       "failed.ts",
-    );
+    ]);
   });
 
-  it.skip("preserva seleção elegível para outra ação em uma seleção mista", async () => {
+  it("preserva seleção elegível para outra ação em uma seleção mista", async () => {
     mockGitOps.selectedFiles = ["staged.ts", "modified.ts"];
     vi.spyOn(api, "apiGitFileAction").mockResolvedValue({
       status: "ok",
@@ -166,14 +177,13 @@ describe("ChangesView", () => {
 
     fireEvent.click(screen.getByText(/workbench_git_stage_selected/));
     await waitFor(() =>
-      expect(mockWorkbench.toggleGitFileSelection).toHaveBeenCalledWith(
-        "ws1",
+      expect(mockWorkbench.setGitFileSelection).toHaveBeenCalledWith("ws1", [
         "staged.ts",
-      ),
+      ]),
     );
   });
 
-  it.skip("usa a seleção mais recente ao executar uma ação em lote", async () => {
+  it("usa a seleção mais recente ao executar uma ação em lote", async () => {
     const props = {
       workspaceId: "ws1",
       summary: summary([
@@ -191,10 +201,9 @@ describe("ChangesView", () => {
 
     fireEvent.click(screen.getByText(/workbench_git_stage_selected/));
     await waitFor(() =>
-      expect(mockWorkbench.toggleGitFileSelection).toHaveBeenCalledWith(
-        "ws1",
+      expect(mockWorkbench.setGitFileSelection).toHaveBeenCalledWith("ws1", [
         "staged.ts",
-      ),
+      ]),
     );
   });
 
@@ -391,7 +400,7 @@ describe("ChangesView", () => {
     expect(input.value).toBe("fix: bug");
   });
 
-  it.skip("preenche descrição e marca amend: passa body e amend pro apiGitCommit", async () => {
+  it("preenche descrição e passa o body pro apiGitCommit", async () => {
     const spy = vi
       .spyOn(api, "apiGitCommit")
       .mockResolvedValue({ status: "ok", message: "" });
@@ -410,13 +419,11 @@ describe("ChangesView", () => {
       screen.getByPlaceholderText("workbench_diff_commit_body_placeholder"),
       { target: { value: "detalhes" } },
     );
-    fireEvent.click(screen.getByTestId("git-commit-amend"));
     fireEvent.click(screen.getByText("workbench_diff_commit_button"));
 
     await waitFor(() =>
       expect(spy).toHaveBeenCalledWith("ws1", "fix: bug", false, {
         body: "detalhes",
-        amend: true,
       }),
     );
   });

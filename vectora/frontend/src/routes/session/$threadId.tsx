@@ -27,6 +27,8 @@ import { WindowLayer } from "@/components/workbench/windows/window-layer";
 import { WindowDock } from "@/components/workbench/windows/window-dock";
 import { DockedEditor } from "@/components/workbench/windows/docked-editor";
 import { FileEditor } from "@/components/workbench/file-editor";
+import { CanvasFileDiff } from "@/components/workbench/canvas-file-diff";
+import { LibraryMcpPreview } from "@/components/workbench/library-mcp-preview";
 import { SessionSwitcher } from "@/components/header/session-switcher";
 import { ColumnHeader } from "@/components/layout/column-header";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -60,6 +62,8 @@ import {
   threadsQueryKey,
 } from "@/lib/queries/threads";
 import { useWindowsStore } from "@/lib/stores/windows-store";
+import { isCanvasDocumentVisible } from "@/lib/canvas-document-visibility";
+import type { EditedFile } from "@/lib/types";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import {
   listThreads,
@@ -152,6 +156,11 @@ function SessionPage() {
   const activeCanvasDocumentId = useWindowsStore(
     (s) => s.activeCanvasDocumentId,
   );
+  const openCanvasDocument = useWindowsStore((s) => s.openCanvasDocument);
+  const activateCanvasDocument = useWindowsStore(
+    (s) => s.activateCanvasDocument,
+  );
+  const closeCanvasDocument = useWindowsStore((s) => s.closeCanvasDocument);
 
   // Painel do workbench: visível e redimensionável via workbench-store. O gate
   // de hidratação evita divergência SSR/cliente do estado persistido.
@@ -665,6 +674,35 @@ function SessionPage() {
 
   // Threads do workspace ativo (para o session switcher do IDE mode).
   const activeWorkspaceId = useWorkspacesStore((s) => s.active_id);
+  const visibleCanvasDocuments = useMemo(
+    () =>
+      canvasDocuments.filter((document) =>
+        isCanvasDocumentVisible(document, activeWorkspaceId, threadId),
+      ),
+    [canvasDocuments, activeWorkspaceId, threadId],
+  );
+  const visibleActiveCanvasDocumentId =
+    activeCanvasDocumentId &&
+    visibleCanvasDocuments.some(
+      (document) => document.id === activeCanvasDocumentId,
+    )
+      ? activeCanvasDocumentId
+      : (visibleCanvasDocuments[0]?.id ?? "editor");
+  const handleOpenEditedFile = useCallback(
+    (file: EditedFile) => {
+      if (!activeWorkspaceId) return;
+      openCanvasDocument({
+        id: `file-diff:${activeWorkspaceId}:${threadId}:${file.path}`,
+        kind: "file-diff",
+        workspaceId: activeWorkspaceId,
+        threadId,
+        title: file.path.split(/[\\/]/).pop() ?? file.path,
+        path: file.path,
+        editedFile: file,
+      });
+    },
+    [activeWorkspaceId, openCanvasDocument, threadId],
+  );
   const wsThreads = useMemo(
     () =>
       activeWorkspaceId
@@ -810,6 +848,7 @@ function SessionPage() {
               onThreadUpdate={handleThreadUpdate}
               onThreadPersistFailed={handleThreadPersistFailed}
               onThreadNotFound={handleThreadNotFound}
+              onOpenEditedFile={handleOpenEditedFile}
               inputLocked={inputLocked}
               // The route is already known to be new during the first render,
               // before useNewSessionId's committed effect registers the local
@@ -844,6 +883,7 @@ function SessionPage() {
       isNewSession,
       workspaceChosen,
       handleStartChatFromWelcome,
+      handleOpenEditedFile,
     ],
   );
 
@@ -997,16 +1037,23 @@ function SessionPage() {
                   // ao encolher a janela ou puxar o painel do workbench largo.
                   <div className="flex flex-col flex-1 min-w-0 h-full overflow-hidden">
                     <CenterCanvas
-                      documents={canvasDocuments}
-                      activeTab={activeCanvasDocumentId ?? "editor"}
+                      documents={visibleCanvasDocuments}
+                      activeTab={visibleActiveCanvasDocumentId}
+                      onTabChange={activateCanvasDocument}
+                      onTabClose={closeCanvasDocument}
                       renderDocument={(document) =>
                         document.kind === "file" &&
                         document.workspaceId &&
                         document.path ? (
                           <FileEditor
-                            workspaceId={document.workspaceId}
+                            workspaceId={document.workspaceId!}
                             path={document.path}
                           />
+                        ) : document.kind === "file-diff" &&
+                          document.editedFile ? (
+                          <CanvasFileDiff editedFile={document.editedFile} />
+                        ) : document.kind === "mcp-preview" && document.mcp ? (
+                          <LibraryMcpPreview mcp={document.mcp} />
                         ) : null
                       }
                     >
