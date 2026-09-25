@@ -112,6 +112,23 @@ export function SideColumn({
         >
           {content}
         </div>
+        {!collapsed && column.resize && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={column.resize.ariaLabel}
+            aria-valuemin={column.resize.min}
+            aria-valuemax={column.resize.max}
+            aria-valuenow={column.resize.value}
+            tabIndex={0}
+            onKeyDown={column.resize.onKeyDown}
+            onPointerDown={column.resize.onPointerDown}
+            onPointerMove={column.resize.onPointerMove}
+            onPointerUp={column.resize.onPointerUp}
+            onPointerCancel={column.resize.onPointerCancel}
+            className={`absolute top-0 z-[60] h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors ${side === "left" ? "right-0" : "left-0"}`}
+          />
+        )}
       </div>
     </motion.aside>
   );

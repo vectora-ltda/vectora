@@ -11,7 +11,20 @@ interface ShellColumnStateBase {
   width?: number;
   minWidth?: number;
   maxWidth?: number;
+  resize?: ShellColumnResize;
   label: string;
+}
+
+export interface ShellColumnResize {
+  ariaLabel: string;
+  value: number;
+  min: number;
+  max: number;
+  onKeyDown: React.KeyboardEventHandler<HTMLDivElement>;
+  onPointerDown: React.PointerEventHandler<HTMLDivElement>;
+  onPointerMove: React.PointerEventHandler<HTMLDivElement>;
+  onPointerUp: React.PointerEventHandler<HTMLDivElement>;
+  onPointerCancel: React.PointerEventHandler<HTMLDivElement>;
 }
 
 export type ShellColumnState = ShellColumnStateBase &

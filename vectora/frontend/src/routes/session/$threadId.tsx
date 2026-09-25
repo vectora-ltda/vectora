@@ -48,7 +48,10 @@ import {
   WORKBENCH_CONTENT_MIN_WIDTH,
   WORKBENCH_RAIL_WIDTH,
 } from "@/lib/layout/workbench-geometry";
-import { CHAT_SIDEBAR_OPEN_MIN_WIDTH } from "@/lib/layout/panel-geometry";
+import {
+  CHAT_SIDEBAR_OPEN_MIN_WIDTH,
+  SIDE_COLUMN_MIN_WIDTH,
+} from "@/lib/layout/panel-geometry";
 import { useWebhookWorkbench } from "@/lib/hooks/use-webhook-workbench";
 import { useClampPanelWidths } from "@/lib/hooks/use-clamp-panel-widths";
 import { useWorkbenchStore } from "@/lib/stores/workbench-store";
@@ -196,16 +199,16 @@ function SessionPage() {
   const [chatSidebarOpen, setChatSidebarOpen] = useState(true);
   const setChatMode = useSettingsStore((s) => s.setChatMode);
   const uiMode = useSettingsStore((s) => s.uiMode);
+  const activeWorkbenchSide =
+    uiMode === "ide" ? ideWorkbenchSide : assistantWorkbenchSide;
   const setChatSidebarWidth = useSettingsStore((s) => s.setChatSidebarWidth);
   const { sidebarWidth, chatSidebarWidth, splitSize } = useClampPanelWidths();
   // Modelo do chat — lido do store persistido (sobrevive a restart/reload).
   const selectedModel = useSettingsStore((s) => s.selectedModel);
   const setSelectedModel = useSettingsStore((s) => s.setSelectedModel);
-  const sidebarWrapRef = useRef<HTMLDivElement>(null);
   const draggingSidebar = useRef(false);
 
   // Resize do painel de workbench content no modo IDE (borda direita do painel)
-  const workbenchResizeRef = useRef<HTMLDivElement>(null);
   const draggingWorkbench = useRef(false);
   const onWorkbenchResizeDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -220,17 +223,22 @@ function SessionPage() {
   const onWorkbenchResizeMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (!draggingWorkbench.current) return;
-      const rect = workbenchResizeRef.current?.getBoundingClientRect();
+      const rect = e.currentTarget.parentElement?.getBoundingClientRect();
       if (rect) {
         const width = getPanelWidthFromPointer(
           e.clientX,
           rect,
-          ideWorkbenchSide,
+          activeWorkbenchSide,
         );
-        setSplitSize(Math.min(480, Math.max(220, width)));
+        setSplitSize(
+          Math.min(
+            WORKBENCH_CONTENT_MAX_WIDTH,
+            Math.max(WORKBENCH_CONTENT_MIN_WIDTH, width - WORKBENCH_RAIL_WIDTH),
+          ),
+        );
       }
     },
-    [ideWorkbenchSide, setSplitSize],
+    [activeWorkbenchSide, setSplitSize],
   );
   const onWorkbenchResizeKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -239,11 +247,14 @@ function SessionPage() {
       setSplitSize(
         Math.min(
           480,
-          Math.max(220, splitSize + getResizeDelta(e.key, ideWorkbenchSide)),
+          Math.max(
+            WORKBENCH_CONTENT_MIN_WIDTH,
+            splitSize + getResizeDelta(e.key, activeWorkbenchSide),
+          ),
         ),
       );
     },
-    [ideWorkbenchSide, setSplitSize, splitSize],
+    [activeWorkbenchSide, setSplitSize, splitSize],
   );
   const onWorkbenchResizeUp = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -257,7 +268,6 @@ function SessionPage() {
   );
 
   // Resize do painel de chat lateral no modo IDE (borda esquerda do painel)
-  const chatSidebarRef = useRef<HTMLDivElement>(null);
   const draggingChatSidebar = useRef(false);
   const onChatSidebarResizeDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -272,7 +282,7 @@ function SessionPage() {
   const onChatSidebarResizeMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (!draggingChatSidebar.current) return;
-      const rect = chatSidebarRef.current?.getBoundingClientRect();
+      const rect = e.currentTarget.parentElement?.getBoundingClientRect();
       if (rect) {
         const width = getPanelWidthFromPointer(
           e.clientX,
@@ -329,7 +339,7 @@ function SessionPage() {
   const onSidebarResizeMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (!draggingSidebar.current) return;
-      const rect = sidebarWrapRef.current?.getBoundingClientRect();
+      const rect = e.currentTarget.parentElement?.getBoundingClientRect();
       if (rect) {
         setSidebarWidth(
           sidebarOnRight ? rect.right - e.clientX : e.clientX - rect.left,
@@ -747,43 +757,12 @@ function SessionPage() {
     ],
   );
 
-  // Painel da sidebar (largura arrastável + handle de resize) — extraído do
-  // layout "Assistente" pra ser reusado também no Kanban, que antes escondia
-  // a sidebar por completo (sem jeito de trocar de sessão com o board aberto).
+  // O shell é o dono da largura e do handle de resize. O painel fornece
+  // somente o conteúdo para que todos os modos usem o mesmo contrato.
   const sidebarPanel = useMemo(
-    () => (
-      <motion.div
-        ref={sidebarWrapRef}
-        className="hidden md:flex shrink-0 relative"
-        animate={{
-          width: isSidebarCollapsed
-            ? SIDEBAR_COLLAPSED_WIDTH
-            : hydrated
-              ? sidebarWidth
-              : 224,
-        }}
-        transition={
-          draggingSidebar.current || reducedMotion
-            ? MOTION_INSTANT
-            : PANEL_TRANSITION
-        }
-      >
-        {sidebar}
-        {!isSidebarCollapsed && (
-          <div
-            role="separator"
-            aria-orientation="vertical"
-            onPointerDown={onSidebarResizeDown}
-            onPointerMove={onSidebarResizeMove}
-            onPointerUp={onSidebarResizeUp}
-            onPointerCancel={onSidebarResizeUp}
-            className={`absolute top-0 ${sidebarOnRight ? "left-0" : "right-0"} z-50 h-full w-1 cursor-col-resize bg-transparent hover:bg-border transition-colors`}
-          />
-        )}
-      </motion.div>
-    ),
+    () => <div className="hidden h-full min-w-0 md:flex">{sidebar}</div>,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sidebar, isSidebarCollapsed, hydrated, sidebarWidth, sidebarOnRight],
+    [sidebar],
   );
 
   const headerEl = useMemo(
@@ -955,6 +934,40 @@ function SessionPage() {
                     minWidth: showSidebarPanel
                       ? sessionSidebarWidth
                       : undefined,
+                    resize:
+                      showSidebarPanel && !isSidebarCollapsed
+                        ? {
+                            ariaLabel: m.resize_sidebar(),
+                            value: sidebarWidth,
+                            min: SIDE_COLUMN_MIN_WIDTH,
+                            max: 520,
+                            onKeyDown: (e) => {
+                              if (
+                                e.key !== "ArrowLeft" &&
+                                e.key !== "ArrowRight"
+                              )
+                                return;
+                              e.preventDefault();
+                              setSidebarWidth(
+                                Math.min(
+                                  520,
+                                  Math.max(
+                                    SIDE_COLUMN_MIN_WIDTH,
+                                    sidebarWidth +
+                                      getResizeDelta(
+                                        e.key,
+                                        sidebarOnRight ? "right" : "left",
+                                      ),
+                                  ),
+                                ),
+                              );
+                            },
+                            onPointerDown: onSidebarResizeDown,
+                            onPointerMove: onSidebarResizeMove,
+                            onPointerUp: onSidebarResizeUp,
+                            onPointerCancel: onSidebarResizeUp,
+                          }
+                        : undefined,
                   },
                   center: { label: "Kanban" },
                   right: { label: "Workbench", visibility: "hidden" },
@@ -995,6 +1008,36 @@ function SessionPage() {
                 chatWidth={hydrated ? chatSidebarWidth : 256}
                 chatMinWidth={CHAT_SIDEBAR_OPEN_MIN_WIDTH}
                 chatMaxWidth={520}
+                workbenchResize={
+                  !isCompactSession && workbenchOpen
+                    ? {
+                        ariaLabel: m.resize_workbench(),
+                        value: splitSize,
+                        min: WORKBENCH_CONTENT_MIN_WIDTH,
+                        max: WORKBENCH_CONTENT_MAX_WIDTH,
+                        onKeyDown: onWorkbenchResizeKeyDown,
+                        onPointerDown: onWorkbenchResizeDown,
+                        onPointerMove: onWorkbenchResizeMove,
+                        onPointerUp: onWorkbenchResizeUp,
+                        onPointerCancel: onWorkbenchResizeUp,
+                      }
+                    : undefined
+                }
+                chatResize={
+                  !isCompactSession
+                    ? {
+                        ariaLabel: m.resize_chat(),
+                        value: chatSidebarWidth,
+                        min: CHAT_SIDEBAR_OPEN_MIN_WIDTH,
+                        max: 520,
+                        onKeyDown: onChatSidebarResizeKeyDown,
+                        onPointerDown: onChatSidebarResizeDown,
+                        onPointerMove: onChatSidebarResizeMove,
+                        onPointerUp: onChatSidebarResizeUp,
+                        onPointerCancel: onChatSidebarResizeUp,
+                      }
+                    : undefined
+                }
                 showChat={chatSidebarOpen}
                 onOpenChat={() => setChatSidebarOpen(true)}
                 header={headerEl}
@@ -1006,17 +1049,7 @@ function SessionPage() {
                 }
                 workbenchContent={
                   <div
-                    ref={workbenchResizeRef}
-                    className={
-                      isCompactSession
-                        ? "relative flex-1 min-w-0"
-                        : "relative shrink-0 overflow-hidden"
-                    }
-                    style={
-                      isCompactSession
-                        ? undefined
-                        : { width: hydrated && workbenchOpen ? splitSize : 0 }
-                    }
+                    className="relative flex-1 min-w-0 overflow-hidden"
                     aria-hidden={!workbenchOpen}
                   >
                     <WorkbenchContent
@@ -1026,23 +1059,6 @@ function SessionPage() {
                       onAddToContext={pushMention}
                       onSendPrompt={pushDraft}
                     />
-                    {!isCompactSession && workbenchOpen && (
-                      <div
-                        role="separator"
-                        aria-orientation="vertical"
-                        aria-label={m.resize_workbench()}
-                        aria-valuemin={220}
-                        aria-valuemax={480}
-                        aria-valuenow={splitSize}
-                        tabIndex={0}
-                        onKeyDown={onWorkbenchResizeKeyDown}
-                        onPointerDown={onWorkbenchResizeDown}
-                        onPointerMove={onWorkbenchResizeMove}
-                        onPointerUp={onWorkbenchResizeUp}
-                        onPointerCancel={onWorkbenchResizeUp}
-                        className={`absolute ${ideWorkbenchSide === "left" ? "right-0" : "left-0"} top-0 z-10 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors`}
-                      />
-                    )}
                   </div>
                 }
                 editor={
@@ -1076,35 +1092,12 @@ function SessionPage() {
                 }
                 chat={
                   <div
-                    ref={chatSidebarRef}
                     className={
                       isCompactSession
-                        ? "relative flex flex-col h-full bg-sidebar"
-                        : `relative shrink-0 flex flex-col h-full border-border/60 bg-sidebar ${sidebarOnRight ? "border-r" : "border-l"}`
-                    }
-                    style={
-                      isCompactSession
-                        ? undefined
-                        : { width: hydrated ? chatSidebarWidth : 256 }
+                        ? "relative flex min-w-0 flex-col h-full bg-sidebar"
+                        : `relative flex min-w-0 flex-col h-full border-border/60 bg-sidebar ${sidebarOnRight ? "border-r" : "border-l"}`
                     }
                   >
-                    {!isCompactSession && (
-                      <div
-                        role="separator"
-                        aria-orientation="vertical"
-                        aria-label={m.resize_chat()}
-                        aria-valuemin={CHAT_SIDEBAR_OPEN_MIN_WIDTH}
-                        aria-valuemax={520}
-                        aria-valuenow={chatSidebarWidth}
-                        tabIndex={0}
-                        onKeyDown={onChatSidebarResizeKeyDown}
-                        onPointerDown={onChatSidebarResizeDown}
-                        onPointerMove={onChatSidebarResizeMove}
-                        onPointerUp={onChatSidebarResizeUp}
-                        onPointerCancel={onChatSidebarResizeUp}
-                        className={`absolute ${sidebarOnRight ? "right-0" : "left-0"} top-0 z-[60] h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/30 transition-colors`}
-                      />
-                    )}
                     <div className="flex-1 min-h-0 min-w-0">
                       {renderChatPanel(
                         true,
@@ -1179,17 +1172,7 @@ function SessionPage() {
                 }
                 right={
                   <div
-                    className={`relative flex min-w-0 shrink-0 min-h-0 flex-row overflow-hidden border-border/60 ${assistantWorkbenchSide === "right" ? "border-l" : "border-r"}`}
-                    style={{
-                      width: assistantWorkbenchVisible
-                        ? splitSize + WORKBENCH_RAIL_WIDTH
-                        : WORKBENCH_RAIL_WIDTH,
-                      minWidth: assistantWorkbenchVisible
-                        ? WORKBENCH_CONTENT_MIN_WIDTH + WORKBENCH_RAIL_WIDTH
-                        : WORKBENCH_RAIL_WIDTH,
-                      maxWidth:
-                        WORKBENCH_CONTENT_MAX_WIDTH + WORKBENCH_RAIL_WIDTH,
-                    }}
+                    className={`relative flex h-full min-w-0 min-h-0 flex-1 flex-row overflow-hidden border-border/60 ${assistantWorkbenchSide === "right" ? "border-l" : "border-r"}`}
                   >
                     {assistantWorkbenchSide === "left" && (
                       <WorkbenchNavBar
@@ -1224,10 +1207,63 @@ function SessionPage() {
                     minWidth: showSidebarPanel
                       ? sessionSidebarWidth
                       : undefined,
+                    resize:
+                      showSidebarPanel && !isSidebarCollapsed
+                        ? {
+                            ariaLabel: m.resize_sidebar(),
+                            value: sidebarWidth,
+                            min: SIDE_COLUMN_MIN_WIDTH,
+                            max: 520,
+                            onKeyDown: (e) => {
+                              if (
+                                e.key !== "ArrowLeft" &&
+                                e.key !== "ArrowRight"
+                              )
+                                return;
+                              e.preventDefault();
+                              setSidebarWidth(
+                                Math.min(
+                                  520,
+                                  Math.max(
+                                    SIDE_COLUMN_MIN_WIDTH,
+                                    sidebarWidth +
+                                      getResizeDelta(
+                                        e.key,
+                                        sidebarOnRight ? "right" : "left",
+                                      ),
+                                  ),
+                                ),
+                              );
+                            },
+                            onPointerDown: onSidebarResizeDown,
+                            onPointerMove: onSidebarResizeMove,
+                            onPointerUp: onSidebarResizeUp,
+                            onPointerCancel: onSidebarResizeUp,
+                          }
+                        : undefined,
                   },
                   center: { label: "Chat" },
                   right: assistantWorkbenchVisible
-                    ? { label: "Workbench", visibility: "visible" }
+                    ? {
+                        label: "Workbench",
+                        visibility: "visible",
+                        width: splitSize + WORKBENCH_RAIL_WIDTH,
+                        minWidth:
+                          WORKBENCH_CONTENT_MIN_WIDTH + WORKBENCH_RAIL_WIDTH,
+                        maxWidth:
+                          WORKBENCH_CONTENT_MAX_WIDTH + WORKBENCH_RAIL_WIDTH,
+                        resize: {
+                          ariaLabel: m.resize_workbench(),
+                          value: splitSize,
+                          min: WORKBENCH_CONTENT_MIN_WIDTH,
+                          max: WORKBENCH_CONTENT_MAX_WIDTH,
+                          onKeyDown: onWorkbenchResizeKeyDown,
+                          onPointerDown: onWorkbenchResizeDown,
+                          onPointerMove: onWorkbenchResizeMove,
+                          onPointerUp: onWorkbenchResizeUp,
+                          onPointerCancel: onWorkbenchResizeUp,
+                        },
+                      }
                     : {
                         label: "Workbench",
                         visibility: "collapsed",

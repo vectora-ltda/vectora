@@ -1211,6 +1211,7 @@
   "app_name": "Vectora",
   "resize_workbench": "Cambiar tamaño del workbench",
   "resize_chat": "Cambiar tamaño del chat",
+  "resize_sidebar": "Cambiar tamaño de la barra lateral",
   "toast_notifications": "Notificaciones",
   "chat_copy": "Copiar",
   "chat_rag_sources": "{count} fuente(s)",

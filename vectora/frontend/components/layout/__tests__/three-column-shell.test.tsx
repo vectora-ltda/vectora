@@ -138,6 +138,58 @@ describe("ThreeColumnShell", () => {
     });
   });
 
+  it("expõe o mesmo handle de resize para qualquer coluna lateral", () => {
+    const onPointerDown = vi.fn();
+    const onPointerMove = vi.fn();
+    const onPointerUp = vi.fn();
+    const onPointerCancel = vi.fn();
+    const onKeyDown = vi.fn();
+
+    render(
+      <ThreeColumnShell
+        centerHeader={<header />}
+        left={<div />}
+        center={<div />}
+        right={<div data-testid="workbench" />}
+        columns={{
+          left: { label: "Sessões" },
+          center: { label: "Canvas" },
+          right: {
+            label: "Workbench",
+            width: 368,
+            minWidth: 268,
+            maxWidth: 528,
+            resize: {
+              ariaLabel: "Redimensionar workbench",
+              value: 320,
+              min: 220,
+              max: 480,
+              onKeyDown,
+              onPointerDown,
+              onPointerMove,
+              onPointerUp,
+              onPointerCancel,
+            },
+          },
+        }}
+      />,
+    );
+
+    const separator = screen.getByRole("separator", {
+      name: "Redimensionar workbench",
+    });
+    fireEvent.pointerDown(separator);
+    fireEvent.pointerMove(separator);
+    fireEvent.pointerUp(separator);
+    fireEvent.keyDown(separator, { key: "ArrowLeft" });
+
+    expect(onPointerDown).toHaveBeenCalled();
+    expect(onPointerMove).toHaveBeenCalled();
+    expect(onPointerUp).toHaveBeenCalled();
+    expect(onKeyDown).toHaveBeenCalled();
+    expect(separator).toHaveAttribute("aria-valuenow", "320");
+  });
+
   it("inverte a ordem física das rails sem mover o header do centro", () => {
     render(
       <ThreeColumnShell
