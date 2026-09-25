@@ -160,7 +160,9 @@ function SessionPage() {
   const activateCanvasDocument = useWindowsStore(
     (s) => s.activateCanvasDocument,
   );
-  const closeCanvasDocument = useWindowsStore((s) => s.closeCanvasDocument);
+  const closeCanvasDocument = useWindowsStore(
+    (s) => s.closeCanvasDocumentAndDockedTab,
+  );
 
   // Painel do workbench: visível e redimensionável via workbench-store. O gate
   // de hidratação evita divergência SSR/cliente do estado persistido.

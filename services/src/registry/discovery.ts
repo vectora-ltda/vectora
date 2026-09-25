@@ -66,7 +66,29 @@ async function recordSyncState(
   token?: string,
 ): Promise<void> {
   try {
-    if (token && !(await isCurrentSyncRun(env, source, token))) return;
+    if (token) {
+      await env.DB.prepare(
+        `INSERT INTO registry_sync_state
+           (source, status, last_synced_at, last_error)
+         SELECT ?, ?, CASE WHEN ? = 'ready' THEN datetime('now') ELSE NULL END, ?
+         WHERE EXISTS (
+             SELECT 1 FROM registry_sync_runs
+             WHERE source = ? AND token = ?
+         )
+         ON CONFLICT(source) DO UPDATE SET
+           status = excluded.status,
+           last_synced_at = CASE WHEN excluded.status = 'ready' THEN excluded.last_synced_at ELSE registry_sync_state.last_synced_at END,
+           last_error = excluded.last_error,
+           updated_at = datetime('now')
+         WHERE EXISTS (
+           SELECT 1 FROM registry_sync_runs
+           WHERE source = ? AND token = ?
+         )`,
+      )
+        .bind(source, status, status, error, source, token, source, token)
+        .run();
+      return;
+    }
     await env.DB.prepare(
       `INSERT INTO registry_sync_state (source, status, last_synced_at, last_error)
        VALUES (?, ?, CASE WHEN ? = 'ready' THEN datetime('now') ELSE NULL END, ?)
@@ -537,20 +559,32 @@ export async function discoverSkills(
     const description = repo.description ?? "";
     const source = repo.html_url ?? `https://github.com/${id}`;
     try {
-      await env.DB.prepare(
+      const writeResult = await env.DB.prepare(
         `INSERT INTO skills_catalog
            (id, name, description, source, tags, vectora_verified, catalog_source)
-         VALUES (?, ?, ?, ?, '[]', 0, 'github')
+         SELECT ?, ?, ?, ?, '[]', 0, 'github'
+         WHERE EXISTS (
+           SELECT 1 FROM registry_sync_runs
+           WHERE source = 'skills' AND token = ?
+         )
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name,
            description = excluded.description,
            source = excluded.source,
            updated_at = datetime('now')
-         WHERE skills_catalog.catalog_source != 'curated'`,
+         WHERE skills_catalog.catalog_source != 'curated'
+           AND EXISTS (
+             SELECT 1 FROM registry_sync_runs
+             WHERE source = 'skills' AND token = ?
+           )`,
       )
-        .bind(id, name, description, source)
+        .bind(id, name, description, source, runToken, runToken)
         .run();
-      upserted++;
+      if ((writeResult.meta?.changes ?? 0) > 0) {
+        upserted++;
+      } else if (!(await isCurrentSyncRun(env, "skills", runToken))) {
+        return upserted;
+      }
     } catch (error) {
       failed++;
       const cause = error instanceof Error ? error.message : String(error);

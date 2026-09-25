@@ -496,6 +496,21 @@ describe("windows-store — documentos do Canvas", () => {
 });
 
 describe("windows-store — docked editor (IDE mode)", () => {
+  it("fecha uma aba de arquivo no Canvas e no editor docked juntos", () => {
+    s().openDocked("ws1", "src/main.ts");
+    s().openDocked("ws1", "src/utils.ts");
+    s().setDockedActiveTab("src/main.ts");
+
+    s().closeCanvasDocumentAndDockedTab("file:ws1:src/main.ts");
+
+    expect(s().dockedTabs).toEqual(["src/utils.ts"]);
+    expect(s().dockedActiveTab).toBe("src/utils.ts");
+    expect(s().canvasDocuments.map((document) => document.id)).toEqual([
+      "file:ws1:src/utils.ts",
+    ]);
+    expect(s().activeCanvasDocumentId).toBe("file:ws1:src/utils.ts");
+  });
+
   it("openDocked — workspace novo: inicializa com workspace + tab", () => {
     s().openDocked("ws1", "src/main.ts");
     expect(s().dockedWorkspaceId).toBe("ws1");

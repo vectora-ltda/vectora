@@ -106,6 +106,7 @@ interface WindowsState {
   openCanvasDocument: (document: CanvasDocumentDescriptor) => void;
   activateCanvasDocument: (id: string) => void;
   closeCanvasDocument: (id: string) => void;
+  closeCanvasDocumentAndDockedTab: (id: string) => void;
   closeCanvasDocumentModal: (id: string) => void;
   clearCanvasDocumentsForWorkspace: (workspaceId: string) => void;
 }
@@ -230,6 +231,47 @@ export const useWindowsStore = create<WindowsState>()(
               s.activeCanvasDocumentId === id
                 ? (documents.at(-1)?.id ?? null)
                 : s.activeCanvasDocumentId,
+          };
+        }),
+
+      closeCanvasDocumentAndDockedTab: (id) =>
+        set((s) => {
+          const document = s.canvasDocuments.find((item) => item.id === id);
+          const closesDockedTab = Boolean(
+            document?.kind === "file" &&
+            document.path &&
+            document.workspaceId === s.dockedWorkspaceId &&
+            s.dockedTabs.includes(document.path),
+          );
+          const documents = s.canvasDocuments.filter((item) => item.id !== id);
+          if (!closesDockedTab || !document?.path) {
+            return {
+              canvasDocuments: documents,
+              activeCanvasDocumentId:
+                s.activeCanvasDocumentId === id
+                  ? (documents.at(-1)?.id ?? null)
+                  : s.activeCanvasDocumentId,
+            };
+          }
+          const tabs = s.dockedTabs.filter((path) => path !== document.path);
+          const activeTab =
+            s.dockedActiveTab === document.path
+              ? (tabs[Math.max(0, s.dockedTabs.indexOf(document.path) - 1)] ??
+                tabs[0] ??
+                null)
+              : s.dockedActiveTab;
+          const activeCanvasDocumentId =
+            s.activeCanvasDocumentId === id
+              ? activeTab && s.dockedWorkspaceId
+                ? `file:${s.dockedWorkspaceId}:${activeTab}`
+                : (documents.at(-1)?.id ?? null)
+              : s.activeCanvasDocumentId;
+          return {
+            dockedTabs: tabs,
+            dockedActiveTab: activeTab,
+            dockedWorkspaceId: tabs.length > 0 ? s.dockedWorkspaceId : null,
+            canvasDocuments: documents,
+            activeCanvasDocumentId,
           };
         }),
 

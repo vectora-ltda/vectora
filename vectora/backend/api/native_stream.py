@@ -280,7 +280,7 @@ def stream_engine_events(
                             pending: asyncio.Task[Any], q: asyncio.Queue[Any]
                         ) -> None:
                             try:
-                                first_item: Any = None
+                                first_item: object | None = None
                                 with contextlib.suppress(Exception):
                                     first_item = await pending
                                 if first_item is _SENTINEL:

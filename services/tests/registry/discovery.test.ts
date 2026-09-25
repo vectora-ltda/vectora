@@ -382,7 +382,7 @@ describe("discoverSkills", () => {
       GITHUB_TOKEN: "gh-test-token",
     });
 
-    expect(count).toBe(2);
+    expect(count).toBe(1);
 
     const curated = await env.DB.prepare(
       "SELECT description, catalog_source FROM skills_catalog WHERE id = 'example/curated-skill'",
