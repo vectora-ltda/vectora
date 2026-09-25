@@ -7,6 +7,7 @@
 
 import {
   Children,
+  isValidElement,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -189,13 +190,26 @@ function ControlGroup({
 }) {
   const groupRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const spacerRef = useRef<HTMLDivElement>(null);
+  const [spacerActive, setSpacerActive] = useState(false);
 
   const measureAndBalance = useCallback(() => {
     const group = groupRef.current;
     const items = itemRefs.current.filter(
       (item): item is HTMLDivElement => item !== null,
     );
+    const spacer = spacerRef.current;
     if (!group || items.length === 0 || group.clientWidth <= 0) return;
+
+    // O spacer só participa do layout depois que sabemos que os controles
+    // cabem em suas larguras naturais. Medimos primeiro sem ele para evitar
+    // que a própria sobra altere o orçamento usado nessa decisão.
+    const previousSpacerStyle = spacer?.style.cssText;
+    if (spacer) {
+      spacer.style.display = "none";
+      spacer.style.flex = "0 0 0px";
+      spacer.style.width = "0px";
+    }
 
     // Os controles podem conter um botão aninhado com `max-w-full`/`w-fit`
     // (principalmente o seletor de modelo). Remover essas restrições também
@@ -222,45 +236,53 @@ function ControlGroup({
       0,
       group.clientWidth - computedGap * Math.max(0, items.length - 1),
     );
-    if (compact) {
-      const naturalTextWidths = items.map((item) => {
-        const label = item.querySelector<HTMLElement>(
-          "[data-compact-control-label]",
-        );
-        return label ? Math.ceil(label.getBoundingClientRect().width) : 0;
-      });
-      measurableElements.forEach((element, index) => {
-        element.style.cssText = previousStyles[index] ?? "";
-      });
-      const fixedWidths = naturalWidths.map((width, index) =>
-        Math.max(0, width - naturalTextWidths[index]),
+    const naturalTextWidths = items.map((item) => {
+      const label = item.querySelector<HTMLElement>(
+        "[data-compact-control-label]",
       );
-      const textBudget = Math.max(
-        0,
-        availableWidth - fixedWidths.reduce((sum, width) => sum + width, 0),
-      );
-      const balancedTextWidths = balanceCompactControlWidths(
-        naturalTextWidths,
-        textBudget,
-      );
-      items.forEach((item, index) => {
-        item.style.width = `${fixedWidths[index] + balancedTextWidths[index]}px`;
-      });
-      return;
+      return label ? Math.ceil(label.getBoundingClientRect().width) : 0;
+    });
+    const fixedWidths = naturalWidths.map((width, index) =>
+      Math.max(0, width - naturalTextWidths[index]),
+    );
+    const naturalTextBudget = Math.max(
+      0,
+      availableWidth - fixedWidths.reduce((sum, width) => sum + width, 0),
+    );
+    const fitsNaturally =
+      !compact &&
+      naturalTextBudget >=
+        naturalTextWidths.reduce((sum, width) => sum + width, 0);
+    if (!compact && spacerActive !== fitsNaturally) {
+      setSpacerActive(fitsNaturally);
     }
 
+    // Compacto e wide usam o mesmo contrato: somente a área textual é
+    // redimensionável. Ícones, chevrons, gaps e padding permanecem fixos.
     measurableElements.forEach((element, index) => {
       element.style.cssText = previousStyles[index] ?? "";
     });
-
-    const balancedWidths = balanceCompactControlWidths(
-      naturalWidths,
-      availableWidth,
+    const textBudget = Math.max(
+      0,
+      availableWidth - fixedWidths.reduce((sum, width) => sum + width, 0),
+    );
+    const balancedTextWidths = balanceCompactControlWidths(
+      naturalTextWidths,
+      textBudget,
     );
     items.forEach((item, index) => {
-      item.style.width = `${balancedWidths[index]}px`;
+      const textWidth = fitsNaturally
+        ? naturalTextWidths[index]
+        : balancedTextWidths[index];
+      item.style.width = `${fixedWidths[index] + textWidth}px`;
     });
-  }, [compact]);
+    if (spacer) {
+      spacer.style.cssText = previousSpacerStyle ?? "";
+      spacer.style.display = fitsNaturally ? "" : "none";
+      spacer.style.flex = fitsNaturally ? "1 1 auto" : "0 0 0px";
+      spacer.style.width = fitsNaturally ? "auto" : "0px";
+    }
+  }, [compact, spacerActive]);
 
   useLayoutEffect(() => {
     measureAndBalance();
@@ -289,17 +311,31 @@ function ControlGroup({
       data-testid={compact ? "compact-control-group" : "wide-control-group"}
       className={`flex min-w-0 flex-1 items-center overflow-hidden ${compact ? "gap-1" : "gap-2"}`}
     >
-      {Children.toArray(children).map((child, index) => (
-        <div
-          key={index}
-          ref={(item) => {
-            itemRefs.current[index] = item;
-          }}
-          className="min-w-0 shrink-0 overflow-hidden"
-        >
-          {child}
-        </div>
-      ))}
+      {Children.toArray(children).map((child, index) => {
+        const isSpacer =
+          isValidElement<{ "data-control-spacer"?: boolean }>(child) &&
+          child.props["data-control-spacer"] === true;
+        return (
+          <div
+            key={index}
+            ref={(item) => {
+              if (isSpacer) {
+                spacerRef.current = item;
+              } else {
+                itemRefs.current[index] = item;
+              }
+            }}
+            data-testid={isSpacer ? "wide-control-spacer" : undefined}
+            className={
+              isSpacer
+                ? `min-w-0 flex-1 ${spacerActive ? "" : "hidden"}`
+                : "min-w-0 shrink-0 overflow-hidden"
+            }
+          >
+            {child}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -771,6 +807,7 @@ export function ChatInput({
               >
                 <ControlGroup compact={false}>
                   <PermissionModeMenu />
+                  <div data-control-spacer aria-hidden="true" />
                   <EffortMenu />
                   {agentConfig && onAgentConfigChange && (
                     <div
