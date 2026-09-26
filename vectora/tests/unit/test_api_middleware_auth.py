@@ -305,6 +305,15 @@ class TestAuthMiddlewareIntegration:
 
         assert response.status_code == 401
 
+    def test_memory_bucket_install_requires_authentication(
+        self, auth_client: TestClient
+    ) -> None:
+        response = auth_client.post(
+            "/memory-buckets/install", json={"bucket_id": "public-demo"}
+        )
+
+        assert response.status_code == 401
+
     def test_tool_usage_contract_is_user_scoped_and_redacted(
         self, auth_client, monkeypatch
     ):

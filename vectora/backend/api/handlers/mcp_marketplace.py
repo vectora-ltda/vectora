@@ -100,7 +100,7 @@ class MCPConnector(BaseModel):
     publisher_url: str | None = None
     stars_count: int = 0
     downloads_count: int = 0
-    transport: str = "stdio"
+    transport: Literal["stdio", "http", "sse"] = "stdio"
     runtime_hint: str | None = None
     package_identifier: str | None = None
     server_url: str | None = None

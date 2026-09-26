@@ -429,6 +429,44 @@ describe("windows-store — documentos do Canvas", () => {
     expect(migrated.activeCanvasDocumentId).toBe("file:ws1:src/main.ts");
   });
 
+  it("reidrata previews sem workspace e mantém o documento ativo", () => {
+    const migrate = useWindowsStore.persist.getOptions().migrate!;
+    const migrated = migrate(
+      {
+        windows: [],
+        topZ: 120,
+        canvasDocuments: [
+          {
+            id: "mcp:thread-1:library-item",
+            kind: "mcp-preview",
+            workspaceId: null,
+            threadId: "thread-1",
+            title: "Library item",
+            mcp: {
+              id: "library-item",
+              name: "Library item",
+              description: "A source-less preview",
+              installCommand: "install",
+              envVars: [],
+              homepage: "https://example.com",
+              category: "tools",
+            },
+          },
+        ],
+        activeCanvasDocumentId: "mcp:thread-1:library-item",
+      },
+      0,
+    ) as Record<string, unknown>;
+
+    expect(migrated.canvasDocuments).toEqual([
+      expect.objectContaining({
+        id: "mcp:thread-1:library-item",
+        workspaceId: null,
+      }),
+    ]);
+    expect(migrated.activeCanvasDocumentId).toBe("mcp:thread-1:library-item");
+  });
+
   it("rejeita documentos com tipo não suportado", () => {
     const migrate = useWindowsStore.persist.getOptions().migrate!;
     const migrated = migrate(
@@ -496,6 +534,43 @@ describe("windows-store — documentos do Canvas", () => {
 });
 
 describe("windows-store — docked editor (IDE mode)", () => {
+  it("fecha uma aba de arquivo no Canvas e no editor docked juntos", () => {
+    s().openDocked("ws1", "src/main.ts");
+    s().openDocked("ws1", "src/utils.ts");
+    s().setDockedActiveTab("src/main.ts");
+
+    s().closeCanvasDocumentAndDockedTab("file:ws1:src/main.ts");
+
+    expect(s().dockedTabs).toEqual(["src/utils.ts"]);
+    expect(s().dockedActiveTab).toBe("src/utils.ts");
+    expect(s().canvasDocuments.map((document) => document.id)).toEqual([
+      "file:ws1:src/utils.ts",
+    ]);
+    expect(s().activeCanvasDocumentId).toBe("file:ws1:src/utils.ts");
+  });
+
+  it("ignora um identificador vazio sem alterar Canvas nem editor docked", () => {
+    s().openDocked("ws1", "src/main.ts");
+    s().openDocked("ws1", "src/utils.ts");
+    s().setDockedActiveTab("src/main.ts");
+
+    const before = {
+      dockedWorkspaceId: s().dockedWorkspaceId,
+      dockedTabs: [...s().dockedTabs],
+      dockedActiveTab: s().dockedActiveTab,
+      canvasDocuments: [...s().canvasDocuments],
+      activeCanvasDocumentId: s().activeCanvasDocumentId,
+    };
+
+    s().closeCanvasDocumentAndDockedTab("");
+
+    expect(s().dockedWorkspaceId).toBe(before.dockedWorkspaceId);
+    expect(s().dockedTabs).toEqual(before.dockedTabs);
+    expect(s().dockedActiveTab).toBe(before.dockedActiveTab);
+    expect(s().canvasDocuments).toEqual(before.canvasDocuments);
+    expect(s().activeCanvasDocumentId).toBe(before.activeCanvasDocumentId);
+  });
+
   it("openDocked — workspace novo: inicializa com workspace + tab", () => {
     s().openDocked("ws1", "src/main.ts");
     expect(s().dockedWorkspaceId).toBe("ws1");

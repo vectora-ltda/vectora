@@ -107,6 +107,9 @@ handler):
   `update_telemetry`, `telemetry_ingest`, `rag_reindex`; DLQ
   `vectora-jobs-dlq`.
 
+O preflight acima prepara bancos existentes para receber o schema completo e as
+operações de registry descritas a seguir.
+
 ### Schema D1
 
 `migrations/0001_schema.sql` é a única migration SQL do serviço. Ela declara o

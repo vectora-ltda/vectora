@@ -11,9 +11,10 @@ export function balanceCompactControlWidths(
     (sum, width) => sum + width,
     0,
   );
-  if (availableWidth >= totalNaturalWidth || availableWidth <= 0) {
+  if (availableWidth >= totalNaturalWidth) {
     return naturalWidths;
   }
+  if (availableWidth <= 0) return naturalWidths.map(() => 0);
 
   let low = 0;
   let high = Math.max(...naturalWidths);

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -10,8 +10,9 @@ from pydantic import BaseModel, ConfigDict, Field
 class GitContract(BaseModel):
     """Modelo imutável que também oferece leitura compatível com mappings."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
+    # Any is intentional: this compatibility boundary mirrors dynamic JSON access.
     def __getitem__(self, key: str) -> Any:
         """Compatibilidade de leitura para callers JSON legados.
 
@@ -21,6 +22,7 @@ class GitContract(BaseModel):
         """
         return getattr(self, key)
 
+    # Any is intentional: legacy mapping callers expect the stored field type.
     def get(self, key: str, default: object = None) -> Any:
         """Lê um campo opcional para callers JSON legados.
 
@@ -87,3 +89,6 @@ class GitOperationSnapshot(GitContract):
     error: str | None = None
     created_at: float
     finished_at: float | None = None
+
+
+GitStatusSnapshot.model_rebuild()

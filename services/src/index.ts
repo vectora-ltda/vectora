@@ -63,6 +63,8 @@ servicesApp.route("/api-keys", apiKeys);
 servicesApp.route("/gha-bot", ghaBot);
 servicesApp.route("/issues", issues);
 servicesApp.route("/memory-buckets", ragLibrary);
+// Compatibilidade com URLs persistidas antes da renomeação de rag-library.
+servicesApp.route("/rag-library", ragLibrary);
 servicesApp.route("/registry", registry);
 servicesApp.route("/telemetry", telemetry);
 // updates/worker.ts mesclado na raiz, sem prefixo: /download/*, /updates/*,
@@ -72,17 +74,10 @@ servicesApp.get("/health", (c) =>
   c.json({ ok: true, server: "vectora-services" }),
 );
 
-// Handler global de erro — achado da auditoria de segurança de
-// 2026-08-30: a maioria dos módulos de rota (gdpr, memory-buckets,
-// telemetry, oauth, profile, license, gha-bot) não tinha try/catch
-// nenhum em I/O (D1/KV/fetch externo), e só 2 arquivos em todo o repo
-// logavam algo — uma falha de rede virava um 500 genérico do runtime,
-// sem nenhum registro correlacionável em produção. Um onError central
-// no app inteiro cobre TODO handler de uma vez (Hono já intercepta
-// exceção não capturada e chama isto antes de devolver a resposta) —
-// mais robusto que espalhar try/catch repetido em cada rota, e não
-// exige tocar nos 7 módulos individualmente pra ganhar observabilidade
-// real.
+// Handler global de erro: centraliza o registro estruturado e a resposta
+// segura para exceções que escapem dos handlers de rota. Assim, falhas de
+// D1, KV ou serviços externos continuam correlacionáveis sem expor detalhes
+// internos ao cliente e sem duplicar o mesmo try/catch em cada módulo.
 servicesApp.onError((err, c) => {
   console.error("unhandled_error", {
     method: c.req.method,

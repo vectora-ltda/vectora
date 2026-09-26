@@ -28,12 +28,12 @@ export function VoiceInputButton({
   compact = false,
 }: VoiceInputButtonProps) {
   const dimensions = compact
-    ? "h-7 w-7"
+    ? "h-6 w-auto"
     : size === "sm"
       ? "h-9 w-9"
       : "h-10 w-10";
   const iconSize = compact
-    ? "w-3.5 h-3.5"
+    ? "size-3"
     : size === "sm"
       ? "w-4 h-4"
       : "w-4.5 h-4.5";
@@ -48,7 +48,7 @@ export function VoiceInputButton({
           size="sm"
           disabled={disabled}
           className={`
-            group ${dimensions} p-0 rounded-full flex-shrink-0
+            group ${dimensions} !px-0 rounded-full flex-shrink-0
             transition-all duration-200 hover:scale-105 active:scale-95 border-0
             ${isListening ? "bg-muted text-primary hover:text-primary hover:bg-muted/80 border-2 border-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/60"}
           `}

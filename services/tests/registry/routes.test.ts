@@ -86,6 +86,21 @@ describe("GET /registry/mcp", () => {
     const body = await res.json<{ entries: Array<{ id: string }> }>();
     expect(body.entries.map((e) => e.id)).toEqual(["postgres"]);
   });
+
+  it("trata filtros vazios como ausência de filtro", async () => {
+    await env.DB.prepare(
+      "UPDATE mcp_catalog SET catalog_source = 'official', catalog_status = 'active' WHERE id = 'github'",
+    ).run();
+    const baseline = await registry.request("/mcp", {}, env);
+    const res = await registry.request("/mcp?q=&category=", {}, env);
+    expect(res.status).toBe(200);
+    const filtered = await res.json<{ entries: unknown[] }>();
+    const unfiltered = await baseline.json<{ entries: unknown[] }>();
+    expect(unfiltered.entries).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "github" })]),
+    );
+    expect(filtered.entries).toEqual(unfiltered.entries);
+  });
 });
 
 describe("GET /registry/skills", () => {
@@ -176,6 +191,22 @@ describe("GET /registry/skills", () => {
     const body = await res.json<{ entries: Array<{ name: string }> }>();
 
     expect(body.entries.map((e) => e.name)).toEqual(["A"]);
+  });
+
+  it("trata filtros vazios de skills como ausência de filtro", async () => {
+    const visibleId = await makeSkill({
+      id: "empty-filter-visible-skill",
+      name: "Visible empty filter skill",
+    });
+    const baseline = await registry.request("/skills", {}, env);
+    const res = await registry.request("/skills?q=&category=&tags=", {}, env);
+    expect(res.status).toBe(200);
+    const filtered = await res.json<{ entries: unknown[] }>();
+    const unfiltered = await baseline.json<{ entries: unknown[] }>();
+    expect(unfiltered.entries).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: visibleId })]),
+    );
+    expect(filtered.entries).toEqual(unfiltered.entries);
   });
 
   it("colapsa múltiplas versões do mesmo package_name na versão mais recente", async () => {
@@ -281,6 +312,32 @@ describe("GET /registry/extensions", () => {
     const res = await registry.request("/extensions", {}, env);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ entries: [] });
+  });
+});
+
+describe("GET /registry/status/:source", () => {
+  it("sanitiza detalhes internos do erro de sincronização", async () => {
+    await env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS registry_sync_state (
+        source TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        last_synced_at TEXT,
+        last_error TEXT
+      )`,
+    ).run();
+    await env.DB.prepare(
+      `INSERT INTO registry_sync_state (source, status, last_error)
+       VALUES ('skills', 'unavailable', 'skills_sync_failed:1:constraint details')
+       ON CONFLICT(source) DO UPDATE SET status = excluded.status, last_error = excluded.last_error`,
+    ).run();
+
+    const res = await registry.request("/status/skills", {}, env);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      source: "skills",
+      status: "unavailable",
+      error: "skills_sync_failed",
+    });
   });
 });
 

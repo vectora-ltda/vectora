@@ -382,7 +382,7 @@ describe("discoverSkills", () => {
       GITHUB_TOKEN: "gh-test-token",
     });
 
-    expect(count).toBe(2);
+    expect(count).toBe(1);
 
     const curated = await env.DB.prepare(
       "SELECT description, catalog_source FROM skills_catalog WHERE id = 'example/curated-skill'",
@@ -407,6 +407,56 @@ describe("discoverSkills", () => {
     });
 
     expect(count).toBe(0);
+  });
+
+  it("registra a skill e a causa quando uma escrita do catálogo falha", async () => {
+    await env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS registry_sync_state (
+        source TEXT PRIMARY KEY,
+        status TEXT NOT NULL DEFAULT 'never',
+        last_synced_at TEXT,
+        last_error TEXT,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )`,
+    ).run();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              items: [
+                {
+                  repository: {
+                    full_name: "broken/skill",
+                    name: "skill quebrada",
+                    description: "d",
+                    html_url: "https://github.com/broken/skill",
+                  },
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    const originalPrepare = env.DB.prepare.bind(env.DB);
+    vi.spyOn(env.DB, "prepare").mockImplementation((query: string) => {
+      if (query.includes("INSERT INTO skills_catalog")) {
+        throw new Error("constraint failed");
+      }
+      return originalPrepare(query);
+    });
+
+    await expect(
+      discoverSkills({ ...env, GITHUB_TOKEN: "gh-test-token" }),
+    ).resolves.toBe(0);
+
+    const state = await env.DB.prepare(
+      "SELECT status, last_error FROM registry_sync_state WHERE source = 'skills'",
+    ).first<{ status: string; last_error: string }>();
+    expect(state?.status).toBe("unavailable");
+    expect(state?.last_error).toBe("skills_sync_failed:1");
   });
 });
 

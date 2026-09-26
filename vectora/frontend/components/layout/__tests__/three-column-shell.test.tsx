@@ -117,6 +117,79 @@ describe("ThreeColumnShell", () => {
     expect(sessions).not.toHaveClass("min-w-60");
   });
 
+  it("aplica o mesmo contrato de rail estreita a uma coluna visível", () => {
+    render(
+      <ThreeColumnShell
+        centerHeader={<header />}
+        left={<div />}
+        center={<div />}
+        right={null}
+        columns={{
+          left: { label: "Sessões", width: 64, minWidth: 64 },
+          center: { label: "Chat" },
+          right: { label: "Workbench", visibility: "hidden" },
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("complementary", { name: "Sessões" })).toHaveStyle({
+      width: "64px",
+      minWidth: "64px",
+    });
+  });
+
+  it("expõe o mesmo handle de resize para qualquer coluna lateral", () => {
+    const onPointerDown = vi.fn();
+    const onPointerMove = vi.fn();
+    const onPointerUp = vi.fn();
+    const onPointerCancel = vi.fn();
+    const onKeyDown = vi.fn();
+
+    render(
+      <ThreeColumnShell
+        centerHeader={<header />}
+        left={<div />}
+        center={<div />}
+        right={<div data-testid="workbench" />}
+        columns={{
+          left: { label: "Sessões" },
+          center: { label: "Canvas" },
+          right: {
+            label: "Workbench",
+            width: 368,
+            minWidth: 268,
+            maxWidth: 528,
+            resize: {
+              ariaLabel: "Redimensionar workbench",
+              value: 320,
+              min: 220,
+              max: 480,
+              onKeyDown,
+              onPointerDown,
+              onPointerMove,
+              onPointerUp,
+              onPointerCancel,
+            },
+          },
+        }}
+      />,
+    );
+
+    const separator = screen.getByRole("separator", {
+      name: "Redimensionar workbench",
+    });
+    fireEvent.pointerDown(separator);
+    fireEvent.pointerMove(separator);
+    fireEvent.pointerUp(separator);
+    fireEvent.keyDown(separator, { key: "ArrowLeft" });
+
+    expect(onPointerDown).toHaveBeenCalled();
+    expect(onPointerMove).toHaveBeenCalled();
+    expect(onPointerUp).toHaveBeenCalled();
+    expect(onKeyDown).toHaveBeenCalled();
+    expect(separator).toHaveAttribute("aria-valuenow", "320");
+  });
+
   it("inverte a ordem física das rails sem mover o header do centro", () => {
     render(
       <ThreeColumnShell
@@ -196,12 +269,46 @@ describe("ThreeColumnShell", () => {
         name: "Workbench",
       });
       expect(workbench).toHaveStyle({ width: "48px" });
-      expect(screen.queryByTestId("workbench-content")).not.toBeInTheDocument();
+      expect(screen.getByTestId("workbench-content")).toBeInTheDocument();
+      expect(screen.getByTestId("workbench-content").parentElement).toHaveClass(
+        "invisible",
+      );
       expect(screen.getByRole("main")).toContainElement(
         screen.getByTestId("header"),
       );
     },
   );
+
+  it("aplica à rail direita o mesmo fundo e altura integral da rail esquerda", () => {
+    render(
+      <ThreeColumnShell
+        centerHeader={<header />}
+        left={<div />}
+        center={<div />}
+        right={<div />}
+        columns={{
+          left: {
+            label: "Sessões",
+            visibility: "collapsed",
+            onExpand: () => undefined,
+          },
+          center: { label: "Canvas" },
+          right: {
+            label: "Chat",
+            visibility: "collapsed",
+            onExpand: () => undefined,
+          },
+        }}
+      />,
+    );
+
+    const rails = screen.getAllByRole("complementary");
+    expect(rails).toHaveLength(2);
+    for (const rail of rails) {
+      expect(rail).toHaveClass("bg-sidebar");
+      expect(rail.firstElementChild).toHaveClass("h-full");
+    }
+  });
 
   it.each([
     ["ltr", "left"],
@@ -235,4 +342,51 @@ describe("ThreeColumnShell", () => {
       ).toHaveStyle({ width: "328px" });
     },
   );
+
+  it("mantém as colunas laterais abertas em pelo menos 240px e preserva a rail fechada", () => {
+    const { rerender } = render(
+      <ThreeColumnShell
+        centerHeader={<header />}
+        left={<div />}
+        center={<div />}
+        right={<div data-testid="chat" />}
+        columns={{
+          left: { label: "Workbench" },
+          center: { label: "Canvas" },
+          right: { label: "Chat", width: 180, minWidth: 0 },
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByRole("complementary", { name: "Workbench" }),
+    ).toHaveStyle({
+      minWidth: "240px",
+    });
+    expect(screen.getByRole("complementary", { name: "Chat" })).toHaveStyle({
+      minWidth: "240px",
+    });
+
+    rerender(
+      <ThreeColumnShell
+        centerHeader={<header />}
+        left={<div />}
+        center={<div />}
+        right={<div data-testid="chat" />}
+        columns={{
+          left: { label: "Workbench" },
+          center: { label: "Canvas" },
+          right: {
+            label: "Chat",
+            visibility: "collapsed",
+            onExpand: () => undefined,
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("complementary", { name: "Chat" })).toHaveStyle({
+      width: "48px",
+    });
+  });
 });

@@ -22,7 +22,7 @@ from collections.abc import Mapping, Sequence
 from typing import Literal, TypedDict
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from backend.services import registry_client
 from backend.services.importers import preview_skill_config
@@ -52,6 +52,14 @@ class CatalogSkillInstallRequest(BaseModel):
     target: str | None = None
     workspace_id: str | None = None
     confirm_unverified: bool = False
+
+    @field_validator("target", "workspace_id", mode="before")
+    @classmethod
+    def normalize_optional_identifier(cls, value: object) -> object:
+        """Treat blank form values as omitted optional identifiers."""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
 
 class SkillsListResponse(TypedDict):

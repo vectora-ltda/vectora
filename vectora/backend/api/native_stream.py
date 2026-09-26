@@ -161,6 +161,16 @@ def stream_engine_events(
 
         run_lock = _workspace_run_lock(workspace_id) if workspace_id else None
         lock_guard_active = False
+        lock_transferred = False
+
+        def _release_workspace_lock() -> None:
+            if run_lock is not None and run_lock.locked():
+                run_lock.release()
+                if workspace_id and _workspace_run_locks.get(workspace_id) is run_lock:
+                    waiters = getattr(run_lock, "_waiters", None)
+                    if not waiters:
+                        _workspace_run_locks.pop(workspace_id, None)
+
         if run_lock is not None:
             await run_lock.acquire()
             lock_guard_active = True
@@ -269,19 +279,26 @@ def stream_engine_events(
                         async def _consume_remainder(
                             pending: asyncio.Task[Any], q: asyncio.Queue[Any]
                         ) -> None:
-                            with contextlib.suppress(Exception):
-                                await pending
-                            with contextlib.suppress(Exception):
-                                while True:
-                                    item = await q.get()
-                                    if item is _SENTINEL:
-                                        break
+                            try:
+                                first_item: object | None = None
+                                with contextlib.suppress(Exception):
+                                    first_item = await pending
+                                if first_item is _SENTINEL:
+                                    return
+                                with contextlib.suppress(Exception):
+                                    while True:
+                                        item = await q.get()
+                                        if item is _SENTINEL:
+                                            break
+                            finally:
+                                _release_workspace_lock()
 
                         remainder = asyncio.create_task(
                             _consume_remainder(next_task, queue)
                         )
                         background_tasks.add(remainder)
                         remainder.add_done_callback(background_tasks.discard)
+                        lock_transferred = True
                         term_task.cancel()
                         disconnected = True
                         break
@@ -401,12 +418,8 @@ def stream_engine_events(
                 run_task.cancel()
                 with contextlib.suppress(BaseException):
                     await run_task
-            if run_lock is not None and run_lock.locked():
-                run_lock.release()
-                if workspace_id and _workspace_run_locks.get(workspace_id) is run_lock:
-                    waiters = getattr(run_lock, "_waiters", None)
-                    if not waiters:
-                        _workspace_run_locks.pop(workspace_id, None)
+            if not lock_transferred:
+                _release_workspace_lock()
             yield encode_event(DoneEvent(thread_id=thread_id, run_id=resolved_run_id))
 
     return _gen()

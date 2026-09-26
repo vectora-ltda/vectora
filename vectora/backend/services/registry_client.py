@@ -15,10 +15,10 @@ import os
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Literal, TypedDict
+from typing import ClassVar, Literal
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.services.extension_trust import TrustState
 
@@ -34,11 +34,15 @@ HTTP_TIMEOUT = 10.0
 RegistryKind = Literal["mcp", "skills", "mcp_official"]
 
 
-class RegistryStatus(TypedDict):
-    source: str
-    status: str
-    last_synced_at: str | None
-    error: str | None
+class RegistryStatus(BaseModel):
+    """Validated synchronization status returned by the registry service."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
+
+    source: Literal["mcp", "skills"]
+    status: Literal["ready", "unavailable", "disabled", "never"]
+    last_synced_at: str | None = None
+    error: str | None = None
 
 
 OFFICIAL_MCP_REGISTRY_URL = "https://registry.modelcontextprotocol.io/v0.1/servers"
@@ -47,7 +51,7 @@ OFFICIAL_MCP_REGISTRY_URL = "https://registry.modelcontextprotocol.io/v0.1/serve
 class McpCatalogEntry(BaseModel):
     """Validated MCP catalog contract returned by the registry service."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
 
     id: str = Field(min_length=1)
     name: str = Field(min_length=1)
@@ -63,12 +67,27 @@ class McpCatalogEntry(BaseModel):
     downloads_count: int = Field(default=0, ge=0)
     runtime_hint: str | None = None
     package_identifier: str | None = None
-    transport: str = "stdio"
+    transport: Literal["stdio", "http", "sse"] = "stdio"
     server_url: str | None = None
     catalog_source: str = ""
     vectora_verified: bool = False
     trust_state: TrustState = "unsigned"
     trust_reason: str = "catalog_listed"
+
+    @model_validator(mode="after")
+    def _validate_transport(self) -> McpCatalogEntry:
+        if self.transport == "stdio":
+            if not self.install_cmd.strip():
+                raise ValueError("stdio transport requires install_cmd")
+            return self
+        if not self.server_url:
+            raise ValueError(f"{self.transport} transport requires server_url")
+        from urllib.parse import urlparse
+
+        parsed = urlparse(self.server_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("server_url must be an absolute HTTP(S) URL")
+        return self
 
     @field_validator("env_vars", mode="before")
     @classmethod
@@ -196,23 +215,25 @@ async def fetch_catalog(kind: RegistryKind) -> list[dict]:
 
 async def fetch_catalog_status(kind: Literal["mcp", "skills"]) -> RegistryStatus:
     """Obtém o estado da fonte sem confundir catálogo vazio com falha."""
-    fallback: RegistryStatus = {
-        "source": kind,
-        "status": "unavailable",
-        "last_synced_at": None,
-        "error": "status unavailable",
-    }
+    fallback = RegistryStatus(
+        source=kind,
+        status="unavailable",
+        last_synced_at=None,
+        error="status unavailable",
+    )
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
             response = await client.get(f"{_registry_url()}/status/{kind}")
             response.raise_for_status()
             payload = response.json()
-        return {
-            "source": str(payload.get("source", kind)),
-            "status": str(payload.get("status", "never")),
-            "last_synced_at": payload.get("last_synced_at"),
-            "error": payload.get("error"),
-        }
+        return RegistryStatus.model_validate(
+            {
+                "source": payload.get("source", kind),
+                "status": payload.get("status", "never"),
+                "last_synced_at": payload.get("last_synced_at"),
+                "error": payload.get("error"),
+            }
+        )
     except Exception as exc:
         logger.warning(
             "registry_client: estado da fonte indisponível",

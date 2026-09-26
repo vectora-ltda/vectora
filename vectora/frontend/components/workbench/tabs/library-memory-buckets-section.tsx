@@ -22,7 +22,11 @@ async function installBucket(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ bucket_id: bucketId }),
   });
-  return res.json();
+  const payload: unknown = await res.json();
+  if (!res.ok || !payload || typeof payload !== "object") {
+    throw new Error("memory bucket installation failed");
+  }
+  return payload as { status: string; error?: string };
 }
 
 function BucketCard({
@@ -46,7 +50,7 @@ function BucketCard({
     setError(null);
     try {
       const result = await installBucket(bucket.id);
-      if (result.status === "error") {
+      if (result.status !== "installed") {
         setError(result.error ?? m.library_memory_buckets_error_install());
         return;
       }

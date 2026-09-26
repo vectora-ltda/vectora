@@ -353,6 +353,18 @@ jobs:
           ensure_column mcp_catalog snapshot_id "TEXT"
           ensure_column mcp_catalog last_seen_at "TEXT"
           ensure_column mcp_catalog catalog_status "TEXT NOT NULL DEFAULT 'active'"
+          ensure_column mcp_catalog icon_url "TEXT"
+          ensure_column mcp_catalog publisher "TEXT"
+          ensure_column mcp_catalog publisher_url "TEXT"
+          ensure_column mcp_catalog stars_count "INTEGER NOT NULL DEFAULT 0"
+          ensure_column mcp_catalog runtime_hint "TEXT"
+          ensure_column mcp_catalog package_identifier "TEXT"
+          ensure_column mcp_catalog transport "TEXT NOT NULL DEFAULT 'stdio'"
+          ensure_column mcp_catalog server_url "TEXT"
+          ensure_column mcp_catalog catalog_source "TEXT NOT NULL DEFAULT 'official'"
+          ensure_column mcp_catalog vectora_verified "INTEGER NOT NULL DEFAULT 0"
+          ensure_column mcp_catalog downloads_count "INTEGER NOT NULL DEFAULT 0"
+          ensure_column mcp_catalog updated_at "TEXT"
           ensure_column issue_comments updated_at "TEXT"
           ensure_column issue_comments deleted_at "TEXT"
           ensure_column github_webhook_deliveries attempt_token "TEXT"
@@ -363,6 +375,25 @@ jobs:
             --command "CREATE UNIQUE INDEX IF NOT EXISTS idx_issues_github_identity ON issues(github_repo, github_number) WHERE github_repo IS NOT NULL AND github_number IS NOT NULL"
           pnpm exec wrangler d1 execute vectora-db --remote \
             --command "CREATE INDEX IF NOT EXISTS idx_mcp_catalog_public_rank ON mcp_catalog(catalog_status, stars_count DESC, updated_at DESC)"
+
+          # Verificação de regressão para bancos legados: falhe o job se uma
+          # coluna adicionada acima não estiver disponível após o upgrade.
+          for expected in \
+            "gha_bot_config:self_hosted_enabled" \
+            "mcp_catalog:catalog_status" \
+            "mcp_catalog:stars_count" \
+            "mcp_catalog:server_url" \
+            "skills_catalog:catalog_source" \
+            "rag_packages:status"; do
+            table="${expected%%:*}"
+            column="${expected##*:}"
+            schema=$(pnpm exec wrangler d1 execute vectora-db --remote \
+              --command "PRAGMA table_info(${table})" --json)
+            if ! grep -Eq "\\\"name\\\"[[:space:]]*:[[:space:]]*\\\"${column}\\\"" <<< "$schema"; then
+              echo "D1 legacy upgrade missing ${table}.${column}" >&2
+              exit 1
+            fi
+          done
 
       - name: Deploy services (Worker Cloudflare)
         if: >-

@@ -92,7 +92,8 @@ ragLibrary.get("/:name/versions", async (c) => {
 /** Serve o binário de um bucket publicado — mesmo padrão de `issues/routes.ts`. */
 ragLibrary.get("/files/*", async (c) => {
   const key = c.req.path.replace(/^.*?\/files\//, "");
-  if (!key.startsWith("memory-buckets/")) return c.text("not found", 404);
+  if (!key.startsWith("memory-buckets/") && !key.startsWith("rag-library/"))
+    return c.text("not found", 404);
   const obj = await c.env.R2.get(key);
   if (!obj) return c.text("not found", 404);
   return new Response(obj.body, {

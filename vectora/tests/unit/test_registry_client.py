@@ -451,20 +451,20 @@ async def test_fetch_catalog_descarta_cache_mcp_legado_e_atualiza(monkeypatch):
     refreshed = [{"id": "new", "name": "New", "catalog_source": "official"}]
 
     class Response:
-        def raise_for_status(self):
+        def raise_for_status(self) -> None:
             return None
 
-        def json(self):
+        def json(self) -> dict[str, list[dict[str, str]]]:
             return {"entries": refreshed}
 
     class Client:
-        async def __aenter__(self):
+        async def __aenter__(self) -> "Client":
             return self
 
-        async def __aexit__(self, *_args):
+        async def __aexit__(self, *_args: object) -> None:
             return None
 
-        async def get(self, _url):
+        async def get(self, _url: str) -> Response:
             return Response()
 
     monkeypatch.setattr(registry_client, "_read_cache", lambda _kind: legacy)

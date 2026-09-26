@@ -19,8 +19,10 @@ import { useEffect, useState, type ReactNode } from "react";
 import { MessageSquare, PanelsTopLeft, Code2 } from "lucide-react";
 import { useReducedMotion } from "motion/react";
 import { mDyn } from "@/lib/i18n-dyn";
+import { m } from "@/lib/paraglide/messages";
 import { ModeColumnLayout } from "@/components/layout/mode-column-layout";
 import { WorkbenchHost } from "@/components/layout/workbench-host";
+import type { ShellColumnResize } from "@/components/layout/three-column-shell";
 import type { IdeLayoutState } from "@/lib/hooks/use-media-query";
 
 export type IdeMobilePanel = "chat" | "workbench" | "editor";
@@ -59,8 +61,12 @@ interface IdeModeLayoutProps {
   chatWidth?: number;
   chatMinWidth?: number;
   chatMaxWidth?: number;
+  workbenchResize?: ShellColumnResize;
+  chatResize?: ShellColumnResize;
   /** Keep the chat column mounted while allowing it to collapse to a rail. */
   showChat?: boolean;
+  /** Reopens the chat rail after it was collapsed. */
+  onOpenChat?: () => void;
 }
 
 export function IdeModeLayout({
@@ -82,7 +88,10 @@ export function IdeModeLayout({
   chatWidth,
   chatMinWidth,
   chatMaxWidth,
+  workbenchResize,
+  chatResize,
   showChat = true,
+  onOpenChat,
 }: IdeModeLayoutProps) {
   const resolvedLayoutState = layoutState ?? (isNarrow ? "mobile" : "wide");
   const [mobilePanel, setMobilePanel] =
@@ -117,11 +126,16 @@ export function IdeModeLayout({
           width: workbenchWidth,
           minWidth: workbenchMinWidth,
           maxWidth: workbenchMaxWidth,
+          resize: workbenchResize,
         }}
         rightColumn={{
           width: chatWidth,
           minWidth: showChat ? chatMinWidth : 48,
           maxWidth: chatMaxWidth,
+          resize: chatResize,
+          visibility: showChat ? "visible" : "collapsed",
+          onExpand: onOpenChat ?? (() => undefined),
+          expandLabel: m.layout_open_chat(),
         }}
       />
     );

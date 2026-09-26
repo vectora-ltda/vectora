@@ -364,3 +364,14 @@ class TestCatalogSkillInstall:
             skills_handler.CatalogSkillInstallRequest.model_validate(
                 {"skill_id": skill_id}
             )
+
+    @pytest.mark.parametrize("value", [None, "", "   "])
+    def test_normaliza_identificadores_de_escopo_opcionais(
+        self, value: str | None
+    ) -> None:
+        body = skills_handler.CatalogSkillInstallRequest.model_validate(
+            {"skill_id": "catalog-skill", "target": value, "workspace_id": value}
+        )
+
+        assert body.target is None
+        assert body.workspace_id is None

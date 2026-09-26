@@ -10,12 +10,35 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Mapping
 
 from backend.services.env import get_env
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
 
 logger = logging.getLogger(__name__)
+
+
+def _valid_skill_entries(
+    entries: list[object], *, require_source: bool = True
+) -> list[Mapping[str, object]]:
+    """Remove malformed catalog records before field access.
+
+    Listing only needs an identifier, while installation must have a usable
+    source URL. Keeping that distinction prevents incomplete records from
+    being installed without hiding them from catalog discovery.
+    """
+    return [
+        entry
+        for entry in entries
+        if isinstance(entry, Mapping)
+        and isinstance(entry.get("id"), str)
+        and bool(entry.get("id"))
+        and (
+            not require_source
+            or (isinstance(entry.get("source"), str) and bool(entry.get("source")))
+        )
+    ]
 
 
 @vtool(
@@ -96,9 +119,8 @@ async def install_skill_from_catalog(skill_id: str, ctx: ToolContext) -> str:
         local = [entry.model_dump() for entry in local_entries]
         local_ids = {str(entry.get("id")) for entry in local if entry.get("id")}
         by_id = {
-            str(entry.get("id")): entry
-            for entry in [*enterprise, *remote, *local]
-            if entry.get("id")
+            str(entry["id"]): entry
+            for entry in _valid_skill_entries([*enterprise, *remote, *local])
         }
         entries = list(by_id.values())
         entry = next((e for e in entries if e.get("id") == skill_id), None)
@@ -118,7 +140,12 @@ async def install_skill_from_catalog(skill_id: str, ctx: ToolContext) -> str:
                 }
             )
 
-        skill = install_skill(ctx.user_id, entry["source"])
+        source = entry.get("source")
+        if not isinstance(source, str):
+            return json.dumps(
+                {"status": "error", "error": "entrada de skill sem source válido"}
+            )
+        skill = await asyncio.to_thread(install_skill, ctx.user_id, source)
         logger.info(
             "install_skill_from_catalog completed",
             extra={
@@ -394,9 +421,10 @@ async def list_skills_catalog(query: str = "") -> str:
         local_entries = await asyncio.to_thread(list_wellknown_catalog)
         local = [entry.model_dump() for entry in local_entries]
         by_id = {
-            str(entry.get("id")): entry
-            for entry in [*enterprise, *remote, *local]
-            if entry.get("id")
+            str(entry["id"]): entry
+            for entry in _valid_skill_entries(
+                [*enterprise, *remote, *local], require_source=False
+            )
         }
         entries = list(by_id.values())
         items = [
