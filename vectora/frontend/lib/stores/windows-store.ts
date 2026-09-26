@@ -63,7 +63,7 @@ export interface CanvasDocumentDescriptor {
   commitSha?: string;
   editedFile?: EditedFile;
   commitDetails?: GitCommitDetailsState;
-  plan?: { item: PlanItem; content: string | null };
+  plan?: { item: PlanItem; content: string | null; error?: string };
   mcp?: McpCanvasPreviewData;
 }
 
@@ -104,6 +104,10 @@ interface WindowsState {
   /** Fecha uma tab docked; última tab → zera tudo. */
   closeDockedTab: (path: string) => void;
   openCanvasDocument: (document: CanvasDocumentDescriptor) => void;
+  updateCanvasDocument: (
+    id: string,
+    update: Partial<CanvasDocumentDescriptor>,
+  ) => void;
   activateCanvasDocument: (id: string) => void;
   closeCanvasDocument: (id: string) => void;
   closeCanvasDocumentAndDockedTab: (id: string) => void;
@@ -211,6 +215,18 @@ export const useWindowsStore = create<WindowsState>()(
           return {
             canvasDocuments: documents,
             activeCanvasDocumentId: document.id,
+          };
+        }),
+
+      updateCanvasDocument: (id, update) =>
+        set((s) => {
+          if (!s.canvasDocuments.some((document) => document.id === id)) {
+            return s;
+          }
+          return {
+            canvasDocuments: s.canvasDocuments.map((document) =>
+              document.id === id ? { ...document, ...update } : document,
+            ),
           };
         }),
 

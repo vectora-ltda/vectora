@@ -168,6 +168,7 @@ function SessionPage() {
     (s) => s.activeCanvasDocumentId,
   );
   const openCanvasDocument = useWindowsStore((s) => s.openCanvasDocument);
+  const updateCanvasDocument = useWindowsStore((s) => s.updateCanvasDocument);
   const activateCanvasDocument = useWindowsStore(
     (s) => s.activateCanvasDocument,
   );
@@ -721,7 +722,7 @@ function SessionPage() {
     Record<string, GitCommitDetailsState>
   >({});
   const [planDocumentsById, setPlanDocumentsById] = useState<
-    Record<string, { item: PlanItem; content: string | null }>
+    Record<string, { item: PlanItem; content: string | null; error?: string }>
   >({});
   const handleOpenEditedFile = useCallback(
     (file: EditedFile) => {
@@ -746,37 +747,46 @@ function SessionPage() {
         ...previous,
         [documentId]: details,
       }));
-      openCanvasDocument({
+      const document = {
         id: documentId,
-        kind: "commit-details",
+        kind: "commit-details" as const,
         workspaceId: activeWorkspaceId,
         threadId,
         title: details.commit.message,
         commitSha: details.commit.sha,
         commitDetails: details,
-      });
+      };
+      if (details.loading) openCanvasDocument(document);
+      else updateCanvasDocument(documentId, { commitDetails: details });
     },
-    [activeWorkspaceId, openCanvasDocument, threadId],
+    [activeWorkspaceId, openCanvasDocument, threadId, updateCanvasDocument],
   );
   const openPlanDocument = useCallback(
-    (item: PlanItem, content: string | null) => {
+    (
+      item: PlanItem,
+      content: string | null,
+      error?: string,
+      phase: "open" | "update" = "open",
+    ) => {
       if (!activeWorkspaceId) return;
       const documentId = `plan:${activeWorkspaceId}:${threadId}:${item.path}`;
       setPlanDocumentsById((previous) => ({
         ...previous,
-        [documentId]: { item, content },
+        [documentId]: { item, content, error },
       }));
-      openCanvasDocument({
+      const document = {
         id: documentId,
-        kind: "plan",
+        kind: "plan" as const,
         workspaceId: activeWorkspaceId,
         threadId,
         title: item.title,
         path: item.path,
-        plan: { item, content },
-      });
+        plan: { item, content, error },
+      };
+      if (phase === "open") openCanvasDocument(document);
+      else updateCanvasDocument(documentId, { plan: document.plan });
     },
-    [activeWorkspaceId, openCanvasDocument, threadId],
+    [activeWorkspaceId, openCanvasDocument, threadId, updateCanvasDocument],
   );
   const renderCanvasDocument = useCallback(
     (document: CanvasDocumentDescriptor) => {
@@ -799,6 +809,7 @@ function SessionPage() {
             commit={details.commit}
             diff={details.diff}
             loading={details.loading}
+            error={details.error}
           />
         ) : (
           <CommitDetails
@@ -822,6 +833,8 @@ function SessionPage() {
           <div className="h-full overflow-auto p-5">
             {plan?.content ? (
               <MarkdownView content={plan.content} />
+            ) : plan?.error ? (
+              <p className="text-sm text-destructive">{plan.error}</p>
             ) : (
               <p className="text-sm text-muted-foreground">
                 {m.workbench_preview_md_loading()}

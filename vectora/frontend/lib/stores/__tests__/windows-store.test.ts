@@ -467,6 +467,28 @@ describe("windows-store — documentos do Canvas", () => {
     expect(migrated.activeCanvasDocumentId).toBe("mcp:thread-1:library-item");
   });
 
+  it("descarta previews com workspace vazio e limpa o documento ativo", () => {
+    const migrate = useWindowsStore.persist.getOptions().migrate!;
+    const migrated = migrate(
+      {
+        canvasDocuments: [
+          {
+            id: "mcp:thread-1:empty-workspace",
+            kind: "mcp-preview",
+            workspaceId: "",
+            threadId: "thread-1",
+            title: "Invalid preview",
+          },
+        ],
+        activeCanvasDocumentId: "mcp:thread-1:empty-workspace",
+      },
+      0,
+    ) as Record<string, unknown>;
+
+    expect(migrated.canvasDocuments).toEqual([]);
+    expect(migrated.activeCanvasDocumentId).toBeNull();
+  });
+
   it("rejeita documentos com tipo não suportado", () => {
     const migrate = useWindowsStore.persist.getOptions().migrate!;
     const migrated = migrate(

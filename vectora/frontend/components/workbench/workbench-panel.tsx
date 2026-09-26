@@ -71,7 +71,12 @@ interface WorkbenchPanelProps {
   threadId: string;
   /** Abre os detalhes de um commit no canvas compartilhado. */
   onOpenCommitDetails?: (details: GitCommitDetailsState) => void;
-  onOpenPlanDocument?: (item: PlanItem, content: string | null) => void;
+  onOpenPlanDocument?: (
+    item: PlanItem,
+    content: string | null,
+    error?: string,
+    phase?: "open" | "update",
+  ) => void;
   /** Injetar @path no chat ao clicar no botão @ de um arquivo/pasta. */
   onAddToContext?: (path: string) => void;
   /** Inserir texto no composer (god nodes/perguntas sugeridas do Context Graph). */

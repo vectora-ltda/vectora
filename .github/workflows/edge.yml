@@ -361,7 +361,7 @@ jobs:
           ensure_column mcp_catalog package_identifier "TEXT"
           ensure_column mcp_catalog transport "TEXT NOT NULL DEFAULT 'stdio'"
           ensure_column mcp_catalog server_url "TEXT"
-          ensure_column mcp_catalog catalog_source "TEXT NOT NULL DEFAULT 'official'"
+          ensure_column mcp_catalog catalog_source "TEXT NOT NULL DEFAULT 'curated'"
           ensure_column mcp_catalog vectora_verified "INTEGER NOT NULL DEFAULT 0"
           ensure_column mcp_catalog downloads_count "INTEGER NOT NULL DEFAULT 0"
           ensure_column mcp_catalog updated_at "TEXT"

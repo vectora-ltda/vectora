@@ -100,7 +100,12 @@ const TODOS_SLUG = "__todos__";
 
 interface PlanTabProps {
   threadId: string;
-  onOpenPlanDocument?: (item: PlanItem, content: string | null) => void;
+  onOpenPlanDocument?: (
+    item: PlanItem,
+    content: string | null,
+    error?: string,
+    phase?: "open" | "update",
+  ) => void;
 }
 
 function FilesTouchedSection({ threadId }: { threadId: string }) {
@@ -239,7 +244,8 @@ export function PlanTab({ threadId, onOpenPlanDocument }: PlanTabProps) {
           (candidate) => fileSlug(candidate.path) === slug,
         );
         if (contentsBySlug[slug] !== undefined) {
-          if (item) onOpenPlanDocument?.(item, contentsBySlug[slug]);
+          if (item)
+            onOpenPlanDocument?.(item, contentsBySlug[slug], undefined, "open");
           continue;
         }
         const requestKey = `${threadId}:${slug}`;
@@ -247,16 +253,46 @@ export function PlanTab({ threadId, onOpenPlanDocument }: PlanTabProps) {
           (contentRequestEpoch.current.get(requestKey) ?? 0) + 1;
         contentRequestEpoch.current.set(requestKey, requestEpoch);
         const requestThreadId = threadId;
-        void fetchArtifactContent(threadId, slug).then((content) => {
-          if (
-            requestThreadId !== activeThreadRef.current ||
-            requestEpoch !== contentRequestEpoch.current.get(requestKey)
-          )
-            return;
-          if (content !== null) setPlanContent(threadId, slug, content);
-          if (item) onOpenPlanDocument?.(item, content);
-        });
-        if (item) onOpenPlanDocument?.(item, contentsBySlug[slug] ?? null);
+        void fetchArtifactContent(threadId, slug)
+          .then((content) => {
+            if (
+              requestThreadId !== activeThreadRef.current ||
+              requestEpoch !== contentRequestEpoch.current.get(requestKey)
+            )
+              return;
+            if (content !== null) setPlanContent(threadId, slug, content);
+            if (item) {
+              onOpenPlanDocument?.(
+                item,
+                content,
+                content === null
+                  ? m.workbench_git_operation_failed()
+                  : undefined,
+                "update",
+              );
+            }
+          })
+          .catch(() => {
+            if (
+              requestThreadId !== activeThreadRef.current ||
+              requestEpoch !== contentRequestEpoch.current.get(requestKey)
+            )
+              return;
+            if (item)
+              onOpenPlanDocument?.(
+                item,
+                null,
+                m.workbench_git_operation_failed(),
+                "update",
+              );
+          });
+        if (item)
+          onOpenPlanDocument?.(
+            item,
+            contentsBySlug[slug] ?? null,
+            undefined,
+            "open",
+          );
       }
     },
     [

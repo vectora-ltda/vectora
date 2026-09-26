@@ -40,6 +40,7 @@ export interface GitCommitDetailsState {
   commit: GitLogCommit;
   diff: string | null;
   loading: boolean;
+  error?: string;
 }
 
 function formatDate(raw: string): string {
@@ -84,10 +85,12 @@ export function CommitDetails({
   commit,
   diff,
   loading,
+  error,
 }: {
   commit: GitLogCommit;
   diff: string | null;
   loading: boolean;
+  error?: string;
 }) {
   const files = useMemo(() => parseDiff(diff ?? ""), [diff]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -221,6 +224,10 @@ export function CommitDetails({
       {loading ? (
         <div className="flex flex-1 items-center justify-center">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : error ? (
+        <div className="flex flex-1 items-center justify-center p-6 text-sm text-destructive">
+          {error}
         </div>
       ) : (
         <div className="flex min-h-0 min-w-0 flex-1">
@@ -373,16 +380,33 @@ export function HistoryView({
       setSelectedDiff(null);
       setDiffLoading(true);
       onOpenCommitDetails?.({ commit, diff: null, loading: true });
-      const diff = await fetchCommitDiff(requestedWorkspace, commit.sha);
-      if (
-        request !== detailsRequest.current ||
-        epoch !== workspaceRequest.current ||
-        requestedWorkspace !== workspaceId
-      )
-        return;
-      setDiffLoading(false);
-      setSelectedDiff(diff);
-      onOpenCommitDetails?.({ commit, diff, loading: false });
+      try {
+        const diff = await fetchCommitDiff(requestedWorkspace, commit.sha);
+        if (
+          request !== detailsRequest.current ||
+          epoch !== workspaceRequest.current ||
+          requestedWorkspace !== workspaceId
+        )
+          return;
+        setDiffLoading(false);
+        setSelectedDiff(diff);
+        onOpenCommitDetails?.({ commit, diff, loading: false });
+      } catch {
+        if (
+          request !== detailsRequest.current ||
+          epoch !== workspaceRequest.current ||
+          requestedWorkspace !== workspaceId
+        )
+          return;
+        setDiffLoading(false);
+        setSelectedDiff(null);
+        onOpenCommitDetails?.({
+          commit,
+          diff: null,
+          loading: false,
+          error: m.workbench_git_operation_failed(),
+        });
+      }
     },
     [workspaceId, onOpenCommitDetails],
   );
