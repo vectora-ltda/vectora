@@ -1,4 +1,4 @@
-"""Memory Library — download/publish de buckets RAG compartilhados.
+"""Memory Buckets — download/publish de buckets RAG compartilhados.
 
 download_memory_bucket: valida embed_model ANTES de tocar em qualquer
 arquivo (nunca mistura dimensões de vetor silenciosamente); publish_memory_bucket:
@@ -13,8 +13,8 @@ import tarfile
 import httpx
 import pytest
 
-from backend.services.memory_library import (
-    MemoryLibraryError,
+from backend.services.memory_buckets import (
+    MemoryBucketsError,
     download_memory_bucket,
     list_catalog,
     publish_memory_bucket,
@@ -23,7 +23,7 @@ from backend.services.memory_library import (
 
 def _catalog_response(entries: list[dict]) -> httpx.Response:
     return httpx.Response(
-        200, json=entries, request=httpx.Request("GET", "https://x/rag-library/")
+        200, json=entries, request=httpx.Request("GET", "https://x/memory-buckets/")
     )
 
 
@@ -52,7 +52,7 @@ async def test_download_incompatible_embed_model_raises_before_touching_files(
         "backend.settings.settings.embedding_model", "embed-multilingual-v3.0"
     )
 
-    with pytest.raises(MemoryLibraryError, match="embedder"):
+    with pytest.raises(MemoryBucketsError, match="embedder"):
         await download_memory_bucket("b1", lancedb_dir=tmp_path)
 
     assert list(tmp_path.iterdir()) == []
@@ -65,7 +65,7 @@ async def test_download_bucket_not_found_raises_clear_error(monkeypatch, tmp_pat
 
     monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
 
-    with pytest.raises(MemoryLibraryError, match="não encontrado"):
+    with pytest.raises(MemoryBucketsError, match="não encontrado"):
         await download_memory_bucket("missing", lancedb_dir=tmp_path)
 
 
@@ -78,7 +78,7 @@ async def test_download_compatible_bucket_extracts_into_isolated_collection(
 
     async def _fake_get(self, url, **kwargs):
         call_log.append(url)
-        if url.endswith("/rag-library/"):
+        if url.rstrip("/").endswith("/memory-buckets"):
             return _catalog_response(
                 [{"id": "b1", "embed_model": "embed-multilingual-v3.0", "name": "b1"}]
             )
@@ -104,7 +104,7 @@ async def test_download_compatible_bucket_extracts_into_isolated_collection(
 
 @pytest.mark.asyncio
 async def test_publish_missing_local_workspace_raises_clear_error(tmp_path):
-    with pytest.raises(MemoryLibraryError, match="não tem tabela"):
+    with pytest.raises(MemoryBucketsError, match="não tem tabela"):
         await publish_memory_bucket(
             "nonexistent-bucket",
             "Nome",
@@ -152,7 +152,7 @@ async def test_publish_success_returns_bucket_id(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_publish_network_failure_raises_memory_library_error(
+async def test_publish_network_failure_raises_memory_buckets_error(
     tmp_path, monkeypatch
 ):
     bucket_dir = tmp_path / "bucket_b1.lance"
@@ -164,7 +164,7 @@ async def test_publish_network_failure_raises_memory_library_error(
 
     monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
 
-    with pytest.raises(MemoryLibraryError, match="Falha ao publicar"):
+    with pytest.raises(MemoryBucketsError, match="Falha ao publicar"):
         await publish_memory_bucket(
             "b1", "n", "d", "MIT", session_token="tok", lancedb_dir=tmp_path
         )
@@ -185,21 +185,16 @@ async def test_list_catalog_falha_de_rede_devolve_lista_vazia_sem_propagar(
 
 
 @pytest.mark.asyncio
-async def test_list_catalog_faz_fallback_da_rota_com_barra(monkeypatch):
+async def test_list_catalog_consulta_a_rota_memory_buckets(monkeypatch):
     calls: list[str] = []
 
     async def _fake_get(self, url, **kwargs):
         calls.append(url)
-        if url.endswith("/"):
-            return httpx.Response(404, request=httpx.Request("GET", url))
         return _catalog_response([{"id": "legacy", "name": "Legado"}])
 
     monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
     result = await list_catalog()
-    assert calls == [
-        "https://services.vectora.company/rag-library/",
-        "https://services.vectora.company/rag-library",
-    ]
+    assert calls == ["https://services.vectora.company/memory-buckets"]
     assert result == [{"id": "legacy", "name": "Legado"}]
 
 
@@ -257,7 +252,7 @@ async def test_download_com_embed_model_ausente_no_bucket_nao_bloqueia(
     archive = _make_tar_gz({"data.lance": b"conteudo"})
 
     async def _fake_get(self, url, **kwargs):
-        if url.endswith("/rag-library/"):
+        if url.rstrip("/").endswith("/memory-buckets"):
             return _catalog_response([{"id": "legacy", "name": "Legado"}])
         return httpx.Response(200, content=archive, request=httpx.Request("GET", url))
 
@@ -291,7 +286,7 @@ async def test_download_catalogo_com_ids_duplicados_usa_a_primeira_ocorrencia(
     monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
     monkeypatch.setattr("backend.settings.settings.embedding_model", "modelo-b")
 
-    with pytest.raises(MemoryLibraryError, match="modelo-a"):
+    with pytest.raises(MemoryBucketsError, match="modelo-a"):
         await download_memory_bucket("dup", lancedb_dir=tmp_path)
 
 
@@ -300,10 +295,10 @@ async def test_download_arquivo_corrompido_levanta_erro_tipado_sem_deixar_lixo_p
     tmp_path, monkeypatch
 ):
     # Payload malformado: bytes que não são um tar.gz válido (download
-    # truncado/corrompido na rede) — MemoryLibraryError, nunca uma exceção
+    # truncado/corrompido na rede) — MemoryBucketsError, nunca uma exceção
     # crua de tarfile propagando pro caller.
     async def _fake_get(self, url, **kwargs):
-        if url.endswith("/rag-library/"):
+        if url.rstrip("/").endswith("/memory-buckets"):
             return _catalog_response(
                 [{"id": "b1", "embed_model": "embed-multilingual-v3.0"}]
             )
@@ -317,7 +312,7 @@ async def test_download_arquivo_corrompido_levanta_erro_tipado_sem_deixar_lixo_p
     )
     monkeypatch.setattr("backend.settings.settings.lancedb_dir", None)
 
-    with pytest.raises(MemoryLibraryError, match="corrompido"):
+    with pytest.raises(MemoryBucketsError, match="corrompido"):
         await download_memory_bucket("b1", lancedb_dir=tmp_path)
 
 
@@ -328,7 +323,7 @@ async def test_download_http_404_na_rota_de_download_levanta_erro_claro(
     # Bucket existe no catálogo mas o binário sumiu do storage (R2) —
     # raise_for_status() dispara HTTPStatusError, capturado genericamente.
     async def _fake_get(self, url, **kwargs):
-        if url.endswith("/rag-library/"):
+        if url.rstrip("/").endswith("/memory-buckets"):
             return _catalog_response(
                 [{"id": "b1", "embed_model": "embed-multilingual-v3.0"}]
             )
@@ -342,7 +337,7 @@ async def test_download_http_404_na_rota_de_download_levanta_erro_claro(
     )
     monkeypatch.setattr("backend.settings.settings.lancedb_dir", None)
 
-    with pytest.raises(MemoryLibraryError, match="Falha ao baixar"):
+    with pytest.raises(MemoryBucketsError, match="Falha ao baixar"):
         await download_memory_bucket("b1", lancedb_dir=tmp_path)
 
 
@@ -361,7 +356,7 @@ async def test_download_embed_model_case_sensitive_nao_normaliza(tmp_path, monke
         "backend.settings.settings.embedding_model", "embed-multilingual-v3.0"
     )
 
-    with pytest.raises(MemoryLibraryError, match="embedder"):
+    with pytest.raises(MemoryBucketsError, match="embedder"):
         await download_memory_bucket("b1", lancedb_dir=tmp_path)
 
 
@@ -383,7 +378,7 @@ async def test_publish_resposta_sem_id_levanta_erro_claro(tmp_path, monkeypatch)
         "backend.settings.settings.embedding_model", "embed-multilingual-v3.0"
     )
 
-    with pytest.raises(MemoryLibraryError, match="sem id"):
+    with pytest.raises(MemoryBucketsError, match="sem id"):
         await publish_memory_bucket(
             "b1", "n", "d", "MIT", session_token="tok", lancedb_dir=tmp_path
         )
@@ -433,7 +428,7 @@ async def test_publish_http_401_por_session_token_invalido_levanta_erro_claro(
         "backend.settings.settings.embedding_model", "embed-multilingual-v3.0"
     )
 
-    with pytest.raises(MemoryLibraryError, match="401"):
+    with pytest.raises(MemoryBucketsError, match="401"):
         await publish_memory_bucket(
             "b1", "n", "d", "MIT", session_token="tok-invalido", lancedb_dir=tmp_path
         )
@@ -444,9 +439,9 @@ async def test_download_truncated_archive_raises_clear_error_not_generic_excepti
     tmp_path, monkeypatch
 ):
     # Erro/borda: resposta HTTP incompleta (tar.gz truncado) — extractall
-    # levanta exceção de tarfile, deve virar MemoryLibraryError tipado.
+    # levanta exceção de tarfile, deve virar MemoryBucketsError tipado.
     async def _fake_get(self, url, **kwargs):
-        if url.endswith("/rag-library/"):
+        if url.rstrip("/").endswith("/memory-buckets"):
             return _catalog_response(
                 [{"id": "b1", "embed_model": "embed-multilingual-v3.0", "name": "b1"}]
             )
@@ -461,14 +456,14 @@ async def test_download_truncated_archive_raises_clear_error_not_generic_excepti
     )
     monkeypatch.setattr("backend.settings.settings.lancedb_dir", None)
 
-    with pytest.raises(MemoryLibraryError, match="corrompido"):
+    with pytest.raises(MemoryBucketsError, match="corrompido"):
         await download_memory_bucket("b1", lancedb_dir=tmp_path)
 
 
 @pytest.mark.asyncio
 async def test_download_empty_response_body_raises_clear_error(tmp_path, monkeypatch):
     async def _fake_get(self, url, **kwargs):
-        if url.endswith("/rag-library/"):
+        if url.rstrip("/").endswith("/memory-buckets"):
             return _catalog_response(
                 [{"id": "b1", "embed_model": "embed-multilingual-v3.0", "name": "b1"}]
             )
@@ -480,16 +475,16 @@ async def test_download_empty_response_body_raises_clear_error(tmp_path, monkeyp
     )
     monkeypatch.setattr("backend.settings.settings.lancedb_dir", None)
 
-    with pytest.raises(MemoryLibraryError, match="corrompido"):
+    with pytest.raises(MemoryBucketsError, match="corrompido"):
         await download_memory_bucket("b1", lancedb_dir=tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_download_http_error_status_raises_memory_library_error(
+async def test_download_http_error_status_raises_memory_buckets_error(
     tmp_path, monkeypatch
 ):
     async def _fake_get(self, url, **kwargs):
-        if url.endswith("/rag-library/"):
+        if url.rstrip("/").endswith("/memory-buckets"):
             return _catalog_response(
                 [{"id": "b1", "embed_model": "embed-multilingual-v3.0", "name": "b1"}]
             )
@@ -503,7 +498,7 @@ async def test_download_http_error_status_raises_memory_library_error(
     )
     monkeypatch.setattr("backend.settings.settings.lancedb_dir", None)
 
-    with pytest.raises(MemoryLibraryError, match="Falha ao baixar"):
+    with pytest.raises(MemoryBucketsError, match="Falha ao baixar"):
         await download_memory_bucket("b1", lancedb_dir=tmp_path)
 
 
@@ -516,7 +511,7 @@ async def test_download_bucket_without_embed_model_skips_compatibility_check(
     archive = _make_tar_gz({"data.lance": b"conteudo"})
 
     async def _fake_get(self, url, **kwargs):
-        if url.endswith("/rag-library/"):
+        if url.rstrip("/").endswith("/memory-buckets"):
             return _catalog_response([{"id": "b1", "name": "b1"}])
         return httpx.Response(200, content=archive, request=httpx.Request("GET", url))
 
@@ -532,11 +527,11 @@ async def test_download_bucket_without_embed_model_skips_compatibility_check(
 
 
 @pytest.mark.asyncio
-async def test_download_network_error_during_fetch_raises_memory_library_error(
+async def test_download_network_error_during_fetch_raises_memory_buckets_error(
     tmp_path, monkeypatch
 ):
     async def _fake_get(self, url, **kwargs):
-        if url.endswith("/rag-library/"):
+        if url.rstrip("/").endswith("/memory-buckets"):
             return _catalog_response(
                 [{"id": "b1", "embed_model": "embed-multilingual-v3.0", "name": "b1"}]
             )
@@ -548,7 +543,7 @@ async def test_download_network_error_during_fetch_raises_memory_library_error(
     )
     monkeypatch.setattr("backend.settings.settings.lancedb_dir", None)
 
-    with pytest.raises(MemoryLibraryError, match="Falha ao baixar"):
+    with pytest.raises(MemoryBucketsError, match="Falha ao baixar"):
         await download_memory_bucket("b1", lancedb_dir=tmp_path)
 
 
@@ -561,7 +556,7 @@ async def test_list_catalog_network_error_returns_empty_list_not_exception(
 
     monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
 
-    from backend.services.memory_library import list_catalog
+    from backend.services.memory_buckets import list_catalog
 
     entries = await list_catalog()
 
@@ -586,7 +581,7 @@ async def test_publish_http_error_status_includes_status_code_in_message(
         "backend.settings.settings.embedding_model", "embed-multilingual-v3.0"
     )
 
-    with pytest.raises(MemoryLibraryError, match="403"):
+    with pytest.raises(MemoryBucketsError, match="403"):
         await publish_memory_bucket(
             "b1", "n", "d", "MIT", session_token="tok", lancedb_dir=tmp_path
         )
@@ -610,7 +605,7 @@ async def test_publish_response_without_id_raises_clear_error(tmp_path, monkeypa
         "backend.settings.settings.embedding_model", "embed-multilingual-v3.0"
     )
 
-    with pytest.raises(MemoryLibraryError, match="sem id"):
+    with pytest.raises(MemoryBucketsError, match="sem id"):
         await publish_memory_bucket(
             "b1", "n", "d", "MIT", session_token="tok", lancedb_dir=tmp_path
         )

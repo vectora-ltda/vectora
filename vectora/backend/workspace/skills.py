@@ -39,7 +39,7 @@ import yaml.resolver
 from pydantic import BaseModel
 
 from backend.services import extension_trust
-from backend.vtypes.skill import Skill
+from backend.vtypes.skill import Skill, SkillCatalogEntry
 from backend.workspace import skills_lock
 
 logger = logging.getLogger(__name__)
@@ -450,7 +450,7 @@ def _wellknown_dir() -> Path:
     return Path.home() / ".vectora" / "skills-wellknown"
 
 
-def list_wellknown_catalog(directory: Path | None = None) -> list[dict]:
+def list_wellknown_catalog(directory: Path | None = None) -> list[SkillCatalogEntry]:
     """Catálogo local de skills — segunda fonte de discovery do agregador em
     ``backend/api/handlers/skills.py::get_skills_catalog``, independente do
     registry remoto (D1). Cada subpasta de ``directory`` (default
@@ -464,7 +464,7 @@ def list_wellknown_catalog(directory: Path | None = None) -> list[dict]:
     root = directory if directory is not None else _wellknown_dir()
     if not root.is_dir():
         return []
-    entries: list[dict] = []
+    entries: list[SkillCatalogEntry] = []
     for child in sorted(root.iterdir()):
         if not child.is_dir():
             continue
@@ -476,15 +476,18 @@ def list_wellknown_catalog(directory: Path | None = None) -> list[dict]:
             continue
         tags_raw = str(fm.get("tags", ""))
         tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
+        category_raw = fm.get("category")
+        category = category_raw if isinstance(category_raw, str) else "local"
         entries.append(
-            {
-                "id": _slugify(name),
-                "name": name,
-                "description": description,
-                "source": str(child),
-                "category": fm.get("category", "local"),
-                "tags": tags,
-            }
+            SkillCatalogEntry(
+                id=_slugify(name),
+                name=name,
+                description=description,
+                source=str(child),
+                catalog_source="local",
+                category=category,
+                tags=tags,
+            )
         )
     return entries
 

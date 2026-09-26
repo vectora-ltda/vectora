@@ -1,6 +1,6 @@
 /**
  * Tests para os ajustes de sidebar do settings-store: clamp de largura
- * (180–480, arredondado) e posição. Complementa tests/bloco_l_settings.ts.
+ * (240–480, arredondado) e posição.
  */
 
 import { describe, expect, it, beforeEach } from "vitest";
@@ -11,9 +11,9 @@ beforeEach(() => {
 });
 
 describe("settings-store — sidebar", () => {
-  it("setSidebarWidth respeita o mínimo (180)", () => {
+  it("setSidebarWidth respeita o mínimo (240)", () => {
     useSettingsStore.getState().setSidebarWidth(50);
-    expect(useSettingsStore.getState().sidebarWidth).toBe(180);
+    expect(useSettingsStore.getState().sidebarWidth).toBe(240);
   });
 
   it("setSidebarWidth respeita o máximo (480)", () => {

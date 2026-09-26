@@ -3,7 +3,7 @@
  * SettingsOverlay — shell único (rail + conteúdo) que substitui os 3
  * `Dialog` independentes (Preferências/Ambiente/Administração). Cobre
  * exatamente o que a reforma prometeu: trocar de categoria nunca
- * desmonta/remonta o Dialog (zero flicker), Plugins/Skills/Tool Policy
+ * desmonta/remonta o Dialog (zero flicker), Skills/Tool Policy
  * (antes órfãos, nunca renderizados por nenhum diálogo) aparecem de
  * verdade, e o rail colapsa pra dropdown em telas estreitas.
  */
@@ -62,9 +62,6 @@ vi.mock("../environment/tabs/provider-routing-tab", () => ({
 }));
 vi.mock("../environment/tabs/connect-tab", () => ({
   ConnectTab: stubTab("tab-connect"),
-}));
-vi.mock("../environment/tabs/plugins-tab", () => ({
-  PluginsTab: stubTab("tab-plugins"),
 }));
 vi.mock("../environment/tabs/skills-tab", () => ({
   SkillsTab: stubTab("tab-skills"),
@@ -129,13 +126,7 @@ describe("SettingsOverlay — navegação sem flicker", () => {
   });
 });
 
-describe("SettingsOverlay — categorias antes órfãs (Plugins/Skills/Tool Policy)", () => {
-  it("Plugins renderiza de verdade dentro do novo shell", async () => {
-    await montar();
-    fireEvent.click(screen.getByText("Plugins"));
-    expect(await screen.findByTestId("tab-plugins")).toBeInTheDocument();
-  });
-
+describe("SettingsOverlay — categorias Skills/Tool Policy", () => {
   it("Skills renderiza de verdade dentro do novo shell", async () => {
     await montar();
     fireEvent.click(screen.getByText("Skills"));

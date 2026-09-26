@@ -124,7 +124,7 @@ describe("CompareView", () => {
     await waitFor(() =>
       expect(fileSpy).toHaveBeenCalledWith("ws1", "main", "feature", "a.ts"),
     );
-    expect(await screen.findByText("+x")).toBeInTheDocument();
+    expect(await screen.findByText("x")).toBeInTheDocument();
 
     fireEvent.click(row);
     fireEvent.click(row);

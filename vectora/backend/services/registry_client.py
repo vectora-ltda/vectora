@@ -1,10 +1,9 @@
 """Cliente do registry remoto de MCP/Skills (`services/src/registry/routes.ts`).
 
 Segue o mesmo padrão de `backend.services.license`: `httpx.AsyncClient` com
-timeout curto, cache local com TTL, fallback offline gracioso. Falha de rede
-nunca propaga — cai pro cache existente, e sem cache devolve lista vazia
-(estado válido: o caller decide se mescla com um fallback hardcoded próprio,
-como `mcp_marketplace.py` faz).
+timeout curto e cache local com TTL. Falha de rede nunca propaga — cai pro
+cache existente, e sem cache devolve lista vazia. O catálogo MCP consumido
+pela interface é exclusivamente o agregado pelo registry da Vectora.
 """
 
 from __future__ import annotations
@@ -13,11 +12,15 @@ import contextlib
 import json
 import logging
 import os
+from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import ClassVar, Literal
 
 import httpx
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from backend.services.extension_trust import TrustState
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +33,95 @@ HTTP_TIMEOUT = 10.0
 
 RegistryKind = Literal["mcp", "skills", "mcp_official"]
 
+
+class RegistryStatus(BaseModel):
+    """Validated synchronization status returned by the registry service."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
+
+    source: Literal["mcp", "skills"]
+    status: Literal["ready", "unavailable", "disabled", "never"]
+    last_synced_at: str | None = None
+    error: str | None = None
+
+
 OFFICIAL_MCP_REGISTRY_URL = "https://registry.modelcontextprotocol.io/v0.1/servers"
+
+
+class McpCatalogEntry(BaseModel):
+    """Validated MCP catalog contract returned by the registry service."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
+
+    id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    description: str = ""
+    install_cmd: str = ""
+    env_vars: list[str] = Field(default_factory=list)
+    homepage: str = ""
+    category: str = "general"
+    icon_url: str | None = None
+    publisher: str | None = None
+    publisher_url: str | None = None
+    stars_count: int = Field(default=0, ge=0)
+    downloads_count: int = Field(default=0, ge=0)
+    runtime_hint: str | None = None
+    package_identifier: str | None = None
+    transport: Literal["stdio", "http", "sse"] = "stdio"
+    server_url: str | None = None
+    catalog_source: str = ""
+    vectora_verified: bool = False
+    trust_state: TrustState = "unsigned"
+    trust_reason: str = "catalog_listed"
+
+    @model_validator(mode="after")
+    def _validate_transport(self) -> McpCatalogEntry:
+        if self.transport == "stdio":
+            if not self.install_cmd.strip():
+                raise ValueError("stdio transport requires install_cmd")
+            return self
+        if not self.server_url:
+            raise ValueError(f"{self.transport} transport requires server_url")
+        from urllib.parse import urlparse
+
+        parsed = urlparse(self.server_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("server_url must be an absolute HTTP(S) URL")
+        return self
+
+    @field_validator("env_vars", mode="before")
+    @classmethod
+    def _normalize_env_vars(cls, value: object) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError:
+                return []
+        if not isinstance(value, list):
+            return []
+        return [item for item in value if isinstance(item, str) and item]
+
+
+def validate_mcp_catalog_entries(entries: Iterable[object]) -> list[McpCatalogEntry]:
+    """Validate untrusted registry payloads before they cross service layers."""
+    validated: list[McpCatalogEntry] = []
+    for entry in entries:
+        if not isinstance(entry, Mapping):
+            logger.warning(
+                "registry_client: entrada MCP não-objeto ignorada",
+                extra={"entry_type": type(entry).__name__},
+            )
+            continue
+        try:
+            validated.append(McpCatalogEntry.model_validate(entry))
+        except Exception as exc:
+            logger.warning(
+                "registry_client: entrada MCP inválida ignorada",
+                extra={"error": str(exc)},
+            )
+    return validated
 
 
 def _registry_url() -> str:
@@ -77,17 +168,30 @@ def _cache_is_fresh(payload: dict, ttl: timedelta) -> bool:
     return datetime.now(UTC) - fetched_at < ttl
 
 
+def _cache_has_current_mcp_shape(payload: dict) -> bool:
+    entries = payload.get("entries")
+    return isinstance(entries, list) and all(
+        isinstance(entry, Mapping)
+        and isinstance(entry.get("catalog_source"), str)
+        and bool(entry.get("catalog_source"))
+        for entry in entries
+    )
+
+
 async def fetch_catalog(kind: RegistryKind) -> list[dict]:
     """Busca o catálogo `kind` ("mcp" | "skills") do registry remoto.
 
     Cache-first: com cache ainda dentro do TTL online (6h), serve direto
     sem tocar rede. Sucesso de rede (cache ausente/expirado) grava cache
     local. Falha de rede cai pro cache existente (até 48h stale). Sem rede
-    e sem cache: lista vazia — nunca levanta exceção (tools/handlers que
-    chamam isto degradam pro próprio fallback, não travam).
+    e sem cache: lista vazia — nunca levanta exceção.
     """
     cache = _read_cache(kind)
-    if cache is not None and _cache_is_fresh(cache, CACHE_TTL_ONLINE):
+    if (
+        cache is not None
+        and (kind != "mcp" or _cache_has_current_mcp_shape(cache))
+        and _cache_is_fresh(cache, CACHE_TTL_ONLINE)
+    ):
         return list(cache.get("entries", []))
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
@@ -99,10 +203,43 @@ async def fetch_catalog(kind: RegistryKind) -> list[dict]:
         return entries
     except Exception as exc:
         logger.warning("registry_client: falha ao buscar catálogo %s (%s)", kind, exc)
-        if cache is not None and _cache_is_fresh(cache, CACHE_TTL_OFFLINE):
+        if (
+            cache is not None
+            and (kind != "mcp" or _cache_has_current_mcp_shape(cache))
+            and _cache_is_fresh(cache, CACHE_TTL_OFFLINE)
+        ):
             logger.info("registry_client: usando cache offline de %s", kind)
             return list(cache.get("entries", []))
         return []
+
+
+async def fetch_catalog_status(kind: Literal["mcp", "skills"]) -> RegistryStatus:
+    """Obtém o estado da fonte sem confundir catálogo vazio com falha."""
+    fallback = RegistryStatus(
+        source=kind,
+        status="unavailable",
+        last_synced_at=None,
+        error="status unavailable",
+    )
+    try:
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
+            response = await client.get(f"{_registry_url()}/status/{kind}")
+            response.raise_for_status()
+            payload = response.json()
+        return RegistryStatus.model_validate(
+            {
+                "source": payload.get("source", kind),
+                "status": payload.get("status", "never"),
+                "last_synced_at": payload.get("last_synced_at"),
+                "error": payload.get("error"),
+            }
+        )
+    except Exception as exc:
+        logger.warning(
+            "registry_client: estado da fonte indisponível",
+            extra={"kind": kind, "error": str(exc)},
+        )
+        return fallback
 
 
 async def fetch_enterprise_catalog(kind: Literal["mcp", "skills"]) -> list[dict]:
@@ -205,55 +342,6 @@ async def fetch_official_mcp_registry(*, max_entries: int = 100) -> list[dict]:
         if cache is not None and _cache_is_fresh(cache, CACHE_TTL_OFFLINE):
             return list(cache.get("entries", []))
         return []
-
-
-class RegistryClientError(RuntimeError):
-    """Erro tipado de publish — sessão inválida, `source` rejeitado pelo
-    servidor, ou falha de rede. Nunca propaga exceção crua pro chamador."""
-
-
-async def publish_skill(
-    name: str,
-    description: str,
-    source: str,
-    *,
-    category: str | None = None,
-    tags: list[str] | None = None,
-    session_token: str,
-) -> str:
-    """Registra uma skill no catálogo remoto via `POST /registry/skills` —
-    `source` é sempre uma URL git (o mesmo formato que
-    `backend/workspace/skills.py` já aceita pra instalação), nunca um
-    upload de arquivo. Retorna o `id` da entrada recém-criada (sempre
-    `verified=false` até curadoria manual via `PATCH
-    /registry/admin/skills/:id/verify`)."""
-    try:
-        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            resp = await client.post(
-                f"{_registry_url()}/skills",
-                headers={"Authorization": f"Bearer {session_token}"},
-                json={
-                    "name": name,
-                    "description": description,
-                    "source": source,
-                    "category": category,
-                    "tags": tags or [],
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-    except httpx.HTTPStatusError as exc:
-        raise RegistryClientError(
-            f"Falha ao publicar a skill: {exc.response.status_code} {exc.response.text}"
-        ) from exc
-    except Exception as exc:
-        raise RegistryClientError(f"Falha ao publicar a skill: {exc}") from exc
-
-    remote_id = data.get("id")
-    if not remote_id:
-        raise RegistryClientError("Resposta inesperada do registry/skills (sem id).")
-    logger.info("registry_client: skill publicada como %s", remote_id)
-    return remote_id
 
 
 def clear_registry_cache() -> None:

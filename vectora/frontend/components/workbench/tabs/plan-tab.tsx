@@ -36,7 +36,7 @@ import {
   Sparkles,
   type LucideIcon,
 } from "lucide-react";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -100,6 +100,12 @@ const TODOS_SLUG = "__todos__";
 
 interface PlanTabProps {
   threadId: string;
+  onOpenPlanDocument?: (
+    item: PlanItem,
+    content: string | null,
+    error?: string,
+    phase?: "open" | "update",
+  ) => void;
 }
 
 function FilesTouchedSection({ threadId }: { threadId: string }) {
@@ -162,7 +168,15 @@ function TodoStatusIcon({ status }: { status: TodoItem["status"] }) {
   }
 }
 
-export function PlanTab({ threadId }: PlanTabProps) {
+export function PlanTab({ threadId, onOpenPlanDocument }: PlanTabProps) {
+  // A chave inclui a thread e o contador nunca é resetado. Reiniciar o mapa
+  // ao trocar de thread permitia que uma resposta antiga e uma nova usassem
+  // o mesmo epoch para o mesmo slug.
+  const contentRequestEpoch = useRef(new Map<string, number>());
+  const activeThreadRef = useRef(threadId);
+  useEffect(() => {
+    activeThreadRef.current = threadId;
+  }, [threadId]);
   const items = useWorkbenchStore((s) => s.getPlan(threadId).items);
   const todos = useWorkbenchStore((s) => s.getTodos(threadId));
   const fetchedAt = useWorkbenchStore((s) => s.getPlan(threadId).fetchedAt);
@@ -225,13 +239,71 @@ export function PlanTab({ threadId }: PlanTabProps) {
         togglePlanOpenSlug(threadId, slug);
       }
       for (const slug of added) {
-        if (slug === TODOS_SLUG || contentsBySlug[slug] !== undefined) continue;
-        void fetchArtifactContent(threadId, slug).then((content) => {
-          if (content !== null) setPlanContent(threadId, slug, content);
-        });
+        if (slug === TODOS_SLUG) continue;
+        const item = items.find(
+          (candidate) => fileSlug(candidate.path) === slug,
+        );
+        if (contentsBySlug[slug] !== undefined) {
+          if (item)
+            onOpenPlanDocument?.(item, contentsBySlug[slug], undefined, "open");
+          continue;
+        }
+        const requestKey = `${threadId}:${slug}`;
+        const requestEpoch =
+          (contentRequestEpoch.current.get(requestKey) ?? 0) + 1;
+        contentRequestEpoch.current.set(requestKey, requestEpoch);
+        const requestThreadId = threadId;
+        void fetchArtifactContent(threadId, slug)
+          .then((content) => {
+            if (
+              requestThreadId !== activeThreadRef.current ||
+              requestEpoch !== contentRequestEpoch.current.get(requestKey)
+            )
+              return;
+            if (content !== null) setPlanContent(threadId, slug, content);
+            if (item) {
+              onOpenPlanDocument?.(
+                item,
+                content,
+                content === null
+                  ? m.workbench_git_operation_failed()
+                  : undefined,
+                "update",
+              );
+            }
+          })
+          .catch(() => {
+            if (
+              requestThreadId !== activeThreadRef.current ||
+              requestEpoch !== contentRequestEpoch.current.get(requestKey)
+            )
+              return;
+            if (item)
+              onOpenPlanDocument?.(
+                item,
+                null,
+                m.workbench_git_operation_failed(),
+                "update",
+              );
+          });
+        if (item)
+          onOpenPlanDocument?.(
+            item,
+            contentsBySlug[slug] ?? null,
+            undefined,
+            "open",
+          );
       }
     },
-    [openSlugs, threadId, togglePlanOpenSlug, contentsBySlug, setPlanContent],
+    [
+      openSlugs,
+      threadId,
+      togglePlanOpenSlug,
+      contentsBySlug,
+      setPlanContent,
+      items,
+      onOpenPlanDocument,
+    ],
   );
 
   // Estado de loading inicial: ainda não fetchamos uma única vez.

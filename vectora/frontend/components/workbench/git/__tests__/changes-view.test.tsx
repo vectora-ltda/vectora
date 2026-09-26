@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
- * Testes do ChangesView — grupos Staged/Modificados/Untracked, ações inline
- * de arquivo (stage/unstage/discard) e painel de commit.
+ * Testes do ChangesView — lista de arquivos, menu de contexto e painel de
+ * commit.
  */
 
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
@@ -26,33 +26,46 @@ vi.mock("@/lib/paraglide/messages", () => ({
   ),
 }));
 
-const mockDiffState = {
-  openFiles: [] as string[],
-  hunksByFile: {} as Record<string, unknown>,
-  fileFetchedAt: {} as Record<string, number>,
-};
-
-const mockGitOps = {
-  selectedFiles: [] as string[],
-  selectedHunks: {},
-  activeDocument: null,
-  operation: null,
-};
-
-const mockWorkbench = {
-  getDiff: (_id: string) => mockDiffState,
-  getGitOps: (_id: string) => mockGitOps,
-  setDiffOpenFile: vi.fn(),
-  setDiffHunks: vi.fn(),
-  invalidateDiff: vi.fn(),
-  clearGitSelection: vi.fn(),
-  toggleGitFileSelection: vi.fn(),
-};
+const { mockDiffState, mockGitOps, mockWorkbench, mockStore } = vi.hoisted(
+  () => {
+    const diffState = {
+      openFiles: [] as string[],
+      hunksByFile: {} as Record<string, unknown>,
+      fileFetchedAt: {} as Record<string, number>,
+    };
+    const gitOps = {
+      selectedFiles: [] as string[],
+      selectedHunks: {},
+      selectionRevision: 0,
+      activeDocument: null,
+      operation: null,
+    };
+    const workbench = {
+      getDiff: (_id: string) => diffState,
+      getGitOps: (_id: string) => gitOps,
+      setDiffOpenFile: vi.fn(),
+      setDiffHunks: vi.fn(),
+      invalidateDiff: vi.fn(),
+      clearGitSelection: vi.fn(),
+      toggleGitFileSelection: vi.fn(),
+      setGitFileSelection: vi.fn(),
+    };
+    const store = Object.assign(
+      (sel: (s: typeof workbench) => unknown) => sel(workbench),
+      { getState: () => workbench },
+    );
+    return {
+      mockDiffState: diffState,
+      mockGitOps: gitOps,
+      mockWorkbench: workbench,
+      mockStore: store,
+    };
+  },
+);
 
 vi.mock("@/lib/stores/workbench-store", () => ({
   WORKBENCH_STALE_MS: 30000,
-  useWorkbenchStore: (sel: (s: typeof mockWorkbench) => unknown) =>
-    sel(mockWorkbench),
+  useWorkbenchStore: mockStore,
 }));
 
 vi.mock("@/lib/hooks/workbench/use-swr", () => ({
@@ -141,10 +154,9 @@ describe("ChangesView", () => {
 
     fireEvent.click(screen.getByText(/workbench_git_stage_selected/));
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
-    expect(mockWorkbench.toggleGitFileSelection).toHaveBeenCalledWith(
-      "ws1",
+    expect(mockWorkbench.setGitFileSelection).toHaveBeenCalledWith("ws1", [
       "failed.ts",
-    );
+    ]);
   });
 
   it("preserva seleção elegível para outra ação em uma seleção mista", async () => {
@@ -165,10 +177,9 @@ describe("ChangesView", () => {
 
     fireEvent.click(screen.getByText(/workbench_git_stage_selected/));
     await waitFor(() =>
-      expect(mockWorkbench.toggleGitFileSelection).toHaveBeenCalledWith(
-        "ws1",
+      expect(mockWorkbench.setGitFileSelection).toHaveBeenCalledWith("ws1", [
         "staged.ts",
-      ),
+      ]),
     );
   });
 
@@ -190,10 +201,9 @@ describe("ChangesView", () => {
 
     fireEvent.click(screen.getByText(/workbench_git_stage_selected/));
     await waitFor(() =>
-      expect(mockWorkbench.toggleGitFileSelection).toHaveBeenCalledWith(
-        "ws1",
+      expect(mockWorkbench.setGitFileSelection).toHaveBeenCalledWith("ws1", [
         "staged.ts",
-      ),
+      ]),
     );
   });
 
@@ -211,9 +221,13 @@ describe("ChangesView", () => {
 
     fireEvent.contextMenu(screen.getByText("src/components/Button.tsx"));
     expect(
-      screen.getByRole("menuitem", { name: "Ignore folder" }),
+      screen.getByRole("menuitem", { name: "workbench_git_ctx_ignore_folder" }),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Ignore folder" }));
+    fireEvent.click(
+      screen.getByRole("menuitem", {
+        name: "workbench_git_ctx_ignore_folder",
+      }),
+    );
     expect(api.apiGitignoreAppend).toHaveBeenCalledWith(
       "ws1",
       "src/components",
@@ -222,7 +236,9 @@ describe("ChangesView", () => {
 
     fireEvent.contextMenu(screen.getByText("README.md"));
     expect(
-      screen.queryByRole("menuitem", { name: "Ignore folder" }),
+      screen.queryByRole("menuitem", {
+        name: "workbench_git_ctx_ignore_folder",
+      }),
     ).not.toBeInTheDocument();
   });
 
@@ -243,8 +259,8 @@ describe("ChangesView", () => {
     expect(screen.getByText("modified.ts")).toBeInTheDocument();
     expect(screen.getByText("new.ts")).toBeInTheDocument();
     expect(
-      screen.getByText("workbench_diff_group_untracked"),
-    ).toBeInTheDocument();
+      screen.queryByText("workbench_diff_group_untracked"),
+    ).not.toBeInTheDocument();
   });
 
   it("não mostra o grupo untracked quando não há arquivos untracked", () => {
@@ -259,7 +275,7 @@ describe("ChangesView", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("clicar em stage (+) chama apiGitFileAction e invalida o diff", async () => {
+  it("usar stage pelo menu de contexto chama apiGitFileAction e invalida o diff", async () => {
     const spy = vi
       .spyOn(api, "apiGitFileAction")
       .mockResolvedValue({ status: "ok", message: "" });
@@ -270,7 +286,8 @@ describe("ChangesView", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTitle("workbench_git_ctx_stage"));
+    fireEvent.contextMenu(screen.getByText("a.ts"));
+    fireEvent.click(screen.getByText("workbench_git_ctx_stage"));
     await waitFor(() =>
       expect(spy).toHaveBeenCalledWith("ws1", "stage", "a.ts"),
     );
@@ -279,7 +296,7 @@ describe("ChangesView", () => {
     );
   });
 
-  it("clicar em unstage (−) chama apiGitFileAction com unstage", async () => {
+  it("usar unstage pelo menu de contexto chama apiGitFileAction", async () => {
     const spy = vi
       .spyOn(api, "apiGitFileAction")
       .mockResolvedValue({ status: "ok", message: "" });
@@ -290,13 +307,14 @@ describe("ChangesView", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTitle("workbench_git_ctx_unstage"));
+    fireEvent.contextMenu(screen.getByText("a.ts"));
+    fireEvent.click(screen.getByText("workbench_git_ctx_unstage"));
     await waitFor(() =>
       expect(spy).toHaveBeenCalledWith("ws1", "unstage", "a.ts"),
     );
   });
 
-  it("clicar em discard (↩) abre o dialog de confirmação e só chama a API ao confirmar", async () => {
+  it("usar discard pelo menu de contexto chama apiGitFileAction", async () => {
     const spy = vi
       .spyOn(api, "apiGitFileAction")
       .mockResolvedValue({ status: "ok", message: "" });
@@ -309,11 +327,8 @@ describe("ChangesView", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTitle("workbench_git_ctx_discard"));
-    expect(screen.getByText("workbench_git_discard_title")).toBeInTheDocument();
-    expect(spy).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByText("workbench_git_discard_confirm"));
+    fireEvent.contextMenu(screen.getByText("a.ts"));
+    fireEvent.click(screen.getByText("workbench_git_ctx_discard"));
     await waitFor(() =>
       expect(spy).toHaveBeenCalledWith("ws1", "discard", "a.ts"),
     );
@@ -358,7 +373,6 @@ describe("ChangesView", () => {
     await waitFor(() =>
       expect(spy).toHaveBeenCalledWith("ws1", "fix: bug", false, {
         body: "",
-        amend: false,
       }),
     );
     await waitFor(() => expect(input.value).toBe(""));
@@ -386,7 +400,7 @@ describe("ChangesView", () => {
     expect(input.value).toBe("fix: bug");
   });
 
-  it("preenche descrição e marca amend: passa body e amend pro apiGitCommit", async () => {
+  it("preenche descrição e passa o body pro apiGitCommit", async () => {
     const spy = vi
       .spyOn(api, "apiGitCommit")
       .mockResolvedValue({ status: "ok", message: "" });
@@ -405,13 +419,11 @@ describe("ChangesView", () => {
       screen.getByPlaceholderText("workbench_diff_commit_body_placeholder"),
       { target: { value: "detalhes" } },
     );
-    fireEvent.click(screen.getByTestId("git-commit-amend"));
     fireEvent.click(screen.getByText("workbench_diff_commit_button"));
 
     await waitFor(() =>
       expect(spy).toHaveBeenCalledWith("ws1", "fix: bug", false, {
         body: "detalhes",
-        amend: true,
       }),
     );
   });
@@ -436,7 +448,6 @@ describe("ChangesView", () => {
     await waitFor(() =>
       expect(spy).toHaveBeenCalledWith("ws1", "fix: bug", false, {
         body: "",
-        amend: false,
       }),
     );
   });

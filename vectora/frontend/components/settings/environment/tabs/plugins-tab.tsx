@@ -255,9 +255,15 @@ export function PluginsTab() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="stdio">stdio</SelectItem>
-                  <SelectItem value="sse">sse</SelectItem>
-                  <SelectItem value="http">http</SelectItem>
+                  <SelectItem value="stdio">
+                    {m.plugins_transport_stdio()}
+                  </SelectItem>
+                  <SelectItem value="sse">
+                    {m.plugins_transport_sse()}
+                  </SelectItem>
+                  <SelectItem value="http">
+                    {m.plugins_transport_http()}
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -276,7 +282,7 @@ export function PluginsTab() {
                   }
                   autoComplete="off"
                   className="h-8 text-xs font-mono"
-                  placeholder="npx"
+                  placeholder={m.plugins_command_placeholder()}
                 />
               </div>
               <div className="space-y-1">
@@ -287,7 +293,7 @@ export function PluginsTab() {
                   value={argsText}
                   onChange={(e) => setArgsText(e.target.value)}
                   className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs font-mono min-h-[60px]"
-                  placeholder={"-y\n@modelcontextprotocol/server-filesystem"}
+                  placeholder={m.plugins_args_placeholder()}
                 />
               </div>
             </>
@@ -301,7 +307,7 @@ export function PluginsTab() {
                 onChange={(e) => setForm({ ...form, url: e.target.value })}
                 autoComplete="off"
                 className="h-8 text-xs font-mono"
-                placeholder="http://localhost:9000/mcp"
+                placeholder={m.plugins_url_placeholder()}
               />
             </div>
           )}

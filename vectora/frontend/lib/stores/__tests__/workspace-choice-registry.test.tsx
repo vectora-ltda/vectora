@@ -15,6 +15,20 @@ import {
   consumeCreateNewWorkspace,
 } from "../workspace-choice-registry";
 
+function WorkspaceChoiceProbe({
+  threadId,
+  testId,
+}: {
+  threadId: string;
+  testId: string;
+}) {
+  return (
+    <output data-testid={testId}>
+      {String(useIsWorkspaceChosen(threadId))}
+    </output>
+  );
+}
+
 afterEach(() => {
   vi.useRealTimers();
   for (const id of ["t1", "t2", "a", "b", "reativa", "timer"]) {
@@ -24,14 +38,9 @@ afterEach(() => {
 
 describe("workspace-choice-registry", () => {
   it("atualiza o hook quando a escolha muda", () => {
-    function Probe() {
-      return (
-        <output data-testid="state">
-          {String(useIsWorkspaceChosen("reativa"))}
-        </output>
-      );
-    }
-    const view = render(<Probe />);
+    const view = render(
+      <WorkspaceChoiceProbe threadId="reativa" testId="state" />,
+    );
     expect(view.getByTestId("state").textContent).toBe("false");
     act(() => markWorkspaceChosen("reativa"));
     expect(view.getByTestId("state").textContent).toBe("true");
@@ -41,14 +50,9 @@ describe("workspace-choice-registry", () => {
 
   it("notifica o hook quando a escolha expira", () => {
     vi.useFakeTimers();
-    function Probe() {
-      return (
-        <output data-testid="state">
-          {String(useIsWorkspaceChosen("timer"))}
-        </output>
-      );
-    }
-    const view = render(<Probe />);
+    const view = render(
+      <WorkspaceChoiceProbe threadId="timer" testId="state" />,
+    );
     act(() => markWorkspaceChosen("timer"));
     act(() => vi.advanceTimersByTime(5 * 60 * 1000 + 1));
     expect(view.getByTestId("state").textContent).toBe("false");
@@ -77,14 +81,9 @@ describe("workspace-choice-registry", () => {
   });
 
   it("mantém um identificador vazio de forma reativa", () => {
-    function Probe() {
-      return (
-        <output data-testid="empty-state">
-          {String(useIsWorkspaceChosen(""))}
-        </output>
-      );
-    }
-    const view = render(<Probe />);
+    const view = render(
+      <WorkspaceChoiceProbe threadId="" testId="empty-state" />,
+    );
     expect(view.getByTestId("empty-state").textContent).toBe("false");
     act(() => markWorkspaceChosen(""));
     expect(view.getByTestId("empty-state").textContent).toBe("true");
