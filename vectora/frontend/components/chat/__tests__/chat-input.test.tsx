@@ -586,6 +586,118 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     }
   });
 
+  it("mantém o spacer fora do orçamento textual e respeita os gaps", () => {
+    let groupWidth = 200;
+    const resizeCallbacks: ResizeObserverCallback[] = [];
+    const originalClientWidth = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "clientWidth",
+    );
+    const originalGetComputedStyle = window.getComputedStyle;
+    vi.spyOn(window, "getComputedStyle").mockImplementation((element) => {
+      const style = originalGetComputedStyle(element);
+      if (element.getAttribute("data-testid") === "wide-control-group") {
+        Object.defineProperty(style, "columnGap", { value: "8px" });
+      }
+      return style;
+    });
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          resizeCallbacks.push(callback);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+      configurable: true,
+      get() {
+        if (this.getAttribute("data-testid") === "wide-control-group") {
+          return groupWidth;
+        }
+        return typeof this.className === "string" &&
+          this.className.includes("composer")
+          ? 640
+          : 0;
+      },
+    });
+    const bounds = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        const width = this.matches("[data-compact-control-label]") ? 60 : 100;
+        return {
+          x: 0,
+          y: 0,
+          top: 0,
+          left: 0,
+          right: width,
+          bottom: 24,
+          width,
+          height: 24,
+          toJSON: () => ({}),
+        };
+      });
+
+    try {
+      const { container } = render(
+        <ChatInput
+          {...baseProps({
+            agentConfig: { model: "openrouter:openai/gpt-4o" },
+            onAgentConfigChange: vi.fn(),
+            modelId: "openrouter:openai/gpt-4o",
+          })}
+        />,
+      );
+      const group = container.querySelector(
+        '[data-testid="wide-control-group"]',
+      ) as HTMLElement;
+      const spacer = container.querySelector(
+        '[data-testid="wide-control-spacer"]',
+      ) as HTMLElement;
+      const controls = [...group.children].filter(
+        (child) => child !== spacer,
+      ) as HTMLElement[];
+      const widths = () =>
+        controls.map((control) => Number.parseFloat(control.style.width));
+
+      act(() => {
+        groupWidth = 324;
+        for (const callback of resizeCallbacks) {
+          callback([], {} as ResizeObserver);
+        }
+      });
+      expect(spacer).not.toHaveClass("hidden");
+      expect(widths()).toEqual([100, 100, 100]);
+
+      act(() => {
+        groupWidth = 200;
+        for (const callback of resizeCallbacks) {
+          callback([], {} as ResizeObserver);
+        }
+      });
+      expect(spacer).toHaveClass("hidden");
+      expect(widths().every((width) => width > 40 && width < 100)).toBe(true);
+      expect(widths().reduce((sum, width) => sum + width, 0) + 16).toBeCloseTo(
+        groupWidth,
+      );
+    } finally {
+      bounds.mockRestore();
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+      if (originalClientWidth) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "clientWidth",
+          originalClientWidth,
+        );
+      } else {
+        delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+      }
+    }
+  });
+
   it("mantém acesso horizontal ao texto longo no input compacto", () => {
     const { container } = render(
       <ChatInput
