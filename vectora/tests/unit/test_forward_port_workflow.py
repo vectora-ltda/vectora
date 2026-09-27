@@ -120,6 +120,7 @@ def test_release_rotation_workflow_declares_release_entrypoint() -> None:
     assert '--milestone "$DEVELOPMENT_MILESTONE"' in content
     assert "release_version" in content
     assert "RELEASE_PLEASE_TOKEN" in content
+    assert "github-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}" in content
     assert "compareCommits" in content
     migration = workflow.parent / "migrate-release-line-prs.yml"
     migration_content = migration.read_text(encoding="utf-8")
@@ -134,6 +135,7 @@ def test_release_rotation_workflow_declares_release_entrypoint() -> None:
     assert "migrate_release_line_prs.js" in migration_content
     assert "pull_request.base.sha" in migration_content
     assert "pull_request.merge_commit_sha" in migration_content
+    assert "github-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}" in migration_content
     assert "release-lines.current.json" in migration_content
     assert "release-lines.previous.json" in migration_content
     assert "cancel-in-progress: false" in migration_content

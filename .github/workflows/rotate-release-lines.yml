@@ -60,7 +60,7 @@ jobs:
           PREVIOUS_DEVELOPMENT_MILESTONE: ${{ steps.rotation.outputs.previous_development_milestone }}
           RELEASE_TAG: ${{ steps.rotation.outputs.release_tag }}
         with:
-          github-token: ${{ github.token }}
+          github-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           script: |
             const {
               MAINTENANCE_BRANCH,

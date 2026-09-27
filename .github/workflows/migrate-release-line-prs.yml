@@ -50,7 +50,7 @@ jobs:
           git show "$MERGE_SHA:.github/release-lines.json" > .github/release-lines.current.json
       - uses: actions/github-script@v8
         with:
-          github-token: ${{ github.token }}
+          github-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           script: |
             const {
               findMigrationTargets,
