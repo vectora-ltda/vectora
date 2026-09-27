@@ -368,9 +368,9 @@ describe("ThreeColumnShell", () => {
       });
       expect(workbench).toHaveStyle({ width: "48px" });
       expect(screen.getByTestId("workbench-content")).toBeInTheDocument();
-      expect(screen.getByTestId("workbench-content").parentElement).toHaveClass(
-        "invisible",
-      );
+      expect(
+        screen.getByTestId("workbench-content").closest('[aria-hidden="true"]'),
+      ).toHaveClass("invisible");
       expect(screen.getByRole("main")).toContainElement(
         screen.getByTestId("header"),
       );

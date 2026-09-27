@@ -480,7 +480,11 @@ export function ChatInput({
     el.style.height = `${next}px`;
     // oxlint-disable-next-line react/immutability
     el.style.overflowY = next >= 240 ? "auto" : "hidden";
-  }, [compactMode, composerWidth, input]);
+    // The forwarded ref identity is intentionally included for the hooks rule;
+    // its current DOM node is non-reactive, so the React effect rule must not
+    // treat it as a render-triggering dependency.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies
+  }, [compactMode, composerWidth, input, textareaRef]);
   return (
     <div className="relative">
       {/* Enhanced visibility layer */}

@@ -25,6 +25,15 @@ function renderLayout(layoutState: "wide" | "mobile") {
   );
 }
 
+function StatefulChat() {
+  const [value, setValue] = useState("empty");
+  return (
+    <button data-testid="panel-chat" onClick={() => setValue("preserved")}>
+      {value}
+    </button>
+  );
+}
+
 describe("IdeModeLayout", () => {
   it("viewport larga: os quatro painéis renderizam lado a lado (regressão do layout atual)", () => {
     renderLayout("wide");
@@ -63,15 +72,6 @@ describe("IdeModeLayout", () => {
 
   it("modo wide colapsa o chat em rail e permite reabri-lo", () => {
     const onOpenChat = vi.fn();
-    function StatefulChat() {
-      const [value, setValue] = useState("empty");
-      return (
-        <button data-testid="panel-chat" onClick={() => setValue("preserved")}>
-          {value}
-        </button>
-      );
-    }
-
     function Harness() {
       const [showChat, setShowChat] = useState(true);
       return (
@@ -100,8 +100,9 @@ describe("IdeModeLayout", () => {
 
     const hiddenChat = screen.getByTestId("panel-chat");
     expect(hiddenChat).toHaveTextContent("preserved");
-    expect(hiddenChat.parentElement).toHaveClass("invisible", "hidden");
-    expect(hiddenChat.parentElement).toHaveAttribute("hidden");
+    const hiddenContainer = hiddenChat.closest('[aria-hidden="true"]');
+    expect(hiddenContainer).toHaveClass("invisible", "hidden");
+    expect(hiddenContainer).toHaveAttribute("hidden");
 
     fireEvent.click(screen.getByRole("button", { name: "Open chat" }));
     expect(onOpenChat).toHaveBeenCalledOnce();
