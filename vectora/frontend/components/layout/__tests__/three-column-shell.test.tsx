@@ -147,6 +147,32 @@ describe("ThreeColumnShell", () => {
     );
   });
 
+  it("aplica o contrato de preenchimento aos conteúdos esquerdo e direito", () => {
+    render(
+      <ThreeColumnShell
+        centerHeader={<header />}
+        left={<div data-testid="left-content" />}
+        center={<div />}
+        right={<div data-testid="right-content" />}
+        columns={{
+          left: { label: "Sessões", width: 320, minWidth: 240 },
+          center: { label: "Canvas" },
+          right: { label: "Chat", width: 480, minWidth: 240 },
+        }}
+      />,
+    );
+
+    for (const testId of ["left-content", "right-content"]) {
+      const content = screen.getByTestId(testId);
+      expect(content.parentElement).toHaveClass(
+        "w-full",
+        "flex-1",
+        "[&>*]:w-full",
+        "[&>*]:flex-1",
+      );
+    }
+  });
+
   it("aplica o mesmo contrato de rail estreita a uma coluna visível", () => {
     render(
       <ThreeColumnShell

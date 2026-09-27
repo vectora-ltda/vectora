@@ -24,6 +24,9 @@ class _FakeServer:
     def run(self) -> None:
         pass
 
+    def install_signal_handlers(self) -> None:
+        pass
+
 
 def _get_handler(signum: int) -> Any:
     return signal.getsignal(signum)
@@ -121,6 +124,20 @@ def test_shutdown_sighup_handling() -> None:
     finally:
         signal.signal(signal.SIGINT, orig_int)
         signal.signal(signal.SIGTERM, orig_term)
+
+
+def test_uvicorn_does_not_replace_process_owner_signal_handler() -> None:
+    """Uvicorn's internal capture must not swallow the backend Ctrl+C path."""
+    from backend.main import _disable_uvicorn_signal_capture
+
+    server = _FakeServer()
+    original = MagicMock()
+    server.install_signal_handlers = original
+
+    _disable_uvicorn_signal_capture(server)
+    server.install_signal_handlers()
+
+    original.assert_not_called()
 
 
 def test_tray_exposes_icon_via_icon_ref() -> None:

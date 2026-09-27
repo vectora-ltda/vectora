@@ -24,7 +24,11 @@ import sys
 
 from backend.services.electron_launcher import resolve_electron_launch
 from backend.services.subprocess_logging import pipe_to_logger
-from backend.services.subprocess_sidecar_utils import LazyLock, terminate_gracefully
+from backend.services.subprocess_sidecar_utils import (
+    LazyLock,
+    sidecar_process_options,
+    terminate_gracefully,
+)
 from backend.services.tray import has_display
 
 logger = logging.getLogger(__name__)
@@ -92,6 +96,7 @@ async def ensure_electron_sidecar() -> asyncio.subprocess.Process | None:
                 env=env,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
+                **sidecar_process_options(),
             )
         except Exception:
             logger.exception("electron_sidecar: falha ao spawnar Electron (dev)")

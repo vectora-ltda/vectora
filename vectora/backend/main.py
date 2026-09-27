@@ -127,6 +127,11 @@ def _install_terminal_signals(server: Any, icon_ref: list[Any]) -> None:
     `_should_install_terminal_signals` para quando isso é chamado."""
 
     def _shutdown(_signum: int, _frame: Any) -> None:
+        logger.info(
+            "Vectora: sinal recebido (signal=%s, pid=%s) — iniciando shutdown",
+            _signum,
+            os.getpid(),
+        )
         server.should_exit = True
         if icon_ref[0] is not None:
             icon_ref[0].stop()
@@ -135,6 +140,11 @@ def _install_terminal_signals(server: Any, icon_ref: list[Any]) -> None:
     signal.signal(signal.SIGTERM, _shutdown)
     if hasattr(signal, "SIGHUP"):
         signal.signal(signal.SIGHUP, _shutdown)  # type: ignore[attr-defined]
+
+
+def _disable_uvicorn_signal_capture(server: Any) -> None:
+    """Keep the process-owner handlers active while Uvicorn serves."""
+    server.install_signal_handlers = lambda: None
 
 
 # ---------------------------------------------------------------------------
@@ -645,6 +655,9 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
     icon_ref: list[Any] = [None]
     if _should_install_terminal_signals(dict(os.environ), force_web=force_web):
         _install_terminal_signals(server, icon_ref)
+        # Uvicorn installs its own capture handler inside ``serve``. Keep the
+        # process-owner handler above authoritative for console signals.
+        _disable_uvicorn_signal_capture(server)
 
     # Windows + VECTORA_DESKTOP: named pipe em vez de TCP — nenhuma porta TCP é
     # exposta ao SO. O Electron conecta via \\.\pipe\vectora-<pid>, lido de stdout.
@@ -684,6 +697,7 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
             port,
         )
         asyncio.run(server.serve())
+        logger.info("Vectora: server.serve retornou após shutdown")
     else:
         # Sobe o servidor e, quando há display, a bandeja do sistema (Python).
         # Sem display (VPS/Docker) ou sem pystray, degrada para servidor puro.

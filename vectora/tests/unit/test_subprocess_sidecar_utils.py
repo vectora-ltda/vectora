@@ -15,8 +15,28 @@ import pytest
 from backend.services.subprocess_sidecar_utils import (
     LazyLock,
     _terminate_windows_tree,
+    sidecar_process_options,
     terminate_gracefully,
 )
+
+
+def test_sidecar_process_options_isolates_windows_console_group(monkeypatch):
+    monkeypatch.setattr(
+        "backend.services.subprocess_sidecar_utils.sys.platform", "win32"
+    )
+
+    options = sidecar_process_options()
+
+    assert options["creationflags"] > 0
+    assert "start_new_session" not in options
+
+
+def test_sidecar_process_options_starts_a_posix_session(monkeypatch):
+    monkeypatch.setattr(
+        "backend.services.subprocess_sidecar_utils.sys.platform", "linux"
+    )
+
+    assert sidecar_process_options() == {"start_new_session": True}
 
 
 class TestLazyLock:

@@ -44,7 +44,11 @@ from pathlib import Path
 from typing import Any
 
 from backend.services.subprocess_logging import pipe_to_logger
-from backend.services.subprocess_sidecar_utils import LazyLock, terminate_gracefully
+from backend.services.subprocess_sidecar_utils import (
+    LazyLock,
+    sidecar_process_options,
+    terminate_gracefully,
+)
 from backend.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -202,6 +206,7 @@ async def ensure_nats_sidecar() -> str | None:
                 str(port),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
+                **sidecar_process_options(),
             )
         except Exception:
             logger.warning("nats_sidecar: falha ao spawnar nats-server", exc_info=True)

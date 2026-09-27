@@ -450,6 +450,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             if mq_initialized():
                 mq = await get_mq()
                 await mq.close()
+                logger.info("api/server: message queue fechada")
         except Exception:
             logger.warning("api/server: erro ao fechar message queue", exc_info=True)
 
@@ -466,6 +467,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             from backend.scheduling.nats_sidecar import stop_nats_sidecar
 
             await stop_nats_sidecar()
+            logger.info("api/server: sidecar NATS fechado")
         except Exception:
             logger.warning("api/server: erro ao encerrar sidecar NATS", exc_info=True)
 
