@@ -29,6 +29,7 @@ from backend.engine.stream_events import (
     ToolActivity,
     ToolCallStarted,
     ToolResult,
+    TurnFilesChanged,
     UIMetrics,
     WorkbenchInvalidate,
 )
@@ -119,6 +120,10 @@ def _to_payload(event: EngineEvent) -> schemas.StreamChatEventPayload:  # noqa: 
     if isinstance(event, WorkbenchInvalidate):
         return schemas.WorkbenchInvalidateEvent(
             tabs=event.tabs, tool_name=event.tool_name
+        )
+    if isinstance(event, TurnFilesChanged):
+        return schemas.TurnFilesChangedEvent(
+            files=[schemas.TurnFileChange.model_validate(file) for file in event.files]
         )
     if isinstance(event, TodosUpdated):
         return schemas.TodosUpdatedEvent(

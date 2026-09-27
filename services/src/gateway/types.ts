@@ -49,8 +49,9 @@ export interface Env {
   // gateway/index.ts — POST /register (token de app já defende, isto é
   // defesa em profundidade contra automação em massa).
   GATEWAY_LIMITER: RateLimit;
-  // registry/discovery.ts — sem token, discovery de skills via GitHub code
-  // search fica desligada (não é erro, ver discoverSkills).
+  // registry/discovery.ts — token operacional opcional para a busca de
+  // SKILL.md no GitHub. MCPs usam o registry oficial público e não precisam
+  // deste token; sem ele, somente a descoberta de Skills fica desabilitada.
   GITHUB_TOKEN?: string;
   /** Token of the GitHub App/PAT used by the Company issue bridge. */
   GITHUB_ISSUES_TOKEN?: string;

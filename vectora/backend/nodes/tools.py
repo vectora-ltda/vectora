@@ -177,7 +177,6 @@ uninstall_mcp = _bridge("uninstall_mcp")
 delete_skill = _bridge("delete_skill")
 verify_skill = _bridge("verify_skill")
 publish_memory_bucket_tool = _bridge("publish_memory_bucket_tool")
-publish_skill_tool = _bridge("publish_skill_tool")
 save_mcp_env_var = _bridge("save_mcp_env_var")
 list_mcp_catalog = _bridge("list_mcp_catalog")
 list_skills_catalog = _bridge("list_skills_catalog")
@@ -383,7 +382,7 @@ MEMORY_TOOLS: list[ToolSpec] = [
     apply_memory_consolidation,
 ]
 
-#: Ferramentas da Library: auto-instalar MCP/Skills/Memory Library, invocar
+#: Ferramentas da Library: auto-instalar MCP/Skills/Memory Buckets, invocar
 #: MCP externo já conectado
 LIBRARY_TOOLS: list[ToolSpec] = [
     call_mcp_tool,
@@ -397,7 +396,6 @@ LIBRARY_TOOLS: list[ToolSpec] = [
     delete_skill,
     verify_skill,
     publish_memory_bucket_tool,
-    publish_skill_tool,
     save_mcp_env_var,
 ]
 
@@ -575,7 +573,6 @@ for _t in [
     delete_skill,
     verify_skill,
     publish_memory_bucket_tool,
-    publish_skill_tool,
     save_mcp_env_var,
     workspace_describe,
     workspace_list,

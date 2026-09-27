@@ -953,6 +953,21 @@ def _upgrade_d1_schema(
         ("skills_catalog", "verified", "INTEGER NOT NULL DEFAULT 0"),
         ("skills_catalog", "downloads_count", "INTEGER NOT NULL DEFAULT 0"),
         ("skills_catalog", "updated_at", "TEXT"),
+        ("mcp_catalog", "icon_url", "TEXT"),
+        ("mcp_catalog", "publisher", "TEXT"),
+        ("mcp_catalog", "publisher_url", "TEXT"),
+        ("mcp_catalog", "stars_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("mcp_catalog", "runtime_hint", "TEXT"),
+        ("mcp_catalog", "package_identifier", "TEXT"),
+        ("mcp_catalog", "transport", "TEXT NOT NULL DEFAULT 'stdio'"),
+        ("mcp_catalog", "server_url", "TEXT"),
+        ("mcp_catalog", "catalog_source", "TEXT NOT NULL DEFAULT 'curated'"),
+        ("mcp_catalog", "vectora_verified", "INTEGER NOT NULL DEFAULT 0"),
+        ("mcp_catalog", "downloads_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("mcp_catalog", "snapshot_id", "TEXT"),
+        ("mcp_catalog", "last_seen_at", "TEXT"),
+        ("mcp_catalog", "catalog_status", "TEXT NOT NULL DEFAULT 'active'"),
+        ("mcp_catalog", "updated_at", "TEXT"),
         ("issue_comments", "updated_at", "TEXT"),
         ("issue_comments", "deleted_at", "TEXT"),
         ("github_webhook_deliveries", "attempt_token", "TEXT"),
@@ -1056,6 +1071,7 @@ def _upgrade_d1_schema(
             log=log,
             cwd=SERVICES,
         )
+
         _run(
             [
                 WRANGLER,
@@ -1065,6 +1081,34 @@ def _upgrade_d1_schema(
                 "--remote",
                 "--command",
                 "UPDATE skills_catalog SET updated_at = datetime('now') WHERE updated_at IS NULL",
+            ],
+            log=log,
+            cwd=SERVICES,
+        )
+
+    if table_exists.get("mcp_catalog"):
+        _run(
+            [
+                WRANGLER,
+                "d1",
+                "execute",
+                "vectora-db",
+                "--remote",
+                "--command",
+                "CREATE TRIGGER IF NOT EXISTS mcp_catalog_updated_at_default AFTER INSERT ON mcp_catalog WHEN NEW.updated_at IS NULL BEGIN UPDATE mcp_catalog SET updated_at = datetime('now') WHERE id = NEW.id AND updated_at IS NULL; END",
+            ],
+            log=log,
+            cwd=SERVICES,
+        )
+        _run(
+            [
+                WRANGLER,
+                "d1",
+                "execute",
+                "vectora-db",
+                "--remote",
+                "--command",
+                "UPDATE mcp_catalog SET updated_at = datetime('now') WHERE updated_at IS NULL",
             ],
             log=log,
             cwd=SERVICES,
@@ -1081,14 +1125,14 @@ def _action_prod(target, source, env):
     with _open_log("prod") as log:
         _run([VERCEL, "--prod", "--yes"], log=log, cwd=DOCS)
         _run([VERCEL, "--prod", "--yes"], log=log, cwd=COMPANY)
-        # Bancos antigos podem ter skills_catalog sem as colunas usadas pelo
+        # Bancos antigos podem ter catálogos sem as colunas usadas pelo
         # seed do schema base. Atualize tabelas já existentes antes de
         # reaplicar 0001_schema.sql; tabelas novas são criadas pelo próprio
         # schema e recebem uma segunda verificação após as migrations.
         _upgrade_d1_schema(
             log,
             skip_missing_tables=True,
-            tables_filter={"skills_catalog"},
+            tables_filter={"skills_catalog", "mcp_catalog"},
         )
         # Migrations ANTES do deploy do worker: o código deployado assume o
         # schema mais novo (ex.: users.role) — publicar worker sem aplicar as

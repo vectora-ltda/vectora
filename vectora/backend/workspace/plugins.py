@@ -16,6 +16,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, create_model
 
+from backend.context_graph.security import validate_url
 from backend.rbac import tool_policy
 from backend.services import extension_trust, mcp_policy
 from backend.tools.mcp import VectoraMCPClient
@@ -143,11 +144,10 @@ class McpServer(BaseModel):
     args: list[str] = []
     url: str = ""  # usado por sse/http
     env_vars: list[str] = []
+    # Valores explicitamente atribuídos pelo usuário para este servidor.
+    env: dict[str, str] = {}
     trust: extension_trust.TrustRecord = extension_trust.TrustRecord()
     trust_confirmed: bool = False
-    """Nomes de variáveis de ambiente do processo Vectora repassadas ao
-    subprocess stdio deste servidor, além do allowlist mínimo (PATH/HOME/
-    etc.). Ignorado por sse/http."""
 
 
 # ---------------------------------------------------------------------------
@@ -291,10 +291,13 @@ def build_connection(server: McpServer) -> dict:
             "command": server.command,
             "args": list(server.args),
             "env_vars": list(server.env_vars),
+            "env": dict(server.env),
         }
     if server.transport == "sse":
+        validate_url(server.url)
         return {"transport": "sse", "url": server.url}
     # "http" → streamable_http moderno
+    validate_url(server.url)
     return {"transport": "streamable_http", "url": server.url}
 
 

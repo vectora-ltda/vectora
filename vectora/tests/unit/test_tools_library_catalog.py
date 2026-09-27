@@ -74,14 +74,14 @@ async def test_list_memory_bucket_catalog_happy_e_falha(monkeypatch):
     async def _catalog():
         return [{"id": "leis-br", "name": "Leis BR", "description": "Legislação"}]
 
-    monkeypatch.setattr("backend.services.memory_library.list_catalog", _catalog)
+    monkeypatch.setattr("backend.services.memory_buckets.list_catalog", _catalog)
     out = json.loads(await library.list_memory_bucket_catalog())
     assert [i["id"] for i in out["items"]] == ["leis-br"]
 
     async def _explode():
         raise RuntimeError("library fora do ar")
 
-    monkeypatch.setattr("backend.services.memory_library.list_catalog", _explode)
+    monkeypatch.setattr("backend.services.memory_buckets.list_catalog", _explode)
     caido = json.loads(await library.list_memory_bucket_catalog())
     assert caido["items"] == []
     assert "library fora do ar" in caido["error"]

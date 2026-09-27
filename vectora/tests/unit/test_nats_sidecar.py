@@ -10,6 +10,7 @@ pra None sem lançar — get_mq()/get_kv() caem pro fallback em memória.
 from __future__ import annotations
 
 import json
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -149,15 +150,19 @@ async def test_ensure_nats_sidecar_spawns_and_returns_url_when_ready():
             nats_sidecar, "_resolve_binary", return_value="/usr/bin/nats-server"
         ),
         patch(
-            "asyncio.create_subprocess_exec",
-            new=AsyncMock(return_value=fake_proc),
-        ),
+            "asyncio.create_subprocess_exec", new=AsyncMock(return_value=fake_proc)
+        ) as spawn_mock,
     ):
         url = await nats_sidecar.ensure_nats_sidecar()
 
     assert url is not None
     assert url.startswith("nats://127.0.0.1:")
     assert nats_sidecar._proc is fake_proc
+    assert spawn_mock.await_args is not None
+    if sys.platform == "win32":
+        assert spawn_mock.await_args.kwargs["creationflags"] > 0
+    else:
+        assert spawn_mock.await_args.kwargs["start_new_session"] is True
 
 
 @pytest.mark.asyncio

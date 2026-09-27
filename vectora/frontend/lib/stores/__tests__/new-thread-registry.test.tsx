@@ -13,6 +13,18 @@ import {
   useIsNewThread,
 } from "../new-thread-registry";
 
+function NewThreadProbe({
+  threadId,
+  testId,
+}: {
+  threadId: string;
+  testId: string;
+}) {
+  return (
+    <output data-testid={testId}>{String(useIsNewThread(threadId))}</output>
+  );
+}
+
 afterEach(() => {
   vi.useRealTimers();
   for (let i = 0; i < 10; i++) clearNew(`t${i}`);
@@ -25,11 +37,7 @@ afterEach(() => {
 
 describe("new-thread-registry", () => {
   it("atualiza o hook quando o registro muda", () => {
-    function Probe() {
-      const value = useIsNewThread("reativa");
-      return <output data-testid="state">{String(value)}</output>;
-    }
-    const view = render(<Probe />);
+    const view = render(<NewThreadProbe threadId="reativa" testId="state" />);
     expect(view.getByTestId("state").textContent).toBe("false");
     act(() => markAsNew("reativa"));
     expect(view.getByTestId("state").textContent).toBe("true");
@@ -39,12 +47,7 @@ describe("new-thread-registry", () => {
 
   it("notifica o hook quando a marca expira", () => {
     vi.useFakeTimers();
-    function Probe() {
-      return (
-        <output data-testid="state">{String(useIsNewThread("timer"))}</output>
-      );
-    }
-    const view = render(<Probe />);
+    const view = render(<NewThreadProbe threadId="timer" testId="state" />);
     act(() => markAsNew("timer"));
     expect(view.getByTestId("state").textContent).toBe("true");
     act(() => vi.advanceTimersByTime(5 * 60 * 1000 + 1));
@@ -126,12 +129,7 @@ describe("new-thread-registry", () => {
   });
 
   it("atualiza o hook para uma thread com identificador vazio", () => {
-    function Probe() {
-      return (
-        <output data-testid="empty-state">{String(useIsNewThread(""))}</output>
-      );
-    }
-    const view = render(<Probe />);
+    const view = render(<NewThreadProbe threadId="" testId="empty-state" />);
     expect(view.getByTestId("empty-state").textContent).toBe("false");
     act(() => markAsNew(""));
     expect(view.getByTestId("empty-state").textContent).toBe("true");

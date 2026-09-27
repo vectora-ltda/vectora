@@ -62,37 +62,114 @@ async function makeSkill(
 }
 
 describe("GET /registry/mcp", () => {
-  it("returns the seeded mcp_catalog entries (D1 real, migrations/0001_schema.sql)", async () => {
+  it("exposes only entries synchronized from the official registry", async () => {
     const res = await registry.request("/mcp", {}, env);
     expect(res.status).toBe(200);
     const body = await res.json<{ entries: Array<{ id: string }> }>();
-    expect(body.entries.map((e) => e.id)).toContain("filesystem");
+    expect(body.entries).toEqual([]);
   });
 
   it("?q= filtra por nome/descrição", async () => {
+    await env.DB.prepare(
+      "UPDATE mcp_catalog SET catalog_source = 'official' WHERE id = 'github'",
+    ).run();
     const res = await registry.request("/mcp?q=GitHub", {}, env);
     const body = await res.json<{ entries: Array<{ id: string }> }>();
     expect(body.entries.map((e) => e.id)).toEqual(["github"]);
   });
 
   it("?category= filtra por categoria exata", async () => {
+    await env.DB.prepare(
+      "UPDATE mcp_catalog SET catalog_source = 'official' WHERE id = 'postgres'",
+    ).run();
     const res = await registry.request("/mcp?category=database", {}, env);
     const body = await res.json<{ entries: Array<{ id: string }> }>();
     expect(body.entries.map((e) => e.id)).toEqual(["postgres"]);
   });
+
+  it("trata filtros vazios como ausência de filtro", async () => {
+    await env.DB.prepare(
+      "UPDATE mcp_catalog SET catalog_source = 'official', catalog_status = 'active' WHERE id = 'github'",
+    ).run();
+    const baseline = await registry.request("/mcp", {}, env);
+    const res = await registry.request("/mcp?q=&category=", {}, env);
+    expect(res.status).toBe(200);
+    const filtered = await res.json<{ entries: unknown[] }>();
+    const unfiltered = await baseline.json<{ entries: unknown[] }>();
+    expect(unfiltered.entries).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "github" })]),
+    );
+    expect(filtered.entries).toEqual(unfiltered.entries);
+  });
 });
 
 describe("GET /registry/skills", () => {
-  it("returns the four official seeded skills", async () => {
+  it("starts without seeded skills", async () => {
     const res = await registry.request("/skills", {}, env);
     expect(res.status).toBe(200);
     const body = await res.json<{ entries: Array<{ id: string }> }>();
-    expect(body.entries.map((entry) => entry.id)).toEqual([
-      "vectora-code-review",
-      "vectora-adr",
-      "vectora-rfc",
-      "vectora-prd",
-    ]);
+    expect(body.entries).toEqual([]);
+  });
+
+  it("expõe o autor da skill a partir do publisher_id", async () => {
+    const { userId } = await createUser();
+    await env.DB.prepare(
+      `INSERT INTO skills_catalog
+       (id, name, description, source, catalog_source, publisher_id)
+       VALUES (?, ?, ?, ?, 'curated', ?)`,
+    )
+      .bind(
+        "publisher-skill",
+        "Publisher Skill",
+        "skill publicada por usuário",
+        "https://github.com/example/publisher-skill",
+        userId,
+      )
+      .run();
+
+    const res = await registry.request("/skills", {}, env);
+    const body = await res.json<{
+      entries: Array<{ id: string; publisher: string | null }>;
+    }>();
+
+    expect(
+      body.entries.find((entry) => entry.id === "publisher-skill"),
+    ).toMatchObject({ publisher: "Test User" });
+  });
+
+  it("não expõe o e-mail quando a skill não tem nome público", async () => {
+    const userId = crypto.randomUUID();
+    const email = `${userId}@example.com`;
+    await env.DB.prepare(
+      "INSERT INTO users (id, email, password_hash, full_name, role) VALUES (?, ?, ?, ?, ?)",
+    )
+      .bind(userId, email, "pbkdf2$1$AA==$AA==", "", "user")
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO skills_catalog
+       (id, name, description, source, catalog_source, publisher_id)
+       VALUES (?, ?, ?, ?, 'curated', ?)`,
+    )
+      .bind(
+        "anonymous-skill",
+        "Anonymous Skill",
+        "skill sem nome público",
+        "https://github.com/example/anonymous-skill",
+        userId,
+      )
+      .run();
+
+    const res = await registry.request("/skills", {}, env);
+    const body = await res.text();
+
+    expect(body).not.toContain(email);
+    expect(JSON.parse(body)).toEqual(
+      expect.objectContaining({
+        entries: expect.arrayContaining([
+          expect.objectContaining({ id: "anonymous-skill", publisher: null }),
+        ]),
+      }),
+    );
   });
 
   it("?q= filtra por nome/descrição", async () => {
@@ -114,6 +191,22 @@ describe("GET /registry/skills", () => {
     const body = await res.json<{ entries: Array<{ name: string }> }>();
 
     expect(body.entries.map((e) => e.name)).toEqual(["A"]);
+  });
+
+  it("trata filtros vazios de skills como ausência de filtro", async () => {
+    const visibleId = await makeSkill({
+      id: "empty-filter-visible-skill",
+      name: "Visible empty filter skill",
+    });
+    const baseline = await registry.request("/skills", {}, env);
+    const res = await registry.request("/skills?q=&category=&tags=", {}, env);
+    expect(res.status).toBe(200);
+    const filtered = await res.json<{ entries: unknown[] }>();
+    const unfiltered = await baseline.json<{ entries: unknown[] }>();
+    expect(unfiltered.entries).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: visibleId })]),
+    );
+    expect(filtered.entries).toEqual(unfiltered.entries);
   });
 
   it("colapsa múltiplas versões do mesmo package_name na versão mais recente", async () => {
@@ -149,6 +242,25 @@ describe("GET /registry/skills", () => {
 
     expect(body.entries.map((e) => e.name)).toContain("Sem versionamento");
   });
+
+  it("não expõe skills autorais legadas da Vectora", async () => {
+    await makeSkill({
+      id: "vectora-code-review",
+      name: "Vectora Code Review",
+      packageName: "@vectora/code-review",
+    });
+    await makeSkill({ name: "Community Skill", packageName: "community" });
+
+    const res = await registry.request("/skills", {}, env);
+    const body = await res.json<{ entries: Array<{ name: string }> }>();
+
+    expect(body.entries.map((entry) => entry.name)).toContain(
+      "Community Skill",
+    );
+    expect(body.entries.map((entry) => entry.name)).not.toContain(
+      "Vectora Code Review",
+    );
+  });
 });
 
 describe("GET /registry/skills/:name/versions", () => {
@@ -180,6 +292,19 @@ describe("GET /registry/skills/:name/versions", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ entries: [] });
   });
+
+  it("não expõe versões do namespace autoral legado", async () => {
+    await makeSkill({ packageName: "@vectora/adr", version: "1.0.0" });
+
+    const res = await registry.request(
+      "/skills/%40vectora%2Fadr/versions",
+      {},
+      env,
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ entries: [] });
+  });
 });
 
 describe("GET /registry/extensions", () => {
@@ -190,136 +315,41 @@ describe("GET /registry/extensions", () => {
   });
 });
 
-describe("POST /registry/skills", () => {
-  it("publica uma skill autenticada — grava community/publisher_id/verified=0", async () => {
-    const { userId, token } = await createUser("user");
+describe("GET /registry/status/:source", () => {
+  it("sanitiza detalhes internos do erro de sincronização", async () => {
+    await env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS registry_sync_state (
+        source TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        last_synced_at TEXT,
+        last_error TEXT
+      )`,
+    ).run();
+    await env.DB.prepare(
+      `INSERT INTO registry_sync_state (source, status, last_error)
+       VALUES ('skills', 'unavailable', 'skills_sync_failed:1:constraint details')
+       ON CONFLICT(source) DO UPDATE SET status = excluded.status, last_error = excluded.last_error`,
+    ).run();
 
-    const res = await registry.request(
-      "/skills",
-      authed(token, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: "Minha Skill",
-          description: "faz coisas úteis",
-          source: "https://github.com/bruno/minha-skill",
-          category: "productivity",
-          tags: ["cli", "automation"],
-        }),
-      }),
-      env,
-    );
-
+    const res = await registry.request("/status/skills", {}, env);
     expect(res.status).toBe(200);
-    const body = await res.json<{
-      ok: boolean;
-      id: string;
-      verified: boolean;
-    }>();
-    expect(body.ok).toBe(true);
-    expect(body.verified).toBe(false);
-
-    const row = await env.DB.prepare(
-      "SELECT publisher_id, verified, catalog_source, category, tags FROM skills_catalog WHERE id = ?",
-    )
-      .bind(body.id)
-      .first<{
-        publisher_id: string;
-        verified: number;
-        catalog_source: string;
-        category: string;
-        tags: string;
-      }>();
-    expect(row?.publisher_id).toBe(userId);
-    expect(row?.verified).toBe(0);
-    expect(row?.catalog_source).toBe("community");
-    expect(row?.category).toBe("productivity");
-    expect(JSON.parse(row?.tags ?? "[]")).toEqual(["cli", "automation"]);
+    expect(await res.json()).toMatchObject({
+      source: "skills",
+      status: "unavailable",
+      error: "skills_sync_failed",
+    });
   });
+});
 
-  it("sem version/package_name explícitos, usa default 0.0.1 e package_name=name", async () => {
-    const { token } = await createUser("user");
-
+describe("POST /registry/skills", () => {
+  it("não oferece publicação pública de skills", async () => {
     const res = await registry.request(
       "/skills",
-      authed(token, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: "Skill Sem Versao",
-          description: "d",
-          source: "https://github.com/bruno/skill-sem-versao",
-        }),
-      }),
+      { method: "POST", body: JSON.stringify({}) },
       env,
     );
 
-    const body = await res.json<{ version: string; package_name: string }>();
-    expect(body.version).toBe("0.0.1");
-    expect(body.package_name).toBe("Skill Sem Versao");
-  });
-
-  it("com version/package_name explícitos, publica a versão nova do mesmo pacote", async () => {
-    const { token } = await createUser("user");
-
-    const res = await registry.request(
-      "/skills",
-      authed(token, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: "Godot Helper v3",
-          description: "d",
-          source: "https://github.com/bruno/godot-helper",
-          package_name: "godot-helper",
-          version: "0.3.0",
-        }),
-      }),
-      env,
-    );
-
-    const body = await res.json<{ version: string; package_name: string }>();
-    expect(body.version).toBe("0.3.0");
-    expect(body.package_name).toBe("godot-helper");
-  });
-
-  it("rejeita source que não é URL git válida (400)", async () => {
-    const { token } = await createUser("user");
-
-    const res = await registry.request(
-      "/skills",
-      authed(token, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: "x",
-          description: "y",
-          source: "não é uma url",
-        }),
-      }),
-      env,
-    );
-
-    expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "invalid_source" });
-  });
-
-  it("rejeita chamada sem sessão (401)", async () => {
-    const res = await registry.request(
-      "/skills",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: "x",
-          description: "y",
-          source: "https://github.com/a/b",
-        }),
-      },
-      env,
-    );
-
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(404);
   });
 });
 

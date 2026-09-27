@@ -84,10 +84,11 @@ def test_parser_marketplace_define_matriz_de_comandos() -> None:
     assert parser.parse_args(["mcp", "list", "--output", "json"]).output == "json"
     assert parser.parse_args(["mcp", "install", "github"]).identifier == "github"
     assert parser.parse_args(["skills", "search", "rag"]).query == "rag"
-    publish = parser.parse_args(
-        ["skills", "publish", "src", "Name", "Description", "--tag", "ai"]
+    assert parser.parse_args(["skills", "install", "pdf-extract"]).identifier == (
+        "pdf-extract"
     )
-    assert publish.tags == ["ai"]
+    with pytest.raises(SystemExit):
+        parser.parse_args(["skills", "publish", "src", "Name", "Description"])
 
 
 def test_marketplace_json_envelope_nao_vaza_caminho(

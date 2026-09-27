@@ -137,7 +137,16 @@ export interface DiffFile {
 
 export interface DiffHunk {
   header: string;
-  lines: string[];
+  /** Linhas estruturadas pelo parser unificado do backend. */
+  lines: Array<DiffLine | string>;
+}
+
+export interface DiffLine {
+  text: string;
+  type: "context" | "add" | "delete";
+  old_line_number: number | null;
+  new_line_number: number | null;
+  no_trailing_newline?: boolean;
 }
 
 export interface DiffSummary {
@@ -160,6 +169,7 @@ export interface GitOpsSnapshot {
 
 export interface GitOpsState {
   selectedFiles: string[];
+  selectionRevision: number;
   selectedHunks: Record<string, number[]>;
   activeDocument: string | null;
   operation: GitOpsSnapshot | null;
@@ -321,6 +331,7 @@ interface WorkbenchState {
 
   getGitOps: (wsId: string) => GitOpsState;
   toggleGitFileSelection: (wsId: string, path: string) => void;
+  setGitFileSelection: (wsId: string, paths: string[]) => void;
   setGitHunkSelection: (wsId: string, path: string, indexes: number[]) => void;
   setGitActiveDocument: (wsId: string, path: string | null) => void;
   setGitOperation: (wsId: string, operation: GitOpsSnapshot | null) => void;
@@ -371,6 +382,7 @@ const EMPTY_PLAN: PlanCache = {
 const EMPTY_TODOS: TodoItem[] = [];
 const EMPTY_GIT_OPS: GitOpsState = {
   selectedFiles: [],
+  selectionRevision: 0,
   selectedHunks: {},
   activeDocument: null,
   operation: null,
@@ -707,7 +719,28 @@ export const useWorkbenchStore = create<WorkbenchState>()(
               ? current.selectedFiles.filter((item) => item !== path)
               : [...current.selectedFiles, path];
             return {
-              gitOps: { ...s.gitOps, [wsId]: { ...current, selectedFiles } },
+              gitOps: {
+                ...s.gitOps,
+                [wsId]: {
+                  ...current,
+                  selectedFiles,
+                  selectionRevision: current.selectionRevision + 1,
+                },
+              },
+            };
+          }),
+        setGitFileSelection: (wsId, paths) =>
+          set((s) => {
+            const current = s.gitOps[wsId] ?? EMPTY_GIT_OPS;
+            return {
+              gitOps: {
+                ...s.gitOps,
+                [wsId]: {
+                  ...current,
+                  selectedFiles: paths,
+                  selectionRevision: current.selectionRevision + 1,
+                },
+              },
             };
           }),
         setGitHunkSelection: (wsId, path, indexes) =>

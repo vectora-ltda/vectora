@@ -59,10 +59,10 @@ export default function ShowcaseGifs() {
       ready: false,
     },
     {
-      gif: "/gifs/showcase-rag-library.gif",
-      alt: m.showcase_raglibrary_alt(),
-      title: m.showcase_raglibrary_title(),
-      desc: m.showcase_raglibrary_desc(),
+      gif: "/gifs/showcase-memory-buckets.gif",
+      alt: m.showcase_memory_buckets_alt(),
+      title: m.showcase_memory_buckets_title(),
+      desc: m.showcase_memory_buckets_desc(),
       ready: false,
     },
     {

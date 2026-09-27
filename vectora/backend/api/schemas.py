@@ -322,6 +322,8 @@ class GenerateTitleResponse(BaseModel):
 
 
 class ThreadEvent(BaseModel):
+    """Identifies the thread, workspace and run behind a new stream."""
+
     thread_id: str
     # Workspace resolvido pra essa sessão — populado por stream_engine_events a partir
     # do workspace_id já calculado em stream_chat. Frontend usa isso pra
@@ -329,6 +331,14 @@ class ThreadEvent(BaseModel):
     # (create_new_workspace=True em ChatConfig), já que hoje esse id nunca
     # volta ao cliente por nenhum outro canal.
     workspace_id: str = ""
+    run_id: str | None = None
+
+
+class DiffHunk(BaseModel):
+    """Hunk de diff enviado pelo rastreador de arquivos de um turno."""
+
+    header: str = ""
+    lines: list[str] = Field(default_factory=list)
 
 
 class TokenEvent(BaseModel):
@@ -466,6 +476,24 @@ class WorkbenchInvalidateEvent(BaseModel):
     tool_name: str = ""
 
 
+class TurnFileChange(BaseModel):
+    """Arquivo alterado na resposta atual, pronto para o modal de diff."""
+
+    path: str
+    status: str = "M"
+    additions: int = 0
+    deletions: int = 0
+    hunks: list[DiffHunk] = Field(default_factory=list)
+
+
+class TurnFilesChangedEvent(BaseModel):
+    """Publishes the current or finalized edited files for a run."""
+
+    run_id: str = ""
+    status: Literal["active", "finalized"] = "finalized"
+    files: list[TurnFileChange] = Field(default_factory=list)
+
+
 class ToolActivityEvent(BaseModel):
     """Status da tool em execução — alimenta o AgentStatusLine no frontend.
 
@@ -546,6 +574,7 @@ StreamChatEventPayload = (
     | DoneEvent
     | MessageBreakEvent
     | WorkbenchInvalidateEvent
+    | TurnFilesChangedEvent
     | ToolActivityEvent
     | ModelSwitchedEvent
     | TerminalLineEvent
@@ -567,6 +596,7 @@ _TYPE_MAP: dict[type, str] = {
     DoneEvent: "done",
     MessageBreakEvent: "message_break",
     WorkbenchInvalidateEvent: "workbench_invalidate",
+    TurnFilesChangedEvent: "turn_files_changed",
     ToolActivityEvent: "tool_activity",
     ModelSwitchedEvent: "model_switched",
     TerminalLineEvent: "terminal_line",
@@ -616,6 +646,7 @@ class HistoryMessage(BaseModel):
     # de leitura do histórico) — ver ChatConfig.fork_from_checkpoint_id.
     checkpoint_id: str = ""
     attachments: list[dict[str, Any]] = Field(default_factory=list)
+    edited_files: list[TurnFileChange] = Field(default_factory=list)
 
 
 class ListThreadsResponse(BaseModel):

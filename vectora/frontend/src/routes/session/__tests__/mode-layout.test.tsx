@@ -380,7 +380,7 @@ describe("SessionPage — navegação compacta usa a mesma medida física", () =
   it("mantém o gatilho quando o Electron está compacto apesar do CSS viewport largo", async () => {
     vi.stubGlobal("vectora", { windowControls: {} });
     Object.defineProperties(window, {
-      outerWidth: { configurable: true, value: 800 },
+      outerWidth: { configurable: true, value: 500 },
       innerWidth: { configurable: true, value: 1200 },
     });
     setMode("assistant");
@@ -397,7 +397,7 @@ describe("SessionPage — navegação compacta usa a mesma medida física", () =
   it("fecha a Sheet ao voltar para o layout largo", async () => {
     vi.stubGlobal("vectora", { windowControls: {} });
     Object.defineProperties(window, {
-      outerWidth: { configurable: true, value: 800 },
+      outerWidth: { configurable: true, value: 500 },
       innerWidth: { configurable: true, value: 1200 },
     });
     setMode("assistant");

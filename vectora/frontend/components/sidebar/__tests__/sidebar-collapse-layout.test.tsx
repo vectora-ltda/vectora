@@ -17,7 +17,22 @@ function render(ui: React.ReactElement) {
 }
 
 vi.mock("@/lib/stores/workspaces-store", () => ({
-  useWorkspacesStore: (sel: (s: unknown) => unknown) => sel({ workspaces: [] }),
+  useWorkspacesStore: (sel: (s: unknown) => unknown) =>
+    sel({
+      workspaces: [
+        {
+          id: "workspace-1",
+          name: "Vectora",
+          cwd: "/tmp/vectora",
+          trusted: true,
+          is_git_repo: true,
+          git_remote: null,
+          git_current_branch: null,
+          git_default_branch: null,
+        },
+      ],
+      active_id: "workspace-1",
+    }),
 }));
 vi.mock("@/lib/stores/settings-store", () => ({
   useSettingsStore: (sel: (s: unknown) => unknown) => sel({ chatMode: false }),
@@ -28,10 +43,6 @@ vi.mock("@/lib/stores/rag-jobs-store", () => ({
 }));
 vi.mock("@/lib/hooks/use-webhook-events", () => ({
   useWebhookEvents: () => {},
-}));
-vi.mock("../sidebar-utils", () => ({
-  groupThreads: () => [],
-  groupThreadsByWorkspace: () => ({ groups: [], orphans: [] }),
 }));
 vi.mock("@/lib/hooks/use-network-status", () => ({
   useNetworkStatus: () => ({ offline: false }),
@@ -66,13 +77,36 @@ vi.mock("@/lib/paraglide/messages", () => ({
     session_delete_confirm_rag_warning: () => "RAG em andamento.",
     session_delete_confirm: () => "Apagar",
     session_delete_cancel: () => "Cancelar",
+    sidebar_refreshing: () => "Atualizando",
+    sidebar_pull_to_refresh: () => "Puxe para atualizar",
+    sidebar_no_results: () => "Nenhum resultado",
+    sidebar_no_results_hint: () => "Tente outra busca",
+    sidebar_no_conversations: () => "Nenhuma conversa",
+    sidebar_no_conversations_hint: () => "Comece uma conversa",
+    sidebar_group_other_conversations: () => "Outras conversas",
+    sidebar_group_today: () => "Hoje",
+    sidebar_group_yesterday: () => "Ontem",
+    sidebar_group_last_7_days: () => "Últimos 7 dias",
+    sidebar_group_older: () => "Mais antigas",
+    sidebar_workspace_collapse: () => "Recolher workspace",
+    sidebar_workspace_expand: () => "Expandir workspace",
+    sidebar_workspace_thread_count: ({ n }: { n: number }) => `${n} sessões`,
   },
 }));
 
 afterEach(cleanup);
 
 const noop = vi.fn();
-const threads: Thread[] = [];
+const threads: Thread[] = [
+  {
+    thread_id: "thread-1",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    metadata: { user_id: "local" },
+    workspace_id: "workspace-1",
+    mode: "code",
+  },
+];
 
 describe("Sidebar — wrapper de animação não quebra o preenchimento de altura", () => {
   it("recolhida: o <aside> fica direto sob um wrapper 'contents' (herda a altura do pai)", () => {

@@ -5,7 +5,7 @@
   "engines": {
     "node": "24.x"
   },
-  "description": "Cloudflare Worker único: gateway (OAuth/webhooks pro desktop, ex-relay) + updates (distribuição de releases) + auth/billing/license/gdpr/rag-library/registry (próximas fases).",
+  "description": "Cloudflare Worker único: gateway (OAuth/webhooks pro desktop, ex-relay) + updates (distribuição de releases) + auth/billing/license/gdpr/memory-buckets/registry (próximas fases).",
   "main": "src/index.ts",
   "scripts": {
     "dev": "wrangler dev",

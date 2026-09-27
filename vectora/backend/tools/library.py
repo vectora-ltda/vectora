@@ -1,5 +1,5 @@
 """Tools de auto-instalação da Library: MCP marketplace, catálogo de Skills e
-Memory Library — mesma lógica que os handlers HTTP já usam (`_impl`
+Memory Buckets — mesma lógica que os handlers HTTP já usam (`_impl`
 reaproveitado, nunca duplicado). Todas exigem aprovação humana
 (`REQUIRE_APPROVAL`, `backend/engine/hitl.py`): instalar é uma
 mudança persistente no ambiente do usuário.
@@ -7,14 +7,38 @@ mudança persistente no ambiente do usuário.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+from collections.abc import Mapping
 
 from backend.services.env import get_env
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
 
 logger = logging.getLogger(__name__)
+
+
+def _valid_skill_entries(
+    entries: list[object], *, require_source: bool = True
+) -> list[Mapping[str, object]]:
+    """Remove malformed catalog records before field access.
+
+    Listing only needs an identifier, while installation must have a usable
+    source URL. Keeping that distinction prevents incomplete records from
+    being installed without hiding them from catalog discovery.
+    """
+    return [
+        entry
+        for entry in entries
+        if isinstance(entry, Mapping)
+        and isinstance(entry.get("id"), str)
+        and bool(entry.get("id"))
+        and (
+            not require_source
+            or (isinstance(entry.get("source"), str) and bool(entry.get("source")))
+        )
+    ]
 
 
 @vtool(
@@ -87,9 +111,18 @@ async def install_skill_from_catalog(skill_id: str, ctx: ToolContext) -> str:
     """
     try:
         from backend.services import registry_client
-        from backend.workspace.skills import install_skill
+        from backend.workspace.skills import install_skill, list_wellknown_catalog
 
-        entries = await registry_client.fetch_catalog("skills")
+        remote = await registry_client.fetch_catalog("skills")
+        enterprise = await registry_client.fetch_enterprise_catalog("skills")
+        local_entries = await asyncio.to_thread(list_wellknown_catalog)
+        local = [entry.model_dump() for entry in local_entries]
+        local_ids = {str(entry.get("id")) for entry in local if entry.get("id")}
+        by_id = {
+            str(entry["id"]): entry
+            for entry in _valid_skill_entries([*enterprise, *remote, *local])
+        }
+        entries = list(by_id.values())
         entry = next((e for e in entries if e.get("id") == skill_id), None)
         if entry is None:
             return json.dumps(
@@ -99,7 +132,29 @@ async def install_skill_from_catalog(skill_id: str, ctx: ToolContext) -> str:
                 }
             )
 
-        skill = install_skill(ctx.user_id, entry["source"])
+        if skill_id in local_ids:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "error": "skill local exige confirmação explícita de conteúdo não assinado; use a instalação interativa com confirm_unverified",
+                }
+            )
+
+        source = entry.get("source")
+        if not isinstance(source, str):
+            return json.dumps(
+                {"status": "error", "error": "entrada de skill sem source válido"}
+            )
+        skill = await asyncio.to_thread(install_skill, ctx.user_id, source)
+        logger.info(
+            "install_skill_from_catalog completed",
+            extra={
+                "tool": "install_skill_from_catalog",
+                "skill_id": skill_id,
+                "caller_id": ctx.user_id,
+                "source": entry.get("source", ""),
+            },
+        )
         return json.dumps({"status": "installed", "skill_id": skill.id})
     except Exception as exc:
         logger.exception(
@@ -117,22 +172,22 @@ async def install_skill_from_catalog(skill_id: str, ctx: ToolContext) -> str:
     )
 )
 async def install_memory_bucket(bucket_id: str) -> str:
-    """Baixa e instala um bucket da Vectora Memory Library como coleção
+    """Baixa e instala um bucket da Vectora Memory Buckets como coleção
     LanceDB isolada (`shared_{bucket_id}`) — mesmo fluxo de
-    `POST /rag-library/install`.
+    `POST /memory-buckets/install`.
 
     Args:
-        bucket_id: id do bucket, como aparece em `GET /rag-library/catalog`.
+        bucket_id: id do bucket, como aparece em `GET /memory-buckets/catalog`.
     """
-    from backend.services.memory_library import (
-        MemoryLibraryError,
+    from backend.services.memory_buckets import (
+        MemoryBucketsError,
         download_memory_bucket,
     )
 
     try:
         collection = await download_memory_bucket(bucket_id)
         return json.dumps({"status": "installed", "collection": collection})
-    except MemoryLibraryError as exc:
+    except MemoryBucketsError as exc:
         return json.dumps({"status": "error", "error": str(exc)})
     except Exception as exc:
         logger.exception("install_memory_bucket failed", extra={"bucket_id": bucket_id})
@@ -236,7 +291,7 @@ async def publish_memory_bucket_tool(
     description: str,
     license: str = "CC-BY-4.0",  # noqa: A002 — nome de campo do domínio (licença)
 ) -> str:
-    """Publica um bucket RAG local na Vectora Memory Library remota — exige
+    """Publica um bucket RAG local na Vectora Memory Buckets remota — exige
     conta vectora.company conectada (`VECTORA_TOKEN`).
 
     Args:
@@ -246,8 +301,8 @@ async def publish_memory_bucket_tool(
         license: licença de distribuição (ex.: "CC-BY-4.0", "MIT").
     """
     from backend.services import license as license_service
-    from backend.services.memory_library import (
-        MemoryLibraryError,
+    from backend.services.memory_buckets import (
+        MemoryBucketsError,
         publish_memory_bucket,
     )
 
@@ -264,68 +319,12 @@ async def publish_memory_bucket_tool(
             bucket_id, name, description, license, session_token=token
         )
         return json.dumps({"status": "published", "bucket_id": remote_bucket_id})
-    except MemoryLibraryError as exc:
+    except MemoryBucketsError as exc:
         return json.dumps({"status": "error", "error": str(exc)})
     except Exception as exc:
         logger.exception(
             "publish_memory_bucket_tool failed", extra={"bucket_id": bucket_id}
         )
-        return json.dumps({"status": "error", "error": str(exc)})
-
-
-@vtool(
-    extras=ToolExtras(
-        invalidates=["skills"],
-        destructive=True,
-        category="library",
-        icon="upload",
-    )
-)
-async def publish_skill_tool(
-    source: str,
-    name: str,
-    description: str,
-    category: str = "",
-    tags: list[str] | None = None,
-) -> str:
-    """Publica uma skill no catálogo remoto — exige conta vectora.company
-    conectada (`VECTORA_TOKEN`). `source` é sempre uma URL git (o mesmo
-    formato aceito por `install_skill_from_catalog`/`install_learned_skill`
-    pra instalação), nunca um tarball — o Vectora nunca hospeda o código da
-    skill, só registra onde ele mora.
-
-    Args:
-        source: URL git do repositório (ex.: "https://github.com/user/skill").
-        name: nome de exibição no catálogo remoto.
-        description: descrição do que a skill faz.
-        category: categoria opcional (ex.: "devtools", "productivity").
-        tags: lista opcional de tags de busca.
-    """
-    from backend.services import license as license_service
-    from backend.services.registry_client import RegistryClientError, publish_skill
-
-    token = license_service._get_token()
-    if not token:
-        return json.dumps(
-            {
-                "status": "error",
-                "error": "Nenhuma conta vectora.company conectada (VECTORA_TOKEN ausente).",
-            }
-        )
-    try:
-        remote_id = await publish_skill(
-            name,
-            description,
-            source,
-            category=category or None,
-            tags=tags,
-            session_token=token,
-        )
-        return json.dumps({"status": "published", "skill_id": remote_id})
-    except RegistryClientError as exc:
-        return json.dumps({"status": "error", "error": str(exc)})
-    except Exception as exc:
-        logger.exception("publish_skill_tool failed", extra={"source": source})
         return json.dumps({"status": "error", "error": str(exc)})
 
 
@@ -415,8 +414,19 @@ async def list_skills_catalog(query: str = "") -> str:
     """
     try:
         from backend.services import registry_client
+        from backend.workspace.skills import list_wellknown_catalog
 
-        entries = await registry_client.fetch_catalog("skills")
+        remote = await registry_client.fetch_catalog("skills")
+        enterprise = await registry_client.fetch_enterprise_catalog("skills")
+        local_entries = await asyncio.to_thread(list_wellknown_catalog)
+        local = [entry.model_dump() for entry in local_entries]
+        by_id = {
+            str(entry["id"]): entry
+            for entry in _valid_skill_entries(
+                [*enterprise, *remote, *local], require_source=False
+            )
+        }
+        entries = list(by_id.values())
         items = [
             {
                 "id": e.get("id", ""),
@@ -429,6 +439,14 @@ async def list_skills_catalog(query: str = "") -> str:
                 query,
             )
         ]
+        logger.info(
+            "list_skills_catalog completed",
+            extra={
+                "tool": "list_skills_catalog",
+                "query": query,
+                "result_count": len(items),
+            },
+        )
         return json.dumps(
             {"items": items[:_CATALOG_PAGE_SIZE], "total": len(items)},
             ensure_ascii=False,
@@ -440,16 +458,16 @@ async def list_skills_catalog(query: str = "") -> str:
 
 @vtool(extras=ToolExtras(category="library", icon="database"))
 async def list_memory_bucket_catalog(query: str = "") -> str:
-    """Lista buckets de memória publicados na Vectora Memory Library, com id,
+    """Lista buckets de memória publicados na Vectora Memory Buckets, com id,
     nome e descrição — use antes de sugerir baixar uma base de conhecimento.
 
     Args:
         query: filtro opcional por nome/descrição.
     """
     try:
-        from backend.services import memory_library
+        from backend.services import memory_buckets
 
-        entries = await memory_library.list_catalog()
+        entries = await memory_buckets.list_catalog()
         items = [
             {
                 "id": e.get("id", ""),

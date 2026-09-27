@@ -56,6 +56,8 @@ import { MemoryTab } from "./tabs/memory-tab";
 import { TasksTab } from "./tabs/tasks-tab";
 import { ContextGraphTab } from "./tabs/context-graph-tab";
 import { LibraryTab } from "./tabs/library-tab";
+import type { GitCommitDetailsState } from "./git/history-view";
+import type { PlanItem } from "@/lib/stores/workbench-store";
 import { m } from "@/lib/paraglide/messages";
 import { mDyn } from "@/lib/i18n-dyn";
 import { ColumnHeader } from "@/components/layout/column-header";
@@ -67,6 +69,14 @@ import {
 
 interface WorkbenchPanelProps {
   threadId: string;
+  /** Abre os detalhes de um commit no canvas compartilhado. */
+  onOpenCommitDetails?: (details: GitCommitDetailsState) => void;
+  onOpenPlanDocument?: (
+    item: PlanItem,
+    content: string | null,
+    error?: string,
+    phase?: "open" | "update",
+  ) => void;
   /** Injetar @path no chat ao clicar no botão @ de um arquivo/pasta. */
   onAddToContext?: (path: string) => void;
   /** Inserir texto no composer (god nodes/perguntas sugeridas do Context Graph). */
@@ -273,6 +283,8 @@ export function WorkbenchNavBar({
  */
 export function WorkbenchContent({
   threadId,
+  onOpenCommitDetails,
+  onOpenPlanDocument,
   onAddToContext,
   onSendPrompt,
   side = "right",
@@ -340,8 +352,18 @@ export function WorkbenchContent({
           {activeTab === "files" && (
             <FilesTab threadId={threadId} onAddToContext={onAddToContext} />
           )}
-          {activeTab === "diff" && <GitTab threadId={threadId} />}
-          {activeTab === "plan" && <PlanTab threadId={threadId} />}
+          {activeTab === "diff" && (
+            <GitTab
+              threadId={threadId}
+              onOpenCommitDetails={onOpenCommitDetails}
+            />
+          )}
+          {activeTab === "plan" && (
+            <PlanTab
+              threadId={threadId}
+              onOpenPlanDocument={onOpenPlanDocument}
+            />
+          )}
           {activeTab === "browser" && (
             <BrowserTab
               key={`${wsId}:${threadId}`}

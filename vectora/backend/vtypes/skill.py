@@ -11,7 +11,10 @@ Persistência: ``~/.vectora/skills/<user_id>/`` (uma pasta por skill instalada)
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+import json
+from typing import ClassVar, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from backend.services.extension_trust import TrustRecord
 
@@ -29,3 +32,51 @@ class Skill(BaseModel):
     trust: TrustRecord = Field(default_factory=TrustRecord)
     trust_confirmed: bool = False
     revision: str | None = None
+
+
+type SkillCatalogSource = Literal["remote", "enterprise", "local"]
+
+
+class SkillCatalogEntry(BaseModel):
+    """Validated skill metadata crossing catalog aggregation boundaries."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="allow")
+
+    id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    description: str = ""
+    source: str = Field(min_length=1)
+    package_name: str | None = None
+    category: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    catalog_source: SkillCatalogSource
+    vectora_verified: bool | None = None
+    verified: bool | None = None
+
+    @field_validator("source")
+    @classmethod
+    def _validate_source(cls, value: str) -> str:
+        source = value.strip()
+        if not source:
+            raise ValueError("skill catalog source must not be empty")
+        return source
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _normalize_tags(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        if not value:
+            return []
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return [value]
+        return parsed if isinstance(parsed, list) else [value]
+
+
+class SkillCatalogResponse(BaseModel):
+    """Typed response returned by the aggregated skill catalog endpoint."""
+
+    entries: list[SkillCatalogEntry]
+    total: int = Field(ge=0)

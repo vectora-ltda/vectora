@@ -4,23 +4,16 @@
  *
  * `mcp` e `skills` são catálogos reais em D1 (`mcp_catalog`/`skills_catalog`,
  * `migrations/0001_schema.sql`). Curadoria
- * manual (`catalog_source='curated'`) entra via PR editando o seed — mas o
- * catálogo também é populado automaticamente pelo cron `scheduled()`
- * (`discovery.ts`, `catalog_source='official'|'github'`), que nunca
- * sobrescreve uma linha curada. O cliente Vectora (`backend/services/
- * registry_client.py`) já sabe cair pro fallback local/hardcoded quando o
- * registry remoto está vazio ou fora do ar — lista vazia aqui é um estado
- * válido, não erro.
+ * O catálogo MCP público só expõe linhas sincronizadas do GitHub MCP
+ * Official MCP Registry (`catalog_source='official'`). Seeds locais e snapshots antigos
+ * ficam fora da resposta até serem confirmados pelo próximo snapshot oficial.
+ * O cliente Vectora (`backend/services/registry_client.py`) consome esse
+ * catálogo único; uma lista vazia é um estado válido, não um fallback para
+ * fontes paralelas.
  *
- * `POST /skills` abre publicação de skills à comunidade — padrão
- * convergente dos registries reais (SkillRegistry.io, OpenAgentSkill,
- * Vercel Agent Skills): unidade de distribuição é uma URL de repositório
- * git, não upload de blob — o Vectora clona sob demanda na instalação
- * (`backend/workspace/skills.py`), este endpoint só registra a URL no
- * catálogo com `verified=0` até curadoria de admin. MCP catalog
- * deliberadamente NÃO ganha publish — instalar código de terceiro tem
- * modelo de confiança mais pesado que instalar um `SKILL.md`; curadoria
- * fechada por design.
+ * Instalações de skills e MCPs só aceitam identificadores já presentes nos
+ * catálogos validados. Não há publicação pública nem formulário de entrada
+ * manual no produto.
  *
  * `extensions` continua placeholder — depende do SDK de autoria
  * (`vectora_ext` Python, `@vectora/extension-sdk` TS) e do Extension Host,
@@ -29,7 +22,6 @@
 import { Hono } from "hono";
 import type { Env } from "../gateway/types";
 import { requireAdmin } from "../auth/roles";
-import { requireUserId } from "../auth/routes";
 import { compareVersions, latestPerPackage } from "../lib/versioning";
 
 export const registry = new Hono<{ Bindings: Env }>();
@@ -60,17 +52,57 @@ registry.get("/mcp", async (c) => {
     where.push("category = ?");
     params.push(category);
   }
-  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  try {
+    const stmt = c.env.DB.prepare(
+      `SELECT id, name, description, install_cmd, env_vars, homepage, category, vectora_verified, icon_url, publisher, publisher_url, stars_count, downloads_count, runtime_hint, package_identifier, transport, server_url, catalog_source, updated_at FROM mcp_catalog WHERE catalog_status = 'active' AND catalog_source = 'official'${where.length ? ` AND ${where.join(" AND ")}` : ""} ORDER BY stars_count DESC, downloads_count DESC, name COLLATE NOCASE`,
+    );
+    const { results } = await (
+      params.length ? stmt.bind(...params) : stmt
+    ).all();
+    return c.json({ entries: results ?? [] });
+  } catch (error) {
+    console.error("registry mcp query failed", error);
+    return c.json({ error: "registry unavailable" }, 503);
+  }
+});
 
-  const stmt = c.env.DB.prepare(
-    `SELECT id, name, description, install_cmd, env_vars, homepage, category, vectora_verified, icon_url, downloads_count, updated_at FROM mcp_catalog ${whereSql} ORDER BY downloads_count DESC`,
-  );
-  const { results } = await (params.length ? stmt.bind(...params) : stmt).all();
-  return c.json({ entries: results ?? [] });
+registry.get("/status/:source", async (c) => {
+  const source = c.req.param("source");
+  if (source !== "mcp" && source !== "skills") {
+    return c.json({ error: "invalid source" }, 400);
+  }
+  try {
+    const state = await c.env.DB.prepare(
+      "SELECT status, last_synced_at, last_error FROM registry_sync_state WHERE source = ?",
+    )
+      .bind(source)
+      .first<{
+        status: string;
+        last_synced_at: string | null;
+        last_error: string | null;
+      }>();
+    return c.json({
+      source,
+      status: state?.status ?? "never",
+      last_synced_at: state?.last_synced_at ?? null,
+      error: state?.last_error?.split(":", 1)[0] ?? null,
+    });
+  } catch (error) {
+    console.error("registry status query failed", { source, error });
+    return c.json(
+      {
+        source,
+        status: "unavailable",
+        last_synced_at: null,
+        error: "status unavailable",
+      },
+      503,
+    );
+  }
 });
 
 const SKILLS_COLUMNS =
-  "id, name, description, source, package_name, version, tags, category, vectora_verified, publisher_id, verified, downloads_count, updated_at";
+  "id, name, description, source, package_name, version, tags, category, vectora_verified, publisher_id, (SELECT NULLIF(TRIM(full_name), '') FROM users WHERE users.id = skills_catalog.publisher_id) AS publisher, verified, downloads_count, updated_at";
 
 interface SkillRow {
   id: string;
@@ -85,7 +117,11 @@ registry.get("/skills", async (c) => {
   const category = c.req.query("category");
   const tag = c.req.query("tags");
 
-  const where: string[] = [];
+  const where: string[] = [
+    "COALESCE(package_name, '') NOT LIKE '@vectora/%'",
+    "id NOT LIKE 'vectora/%'",
+    "id NOT LIKE 'vectora-%'",
+  ];
   const params: string[] = [];
   const search = buildSearchClause(q, ["name", "description"]);
   if (search.clause) {
@@ -117,7 +153,7 @@ registry.get("/skills", async (c) => {
 registry.get("/skills/:name/versions", async (c) => {
   const packageName = c.req.param("name");
   const { results } = await c.env.DB.prepare(
-    `SELECT ${SKILLS_COLUMNS} FROM skills_catalog WHERE package_name = ?`,
+    `SELECT ${SKILLS_COLUMNS} FROM skills_catalog WHERE package_name = ? AND package_name NOT LIKE '@vectora/%'`,
   )
     .bind(packageName)
     .all<SkillRow>();
@@ -135,68 +171,6 @@ registry.get("/extensions", (c) => c.json({ entries: [] }));
  * usado por `backend/workspace/skills.py`. Grava com `verified=0`, curadoria
  * manual posterior via `PATCH /admin/skills/:id/verify`.
  */
-registry.post("/skills", async (c) => {
-  const userId = await requireUserId(c);
-  if (!userId) return c.json({ error: "unauthorized" }, 401);
-
-  const body = await c.req.json().catch(() => null);
-  if (!body || typeof body !== "object") {
-    return c.json({ error: "invalid_body" }, 400);
-  }
-
-  const name = typeof body.name === "string" ? body.name.trim() : "";
-  const description =
-    typeof body.description === "string" ? body.description.trim() : "";
-  const source = typeof body.source === "string" ? body.source.trim() : "";
-  const category =
-    typeof body.category === "string" && body.category.trim()
-      ? body.category.trim()
-      : null;
-  const tags = Array.isArray(body.tags)
-    ? body.tags.filter((t: unknown): t is string => typeof t === "string")
-    : [];
-  const version =
-    typeof body.version === "string" && body.version.trim()
-      ? body.version.trim()
-      : "0.0.1";
-  const packageName =
-    typeof body.package_name === "string" && body.package_name.trim()
-      ? body.package_name.trim()
-      : name;
-
-  if (!name) return c.json({ error: "invalid_name" }, 400);
-  if (!description) return c.json({ error: "invalid_description" }, 400);
-  if (!isGitUrl(source)) return c.json({ error: "invalid_source" }, 400);
-
-  const id = crypto.randomUUID();
-  await c.env.DB.prepare(
-    `INSERT INTO skills_catalog
-       (id, name, description, source, package_name, version, tags, category, catalog_source, publisher_id, verified)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'community', ?, 0)`,
-  )
-    .bind(
-      id,
-      name,
-      description,
-      source,
-      packageName,
-      version,
-      JSON.stringify(tags),
-      category,
-      userId,
-    )
-    .run();
-
-  return c.json({
-    ok: true,
-    id,
-    status: "published",
-    verified: false,
-    version,
-    package_name: packageName,
-  });
-});
-
 /** Curadoria: seta `verified=1` — só quem tem `role='admin'`. */
 registry.patch("/admin/skills/:id/verify", async (c) => {
   const adminId = await requireAdmin(c);
@@ -216,20 +190,3 @@ registry.patch("/admin/skills/:id/verify", async (c) => {
 
   return c.json({ ok: true, id, verified: true });
 });
-
-/** Só http(s)://.../repo(.git) ou `git@host:owner/repo.git` — mesma
- * validação superficial de esquema/host que `backend/workspace/skills.py`
- * já exige antes de tentar clonar; o clone real (que valida de verdade se
- * é um repo git) só acontece na instalação, não aqui. */
-function isGitUrl(value: string): boolean {
-  if (!value) return false;
-  if (/^git@[\w.-]+:[\w./-]+\.git$/.test(value)) return true;
-  try {
-    const url = new URL(value);
-    return (
-      (url.protocol === "https:" || url.protocol === "http:") && !!url.hostname
-    );
-  } catch {
-    return false;
-  }
-}

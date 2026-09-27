@@ -39,8 +39,8 @@ export function FileItem({
   const pinned = useWorkbenchStore((s) => s.isPinned(threadId, entry.path));
   const togglePinned = useWorkbenchStore((s) => s.togglePinned);
   const openPath = useWorkbenchStore((s) => s.getFiles(workspaceId).openPath);
-  const openWindow = useWindowsStore((s) => s.open);
   const openDocked = useWindowsStore((s) => s.openDocked);
+  const openCanvasDocument = useWindowsStore((s) => s.openCanvasDocument);
   const uiMode = useSettingsStore((s) => s.uiMode);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(entry.name);
@@ -96,10 +96,15 @@ export function FileItem({
         <button
           onClick={() => {
             // Janela flutuante só onde o `WindowLayer` monta (modo Assistente);
-            // nos demais modos o arquivo abre docked, senão abriria uma janela
-            // que nada renderiza.
             if (uiMode === "assistant") {
-              openWindow(workspaceId, entry.path);
+              openCanvasDocument({
+                id: `file:${workspaceId}:${entry.path}`,
+                kind: "file",
+                workspaceId,
+                threadId,
+                title: entry.name,
+                path: entry.path,
+              });
             } else {
               openDocked(workspaceId, entry.path);
             }

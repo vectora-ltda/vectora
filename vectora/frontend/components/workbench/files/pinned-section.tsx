@@ -21,8 +21,8 @@ export function PinnedSection({
     (s) => s.pinnedFiles[threadId] ?? EMPTY_PINNED,
   );
   const togglePinned = useWorkbenchStore((s) => s.togglePinned);
-  const openWindow = useWindowsStore((s) => s.open);
   const openDocked = useWindowsStore((s) => s.openDocked);
+  const openCanvasDocument = useWindowsStore((s) => s.openCanvasDocument);
   const uiMode = useSettingsStore((s) => s.uiMode);
 
   if (pinned.length === 0) return null;
@@ -41,11 +41,20 @@ export function PinnedSection({
           >
             <Pin className="w-3 h-3 shrink-0 text-primary" />
             <button
-              onClick={() =>
-                uiMode === "assistant"
-                  ? openWindow(workspaceId, path)
-                  : openDocked(workspaceId, path)
-              }
+              onClick={() => {
+                if (uiMode === "assistant") {
+                  openCanvasDocument({
+                    id: `file:${workspaceId}:${path}`,
+                    kind: "file",
+                    workspaceId,
+                    threadId,
+                    title: name,
+                    path,
+                  });
+                } else {
+                  openDocked(workspaceId, path);
+                }
+              }}
               className="flex-1 text-left truncate text-foreground/80 hover:text-foreground"
               title={path}
             >

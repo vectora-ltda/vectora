@@ -1,11 +1,7 @@
 // @vitest-environment jsdom
 /**
- * SkillsSection — seção Skills da Library. Cobre a sub-área "Catálogo":
- * vem expandida por padrão (não escondida atrás de um toggle fechado —
- * regressão de descoberta), lista GET /skills/catalog, instalar chama
- * POST /skills {source}, toggle ainda permite recolher/reabrir; erro/borda:
- * catálogo vazio mostra estado específico, não quebra a lista de instaladas
- * ao lado (SkillsTab, mockado).
+ * SkillsSection lista diretamente o catálogo remoto, lista GET /skills/catalog
+ * e instala uma skill com POST /skills {skill_id}.
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import {
@@ -16,10 +12,6 @@ import {
   fireEvent,
   act,
 } from "@testing-library/react";
-
-vi.mock("@/components/settings/environment/tabs/skills-tab", () => ({
-  SkillsTab: () => <div>stub-skills-tab</div>,
-}));
 
 import { SkillsSection } from "../library-skills-section";
 import { useLibraryStore, type CatalogSkill } from "@/lib/stores/library-store";
@@ -42,14 +34,13 @@ const CATALOG: CatalogSkill[] = [
     name: "PDF Extract",
     description: "Extrai texto de PDFs",
     source: "https://github.com/example/pdf-extract-skill",
+    publisher: "Example Maintainers",
   },
 ];
 
 function mockFetch({
   entries = CATALOG as typeof CATALOG,
   installOk = true,
-  licenseConfigured = false,
-  publishStatus = "published" as string,
 } = {}) {
   global.fetch = vi
     .fn()
@@ -66,53 +57,25 @@ function mockFetch({
           json: async () => ({}),
         } as Response);
       }
-      if (url === "/skills/publish" && init?.method === "POST") {
-        return Promise.resolve({
-          ok: true,
-          json: async () =>
-            publishStatus === "error"
-              ? { status: "error", error: "falha ao publicar" }
-              : { status: "published", skill_id: "remote-1" },
-        } as Response);
-      }
-      if (url === "/license/status") {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({ configured: licenseConfigured }),
-        } as Response);
-      }
       return Promise.resolve({ ok: true, json: async () => ({}) } as Response);
     });
 }
 
 describe("SkillsSection — Catálogo", () => {
-  it("vem expandido por padrão e lista as skills curadas do registry remoto sem precisar de clique", async () => {
+  it("lista as skills disponíveis do registry remoto", async () => {
     mockFetch();
-    render(<SkillsSection query="" onCountChange={() => {}} />);
+    render(<SkillsSection query="" />);
 
     await waitFor(() => {
       expect(screen.getByText("PDF Extract")).toBeTruthy();
     });
+    expect(screen.getByText(/Example Maintainers/)).toBeTruthy();
   });
 
-  it("toggle ainda permite recolher e reabrir o catálogo", async () => {
-    mockFetch();
-    render(<SkillsSection query="" onCountChange={() => {}} />);
-    await waitFor(() => screen.getByText("PDF Extract"));
-
-    fireEvent.click(screen.getByText("Browse catalog"));
-    expect(screen.queryByText("PDF Extract")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByText("Browse catalog"));
-    await waitFor(() => {
-      expect(screen.getByText("PDF Extract")).toBeTruthy();
-    });
-  });
-
-  it("instalar chama POST /skills com o source da skill", async () => {
+  it("instalar chama POST /skills com o id do catálogo", async () => {
     mockFetch();
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    render(<SkillsSection query="" onCountChange={() => {}} />);
+    render(<SkillsSection query="" />);
     await waitFor(() => screen.getByText("PDF Extract"));
 
     fireEvent.click(screen.getByText("Install"));
@@ -123,7 +86,7 @@ describe("SkillsSection — Catálogo", () => {
         expect.objectContaining({
           method: "POST",
           body: JSON.stringify({
-            source: CATALOG[0].source,
+            skill_id: CATALOG[0].id,
             confirm_unverified: true,
           }),
         }),
@@ -156,14 +119,12 @@ describe("SkillsSection — Catálogo", () => {
     });
     global.fetch = fetchMock as unknown as typeof fetch;
 
-    const { rerender } = render(
-      <SkillsSection query="" onCountChange={() => {}} />,
-    );
+    const { rerender } = render(<SkillsSection query="" />);
     await vi.waitFor(() =>
       expect(screen.getByText("PDF Extract")).toBeTruthy(),
     );
 
-    rerender(<SkillsSection query="pdf" onCountChange={() => {}} />);
+    rerender(<SkillsSection query="pdf" />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(350);
     });
@@ -177,7 +138,7 @@ describe("SkillsSection — Catálogo", () => {
       if (url === "/skills/catalog?q=falha") throw new Error("offline");
       return { ok: true, json: async () => ({}) } as Response;
     });
-    rerender(<SkillsSection query="falha" onCountChange={() => {}} />);
+    rerender(<SkillsSection query="falha" />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(350);
     });
@@ -190,17 +151,15 @@ describe("SkillsSection — Catálogo", () => {
     vi.useRealTimers();
   });
 
-  it("catálogo vazio mostra estado específico, não erro e não quebra SkillsTab", async () => {
+  it("catálogo vazio mostra estado específico", async () => {
     mockFetch({ entries: [] });
-    render(<SkillsSection query="" onCountChange={() => {}} />);
-    expect(screen.getByText("stub-skills-tab")).toBeTruthy();
-
+    render(<SkillsSection query="" />);
     await waitFor(() => {
-      expect(screen.getByText("No curated skills available yet.")).toBeTruthy();
+      expect(screen.getByText("No skills available yet.")).toBeTruthy();
     });
   });
 
-  it("badge de trust level reflete vectora_verified/verified — Official/Verified/Community", async () => {
+  it("exibe confiança verificada sem badge redundante de comunidade", async () => {
     mockFetch({
       entries: [
         {
@@ -213,94 +172,22 @@ describe("SkillsSection — Catálogo", () => {
         { ...CATALOG[0], id: "c", name: "Skill Comunidade" },
       ],
     });
-    render(<SkillsSection query="" onCountChange={() => {}} />);
+    render(<SkillsSection query="" />);
 
     await waitFor(() => screen.getByText("Skill Oficial"));
     expect(screen.getByText("Official")).toBeTruthy();
     expect(screen.getByText("Verified")).toBeTruthy();
-    expect(screen.getByText("Community")).toBeTruthy();
-  });
-});
-
-describe("SkillsSection — Publicar", () => {
-  it("sem conta conectada, mostra a nota em vez do botão de publicar", async () => {
-    mockFetch({ licenseConfigured: false });
-    render(<SkillsSection query="" onCountChange={() => {}} />);
-
-    await waitFor(() => {
-      expect(
-        screen.getByText(/Connect your vectora.company account/),
-      ).toBeTruthy();
-    });
-    expect(screen.queryByText("Publish my skill")).toBeNull();
+    expect(screen.queryByText("Community", { exact: true })).toBeNull();
   });
 
-  it("com conta conectada, publica pelo diálogo (POST /skills/publish)", async () => {
-    mockFetch({ licenseConfigured: true, publishStatus: "published" });
-    render(<SkillsSection query="" onCountChange={() => {}} />);
-
-    await waitFor(() =>
-      expect(screen.getByText("Publish my skill")).toBeTruthy(),
-    );
-    fireEvent.click(screen.getByText("Publish my skill"));
-
-    await waitFor(() => expect(screen.getByText("Publish skill")).toBeTruthy());
-    fireEvent.change(screen.getByLabelText("Repository URL"), {
-      target: { value: "https://github.com/bruno/skill" },
+  it("não infere autor a partir de uma URL quando o catálogo não informa publisher", async () => {
+    mockFetch({
+      entries: [{ ...CATALOG[0], publisher: undefined }],
     });
-    fireEvent.change(screen.getByLabelText("Name"), {
-      target: { value: "Minha Skill" },
-    });
-    fireEvent.change(screen.getByLabelText("Description"), {
-      target: { value: "faz coisas" },
-    });
+    render(<SkillsSection query="" />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-
-    await waitFor(() => {
-      const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls;
-      const publishCall = calls.find(
-        (c) => c[0] === "/skills/publish" && c[1]?.method === "POST",
-      );
-      expect(publishCall).toBeTruthy();
-      const body = JSON.parse(publishCall![1].body as string);
-      expect(body).toEqual({
-        source: "https://github.com/bruno/skill",
-        name: "Minha Skill",
-        description: "faz coisas",
-        category: "",
-      });
-    });
-
-    await waitFor(() => {
-      expect(screen.queryByText("Publish skill")).not.toBeInTheDocument();
-    });
-  });
-
-  it("erro de publicação mantém o diálogo aberto e mostra a mensagem", async () => {
-    mockFetch({ licenseConfigured: true, publishStatus: "error" });
-    render(<SkillsSection query="" onCountChange={() => {}} />);
-
-    await waitFor(() =>
-      expect(screen.getByText("Publish my skill")).toBeTruthy(),
-    );
-    fireEvent.click(screen.getByText("Publish my skill"));
-    await waitFor(() => expect(screen.getByText("Publish skill")).toBeTruthy());
-    fireEvent.change(screen.getByLabelText("Repository URL"), {
-      target: { value: "https://github.com/bruno/skill" },
-    });
-    fireEvent.change(screen.getByLabelText("Name"), {
-      target: { value: "x" },
-    });
-    fireEvent.change(screen.getByLabelText("Description"), {
-      target: { value: "y" },
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
-
-    await waitFor(() => {
-      expect(screen.getByText("falha ao publicar")).toBeTruthy();
-    });
-    expect(screen.getByText("Publish skill")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("PDF Extract")).toBeTruthy());
+    expect(screen.queryByText(/Example Maintainers/)).toBeNull();
+    expect(screen.queryByText(/example\/pdf-extract-skill/)).toBeNull();
   });
 });

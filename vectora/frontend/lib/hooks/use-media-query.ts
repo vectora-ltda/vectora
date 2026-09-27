@@ -48,16 +48,13 @@ export function getUnscaledViewportWidth(): number {
 }
 
 /** Tailwind `sm` breakpoint: below 640px is the smartphone layout. */
-export const IDE_MOBILE_BREAKPOINT = 640;
+export const IDE_COMPACT_BREAKPOINT = 640;
 
-/** Global session-shell bands used by Assistant, IDE and Kanban. */
-export const SESSION_TABLET_BREAKPOINT = 1024;
-
-export type SessionLayoutState = "mobile" | "tablet" | "wide";
+/** Session shell uses the compact layout only on smartphone-sized screens. */
+export type SessionLayoutState = "compact" | "wide";
 
 export function getSessionLayoutState(width: number): SessionLayoutState {
-  if (width < IDE_MOBILE_BREAKPOINT) return "mobile";
-  if (width < SESSION_TABLET_BREAKPOINT) return "tablet";
+  if (width < IDE_COMPACT_BREAKPOINT) return "compact";
   return "wide";
 }
 
@@ -84,7 +81,7 @@ export type IdeLayoutState = "wide" | "mobile";
 
 /** Classifies the IDE from the unscaled window geometry. */
 export function getIdeLayoutState(width: number): IdeLayoutState {
-  if (width < IDE_MOBILE_BREAKPOINT) return "mobile";
+  if (width < IDE_COMPACT_BREAKPOINT) return "mobile";
   return "wide";
 }
 

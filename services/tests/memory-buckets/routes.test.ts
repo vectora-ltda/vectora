@@ -4,7 +4,7 @@ import {
   ragLibrary,
   processRagReindex,
   NO_STORAGE_PROVIDER_REASON,
-} from "../../src/rag-library/routes";
+} from "../../src/memory-buckets/routes";
 import { createSession } from "../../src/auth/session";
 
 async function createUser(role: "user" | "admin" = "user") {
@@ -50,7 +50,7 @@ async function makePackage(status: "ready" | "pending" | "failed" = "ready") {
   return id;
 }
 
-describe("GET /rag-library", () => {
+describe("GET /memory-buckets", () => {
   it("lists the catalog and redirects a known package to its storage URL, 404 for unknown", async () => {
     const id = crypto.randomUUID();
     await env.DB.prepare(
@@ -85,9 +85,71 @@ describe("GET /rag-library", () => {
     const missing = await ragLibrary.request("/unknown-id/download", {}, env);
     expect(missing.status).toBe(404);
   });
+
+  it("inclui o nome do publisher para buckets publicados", async () => {
+    const { userId } = await createUser("user");
+    const id = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO rag_packages (id, name, source_lib, source_version, size_bytes, checksum, storage_url, publisher_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+      .bind(
+        id,
+        "published-bucket",
+        "community",
+        "1",
+        10,
+        "abc",
+        "https://storage.example.com/published.tar.gz",
+        userId,
+      )
+      .run();
+
+    const response = await ragLibrary.request("/", {}, env);
+    const body =
+      await response.json<Array<{ id: string; publisher: string | null }>>();
+
+    expect(body.find((packageRow) => packageRow.id === id)?.publisher).toBe(
+      "Test User",
+    );
+  });
+
+  it("não expõe o e-mail quando o publisher não tem nome público", async () => {
+    const userId = crypto.randomUUID();
+    const email = `${userId}@example.com`;
+    await env.DB.prepare(
+      "INSERT INTO users (id, email, password_hash, full_name, role) VALUES (?, ?, ?, ?, ?)",
+    )
+      .bind(userId, email, "pbkdf2$1$AA==$AA==", "", "user")
+      .run();
+    const id = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO rag_packages (id, name, source_lib, source_version, size_bytes, checksum, storage_url, publisher_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+      .bind(
+        id,
+        "anonymous-bucket",
+        "community",
+        "1",
+        10,
+        "abc",
+        "https://storage.example.com/anonymous.tar.gz",
+        userId,
+      )
+      .run();
+
+    const response = await ragLibrary.request("/", {}, env);
+    const body = await response.text();
+
+    expect(body).not.toContain(email);
+    expect(JSON.parse(body)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id, publisher: null }),
+      ]),
+    );
+  });
 });
 
-describe("GET /rag-library?q=", () => {
+describe("GET /memory-buckets?q=", () => {
   it("filtra por nome/descrição", async () => {
     const id = crypto.randomUUID();
     await env.DB.prepare(
@@ -127,7 +189,7 @@ describe("GET /rag-library?q=", () => {
   });
 });
 
-describe("POST /rag-library/:id/reindex", () => {
+describe("POST /memory-buckets/:id/reindex", () => {
   it("marca status=pending e enfileira o job rag_reindex", async () => {
     const id = await makePackage("ready");
     const sendSpy = vi.spyOn(env.JOBS_QUEUE, "send");
@@ -162,7 +224,7 @@ describe("POST /rag-library/:id/reindex", () => {
   });
 });
 
-describe("POST /rag-library/publish", () => {
+describe("POST /memory-buckets/publish", () => {
   it("publica um bucket autenticado — grava R2 + linha D1 com publisher_id", async () => {
     const { userId, token } = await createUser("user");
 
@@ -233,7 +295,7 @@ describe("POST /rag-library/publish", () => {
   });
 });
 
-describe("PATCH /rag-library/admin/:id/verify", () => {
+describe("PATCH /memory-buckets/admin/:id/verify", () => {
   it("seta verified=1 quando chamado por admin", async () => {
     const id = await makePackage("ready");
     const { token } = await createUser("admin");
