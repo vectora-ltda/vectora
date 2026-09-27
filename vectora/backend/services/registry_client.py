@@ -168,7 +168,7 @@ def _cache_is_fresh(payload: dict, ttl: timedelta) -> bool:
     return datetime.now(UTC) - fetched_at < ttl
 
 
-def _cache_has_current_mcp_shape(payload: dict) -> bool:
+def _cache_has_current_mcp_shape(payload: Mapping[str, object]) -> bool:
     entries = payload.get("entries")
     return isinstance(entries, list) and all(
         isinstance(entry, Mapping)

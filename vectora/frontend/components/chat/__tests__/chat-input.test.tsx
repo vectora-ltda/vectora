@@ -489,13 +489,14 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
       HTMLElement.prototype,
       "clientWidth",
     );
-    const originalGetComputedStyle = window.getComputedStyle;
     vi.spyOn(window, "getComputedStyle").mockImplementation((element) => {
-      const style = originalGetComputedStyle(element);
-      if (element.getAttribute("data-testid") === "wide-control-group") {
-        Object.defineProperty(style, "columnGap", { value: "8px" });
-      }
-      return style;
+      return {
+        fontSize: "16px",
+        columnGap:
+          element.getAttribute("data-testid") === "wide-control-group"
+            ? "8px"
+            : "0px",
+      } as CSSStyleDeclaration;
     });
     vi.stubGlobal(
       "ResizeObserver",
@@ -522,7 +523,12 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     const bounds = vi
       .spyOn(HTMLElement.prototype, "getBoundingClientRect")
       .mockImplementation(function (this: HTMLElement) {
-        const width = this.matches("[data-compact-control-label]") ? 60 : 100;
+        const width = this.matches("[data-compact-control-label]")
+          ? 60
+          : typeof this.className === "string" &&
+              this.className.includes("composer")
+            ? 640
+            : 100;
         return {
           x: 0,
           y: 0,
@@ -676,13 +682,14 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
       HTMLElement.prototype,
       "clientWidth",
     );
-    const originalGetComputedStyle = window.getComputedStyle;
     vi.spyOn(window, "getComputedStyle").mockImplementation((element) => {
-      const style = originalGetComputedStyle(element);
-      if (element.getAttribute("data-testid") === "wide-control-group") {
-        Object.defineProperty(style, "columnGap", { value: "8px" });
-      }
-      return style;
+      return {
+        fontSize: "16px",
+        columnGap:
+          element.getAttribute("data-testid") === "wide-control-group"
+            ? "8px"
+            : "0px",
+      } as CSSStyleDeclaration;
     });
     vi.stubGlobal(
       "ResizeObserver",
@@ -709,7 +716,12 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     const bounds = vi
       .spyOn(HTMLElement.prototype, "getBoundingClientRect")
       .mockImplementation(function (this: HTMLElement) {
-        const width = this.matches("[data-compact-control-label]") ? 60 : 100;
+        const width = this.matches("[data-compact-control-label]")
+          ? 60
+          : typeof this.className === "string" &&
+              this.className.includes("composer")
+            ? 640
+            : 100;
         return {
           x: 0,
           y: 0,

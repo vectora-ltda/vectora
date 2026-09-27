@@ -137,13 +137,14 @@ def _assign_to_job_object_best_effort(pid: int) -> None:
 
 
 async def _watch_for_unexpected_exit(proc: asyncio.subprocess.Process) -> None:
-    """Reage ao encerramento do Electron sem derrubar um backend reutilizável.
+    """Reage ao encerramento do Electron e propaga a saída para o processo dono.
 
     O Electron usa ``ELECTRON_RESTART_EXIT_CODE`` durante o reinício pelo
     tray. O backend permanece vivo e registra a nova instância para que ela
     possa reconectar ao mesmo named pipe/porta. Uma saída normal (código 0),
     como ``Ctrl+C`` propagado pelo terminal ou o comando tray ``Sair``,
-    encerra somente o sidecar; apenas saídas anormais encerram o backend.
+    inicia o shutdown gracioso do processo dono para que todos os sidecars sejam
+    fechados juntos.
 
     Não dispara se a saída foi pedida por ``stop_electron_sidecar()`` (que já
     zera ``_proc`` antes de terminar o processo, então este proc deixa de ser
@@ -159,12 +160,8 @@ async def _watch_for_unexpected_exit(proc: asyncio.subprocess.Process) -> None:
         _proc = None
         await ensure_electron_sidecar()
         return
-    if proc.returncode == 0:
-        logger.info("electron_sidecar: Electron encerrado normalmente")
-        return
     logger.info(
-        "electron_sidecar: Electron saiu anormalmente (code=%s) — "
-        "encerrando o processo backend",
+        "electron_sidecar: Electron encerrou (code=%s) — encerrando o processo backend",
         proc.returncode,
     )
     os.kill(os.getpid(), signal.SIGTERM)

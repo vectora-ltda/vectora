@@ -72,7 +72,7 @@ export function SideColumn({
               }
             : undefined
       }
-      transition={transition}
+      transition={column.resize ? { duration: 0 } : transition}
       aria-label={column.label}
       data-column-visibility={visibility}
       className={`flex h-full shrink-0 min-h-0 min-w-0 overflow-hidden ${collapsed ? "bg-sidebar" : ""}`}

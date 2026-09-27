@@ -398,7 +398,7 @@ class TestWatchForUnexpectedExit:
         assert electron_sidecar._proc is replacement_proc
 
     @pytest.mark.asyncio
-    async def test_saida_normal_do_electron_nao_envia_sigterm_ao_backend(
+    async def test_qualquer_saida_definitiva_do_electron_envia_sigterm_ao_backend(
         self: TestWatchForUnexpectedExit,
     ) -> None:
         fake_proc = MagicMock()
@@ -419,7 +419,7 @@ class TestWatchForUnexpectedExit:
             wait_future.set_result(None)
             await watcher
 
-        kill_mock.assert_not_called()
+        kill_mock.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_saida_anormal_do_electron_envia_sigterm_ao_backend(

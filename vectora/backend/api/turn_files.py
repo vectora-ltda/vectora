@@ -72,7 +72,7 @@ MAX_FILE_BYTES: int = 512 * 1024
 MAX_RETAINED_RUNS: int = 16
 _active: dict[str, TurnWorkspaceSnapshot] = {}
 _active_by_context: dict[tuple[str, str], str] = {}
-_latest: dict[tuple[str, str], tuple[str, list[TurnFileChange]]] = {}
+_latest: dict[tuple[str, str], str] = {}
 _results: dict[str, list[TurnFileChange]] = {}
 _result_context: dict[str, tuple[str, str]] = {}
 
@@ -106,7 +106,6 @@ def _status_paths(repo: RepoLike, scope_root: Path, repo_root: Path) -> list[str
             # the current tree and should be shown in the turn card.
             if index < len(records):
                 index += 1
-        path = path.replace("\\", "/")
         candidate = (repo_root / path).resolve()
         try:
             candidate.relative_to(scope_root)
@@ -140,7 +139,7 @@ def _revision_paths(
     for raw_path in raw_text.split("\0"):
         if not raw_path:
             continue
-        path = raw_path.replace("\\", "/")
+        path = raw_path
         candidate = (repo_root / path).resolve()
         try:
             candidate.relative_to(scope_root)
@@ -150,10 +149,11 @@ def _revision_paths(
     return sorted(paths)[:MAX_TRACKED_FILES]
 
 
-def _read(repo_root: Path, path: str) -> bytes | None:
+def _read(repo_root: Path, scope_root: Path, path: str) -> bytes | None:
     candidate = (repo_root / path).resolve()
     try:
         candidate.relative_to(repo_root)
+        candidate.relative_to(scope_root)
     except ValueError:
         return None
     try:
@@ -223,7 +223,7 @@ def capture(
             # working tree is still a valid baseline for turn tracking.
             initial_head = None
         initial = {
-            path: _read(repo_root, path)
+            path: _read(repo_root, scope_root, path)
             for path in _status_paths(repo, scope_root, repo_root)
         }
     except Exception:
@@ -283,12 +283,17 @@ def compute(snapshot: TurnWorkspaceSnapshot) -> list[TurnFileChange]:
             if path in snapshot.initial
             else _head_read(repo, path, snapshot.initial_head or "HEAD")
         )
-        after = _read(snapshot.repo_root, path)
+        after = _read(snapshot.repo_root, snapshot.scope_root, path)
         before_ref = snapshot.initial_head or "HEAD"
         before_exists = path in snapshot.initial or (
             snapshot.initial_head is not None and _head_exists(repo, path, before_ref)
         )
-        after_exists = (snapshot.repo_root / path).is_file()
+        after_candidate = (snapshot.repo_root / path).resolve()
+        try:
+            after_candidate.relative_to(snapshot.scope_root)
+            after_exists = after_candidate.is_file()
+        except ValueError:
+            after_exists = False
         # Bounded reads intentionally return None for oversized files. Do not
         # turn an unreadable-but-present file into a false deletion.
         if before is None and after is None and before_exists and after_exists:
@@ -355,11 +360,14 @@ def finalize(snapshot: TurnWorkspaceSnapshot | None) -> list[TurnFileChange]:
     context = (snapshot.thread_id, snapshot.workspace_id)
     if _active_by_context.get(context) == snapshot.run_id:
         _active_by_context.pop(context, None)
-    _latest[(snapshot.thread_id, snapshot.workspace_id)] = (snapshot.run_id, changes)
+    _latest[(snapshot.thread_id, snapshot.workspace_id)] = snapshot.run_id
     if len(_results) > MAX_RETAINED_RUNS:
         for old_run_id in list(_results)[:-MAX_RETAINED_RUNS]:
             _results.pop(old_run_id, None)
             _result_context.pop(old_run_id, None)
+            for context, latest_run_id in list(_latest.items()):
+                if latest_run_id == old_run_id:
+                    _latest.pop(context, None)
     return changes
 
 
@@ -383,7 +391,8 @@ def latest(
         snapshot = _active.get(active_run)
         if snapshot is not None:
             return active_run, "active", compute(snapshot)
-    latest_run, changes = _latest.get((thread_id, workspace_id), ("", []))
+    latest_run = _latest.get((thread_id, workspace_id), "")
+    changes = _results.get(latest_run, [])
     return latest_run, "finalized", changes
 
 
