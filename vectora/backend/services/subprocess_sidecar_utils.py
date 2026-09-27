@@ -25,7 +25,13 @@ def sidecar_process_options() -> dict[str, Any]:
     new session for the same isolation.
     """
     if sys.platform == "win32":
-        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        # Python exposes this constant on Windows. The fallback preserves
+        # platform emulation in POSIX test runners, where the attribute does
+        # not exist even when ``sys.platform`` is monkeypatched.
+        create_new_process_group = getattr(
+            subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200
+        )
+        return {"creationflags": create_new_process_group}
     return {"start_new_session": True}
 
 
