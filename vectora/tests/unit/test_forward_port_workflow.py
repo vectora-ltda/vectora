@@ -92,6 +92,18 @@ def test_release_please_uses_trusted_config_for_branch_gate() -> None:
     assert "manifest_file" in content
 
 
+def test_release_please_scopes_pr_body_to_current_release_notes() -> None:
+    """Garante que o PR não publique o histórico inteiro do changelog."""
+    workflow = WORKFLOW.parent / "release-please.yml"
+    content = workflow.read_text(encoding="utf-8")
+
+    assert 'release_notes_branch="${RELEASE_BRANCH}--release-notes"' in content
+    assert "utils/prepare_release_pr_body.py" in content
+    assert 'gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY"' in content
+    assert '--body-file "$RUNNER_TEMP/release-pr-body.md"' in content
+    assert 'echo "number=$number" >> "$GITHUB_OUTPUT"' in content
+
+
 def test_release_rotation_workflow_declares_release_entrypoint() -> None:
     """Mantém o workflow do GitHub conectado à fronteira executável de rotação."""
     workflow = WORKFLOW.parent / "rotate-release-lines.yml"

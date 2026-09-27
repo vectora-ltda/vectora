@@ -120,11 +120,13 @@ jobs:
               ([.labels[].name] | index("autorelease: pending"))\
             ))[0] // {}' <<<"$prs")"
           branch="$(jq -r '.headRefName // empty' <<<"$pr")"
+          number="$(jq -r '.number // empty' <<<"$pr")"
           if [[ -z "$branch" ]]; then
             echo "No trusted Release Please PR found for $TARGET_BRANCH."
             exit 0
           fi
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "number=$number" >> "$GITHUB_OUTPUT"
 
       - name: Check out Release Please branch
         if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
@@ -137,6 +139,25 @@ jobs:
       - name: Normalize generated changelog list markers
         if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
         run: python utils/normalize_changelog_lists.py
+
+      - name: Prepare current release section for PR body
+        if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          RELEASE_BRANCH: ${{ steps.release-branch.outputs.branch }}
+          PR_NUMBER: ${{ steps.release-branch.outputs.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_notes_branch="${RELEASE_BRANCH}--release-notes"
+          git fetch "https://x-access-token:${RELEASE_PLEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "$release_notes_branch"
+          git show "FETCH_HEAD:release-notes.md" > "$RUNNER_TEMP/release-notes.md"
+          python utils/prepare_release_pr_body.py \
+            "$RUNNER_TEMP/release-notes.md" "$RUNNER_TEMP/release-pr-body.md"
+          gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+            --body-file "$RUNNER_TEMP/release-pr-body.md"
 
       - name: Commit normalized changelog
         if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
