@@ -45,7 +45,7 @@ def prepare_body(notes: str, max_body_bytes: int = MAX_BODY_BYTES) -> str:
     """Monta um corpo com a seção atual e mantém-o dentro do limite do GitHub."""
     prefix, section, suffix = current_release_section(notes)
     if not prefix:
-        prefix = RELEASE_PREAMBLE
+        prefix = f"{RELEASE_PREAMBLE}\n---"
     if not suffix:
         suffix = RELEASE_FOOTER
 
