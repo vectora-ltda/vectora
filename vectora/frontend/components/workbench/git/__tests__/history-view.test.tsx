@@ -35,6 +35,31 @@ afterEach(() => {
 });
 
 describe("CommitDetails — altura do cabeçalho", () => {
+  it("mede a descrição completa mesmo quando o máximo anterior a cortava", () => {
+    const scrollHeight = vi
+      .spyOn(HTMLElement.prototype, "scrollHeight", "get")
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.getAttribute("data-testid") !== "commit-details-header") {
+          return 0;
+        }
+        const previousMax = Number.parseInt(this.style.maxHeight, 10);
+        return Number.isFinite(previousMax) ? Math.min(240, previousMax) : 240;
+      });
+
+    render(
+      <CommitDetails
+        commit={commit("with-body", "linha 1\nlinha 2\nlinha 3\nlinha 4")}
+        diff={null}
+        loading={false}
+      />,
+    );
+
+    const header = screen.getByTestId("commit-details-header");
+    expect(header.style.height).toBe("240px");
+    expect(header.style.maxHeight).toBe("240px");
+    expect(scrollHeight).toHaveBeenCalled();
+  });
+
   it("abre no tamanho da descrição e permite reduzir o cabeçalho", () => {
     render(
       <CommitDetails

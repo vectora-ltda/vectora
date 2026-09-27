@@ -129,12 +129,18 @@ export function CommitDetails({
     if (!hasDescription || !headerRef.current) return;
     const header = headerRef.current;
     const previousHeight = header.style.height;
+    const previousMaxHeight = header.style.maxHeight;
     header.style.height = "auto";
+    // O máximo anterior pode ter sido calculado com a descrição já cortada.
+    // Remova-o durante a leitura para que scrollHeight represente todo o
+    // conteúdo intrínseco, e só reaplique o limite depois da medição.
+    header.style.maxHeight = "none";
     const measuredHeight = Math.max(
       COMMIT_HEADER_MIN_HEIGHT,
       header.scrollHeight || estimateCommitHeaderHeight(commit.body),
     );
     header.style.height = previousHeight;
+    header.style.maxHeight = previousMaxHeight;
     // oxlint-disable-next-line react(set-state-in-effect)
     setHeaderMaxHeight(measuredHeight);
     // oxlint-disable-next-line react(set-state-in-effect)
