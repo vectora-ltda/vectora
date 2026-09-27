@@ -10,6 +10,10 @@ MAX_BODY_BYTES = 60_000
 RELEASE_HEADING = re.compile(r"^## \[[^\]]+\].*$", re.MULTILINE)
 NEXT_RELEASE_HEADING = re.compile(r"^## \[[^\]]+\].*$", re.MULTILINE)
 MARKDOWN_LINK = re.compile(r"\[([^\]]+)\]\((https?://[^)]+)\)")
+PROCESS_METADATA = re.compile(
+    r"\s*\([^()\n]*(?:Sprint|Bloco|Fase|CodeRabbit|Claude|Copilot|ChatGPT)[^()\n]*\)",
+    re.IGNORECASE,
+)
 
 
 def current_release_section(notes: str) -> tuple[str, str, str]:
@@ -35,6 +39,11 @@ def _compact_links(section: str) -> str:
     return heading + separator + compacted_remainder
 
 
+def _strip_process_metadata(section: str) -> str:
+    """Remove planning and review provenance from generated change entries."""
+    return PROCESS_METADATA.sub("", section)
+
+
 def prepare_body(notes: str, max_body_bytes: int = MAX_BODY_BYTES) -> str:
     """Monta um corpo com a seção atual e mantém-o dentro do limite do GitHub."""
     prefix, section, suffix = current_release_section(notes)
@@ -45,6 +54,7 @@ def prepare_body(notes: str, max_body_bytes: int = MAX_BODY_BYTES) -> str:
             + "\n"
         )
 
+    section = _strip_process_metadata(section)
     body = join_parts(section)
     if len(body.encode("utf-8")) <= max_body_bytes:
         return body
