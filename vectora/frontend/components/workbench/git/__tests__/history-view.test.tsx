@@ -15,6 +15,7 @@ import {
 } from "@testing-library/react";
 import { HistoryView } from "../history-view";
 import * as api from "../api";
+import { m } from "@/lib/paraglide/messages";
 
 function commit(sha: string) {
   return {
@@ -103,6 +104,49 @@ describe("HistoryView — paginação", () => {
     const scrollable = container.querySelector(".overflow-y-auto");
     expect(scrollable).not.toBeNull();
     expect(scrollable?.className).toContain("min-h-0");
+  });
+
+  it("publica erro terminal quando o diff do commit falha", async () => {
+    const commitDiff = vi
+      .spyOn(api, "fetchCommitDiff")
+      .mockRejectedValue(new Error("diff indisponível"));
+    vi.spyOn(api, "fetchGitLog").mockResolvedValue({
+      branch: "main",
+      commits: [commit("failed-diff")],
+      has_more: false,
+    });
+    const onOpenCommitDetails = vi.fn();
+
+    render(
+      <HistoryView
+        workspaceId="ws1"
+        onChanged={() => {}}
+        onOpenCommitDetails={onOpenCommitDetails}
+      />,
+    );
+
+    const commitButton = await screen.findByRole("button", {
+      name: /commit failed-diff/,
+    });
+    fireEvent.click(commitButton);
+
+    await waitFor(() => {
+      expect(onOpenCommitDetails).toHaveBeenLastCalledWith({
+        commit: commit("failed-diff"),
+        diff: null,
+        loading: false,
+        error: m.workbench_git_operation_failed(),
+      });
+    });
+    expect(commitDiff).toHaveBeenCalledWith("ws1", "failed-diff");
+    expect(onOpenCommitDetails.mock.calls).toContainEqual([
+      expect.objectContaining({ commit: commit("failed-diff") }),
+    ]);
+    expect(
+      onOpenCommitDetails.mock.calls.some(
+        ([details]) => details.loading === false,
+      ),
+    ).toBe(true);
   });
 });
 
