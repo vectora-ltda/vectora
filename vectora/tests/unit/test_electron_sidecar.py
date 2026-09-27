@@ -35,6 +35,7 @@ def _reset_sidecar_state(monkeypatch: pytest.MonkeyPatch):
     electron_sidecar._log_task = None
     electron_sidecar._watch_task = None
     electron_sidecar._job_handle = None
+    electron_sidecar.set_backend_shutdown_callback(None)
     yield
     if electron_sidecar._watch_task is not None:
         electron_sidecar._watch_task.cancel()
@@ -43,6 +44,7 @@ def _reset_sidecar_state(monkeypatch: pytest.MonkeyPatch):
     electron_sidecar._log_task = None
     electron_sidecar._watch_task = None
     electron_sidecar._job_handle = None
+    electron_sidecar.set_backend_shutdown_callback(None)
 
 
 # ---------------------------------------------------------------------------
@@ -420,6 +422,33 @@ class TestWatchForUnexpectedExit:
             await watcher
 
         kill_mock.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_saida_definitiva_prefere_callback_de_shutdown_coordenado(
+        self: TestWatchForUnexpectedExit,
+    ) -> None:
+        fake_proc = MagicMock()
+        fake_proc.returncode = None
+        wait_future: asyncio.Future[None] = asyncio.get_event_loop().create_future()
+
+        async def _wait() -> None:
+            return await wait_future
+
+        fake_proc.wait = AsyncMock(side_effect=_wait)
+        shutdown = MagicMock()
+        electron_sidecar.set_backend_shutdown_callback(shutdown)
+
+        with patch("backend.services.electron_sidecar.os.kill") as kill_mock:
+            electron_sidecar._proc = fake_proc
+            watcher = asyncio.create_task(
+                electron_sidecar._watch_for_unexpected_exit(fake_proc)
+            )
+            fake_proc.returncode = 0
+            wait_future.set_result(None)
+            await watcher
+
+        shutdown.assert_called_once_with()
+        kill_mock.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_saida_anormal_do_electron_envia_sigterm_ao_backend(

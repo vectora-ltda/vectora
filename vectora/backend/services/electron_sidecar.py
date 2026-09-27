@@ -21,6 +21,7 @@ import logging
 import os
 import signal
 import sys
+from collections.abc import Callable
 
 from backend.services.electron_launcher import resolve_electron_launch
 from backend.services.subprocess_logging import pipe_to_logger
@@ -37,6 +38,7 @@ _proc: asyncio.subprocess.Process | None = None
 _log_task: asyncio.Task | None = None
 _watch_task: asyncio.Task | None = None
 _spawn_lock = LazyLock()
+_backend_shutdown_callback: Callable[[], None] | None = None
 
 # Handle da Windows Job Object (ver `_assign_to_job_object_best_effort`) —
 # vive pelo tempo de vida do processo Python inteiro, nunca fechado
@@ -46,6 +48,18 @@ _job_handle: int | None = None
 # Exit status used by Electron to request a backend-managed restart. A normal
 # exit remains an intentional shutdown signal (for example, tray "Sair").
 ELECTRON_RESTART_EXIT_CODE = 42
+
+
+def set_backend_shutdown_callback(callback: Callable[[], None] | None) -> None:
+    """Registra o callback do processo dono para desligamento coordenado.
+
+    No Windows, ``os.kill(..., SIGTERM)`` pode encerrar o processo
+    imediatamente sem executar o handler Python. O callback mantém o
+    shutdown dentro do event loop, permitindo que o FastAPI feche NATS e os
+    demais sidecars antes de terminar.
+    """
+    global _backend_shutdown_callback
+    _backend_shutdown_callback = callback
 
 
 def should_spawn_electron() -> bool:
@@ -148,8 +162,8 @@ async def _watch_for_unexpected_exit(proc: asyncio.subprocess.Process) -> None:
     tray. O backend permanece vivo e registra a nova instância para que ela
     possa reconectar ao mesmo named pipe/porta. Uma saída normal (código 0),
     como ``Ctrl+C`` propagado pelo terminal ou o comando tray ``Sair``,
-    inicia o shutdown gracioso do processo dono para que todos os sidecars sejam
-    fechados juntos.
+    solicita o shutdown gracioso do processo dono para que todos os sidecars
+    sejam fechados juntos.
 
     Não dispara se a saída foi pedida por ``stop_electron_sidecar()`` (que já
     zera ``_proc`` antes de terminar o processo, então este proc deixa de ser
@@ -166,10 +180,14 @@ async def _watch_for_unexpected_exit(proc: asyncio.subprocess.Process) -> None:
         await ensure_electron_sidecar()
         return
     logger.info(
-        "electron_sidecar: Electron encerrou (code=%s) — encerrando o processo backend",
+        "electron_sidecar: Electron encerrou (code=%s) — solicitando shutdown do backend",
         proc.returncode,
     )
-    os.kill(os.getpid(), signal.SIGTERM)
+    if _backend_shutdown_callback is not None:
+        _backend_shutdown_callback()
+    else:
+        # Fallback para usos do sidecar fora do launcher principal.
+        os.kill(os.getpid(), signal.SIGTERM)
 
 
 async def stop_electron_sidecar() -> None:

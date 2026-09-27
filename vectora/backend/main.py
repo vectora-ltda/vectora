@@ -673,6 +673,20 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
         # process-owner handler above authoritative for console signals.
         _disable_uvicorn_signal_capture(server)
 
+    if os.environ.get("VECTORA_SPAWN_ELECTRON"):
+        from backend.services.electron_sidecar import set_backend_shutdown_callback
+
+        def _shutdown_from_electron() -> None:
+            logger.info("Vectora: Electron encerrou — iniciando shutdown coordenado")
+            server.should_exit = True
+            shutdown_event = _SHUTDOWN_EVENTS.get(id(server))
+            if shutdown_event is not None:
+                shutdown_event.set()
+            if icon_ref[0] is not None:
+                icon_ref[0].stop()
+
+        set_backend_shutdown_callback(_shutdown_from_electron)
+
     # Windows + VECTORA_DESKTOP: named pipe em vez de TCP — nenhuma porta TCP é
     # exposta ao SO. O Electron conecta via \\.\pipe\vectora-<pid>, lido de stdout.
     if sys.platform == "win32" and os.environ.get("VECTORA_DESKTOP"):
