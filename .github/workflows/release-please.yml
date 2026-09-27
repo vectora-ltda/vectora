@@ -106,19 +106,21 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         shell: bash
         run: |
-          expected="release-please--branches--${TARGET_BRANCH}--components--vectora"
           prs="$(gh pr list \
             --repo "$GITHUB_REPOSITORY" \
             --base "$TARGET_BRANCH" \
-            --head "$expected" \
             --state open \
-            --json number,headRefName,headRepository,labels)"
-          pr="$(jq -c --arg expected "$expected" --arg repository "$REPOSITORY" \
+            --limit 100 \
+            --json number,headRefName,headRepository,labels,title)"
+          pr="$(jq -c --arg repository "$REPOSITORY" --arg target "$TARGET_BRANCH" \
             'map(select(
-              .headRefName == $expected and
+              (
+                (.headRefName | test("^release-please-[0-9]+\\.[0-9]+\\.[0-9]+$")) or
+                (.headRefName == ("release-please--branches--" + $target + "--components--vectora"))
+              ) and
               .headRepository.nameWithOwner == $repository and
               ([.labels[].name] | index("autorelease: pending"))
-            ))[0] // {}' <<<"$prs")"
+            )) | sort_by(.number) | last // {}' <<<"$prs")"
           branch="$(jq -r '.headRefName // empty' <<<"$pr")"
           number="$(jq -r '.number // empty' <<<"$pr")"
           if [[ -z "$branch" ]]; then

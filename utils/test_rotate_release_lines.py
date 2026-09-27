@@ -198,7 +198,12 @@ def test_main_rotates_valid_release_event(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """O ponto de entrada emite a rotação para um evento válido."""
+    import rotate_release_lines
     from rotate_release_lines import main
+
+    # O teste valida o evento v0.2.0 contra uma configuração anterior à rotação;
+    # não deve depender da configuração viva do branch, que já pode estar em 0.3/0.4.
+    monkeypatch.setattr(rotate_release_lines, "load_release_lines", lambda _: CONFIG)
 
     event = tmp_path / "event.json"
     event.write_text(
