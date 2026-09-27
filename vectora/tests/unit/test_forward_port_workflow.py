@@ -90,6 +90,7 @@ def test_release_please_uses_trusted_config_for_branch_gate() -> None:
     assert "RELEASE_PLEASE_TOKEN" in content
     assert "config_file" in content
     assert "manifest_file" in content
+    assert "map(select(\\" not in content
 
 
 def test_release_please_scopes_pr_body_to_current_release_notes() -> None:

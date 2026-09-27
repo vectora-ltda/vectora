@@ -114,10 +114,10 @@ jobs:
             --state open \
             --json number,headRefName,headRepository,labels)"
           pr="$(jq -c --arg expected "$expected" --arg repository "$REPOSITORY" \
-            'map(select(\
-              .headRefName == $expected and \
-              .headRepository.nameWithOwner == $repository and \
-              ([.labels[].name] | index("autorelease: pending"))\
+            'map(select(
+              .headRefName == $expected and
+              .headRepository.nameWithOwner == $repository and
+              ([.labels[].name] | index("autorelease: pending"))
             ))[0] // {}' <<<"$prs")"
           branch="$(jq -r '.headRefName // empty' <<<"$pr")"
           number="$(jq -r '.number // empty' <<<"$pr")"
