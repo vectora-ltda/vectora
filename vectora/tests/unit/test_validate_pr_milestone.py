@@ -200,7 +200,7 @@ def test_release_please_pr_is_exempt_with_controlled_source_and_label() -> None:
     event = _event(
         base=DEVELOPMENT_BRANCH,
         milestone=None,
-        head=f"release-please--branches--{DEVELOPMENT_BRANCH}--components--vectora",
+        head="release-please-0.3.0",
         labels=["autorelease: pending"],
     )
     assert validator.validate_pull_request(event) == []
@@ -210,7 +210,7 @@ def test_release_please_pr_from_another_repo_is_rejected() -> None:
     event = _event(
         base=DEVELOPMENT_BRANCH,
         milestone=None,
-        head=f"release-please--branches--{DEVELOPMENT_BRANCH}--components--vectora",
+        head="release-please-0.3.0",
         labels=["autorelease: pending"],
         head_repo="attacker/vectora",
     )
@@ -222,7 +222,7 @@ def test_release_please_pr_without_pending_label_is_rejected() -> None:
     event = _event(
         base=DEVELOPMENT_BRANCH,
         milestone=None,
-        head=f"release-please--branches--{DEVELOPMENT_BRANCH}--components--vectora",
+        head="release-please-0.3.0",
     )
     errors = validator.validate_pull_request(event)
     assert errors and "milestone" in errors[0]
@@ -232,7 +232,7 @@ def test_release_please_lookalike_branch_is_rejected() -> None:
     event = _event(
         base=DEVELOPMENT_BRANCH,
         milestone=None,
-        head=f"release-please--branches--{DEVELOPMENT_BRANCH}--components--vectora-lookalike",
+        head="release-please-0.3.0-lookalike",
         labels=["autorelease: pending"],
     )
     errors = validator.validate_pull_request(event)
@@ -243,7 +243,7 @@ def test_release_please_branch_retargeted_to_maintenance_is_rejected() -> None:
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=None,
-        head=f"release-please--branches--{DEVELOPMENT_BRANCH}--components--vectora",
+        head="release-please-0.3.0",
         labels=["autorelease: pending"],
     )
     errors = validator.validate_pull_request(event)

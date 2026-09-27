@@ -89,6 +89,7 @@ type EventPayload = PullRequestEvent | dict[str, object]
 
 _VEXT_TOKEN = re.compile(r"(?<![A-Za-z0-9])vext(?![A-Za-z0-9])", re.IGNORECASE)
 _RELEASE_PLEASE_LABEL = "autorelease: pending"
+_RELEASE_PLEASE_BRANCH = re.compile(r"^release-please-\d+\.\d+\.\d+$")
 
 
 class ReleaseLine(BaseModel):
@@ -155,12 +156,24 @@ def _is_release_please_pr(
     head_repo = head.repo.full_name if head and head.repo else None
     repository = event.repository
     base = pull_request.base.ref if pull_request.base else ""
-    expected_head = f"release-please--branches--{base}--components--vectora"
-    return (
-        head_repo == (repository.full_name if repository else None)
-        and (head.ref if head else "") == expected_head
-        and _RELEASE_PLEASE_LABEL in _labels(pull_request)
-    )
+    head_ref = head.ref if head else ""
+    if head_repo != (
+        repository.full_name if repository else None
+    ) or _RELEASE_PLEASE_LABEL not in _labels(pull_request):
+        return False
+    legacy_branch = f"release-please--branches--{base}--components--vectora"
+    if head_ref == legacy_branch:
+        return True
+    if _RELEASE_PLEASE_BRANCH.fullmatch(head_ref) is None:
+        return False
+    line = _line_for_base(base)
+    if line is None:
+        return False
+    version = head_ref.removeprefix("release-please-")
+    major, minor, patch = version.split(".")
+    if line is _release_lines().development:
+        return f"{major}.{minor}" == line.milestone and patch == "0"
+    return f"{major}.{minor}" == line.milestone.removesuffix(".x")
 
 
 def _is_vext_pr(pull_request: PullRequestPayload) -> bool:
