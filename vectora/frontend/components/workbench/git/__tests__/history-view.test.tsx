@@ -156,6 +156,24 @@ describe("CommitDetails — altura do cabeçalho", () => {
       ),
     ).not.toBeInTheDocument();
   });
+
+  it("inicia a coluna de arquivos em 140px e não permite reduzir além disso", () => {
+    render(
+      <CommitDetails
+        commit={commit("with-files")}
+        diff={"diff --git a/scenes/Game.tscn b/scenes/Game.tscn\n"}
+        loading={false}
+      />,
+    );
+
+    const separator = document.querySelector(
+      '[role="separator"][aria-orientation="vertical"]',
+    );
+    expect(separator).toHaveAttribute("aria-valuenow", "140");
+
+    fireEvent.keyDown(separator!, { key: "ArrowLeft" });
+    expect(separator).toHaveAttribute("aria-valuenow", "140");
+  });
 });
 
 describe("HistoryView — paginação", () => {

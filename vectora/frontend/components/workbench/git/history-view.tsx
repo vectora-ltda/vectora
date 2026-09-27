@@ -39,6 +39,9 @@ type DiffFile = { path: string; lines: string[] };
 
 const COMMIT_HEADER_MIN_HEIGHT = 96;
 const COMMIT_HEADER_MAX_HEIGHT = 360;
+const FILES_COLUMN_MIN_WIDTH = 140;
+const FILES_COLUMN_DEFAULT_WIDTH = 140;
+const FILES_COLUMN_MAX_WIDTH = 420;
 
 function estimateCommitHeaderHeight(body: string | undefined): number {
   if (!body?.trim()) return COMMIT_HEADER_MIN_HEIGHT;
@@ -107,7 +110,7 @@ export function CommitDetails({
 }) {
   const files = useMemo(() => parseDiff(diff ?? ""), [diff]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [filesWidth, setFilesWidth] = useState(200);
+  const [filesWidth, setFilesWidth] = useState(FILES_COLUMN_DEFAULT_WIDTH);
   const hasDescription = Boolean(commit.body?.trim());
   const headerRef = useRef<HTMLDivElement>(null);
   const [headerMaxHeight, setHeaderMaxHeight] = useState(() =>
@@ -190,8 +193,11 @@ export function CommitDetails({
       if (resize.kind === "files") {
         setFilesWidth(
           Math.min(
-            420,
-            Math.max(160, resize.value + event.clientX - resize.start),
+            FILES_COLUMN_MAX_WIDTH,
+            Math.max(
+              FILES_COLUMN_MIN_WIDTH,
+              resize.value + event.clientX - resize.start,
+            ),
           ),
         );
       } else {
@@ -234,7 +240,12 @@ export function CommitDetails({
   const adjustResize = useCallback(
     (kind: "files" | "header", delta: number) => {
       if (kind === "files") {
-        setFilesWidth((value) => Math.min(420, Math.max(160, value + delta)));
+        setFilesWidth((value) =>
+          Math.min(
+            FILES_COLUMN_MAX_WIDTH,
+            Math.max(FILES_COLUMN_MIN_WIDTH, value + delta),
+          ),
+        );
       } else {
         setHeaderHeight((value) =>
           Math.min(
