@@ -7,12 +7,6 @@ import sys
 from pathlib import Path
 
 MAX_BODY_BYTES = 60_000
-RELEASE_PREAMBLE = ":robot: I have created a release *beep* *boop*"
-RELEASE_FOOTER = (
-    "---\n"
-    "This PR was generated with [Release Please](https://github.com/googleapis/release-please). "
-    "See [documentation](https://github.com/googleapis/release-please#release-please)."
-)
 RELEASE_HEADING = re.compile(r"^## \[[^\]]+\].*$", re.MULTILINE)
 NEXT_RELEASE_HEADING = re.compile(r"^## \[[^\]]+\].*$", re.MULTILINE)
 MARKDOWN_LINK = re.compile(r"\[([^\]]+)\]\((https?://[^)]+)\)")
@@ -44,10 +38,6 @@ def _compact_links(section: str) -> str:
 def prepare_body(notes: str, max_body_bytes: int = MAX_BODY_BYTES) -> str:
     """Monta um corpo com a seção atual e mantém-o dentro do limite do GitHub."""
     prefix, section, suffix = current_release_section(notes)
-    if not prefix:
-        prefix = RELEASE_PREAMBLE
-    if not suffix:
-        suffix = RELEASE_FOOTER
 
     def join_parts(current_section: str) -> str:
         return (
