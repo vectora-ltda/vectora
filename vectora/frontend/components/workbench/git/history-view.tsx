@@ -11,6 +11,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useLayoutEffect,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -108,7 +109,10 @@ export function CommitDetails({
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [filesWidth, setFilesWidth] = useState(200);
   const hasDescription = Boolean(commit.body?.trim());
-  const headerMaxHeight = estimateCommitHeaderHeight(commit.body);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [headerMaxHeight, setHeaderMaxHeight] = useState(() =>
+    estimateCommitHeaderHeight(commit.body),
+  );
   const [headerHeight, setHeaderHeight] = useState(() =>
     estimateCommitHeaderHeight(commit.body),
   );
@@ -120,6 +124,22 @@ export function CommitDetails({
 
   const selected = files.find((file) => file.path === selectedPath) ?? files[0];
   const isDark = useIsDark();
+
+  useLayoutEffect(() => {
+    if (!hasDescription || !headerRef.current) return;
+    const header = headerRef.current;
+    const previousHeight = header.style.height;
+    header.style.height = "auto";
+    const measuredHeight = Math.max(
+      COMMIT_HEADER_MIN_HEIGHT,
+      header.scrollHeight || estimateCommitHeaderHeight(commit.body),
+    );
+    header.style.height = previousHeight;
+    // oxlint-disable-next-line react(set-state-in-effect)
+    setHeaderMaxHeight(measuredHeight);
+    // oxlint-disable-next-line react(set-state-in-effect)
+    setHeaderHeight(measuredHeight);
+  }, [commit.body, hasDescription]);
 
   const stopResize = useCallback(() => {
     resizeRef.current = null;
@@ -209,6 +229,7 @@ export function CommitDetails({
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-[#1f1f1f]">
       <div
+        ref={headerRef}
         data-testid="commit-details-header"
         style={
           hasDescription
@@ -227,7 +248,7 @@ export function CommitDetails({
         {hasDescription && (
           <pre
             style={{ fontFamily: '"Segoe UI", ui-sans-serif, sans-serif' }}
-            className="max-h-40 min-h-0 self-stretch overflow-auto whitespace-pre-wrap rounded-sm bg-[#2f2f2f] px-2 py-1 text-xs leading-4 text-foreground"
+            className="min-h-0 self-stretch overflow-auto whitespace-pre-wrap rounded-sm bg-[#2f2f2f] px-2 py-1 text-xs leading-4 text-foreground"
           >
             {commit.body}
           </pre>
