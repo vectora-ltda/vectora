@@ -157,10 +157,10 @@ describe("CommitDetails — altura do cabeçalho", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("inicia a coluna de arquivos em 140px e não permite reduzir além disso", () => {
+  it("padroniza os separadores e mantém a coluna de arquivos em 140px", () => {
     render(
       <CommitDetails
-        commit={commit("with-files")}
+        commit={commit("with-files", "Descrição do commit")}
         diff={"diff --git a/scenes/Game.tscn b/scenes/Game.tscn\n"}
         loading={false}
       />,
@@ -169,10 +169,27 @@ describe("CommitDetails — altura do cabeçalho", () => {
     const separator = document.querySelector(
       '[role="separator"][aria-orientation="vertical"]',
     );
+    expect(separator).toHaveClass(
+      "w-1",
+      "bg-border/40",
+      "hover:bg-border",
+      "focus:bg-border",
+    );
+    expect(separator).not.toHaveClass("w-px");
     expect(separator).toHaveAttribute("aria-valuenow", "140");
 
     fireEvent.keyDown(separator!, { key: "ArrowLeft" });
     expect(separator).toHaveAttribute("aria-valuenow", "140");
+
+    const headerSeparator = document.querySelector(
+      '[role="separator"][aria-orientation="horizontal"]',
+    );
+    expect(headerSeparator).toHaveClass(
+      "h-1",
+      "bg-border/40",
+      "hover:bg-border",
+      "focus:bg-border",
+    );
   });
 });
 

@@ -42,6 +42,8 @@ const COMMIT_HEADER_MAX_HEIGHT = 360;
 const FILES_COLUMN_MIN_WIDTH = 140;
 const FILES_COLUMN_DEFAULT_WIDTH = 140;
 const FILES_COLUMN_MAX_WIDTH = 420;
+const RESIZE_SEPARATOR_BASE_CLASS =
+  "shrink-0 bg-border/40 transition-colors hover:bg-border focus:bg-border";
 
 function estimateCommitHeaderHeight(body: string | undefined): number {
   if (!body?.trim()) return COMMIT_HEADER_MIN_HEIGHT;
@@ -323,7 +325,7 @@ export function CommitDetails({
           tabIndex={0}
           onPointerDown={(event) => beginResize("header", event)}
           onKeyDown={(event) => handleResizeKeyDown("header", event)}
-          className="h-1 shrink-0 cursor-row-resize bg-border/40 transition-colors hover:bg-primary/60 focus:bg-primary/60"
+          className={`h-1 cursor-row-resize ${RESIZE_SEPARATOR_BASE_CLASS}`}
         />
       )}
       {loading ? (
@@ -370,7 +372,7 @@ export function CommitDetails({
             tabIndex={0}
             onPointerDown={(event) => beginResize("files", event)}
             onKeyDown={(event) => handleResizeKeyDown("files", event)}
-            className="w-px shrink-0 cursor-col-resize bg-border/60 transition-colors hover:bg-primary/60 focus:bg-primary/60"
+            className={`w-1 cursor-col-resize ${RESIZE_SEPARATOR_BASE_CLASS}`}
           />
           <div className="min-w-0 flex-1 overflow-hidden bg-background/30">
             {selected ? (
