@@ -57,9 +57,31 @@ describe("CommitDetails — altura do cabeçalho", () => {
     );
 
     const header = screen.getByTestId("commit-details-header");
-    expect(header.style.height).toBe("240px");
-    expect(header.style.maxHeight).toBe("240px");
+    expect(header.style.height).toBe("241px");
+    expect(header.style.maxHeight).toBe("241px");
     expect(scrollHeight).toHaveBeenCalled();
+  });
+
+  it("inclui as bordas no máximo para evitar overflow de um pixel", () => {
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(
+      function (this: HTMLElement) {
+        return this.getAttribute("data-testid") === "commit-details-header"
+          ? 240
+          : 0;
+      },
+    );
+    render(
+      <CommitDetails
+        commit={commit("bordered", "Descrição")}
+        diff={null}
+        loading={false}
+      />,
+    );
+
+    expect(screen.getByTestId("commit-details-header")).toHaveStyle({
+      height: "241px",
+      maxHeight: "241px",
+    });
   });
 
   it("recalcula o máximo quando a largura muda e o texto quebra novamente", async () => {
@@ -93,7 +115,7 @@ describe("CommitDetails — altura do cabeçalho", () => {
     );
 
     const header = screen.getByTestId("commit-details-header");
-    expect(header.style.maxHeight).toBe("180px");
+    expect(header.style.maxHeight).toBe("181px");
 
     intrinsicHeight = 260;
     await act(async () => {
@@ -104,8 +126,8 @@ describe("CommitDetails — altura do cabeçalho", () => {
     });
 
     await waitFor(() => {
-      expect(header.style.maxHeight).toBe("260px");
-      expect(header.style.height).toBe("260px");
+      expect(header.style.maxHeight).toBe("261px");
+      expect(header.style.height).toBe("261px");
     });
   });
 

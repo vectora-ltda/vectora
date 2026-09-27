@@ -39,6 +39,7 @@ type DiffFile = { path: string; lines: string[] };
 
 const COMMIT_HEADER_MIN_HEIGHT = 96;
 const COMMIT_HEADER_MAX_HEIGHT = 360;
+const COMMIT_HEADER_BORDER_HEIGHT = 1;
 const FILES_COLUMN_MIN_WIDTH = 140;
 const FILES_COLUMN_DEFAULT_WIDTH = 140;
 const FILES_COLUMN_MAX_WIDTH = 420;
@@ -149,9 +150,14 @@ export function CommitDetails({
       // Remova-o durante a leitura para que scrollHeight represente todo o
       // conteúdo intrínseco, e só reaplique o limite depois da medição.
       header.style.maxHeight = "none";
+      const intrinsicHeight =
+        header.scrollHeight || estimateCommitHeaderHeight(commit.body);
+      // scrollHeight excludes borders, while the inline height uses the
+      // border-box model. Include both edges so the description does not get
+      // a one-pixel scrollbar when the header is fully expanded.
       const measuredHeight = Math.max(
         COMMIT_HEADER_MIN_HEIGHT,
-        header.scrollHeight || estimateCommitHeaderHeight(commit.body),
+        Math.ceil(intrinsicHeight) + COMMIT_HEADER_BORDER_HEIGHT,
       );
       header.style.height = previousHeight;
       header.style.maxHeight = previousMaxHeight;
