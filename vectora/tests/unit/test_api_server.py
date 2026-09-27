@@ -128,10 +128,14 @@ class TestLifespan:
 
         monkeypatch.setenv("VECTORA_PORT", "49152")
 
-        assert _gateway_local_url() == "http://127.0.0.1:49152"
+        assert _gateway_local_url() == "http://localhost:49152"
+
+        monkeypatch.setenv("VECTORA_GATEWAY_LOCAL_HOST", "backend.internal")
+        assert _gateway_local_url() == "http://backend.internal:49152"
 
         monkeypatch.delenv("VECTORA_PORT", raising=False)
-        assert _gateway_local_url() == "http://127.0.0.1:8080"
+        monkeypatch.delenv("VECTORA_GATEWAY_LOCAL_HOST", raising=False)
+        assert _gateway_local_url() == "http://localhost:8080"
 
 
 class TestHealth:

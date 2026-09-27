@@ -77,8 +77,10 @@ logger = logging.getLogger(__name__)
 
 
 def _gateway_local_url() -> str:
-    """Return the loopback URL where this backend accepts forwarded calls."""
-    return f"http://127.0.0.1:{os.environ.get('VECTORA_PORT') or '8080'}"
+    """Return the configured local URL for gateway-forwarded calls."""
+    host = os.environ.get("VECTORA_GATEWAY_LOCAL_HOST") or "localhost"
+    port = os.environ.get("VECTORA_PORT") or "8080"
+    return f"http://{host}:{port}"
 
 
 # Tempo máximo total para o shutdown — depois disso, `os._exit` em main.py

@@ -982,7 +982,7 @@ class TestGatewayClientForward:
             app_secret="test-app-secret",
         )
 
-        assert client._local_url == "http://127.0.0.1:8080"
+        assert client._local_url == "http://localhost:8080"
 
     def _client(self):
         from backend.services.gateway import GatewayClient
