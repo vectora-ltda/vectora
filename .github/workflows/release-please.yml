@@ -140,6 +140,17 @@ jobs:
         if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
         run: python utils/normalize_changelog_lists.py
 
+      - name: Align release lines in the Release Please PR
+        if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
+        env:
+          TARGET_BRANCH: ${{ github.ref_name }}
+        run: |
+          uv run --project vectora python utils/prepare_release_line_config.py \
+            vectora/CHANGELOG.md \
+            .github/release-lines.json \
+            .release-please-manifest.maintenance.json \
+            "$TARGET_BRANCH"
+
       - name: Prepare current release section for PR body
         if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
         env:
@@ -160,13 +171,13 @@ jobs:
           RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
         shell: bash
         run: |
-          if git diff --quiet -- vectora/CHANGELOG.md; then
-            echo "Changelog markers are already normalized."
+          if git diff --quiet -- vectora/CHANGELOG.md .github/release-lines.json .release-please-manifest.maintenance.json; then
+            echo "Generated release files are already normalized."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add vectora/CHANGELOG.md
-          git commit -m "chore: normalize generated changelog list markers"
+          git add vectora/CHANGELOG.md .github/release-lines.json .release-please-manifest.maintenance.json
+          git commit -m "chore: align release lines for generated release"
           git remote set-url origin "https://x-access-token:${RELEASE_PLEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push origin "HEAD:$RELEASE_BRANCH"
