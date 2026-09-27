@@ -52,7 +52,7 @@ from backend.api.handlers.gateway import router as gateway_router
 from backend.api.handlers.license import router as license_router
 from backend.api.handlers.mcp_marketplace import router as mcp_marketplace_router
 from backend.api.handlers.memory import router as memory_router
-from backend.api.handlers.memory_library import router as memory_library_router
+from backend.api.handlers.memory_buckets import router as memory_buckets_router
 from backend.api.handlers.models import router as models_router
 from backend.api.handlers.oauth import router as oauth_router
 from backend.api.handlers.oidc import router as oidc_router
@@ -74,6 +74,14 @@ from backend.api.handlers.workspaces import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _gateway_local_url() -> str:
+    """Return the configured local URL for gateway-forwarded calls."""
+    host = os.environ.get("VECTORA_GATEWAY_LOCAL_HOST") or "localhost"
+    port = os.environ.get("VECTORA_PORT") or "8080"
+    return f"http://{host}:{port}"
+
 
 # Tempo máximo total para o shutdown — depois disso, `os._exit` em main.py
 # encerra o processo de qualquer jeito. Configurável via env.
@@ -397,6 +405,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             _gateway_client = GatewayClient(
                 gateway_url=_cfg.gateway_url,
                 app_secret=_cfg.vectora_app_secret,
+                local_url=_gateway_local_url(),
             )
             _gateway_client.start()
     except Exception as exc:
@@ -450,6 +459,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             if mq_initialized():
                 mq = await get_mq()
                 await mq.close()
+                logger.info("api/server: message queue fechada")
         except Exception:
             logger.warning("api/server: erro ao fechar message queue", exc_info=True)
 
@@ -466,6 +476,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             from backend.scheduling.nats_sidecar import stop_nats_sidecar
 
             await stop_nats_sidecar()
+            logger.info("api/server: sidecar NATS fechado")
         except Exception:
             logger.warning("api/server: erro ao encerrar sidecar NATS", exc_info=True)
 
@@ -630,7 +641,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
     app.include_router(thread_router)
     app.include_router(share_router)
     app.include_router(memory_router)
-    app.include_router(memory_library_router)
+    app.include_router(memory_buckets_router)
     app.include_router(oauth_router)
     app.include_router(oidc_router)
     app.include_router(gateway_router)

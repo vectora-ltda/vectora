@@ -43,7 +43,7 @@ jobs:
   # ── Company (site + dashboard) ──────────────────────────────────────────
   company:
     name: Company (lint + types + tests)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -71,7 +71,7 @@ jobs:
   # ── Services (Worker Cloudflare único: gateway + updates) ───────────────
   services:
     name: Services (types + tests)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -95,7 +95,7 @@ jobs:
   # ── Docs (Hugo) ───────────────────────────────────────────────────────────
   docs:
     name: Docs (Hugo build)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
@@ -119,7 +119,7 @@ jobs:
   # mesma política já documentada em .env.gha.example.
   deploy:
     name: Deploy produção (Vercel + Cloudflare)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [company, services, docs]
     # !cancelled(): sem uma função de status aqui, o GitHub Actions pula o
     # job INTEIRO se qualquer um dos `needs` falhar — os always() dos passos
@@ -347,13 +347,53 @@ jobs:
           ensure_column skills_catalog verified "INTEGER NOT NULL DEFAULT 0"
           ensure_column skills_catalog downloads_count "INTEGER NOT NULL DEFAULT 0"
           ensure_column skills_catalog updated_at "TEXT"
+          # Bancos criados antes da expansão do snapshot do registry já têm
+          # `mcp_catalog`, mas o ledger do D1 não reaplica o 0001. Complete o
+          # shape final aqui, sem criar uma nova migration numerada.
+          ensure_column mcp_catalog snapshot_id "TEXT"
+          ensure_column mcp_catalog last_seen_at "TEXT"
+          ensure_column mcp_catalog catalog_status "TEXT NOT NULL DEFAULT 'active'"
+          ensure_column mcp_catalog icon_url "TEXT"
+          ensure_column mcp_catalog publisher "TEXT"
+          ensure_column mcp_catalog publisher_url "TEXT"
+          ensure_column mcp_catalog stars_count "INTEGER NOT NULL DEFAULT 0"
+          ensure_column mcp_catalog runtime_hint "TEXT"
+          ensure_column mcp_catalog package_identifier "TEXT"
+          ensure_column mcp_catalog transport "TEXT NOT NULL DEFAULT 'stdio'"
+          ensure_column mcp_catalog server_url "TEXT"
+          ensure_column mcp_catalog catalog_source "TEXT NOT NULL DEFAULT 'curated'"
+          ensure_column mcp_catalog vectora_verified "INTEGER NOT NULL DEFAULT 0"
+          ensure_column mcp_catalog downloads_count "INTEGER NOT NULL DEFAULT 0"
+          ensure_column mcp_catalog updated_at "TEXT"
           ensure_column issue_comments updated_at "TEXT"
           ensure_column issue_comments deleted_at "TEXT"
           ensure_column github_webhook_deliveries attempt_token "TEXT"
           ensure_column github_webhook_deliveries lease_until "TEXT"
           ensure_column gha_bot_review_jobs callback_secret_hash "TEXT"
+          ensure_column gha_bot_review_jobs repository "TEXT"
           pnpm exec wrangler d1 execute vectora-db --remote \
             --command "CREATE UNIQUE INDEX IF NOT EXISTS idx_issues_github_identity ON issues(github_repo, github_number) WHERE github_repo IS NOT NULL AND github_number IS NOT NULL"
+          pnpm exec wrangler d1 execute vectora-db --remote \
+            --command "CREATE INDEX IF NOT EXISTS idx_mcp_catalog_public_rank ON mcp_catalog(catalog_status, stars_count DESC, updated_at DESC)"
+
+          # Verificação de regressão para bancos legados: falhe o job se uma
+          # coluna adicionada acima não estiver disponível após o upgrade.
+          for expected in \
+            "gha_bot_config:self_hosted_enabled" \
+            "mcp_catalog:catalog_status" \
+            "mcp_catalog:stars_count" \
+            "mcp_catalog:server_url" \
+            "skills_catalog:catalog_source" \
+            "rag_packages:status"; do
+            table="${expected%%:*}"
+            column="${expected##*:}"
+            schema=$(pnpm exec wrangler d1 execute vectora-db --remote \
+              --command "PRAGMA table_info(${table})" --json)
+            if ! grep -Eq "\\\"name\\\"[[:space:]]*:[[:space:]]*\\\"${column}\\\"" <<< "$schema"; then
+              echo "D1 legacy upgrade missing ${table}.${column}" >&2
+              exit 1
+            fi
+          done
 
       - name: Deploy services (Worker Cloudflare)
         if: >-

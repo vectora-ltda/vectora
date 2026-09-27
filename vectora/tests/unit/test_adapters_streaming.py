@@ -68,7 +68,10 @@ async def test_thread_event_carries_resolved_workspace_id():
             _empty_run(), thread_id="tid", workspace_id="ws-123"
         )
     ]
-    assert out[0] == {"type": "thread", "thread_id": "tid", "workspace_id": "ws-123"}
+    assert out[0]["type"] == "thread"
+    assert out[0]["thread_id"] == "tid"
+    assert out[0]["workspace_id"] == "ws-123"
+    assert out[0]["run_id"]
 
     out_empty = [
         _parse(s) async for s in stream_engine_events(_empty_run(), thread_id="tid")

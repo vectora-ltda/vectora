@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 import signal
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -22,6 +22,9 @@ class _FakeServer:
         self.should_exit = False
 
     def run(self) -> None:
+        pass
+
+    def install_signal_handlers(self) -> None:
         pass
 
 
@@ -73,6 +76,24 @@ def test_shutdown_calls_icon_stop_when_present() -> None:
         signal.signal(signal.SIGTERM, orig_term)
 
 
+def test_shutdown_handler_is_idempotent_when_console_repeats_signal() -> None:
+    from backend.main import _install_terminal_signals
+
+    server = _FakeServer()
+    icon = MagicMock()
+    icon_ref: list[Any] = [icon]
+    original = signal.getsignal(signal.SIGINT)
+    try:
+        _install_terminal_signals(server, icon_ref)
+        handler = signal.getsignal(signal.SIGINT)
+        assert callable(handler)
+        cast(Any, handler)(signal.SIGINT, None)
+        cast(Any, handler)(signal.SIGINT, None)
+        icon.stop.assert_called_once()
+    finally:
+        signal.signal(signal.SIGINT, original)
+
+
 def test_shutdown_no_error_when_icon_is_none() -> None:
     """Handler não falha quando icon_ref[0] é None (modo servidor puro)."""
     from backend.main import _install_terminal_signals
@@ -121,6 +142,41 @@ def test_shutdown_sighup_handling() -> None:
     finally:
         signal.signal(signal.SIGINT, orig_int)
         signal.signal(signal.SIGTERM, orig_term)
+
+
+def test_shutdown_sigbreak_handling_when_available() -> None:
+    """Windows CTRL+BREAK follows the same cleanup path as CTRL+C."""
+    sigbreak = getattr(signal, "SIGBREAK", None)
+    if sigbreak is None:
+        pytest.skip("SIGBREAK só existe no Windows")
+
+    from backend.main import _install_terminal_signals
+
+    server = _FakeServer()
+    icon_ref: list[Any] = [None]
+    original = signal.getsignal(sigbreak)
+    try:
+        _install_terminal_signals(server, icon_ref)
+        handler = signal.getsignal(sigbreak)
+        assert callable(handler)
+        cast("Any", handler)(sigbreak, None)
+        assert server.should_exit is True
+    finally:
+        signal.signal(sigbreak, original)
+
+
+def test_uvicorn_does_not_replace_process_owner_signal_handler() -> None:
+    """Uvicorn's internal capture must not swallow the backend Ctrl+C path."""
+    from backend.main import _disable_uvicorn_signal_capture
+
+    server = _FakeServer()
+    original = MagicMock()
+    server.install_signal_handlers = original
+
+    _disable_uvicorn_signal_capture(server)
+    server.install_signal_handlers()
+
+    original.assert_not_called()
 
 
 def test_tray_exposes_icon_via_icon_ref() -> None:
@@ -213,3 +269,10 @@ class TestShouldInstallTerminalSignals:
 
         monkeypatch.setattr("sys.stdin.isatty", lambda: False)
         assert _should_install_terminal_signals({}) is False
+
+    def test_web_instala_mesmo_sem_tty(self, monkeypatch):
+        """The web owner must receive Ctrl+C when launched by a VPS runner."""
+        from backend.main import _should_install_terminal_signals
+
+        monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+        assert _should_install_terminal_signals({}, force_web=True) is True

@@ -813,6 +813,44 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
     );
   });
 
+  it("zera os bounds da view ativa quando o container fica sem tamanho", async () => {
+    const bridge = mockBrowserView();
+    mockFetch({ configurations: [] });
+    render(<BrowserTab threadId="desktop-zero-bounds" />);
+    await waitFor(() => expect(bridge.createView).toHaveBeenCalled());
+
+    const urlBar = await screen.findByTestId("browser-url-bar");
+    fireEvent.change(urlBar, { target: { value: "example.com" } });
+    fireEvent.keyDown(urlBar, { key: "Enter" });
+    await waitFor(() =>
+      expect(bridge.navigate).toHaveBeenCalledWith(1, "https://example.com"),
+    );
+
+    const container = screen.getByTestId("browser-webcontentsview-container");
+    vi.spyOn(container, "getBoundingClientRect").mockReturnValue({
+      x: 12,
+      y: 20,
+      width: 0,
+      height: 0,
+      top: 20,
+      right: 12,
+      bottom: 20,
+      left: 12,
+      toJSON: () => ({}),
+    });
+    fireEvent(window, new Event("resize"));
+
+    await waitFor(() => {
+      expect(bridge.setVisible).toHaveBeenCalledWith(1, false);
+      expect(bridge.setBounds).toHaveBeenCalledWith(1, {
+        x: 12,
+        y: 20,
+        width: 0,
+        height: 0,
+      });
+    });
+  });
+
   it("desmontar o painel apenas oculta a view para preservá-la ao reabrir", async () => {
     const bridge = mockBrowserView();
     mockFetch({ configurations: [] });

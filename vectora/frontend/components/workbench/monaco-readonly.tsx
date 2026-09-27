@@ -19,10 +19,12 @@ export default function MonacoReadOnly({
   value,
   path,
   isDark,
+  diffColors = false,
 }: {
   value: string;
   path: string;
   isDark: boolean;
+  diffColors?: boolean;
 }) {
   const monacoFontSize = useSettingsStore((s) => s.monacoFontSize);
   return (
@@ -40,6 +42,33 @@ export default function MonacoReadOnly({
         tabSize: 2,
         wordWrap: "on",
       }}
+      onMount={(editor) => {
+        if (!diffColors) return;
+        const decorations = value.split("\n").flatMap((line, index) => {
+          const className =
+            line.startsWith("+") && !line.startsWith("+++")
+              ? "vectora-diff-added-line"
+              : line.startsWith("-") && !line.startsWith("---")
+                ? "vectora-diff-removed-line"
+                : line.startsWith("@@")
+                  ? "vectora-diff-hunk-line"
+                  : null;
+          if (!className) return [];
+          return [
+            {
+              range: {
+                startLineNumber: index + 1,
+                startColumn: 1,
+                endLineNumber: index + 1,
+                endColumn: 1,
+              },
+              options: { isWholeLine: true, className },
+            },
+          ];
+        });
+        editor.createDecorationsCollection(decorations);
+      }}
+      height="100%"
       loading={
         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
       }

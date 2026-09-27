@@ -38,6 +38,7 @@ export function FileEditor({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const shaRef = useRef<string | null>(null);
+  const requestEpochRef = useRef(0);
 
   const dirty = file?.content !== undefined && value !== file.content;
   const readOnly =
@@ -45,19 +46,21 @@ export function FileEditor({
 
   useEffect(() => {
     if (media) return;
+    const requestEpoch = ++requestEpochRef.current;
     let cancelled = false;
     // Busca o conteúdo do arquivo no backend (rede) ao trocar de path.
     // oxlint-disable-next-line react/set-state-in-effect
     setLoading(true);
     fetchFile(workspaceId, path)
       .then((data) => {
-        if (cancelled) return;
+        if (cancelled || requestEpoch !== requestEpochRef.current) return;
         setFile(data);
         setValue(data?.content ?? "");
         shaRef.current = data?.sha256 ?? null;
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && requestEpoch === requestEpochRef.current)
+          setLoading(false);
       });
     return () => {
       cancelled = true;
@@ -115,7 +118,7 @@ export function FileEditor({
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full w-full min-w-0 flex-col">
       <div className="flex h-7 shrink-0 items-center justify-end border-b border-border/60 bg-muted/30 px-2">
         {/* Sem o nome do arquivo aqui: já aparece na aba/barra de título de
             quem monta este editor (FileWindow, DockedEditor) — repetir vira
@@ -143,7 +146,7 @@ export function FileEditor({
           </button>
         )}
       </div>
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 w-full flex-1">
         <MonacoEditor
           height="100%"
           width="100%"

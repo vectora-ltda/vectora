@@ -82,7 +82,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _should_install_terminal_signals(env: dict[str, str]) -> bool:
+def _should_install_terminal_signals(
+    env: dict[str, str], *, force_web: bool = False
+) -> bool:
     """Decide se o handler de sinal customizado (Ctrl+C/SIGTERM/SIGHUP →
     shutdown gracioso do uvicorn, que aciona o `finally` do lifespan e
     limpa sidecars como o NATS) deve ser instalado.
@@ -98,6 +100,14 @@ def _should_install_terminal_signals(env: dict[str, str]) -> bool:
     (nats-server) órfãos. `VECTORA_SPAWN_ELECTRON=1` só é setado nesse
     segundo caso — é o sinal de "este processo é dono de si mesmo".
     """
+    # ``vectora web`` is the process owner even when launched by a service
+    # manager, CI runner, or detached VPS shell where stdin is not a TTY.
+    # Gating this mode on ``isatty`` leaves SIGINT/SIGTERM at the mercy of the
+    # parent process and can keep the Python host alive after uvicorn shuts
+    # down its application resources.
+    if force_web:
+        return True
+
     desktop = bool(env.get("VECTORA_DESKTOP"))
     owns_itself = bool(env.get("VECTORA_SPAWN_ELECTRON"))
     if desktop and not owns_itself:
@@ -115,8 +125,18 @@ def _should_install_terminal_signals(env: dict[str, str]) -> bool:
 def _install_terminal_signals(server: Any, icon_ref: list[Any]) -> None:
     """Instala handlers de SIGINT/SIGTERM/SIGHUP para shutdown limpo — ver
     `_should_install_terminal_signals` para quando isso é chamado."""
+    shutdown_started = False
 
     def _shutdown(_signum: int, _frame: Any) -> None:
+        nonlocal shutdown_started
+        if shutdown_started:
+            return
+        shutdown_started = True
+        logger.info(
+            "Vectora: sinal recebido (signal=%s, pid=%s) — iniciando shutdown",
+            _signum,
+            os.getpid(),
+        )
         server.should_exit = True
         if icon_ref[0] is not None:
             icon_ref[0].stop()
@@ -125,6 +145,16 @@ def _install_terminal_signals(server: Any, icon_ref: list[Any]) -> None:
     signal.signal(signal.SIGTERM, _shutdown)
     if hasattr(signal, "SIGHUP"):
         signal.signal(signal.SIGHUP, _shutdown)  # type: ignore[attr-defined]
+    if hasattr(signal, "SIGBREAK"):
+        # Windows process groups expose Ctrl+Break as the only targeted
+        # console event. Treat it like Ctrl+C so supervised processes and
+        # process-level shutdown tests exercise the same cleanup path.
+        signal.signal(signal.SIGBREAK, _shutdown)  # type: ignore[attr-defined]
+
+
+def _disable_uvicorn_signal_capture(server: Any) -> None:
+    """Keep the process-owner handlers active while Uvicorn serves."""
+    server.install_signal_handlers = lambda: None
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +220,7 @@ def _build_parser() -> argparse.ArgumentParser:
         if resource == "mcp":
             install_parser.add_argument("identifier")
         else:
-            install_parser.add_argument("source")
+            install_parser.add_argument("identifier")
         install_parser.set_defaults(output="human")
         remove_parser = resource_sub.add_parser(
             "remove", help="remove um item instalado"
@@ -203,17 +233,6 @@ def _build_parser() -> argparse.ArgumentParser:
             )
             validate_parser.add_argument("identifier")
             validate_parser.set_defaults(output="human")
-            publish_parser = resource_sub.add_parser(
-                "publish", help="publica uma skill no catálogo"
-            )
-            publish_parser.add_argument("source")
-            publish_parser.add_argument("name")
-            publish_parser.add_argument("description")
-            publish_parser.add_argument("--category", default=None)
-            publish_parser.add_argument(
-                "--tag", dest="tags", action="append", default=[]
-            )
-            publish_parser.set_defaults(output="human")
         for child in resource_sub.choices.values():
             child.add_argument("--output", choices=("human", "json"), default="human")
 
@@ -644,8 +663,11 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
     # `return` próprio, e sem instalar o handler aqui primeiro ele nunca seria
     # alcançado nesse caminho (o mais comum em dev desktop no Windows).
     icon_ref: list[Any] = [None]
-    if _should_install_terminal_signals(dict(os.environ)):
+    if _should_install_terminal_signals(dict(os.environ), force_web=force_web):
         _install_terminal_signals(server, icon_ref)
+        # Uvicorn installs its own capture handler inside ``serve``. Keep the
+        # process-owner handler above authoritative for console signals.
+        _disable_uvicorn_signal_capture(server)
 
     # Windows + VECTORA_DESKTOP: named pipe em vez de TCP — nenhuma porta TCP é
     # exposta ao SO. O Electron conecta via \\.\pipe\vectora-<pid>, lido de stdout.
@@ -685,6 +707,7 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
             port,
         )
         asyncio.run(server.serve())
+        logger.info("Vectora: server.serve retornou após shutdown")
     else:
         # Sobe o servidor e, quando há display, a bandeja do sistema (Python).
         # Sem display (VPS/Docker) ou sem pystray, degrada para servidor puro.

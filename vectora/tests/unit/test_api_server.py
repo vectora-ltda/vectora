@@ -123,6 +123,20 @@ class TestLifespan:
             "fantasma visíveis por até 1h a cada restart."
         )
 
+    def test_gateway_forwards_to_configured_backend_port(self, monkeypatch):
+        from backend.api.server import _gateway_local_url
+
+        monkeypatch.setenv("VECTORA_PORT", "49152")
+
+        assert _gateway_local_url() == "http://localhost:49152"
+
+        monkeypatch.setenv("VECTORA_GATEWAY_LOCAL_HOST", "backend.internal")
+        assert _gateway_local_url() == "http://backend.internal:49152"
+
+        monkeypatch.delenv("VECTORA_PORT", raising=False)
+        monkeypatch.delenv("VECTORA_GATEWAY_LOCAL_HOST", raising=False)
+        assert _gateway_local_url() == "http://localhost:8080"
+
 
 class TestHealth:
     def test_health_ok(self, client):

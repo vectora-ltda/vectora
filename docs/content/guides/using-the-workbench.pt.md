@@ -37,7 +37,7 @@ Gerencia servidores de desenvolvimento do seu projeto (lê configurações tipo 
 
 Timeline ao vivo de buscas RAG e web em andamento, com os trechos recuperados (pílulas expansíveis, separadas em "base de conhecimento" vs. "resultados web"). Um painel de configurações de RAG deixa ajustar reranker, top_k e provider de embedding.
 
-Essa aba também tem o painel **"O que aprendi sobre você"** — uma visão só-leitura dos fatos e skills duráveis que o [Remember](../agent-automation) já salvou por conta própria, sem você precisar lembrar em qual thread o agente aprendeu algo pela primeira vez. Buckets que você importa de outros usuários também vivem aqui, dentro da **Memory Library**.
+Essa aba também tem o painel **"O que aprendi sobre você"** — uma visão só-leitura dos fatos e skills duráveis que o [Remember](../agent-automation) já salvou por conta própria, sem você precisar lembrar em qual thread o agente aprendeu algo pela primeira vez. Buckets que você importa de outros usuários também vivem aqui, dentro da **Memory Buckets**.
 
 Uma busca no topo da aba consulta fatos, skills e buckets RAG ao mesmo tempo — chips de filtro por tipo restringem o resultado a só um dos três quando você já sabe o que procura.
 

@@ -109,6 +109,7 @@ def test_build_connection_stdio():
         "command": "cmd",
         "args": ["--a"],
         "env_vars": [],
+        "env": {},
     }
 
 
@@ -124,11 +125,15 @@ def test_build_connection_stdio_repassa_env_vars_declaradas():
     assert conn["env_vars"] == ["MEU_TOKEN_DE_SERVICO"]
 
 
-def test_build_connection_sse():
+def test_build_connection_sse(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("backend.workspace.plugins.validate_url", lambda url: url)
     conn = build_connection(McpServer(name="x", transport="sse", url="http://h/sse"))
     assert conn == {"transport": "sse", "url": "http://h/sse"}
 
 
-def test_build_connection_http_maps_to_streamable():
+def test_build_connection_http_maps_to_streamable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("backend.workspace.plugins.validate_url", lambda url: url)
     conn = build_connection(McpServer(name="x", transport="http", url="http://h/mcp"))
     assert conn == {"transport": "streamable_http", "url": "http://h/mcp"}

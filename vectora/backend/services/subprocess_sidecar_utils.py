@@ -11,7 +11,22 @@ import asyncio
 import contextlib
 import logging
 import shutil
+import subprocess  # nosec B404 - only used for CREATE_NEW_PROCESS_GROUP
 import sys
+from typing import Any
+
+
+def sidecar_process_options() -> dict[str, Any]:
+    """Keep console signals on the backend process owner.
+
+    Windows console control events are delivered to every process in the
+    console group. Sidecars use their own group so Ctrl+C reaches the backend
+    first; the lifespan then terminates each child explicitly. POSIX uses a
+    new session for the same isolation.
+    """
+    if sys.platform == "win32":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
 
 
 async def _terminate_windows_tree(

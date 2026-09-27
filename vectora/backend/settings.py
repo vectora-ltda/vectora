@@ -536,6 +536,15 @@ class Settings(BaseSettings):
     mcp_timeout: int = 30
     """MCP request timeout in seconds."""
 
+    git_lock_timeout: float = 15.0
+    """Tempo máximo para aguardar o lock de um repositório Git."""
+
+    git_command_timeout: float = 120.0
+    """Tempo máximo de uma operação Git local após adquirir o lock."""
+
+    git_cli_timeout: float = 30.0
+    """Tempo máximo reservado para integrações externas como o CLI do GitHub."""
+
     # ============================================================================
     # OBSERVABILIDADE NATIVA (TELEMETRY)
     # ============================================================================

@@ -6,8 +6,7 @@
  * POST /mcp/install direto; instalar um com env_vars abre o form de config
  * antes e salva cada var via POST /auth/envs antes de instalar; erro/borda:
  * falha de instalação (status "error") mostra mensagem sem quebrar a lista;
- * conector já instalado mostra botão "Remover"; toggle "avançado" mostra o
- * form manual (PluginsTab).
+ * conector já instalado mostra botão "Remover"; não há entrada manual.
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import {
@@ -17,14 +16,14 @@ import {
   waitFor,
   fireEvent,
   act,
+  within,
 } from "@testing-library/react";
-
-vi.mock("@/components/settings/environment/tabs/plugins-tab", () => ({
-  PluginsTab: () => <div>stub-plugins-tab</div>,
-}));
 
 import { McpSection } from "../library-mcp-section";
 import { useLibraryStore } from "@/lib/stores/library-store";
+import { useWindowsStore } from "@/lib/stores/windows-store";
+import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
+import { useSettingsStore } from "@/lib/stores/settings-store";
 
 afterEach(cleanup);
 
@@ -37,6 +36,12 @@ beforeEach(() => {
     mcpQuery: "",
     mcpError: null,
   });
+  useWindowsStore.setState({
+    canvasDocuments: [],
+    activeCanvasDocumentId: null,
+  });
+  useSettingsStore.setState({ uiMode: "assistant" });
+  useWorkspacesStore.setState({ active_id: "workspace-1" });
 });
 
 const REGISTRY = [
@@ -48,7 +53,7 @@ const REGISTRY = [
     env_vars: [],
     homepage: "https://example.com",
     category: "filesystem",
-    vectora_verified: true,
+    vectora_verified: false,
   },
   {
     id: "brave-search",
@@ -57,8 +62,9 @@ const REGISTRY = [
     install_cmd: "npx -y @modelcontextprotocol/server-brave-search",
     env_vars: ["BRAVE_API_KEY"],
     homepage: "https://example.com",
-    category: "web",
+    category: "community",
     vectora_verified: false,
+    trust_state: "unsigned",
   },
 ];
 
@@ -111,32 +117,83 @@ describe("McpSection", () => {
   });
 
   it("lista os conectores do registry", async () => {
-    render(<McpSection query="" onCountChange={() => {}} />);
+    render(<McpSection query="" />);
     await waitFor(() => {
       expect(screen.getByText("Filesystem")).toBeTruthy();
       expect(screen.getByText("Brave Search")).toBeTruthy();
     });
   });
 
-  it("mostra o estado de catálogo sem elevar curadoria a verificação", async () => {
-    render(<McpSection query="" onCountChange={() => {}} />);
+  it("não exibe badge de comunidade nem verificação para MCPs do catálogo", async () => {
+    render(<McpSection query="" />);
     await waitFor(() => {
       expect(screen.getByText("Filesystem")).toBeTruthy();
     });
-    const badges = screen.getAllByText("community_listed");
-    expect(badges).toHaveLength(1);
+    expect(screen.queryByText("Community listed")).toBeNull();
+    expect(screen.queryByText("Verified")).toBeNull();
+    expect(screen.queryByText("community", { exact: true })).toBeNull();
   });
 
-  it("reporta a contagem filtrada via onCountChange", async () => {
-    const onCountChange = vi.fn();
-    render(<McpSection query="" onCountChange={onCountChange} />);
-    await waitFor(() => {
-      expect(onCountChange).toHaveBeenCalledWith(2);
-    });
+  it("abre o MCP no canvas compartilhado sem forçar o modo IDE", async () => {
+    render(<McpSection query="" threadId="thread-1" />);
+    await waitFor(() => expect(screen.getByText("Filesystem")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("Filesystem").closest('[role="button"]')!);
+
+    const state = useWindowsStore.getState();
+    expect(state.activeCanvasDocumentId).toBe(
+      "mcp:workspace-1:thread-1:filesystem",
+    );
+    expect(state.canvasDocuments).toContainEqual(
+      expect.objectContaining({
+        id: "mcp:workspace-1:thread-1:filesystem",
+        kind: "mcp-preview",
+        workspaceId: "workspace-1",
+        threadId: "thread-1",
+        mcp: expect.objectContaining({ id: "filesystem" }),
+      }),
+    );
+  });
+
+  it("mantém previews do mesmo MCP separados entre workspaces", async () => {
+    const { rerender } = render(<McpSection query="" threadId="thread-1" />);
+    await waitFor(() => expect(screen.getByText("Filesystem")).toBeTruthy());
+    fireEvent.click(screen.getByText("Filesystem").closest('[role="button"]')!);
+
+    useWorkspacesStore.setState({ active_id: "workspace-2" });
+    rerender(<McpSection query="" threadId="thread-1" />);
+    fireEvent.click(screen.getByText("Filesystem").closest('[role="button"]')!);
+
+    expect(
+      useWindowsStore.getState().canvasDocuments.map((document) => document.id),
+    ).toEqual([
+      "mcp:workspace-1:thread-1:filesystem",
+      "mcp:workspace-2:thread-1:filesystem",
+    ]);
+  });
+
+  it("mantém visível o preview aberto sem workspace ativo", async () => {
+    useWorkspacesStore.setState({ active_id: null });
+    render(<McpSection query="" threadId="thread-1" />);
+    await waitFor(() => expect(screen.getByText("Filesystem")).toBeTruthy());
+
+    fireEvent.click(screen.getByText("Filesystem").closest('[role="button"]')!);
+
+    const state = useWindowsStore.getState();
+    expect(state.activeCanvasDocumentId).toBe(
+      "mcp:no-workspace:thread-1:filesystem",
+    );
+    expect(state.canvasDocuments).toContainEqual(
+      expect.objectContaining({
+        id: "mcp:no-workspace:thread-1:filesystem",
+        workspaceId: null,
+        threadId: "thread-1",
+      }),
+    );
   });
 
   it("instalar um conector sem env_vars chama POST /mcp/install direto", async () => {
-    render(<McpSection query="" onCountChange={() => {}} />);
+    render(<McpSection query="" />);
     await waitFor(() => expect(screen.getByText("Filesystem")).toBeTruthy());
 
     const filesystemCard = screen
@@ -148,6 +205,9 @@ describe("McpSection", () => {
       )!,
     );
 
+    expect(useWindowsStore.getState().canvasDocuments).toEqual([]);
+    expect(useSettingsStore.getState().uiMode).toBe("assistant");
+
     await waitFor(() => {
       const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls;
       expect(calls.some((c) => c[0] === "/mcp/install")).toBe(true);
@@ -155,7 +215,7 @@ describe("McpSection", () => {
   });
 
   it("instalar um conector com env_vars abre o form de config antes de instalar", async () => {
-    render(<McpSection query="" onCountChange={() => {}} />);
+    render(<McpSection query="" />);
     await waitFor(() => expect(screen.getByText("Brave Search")).toBeTruthy());
 
     const braveCard = screen
@@ -179,9 +239,36 @@ describe("McpSection", () => {
     ).toBe(false);
   });
 
+  it("não persiste env vars quando a confirmação de MCP não verificado é recusada", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<McpSection query="" />);
+    await waitFor(() => expect(screen.getByText("Brave Search")).toBeTruthy());
+
+    const braveCard = screen
+      .getByText("Brave Search")
+      .closest("div.rounded-lg")!;
+    fireEvent.click(
+      Array.from(braveCard.querySelectorAll("button")).find((b) =>
+        b.textContent?.includes("Install"),
+      )!,
+    );
+
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(dialog.querySelector("input")!, {
+      target: { value: "secret" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Install" }));
+
+    await waitFor(() => expect(confirm).toHaveBeenCalledOnce());
+    const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls.some((c) => c[0] === "/auth/envs")).toBe(false);
+    expect(calls.some((c) => c[0] === "/mcp/install")).toBe(false);
+    confirm.mockRestore();
+  });
+
   it("erro/borda: instalar com status 'error' mostra mensagem sem quebrar a lista", async () => {
     mockFetch({ installStatus: "error" });
-    render(<McpSection query="" onCountChange={() => {}} />);
+    render(<McpSection query="" />);
     await waitFor(() => expect(screen.getByText("Filesystem")).toBeTruthy());
 
     const filesystemCard = screen
@@ -202,7 +289,7 @@ describe("McpSection", () => {
 
   it("conector já instalado mostra botão de remover", async () => {
     mockFetch({ installedNames: ["filesystem"] });
-    render(<McpSection query="" onCountChange={() => {}} />);
+    render(<McpSection query="" />);
     await waitFor(() => {
       const filesystemCard = screen
         .getByText("Filesystem")
@@ -232,12 +319,10 @@ describe("McpSection", () => {
     });
     global.fetch = fetchMock as typeof fetch;
 
-    const { rerender } = render(
-      <McpSection query="" onCountChange={() => {}} />,
-    );
+    const { rerender } = render(<McpSection query="" />);
     await vi.waitFor(() => expect(screen.getByText("Filesystem")).toBeTruthy());
 
-    rerender(<McpSection query="brave" onCountChange={() => {}} />);
+    rerender(<McpSection query="brave" />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(350);
     });
@@ -257,7 +342,7 @@ describe("McpSection", () => {
       }
       return { ok: true, json: async () => ({ servers: [] }) } as Response;
     });
-    rerender(<McpSection query="brave2" onCountChange={() => {}} />);
+    rerender(<McpSection query="brave2" />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(350);
     });
@@ -268,14 +353,5 @@ describe("McpSection", () => {
     });
 
     vi.useRealTimers();
-  });
-
-  it("toggle 'avançado' mostra o form manual (PluginsTab)", async () => {
-    render(<McpSection query="" onCountChange={() => {}} />);
-    await waitFor(() => expect(screen.getByText("Filesystem")).toBeTruthy());
-
-    expect(screen.queryByText("stub-plugins-tab")).toBeNull();
-    fireEvent.click(screen.getByText(/add mcp manually/i));
-    expect(screen.getByText("stub-plugins-tab")).toBeTruthy();
   });
 });

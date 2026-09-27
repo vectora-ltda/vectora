@@ -14,12 +14,15 @@ Dependência: gitpython >= 3.1
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import logging
 import os
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
+
+from pydantic import BaseModel
 
 # GitPython roda Git.refresh() em `import git` e levanta ImportError se não
 # achar o executável git no PATH — precisa disso antes do import abaixo.
@@ -29,6 +32,7 @@ import git
 
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
+from backend.vtypes.git import GitDiffSnapshot, GitLogSnapshot, GitStatusSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +93,7 @@ def _open_repo(workspace_id: str | None, ctx: ToolContext) -> Any:
         return None, json.dumps({"status": "error", "message": str(exc)})
 
 
-def _safe_call(fn: Callable[[], dict]) -> dict:
+def _safe_call(fn: Callable[[], object]) -> dict:
     """Executa uma operação git e nunca deixa exceção escapar pra tool.
 
     ``_open_repo`` já blinda a abertura do repositório, mas as operações git
@@ -99,7 +103,10 @@ def _safe_call(fn: Callable[[], dict]) -> dict:
     git ausente do sistema, caso comum numa máquina limpa).
     """
     try:
-        return fn()
+        value = fn()
+        if isinstance(value, BaseModel):
+            return value.model_dump(mode="json")
+        return cast("dict[str, object]", value)
     except git.GitCommandNotFound:
         return {
             "status": "git_not_found",
@@ -115,88 +122,27 @@ def _safe_call(fn: Callable[[], dict]) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _git_status_impl(repo: git.Repo) -> dict:
+def _git_status_impl(repo: git.Repo) -> GitStatusSnapshot:
     """Retorna o estado de trabalho do repositório."""
-    try:
-        branch = repo.active_branch.name
-    except TypeError:
-        branch = (
-            str(repo.head.commit.hexsha[:7])
-            if not repo.head.is_detached
-            else "HEAD detached"
-        )
+    from backend.services.git import status_snapshot
 
-    untracked = repo.untracked_files
-    modified = [item.a_path for item in repo.index.diff(None)]
-    # Repo sem nenhum commit (unborn HEAD) não tem "HEAD" resolvível —
-    # `index.diff("HEAD")` estoura `gitdb.exc.BadName`. Nesse caso tudo que
-    # está no index é "staged" para o primeiro commit (diff contra a árvore
-    # vazia); usa as entries do index diretamente.
-    if repo.head.is_valid():
-        staged = [item.a_path for item in repo.index.diff("HEAD")]
-    else:
-        staged = [path for path, _stage in repo.index.entries]
-
-    # ahead/behind quando há remote tracking
-    ahead = behind = 0
-    try:
-        tracking = repo.active_branch.tracking_branch()
-        if tracking:
-            commits = list(repo.iter_commits(f"{tracking.name}..HEAD"))
-            ahead = len(commits)
-            commits_behind = list(repo.iter_commits(f"HEAD..{tracking.name}"))
-            behind = len(commits_behind)
-    except Exception:
-        pass
-
-    clean = not untracked and not modified and not staged
-    return {
-        "status": "ok",
-        "branch": branch,
-        "clean": clean,
-        "untracked": list(untracked),
-        "modified": modified,
-        "staged": staged,
-        "ahead": ahead,
-        "behind": behind,
-    }
+    return status_snapshot(repo)
 
 
-def _git_log_impl(repo: git.Repo, n: int = 10, branch: str | None = None) -> dict:
+def _git_log_impl(
+    repo: git.Repo, n: int = 10, branch: str | None = None
+) -> GitLogSnapshot:
     """Retorna histórico de commits."""
-    try:
-        ref = branch or repo.active_branch.name
-    except TypeError:
-        ref = "HEAD"
+    from backend.services.git import log_snapshot
 
-    try:
-        commits = list(repo.iter_commits(ref, max_count=n))
-    except git.GitCommandError:
-        # repo vazio ou branch inválida
-        return {"status": "ok", "commits": [], "branch": ref}
-
-    return {
-        "status": "ok",
-        "branch": ref,
-        "commits": [
-            {
-                "hash": c.hexsha[:7],
-                "author": str(c.author),
-                "date": c.authored_datetime.isoformat(),
-                "message": c.message.strip().splitlines()[0],
-            }
-            for c in commits
-        ],
-    }
+    return log_snapshot(repo, n=n, branch=branch)
 
 
-def _git_diff_impl(repo: git.Repo, ref: str | None = None) -> dict:
+def _git_diff_impl(repo: git.Repo, ref: str | None = None) -> GitDiffSnapshot:
     """Retorna diff do working tree (ou em relação a ref)."""
-    try:
-        diff_text = repo.git.diff(ref) if ref else repo.git.diff()
-        return {"status": "ok", "diff": diff_text}
-    except git.GitCommandError as exc:
-        return {"status": "error", "message": str(exc)}
+    from backend.services.git import diff_snapshot
+
+    return diff_snapshot(repo, ref=ref)
 
 
 def _git_branch_impl(
@@ -262,6 +208,8 @@ def _git_commit_impl(
     all: bool = False,  # noqa: A002
     body: str | None = None,
     amend: bool = False,
+    signoff: bool = False,
+    bypass: bool = False,
 ) -> dict:
     """Cria um commit (ou emenda o último, se `amend=True`).
 
@@ -273,11 +221,25 @@ def _git_commit_impl(
               `title\n\nbody`.
         amend: Se True, substitui o último commit em vez de criar um novo —
                falha com mensagem clara se não houver commit anterior.
+        bypass: Se True, adiciona `--no-verify` ao caminho de amend.
     """
     if all:
         repo.git.add("-u")
 
     full_message = _full_message(message, body)
+    if signoff:
+        try:
+            reader = repo.config_reader()
+            name = reader.get_value("user", "name")
+            email = reader.get_value("user", "email")
+            trailer = f"Signed-off-by: {name} <{email}>"
+            if trailer not in full_message:
+                full_message = f"{full_message}\n\n{trailer}"
+        except Exception:
+            return {
+                "status": "error",
+                "message": "Não foi possível obter a identidade Git para assinar o commit.",
+            }
 
     if amend:
         try:
@@ -288,7 +250,10 @@ def _git_commit_impl(
                 "message": "Não há commit anterior para emendar (repo vazio).",
             }
         try:
-            repo.git.commit("--amend", "-m", full_message)
+            amend_args = ["--amend"]
+            if bypass:
+                amend_args.append("--no-verify")
+            repo.git.commit(*amend_args, "-m", full_message)
             commit = repo.head.commit
             return {
                 "status": "ok",
@@ -1293,7 +1258,25 @@ async def git_check_hooks(ctx: ToolContext, workspace_id: str | None = None) -> 
     repo, err = _open_repo(workspace_id, ctx)
     if err:
         return err
-    return json.dumps(_safe_call(lambda: _run_pre_commit_hooks(repo)))
+    try:
+        result = await asyncio.to_thread(_run_pre_commit_hooks, repo)
+        logger.info(
+            "git_check_hooks completed",
+            extra={
+                "tool": "git_check_hooks",
+                "workspace_id": workspace_id,
+                "passed": result.get("passed", False),
+            },
+        )
+        return json.dumps(result)
+    except Exception as exc:
+        logger.exception(
+            "git_check_hooks failed",
+            extra={"tool": "git_check_hooks", "workspace_id": workspace_id},
+        )
+        return json.dumps(
+            {"passed": False, "output": f"falha inesperada ao executar hooks: {exc}"}
+        )
 
 
 @vtool(

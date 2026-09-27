@@ -77,6 +77,25 @@ import { startUpdateDownload as startUpdateDownloadAfterBackup } from "./updater
 
 const ELECTRON_RESTART_EXIT_CODE = 42;
 
+/**
+ * Reinicia o processo Electron sem duplicar a instância supervisionada.
+ *
+ * Quando o backend Python iniciou o Electron como sidecar, ele é o
+ * supervisor do ciclo de vida. Nesse modo, `app.relaunch()` criaria uma
+ * segunda instância antes de o watcher do backend iniciar a substituta; a
+ * nova instância poderia tentar criar a janela sem a conexão IPC pronta.
+ * Apenas o código de saída sinaliza o watcher nesse caso. Em produção,
+ * onde o Electron possui o backend, a relaunch nativa continua necessária.
+ */
+function requestElectronRestart(): void {
+  if (process.env.VECTORA_EXTERNAL_BACKEND === "1") {
+    app.exit(ELECTRON_RESTART_EXIT_CODE);
+    return;
+  }
+  app.relaunch();
+  app.exit(ELECTRON_RESTART_EXIT_CODE);
+}
+
 interface UpdateStatus {
   state:
     | "checking"
@@ -515,8 +534,7 @@ async function restartBackend(): Promise<void> {
     }
   } catch (err) {
     if (await rollbackPendingUpdate()) {
-      app.relaunch();
-      app.exit(ELECTRON_RESTART_EXIT_CODE);
+      requestElectronRestart();
       return;
     }
     dialog.showErrorBox(
@@ -694,8 +712,7 @@ function refreshTrayMenu(): void {
     {
       label: "Reiniciar Vectora",
       click: () => {
-        app.relaunch();
-        app.exit(ELECTRON_RESTART_EXIT_CODE);
+        requestElectronRestart();
       },
     },
     ...(updateReady
@@ -1115,8 +1132,7 @@ app.whenReady().then(async () => {
     }
   } catch (err) {
     if (await rollbackPendingUpdate()) {
-      app.relaunch();
-      app.exit(ELECTRON_RESTART_EXIT_CODE);
+      requestElectronRestart();
       return;
     }
     dialog.showErrorBox(

@@ -40,6 +40,9 @@ async def _gh_run(
     - Erro de processo: {"status": "error", "message": "<stderr>", "code": <int>}
     - gh não encontrado: {"status": "error", "message": "gh not found in PATH"}
     """
+    from backend.settings import get_settings
+
+    timeout = get_settings().git_cli_timeout
     cmd = ["gh", *args]
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -60,12 +63,15 @@ async def _gh_run(
     try:
         stdout_b, stderr_b = await asyncio.wait_for(
             proc.communicate(input_data.encode() if input_data is not None else None),
-            timeout=30,
+            timeout=timeout,
         )
     except TimeoutError:
         proc.kill()
         await proc.wait()
-        return {"status": "error", "message": "gh command timed out after 30s"}
+        return {
+            "status": "error",
+            "message": f"gh command timed out after {timeout:g}s",
+        }
     except Exception as exc:
         return {"status": "error", "message": str(exc)}
 

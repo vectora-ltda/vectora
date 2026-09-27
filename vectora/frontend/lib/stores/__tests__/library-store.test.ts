@@ -14,11 +14,23 @@ function resetStore() {
     mcpFetchedAt: null,
     mcpQuery: "",
     mcpError: null,
+    mcpStatus: {
+      source: "mcp",
+      status: "never",
+      last_synced_at: null,
+      error: null,
+    },
     skillsItems: [],
     skillsLoading: false,
     skillsFetchedAt: null,
     skillsQuery: "",
     skillsError: null,
+    skillsStatus: {
+      source: "skills",
+      status: "never",
+      last_synced_at: null,
+      error: null,
+    },
     memoryItems: [],
     memoryLoading: false,
     memoryFetchedAt: null,
@@ -36,23 +48,51 @@ describe("library-store — MCP", () => {
   it("ensureMcpLoaded busca registry+instalados na primeira chamada", async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (String(url).includes("/mcp/registry")) {
+        if (String(url).includes("/status")) {
+          return {
+            ok: true,
+            json: async () => ({
+              source: "mcp",
+              status: "ready",
+              last_synced_at: "2026-09-23T00:00:00Z",
+              error: null,
+            }),
+          } as Response;
+        }
         return {
           ok: true,
           json: async () => [{ id: "a", name: "A" } as never],
         } as Response;
       }
+      if (String(url) === "/plugins") {
+        return {
+          ok: true,
+          json: async () => ({ servers: [{ name: "a" }] }),
+        } as Response;
+      }
       return {
         ok: true,
-        json: async () => ({ servers: [{ name: "a" }] }),
+        json: async () => [],
       } as Response;
     });
     vi.stubGlobal("fetch", fetchMock);
 
     await useLibraryStore.getState().ensureMcpLoaded();
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/mcp/registry",
+      "/plugins",
+      "/mcp/registry/status",
+    ]);
     expect(useLibraryStore.getState().mcpItems).toHaveLength(1);
     expect(useLibraryStore.getState().mcpInstalledIds.has("a")).toBe(true);
+    expect(useLibraryStore.getState().mcpStatus).toEqual({
+      source: "mcp",
+      status: "ready",
+      last_synced_at: "2026-09-23T00:00:00Z",
+      error: null,
+    });
   });
 
   it("dentro do TTL, chamada repetida não refaz fetch (fix do bug de refetch ao reabrir)", async () => {
@@ -141,17 +181,69 @@ describe("library-store — MCP", () => {
 
 describe("library-store — Skills e Memory", () => {
   it("ensureSkillsLoaded popula skillsItems e não refetch dentro do TTL", async () => {
-    const fetchMock = vi.fn(async () => ({
-      ok: true,
-      json: async () => ({ entries: [{ id: "s1", name: "Skill" }] }),
-    })) as unknown as typeof fetch;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === "/skills/catalog/status") {
+        return {
+          ok: true,
+          json: async () => ({
+            source: "skills",
+            status: "ready",
+            last_synced_at: "2026-09-23T00:00:00Z",
+            error: null,
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({ entries: [{ id: "s1", name: "Skill" }] }),
+      } as Response;
+    }) as unknown as typeof fetch;
     vi.stubGlobal("fetch", fetchMock);
 
     await useLibraryStore.getState().ensureSkillsLoaded();
     await useLibraryStore.getState().ensureSkillsLoaded();
 
     expect(useLibraryStore.getState().skillsItems).toHaveLength(1);
-    expect((fetchMock as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+    expect((fetchMock as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2);
+    expect(
+      (fetchMock as ReturnType<typeof vi.fn>).mock.calls.map(([url]) => url),
+    ).toEqual(["/skills/catalog", "/skills/catalog/status"]);
+    expect(useLibraryStore.getState().skillsStatus).toEqual({
+      source: "skills",
+      status: "ready",
+      last_synced_at: "2026-09-23T00:00:00Z",
+      error: null,
+    });
+  });
+
+  it("remove skills autorais legadas mesmo quando o registry remoto ainda as envia", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          entries: [
+            {
+              id: "vectora-code-review",
+              name: "Vectora Code Review",
+              package_name: "@vectora/code-review",
+            },
+            {
+              id: "vectora-utilities",
+              name: "Vectora Utilities",
+              catalog_source: "local",
+            },
+            { id: "community/pdf", name: "PDF" },
+          ],
+        }),
+      })),
+    );
+
+    await useLibraryStore.getState().ensureSkillsLoaded();
+
+    expect(
+      useLibraryStore.getState().skillsItems.map((item) => item.name),
+    ).toEqual(["Vectora Utilities", "PDF"]);
   });
 
   it("erro/borda: resposta não-ok em skills não lança, mantém itens antigos e seta skillsError", async () => {

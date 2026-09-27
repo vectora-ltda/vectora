@@ -16,6 +16,7 @@ import {
   Square,
 } from "lucide-react";
 import { ToolCallRenderer } from "./tool-call-renderer";
+import { EditedFilesCard } from "./edited-files-card";
 import { AgentStatusLine } from "./agent-status-line";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -42,7 +43,7 @@ import { AnimatedThinking } from "./animations/animated-thinking";
 import { HITLPanel } from "./features/hitl-panel";
 import { StructuredQuestionPanel } from "./features/structured-question-panel";
 import type { RagCitation } from "./features/rag-citation-popover";
-import type { Message } from "@/lib/types";
+import type { EditedFile, Message } from "@/lib/types";
 import { stripMarkdownEnvelope } from "@/lib/utils/string";
 import { estimateCost, formatCost } from "@/lib/config/model-prices";
 import { useState, useMemo, useEffect, useCallback, memo, useRef } from "react";
@@ -372,6 +373,7 @@ interface MessageItemProps {
   modelId?: string;
   /** IDE sidebar: oculta avatar e reduz gap entre mensagens. */
   compact?: boolean;
+  onOpenEditedFile?: (file: EditedFile) => void;
 }
 
 export const MessageItem = memo(
@@ -398,6 +400,7 @@ export const MessageItem = memo(
     humanMessageIndex,
     modelId,
     compact = false,
+    onOpenEditedFile,
   }: MessageItemProps) {
     const uiLang = useSettingsStore((s) => s.language);
     const { resolvedTheme } = useTheme();
@@ -1417,6 +1420,12 @@ export const MessageItem = memo(
                     pending={message.hitlPending}
                     threadId={threadId}
                     onDecision={onHitlDecision}
+                  />
+                )}
+                {message.editedFiles && message.editedFiles.length > 0 && (
+                  <EditedFilesCard
+                    files={message.editedFiles}
+                    onOpenFile={(file) => onOpenEditedFile?.(file)}
                   />
                 )}
                 {message.structuredQuestionPending && (
