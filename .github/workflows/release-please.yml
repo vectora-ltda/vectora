@@ -136,6 +136,13 @@ jobs:
           token: ${{ github.token }}
           persist-credentials: false
 
+      - uses: ./.github/actions/setup-uv
+        if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
+        with:
+          python-version: "3.13"
+          all-extras: "false"
+          working-directory: vectora
+
       - name: Normalize generated changelog list markers
         if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
         run: python utils/normalize_changelog_lists.py
