@@ -369,7 +369,7 @@ function RootComponent() {
           porcentagem contra um ancestral só com min-h-screen (altura
           indefinida), e o overflow acaba subindo pro documento inteiro,
           arrastando a TitleBar (que não é fixed) junto no scroll. */}
-      <div className="flex-1 min-h-0 overflow-hidden">
+      <div className="flex w-full flex-1 min-h-0 overflow-hidden">
         <Outlet />
       </div>
       <Toaster />

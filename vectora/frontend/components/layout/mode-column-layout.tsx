@@ -42,7 +42,7 @@ export function ModeColumnLayout({
       centerHeader={header}
       left={left}
       center={
-        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        <div className="flex w-full min-h-0 min-w-0 flex-1 overflow-hidden">
           {center}
         </div>
       }

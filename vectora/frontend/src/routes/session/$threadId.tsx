@@ -1009,14 +1009,14 @@ function SessionPage() {
 
   return (
     <div
-      className="flex flex-col h-full overflow-hidden bg-background"
+      className="flex h-full w-full flex-col overflow-hidden bg-background"
       data-mode-left={modeComposition.left}
       data-mode-center={modeComposition.center}
       data-mode-right={modeComposition.right ?? "hidden"}
     >
       <LicenseBanner fullWidth onBlockingChange={setInputLocked} />
 
-      <div className="relative flex flex-1 min-h-0 overflow-hidden">
+      <div className="relative flex w-full flex-1 min-h-0 overflow-hidden">
         {uiMode !== "ide" && (
           <Sheet
             open={isMobileSidebarOpen}
@@ -1031,7 +1031,7 @@ function SessionPage() {
           </Sheet>
         )}
 
-        <div className="flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden">
+        <div className="flex w-full flex-1 flex-col min-w-0 min-h-0 overflow-hidden">
           {/* `headerEl` é montado uma única vez e entregue ao slot físico
               central de ThreeColumnShell. Cada modo troca apenas os slots de
               conteúdo ao redor dele; o Header nunca entra na animação das
@@ -1047,7 +1047,7 @@ function SessionPage() {
               initial={reducedMotion ? false : { opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={reducedMotion ? MOTION_INSTANT : PANEL_TRANSITION}
-              className="flex flex-1 min-h-0 min-w-0 overflow-hidden"
+              className="flex w-full flex-1 min-h-0 min-w-0 overflow-hidden"
             >
               <ThreeColumnShell
                 centerHeader={headerEl}
@@ -1114,7 +1114,7 @@ function SessionPage() {
               initial={reducedMotion ? false : { opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={reducedMotion ? MOTION_INSTANT : PANEL_TRANSITION}
-              className="flex flex-col flex-1 min-h-0 overflow-hidden"
+              className="flex w-full flex-1 flex-col min-h-0 overflow-hidden"
             >
               <IdeModeLayout
                 workbenchOpen={workbenchOpen}
@@ -1254,7 +1254,7 @@ function SessionPage() {
               initial={reducedMotion ? false : { opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={reducedMotion ? MOTION_INSTANT : PANEL_TRANSITION}
-              className="flex flex-1 min-h-0 overflow-hidden"
+              className="flex w-full flex-1 min-h-0 overflow-hidden"
             >
               <ThreeColumnShell
                 centerHeader={headerEl}
