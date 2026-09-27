@@ -108,6 +108,7 @@ export function CommitDetails({
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [filesWidth, setFilesWidth] = useState(200);
   const hasDescription = Boolean(commit.body?.trim());
+  const headerMaxHeight = estimateCommitHeaderHeight(commit.body);
   const [headerHeight, setHeaderHeight] = useState(() =>
     estimateCommitHeaderHeight(commit.body),
   );
@@ -140,7 +141,7 @@ export function CommitDetails({
       } else {
         setHeaderHeight(
           Math.min(
-            COMMIT_HEADER_MAX_HEIGHT,
+            headerMaxHeight,
             Math.max(
               COMMIT_HEADER_MIN_HEIGHT,
               resize.value + event.clientY - resize.start,
@@ -157,7 +158,7 @@ export function CommitDetails({
       window.removeEventListener("pointerup", handlePointerUp);
       stopResize();
     };
-  }, [stopResize]);
+  }, [headerMaxHeight, stopResize]);
 
   const beginResize = useCallback(
     (kind: "files" | "header", event: ReactPointerEvent<HTMLDivElement>) => {
@@ -181,13 +182,13 @@ export function CommitDetails({
       } else {
         setHeaderHeight((value) =>
           Math.min(
-            COMMIT_HEADER_MAX_HEIGHT,
+            headerMaxHeight,
             Math.max(COMMIT_HEADER_MIN_HEIGHT, value + delta),
           ),
         );
       }
     },
-    [],
+    [headerMaxHeight],
   );
 
   const handleResizeKeyDown = useCallback(
@@ -214,7 +215,7 @@ export function CommitDetails({
             ? {
                 height: headerHeight,
                 minHeight: COMMIT_HEADER_MIN_HEIGHT,
-                maxHeight: COMMIT_HEADER_MAX_HEIGHT,
+                maxHeight: headerMaxHeight,
               }
             : undefined
         }
@@ -249,7 +250,7 @@ export function CommitDetails({
           role="separator"
           aria-orientation="horizontal"
           aria-valuemin={COMMIT_HEADER_MIN_HEIGHT}
-          aria-valuemax={COMMIT_HEADER_MAX_HEIGHT}
+          aria-valuemax={headerMaxHeight}
           aria-valuenow={headerHeight}
           tabIndex={0}
           onPointerDown={(event) => beginResize("header", event)}

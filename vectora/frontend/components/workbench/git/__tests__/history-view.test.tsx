@@ -54,6 +54,9 @@ describe("CommitDetails — altura do cabeçalho", () => {
     expect(initialHeight).toBeGreaterThan(96);
     expect(separator).toHaveAttribute("aria-valuenow", String(initialHeight));
 
+    fireEvent.keyDown(separator!, { key: "ArrowDown" });
+    expect(Number.parseInt(header.style.height, 10)).toBe(initialHeight);
+
     fireEvent.keyDown(separator!, { key: "ArrowUp" });
 
     expect(Number.parseInt(header.style.height, 10)).toBeLessThan(
