@@ -3,7 +3,8 @@ name: Release Please
 # Cada linha de release é calculada a partir do próprio branch. O alvo
 # explícito mantém o manifest e o changelog no histórico correto; mesclar a PR
 # criada pelo Release Please continua sendo a decisão que cria a tag e inicia
-# a entrega daquela linha.
+# a entrega daquela linha. O corpo editado preserva os marcadores padrão para
+# que o action reconheça releases já mesclados em execuções futuras.
 
 on:
   push:
