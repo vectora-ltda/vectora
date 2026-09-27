@@ -50,3 +50,21 @@ def test_drops_changelog_document_header() -> None:
 
     assert body.startswith("## [0.2.0]")
     assert "# Changelog" not in body
+
+
+def test_strips_process_metadata_from_release_entries() -> None:
+    notes = """## [0.2.0]
+
+### Features
+
+* add board drawer (Fase 7 - drawer) (abc1234)
+* add board switcher (Sprint 4) (def5678)
+* add native client (CodeRabbit review) (ghi9012)
+"""
+
+    body = prepare_body(notes)
+
+    assert "Fase" not in body
+    assert "Sprint" not in body
+    assert "CodeRabbit" not in body
+    assert "add board drawer (abc1234)" in body
