@@ -80,10 +80,10 @@ export function ThreeColumnShell({
     : "hidden";
   return (
     <div
-      className={`relative flex flex-1 min-h-0 min-w-0 overflow-hidden ${className ?? ""}`}
+      className={`relative flex w-full flex-1 min-h-0 min-w-0 overflow-hidden ${className ?? ""}`}
     >
       <div
-        className={`flex flex-1 min-h-0 min-w-0 overflow-hidden pt-0 ${direction === "rtl" ? "flex-row-reverse" : ""}`}
+        className={`flex w-full flex-1 min-h-0 min-w-0 overflow-hidden pt-0 ${direction === "rtl" ? "flex-row-reverse" : ""}`}
       >
         <SideColumn
           side={direction === "rtl" ? "right" : "left"}

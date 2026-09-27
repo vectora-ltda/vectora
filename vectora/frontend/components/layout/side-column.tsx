@@ -75,7 +75,7 @@ export function SideColumn({
       transition={transition}
       aria-label={column.label}
       data-column-visibility={visibility}
-      className={`flex h-full shrink-0 min-h-0 min-w-0 overflow-hidden ${collapsed ? "bg-sidebar" : ""} ${column.label === "Chat" ? (collapsed ? "min-w-12" : "min-w-60") : ""}`}
+      className={`flex h-full shrink-0 min-h-0 min-w-0 overflow-hidden ${collapsed ? "bg-sidebar" : ""}`}
       style={
         collapsed
           ? { width }
