@@ -139,7 +139,7 @@ def test_release_please_separa_bump_de_desenvolvimento_e_manutencao() -> None:
 
     assert development["bump-minor-pre-major"] is True
     assert development["bump-patch-for-minor-pre-major"] is False
-    assert "release-as" not in development
+    assert development["release-as"] == "0.2.0"
     assert maintenance["bump-minor-pre-major"] is True
     assert maintenance["bump-patch-for-minor-pre-major"] is True
 
@@ -156,17 +156,12 @@ def test_active_lines_do_not_propose_same_tag_for_fixes() -> None:
             encoding="utf-8"
         )
     )
-    development_manifest = json.loads(
-        (_MONOREPO_ROOT / ".release-please-manifest.development.json").read_text(
-            encoding="utf-8"
-        )
-    )
     maintenance_config = json.loads(
         (_MONOREPO_ROOT / "release-please-config.maintenance.json").read_text(
             encoding="utf-8"
         )
     )
-    development_version = development_manifest["."]
+    development_version = development_config["release-as"]
     maintenance_major, maintenance_minor, maintenance_patch = map(
         int, maintenance_manifest["."].split(".")
     )

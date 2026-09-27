@@ -48,8 +48,5 @@ def test_rejects_notes_without_a_release_heading() -> None:
 def test_drops_changelog_document_header() -> None:
     body = prepare_body("# Changelog\n\n## [0.2.0]\n\n### Features\n\n* current\n")
 
-    assert body.startswith(":robot: I have created a release")
-    assert "\n---\n" in body
-    assert "## [0.2.0]" in body
+    assert body.startswith("## [0.2.0]")
     assert "# Changelog" not in body
-    assert "This PR was generated with [Release Please]" in body
