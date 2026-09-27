@@ -167,6 +167,20 @@ async def test_pipe_side_fecha_tcp_ao_desconectar(monkeypatch):
     assert tcp_transport._closing
 
 
+@pytest.mark.asyncio
+async def test_pipe_side_cancela_conexao_tcp_pendente_ao_desconectar():
+    """Fechar a pipe não deixa uma tentativa TCP pendurada no loop."""
+    pipe_side = _PipeSide("127.0.0.1", 9999)
+    pending = asyncio.create_task(asyncio.sleep(60))
+    pipe_side._connect_task = pending
+
+    pipe_side.connection_lost(None)
+    with contextlib.suppress(asyncio.CancelledError):
+        await pending
+
+    assert pending.cancelled()
+
+
 # ---------------------------------------------------------------------------
 # _TCPSide: resposta do uvicorn volta pela pipe
 # ---------------------------------------------------------------------------

@@ -75,6 +75,7 @@ from backend.services.log_setup import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)
+_SHUTDOWN_EVENTS: dict[int, asyncio.Event] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +139,9 @@ def _install_terminal_signals(server: Any, icon_ref: list[Any]) -> None:
             os.getpid(),
         )
         server.should_exit = True
+        shutdown_event = _SHUTDOWN_EVENTS.get(id(server))
+        if shutdown_event is not None:
+            shutdown_event.set()
         if icon_ref[0] is not None:
             icon_ref[0].stop()
 
@@ -679,13 +683,29 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
         print(f"{PIPE_ENV_VAR}={_pipe}", flush=True)
 
         async def _run_win() -> None:
+            shutdown_event = asyncio.Event()
+            _SHUTDOWN_EVENTS[id(server)] = shutdown_event
             pipe_task = asyncio.create_task(serve_pipe(_pipe, "127.0.0.1", port))
+
+            async def _stop_pipe_on_shutdown() -> None:
+                # O listener da pipe não faz parte do lifespan do FastAPI.
+                # Se ele continuar aceitando clientes depois do Ctrl+C, o
+                # Electron mantém tentativas TCP vivas enquanto o uvicorn já
+                # está fechando, atrasando o retorno ao terminal.
+                await shutdown_event.wait()
+                pipe_task.cancel()
+
+            shutdown_pipe_task = asyncio.create_task(_stop_pipe_on_shutdown())
             try:
                 await server.serve()
             finally:
+                _SHUTDOWN_EVENTS.pop(id(server), None)
                 pipe_task.cancel()
+                shutdown_pipe_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await pipe_task
+                with contextlib.suppress(asyncio.CancelledError):
+                    await shutdown_pipe_task
 
         asyncio.run(_run_win())
         # Mesmo `return` cedo do ramo Windows+desktop precisa do os._exit(0)
