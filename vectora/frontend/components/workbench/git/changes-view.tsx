@@ -187,6 +187,7 @@ export function ChangesView({
   const menu = useContextMenu();
   const [commitMsg, setCommitMsg] = useState("");
   const [commitBody, setCommitBody] = useState("");
+  const [amend, setAmend] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [mentionOpen, setMentionOpen] = useState(false);
@@ -273,7 +274,7 @@ export function ChangesView({
       return;
     setCommitting(true);
     try {
-      const result = await apiGitCommit(workspaceId, commitMsg.trim(), false, {
+      const result = await apiGitCommit(workspaceId, commitMsg.trim(), amend, {
         body: commitBody.trim(),
         ...(gitHooksEnabled && !gitBypassEnabled ? { runHooks: true } : {}),
         ...(gitSignoffEnabled ? { signoff: true } : {}),
@@ -282,6 +283,7 @@ export function ChangesView({
       if (result.status === "ok") {
         setCommitMsg("");
         setCommitBody("");
+        setAmend(false);
         handleRefresh();
       } else {
         showError(result.message || m.workbench_git_commit_failed());
@@ -625,6 +627,15 @@ export function ChangesView({
           )}
           {m.workbench_diff_commit_button()}
         </button>
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={amend}
+            onChange={(event) => setAmend(event.target.checked)}
+            data-testid="git-commit-amend"
+          />
+          {m.workbench_diff_commit_amend_label()}
+        </label>
       </div>
     </div>
   );

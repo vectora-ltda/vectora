@@ -258,8 +258,16 @@ export function PlanTab({ threadId, onOpenPlanDocument }: PlanTabProps) {
             if (
               requestThreadId !== activeThreadRef.current ||
               requestEpoch !== contentRequestEpoch.current.get(requestKey)
-            )
+            ) {
+              if (item)
+                onOpenPlanDocument?.(
+                  item,
+                  null,
+                  m.workbench_git_operation_failed(),
+                  "update",
+                );
               return;
+            }
             if (content !== null) setPlanContent(threadId, slug, content);
             if (item) {
               onOpenPlanDocument?.(
@@ -276,8 +284,16 @@ export function PlanTab({ threadId, onOpenPlanDocument }: PlanTabProps) {
             if (
               requestThreadId !== activeThreadRef.current ||
               requestEpoch !== contentRequestEpoch.current.get(requestKey)
-            )
+            ) {
+              if (item)
+                onOpenPlanDocument?.(
+                  item,
+                  null,
+                  m.workbench_git_operation_failed(),
+                  "update",
+                );
               return;
+            }
             if (item)
               onOpenPlanDocument?.(
                 item,

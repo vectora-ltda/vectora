@@ -1369,7 +1369,8 @@ function SessionPage() {
                   center: { label: "Chat" },
                   right: assistantWorkbenchVisible
                     ? {
-                        label: "Workbench",
+                        kind: "workbench",
+                        label: m.layout_workbench_column(),
                         visibility: "visible",
                         width: splitSize + WORKBENCH_RAIL_WIDTH,
                         minWidth:
@@ -1389,7 +1390,8 @@ function SessionPage() {
                         },
                       }
                     : {
-                        label: "Workbench",
+                        kind: "workbench",
+                        label: m.layout_workbench_column(),
                         visibility: "collapsed",
                         onExpand: openWorkbench,
                         expandLabel: m.layout_open_workbench(),

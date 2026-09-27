@@ -3,6 +3,7 @@ import {
   ThreeColumnShell,
   type ShellColumnState,
 } from "@/components/layout/three-column-shell";
+import { m } from "@/lib/paraglide/messages";
 
 type ColumnConfig = Omit<ShellColumnState, "label">;
 
@@ -48,7 +49,11 @@ export function ModeColumnLayout({
       right={right}
       direction={direction}
       columns={{
-        left: { label: "Workbench", ...leftColumn } as ShellColumnState,
+        left: {
+          kind: "workbench",
+          label: m.layout_workbench_column(),
+          ...leftColumn,
+        } as ShellColumnState,
         center: { label: "Conteúdo principal" },
         right: {
           label: "Chat",

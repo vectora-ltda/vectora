@@ -7,6 +7,7 @@ import { WORKBENCH_WIDTH_TRANSITION } from "@/lib/layout/workbench-geometry";
 export type ShellColumnVisibility = "visible" | "collapsed" | "hidden";
 
 interface ShellColumnStateBase {
+  kind?: "standard" | "workbench";
   visibility?: ShellColumnVisibility;
   width?: number;
   minWidth?: number;

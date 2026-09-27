@@ -1141,6 +1141,7 @@
   "settings_git_signoff_description": "Adiciona a identidade Git configurada a cada commit.",
   "settings_git_bypass": "Permitir bypass solicitado",
   "settings_git_bypass_description": "Permite usar bypass somente após confirmação explícita no Workbench.",
+  "layout_workbench_column": "Workbench",
   "workbench_git_sync_pull": "Pull {n}",
   "workbench_git_sync_push": "Push {n}",
   "workbench_git_sync_error": "Falha na sincronização",

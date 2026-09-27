@@ -386,8 +386,15 @@ export function HistoryView({
           request !== detailsRequest.current ||
           epoch !== workspaceRequest.current ||
           requestedWorkspace !== workspaceId
-        )
+        ) {
+          onOpenCommitDetails?.({
+            commit,
+            diff: null,
+            loading: false,
+            error: m.workbench_git_operation_failed(),
+          });
           return;
+        }
         setDiffLoading(false);
         setSelectedDiff(diff);
         onOpenCommitDetails?.({ commit, diff, loading: false });
@@ -396,8 +403,15 @@ export function HistoryView({
           request !== detailsRequest.current ||
           epoch !== workspaceRequest.current ||
           requestedWorkspace !== workspaceId
-        )
+        ) {
+          onOpenCommitDetails?.({
+            commit,
+            diff: null,
+            loading: false,
+            error: m.workbench_git_operation_failed(),
+          });
           return;
+        }
         setDiffLoading(false);
         setSelectedDiff(null);
         onOpenCommitDetails?.({

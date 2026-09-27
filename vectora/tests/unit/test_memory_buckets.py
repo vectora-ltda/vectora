@@ -14,11 +14,23 @@ import httpx
 import pytest
 
 from backend.services.memory_buckets import (
+    DEFAULT_MEMORY_BUCKETS_URL,
     MemoryBucketsError,
+    _memory_buckets_url,
     download_memory_bucket,
     list_catalog,
     publish_memory_bucket,
 )
+
+
+def test_memory_buckets_url_ignores_whitespace_only_override(monkeypatch):
+    monkeypatch.setenv("VECTORA_MEMORY_BUCKETS_URL", "   ")
+    monkeypatch.setenv("VECTORA_RAG_LIBRARY_URL", " https://legacy.example/buckets ")
+
+    assert _memory_buckets_url() == "https://legacy.example/buckets"
+
+    monkeypatch.setenv("VECTORA_RAG_LIBRARY_URL", "   ")
+    assert _memory_buckets_url() == DEFAULT_MEMORY_BUCKETS_URL
 
 
 def _catalog_response(entries: list[dict]) -> httpx.Response:

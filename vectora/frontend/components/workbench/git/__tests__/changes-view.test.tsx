@@ -428,6 +428,29 @@ describe("ChangesView", () => {
     );
   });
 
+  it("envia amend quando o usuário seleciona emendar último commit", async () => {
+    const spy = vi
+      .spyOn(api, "apiGitCommit")
+      .mockResolvedValue({ status: "ok", message: "" });
+    render(
+      <ChangesView
+        workspaceId="ws1"
+        summary={summary([file({ path: "a.ts", staged_change: "M" })])}
+      />,
+    );
+    fireEvent.change(
+      screen.getByPlaceholderText("workbench_diff_commit_placeholder"),
+      { target: { value: "fix: bug" } },
+    );
+    fireEvent.click(screen.getByTestId("git-commit-amend"));
+    fireEvent.click(screen.getByText("workbench_diff_commit_button"));
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith("ws1", "fix: bug", true, {
+        body: "",
+      }),
+    );
+  });
+
   it("sem descrição: passa body vazio (regressão — commit simples continua funcionando)", async () => {
     const spy = vi
       .spyOn(api, "apiGitCommit")

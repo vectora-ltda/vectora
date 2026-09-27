@@ -31,11 +31,12 @@ class MemoryBucketsError(RuntimeError):
 
 
 def _memory_buckets_url() -> str:
-    return (
-        os.getenv("VECTORA_MEMORY_BUCKETS_URL")
-        or os.getenv("VECTORA_RAG_LIBRARY_URL")
-        or DEFAULT_MEMORY_BUCKETS_URL
-    ).strip()
+    candidates = (
+        os.getenv("VECTORA_MEMORY_BUCKETS_URL"),
+        os.getenv("VECTORA_RAG_LIBRARY_URL"),
+        DEFAULT_MEMORY_BUCKETS_URL,
+    )
+    return next(value.strip() for value in candidates if value and value.strip())
 
 
 async def list_catalog(q: str | None = None) -> list[dict]:

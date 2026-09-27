@@ -45,7 +45,7 @@ export function SideColumn({
 }: SideColumnProps) {
   const visibility = column.visibility ?? "visible";
   const collapsed = visibility === "collapsed";
-  const isWorkbench = column.label === "Workbench";
+  const isWorkbench = column.kind === "workbench";
 
   if (visibility === "hidden") return null;
 
