@@ -51,7 +51,7 @@ def test_pyproject_version_bate_com_frontend_package_json() -> None:
     instalador e o conteúdo do latest.yml de frontend/package.json, não de
     pyproject.toml — se os dois divergirem, o instalador publicado mente sua
     própria versão e o electron-updater recusa a atualização real como
-    "downgrade". Sem release-please-config.json::extra-files sincronizando
+    "downgrade". Sem release-please-config.development.json::extra-files sincronizando
     os dois, esse teste é o único jeito de pegar a divergência antes do
     build de produção."""
     pyproject: dict[str, dict[str, str]] = tomllib.loads(
@@ -73,7 +73,7 @@ def test_release_please_config_sincroniza_todos_os_arquivos_de_versao() -> None:
     acima (pyproject.toml vs frontend/package.json) volta a falhar na
     release seguinte — o mesmo vale pra services/company ficarem pra trás.
 
-    release-please-config.json rastreia o monorepo INTEIRO como um único
+    release-please-config.development.json rastreia o monorepo INTEIRO como um único
     pacote (chave "." — path é interpretado literalmente pelo release-please,
     não é um nome arbitrário; uma chave "vectora" faria o path virar
     `vectora/`, restringindo commits contados só àquela pasta). Os paths de
@@ -83,7 +83,9 @@ def test_release_please_config_sincroniza_todos_os_arquivos_de_versao() -> None:
     entrada (ex.: company/package.json parar de ser sincronizado) precisa
     quebrar este teste, não só a adição de uma nova passar despercebida."""
     config: _ReleasePleaseConfig = json.loads(
-        (_MONOREPO_ROOT / "release-please-config.json").read_text(encoding="utf-8")
+        (_MONOREPO_ROOT / "release-please-config.development.json").read_text(
+            encoding="utf-8"
+        )
     )
     extra_files: list[_ExtraFile] = config["packages"]["."].get("extra-files", [])
     paths: set[str] = {entry["path"] for entry in extra_files}
