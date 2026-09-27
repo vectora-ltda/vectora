@@ -213,3 +213,10 @@ class TestShouldInstallTerminalSignals:
 
         monkeypatch.setattr("sys.stdin.isatty", lambda: False)
         assert _should_install_terminal_signals({}) is False
+
+    def test_web_instala_mesmo_sem_tty(self, monkeypatch):
+        """The web owner must receive Ctrl+C when launched by a VPS runner."""
+        from backend.main import _should_install_terminal_signals
+
+        monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+        assert _should_install_terminal_signals({}, force_web=True) is True

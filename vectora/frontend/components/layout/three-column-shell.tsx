@@ -84,7 +84,7 @@ export function ThreeColumnShell({
       className={`relative flex w-full flex-1 min-h-0 min-w-0 overflow-hidden ${className ?? ""}`}
     >
       <div
-        className={`flex w-full flex-1 min-h-0 min-w-0 overflow-hidden pt-0 ${direction === "rtl" ? "flex-row-reverse" : ""}`}
+        className={`flex w-full flex-1 basis-full min-h-0 min-w-0 overflow-hidden pt-0 ${direction === "rtl" ? "flex-row-reverse" : ""}`}
       >
         <SideColumn
           side={direction === "rtl" ? "right" : "left"}
@@ -95,7 +95,7 @@ export function ThreeColumnShell({
         <main
           aria-label={columns.center?.label ?? "Conteúdo principal"}
           data-column-visibility="visible"
-          className="flex flex-[1_1_0%] min-h-0 min-w-0 flex-col overflow-hidden"
+          className="flex w-full flex-[1_1_0%] min-h-0 min-w-0 flex-col overflow-hidden"
         >
           <div
             data-testid="shell-header-slot"
@@ -103,7 +103,7 @@ export function ThreeColumnShell({
           >
             {centerHeader}
           </div>
-          <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
+          <div className="flex w-full flex-1 min-h-0 min-w-0 overflow-hidden">
             {center}
           </div>
         </main>

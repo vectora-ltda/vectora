@@ -31,8 +31,10 @@ function columnStyle(
   }
   return {
     width: column.width,
+    flexBasis: column.width,
     minWidth: column.minWidth,
     maxWidth: column.maxWidth,
+    boxSizing: "border-box",
   };
 }
 
@@ -78,9 +80,17 @@ export function SideColumn({
       className={`flex h-full shrink-0 min-h-0 min-w-0 overflow-hidden ${collapsed ? "bg-sidebar" : ""}`}
       style={
         collapsed
-          ? { width }
+          ? {
+              width,
+              flexBasis: width,
+              flexGrow: 0,
+              flexShrink: 0,
+              boxSizing: "border-box",
+            }
           : {
               ...columnStyle(column),
+              flexGrow: 0,
+              flexShrink: 0,
               minWidth: hasFixedNarrowWidth
                 ? column.minWidth
                 : Math.max(SIDE_COLUMN_MIN_WIDTH, column.minWidth ?? 0),
@@ -107,10 +117,12 @@ export function SideColumn({
           className={
             collapsed
               ? "invisible pointer-events-none absolute inset-x-0 bottom-0 top-[var(--app-header-height)] hidden overflow-hidden"
-              : "flex min-h-0 min-w-0 flex-1 overflow-hidden"
+              : "flex w-full min-h-0 min-w-0 flex-1 overflow-hidden"
           }
         >
-          {content}
+          <div className="flex w-full min-h-0 min-w-0 flex-1 [&>*]:w-full [&>*]:flex-1">
+            {content}
+          </div>
         </div>
         {!collapsed && column.resize && (
           <div

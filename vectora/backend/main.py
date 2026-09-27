@@ -82,7 +82,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _should_install_terminal_signals(env: dict[str, str]) -> bool:
+def _should_install_terminal_signals(
+    env: dict[str, str], *, force_web: bool = False
+) -> bool:
     """Decide se o handler de sinal customizado (Ctrl+C/SIGTERM/SIGHUP →
     shutdown gracioso do uvicorn, que aciona o `finally` do lifespan e
     limpa sidecars como o NATS) deve ser instalado.
@@ -98,6 +100,14 @@ def _should_install_terminal_signals(env: dict[str, str]) -> bool:
     (nats-server) órfãos. `VECTORA_SPAWN_ELECTRON=1` só é setado nesse
     segundo caso — é o sinal de "este processo é dono de si mesmo".
     """
+    # ``vectora web`` is the process owner even when launched by a service
+    # manager, CI runner, or detached VPS shell where stdin is not a TTY.
+    # Gating this mode on ``isatty`` leaves SIGINT/SIGTERM at the mercy of the
+    # parent process and can keep the Python host alive after uvicorn shuts
+    # down its application resources.
+    if force_web:
+        return True
+
     desktop = bool(env.get("VECTORA_DESKTOP"))
     owns_itself = bool(env.get("VECTORA_SPAWN_ELECTRON"))
     if desktop and not owns_itself:
@@ -633,7 +643,7 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
     # `return` próprio, e sem instalar o handler aqui primeiro ele nunca seria
     # alcançado nesse caminho (o mais comum em dev desktop no Windows).
     icon_ref: list[Any] = [None]
-    if _should_install_terminal_signals(dict(os.environ)):
+    if _should_install_terminal_signals(dict(os.environ), force_web=force_web):
         _install_terminal_signals(server, icon_ref)
 
     # Windows + VECTORA_DESKTOP: named pipe em vez de TCP — nenhuma porta TCP é

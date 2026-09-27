@@ -117,6 +117,36 @@ describe("ThreeColumnShell", () => {
     expect(sessions).not.toHaveClass("min-w-60");
   });
 
+  it("mantém o contrato de largura da coluna Chat e do seu conteúdo", () => {
+    render(
+      <ThreeColumnShell
+        centerHeader={<header />}
+        left={<div />}
+        center={<div />}
+        right={<div data-testid="chat-content" />}
+        columns={{
+          left: { label: "Sessões", visibility: "hidden" },
+          center: { label: "Canvas" },
+          right: {
+            label: "Chat",
+            width: 480,
+            minWidth: 240,
+            maxWidth: 520,
+          },
+        }}
+      />,
+    );
+
+    const chat = screen.getByRole("complementary", { name: "Chat" });
+    expect(chat).toHaveClass("shrink-0", "min-w-0");
+    const chatContent = chat.querySelector("[data-testid='chat-content']");
+    expect(chatContent?.parentElement).toHaveClass("w-full", "flex-1");
+    expect(chatContent?.parentElement).toHaveClass(
+      "[&>*]:w-full",
+      "[&>*]:flex-1",
+    );
+  });
+
   it("aplica o mesmo contrato de rail estreita a uma coluna visível", () => {
     render(
       <ThreeColumnShell
