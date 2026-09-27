@@ -151,17 +151,23 @@ def rotation_for_release(
             f"published release {expected} is newer than configured development "
             f"milestone {configured}; merge the pending rotation before retrying"
         )
-    if configured != expected:
-        return None
-
     next_minor = minor + 1
+    next_development = f"{major}.{next_minor}"
+    next_maintenance = f"release/{expected}"
+    already_rotated = (
+        configured == next_development
+        and config.maintenance.branch == next_maintenance
+        and config.maintenance.milestone == f"{expected}.x"
+    )
+    if configured != expected and not already_rotated:
+        return None
     return {
         "release_tag": tag,
         "release_version": release_version,
-        "maintenance_branch": f"release/{expected}",
+        "maintenance_branch": next_maintenance,
         "maintenance_milestone": f"{expected}.x",
         "development_branch": config.development.branch,
-        "development_milestone": f"{major}.{next_minor}",
+        "development_milestone": next_development,
         "previous_maintenance_branch": config.maintenance.branch,
         "previous_maintenance_milestone": config.maintenance.milestone,
         "previous_development_milestone": config.development.milestone,
