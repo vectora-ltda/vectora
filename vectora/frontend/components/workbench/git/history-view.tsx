@@ -36,6 +36,18 @@ const MonacoReadOnly = lazy(
 
 type DiffFile = { path: string; lines: string[] };
 
+const COMMIT_HEADER_MIN_HEIGHT = 96;
+const COMMIT_HEADER_MAX_HEIGHT = 360;
+
+function estimateCommitHeaderHeight(body: string | undefined): number {
+  if (!body?.trim()) return COMMIT_HEADER_MIN_HEIGHT;
+  const bodyHeight = Math.min(160, body.split(/\r?\n/).length * 16 + 8);
+  return Math.min(
+    COMMIT_HEADER_MAX_HEIGHT,
+    Math.max(COMMIT_HEADER_MIN_HEIGHT, 24 + 20 + 8 + bodyHeight + 8 + 16 + 24),
+  );
+}
+
 export interface GitCommitDetailsState {
   commit: GitLogCommit;
   diff: string | null;
@@ -95,7 +107,10 @@ export function CommitDetails({
   const files = useMemo(() => parseDiff(diff ?? ""), [diff]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [filesWidth, setFilesWidth] = useState(200);
-  const [headerHeight, setHeaderHeight] = useState(168);
+  const hasDescription = Boolean(commit.body?.trim());
+  const [headerHeight, setHeaderHeight] = useState(() =>
+    estimateCommitHeaderHeight(commit.body),
+  );
   const resizeRef = useRef<{
     kind: "files" | "header";
     start: number;
@@ -125,8 +140,11 @@ export function CommitDetails({
       } else {
         setHeaderHeight(
           Math.min(
-            360,
-            Math.max(132, resize.value + event.clientY - resize.start),
+            COMMIT_HEADER_MAX_HEIGHT,
+            Math.max(
+              COMMIT_HEADER_MIN_HEIGHT,
+              resize.value + event.clientY - resize.start,
+            ),
           ),
         );
       }
@@ -161,7 +179,12 @@ export function CommitDetails({
       if (kind === "files") {
         setFilesWidth((value) => Math.min(420, Math.max(160, value + delta)));
       } else {
-        setHeaderHeight((value) => Math.min(360, Math.max(132, value + delta)));
+        setHeaderHeight((value) =>
+          Math.min(
+            COMMIT_HEADER_MAX_HEIGHT,
+            Math.max(COMMIT_HEADER_MIN_HEIGHT, value + delta),
+          ),
+        );
       }
     },
     [],
@@ -185,13 +208,22 @@ export function CommitDetails({
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-[#1f1f1f]">
       <div
-        style={{ minHeight: headerHeight, maxHeight: 360 }}
+        data-testid="commit-details-header"
+        style={
+          hasDescription
+            ? {
+                height: headerHeight,
+                minHeight: COMMIT_HEADER_MIN_HEIGHT,
+                maxHeight: COMMIT_HEADER_MAX_HEIGHT,
+              }
+            : undefined
+        }
         className="flex shrink-0 flex-col gap-2 overflow-hidden border-b border-border/60 bg-[#202020] px-3 py-3"
       >
         <h2 className="self-stretch break-words text-sm font-semibold leading-5 text-foreground">
           {commit.message}
         </h2>
-        {commit.body && (
+        {hasDescription && (
           <pre
             style={{ fontFamily: '"Segoe UI", ui-sans-serif, sans-serif' }}
             className="max-h-40 min-h-0 self-stretch overflow-auto whitespace-pre-wrap rounded-sm bg-[#2f2f2f] px-2 py-1 text-xs leading-4 text-foreground"
@@ -212,15 +244,19 @@ export function CommitDetails({
           <span className="whitespace-nowrap">{formatDate(commit.date)}</span>
         </div>
       </div>
-      <div
-        role="separator"
-        aria-orientation="horizontal"
-        aria-valuenow={headerHeight}
-        tabIndex={0}
-        onPointerDown={(event) => beginResize("header", event)}
-        onKeyDown={(event) => handleResizeKeyDown("header", event)}
-        className="h-1 shrink-0 cursor-row-resize bg-border/40 transition-colors hover:bg-primary/60 focus:bg-primary/60"
-      />
+      {hasDescription && (
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          aria-valuemin={COMMIT_HEADER_MIN_HEIGHT}
+          aria-valuemax={COMMIT_HEADER_MAX_HEIGHT}
+          aria-valuenow={headerHeight}
+          tabIndex={0}
+          onPointerDown={(event) => beginResize("header", event)}
+          onKeyDown={(event) => handleResizeKeyDown("header", event)}
+          className="h-1 shrink-0 cursor-row-resize bg-border/40 transition-colors hover:bg-primary/60 focus:bg-primary/60"
+        />
+      )}
       {loading ? (
         <div className="flex flex-1 items-center justify-center">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />

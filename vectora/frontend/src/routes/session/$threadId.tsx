@@ -806,6 +806,7 @@ function SessionPage() {
           document.commitDetails ?? gitCommitDetailsById[document.id];
         return details ? (
           <CommitDetails
+            key={details.commit.sha}
             commit={details.commit}
             diff={details.diff}
             loading={details.loading}

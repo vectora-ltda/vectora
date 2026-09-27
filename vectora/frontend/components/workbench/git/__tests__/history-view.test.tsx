@@ -13,17 +13,18 @@ import {
   waitFor,
   cleanup,
 } from "@testing-library/react";
-import { HistoryView } from "../history-view";
+import { CommitDetails, HistoryView } from "../history-view";
 import * as api from "../api";
 import { m } from "@/lib/paraglide/messages";
 
-function commit(sha: string) {
+function commit(sha: string, body?: string) {
   return {
     sha,
     sha_short: sha.slice(0, 7),
     author: "Test <test@example.com>",
     date: "2026-01-01T00:00:00+00:00",
     message: `commit ${sha}`,
+    ...(body === undefined ? {} : { body }),
     refs: [],
   };
 }
@@ -31,6 +32,53 @@ function commit(sha: string) {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+});
+
+describe("CommitDetails — altura do cabeçalho", () => {
+  it("abre no tamanho da descrição e permite reduzir o cabeçalho", () => {
+    render(
+      <CommitDetails
+        commit={commit("with-body", "linha 1\nlinha 2\nlinha 3")}
+        diff={null}
+        loading={false}
+      />,
+    );
+
+    const header = screen.getByTestId("commit-details-header");
+    const separator = document.querySelector(
+      '[role="separator"][aria-orientation="horizontal"]',
+    );
+    expect(separator).not.toBeNull();
+    const initialHeight = Number.parseInt(header.style.height, 10);
+
+    expect(initialHeight).toBeGreaterThan(96);
+    expect(separator).toHaveAttribute("aria-valuenow", String(initialHeight));
+
+    fireEvent.keyDown(separator!, { key: "ArrowUp" });
+
+    expect(Number.parseInt(header.style.height, 10)).toBeLessThan(
+      initialHeight,
+    );
+  });
+
+  it("não cria resize nem altura fixa quando o commit não tem descrição", () => {
+    render(
+      <CommitDetails
+        commit={commit("without-body")}
+        diff={null}
+        loading={false}
+      />,
+    );
+
+    expect(screen.getByTestId("commit-details-header")).not.toHaveAttribute(
+      "style",
+    );
+    expect(
+      document.querySelector(
+        '[role="separator"][aria-orientation="horizontal"]',
+      ),
+    ).not.toBeInTheDocument();
+  });
 });
 
 describe("HistoryView — paginação", () => {
