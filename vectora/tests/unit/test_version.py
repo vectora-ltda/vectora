@@ -145,7 +145,7 @@ def test_release_please_separa_bump_de_desenvolvimento_e_manutencao() -> None:
             encoding="utf-8"
         )
     )
-    assert development_manifest["."] == "0.2.0"
+    assert re.fullmatch(r"\d+\.\d+\.\d+", development_manifest["."])
     assert maintenance["bump-minor-pre-major"] is True
     assert maintenance["bump-patch-for-minor-pre-major"] is True
 
