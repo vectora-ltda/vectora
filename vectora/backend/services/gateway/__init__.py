@@ -120,7 +120,7 @@ class GatewayClient:
         self,
         gateway_url: str,
         app_secret: str,
-        local_url: str = "http://localhost:8000",
+        local_url: str = "http://127.0.0.1:8080",
         token_path: Path = _DEFAULT_TOKEN_PATH,
         secret_path: Path = _DEFAULT_SECRET_PATH,
         fingerprint: str | None = None,

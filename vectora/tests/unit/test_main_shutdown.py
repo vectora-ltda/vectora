@@ -76,6 +76,24 @@ def test_shutdown_calls_icon_stop_when_present() -> None:
         signal.signal(signal.SIGTERM, orig_term)
 
 
+def test_shutdown_handler_is_idempotent_when_console_repeats_signal() -> None:
+    from backend.main import _install_terminal_signals
+
+    server = _FakeServer()
+    icon = MagicMock()
+    icon_ref: list[Any] = [icon]
+    original = signal.getsignal(signal.SIGINT)
+    try:
+        _install_terminal_signals(server, icon_ref)
+        handler = signal.getsignal(signal.SIGINT)
+        assert callable(handler)
+        cast(Any, handler)(signal.SIGINT, None)
+        cast(Any, handler)(signal.SIGINT, None)
+        icon.stop.assert_called_once()
+    finally:
+        signal.signal(signal.SIGINT, original)
+
+
 def test_shutdown_no_error_when_icon_is_none() -> None:
     """Handler não falha quando icon_ref[0] é None (modo servidor puro)."""
     from backend.main import _install_terminal_signals
@@ -141,7 +159,7 @@ def test_shutdown_sigbreak_handling_when_available() -> None:
         _install_terminal_signals(server, icon_ref)
         handler = signal.getsignal(sigbreak)
         assert callable(handler)
-        cast(Any, handler)(sigbreak, None)
+        cast("Any", handler)(sigbreak, None)
         assert server.should_exit is True
     finally:
         signal.signal(sigbreak, original)

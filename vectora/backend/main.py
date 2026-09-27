@@ -125,8 +125,13 @@ def _should_install_terminal_signals(
 def _install_terminal_signals(server: Any, icon_ref: list[Any]) -> None:
     """Instala handlers de SIGINT/SIGTERM/SIGHUP para shutdown limpo — ver
     `_should_install_terminal_signals` para quando isso é chamado."""
+    shutdown_started = False
 
     def _shutdown(_signum: int, _frame: Any) -> None:
+        nonlocal shutdown_started
+        if shutdown_started:
+            return
+        shutdown_started = True
         logger.info(
             "Vectora: sinal recebido (signal=%s, pid=%s) — iniciando shutdown",
             _signum,

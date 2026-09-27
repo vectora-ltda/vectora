@@ -75,6 +75,12 @@ from backend.api.handlers.workspaces import (
 
 logger = logging.getLogger(__name__)
 
+
+def _gateway_local_url() -> str:
+    """Return the loopback URL where this backend accepts forwarded calls."""
+    return f"http://127.0.0.1:{os.environ.get('VECTORA_PORT') or '8080'}"
+
+
 # Tempo máximo total para o shutdown — depois disso, `os._exit` em main.py
 # encerra o processo de qualquer jeito. Configurável via env.
 _SHUTDOWN_TIMEOUT_S = float(os.environ.get("VECTORA_SHUTDOWN_TIMEOUT_S", "10"))
@@ -397,6 +403,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             _gateway_client = GatewayClient(
                 gateway_url=_cfg.gateway_url,
                 app_secret=_cfg.vectora_app_secret,
+                local_url=_gateway_local_url(),
             )
             _gateway_client.start()
     except Exception as exc:

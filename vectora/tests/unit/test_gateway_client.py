@@ -974,6 +974,16 @@ class TestGatewayClientReviewJob:
 
 
 class TestGatewayClientForward:
+    def test_default_local_url_matches_web_backend(self) -> None:
+        from backend.services.gateway import GatewayClient
+
+        client = GatewayClient(
+            gateway_url="wss://gateway.vectora.chat",
+            app_secret="test-app-secret",
+        )
+
+        assert client._local_url == "http://127.0.0.1:8080"
+
     def _client(self):
         from backend.services.gateway import GatewayClient
 
