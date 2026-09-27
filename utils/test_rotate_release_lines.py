@@ -57,6 +57,24 @@ def test_patch_release_does_not_rotate() -> None:
     assert rotation_for_release("v0.2.1", CONFIG, "master") is None
 
 
+def test_published_minor_after_pr_rotation_still_creates_maintenance_line() -> None:
+    """A configuração já avançada pelo PR ainda autoriza a criação da branch."""
+    rotated = CONFIG.model_copy(
+        update={
+            "development": CONFIG.development.model_copy(update={"milestone": "0.3"}),
+            "maintenance": CONFIG.maintenance.model_copy(
+                update={"branch": "release/0.2", "milestone": "0.2.x"}
+            ),
+        }
+    )
+
+    rotation = rotation_for_release("v0.2.0", rotated, "master")
+
+    assert rotation is not None
+    assert rotation["maintenance_branch"] == "release/0.2"
+    assert rotation["development_milestone"] == "0.3"
+
+
 def test_empty_release_tag_does_not_rotate() -> None:
     """Uma tag vazia não produz plano de rotação."""
     assert rotation_for_release("", CONFIG, "master") is None
