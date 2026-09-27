@@ -224,7 +224,12 @@ async def ensure_nats_sidecar() -> str | None:
         _url = f"nats://127.0.0.1:{port}"
         _write_pid_list(store_dir, [proc.pid], url=_url)
         _assign_to_job_object_best_effort(proc.pid)
-        logger.info("nats_sidecar: pronto em %s (store=%s)", _url, store_dir)
+        logger.info(
+            "nats_sidecar: pronto em %s (pid=%s, store=%s)",
+            _url,
+            proc.pid,
+            store_dir,
+        )
         return _url
 
 

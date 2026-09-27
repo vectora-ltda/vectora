@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 import signal
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -124,6 +124,27 @@ def test_shutdown_sighup_handling() -> None:
     finally:
         signal.signal(signal.SIGINT, orig_int)
         signal.signal(signal.SIGTERM, orig_term)
+
+
+def test_shutdown_sigbreak_handling_when_available() -> None:
+    """Windows CTRL+BREAK follows the same cleanup path as CTRL+C."""
+    sigbreak = getattr(signal, "SIGBREAK", None)
+    if sigbreak is None:
+        pytest.skip("SIGBREAK só existe no Windows")
+
+    from backend.main import _install_terminal_signals
+
+    server = _FakeServer()
+    icon_ref: list[Any] = [None]
+    original = signal.getsignal(sigbreak)
+    try:
+        _install_terminal_signals(server, icon_ref)
+        handler = signal.getsignal(sigbreak)
+        assert callable(handler)
+        cast(Any, handler)(sigbreak, None)
+        assert server.should_exit is True
+    finally:
+        signal.signal(sigbreak, original)
 
 
 def test_uvicorn_does_not_replace_process_owner_signal_handler() -> None:

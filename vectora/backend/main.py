@@ -140,6 +140,11 @@ def _install_terminal_signals(server: Any, icon_ref: list[Any]) -> None:
     signal.signal(signal.SIGTERM, _shutdown)
     if hasattr(signal, "SIGHUP"):
         signal.signal(signal.SIGHUP, _shutdown)  # type: ignore[attr-defined]
+    if hasattr(signal, "SIGBREAK"):
+        # Windows process groups expose Ctrl+Break as the only targeted
+        # console event. Treat it like Ctrl+C so supervised processes and
+        # process-level shutdown tests exercise the same cleanup path.
+        signal.signal(signal.SIGBREAK, _shutdown)  # type: ignore[attr-defined]
 
 
 def _disable_uvicorn_signal_capture(server: Any) -> None:
