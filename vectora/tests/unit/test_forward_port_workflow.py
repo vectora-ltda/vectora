@@ -73,6 +73,7 @@ def test_pr_milestone_workflow_assigns_milestone_from_base() -> None:
     assert "current_base" in content
     assert "milestone: milestone.number" in content
     assert "issues: write" in content
+    assert "github-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}" in content
 
 
 def test_release_please_uses_trusted_config_for_branch_gate() -> None:
