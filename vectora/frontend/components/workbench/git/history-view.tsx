@@ -116,6 +116,7 @@ export function CommitDetails({
   const [headerHeight, setHeaderHeight] = useState(() =>
     estimateCommitHeaderHeight(commit.body),
   );
+  const measuredHeaderWidth = useRef<number | null>(null);
   const resizeRef = useRef<{
     kind: "files" | "header";
     start: number;
@@ -128,24 +129,53 @@ export function CommitDetails({
   useLayoutEffect(() => {
     if (!hasDescription || !headerRef.current) return;
     const header = headerRef.current;
-    const previousHeight = header.style.height;
-    const previousMaxHeight = header.style.maxHeight;
-    header.style.height = "auto";
-    // O máximo anterior pode ter sido calculado com a descrição já cortada.
-    // Remova-o durante a leitura para que scrollHeight represente todo o
-    // conteúdo intrínseco, e só reaplique o limite depois da medição.
-    header.style.maxHeight = "none";
-    const measuredHeight = Math.max(
-      COMMIT_HEADER_MIN_HEIGHT,
-      header.scrollHeight || estimateCommitHeaderHeight(commit.body),
-    );
-    header.style.height = previousHeight;
-    header.style.maxHeight = previousMaxHeight;
-    // oxlint-disable-next-line react(set-state-in-effect)
-    setHeaderMaxHeight(measuredHeight);
-    // oxlint-disable-next-line react(set-state-in-effect)
-    setHeaderHeight(measuredHeight);
-  }, [commit.body, hasDescription]);
+
+    const measureHeader = (width?: number) => {
+      const currentWidth = width ?? header.getBoundingClientRect().width;
+      if (width !== undefined && measuredHeaderWidth.current === currentWidth) {
+        return;
+      }
+      measuredHeaderWidth.current = currentWidth;
+
+      const previousHeight = header.style.height;
+      const previousMaxHeight = header.style.maxHeight;
+      header.style.height = "auto";
+      // O máximo anterior pode ter sido calculado com a descrição já cortada.
+      // Remova-o durante a leitura para que scrollHeight represente todo o
+      // conteúdo intrínseco, e só reaplique o limite depois da medição.
+      header.style.maxHeight = "none";
+      const measuredHeight = Math.max(
+        COMMIT_HEADER_MIN_HEIGHT,
+        header.scrollHeight || estimateCommitHeaderHeight(commit.body),
+      );
+      header.style.height = previousHeight;
+      header.style.maxHeight = previousMaxHeight;
+
+      // Preserve uma redução manual; quando estava no máximo anterior,
+      // acompanhe o novo máximo produzido pelo wrap da descrição.
+      const wasExpanded = headerHeight >= headerMaxHeight;
+      // oxlint-disable-next-line react(set-state-in-effect)
+      setHeaderMaxHeight(measuredHeight);
+      // oxlint-disable-next-line react(set-state-in-effect)
+      setHeaderHeight((current) =>
+        wasExpanded
+          ? measuredHeight
+          : Math.min(
+              measuredHeight,
+              Math.max(COMMIT_HEADER_MIN_HEIGHT, current),
+            ),
+      );
+    };
+
+    measureHeader();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (width !== undefined) measureHeader(width);
+    });
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, [commit.body, hasDescription, headerHeight, headerMaxHeight]);
 
   const stopResize = useCallback(() => {
     resizeRef.current = null;

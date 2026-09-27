@@ -7,6 +7,7 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
+  act,
   render,
   screen,
   fireEvent,
@@ -31,6 +32,7 @@ function commit(sha: string, body?: string) {
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -58,6 +60,53 @@ describe("CommitDetails — altura do cabeçalho", () => {
     expect(header.style.height).toBe("240px");
     expect(header.style.maxHeight).toBe("240px");
     expect(scrollHeight).toHaveBeenCalled();
+  });
+
+  it("recalcula o máximo quando a largura muda e o texto quebra novamente", async () => {
+    let resizeCallback: ResizeObserverCallback | undefined;
+    let intrinsicHeight = 180;
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          resizeCallback = callback;
+        }
+        observe() {}
+        disconnect() {}
+        unobserve() {}
+      },
+    );
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(
+      function (this: HTMLElement) {
+        return this.getAttribute("data-testid") === "commit-details-header"
+          ? intrinsicHeight
+          : 0;
+      },
+    );
+
+    render(
+      <CommitDetails
+        commit={commit("responsive", "descrição que quebra conforme a largura")}
+        diff={null}
+        loading={false}
+      />,
+    );
+
+    const header = screen.getByTestId("commit-details-header");
+    expect(header.style.maxHeight).toBe("180px");
+
+    intrinsicHeight = 260;
+    await act(async () => {
+      resizeCallback?.(
+        [{ contentRect: { width: 240 } } as ResizeObserverEntry],
+        {} as ResizeObserver,
+      );
+    });
+
+    await waitFor(() => {
+      expect(header.style.maxHeight).toBe("260px");
+      expect(header.style.height).toBe("260px");
+    });
   });
 
   it("abre no tamanho da descrição e permite reduzir o cabeçalho", () => {
