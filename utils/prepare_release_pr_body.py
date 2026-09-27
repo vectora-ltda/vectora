@@ -22,7 +22,10 @@ def current_release_section(notes: str) -> tuple[str, str, str]:
     # A second release heading starts the historical portion.  It must not be
     # copied into the PR body; the current section is the only release context
     # that Release Please should publish.
-    return notes[: match.start()].strip(), notes[match.start() : end].strip(), ""
+    prefix = notes[: match.start()].strip()
+    if prefix.startswith("# Changelog"):
+        prefix = ""
+    return prefix, notes[match.start() : end].strip(), ""
 
 
 def _compact_links(section: str) -> str:

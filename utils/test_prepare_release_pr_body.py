@@ -43,3 +43,10 @@ def test_compacts_links_when_current_section_is_too_large() -> None:
 def test_rejects_notes_without_a_release_heading() -> None:
     with pytest.raises(ValueError, match="release heading"):
         current_release_section("no release here")
+
+
+def test_drops_changelog_document_header() -> None:
+    body = prepare_body("# Changelog\n\n## [0.2.0]\n\n### Features\n\n* current\n")
+
+    assert body.startswith("## [0.2.0]")
+    assert "# Changelog" not in body

@@ -98,8 +98,8 @@ def test_release_please_scopes_pr_body_to_current_release_notes() -> None:
     workflow = WORKFLOW.parent / "release-please.yml"
     content = workflow.read_text(encoding="utf-8")
 
-    assert 'release_notes_branch="${RELEASE_BRANCH}--release-notes"' in content
     assert "utils/prepare_release_pr_body.py" in content
+    assert "vectora/CHANGELOG.md" in content
     assert 'gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY"' in content
     assert '--body-file "$RUNNER_TEMP/release-pr-body.md"' in content
     assert 'echo "number=$number" >> "$GITHUB_OUTPUT"' in content

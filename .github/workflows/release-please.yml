@@ -144,18 +144,12 @@ jobs:
         if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          RELEASE_BRANCH: ${{ steps.release-branch.outputs.branch }}
           PR_NUMBER: ${{ steps.release-branch.outputs.number }}
         shell: bash
         run: |
           set -euo pipefail
-          release_notes_branch="${RELEASE_BRANCH}--release-notes"
-          git fetch "https://x-access-token:${RELEASE_PLEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
-            "$release_notes_branch"
-          git show "FETCH_HEAD:release-notes.md" > "$RUNNER_TEMP/release-notes.md"
           python utils/prepare_release_pr_body.py \
-            "$RUNNER_TEMP/release-notes.md" "$RUNNER_TEMP/release-pr-body.md"
+            vectora/CHANGELOG.md "$RUNNER_TEMP/release-pr-body.md"
           gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
             --body-file "$RUNNER_TEMP/release-pr-body.md"
 
