@@ -62,7 +62,7 @@ def main() -> int:
         "ferramenta/revisor de IA (CodeRabbit, Claude, Copilot, etc) — mesma "
         "regra dos comentários de código (CLAUDE.md §1, que cobre também "
         "mensagens de PR). Descreva só o que a mudança faz; histórico de "
-        "planejamento vai em docs/ ou .claude/plans/."
+        "planejamento deve ficar em .claude/plans/; docs/ é reservado ao site de documentação."
     )
     return 1
 
