@@ -106,59 +106,20 @@ def test_release_please_scopes_pr_body_to_current_release_notes() -> None:
 
 
 def test_release_rotation_workflow_declares_release_entrypoint() -> None:
-    """Mantém o workflow do GitHub conectado à fronteira executável de rotação."""
+    """Mantém a criação pós-publicação limitada à branch e aos milestones."""
     workflow = WORKFLOW.parent / "rotate-release-lines.yml"
     content = workflow.read_text(encoding="utf-8")
 
     assert "release:" in content
     assert "types: [published]" in content
     assert "utils/rotate_release_lines.py" in content
-    assert "utils/activate_release_line.py" in content
-    assert "release-lines.json" in content
-    assert "gh pr create" in content
-    assert 'git push origin "HEAD:$MAINTENANCE_BRANCH"' in content
-    assert "activate_release_line.py" in content
-    assert "cleanup_activation_fallback" in content
-    assert "utils/cleanup_release_activation.py" in content
-    assert (
-        'git ls-remote --heads origin "refs/heads/$maintenance_rotation_branch"'
-        in content
-    )
-    assert (
-        'git push --force-with-lease="$maintenance_rotation_branch:$activation_remote_ref"'
-        in content
-    )
-    assert 'gh pr list --repo "$GITHUB_REPOSITORY"' in content
-    assert '--head "$maintenance_rotation_branch"' in content
-    assert '--milestone "$DEVELOPMENT_MILESTONE"' in content
-    assert "release_version" in content
+    assert "github.rest.git.createRef" in content
+    assert "issues.createMilestone" in content
     assert "RELEASE_PLEASE_TOKEN" in content
     assert "github-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}" in content
     assert "compareCommits" in content
-    migration = workflow.parent / "migrate-release-line-prs.yml"
-    migration_content = migration.read_text(encoding="utf-8")
-    assert "applyMigrationUpdates" in migration_content
-    migration_helper = (
-        workflow.parent.parent / "scripts" / "migrate_release_line_prs.js"
-    )
-    helper_content = migration_helper.read_text(encoding="utf-8")
-    assert "api.pulls.update" in helper_content
-    assert "api.issues.update" in helper_content
-    assert "pull_request_target" in migration_content
-    assert "migrate_release_line_prs.js" in migration_content
-    assert "pull_request.base.sha" in migration_content
-    assert "pull_request.merge_commit_sha" in migration_content
-    assert "github-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}" in migration_content
-    assert "release-lines.current.json" in migration_content
-    assert "release-lines.previous.json" in migration_content
-    assert "cancel-in-progress: false" in migration_content
-    assert "ROTATION_BODY" not in migration_content
-    assert "releaseLineTransition" in helper_content
-    assert '      - "**"' in migration_content
-    assert (
-        "context.payload.pull_request.base.ref !== config.development.branch"
-        in migration_content
-    )
+    assert "gh pr create" not in content
+    assert "activate_release_line.py" not in content
 
 
 def test_release_rotation_verifies_tag_ancestry() -> None:
@@ -176,7 +137,6 @@ def test_release_rotation_verifies_tag_ancestry() -> None:
 def test_release_workflows_pin_github_script_to_node_24() -> None:
     """Garante que os workflows não reintroduzam a runtime Node.js 20 depreciada."""
     workflow_paths = [
-        WORKFLOW.parent / "migrate-release-line-prs.yml",
         WORKFLOW.parent / "pr-checks-comment.yml",
         WORKFLOW.parent / "pr-checks.yml",
         WORKFLOW.parent / "pr-release-milestone.yml",
@@ -201,7 +161,6 @@ def test_release_rotation_uses_project_environment() -> None:
 def test_release_workflows_pin_ubuntu_runner() -> None:
     """Garante que os workflows de release não dependam do rótulo móvel do Ubuntu."""
     workflow_paths = [
-        WORKFLOW.parent / "migrate-release-line-prs.yml",
         WORKFLOW.parent / "pr-release-milestone.yml",
         WORKFLOW.parent / "rotate-release-lines.yml",
         WORKFLOW.parent / "forward-port-release.yml",
