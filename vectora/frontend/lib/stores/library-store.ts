@@ -104,6 +104,13 @@ export interface VextExtension {
   };
 }
 
+export interface CatalogStatus {
+  source: "mcp" | "skills";
+  status: "never" | "ready" | "disabled" | "unavailable";
+  last_synced_at: string | null;
+  error: string | null;
+}
+
 const TTL_MS = 5 * 60 * 1000;
 
 export const NATIVE_EXTENSION_IDS = new Set(["github", "gitlab"]);
@@ -134,12 +141,24 @@ async function fetchMcpInstalledIds(): Promise<Set<string>> {
   return new Set((data.servers ?? []).map((s) => s.name));
 }
 
+async function fetchMcpStatus(): Promise<CatalogStatus> {
+  const res = await fetch("/mcp/registry/status");
+  if (!res.ok) throw new Error(`Erro ${res.status}`);
+  return res.json() as Promise<CatalogStatus>;
+}
+
 async function fetchSkillsCatalog(q: string): Promise<CatalogSkill[]> {
   const qs = q ? `?${new URLSearchParams({ q })}` : "";
   const res = await fetch(`/skills/catalog${qs}`);
   if (!res.ok) throw new Error(`Erro ${res.status}`);
   const data = (await res.json()) as { entries?: CatalogSkill[] };
   return data.entries ?? [];
+}
+
+async function fetchSkillsStatus(): Promise<CatalogStatus> {
+  const res = await fetch("/skills/catalog/status");
+  if (!res.ok) throw new Error(`Erro ${res.status}`);
+  return res.json() as Promise<CatalogStatus>;
 }
 
 async function fetchMemoryCatalog(q: string): Promise<MemoryBucket[]> {
@@ -238,12 +257,14 @@ interface LibraryStoreState {
   mcpFetchedAt: number | null;
   mcpQuery: string;
   mcpError: string | null;
+  mcpStatus: CatalogStatus;
 
   skillsItems: CatalogSkill[];
   skillsLoading: boolean;
   skillsFetchedAt: number | null;
   skillsQuery: string;
   skillsError: string | null;
+  skillsStatus: CatalogStatus;
 
   memoryItems: MemoryBucket[];
   memoryLoading: boolean;
@@ -283,12 +304,24 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   mcpFetchedAt: null,
   mcpQuery: "",
   mcpError: null,
+  mcpStatus: {
+    source: "mcp",
+    status: "never",
+    last_synced_at: null,
+    error: null,
+  },
 
   skillsItems: [],
   skillsLoading: false,
   skillsFetchedAt: null,
   skillsQuery: "",
   skillsError: null,
+  skillsStatus: {
+    source: "skills",
+    status: "never",
+    last_synced_at: null,
+    error: null,
+  },
 
   memoryItems: [],
   memoryLoading: false,
@@ -308,9 +341,10 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
     if (s.mcpLoading || (isFresh(s.mcpFetchedAt) && s.mcpQuery === q)) return;
     set({ mcpLoading: true });
     try {
-      const [items, installedIds] = await Promise.all([
+      const [items, installedIds, status] = await Promise.all([
         fetchMcpRegistry(q),
         fetchMcpInstalledIds(),
+        fetchMcpStatus(),
       ]);
       set({
         mcpItems: items,
@@ -318,9 +352,18 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
         mcpFetchedAt: Date.now(),
         mcpQuery: q,
         mcpError: null,
+        mcpStatus: status,
       });
     } catch {
-      set({ mcpError: m.library_mcp_error_search() });
+      set({
+        mcpError: m.library_mcp_error_search(),
+        mcpStatus: {
+          source: "mcp",
+          status: "unavailable",
+          last_synced_at: null,
+          error: m.library_mcp_error_search(),
+        },
+      });
     } finally {
       set({ mcpLoading: false });
     }
@@ -334,15 +377,30 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
       return;
     set({ skillsLoading: true });
     try {
-      const items = await fetchSkillsCatalog(q);
+      const [items, status] = await Promise.all([
+        fetchSkillsCatalog(q),
+        fetchSkillsStatus(),
+      ]);
       set({
-        skillsItems: items,
+        skillsItems: items.filter(
+          (item) =>
+            !item.id.startsWith("vectora-") || item.catalog_source === "local",
+        ),
         skillsFetchedAt: Date.now(),
         skillsQuery: q,
         skillsError: null,
+        skillsStatus: status,
       });
     } catch {
-      set({ skillsError: m.library_skills_catalog_error_search() });
+      set({
+        skillsError: m.library_skills_catalog_error_search(),
+        skillsStatus: {
+          source: "skills",
+          status: "unavailable",
+          last_synced_at: null,
+          error: m.library_skills_catalog_error_search(),
+        },
+      });
     } finally {
       set({ skillsLoading: false });
     }
@@ -391,14 +449,11 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
         installedResult.status === "fulfilled"
           ? installedResult.value
           : { ids: get().extensionInstalledIds, items: [] };
-      const byVersion = new Map(
-        [...catalog, ...installed.items].map((item) => [
-          `${item.id}:${item.version}`,
-          item,
-        ]),
-      );
+      const byId = new Map<string, VextExtension>();
+      for (const item of catalog) byId.set(item.id, item);
+      for (const item of installed.items) byId.set(item.id, item);
       set({
-        extensionItems: [...byVersion.values()],
+        extensionItems: [...byId.values()],
         extensionInstalledIds: installed.ids,
         extensionFetchedAt: Date.now(),
         extensionQuery: q,
@@ -418,15 +473,12 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
     try {
       const installed = await fetchInstalledExtensions();
       set((state) => {
-        const byVersion = new Map(
-          [...state.extensionItems, ...installed.items].map((item) => [
-            `${item.id}:${item.version}`,
-            item,
-          ]),
-        );
+        const byId = new Map<string, VextExtension>();
+        for (const item of state.extensionItems) byId.set(item.id, item);
+        for (const item of installed.items) byId.set(item.id, item);
         return {
           extensionInstalledIds: installed.ids,
-          extensionItems: [...byVersion.values()],
+          extensionItems: [...byId.values()],
         };
       });
     } catch {

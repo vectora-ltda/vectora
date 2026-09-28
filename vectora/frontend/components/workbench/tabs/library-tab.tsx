@@ -52,6 +52,7 @@ function FilterPill({
       type="button"
       onClick={onToggle}
       aria-pressed={active}
+      aria-label={label.startsWith("Memory") ? "Memory" : undefined}
       className={`text-xs px-2.5 py-1 rounded-full transition-colors ${
         active
           ? "bg-primary/15 text-primary"

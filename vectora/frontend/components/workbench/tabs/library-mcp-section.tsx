@@ -13,7 +13,7 @@
  * o componente PluginsTab.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import {
   ChevronDown,
   ChevronUp,
@@ -37,6 +37,7 @@ import { Input } from "@/components/ui/input";
 import { PluginsTab } from "@/components/settings/environment/tabs/plugins-tab";
 import { m } from "@/lib/paraglide/messages";
 import { useLibraryStore, type MCPConnector } from "@/lib/stores/library-store";
+import { useWindowsStore } from "@/lib/stores/windows-store";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import type { LibraryItem } from "./library-tab";
 
@@ -104,9 +105,6 @@ function ConfigureDialog({
     setSaving(true);
     setError(null);
     try {
-      await Promise.all(
-        connector.env_vars.map((key) => saveEnvVar(key, values[key].trim())),
-      );
       const requiresConfirmation = [
         "community_listed",
         "unsigned",
@@ -121,6 +119,9 @@ function ConfigureDialog({
         !window.confirm(m.library_mcp_unverified_confirm())
       )
         return;
+      await Promise.all(
+        connector.env_vars.map((key) => saveEnvVar(key, values[key].trim())),
+      );
       const result = await installMcp(connector.id, requiresConfirmation);
       if (result.status === "error") {
         setError(m.library_mcp_error_install());
@@ -183,14 +184,18 @@ function ConnectorCard({
   connector,
   installed,
   onChanged,
+  threadId,
 }: {
   connector: MCPConnector;
   installed: boolean;
   onChanged: () => void;
+  threadId?: string;
 }) {
   const [busy, setBusy] = useState(false);
   const [configuring, setConfiguring] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const openCanvasDocument = useWindowsStore((s) => s.openCanvasDocument);
+  const activeWorkspaceId = useWorkspacesStore((s) => s.active_id);
   const trustLabel = (state: MCPConnector["trust_state"] | undefined) => {
     switch (state) {
       case "vectora_verified":
@@ -266,8 +271,35 @@ function ConnectorCard({
     }
   };
 
+  const openPreview = (event: MouseEvent<HTMLDivElement>) => {
+    if (!threadId || (event.target as HTMLElement).closest("button")) return;
+    const workspaceId = activeWorkspaceId ?? "no-workspace";
+    openCanvasDocument({
+      id: `mcp:${workspaceId}:${threadId}:${connector.id}`,
+      kind: "mcp-preview",
+      workspaceId: activeWorkspaceId,
+      threadId,
+      title: connector.name,
+      mcp: {
+        id: connector.id,
+        name: connector.name,
+        description: connector.description,
+        installCommand: connector.install_cmd,
+        envVars: connector.env_vars,
+        homepage: connector.homepage,
+        category: connector.category,
+        iconUrl: connector.icon_url,
+      },
+    });
+  };
+
   return (
-    <div className="rounded-lg border bg-card p-3 space-y-2">
+    <div
+      className="rounded-lg border bg-card p-3 space-y-2"
+      role={threadId ? "button" : undefined}
+      tabIndex={threadId ? 0 : undefined}
+      onClick={threadId ? openPreview : undefined}
+    >
       <div className="flex items-center gap-3">
         <div className="w-9 h-9 rounded-md bg-muted flex items-center justify-center shrink-0 overflow-hidden">
           {connector.icon_url ? (
@@ -293,12 +325,14 @@ function ConnectorCard({
             {connector.description}
           </p>
           <div className="flex items-center gap-1.5 min-w-0 pt-0.5">
-            <Badge
-              variant="secondary"
-              className="text-[10px] h-4 px-1.5 shrink-0"
-            >
-              {connector.category}
-            </Badge>
+            {connector.category !== "community" && (
+              <Badge
+                variant="secondary"
+                className="text-[10px] h-4 px-1.5 shrink-0"
+              >
+                {connector.category}
+              </Badge>
+            )}
             {badgeLabel && (
               <Badge className="text-[10px] h-4 px-1.5 shrink-0">
                 {badgeLabel}
@@ -343,9 +377,11 @@ function ConnectorCard({
 export function McpSection({
   query,
   onCountChange,
+  threadId,
 }: {
   query: string;
-  onCountChange: (count: number) => void;
+  onCountChange?: (count: number) => void;
+  threadId?: string;
 }) {
   const connectors = useLibraryStore((s) => s.mcpItems);
   const installedIds = useLibraryStore((s) => s.mcpInstalledIds);
@@ -375,7 +411,7 @@ export function McpSection({
   }, [query, ensureMcpLoaded]);
 
   useEffect(() => {
-    onCountChange(connectors.length);
+    onCountChange?.(connectors.length);
   }, [connectors.length, onCountChange]);
 
   if (loading) {
@@ -413,6 +449,7 @@ export function McpSection({
           connector={connector}
           installed={installedIds.has(connector.id)}
           onChanged={load}
+          threadId={threadId}
         />
       ))}
       <AdvancedToggle
