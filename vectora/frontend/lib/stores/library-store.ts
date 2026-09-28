@@ -114,14 +114,40 @@ export interface CatalogStatus {
 const TTL_MS = 5 * 60 * 1000;
 
 export const NATIVE_EXTENSION_IDS = new Set(["github", "gitlab"]);
+function extensionDescription(key: string, fallback: string): string {
+  const message = (m as unknown as Record<string, unknown>)[key];
+  return typeof message === "function" ? (message as () => string)() : fallback;
+}
+
 const EXTENSION_DESCRIPTIONS: Record<string, string> = {
-  eslint: m.library_extension_desc_eslint(),
-  oxlint: m.library_extension_desc_oxlint(),
-  precommit: m.library_extension_desc_precommit(),
-  prettier: m.library_extension_desc_prettier(),
-  pyright: m.library_extension_desc_pyright(),
-  ruff: m.library_extension_desc_ruff(),
-  ty: m.library_extension_desc_ty(),
+  eslint: extensionDescription(
+    "library_extension_desc_eslint",
+    "Run ESLint diagnostics for the current workspace and inspect actionable fixes.",
+  ),
+  oxlint: extensionDescription(
+    "library_extension_desc_oxlint",
+    "Run Oxlint diagnostics for the current workspace and inspect actionable fixes.",
+  ),
+  precommit: extensionDescription(
+    "library_extension_desc_precommit",
+    "Run the workspace pre-commit hooks and inspect their reported changes.",
+  ),
+  prettier: extensionDescription(
+    "library_extension_desc_prettier",
+    "Format workspace files with the configured Prettier settings.",
+  ),
+  pyright: extensionDescription(
+    "library_extension_desc_pyright",
+    "Run Pyright diagnostics for Python files in the current workspace.",
+  ),
+  ruff: extensionDescription(
+    "library_extension_desc_ruff",
+    "Run Ruff diagnostics and formatting for Python files in the current workspace.",
+  ),
+  ty: extensionDescription(
+    "library_extension_desc_ty",
+    "Run Ty diagnostics for Python files in the current workspace.",
+  ),
 };
 
 async function fetchMcpRegistry(q: string): Promise<MCPConnector[]> {
