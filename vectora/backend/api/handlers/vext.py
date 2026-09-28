@@ -11,8 +11,8 @@ from typing import Annotated
 from fastapi import APIRouter, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel, Field
 
-from backend.services.vext import MAX_PACKAGE_BYTES, VextPackage
-from backend.services.vext_artifact import verify_vext
+from backend.services.vext import MAX_PACKAGE_BYTES
+from backend.services.vext_artifact import VextBuildResult, verify_vext
 from backend.services.vext_install import VextInstallStore
 from backend.services.vext_registry import VextTrustStore
 from backend.settings import settings
@@ -88,7 +88,9 @@ async def list_installed() -> dict[str, object]:
     return {"extensions": extensions}
 
 
-def _active_verified_archive(extension_id: str) -> tuple[VextPackage, zipfile.ZipFile]:
+def _active_verified_archive(
+    extension_id: str,
+) -> tuple[VextBuildResult, zipfile.ZipFile]:
     item = _store().active(extension_id)
     if item is None:
         raise HTTPException(status_code=404, detail="extensão não instalada")
