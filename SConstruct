@@ -963,6 +963,7 @@ def _upgrade_d1_schema(
         ("skills_catalog", "verified", "INTEGER NOT NULL DEFAULT 0"),
         ("skills_catalog", "downloads_count", "INTEGER NOT NULL DEFAULT 0"),
         ("skills_catalog", "updated_at", "TEXT"),
+        ("mcp_catalog", "updated_at", "TEXT"),
         ("issue_comments", "updated_at", "TEXT"),
         ("issue_comments", "deleted_at", "TEXT"),
         ("github_webhook_deliveries", "attempt_token", "TEXT"),
@@ -1050,7 +1051,9 @@ def _upgrade_d1_schema(
             cwd=SERVICES,
         )
 
-    if table_exists.get("skills_catalog"):
+    for timestamp_table in ("skills_catalog", "mcp_catalog"):
+        if not table_exists.get(timestamp_table):
+            continue
         # SQLite não permite DEFAULT(datetime('now')) em ALTER TABLE ADD
         # COLUMN. Repare linhas legadas e preserve o default para inserts.
         _run(
@@ -1061,7 +1064,7 @@ def _upgrade_d1_schema(
                 "vectora-db",
                 "--remote",
                 "--command",
-                "CREATE TRIGGER IF NOT EXISTS skills_catalog_updated_at_default AFTER INSERT ON skills_catalog WHEN NEW.updated_at IS NULL BEGIN UPDATE skills_catalog SET updated_at = datetime('now') WHERE id = NEW.id AND updated_at IS NULL; END",
+                f"CREATE TRIGGER IF NOT EXISTS {timestamp_table}_updated_at_default AFTER INSERT ON {timestamp_table} WHEN NEW.updated_at IS NULL BEGIN UPDATE {timestamp_table} SET updated_at = datetime('now') WHERE id = NEW.id AND updated_at IS NULL; END",
             ],
             log=log,
             cwd=SERVICES,
@@ -1074,7 +1077,7 @@ def _upgrade_d1_schema(
                 "vectora-db",
                 "--remote",
                 "--command",
-                "UPDATE skills_catalog SET updated_at = datetime('now') WHERE updated_at IS NULL",
+                f"UPDATE {timestamp_table} SET updated_at = datetime('now') WHERE updated_at IS NULL",
             ],
             log=log,
             cwd=SERVICES,
