@@ -68,3 +68,16 @@ def test_strips_process_metadata_from_release_entries() -> None:
     assert "Sprint" not in body
     assert "CodeRabbit" not in body
     assert "add board drawer (abc1234)" in body
+
+
+def test_summarizes_release_when_compacted_notes_still_exceed_limit() -> None:
+    notes = "## [0.2.0]\n\n### Features\n\n" + "\n".join(
+        f"* change {index}" for index in range(100)
+    )
+
+    body = prepare_body(notes, max_body_bytes=200)
+
+    assert body == (
+        "## [0.2.0]\n\n"
+        "The complete release notes are maintained in `vectora/CHANGELOG.md`.\n"
+    )
