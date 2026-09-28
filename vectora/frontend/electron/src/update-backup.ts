@@ -70,7 +70,19 @@ async function collectFiles(root: string, current = root): Promise<string[]> {
     const relative = path.relative(root, path.join(current, name));
     if (isExcluded(relative) || name.endsWith(".lock")) continue;
     const source = path.join(current, name);
-    const stat = await withFileLockRetry(() => fs.lstat(source));
+    let stat;
+    try {
+      stat = await withFileLockRetry(() => fs.lstat(source));
+    } catch (error) {
+      if (isTransientFileLock(error)) {
+        console.warn("[updater] backup omitindo caminho bloqueado", {
+          path: relative,
+          error,
+        });
+        continue;
+      }
+      throw error;
+    }
     if (stat.isSymbolicLink()) throw new Error("userData contém symlink");
     if (stat.isDirectory()) result.push(...(await collectFiles(root, source)));
     else if (stat.isFile() && stat.size <= MAX_FILE_BYTES)
@@ -159,12 +171,22 @@ export async function createRotatingUpdateBackup(
     await fs.mkdir(temporary, { recursive: true });
     try {
       const files: UpdateBackupFile[] = [];
+      const skipped: string[] = [];
       for (const relative of await collectFiles(userData)) {
-        const copied = await copySafe(
-          path.join(userData, relative),
-          path.join(temporary, relative),
-        );
-        files.push({ ...copied, path: relative });
+        try {
+          const copied = await copySafe(
+            path.join(userData, relative),
+            path.join(temporary, relative),
+          );
+          files.push({ ...copied, path: relative });
+        } catch (error) {
+          if (!isTransientFileLock(error)) throw error;
+          skipped.push(relative);
+          console.warn("[updater] backup omitindo arquivo bloqueado", {
+            path: relative,
+            error,
+          });
+        }
       }
       const manifest: UpdateBackupEntry = {
         id,
@@ -174,6 +196,7 @@ export async function createRotatingUpdateBackup(
         bytes: files.reduce((sum, file) => sum + file.bytes, 0),
         sha256: digestTree(files),
         files,
+        ...(skipped.length > 0 ? { skipped } : {}),
       };
       await withFileLockRetry(() =>
         fs.writeFile(

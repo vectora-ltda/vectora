@@ -778,6 +778,19 @@ async function isAutoUpdateEnabled(): Promise<boolean> {
   return prefs?.autoUpdateEnabled !== false;
 }
 
+async function fetchPackagedChangelog(fallback: string): Promise<string> {
+  try {
+    const payload = await fetchBackendJson<{ notes?: string }>(
+      backendTransport(),
+      "/api/updates/changelog",
+    );
+    return fallback || payload?.notes?.trim() || "";
+  } catch (error) {
+    console.warn("[updater] não foi possível carregar o changelog", error);
+    return fallback;
+  }
+}
+
 /**
  * Registra os listeners do `electron-updater` e propaga o estado pro
  * renderer via `vectora:update-status` (consumido em `UpdateBanner`,
@@ -818,6 +831,11 @@ function setupAutoUpdater(): void {
       );
     });
     broadcast({ state: "available", message: info.version, changelog: notes });
+    void fetchPackagedChangelog(notes).then((changelog) => {
+      if (changelog) {
+        broadcast({ state: "available", changelog });
+      }
+    });
     void startUpdateDownload().catch((error: unknown) => {
       broadcast({
         state: "error",

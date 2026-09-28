@@ -29,6 +29,7 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  existsSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -51,6 +52,10 @@ const CONTENT_TYPES: Record<string, string> = {
 // esse padrão — tratados à parte via MANIFEST_OS abaixo.
 export const INSTALLER_RE =
   /^Vectora-(?<version>[^-]+)-(?<os>win|mac|linux)-(?<arch>x64|x86_64|amd64|arm64|universal)\.(?<ext>exe|msi|dmg|AppImage|deb|rpm)$/;
+
+/** Blockmaps are required for electron-updater differential downloads. */
+export const BLOCKMAP_RE =
+  /^Vectora-(?<version>[^-]+)-(?<os>win|mac|linux)-(?<arch>x64|x86_64|amd64|arm64|universal)\.(?<ext>exe|msi|dmg|AppImage|deb|rpm)\.blockmap$/;
 
 /** Electron-builder uses several spellings for the x64 Linux architecture. */
 export function normalizeInstallerArch(
@@ -97,6 +102,7 @@ export interface ArchManifest {
   path: string;
   sha512: string;
   releaseDate: string;
+  releaseNotes?: string;
 }
 
 export function sha512Base64(filePath: string): string {
@@ -146,6 +152,7 @@ export function buildArchManifest(
   version: string,
   installerPath: string,
   installerFilename: string,
+  releaseNotes?: string,
 ): ArchManifest {
   const sha512 = sha512Base64(installerPath);
   const size = statSync(installerPath).size;
@@ -155,7 +162,30 @@ export function buildArchManifest(
     path: installerFilename,
     sha512,
     releaseDate: new Date().toISOString(),
+    ...(releaseNotes?.trim() ? { releaseNotes: releaseNotes.trim() } : {}),
   };
+}
+
+/**
+ * Reads the first release section from the packaged changelog. The release
+ * manifest carries this text because an installed app cannot read the next
+ * version's local CHANGELOG.md before downloading it.
+ */
+export function readReleaseNotes(
+  changelogPath = join(__dirname, "..", "..", "vectora", "CHANGELOG.md"),
+): string {
+  if (!existsSync(changelogPath)) return "";
+  const lines = readFileSync(changelogPath, "utf8").split(/\r?\n/);
+  const section: string[] = [];
+  let started = false;
+  for (const line of lines) {
+    if (line.startsWith("## ")) {
+      if (started) break;
+      started = true;
+    }
+    if (started) section.push(line);
+  }
+  return section.join("\n").trim();
 }
 
 // Quantas versões ficam disponíveis em R2 por canal. A poda apaga pelas
@@ -473,6 +503,7 @@ export function selectManifestInstaller(
 async function main(): Promise<void> {
   const { channel, version, dist } = parseArgs(process.argv.slice(2));
   const bucket = "vectora-r2";
+  const releaseNotes = readReleaseNotes();
 
   const files = readdirSync(dist).filter(
     (f) => !f.endsWith(".yml.tmp") && !f.startsWith("."),
@@ -495,6 +526,7 @@ async function main(): Promise<void> {
           version,
           installer.path,
           installer.filename,
+          releaseNotes,
         );
         const key = `${channel}/${manifestOs}/${arch}/${version}/latest.yml`;
         await uploadBuffer(
@@ -508,8 +540,19 @@ async function main(): Promise<void> {
       continue;
     }
 
+    const blockmap = BLOCKMAP_RE.exec(file);
+    if (blockmap?.groups) {
+      const { version: blockmapVersion, os, arch: rawArch } = blockmap.groups;
+      if (blockmapVersion !== version) continue;
+      const arch = normalizeInstallerArch(rawArch);
+      const key = `${channel}/${os}/${arch}/${version}/${file}`;
+      await uploadFile(bucket, key, join(dist, file), CONTENT_TYPES.blockmap);
+      uploadedKeys.push(key);
+      continue;
+    }
+
     const match = INSTALLER_RE.exec(file);
-    if (!match?.groups) continue; // blockmap e outros artefatos auxiliares — não distribuídos
+    if (!match?.groups) continue;
     const { version: installerVersion, os, arch: rawArch } = match.groups;
     const arch = normalizeInstallerArch(rawArch);
     // Mesmo filtro de indexInstallersByOsArch — um instalador de release
