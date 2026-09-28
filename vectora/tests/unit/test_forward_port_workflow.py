@@ -81,8 +81,9 @@ def test_release_please_uses_trusted_config_for_branch_gate() -> None:
     workflow = WORKFLOW.parent / "release-please.yml"
     content = workflow.read_text(encoding="utf-8")
 
-    assert "ref: ${{ github.ref_name }}" in content
-    assert "github.event.repository.default_branch" not in content
+    assert "github.event.repository.default_branch" in content
+    assert "startsWith(github.ref, 'refs/tags/v')" in content
+    assert "target-branch:" in content
     assert ".github/release-lines.json" in content
     assert '"release/**"' in content
     assert 'echo "enabled=false" >> "$GITHUB_OUTPUT"' in content
@@ -119,7 +120,6 @@ def test_release_rotation_workflow_declares_release_entrypoint() -> None:
     assert "github-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}" in content
     assert "compareCommits" in content
     assert "gh pr create" not in content
-    assert "activate_release_line.py" not in content
 
 
 def test_release_rotation_verifies_tag_ancestry() -> None:
@@ -177,3 +177,24 @@ def test_app_and_edge_workflows_cobrem_todas_as_linhas_de_manutencao() -> None:
     for name in ("edge.yml", "vectora.yml"):
         content = (WORKFLOW.parent / name).read_text(encoding="utf-8")
         assert 'branches: [master, "release/**"]' in content
+
+
+def test_app_release_is_built_before_tag_and_tags_do_not_start_the_app_pipeline() -> (
+    None
+):
+    """A tag is emitted only after distribution; tags must not retrigger the app build."""
+    content = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
+
+    assert 'tags: ["v*"]' not in content
+    assert (
+        "contains(github.event.head_commit.message, 'chore(master): release ')"
+        in content
+    )
+    assert "tag-release:" in content
+    assert (
+        "needs: [release-native, publish-update-channel, publish-gha-bot-cli]"
+        in content
+    )
+    assert 'git push origin "$TAG"' in content
+    assert "gh release create" in content
+    assert "--publish never" in content

@@ -1,15 +1,17 @@
 name: Release Please
 
-# Cada linha de release é calculada a partir do próprio branch. O alvo
-# explícito mantém o manifest e o changelog no histórico correto; mesclar a PR
-# criada pelo Release Please continua sendo a decisão que cria a tag e inicia
-# a entrega daquela linha.
+# Cada linha de release é calculada a partir do branch confiável. A PR de
+# release atualiza manifesto e changelog; a tag só é criada pelo pipeline do
+# app depois que a distribuição termina com sucesso. Essa tag dispara este
+# workflow para preparar a próxima versão.
 
 on:
   push:
     branches:
       - master
       - "release/**"
+    tags:
+      - "v*"
 
 concurrency:
   group: release-please-${{ github.ref_name }}
@@ -21,18 +23,26 @@ permissions:
 
 jobs:
   release-please:
+    # O push que mescla uma PR de release aguarda o build/distribuição do app.
+    # A tag criada por vectora.yml é o evento que libera esta automação.
+    if: >-
+      github.event_name == 'push' &&
+      (startsWith(github.ref, 'refs/tags/v') ||
+      !contains(github.event.head_commit.message, 'chore(master): release '))
     runs-on: ubuntu-24.04
     steps:
       - name: Load release line configuration
         id: release-lines
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
           token: ${{ github.token }}
           persist-credentials: false
       - name: Select configured release line
         id: release-line
         shell: bash
+        env:
+          TARGET_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
         run: |
           set -euo pipefail
           if [[ ! -f .github/release-lines.json ]]; then
@@ -51,9 +61,9 @@ jobs:
           maintenance_branch="$(jq -er '.maintenance.branch' .github/release-lines.json)"
           development_milestone="$(jq -er '.development.milestone' .github/release-lines.json)"
           maintenance_milestone="$(jq -er '.maintenance.milestone' .github/release-lines.json)"
-          if [[ "$GITHUB_REF_NAME" == "$development_branch" ]]; then
+          if [[ "$TARGET_BRANCH" == "$development_branch" ]]; then
             line_key="development"
-          elif [[ "$GITHUB_REF_NAME" == "$maintenance_branch" ]]; then
+          elif [[ "$TARGET_BRANCH" == "$maintenance_branch" ]]; then
             line_key="maintenance"
           else
             line_key=""
@@ -82,7 +92,7 @@ jobs:
             echo "manifest_file=$manifest_file"
           } >> "$GITHUB_OUTPUT"
           if [[ "$(grep '^enabled=' "$GITHUB_OUTPUT" | tail -n 1)" == "enabled=false" ]]; then
-            echo "Skipping release-please on unconfigured branch $GITHUB_REF_NAME."
+            echo "Skipping release-please on unconfigured branch $TARGET_BRANCH."
           fi
       - uses: googleapis/release-please-action@v5
         if: steps.release-line.outputs.enabled == 'true'
@@ -91,7 +101,7 @@ jobs:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           config-file: ${{ steps.release-line.outputs.config_file }}
           manifest-file: ${{ steps.release-line.outputs.manifest_file }}
-          target-branch: ${{ github.ref_name }}
+          target-branch: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
           # O Release Please deve manter `autorelease: pending`: a validação
           # do branch confiável e a exceção de milestone dependem desse label.
 
@@ -102,7 +112,7 @@ jobs:
         id: release-branch
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          TARGET_BRANCH: ${{ github.ref_name }}
+          TARGET_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
           REPOSITORY: ${{ github.repository }}
         shell: bash
         run: |
@@ -152,7 +162,7 @@ jobs:
       - name: Align release lines in the Release Please PR
         if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
         env:
-          TARGET_BRANCH: ${{ github.ref_name }}
+          TARGET_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
         run: |
           uv run --project vectora python utils/prepare_release_line_config.py \
             vectora/CHANGELOG.md \

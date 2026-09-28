@@ -4,21 +4,15 @@ name: Vectora (app)
 #
 # Fluxo PR-based: lint/security/frontend/build/testes rodam sempre — em
 # todo PR contra master e em todo push em master (merge de PR) — sem gate
-# manual. O que continua caro e gated é só a matriz de release nativa
-# (Nuitka/Electron, macOS 10x + Windows 2x o custo de minutos): só dispara
-# numa tag "v*" real (criada por release-please.yml quando o usuário
-# mescla o PR de release acumulado) ou por workflow_dispatch manual —
-# nunca em PR nem em push comum de master.
+# manual. A matriz nativa de release só roda no commit de uma PR de release
+# já mergeada em master (ou por workflow_dispatch manual). A própria matriz
+# publica os artefatos; a tag só é criada após a distribuição concluir.
 # `paths` restringe esse pipeline (caro: lint+security+frontend+build+testes)
 # a mudanças que realmente afetam o app Vectora — company/services/docs têm
 # ciclo próprio (.github/workflows/edge.yml), rodar os dois juntos em todo PR
-# era desperdício de minutos de CI e ruído de check irrelevante. Tag "v*" cai
-# no mesmo filtro sem risco: o commit que a tag aponta é sempre o bump de
-# versão do release-please em vectora/pyproject.toml, que já bate no path.
 on:
   push:
     branches: [master, "release/**"]
-    tags: ["v*"]
     paths:
       - "vectora/**"
       - "utils/**"
@@ -368,7 +362,8 @@ jobs:
       (github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/master') ||
       (github.event_name == 'push' &&
-      startsWith(github.ref, 'refs/tags/v'))
+      github.ref == 'refs/heads/master' &&
+      contains(github.event.head_commit.message, 'chore(master): release '))
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.value }}
@@ -391,15 +386,9 @@ jobs:
           echo "value=$CHANNEL" >> "$GITHUB_OUTPUT"
 
   # ── 6. Release Native Binaries (Nuitka onefile + Electron installers) ───
-  # Matriz cara: macOS (multiplicador 10x de minutos) e Windows (2x). Por
-  # isso roda SÓ numa tag "v*" real (criada por release-please.yml quando o
-  # usuário mescla o PR de release acumulado) ou disparo manual
-  # (workflow_dispatch) — nunca em PR nem em push comum de master. Publicar
-  # é o propósito de rodar essa matriz de qualquer forma: sempre que ela
-  # roda (por qualquer um dos dois gatilhos), a GitHub Release
-  # (--publish always) e o canal de update (R2/KV, job publish-update-channel
-  # abaixo) são publicados juntos — não há um terceiro estado de "buildar sem
-  # publicar".
+  # A matriz roda no commit de release já mergeado em master. A publicação
+  # externa e a tag só acontecem depois que todos os artefatos passam nesta
+  # matriz e nos jobs de distribuição abaixo.
   release-native:
     name: Release native (${{ matrix.target }}/${{ matrix.arch }})
     needs: [test-unit, test-external, release-channel]
@@ -407,7 +396,8 @@ jobs:
       (github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/master') ||
       (github.event_name == 'push' &&
-      startsWith(github.ref, 'refs/tags/v'))
+      github.ref == 'refs/heads/master' &&
+      contains(github.event.head_commit.message, 'chore(master): release '))
     env:
       # Nuitka escolhe clang/gcc + ccache no Linux/macOS, MSVC + clcache
       # (vendorizado dentro do próprio pacote nuitka) no Windows — cada um lê
@@ -594,7 +584,7 @@ jobs:
         run: |
           pnpm --dir frontend install --frozen-lockfile
           pnpm --dir frontend run electron:build
-          pnpm --dir frontend exec electron-builder --config electron/electron-builder.yml --${{ matrix.target }} --publish always
+          pnpm --dir frontend exec electron-builder --config electron/electron-builder.yml --${{ matrix.target }} --publish never
       - name: Upload installers
         uses: actions/upload-artifact@v7
         with:
@@ -624,7 +614,8 @@ jobs:
       (github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/master') ||
       (github.event_name == 'push' &&
-      startsWith(github.ref, 'refs/tags/v'))
+      github.ref == 'refs/heads/master' &&
+      contains(github.event.head_commit.message, 'chore(master): release '))
     runs-on: ubuntu-24.04
     concurrency:
       group: vectora-production-update-channel
@@ -678,7 +669,8 @@ jobs:
       (github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/master') ||
       (github.event_name == 'push' &&
-      startsWith(github.ref, 'refs/tags/v'))
+      github.ref == 'refs/heads/master' &&
+      contains(github.event.head_commit.message, 'chore(master): release '))
     runs-on: ubuntu-24.04
     environment:
       name: production
@@ -719,3 +711,79 @@ jobs:
           aws s3 cp vectora-cli-linux-x64.tar.gz \
             "s3://vectora-r2/gha-bot/${{ steps.version.outputs.value }}/vectora-cli-linux-x64.tar.gz" \
             --endpoint-url "https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+
+  # ── 9. Create the tag and GitHub Release after distribution ─────────────
+  # O commit da PR de release só vira uma versão publicada depois que os
+  # testes, instaladores e canais de atualização terminarem com sucesso.
+  # Este job é o único responsável por criar a tag; a tag então aciona o
+  # workflow do Release Please para preparar a próxima PR.
+  tag-release:
+    name: Tag and publish release
+    needs: [release-native, publish-update-channel, publish-gha-bot-cli]
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/master' &&
+      contains(github.event.head_commit.message, 'chore(master): release ')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+      - name: Read released version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(grep -m1 '^version = ' vectora/pyproject.toml | sed -E 's/version = "(.*)"/\1/')
+          test -n "$version"
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+      - name: Download desktop installers
+        uses: actions/download-artifact@v8
+        with:
+          pattern: vectora-*
+          path: dist-release
+          merge-multiple: true
+      - name: Download CLI artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: gha-bot-cli-linux-x64
+          path: dist-release/gha-bot-cli
+      - name: Create tag after successful distribution
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            test "$(git rev-list -n1 "$TAG")" = "$GITHUB_SHA"
+          else
+            git tag -a "$TAG" "$GITHUB_SHA" -m "Vectora ${{ steps.version.outputs.value }}"
+            git push origin "$TAG"
+          fi
+      - name: Create GitHub Release and attach binaries
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.value }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Vectora $VERSION" \
+              --generate-notes
+          fi
+          mapfile -t assets < <(find dist-release -type f -print)
+          if ((${#assets[@]})); then
+            gh release upload "$TAG" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          fi
