@@ -94,6 +94,8 @@ win:
   target:
     - target: nsis
       arch: [x64, arm64]
+    - target: msi
+      arch: [x64, arm64]
   icon: public/vectora.ico
   # Sem opções de assinatura fixas: o electron-builder assina automaticamente
   # quando CSC_LINK + CSC_KEY_PASSWORD estão no env (CI, cert EV em base64) e
@@ -104,7 +106,7 @@ win:
 mac:
   target:
     - target: dmg
-      arch: [arm64]
+      arch: [x64, arm64]
   # electron-builder gera o .icns a partir de um .svg/.png — .ico não é
   # aceito nesse pipeline (icon-tool.js só lê .png/.svg/.icns).
   icon: public/vectora.svg
@@ -137,7 +139,7 @@ linux:
     - target: deb
       arch: [x64, arm64]
     - target: rpm
-      arch: [x64]
+      arch: [x64, arm64]
   icon: public/favicon-600x600.png
   category: Development
   # electron-builder 26: as chaves do .desktop ficam sob `desktop.entry`.
