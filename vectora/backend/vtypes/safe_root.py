@@ -29,3 +29,7 @@ class SafeRoot(BaseModel):
         description="True para entradas que o Vectora cria por padrão "
         "(ex.: ~/Documents/vectora). Builtins não podem ser removidos.",
     )
+    archived_at: str | None = Field(
+        default=None,
+        description="Timestamp ISO 8601 em que a raiz foi arquivada.",
+    )

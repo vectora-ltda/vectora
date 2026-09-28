@@ -1,6 +1,6 @@
 name: PR Checks
 
-# Roda em todo PR contra master: aplica labels automáticas por conventional
+# Roda em todo PR contra uma linha de desenvolvimento suportada: aplica labels automáticas por conventional
 # commit/path (.github/labeler.yml) e valida que o TÍTULO do PR segue
 # Conventional Commits — o título vira o commit de squash-merge, que
 # release-please.yml lê pra decidir o bump de versão e a seção do
@@ -10,8 +10,18 @@ name: PR Checks
 
 on:
   pull_request:
-    types: [opened, edited, synchronize, reopened]
-    branches: [master]
+    types:
+      [
+        opened,
+        edited,
+        synchronize,
+        reopened,
+        milestoned,
+        demilestoned,
+        labeled,
+        unlabeled,
+      ]
+    branches: ["**"]
 
 concurrency:
   group: pr-checks-${{ github.event.pull_request.number }}
@@ -21,9 +31,28 @@ permissions:
   contents: read
 
 jobs:
+  migration-tests:
+    name: Testes das linhas de release
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-uv
+        with:
+          python-version: "3.13"
+          all-extras: "false"
+          working-directory: vectora
+      - name: Executa testes das utilidades de release
+        run: >-
+          uv run --project vectora pytest -q
+          utils/test_rotate_release_lines.py
+          utils/test_prepare_release_line_config.py
+          utils/test_select_release_line.py
+
   labeler:
     name: Label PR
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       pull-requests: write
     steps:
@@ -33,7 +62,7 @@ jobs:
 
   commitlint:
     name: Verify PR title (Conventional Commits)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       pull-requests: write
     steps:
@@ -62,7 +91,7 @@ jobs:
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
       - if: failure()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const message = `**Título do PR fora do padrão**
@@ -95,7 +124,7 @@ jobs:
     # Comentar no PR exige escrita; quem comenta é o job trusted em
     # pr-checks-comment.yml (workflow_run, contexto do branch base) — nunca
     # o job que processa dado da PR direto.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:

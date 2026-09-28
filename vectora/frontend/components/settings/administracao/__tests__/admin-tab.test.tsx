@@ -150,4 +150,46 @@ describe("SafeRootsPanel — seletor nativo de pasta", () => {
       screen.queryByRole("button", { name: /escolher pasta/i }),
     ).not.toBeInTheDocument();
   });
+
+  it("mostra falha ao restaurar e não recarrega a lista quando a API responde erro", async () => {
+    vi.stubGlobal("vectora", undefined);
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/admin/safe-roots" && !init) {
+        return new Response(
+          JSON.stringify({
+            roots: [
+              {
+                id: "root-archived",
+                path: "/tmp/archived",
+                label: "Arquivada",
+                builtin: false,
+                created_at: "2026-01-01T00:00:00Z",
+                created_by: "admin",
+                archived_at: "2026-01-02T00:00:00Z",
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url === "/admin/safe-roots/root-archived/restore") {
+        return new Response(JSON.stringify({ detail: "disco indisponível" }), {
+          status: 503,
+        });
+      }
+      return new Response("{}", { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<SafeRootsPanel />);
+    await screen.findByTestId("safe-root-root-archived");
+    fireEvent.click(screen.getByRole("button", { name: /restaurar/i }));
+
+    expect(await screen.findByText("disco indisponível")).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url, init]) => url === "/admin/safe-roots" && !init,
+      ),
+    ).toHaveLength(1);
+  });
 });

@@ -1,5 +1,5 @@
 """Memory Buckets — download/publish de buckets RAG pré-vetorizados
-publicados pela comunidade (`services/src/rag-library/routes.ts`, estende
+publicados pela comunidade (`services/src/memory-buckets/routes.ts`, estende
 o mesmo catálogo já usado pelas bibliotecas de código first-party).
 
 Download é sempre grátis (decisão de produto) — sem gate de tier/quota.
@@ -21,7 +21,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_RAG_LIBRARY_URL = "https://services.vectora.company/rag-library"
+DEFAULT_MEMORY_BUCKETS_URL: str = "https://services.vectora.company/memory-buckets"
 HTTP_TIMEOUT = 30.0
 
 
@@ -30,30 +30,28 @@ class MemoryBucketsError(RuntimeError):
     falha de rede/publicação. Nunca mistura dimensões de vetor silenciosamente."""
 
 
-def _rag_library_url() -> str:
-    return os.getenv("VECTORA_RAG_LIBRARY_URL", DEFAULT_RAG_LIBRARY_URL).strip()
+def _memory_buckets_url() -> str:
+    candidates = (
+        os.getenv("VECTORA_MEMORY_BUCKETS_URL"),
+        os.getenv("VECTORA_RAG_LIBRARY_URL"),
+        DEFAULT_MEMORY_BUCKETS_URL,
+    )
+    return next(value.strip() for value in candidates if value and value.strip())
 
 
 async def list_catalog(q: str | None = None) -> list[dict]:
     """Lista o catálogo da Memory Buckets, opcionalmente filtrado por `q`
-    (repassado direto pro Worker — `services/src/rag-library/routes.ts`
+    (repassado direto pro Worker — `services/src/memory-buckets/routes.ts`
     já faz `LIKE` sobre nome/descrição). Degrada para lista vazia em
     qualquer falha de rede — nunca propaga exceção pro handler HTTP (a
     seção da Library trata lista vazia como estado vazio, não erro)."""
-    base_url = _rag_library_url().rstrip("/")
+    base_url = _memory_buckets_url().rstrip("/")
     params = {"q": q} if q else None
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            # Versões antigas do Worker aceitavam apenas a barra final;
-            # versões atuais aceitam a raiz sem ela. Tente ambas para que
-            # uma atualização gradual nunca derrube o catálogo no desktop.
-            for url in (f"{base_url}/", base_url):
-                resp = await client.get(url, params=params)
-                if resp.status_code == 404 and url.endswith("/"):
-                    continue
-                resp.raise_for_status()
-                return resp.json()
-            raise RuntimeError("Memory Buckets retornou 404 nas duas rotas")
+            resp = await client.get(base_url, params=params)
+            resp.raise_for_status()
+            return resp.json()
     except Exception as exc:
         logger.warning("memory_buckets: falha ao consultar catálogo — %s", exc)
         return []
@@ -94,7 +92,7 @@ async def download_memory_bucket(
         async with httpx.AsyncClient(
             timeout=HTTP_TIMEOUT, follow_redirects=True
         ) as client:
-            resp = await client.get(f"{_rag_library_url()}/{bucket_id}/download")
+            resp = await client.get(f"{_memory_buckets_url()}/{bucket_id}/download")
             resp.raise_for_status()
             archive_bytes = resp.content
     except Exception as exc:
@@ -131,7 +129,7 @@ async def publish_memory_bucket(
 ) -> str:
     """Empacota o bucket local `bucket_id` (uma tabela LanceDB isolada,
     `backend/services/rag_buckets.py`) num tar.gz e publica via
-    `POST /rag-library/publish`. Retorna o `id` do bucket recém-publicado
+    `POST /memory-buckets/publish`. Retorna o `id` do bucket recém-publicado
     na Memory Buckets (sempre `verified=false` até curadoria manual) —
     distinto do `bucket_id` local que originou a publicação.
     """
@@ -158,7 +156,7 @@ async def publish_memory_bucket(
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
             resp = await client.post(
-                f"{_rag_library_url()}/publish",
+                f"{_memory_buckets_url()}/publish",
                 headers={"Authorization": f"Bearer {session_token}"},
                 data={
                     "name": name,
@@ -179,7 +177,9 @@ async def publish_memory_bucket(
 
     remote_bucket_id = data.get("id")
     if not remote_bucket_id:
-        raise MemoryBucketsError("Resposta inesperada do rag-library/publish (sem id).")
+        raise MemoryBucketsError(
+            "Resposta inesperada do memory-buckets/publish (sem id)."
+        )
     logger.info(
         "memory_buckets: bucket %s publicado como %s", bucket_id, remote_bucket_id
     )

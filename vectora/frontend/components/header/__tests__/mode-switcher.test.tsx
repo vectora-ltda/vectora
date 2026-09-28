@@ -79,11 +79,11 @@ describe("ModeSwitch — cor por modo ativo", () => {
     });
   });
 
-  it("modo kanban ativo ganha classe âmbar", async () => {
+  it("modo kanban ativo ganha classe verde", async () => {
     useSettingsStore.getState().setUiMode("kanban");
     await montar();
     const botao = screen.getByRole("button", { name: /kanban/i });
-    expect(botao.className).toContain("amber");
+    expect(botao.className).toContain("git-success");
   });
 
   it("modo assistente ativo ganha classe azul", async () => {
@@ -97,7 +97,7 @@ describe("ModeSwitch — cor por modo ativo", () => {
     useSettingsStore.getState().setUiMode("kanban");
     await montar();
     const botao = screen.getByRole("button", { name: /ide/i });
-    expect(botao.className).not.toContain("amber");
+    expect(botao.className).not.toContain("git-success");
     expect(botao.className).not.toContain("blue");
     expect(botao.className).not.toContain("violet");
   });

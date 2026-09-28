@@ -76,6 +76,7 @@ class LoopConfig:
     loop_caps: LoopCapConfig = field(default_factory=LoopCapConfig)
     context_max_tokens: int | None = None
     context_compaction_enabled: bool = True
+    run_id: str | None = None
     """Tetos de volume por turno (`backend/engine/guardrails.py`) —
     distintos de `max_iterations` (teto de voltas do loop): aqui é volume
     de tool calls/subagentes/AITL, não repetição nem número de idas e
@@ -310,7 +311,7 @@ async def run_conversation(
             finish_reason="tool_calls" if tool_calls else "stop",
         )
         parent_id = await session_store.append_message(
-            thread_id, assistant_msg, parent_message_id=parent_id
+            thread_id, assistant_msg, parent_message_id=parent_id, run_id=config.run_id
         )
         await emit(MessageBreak())
 

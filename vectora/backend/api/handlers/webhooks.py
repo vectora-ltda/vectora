@@ -447,12 +447,19 @@ async def receive_webhook(provider: str, request: Request) -> Response:
 
     # Verificação de assinatura
     verifier_cfg = _VERIFIERS.get(provider)
-    if verifier_cfg:
-        env_var, verify_fn = verifier_cfg
-        secret = os.environ.get(env_var, "")
-        if secret and not verify_fn(body, headers, secret):
-            logger.warning("webhook: assinatura inválida provider=%s", provider)
-            raise HTTPException(status_code=401, detail="Assinatura inválida")
+    if verifier_cfg is None:
+        logger.error("webhook: verifier não configurado provider=%s", provider)
+        raise HTTPException(
+            status_code=503, detail="Webhook não configurado para este provider"
+        )
+    env_var, verify_fn = verifier_cfg
+    secret = os.environ.get(env_var, "").strip()
+    if not secret:
+        logger.error("webhook: secret ausente provider=%s env=%s", provider, env_var)
+        raise HTTPException(status_code=503, detail="Webhook sem secret configurado")
+    if not verify_fn(body, headers, secret):
+        logger.warning("webhook: assinatura inválida provider=%s", provider)
+        raise HTTPException(status_code=401, detail="Assinatura inválida")
 
     # Parse do payload
     try:

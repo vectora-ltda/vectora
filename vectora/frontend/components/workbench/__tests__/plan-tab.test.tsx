@@ -11,6 +11,7 @@ import {
   screen,
   cleanup,
   fireEvent,
+  waitFor,
   within,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -157,6 +158,48 @@ describe("PlanTab — Tasks (write_todos) dentro do Accordion", () => {
 });
 
 describe("PlanTab — Accordion multi-item", () => {
+  it("publica atualização terminal quando o conteúdo do artifact falha", async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes("/artifacts/") && !url.includes("/artifacts/?")) {
+        return Promise.reject(new Error("artifact indisponível"));
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ artifacts: [] }),
+      });
+    });
+    const threadId = "t-artifact-error";
+    const item = {
+      title: "Artifact com falha",
+      path: "/falha.md",
+      session_id: threadId,
+      created_at: "2025-01-01",
+    };
+    useWorkbenchStore.getState().setPlanItems(threadId, [item]);
+    const onOpenPlanDocument = vi.fn();
+
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <PlanTab threadId={threadId} onOpenPlanDocument={onOpenPlanDocument} />
+      </QueryClientProvider>,
+    );
+    await screen.findByRole("button", { name: /Artifact com falha/ });
+
+    openAccordionItem(/Artifact com falha/);
+
+    await waitFor(() => {
+      expect(onOpenPlanDocument).toHaveBeenLastCalledWith(
+        item,
+        null,
+        m.workbench_git_operation_failed(),
+        "update",
+      );
+    });
+    expect(
+      onOpenPlanDocument.mock.calls.some(([, , , phase]) => phase === "update"),
+    ).toBe(true);
+  });
+
   it("todos os títulos viram AccordionTrigger (botões clicáveis)", async () => {
     const threadId = "t-accordion-1";
     useWorkbenchStore.getState().setPlanItems(threadId, [

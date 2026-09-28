@@ -51,7 +51,7 @@ def test_pyproject_version_bate_com_frontend_package_json() -> None:
     instalador e o conteúdo do latest.yml de frontend/package.json, não de
     pyproject.toml — se os dois divergirem, o instalador publicado mente sua
     própria versão e o electron-updater recusa a atualização real como
-    "downgrade". Sem release-please-config.json::extra-files sincronizando
+    "downgrade". Sem release-please-config.development.json::extra-files sincronizando
     os dois, esse teste é o único jeito de pegar a divergência antes do
     build de produção."""
     pyproject: dict[str, dict[str, str]] = tomllib.loads(
@@ -73,7 +73,7 @@ def test_release_please_config_sincroniza_todos_os_arquivos_de_versao() -> None:
     acima (pyproject.toml vs frontend/package.json) volta a falhar na
     release seguinte — o mesmo vale pra services/company ficarem pra trás.
 
-    release-please-config.json rastreia o monorepo INTEIRO como um único
+    release-please-config.development.json rastreia o monorepo INTEIRO como um único
     pacote (chave "." — path é interpretado literalmente pelo release-please,
     não é um nome arbitrário; uma chave "vectora" faria o path virar
     `vectora/`, restringindo commits contados só àquela pasta). Os paths de
@@ -83,7 +83,9 @@ def test_release_please_config_sincroniza_todos_os_arquivos_de_versao() -> None:
     entrada (ex.: company/package.json parar de ser sincronizado) precisa
     quebrar este teste, não só a adição de uma nova passar despercebida."""
     config: _ReleasePleaseConfig = json.loads(
-        (_MONOREPO_ROOT / "release-please-config.json").read_text(encoding="utf-8")
+        (_MONOREPO_ROOT / "release-please-config.development.json").read_text(
+            encoding="utf-8"
+        )
     )
     extra_files: list[_ExtraFile] = config["packages"]["."].get("extra-files", [])
     paths: set[str] = {entry["path"] for entry in extra_files}
@@ -120,3 +122,62 @@ def test_release_please_config_sincroniza_todos_os_arquivos_de_versao() -> None:
         "company/package.json",
         "vectora/uv.lock",
     }
+
+
+def test_release_please_separa_bump_de_desenvolvimento_e_manutencao() -> None:
+    """A linha master avança minor antes de 1.0 e a manutenção avança patch."""
+    development = json.loads(
+        (_MONOREPO_ROOT / "release-please-config.development.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    maintenance = json.loads(
+        (_MONOREPO_ROOT / "release-please-config.maintenance.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert development["bump-minor-pre-major"] is True
+    assert development["bump-patch-for-minor-pre-major"] is False
+    assert "release-as" not in development
+    development_manifest = json.loads(
+        (_MONOREPO_ROOT / ".release-please-manifest.development.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert re.fullmatch(r"\d+\.\d+\.\d+", development_manifest["."])
+    assert maintenance["bump-minor-pre-major"] is True
+    assert maintenance["bump-patch-for-minor-pre-major"] is True
+
+
+def test_active_lines_do_not_propose_same_tag_for_fixes() -> None:
+    """Uma correção da manutenção não pode colidir com o release minor de master."""
+    maintenance_manifest = json.loads(
+        (_MONOREPO_ROOT / ".release-please-manifest.maintenance.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    development_config = json.loads(
+        (_MONOREPO_ROOT / "release-please-config.development.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    maintenance_config = json.loads(
+        (_MONOREPO_ROOT / "release-please-config.maintenance.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    development_manifest = json.loads(
+        (_MONOREPO_ROOT / ".release-please-manifest.development.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    development_version = development_manifest["."]
+    maintenance_major, maintenance_minor, maintenance_patch = map(
+        int, maintenance_manifest["."].split(".")
+    )
+    maintenance_version = (
+        f"{maintenance_major}.{maintenance_minor}.{maintenance_patch + 1}"
+    )
+    assert maintenance_config["bump-patch-for-minor-pre-major"] is True
+    assert development_version != maintenance_version

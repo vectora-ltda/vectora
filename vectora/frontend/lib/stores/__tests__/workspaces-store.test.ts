@@ -9,6 +9,10 @@ import { describe, expect, it, beforeEach, vi, type Mock } from "vitest";
 import { useWorkspacesStore, type WorkspaceInfo } from "../workspaces-store";
 import { useToastStore } from "../toast-store";
 import { fetchJsonWithRetry } from "@/lib/utils/fetch-retry";
+import {
+  getBrowserSession,
+  setBrowserSession,
+} from "@/lib/browser-session-store";
 
 vi.mock("@/lib/utils/fetch-retry", async (importActual) => {
   const actual = await importActual<typeof import("@/lib/utils/fetch-retry")>();
@@ -88,6 +92,115 @@ describe("workspaces-store — leitura pura", () => {
     expect(useWorkspacesStore.getState().fetchedAt).toBeGreaterThan(0);
     useWorkspacesStore.getState().invalidate();
     expect(useWorkspacesStore.getState().fetchedAt).toBeNull();
+  });
+});
+
+describe("workspaces-store — transições de conta e concorrência", () => {
+  it("aceita o active_id do servidor quando a seleção local ficou inválida", async () => {
+    useWorkspacesStore.setState({ active_id: "revogado" });
+    retryMock.mockResolvedValueOnce({
+      workspaces: [ws("servidor")],
+      active_id: "servidor",
+    });
+    await useWorkspacesStore.getState().hydrate();
+    expect(useWorkspacesStore.getState().active_id).toBe("servidor");
+  });
+
+  it("reverte uma seleção otimista rejeitada pelo servidor", async () => {
+    useWorkspacesStore.setState({ active_id: "anterior" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ message: "negado" }, false, 403)),
+    );
+    await useWorkspacesStore.getState().setActive("recusado");
+    expect(useWorkspacesStore.getState().active_id).toBe("anterior");
+  });
+
+  it("reverte uma resposta HTTP 200 com status de erro", async () => {
+    useWorkspacesStore.setState({ active_id: "anterior" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ status: "error" })),
+    );
+    await useWorkspacesStore.getState().setActive("inexistente");
+    expect(useWorkspacesStore.getState().active_id).toBe("anterior");
+  });
+
+  it("reverte uma seleção vazia rejeitada pelo servidor", async () => {
+    useWorkspacesStore.setState({ active_id: "anterior" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ status: "error" }, false, 400)),
+    );
+    await useWorkspacesStore.getState().setActive("");
+    expect(useWorkspacesStore.getState().active_id).toBe("anterior");
+  });
+
+  it("reconcilia uma falha de rede com o workspace persistido no servidor", async () => {
+    useWorkspacesStore.setState({ active_id: "anterior" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("offline");
+      }),
+    );
+    retryMock.mockResolvedValueOnce({
+      workspaces: [ws("servidor")],
+      active_id: "servidor",
+    });
+    await useWorkspacesStore.getState().setActive("servidor");
+    expect(useWorkspacesStore.getState().active_id).toBe("servidor");
+  });
+
+  it("preserva o workspace selecionado quando a hidratação termina depois", async () => {
+    let resolveHydrate: ((value: unknown) => void) | undefined;
+    retryMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveHydrate = resolve;
+      }),
+    );
+    const hydration = useWorkspacesStore.getState().hydrate();
+    await Promise.resolve();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ status: "ok" })),
+    );
+    await useWorkspacesStore.getState().setActive("local");
+    resolveHydrate?.({ workspaces: [ws("local")], active_id: "servidor" });
+    await hydration;
+    expect(useWorkspacesStore.getState().workspaces).toHaveLength(1);
+    expect(useWorkspacesStore.getState().active_id).toBe("local");
+  });
+
+  it("preserva a última seleção na corrida A-B-A", async () => {
+    let resolveHydrate: ((value: unknown) => void) | undefined;
+    useWorkspacesStore.setState({ active_id: "a" });
+    retryMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveHydrate = resolve;
+      }),
+    );
+    const hydration = useWorkspacesStore.getState().hydrate();
+    await Promise.resolve();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ status: "ok" })),
+    );
+    await useWorkspacesStore.getState().setActive("b");
+    await useWorkspacesStore.getState().setActive("a");
+    resolveHydrate?.({ workspaces: [ws("a"), ws("b")], active_id: "b" });
+    await hydration;
+    expect(useWorkspacesStore.getState().active_id).toBe("a");
+  });
+
+  it("descarta sessões de navegador ao trocar de conta", () => {
+    useWorkspacesStore.getState().setWorkspaces([ws("antiga")], "antiga");
+    setBrowserSession("antiga:thread", {
+      tabs: [],
+      activeTabId: "",
+    });
+    useWorkspacesStore.getState().resetForUser();
+    expect(getBrowserSession("antiga:thread")).toBeUndefined();
   });
 });
 

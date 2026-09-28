@@ -32,7 +32,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 def _read_relative_nofollow(root: Path, parts: list[str]) -> bytes:
@@ -68,6 +68,7 @@ from backend.api.schemas import (
     ConversationBranchesResponse,
     CreateThreadRequest,
     DeleteThreadRequest,
+    DiffHunk,
     GenerateTitleRequest,
     GenerateTitleResponse,
     GetHistoryRequest,
@@ -309,6 +310,21 @@ async def _get_session_store() -> Any:
     from backend.services import agent_factory
 
     return await agent_factory.get_session_store()
+
+
+async def _is_thread_deleted(thread_id: str) -> bool:
+    """Return whether ``thread_id`` has a durable deletion tombstone.
+
+    The native session row is removed as part of deletion, while historical
+    background runs can remain for audit purposes.  Checking this tombstone
+    before reserving a new session prevents an attacker from reusing an old ID
+    and recovering access to those retained records.
+    """
+    db = await _get_db()
+    async with db.execute(
+        "SELECT 1 FROM deleted_threads WHERE thread_id = ? LIMIT 1", (thread_id,)
+    ) as cursor:
+        return await cursor.fetchone() is not None
 
 
 # ---------------------------------------------------------------------------
@@ -1230,13 +1246,19 @@ async def get_history(request: GetHistoryRequest) -> GetHistoryResponse:
         from backend.services import agent_factory
 
         thread = await get_thread(GetThreadRequest(thread_id=request.thread_id))
-        pairs = await agent_factory.aget_thread_messages(
+        pairs = await agent_factory.aget_thread_messages_with_files(
             request.thread_id,
             workspace_id=thread.workspace_id or None,
         )
         history = [
-            HistoryMessage(role=role, content=text, checkpoint_id=checkpoint_id)
-            for role, text, checkpoint_id, _att in pairs
+            HistoryMessage(
+                role=entry.role,
+                content=entry.text,
+                checkpoint_id=entry.checkpoint_id,
+                attachments=entry.attachments,
+                edited_files=[file.model_dump() for file in entry.edited_files],
+            )
+            for entry in pairs
         ]
         todos = await agent_factory.aget_thread_todos(
             request.thread_id,
@@ -1717,7 +1739,7 @@ async def get_thread_history_paginated(
         thread = await get_thread(
             GetThreadRequest(thread_id=thread_id), http_request=request
         )
-        pairs = await agent_factory.aget_thread_messages(
+        pairs = await agent_factory.aget_thread_messages_with_files(
             thread_id,
             workspace_id=thread.workspace_id or None,
         )
@@ -1740,9 +1762,13 @@ async def get_thread_history_paginated(
 
     messages = [
         HistoryMessage(
-            role=role, content=text, checkpoint_id=checkpoint_id, attachments=att
+            role=entry.role,
+            content=entry.text,
+            checkpoint_id=entry.checkpoint_id,
+            attachments=entry.attachments,
+            edited_files=[file.model_dump() for file in entry.edited_files],
         )
-        for role, text, checkpoint_id, att in page
+        for entry in page
     ]
 
     if offset == 0:
@@ -1857,6 +1883,72 @@ class ActivityResponse(BaseModel):
     turn_count: int
 
 
+class TurnFileChangeResponse(BaseModel):
+    """Arquivo alterado no turno retornado pelo fallback REST."""
+
+    path: str
+    status: str = "M"
+    additions: int = 0
+    deletions: int = 0
+    hunks: list[DiffHunk] = Field(default_factory=list)
+
+
+class TurnFilesChangedResponse(BaseModel):
+    """Snapshot de arquivos editados, com estado do run."""
+
+    run_id: str = ""
+    status: str = "finalized"
+    files: list[TurnFileChangeResponse]
+
+
+@router.get(
+    "/threads/{thread_id}/turn-files/{workspace_id}",
+    response_model=TurnFilesChangedResponse,
+)
+async def latest_turn_files(
+    thread_id: str,
+    workspace_id: str,
+    request: Request,
+    run_id: Annotated[str | None, Query()] = None,
+) -> TurnFilesChangedResponse:
+    """Fallback do cartão de arquivos quando a conexão SSE caiu.
+
+    O estado é indexado pelo workspace porque o stream pode continuar no
+    backend depois de o navegador perder a conexão. ``thread_id`` é mantido
+    na rota para preservar o escopo sem expor dados de outro fluxo futuro.
+    """
+    await _assert_owns_thread(thread_id, request, require_existing=True)
+    from backend.api.handlers.workspaces import require_workspace_access
+
+    require_workspace_access(workspace_id, request)
+    store = await _get_session_store()
+    session = await store.get_session(thread_id)
+    if session is not None and session.get("workspace_id") not in {None, workspace_id}:
+        raise HTTPException(status_code=404, detail="Workspace não pertence à thread")
+    import asyncio
+
+    from backend.api.turn_files import latest
+
+    resolved_run_id, status, files = await asyncio.to_thread(
+        latest, thread_id, workspace_id, run_id
+    )
+
+    return TurnFilesChangedResponse(
+        run_id=resolved_run_id,
+        status=status,
+        files=[
+            TurnFileChangeResponse(
+                path=file.path,
+                status=file.status,
+                additions=file.additions,
+                deletions=file.deletions,
+                hunks=file.hunks,
+            )
+            for file in files
+        ],
+    )
+
+
 @router.get("/threads/{thread_id}/activity", response_model=ActivityResponse)
 async def thread_activity(thread_id: str) -> ActivityResponse:
     """Retorna um resumo da atividade da thread: arquivos modificados e
@@ -1904,7 +1996,9 @@ class PendingInterruptResponse(BaseModel):
     "/threads/{thread_id}/pending-interrupt", response_model=PendingInterruptResponse
 )
 async def thread_pending_interrupt(
-    thread_id: str, workspace_id: str | None = None
+    thread_id: str,
+    request: Request = None,  # ty: ignore[invalid-parameter-default]
+    workspace_id: str | None = None,
 ) -> PendingInterruptResponse:
     """Reidrata o HITLPanel após um reload de página.
 
@@ -1913,6 +2007,8 @@ async def thread_pending_interrupt(
     F5 no meio de uma pausa HITL perdia o card até o usuário mandar mensagem
     nova. Chamado pelo frontend ao montar a sessão.
     """
+    if request is not None:
+        await _assert_existing_thread_ownership(thread_id, request)
     from backend.services.agent_factory import aget_thread_pending_interrupt
 
     pending = await aget_thread_pending_interrupt(thread_id, workspace_id)

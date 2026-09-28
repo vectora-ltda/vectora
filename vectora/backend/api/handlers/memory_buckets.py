@@ -2,11 +2,11 @@
 compartilhados.
 
 Endpoints (montados em server.py):
-    GET  /rag-library/catalog — lista buckets publicados (id, embed_model,
+    GET  /memory-buckets/catalog — lista buckets publicados (id, embed_model,
                                  verified, downloads_count, license, ...)
-    POST /rag-library/install — baixa e instala um bucket como coleção
+    POST /memory-buckets/install — baixa e instala um bucket como coleção
                                  LanceDB isolada (`shared_{bucket_id}`)
-    POST /rag-library/publish — empacota e publica uma coleção local
+    POST /memory-buckets/publish — empacota e publica uma coleção local
 
 Download é sempre grátis (decisão de produto) — sem gate de tier/quota.
 Publicação exige um `session_token` de conta vectora.company — reaproveita
@@ -32,7 +32,7 @@ from backend.services.memory_buckets import list_catalog as _list_catalog
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/rag-library", tags=["memory-library"])
+router = APIRouter(prefix="/memory-buckets", tags=["memory-buckets"])
 
 
 class InstallRequest(BaseModel):

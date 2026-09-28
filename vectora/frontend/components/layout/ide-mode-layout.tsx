@@ -19,8 +19,10 @@ import { useEffect, useState, type ReactNode } from "react";
 import { MessageSquare, PanelsTopLeft, Code2 } from "lucide-react";
 import { useReducedMotion } from "motion/react";
 import { mDyn } from "@/lib/i18n-dyn";
+import { m } from "@/lib/paraglide/messages";
 import { ModeColumnLayout } from "@/components/layout/mode-column-layout";
 import { WorkbenchHost } from "@/components/layout/workbench-host";
+import type { ShellColumnResize } from "@/components/layout/three-column-shell";
 import type { IdeLayoutState } from "@/lib/hooks/use-media-query";
 
 export type IdeMobilePanel = "chat" | "workbench" | "editor";
@@ -49,6 +51,8 @@ interface IdeModeLayoutProps {
   defaultMobilePanel?: IdeMobilePanel;
   /** Estado de visibilidade da workbench, usado para evitar selecionar painel fechado. */
   workbenchOpen?: boolean;
+  /** Reabre a workbench quando ela foi fechada no modo compacto. */
+  onOpenWorkbench?: () => void;
   workbenchSide?: "left" | "right";
   direction?: "ltr" | "rtl";
   workbenchWidth?: number;
@@ -57,6 +61,12 @@ interface IdeModeLayoutProps {
   chatWidth?: number;
   chatMinWidth?: number;
   chatMaxWidth?: number;
+  workbenchResize?: ShellColumnResize;
+  chatResize?: ShellColumnResize;
+  /** Keep the chat column mounted while allowing it to collapse to a rail. */
+  showChat?: boolean;
+  /** Reopens the chat rail after it was collapsed. */
+  onOpenChat?: () => void;
 }
 
 export function IdeModeLayout({
@@ -69,6 +79,7 @@ export function IdeModeLayout({
   chat,
   defaultMobilePanel = "editor",
   workbenchOpen = true,
+  onOpenWorkbench,
   workbenchSide = "left",
   direction = "ltr",
   workbenchWidth,
@@ -77,6 +88,10 @@ export function IdeModeLayout({
   chatWidth,
   chatMinWidth,
   chatMaxWidth,
+  workbenchResize,
+  chatResize,
+  showChat = true,
+  onOpenChat,
 }: IdeModeLayoutProps) {
   const resolvedLayoutState = layoutState ?? (isNarrow ? "mobile" : "wide");
   const [mobilePanel, setMobilePanel] =
@@ -111,11 +126,16 @@ export function IdeModeLayout({
           width: workbenchWidth,
           minWidth: workbenchMinWidth,
           maxWidth: workbenchMaxWidth,
+          resize: workbenchResize,
         }}
         rightColumn={{
           width: chatWidth,
-          minWidth: chatMinWidth,
+          minWidth: showChat ? chatMinWidth : 48,
           maxWidth: chatMaxWidth,
+          resize: chatResize,
+          visibility: showChat ? "visible" : "collapsed",
+          onExpand: onOpenChat ?? (() => undefined),
+          expandLabel: m.layout_open_chat(),
         }}
       />
     );
@@ -141,7 +161,12 @@ export function IdeModeLayout({
               role="tab"
               aria-selected={active}
               data-testid={`ide-mobile-tab-${id}`}
-              onClick={() => setMobilePanel(id)}
+              onClick={() => {
+                if (id === "workbench" && !workbenchOpen) {
+                  onOpenWorkbench?.();
+                }
+                setMobilePanel(id);
+              }}
               className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors ${
                 active
                   ? "bg-muted text-foreground"

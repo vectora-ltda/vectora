@@ -14,16 +14,28 @@ import httpx
 import pytest
 
 from backend.services.memory_buckets import (
+    DEFAULT_MEMORY_BUCKETS_URL,
     MemoryBucketsError,
+    _memory_buckets_url,
     download_memory_bucket,
     list_catalog,
     publish_memory_bucket,
 )
 
 
+def test_memory_buckets_url_ignores_whitespace_only_override(monkeypatch):
+    monkeypatch.setenv("VECTORA_MEMORY_BUCKETS_URL", "   ")
+    monkeypatch.setenv("VECTORA_RAG_LIBRARY_URL", " https://legacy.example/buckets ")
+
+    assert _memory_buckets_url() == "https://legacy.example/buckets"
+
+    monkeypatch.setenv("VECTORA_RAG_LIBRARY_URL", "   ")
+    assert _memory_buckets_url() == DEFAULT_MEMORY_BUCKETS_URL
+
+
 def _catalog_response(entries: list[dict]) -> httpx.Response:
     return httpx.Response(
-        200, json=entries, request=httpx.Request("GET", "https://x/rag-library/")
+        200, json=entries, request=httpx.Request("GET", "https://x/memory-buckets/")
     )
 
 
@@ -78,7 +90,7 @@ async def test_download_compatible_bucket_extracts_into_isolated_collection(
 
     async def _fake_get(self, url, **kwargs):
         call_log.append(url)
-        if url.endswith("/rag-library/"):
+        if url.rstrip("/").endswith("/memory-buckets"):
             return _catalog_response(
                 [{"id": "b1", "embed_model": "embed-multilingual-v3.0", "name": "b1"}]
             )
@@ -185,21 +197,16 @@ async def test_list_catalog_falha_de_rede_devolve_lista_vazia_sem_propagar(
 
 
 @pytest.mark.asyncio
-async def test_list_catalog_faz_fallback_da_rota_com_barra(monkeypatch):
+async def test_list_catalog_consulta_a_rota_memory_buckets(monkeypatch):
     calls: list[str] = []
 
     async def _fake_get(self, url, **kwargs):
         calls.append(url)
-        if url.endswith("/"):
-            return httpx.Response(404, request=httpx.Request("GET", url))
         return _catalog_response([{"id": "legacy", "name": "Legado"}])
 
     monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
     result = await list_catalog()
-    assert calls == [
-        "https://services.vectora.company/rag-library/",
-        "https://services.vectora.company/rag-library",
-    ]
+    assert calls == ["https://services.vectora.company/memory-buckets"]
     assert result == [{"id": "legacy", "name": "Legado"}]
 
 
@@ -257,7 +264,7 @@ async def test_download_com_embed_model_ausente_no_bucket_nao_bloqueia(
     archive = _make_tar_gz({"data.lance": b"conteudo"})
 
     async def _fake_get(self, url, **kwargs):
-        if url.endswith("/rag-library/"):
+        if url.rstrip("/").endswith("/memory-buckets"):
             return _catalog_response([{"id": "legacy", "name": "Legado"}])
         return httpx.Response(200, content=archive, request=httpx.Request("GET", url))
 
@@ -303,7 +310,7 @@ async def test_download_arquivo_corrompido_levanta_erro_tipado_sem_deixar_lixo_p
     # truncado/corrompido na rede) — MemoryBucketsError, nunca uma exceção
     # crua de tarfile propagando pro caller.
     async def _fake_get(self, url, **kwargs):
-        if url.endswith("/rag-library/"):
+        if url.rstrip("/").endswith("/memory-buckets"):
             return _catalog_response(
                 [{"id": "b1", "embed_model": "embed-multilingual-v3.0"}]
             )
@@ -328,7 +335,7 @@ async def test_download_http_404_na_rota_de_download_levanta_erro_claro(
     # Bucket existe no catálogo mas o binário sumiu do storage (R2) —
     # raise_for_status() dispara HTTPStatusError, capturado genericamente.
     async def _fake_get(self, url, **kwargs):
-        if url.endswith("/rag-library/"):
+        if url.rstrip("/").endswith("/memory-buckets"):
             return _catalog_response(
                 [{"id": "b1", "embed_model": "embed-multilingual-v3.0"}]
             )
@@ -446,7 +453,7 @@ async def test_download_truncated_archive_raises_clear_error_not_generic_excepti
     # Erro/borda: resposta HTTP incompleta (tar.gz truncado) — extractall
     # levanta exceção de tarfile, deve virar MemoryBucketsError tipado.
     async def _fake_get(self, url, **kwargs):
-        if url.endswith("/rag-library/"):
+        if url.rstrip("/").endswith("/memory-buckets"):
             return _catalog_response(
                 [{"id": "b1", "embed_model": "embed-multilingual-v3.0", "name": "b1"}]
             )
@@ -468,7 +475,7 @@ async def test_download_truncated_archive_raises_clear_error_not_generic_excepti
 @pytest.mark.asyncio
 async def test_download_empty_response_body_raises_clear_error(tmp_path, monkeypatch):
     async def _fake_get(self, url, **kwargs):
-        if url.endswith("/rag-library/"):
+        if url.rstrip("/").endswith("/memory-buckets"):
             return _catalog_response(
                 [{"id": "b1", "embed_model": "embed-multilingual-v3.0", "name": "b1"}]
             )
@@ -489,7 +496,7 @@ async def test_download_http_error_status_raises_memory_buckets_error(
     tmp_path, monkeypatch
 ):
     async def _fake_get(self, url, **kwargs):
-        if url.endswith("/rag-library/"):
+        if url.rstrip("/").endswith("/memory-buckets"):
             return _catalog_response(
                 [{"id": "b1", "embed_model": "embed-multilingual-v3.0", "name": "b1"}]
             )
@@ -516,7 +523,7 @@ async def test_download_bucket_without_embed_model_skips_compatibility_check(
     archive = _make_tar_gz({"data.lance": b"conteudo"})
 
     async def _fake_get(self, url, **kwargs):
-        if url.endswith("/rag-library/"):
+        if url.rstrip("/").endswith("/memory-buckets"):
             return _catalog_response([{"id": "b1", "name": "b1"}])
         return httpx.Response(200, content=archive, request=httpx.Request("GET", url))
 
@@ -536,7 +543,7 @@ async def test_download_network_error_during_fetch_raises_memory_buckets_error(
     tmp_path, monkeypatch
 ):
     async def _fake_get(self, url, **kwargs):
-        if url.endswith("/rag-library/"):
+        if url.rstrip("/").endswith("/memory-buckets"):
             return _catalog_response(
                 [{"id": "b1", "embed_model": "embed-multilingual-v3.0", "name": "b1"}]
             )

@@ -37,4 +37,13 @@ describe("getMaxPanelWidth", () => {
     });
     expect(getResponsivePanelWidths(preferred, 1444)).toEqual(preferred);
   });
+
+  it("mantém as duas colunas laterais no piso min-w-60", () => {
+    expect(
+      getResponsivePanelWidths(
+        { sidebarWidth: 180, chatSidebarWidth: 200, splitSize: 220 },
+        500,
+      ),
+    ).toEqual({ sidebarWidth: 240, chatSidebarWidth: 240, splitSize: 220 });
+  });
 });

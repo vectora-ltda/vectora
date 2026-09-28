@@ -12,7 +12,7 @@
  * client-side que o backend nunca viu (getHistory 404 → tela "Not Found").
  */
 
-import { useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { markAsNew } from "@/lib/stores/new-thread-registry";
 import {
   markWorkspaceChosen,
@@ -28,12 +28,10 @@ import { safeRandomUUID } from "@/lib/utils/uuid";
  * Gera um novo id de sessão local e consome os sinais one-shot de
  * workspace pré-escolhido antes da navegação (handleConfirmNewChat).
  */
-export function generateLocalNewId(): string {
-  const id = safeRandomUUID();
+function commitNewSessionId(id: string): void {
   markAsNew(id);
   if (consumeWorkspacePreChosen()) markWorkspaceChosen(id);
   if (consumeCreateNewWorkspacePreNav()) markCreateNewWorkspace(id);
-  return id;
 }
 
 /**
@@ -43,19 +41,21 @@ export function generateLocalNewId(): string {
  */
 export function useNewSessionId(routeParam: string): string {
   const isNewRoute = routeParam === "new";
-  const localNewIdRef = useRef("");
-  const previousRouteRef = useRef(routeParam);
-
+  const committedIdRef = useRef("");
   // Router mantém a instância da rota entre /session/:id e /session/new.
-  // Gere o identificador no mesmo render em que a rota muda para "new", para
-  // que histórico, sidebar e o primeiro envio nunca observem o id anterior.
-  if (
-    isNewRoute &&
-    (!localNewIdRef.current || previousRouteRef.current !== "new")
-  ) {
-    localNewIdRef.current = generateLocalNewId();
-  }
-  previousRouteRef.current = routeParam;
+  // O valor é puro e estável por parâmetro; os registros globais só são
+  // atualizados no efeito, depois que a árvore for confirmada.
+  const localNewId = useMemo(
+    () => (isNewRoute ? safeRandomUUID() : ""),
+    [isNewRoute],
+  );
 
-  return isNewRoute ? localNewIdRef.current : "";
+  useEffect(() => {
+    if (!isNewRoute || !localNewId) return;
+    if (committedIdRef.current === localNewId) return;
+    committedIdRef.current = localNewId;
+    commitNewSessionId(localNewId);
+  }, [isNewRoute, localNewId]);
+
+  return isNewRoute ? localNewId : "";
 }

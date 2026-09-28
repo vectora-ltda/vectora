@@ -1,20 +1,20 @@
 name: Release Please
 
-# Mantém um único PR "chore(master): release X.Y.Z" sempre atualizado com o
-# changelog acumulado desde a última release e a versão calculada a partir
-# dos títulos de PR (Conventional Commits) mesclados em master. Nada é
-# publicado sozinho — publicar é decisão do usuário: mesclar esse PR é o
-# que cria a tag vX.Y.Z, que dispara vectora.yml (release-native +
-# publish-update-channel). Sem esse merge, PRs normais só acumulam.
+# Cada linha de release é calculada a partir do branch confiável. A PR de
+# release atualiza manifesto e changelog; a tag só é criada pelo pipeline do
+# app depois que a distribuição termina com sucesso. Essa tag dispara este
+# workflow para preparar a próxima versão.
 
 on:
   push:
-    branches: [master]
+    branches:
+      - master
+      - "release/**"
+    tags:
+      - "v*"
 
-# Apenas uma execução pode atualizar o PR de release e suas labels por vez.
-# Isso evita que duas execuções removam a mesma label simultaneamente.
 concurrency:
-  group: release-please-master
+  group: release-please-${{ github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -23,18 +23,180 @@ permissions:
 
 jobs:
   release-please:
-    runs-on: ubuntu-latest
+    # O push que mescla uma PR de release aguarda o build/distribuição do app.
+    # A tag criada por vectora.yml é o evento que libera esta automação.
+    if: >-
+      github.event_name == 'push' &&
+      (startsWith(github.ref, 'refs/tags/v') ||
+      !contains(github.event.head_commit.message, 'chore(master): release '))
+    runs-on: ubuntu-24.04
     steps:
-      # GITHUB_TOKEN padrão não dispara outros workflows pelos eventos que
-      # ele mesmo cria (proteção anti-loop do GitHub) — a tag vX.Y.Z criada
-      # pela action nunca ativava vectora.yml (release-native +
-      # publish-update-channel ficavam pulados pra sempre). Token pessoal
-      # não tem essa restrição.
+      - name: Load release line configuration
+        id: release-lines
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
+          token: ${{ github.token }}
+          persist-credentials: false
+      - name: Select configured release line
+        id: release-line
+        shell: bash
+        env:
+          TARGET_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ ! -f .github/release-lines.json ]]; then
+            echo "Release-line configuration is not present on the trusted default branch; skipping."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          jq -e '
+            (.development.branch | type == "string" and length > 0) and
+            (.maintenance.branch | type == "string" and length > 0) and
+            (.development.milestone | type == "string" and length > 0) and
+            (.maintenance.milestone | type == "string" and length > 0) and
+            (.development.branch != .maintenance.branch)
+          ' .github/release-lines.json >/dev/null
+          development_branch="$(jq -er '.development.branch' .github/release-lines.json)"
+          maintenance_branch="$(jq -er '.maintenance.branch' .github/release-lines.json)"
+          development_milestone="$(jq -er '.development.milestone' .github/release-lines.json)"
+          maintenance_milestone="$(jq -er '.maintenance.milestone' .github/release-lines.json)"
+          if [[ "$TARGET_BRANCH" == "$development_branch" ]]; then
+            line_key="development"
+          elif [[ "$TARGET_BRANCH" == "$maintenance_branch" ]]; then
+            line_key="maintenance"
+          else
+            line_key=""
+          fi
+          if [[ -n "$line_key" ]]; then
+            config_file="$(jq -er ".${line_key}.release_please_config" .github/release-lines.json)"
+            manifest_file="$(jq -er ".${line_key}.release_please_manifest" .github/release-lines.json)"
+            if [[ "$config_file" == /* || "$config_file" == *..* || "$manifest_file" == /* || "$manifest_file" == *..* ]]; then
+              echo "::error::Os caminhos do Release Please devem ser relativos e não podem subir diretórios." >&2
+              exit 1
+            fi
+            test -f "$config_file" || { echo "::error::Configuração ausente: $config_file" >&2; exit 1; }
+            test -f "$manifest_file" || { echo "::error::Manifesto ausente: $manifest_file" >&2; exit 1; }
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            config_file=""
+            manifest_file=""
+          fi
+          {
+            echo "development_branch=$development_branch"
+            echo "maintenance_branch=$maintenance_branch"
+            echo "development_milestone=$development_milestone"
+            echo "maintenance_milestone=$maintenance_milestone"
+            echo "config_file=$config_file"
+            echo "manifest_file=$manifest_file"
+          } >> "$GITHUB_OUTPUT"
+          if [[ "$(grep '^enabled=' "$GITHUB_OUTPUT" | tail -n 1)" == "enabled=false" ]]; then
+            echo "Skipping release-please on unconfigured branch $TARGET_BRANCH."
+          fi
       - uses: googleapis/release-please-action@v5
+        if: steps.release-line.outputs.enabled == 'true'
+        id: release
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-          # Labels are optional metadata; do not fail the release update when
-          # a concurrent or manually edited PR already removed one.
-          skip-labeling: true
+          config-file: ${{ steps.release-line.outputs.config_file }}
+          manifest-file: ${{ steps.release-line.outputs.manifest_file }}
+          target-branch: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
+          # O Release Please deve manter `autorelease: pending`: a validação
+          # do branch confiável e a exceção de milestone dependem desse label.
+
+      # Somente o branch exato gerado para este alvo pode receber o token de
+      # publicação. As validações evitam branches parecidos de colaboradores.
+      - name: Find Release Please branch
+        if: steps.release-line.outputs.enabled == 'true'
+        id: release-branch
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          TARGET_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          prs="$(gh pr list \
+            --repo "$GITHUB_REPOSITORY" \
+            --base "$TARGET_BRANCH" \
+            --state open \
+            --limit 100 \
+            --json number,headRefName,headRepository,labels,title)"
+          pr="$(jq -c --arg repository "$REPOSITORY" --arg target "$TARGET_BRANCH" \
+            'map(select(
+              (
+                (.headRefName | test("^release-please-[0-9]+\\.[0-9]+\\.[0-9]+$")) or
+                (.headRefName == ("release-please--branches--" + $target + "--components--vectora"))
+              ) and
+              .headRepository.nameWithOwner == $repository and
+              ([.labels[].name] | index("autorelease: pending"))
+            )) | sort_by(.number) | last // {}' <<<"$prs")"
+          branch="$(jq -r '.headRefName // empty' <<<"$pr")"
+          number="$(jq -r '.number // empty' <<<"$pr")"
+          if [[ -z "$branch" ]]; then
+            echo "No trusted Release Please PR found for $TARGET_BRANCH."
+            exit 0
+          fi
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+
+      - name: Check out Release Please branch
+        if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.release-branch.outputs.branch }}
+          token: ${{ github.token }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-uv
+        if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
+        with:
+          python-version: "3.13"
+          all-extras: "false"
+          working-directory: vectora
+
+      - name: Normalize generated changelog list markers
+        if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
+        run: python utils/normalize_changelog_lists.py
+
+      - name: Align release lines in the Release Please PR
+        if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
+        env:
+          TARGET_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
+        run: |
+          uv run --project vectora python utils/prepare_release_line_config.py \
+            vectora/CHANGELOG.md \
+            .github/release-lines.json \
+            .release-please-manifest.maintenance.json \
+            "$TARGET_BRANCH"
+
+      - name: Prepare current release section for PR body
+        if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          PR_NUMBER: ${{ steps.release-branch.outputs.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python utils/prepare_release_pr_body.py \
+            vectora/CHANGELOG.md "$RUNNER_TEMP/release-pr-body.md"
+          gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+            --body-file "$RUNNER_TEMP/release-pr-body.md"
+
+      - name: Commit normalized changelog
+        if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
+        env:
+          RELEASE_BRANCH: ${{ steps.release-branch.outputs.branch }}
+          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        shell: bash
+        run: |
+          if git diff --quiet -- vectora/CHANGELOG.md .github/release-lines.json .release-please-manifest.maintenance.json; then
+            echo "Generated release files are already normalized."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vectora/CHANGELOG.md .github/release-lines.json .release-please-manifest.maintenance.json
+          git commit -m "chore: align release lines for generated release"
+          git remote set-url origin "https://x-access-token:${RELEASE_PLEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin "HEAD:$RELEASE_BRANCH"

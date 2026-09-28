@@ -1,7 +1,7 @@
 """Memory Buckets (handler HTTP).
 
-GET  /rag-library/catalog — lista buckets publicados
-POST /rag-library/install — baixa e instala um bucket como coleção LanceDB
+GET  /memory-buckets/catalog — lista buckets publicados
+POST /memory-buckets/install — baixa e instala um bucket como coleção LanceDB
 """
 
 from __future__ import annotations

@@ -9,8 +9,9 @@ erro/borda no mesmo teste.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -113,12 +114,13 @@ class TestKanbanUpdateStatus:
             await kanban_create(ctx=_ctx(), name="card", instruction="faça algo")
         )
         task_id = created["task_id"]
-
-        out = json.loads(await kanban_update_status(task_id=task_id, status="review"))
+        out = json.loads(
+            await kanban_update_status(ctx=_ctx(), task_id=task_id, status="triage")
+        )
         assert out["result"] == "ok"
 
         estado = await kanban.get_task_status(task_id)
-        assert estado["status"] == "review"
+        assert estado["status"] == "triage"
 
     @pytest.mark.asyncio
     async def test_status_fora_da_taxonomia_retorna_erro_tipado_sem_lancar(self, db):
@@ -133,7 +135,7 @@ class TestKanbanUpdateStatus:
         task_id = created["task_id"]
 
         out = json.loads(
-            await kanban_update_status(task_id=task_id, status="em-analise")
+            await kanban_update_status(ctx=_ctx(), task_id=task_id, status="em-analise")
         )
         assert out["status"] == "error"
         assert "em-analise" in out["error"]
@@ -153,6 +155,7 @@ class TestKanbanUpdateStatus:
 
         out = json.loads(
             await kanban_update_status(
+                ctx=_ctx(),
                 task_id=task_id,
                 status="blocked",
                 block_kind="capability",
@@ -200,10 +203,285 @@ class TestKanbanList:
             await kanban_create(ctx=_ctx(), name="card review", instruction="faça algo")
         )
         await kanban_create(ctx=_ctx(), name="card ready", instruction="faça algo")
-        await kanban_update_status(task_id=created["task_id"], status="review")
+        await kanban_update_status(
+            ctx=_ctx(), task_id=created["task_id"], status="triage"
+        )
 
-        out = json.loads(await kanban_list(ctx=_ctx(), status="review"))
+        out = json.loads(await kanban_list(ctx=_ctx(), status="triage"))
         assert [c["name"] for c in out["cards"]] == ["card review"]
+
+    @pytest.mark.asyncio
+    async def test_recusa_task_de_outra_sessao(self, db):
+        from backend.tools.kanban import kanban_create, kanban_update_status
+
+        created = json.loads(
+            await kanban_create(
+                ctx=_ctx("sessao-dona"), name="card", instruction="faça algo"
+            )
+        )
+
+        out = json.loads(
+            await kanban_update_status(
+                ctx=_ctx("sessao-alheia"),
+                task_id=created["task_id"],
+                status="review",
+            )
+        )
+
+        assert out["status"] == "error"
+        assert "não pertence" in out["error"]
+        assert (await kanban.get_task_status(created["task_id"]))["status"] == "ready"
+
+    @pytest.mark.asyncio
+    async def test_nao_permite_agente_forcar_running_ou_done(self, db):
+        from backend.tools.kanban import kanban_create, kanban_update_status
+
+        created = json.loads(
+            await kanban_create(ctx=_ctx(), name="card", instruction="faça algo")
+        )
+
+        for status in ("running", "done"):
+            out = json.loads(
+                await kanban_update_status(
+                    ctx=_ctx(), task_id=created["task_id"], status=status
+                )
+            )
+            assert out["status"] == "error"
+            assert "fluxos de execução" in out["error"]
+
+        assert (await kanban.get_task_status(created["task_id"]))["status"] == "ready"
+
+    @pytest.mark.asyncio
+    async def test_run_de_background_pode_atualizar_a_propria_task(
+        self, db: str
+    ) -> None:
+        from backend.tools.kanban import kanban_create, kanban_update_status
+
+        created = json.loads(
+            await kanban_create(ctx=_ctx(), name="card", instruction="faça algo")
+        )
+        task_id = created["task_id"]
+        assert await kanban.claim_task(task_id, "run-1")
+
+        out = json.loads(
+            await kanban_update_status(
+                ctx=ToolContext(
+                    thread_id="bg-run",
+                    background_task_id=task_id,
+                    background_run_id="run-1",
+                ),
+                task_id=task_id,
+                status="blocked",
+                block_kind="capability",
+                block_reason="falta ferramenta",
+            )
+        )
+
+        assert out["result"] == "ok"
+        assert (await kanban.get_task_status(task_id))["status"] == "blocked"
+
+    @pytest.mark.asyncio
+    async def test_run_de_background_nao_pode_atualizar_outra_task(
+        self, db: str
+    ) -> None:
+        from backend.tools.kanban import kanban_create, kanban_update_status
+
+        created = json.loads(
+            await kanban_create(ctx=_ctx(), name="card", instruction="faça algo")
+        )
+
+        out = json.loads(
+            await kanban_update_status(
+                ctx=ToolContext(
+                    thread_id="bg-run",
+                    background_task_id="other-task",
+                    background_run_id="run-1",
+                ),
+                task_id=created["task_id"],
+                status="triage",
+            )
+        )
+
+        assert out["status"] == "error"
+        assert "não corresponde" in out["error"]
+        assert (await kanban.get_task_status(created["task_id"]))["status"] == "ready"
+
+    @pytest.mark.asyncio
+    async def test_run_de_background_expirado_nao_pode_alterar_claim_retomado(
+        self, db: str
+    ) -> None:
+        from backend.tools.kanban import kanban_create, kanban_update_status
+
+        created = json.loads(
+            await kanban_create(ctx=_ctx(), name="card", instruction="faça algo")
+        )
+        task_id = created["task_id"]
+        assert await kanban.claim_task(task_id, "run-1")
+
+        conn = await kanban._get_db()
+        await conn.execute(
+            "UPDATE vectora_background_tasks SET claim_lock = ? WHERE id = ?",
+            ("run-2", task_id),
+        )
+        await conn.commit()
+        await conn.close()
+
+        out = json.loads(
+            await kanban_update_status(
+                ctx=ToolContext(
+                    thread_id="bg-run",
+                    background_task_id=task_id,
+                    background_run_id="run-1",
+                ),
+                task_id=task_id,
+                status="blocked",
+                block_kind="capability",
+                block_reason="não deve passar",
+            )
+        )
+
+        assert out["status"] == "error"
+        assert "claim atual" in out["error"]
+
+    @pytest.mark.asyncio
+    async def test_resume_renova_claim_mesmo_ainda_valido(self, db: str) -> None:
+        from backend.tools.kanban import kanban_create
+
+        created = json.loads(
+            await kanban_create(ctx=_ctx(), name="card", instruction="faça algo")
+        )
+        task_id = created["task_id"]
+        assert await kanban.claim_task(task_id, "run-1", ttl_s=2)
+
+        conn = await kanban._get_db()
+        quase_expirado = (datetime.now(UTC) + timedelta(seconds=1)).isoformat()
+        await conn.execute(
+            "UPDATE vectora_background_tasks SET claim_expires_at = ? WHERE id = ?",
+            (quase_expirado, task_id),
+        )
+        await conn.commit()
+        await conn.close()
+
+        assert await kanban.ensure_task_claim(task_id, "run-1", ttl_s=900)
+        conn = await kanban._get_db()
+        async with conn.execute(
+            "SELECT claim_expires_at FROM vectora_background_tasks WHERE id = ?",
+            (task_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        await conn.close()
+        assert datetime.fromisoformat(row["claim_expires_at"]) > datetime.now(
+            UTC
+        ) + timedelta(seconds=100)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("task_id", "run_id"),
+        [
+            (None, "run-1"),
+            ("", "run-1"),
+            ("missing", None),
+            ("missing", ""),
+        ],
+    )
+    async def test_resume_recusa_ids_ausentes_ou_vazios(
+        self, db: str, task_id: str | None, run_id: str | None
+    ) -> None:
+        assert not await kanban.ensure_task_claim(
+            cast("str", task_id), cast("str", run_id)
+        )
+
+    @pytest.mark.asyncio
+    async def test_write_de_background_recusa_claim_perdido_entre_precheck_e_update(
+        self, db: str
+    ) -> None:
+        from backend.tools.kanban import kanban_create
+
+        created = json.loads(
+            await kanban_create(ctx=_ctx(), name="card", instruction="faça algo")
+        )
+        task_id = created["task_id"]
+        assert await kanban.claim_task(task_id, "run-1")
+        conn = await kanban._get_db()
+        await conn.execute(
+            "UPDATE vectora_background_tasks SET claim_lock = ? WHERE id = ?",
+            ("run-2", task_id),
+        )
+        await conn.commit()
+        await conn.close()
+
+        with pytest.raises(ValueError, match="perdeu o claim"):
+            await kanban.block_task(
+                task_id,
+                "capability",
+                "não deve passar",
+                authorized_run_id="run-1",
+            )
+
+    @pytest.mark.asyncio
+    async def test_ready_respeita_transicao_e_limpa_bloqueio(self, db: str) -> None:
+        from backend.tools.kanban import kanban_create, kanban_update_status
+
+        created = json.loads(
+            await kanban_create(ctx=_ctx(), name="card", instruction="faça algo")
+        )
+        task_id = created["task_id"]
+        await kanban_update_status(
+            ctx=_ctx(),
+            task_id=task_id,
+            status="blocked",
+            block_kind="capability",
+            block_reason="falta ferramenta",
+        )
+
+        out = json.loads(
+            await kanban_update_status(ctx=_ctx(), task_id=task_id, status="ready")
+        )
+
+        assert out["result"] == "ok"
+        estado = await kanban.get_task_status(task_id)
+        assert estado["status"] == "ready"
+        assert estado["block_kind"] is None
+        assert estado["block_reason"] is None
+
+    @pytest.mark.asyncio
+    async def test_done_nao_pode_voltar_direto_para_ready(self, db: str) -> None:
+        from backend.tools.kanban import kanban_create, kanban_update_status
+
+        created = json.loads(
+            await kanban_create(ctx=_ctx(), name="card", instruction="faça algo")
+        )
+        task_id = created["task_id"]
+        await kanban.set_status(task_id, "done")
+
+        out = json.loads(
+            await kanban_update_status(ctx=_ctx(), task_id=task_id, status="ready")
+        )
+
+        assert out["status"] == "error"
+        assert "transição 'done' → 'ready'" in out["error"]
+        assert (await kanban.get_task_status(task_id))["status"] == "done"
+
+    @pytest.mark.asyncio
+    async def test_run_de_background_com_id_vazio_usa_sessao_normal(
+        self, db: str
+    ) -> None:
+        from backend.tools.kanban import kanban_create, kanban_update_status
+
+        created = json.loads(
+            await kanban_create(ctx=_ctx(), name="card", instruction="faça algo")
+        )
+
+        out = json.loads(
+            await kanban_update_status(
+                ctx=ToolContext(thread_id="s1", user_id="u1", background_task_id=""),
+                task_id=created["task_id"],
+                status="triage",
+            )
+        )
+
+        assert out["result"] == "ok"
+        assert (await kanban.get_task_status(created["task_id"]))["status"] == "triage"
 
 
 class TestKanbanDecompose:

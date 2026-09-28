@@ -70,7 +70,7 @@ function CompareFileRow({
           {file.status}
         </span>
         <span className="flex-1 truncate font-mono">{file.path}</span>
-        <span className="text-green-500 shrink-0">+{file.additions}</span>
+        <span className="text-git-addition shrink-0">+{file.additions}</span>
         <span className="text-destructive shrink-0">−{file.deletions}</span>
       </button>
       {open && (
@@ -235,7 +235,7 @@ export function CompareView({
               className="px-3 py-2 border-b border-border/40 last:border-0"
             >
               <p
-                className="text-xs font-mono text-amber-500 truncate mb-1.5"
+                className="text-xs font-mono text-git-modification truncate mb-1.5"
                 title={path}
               >
                 {path}
@@ -243,7 +243,7 @@ export function CompareView({
               <div className="flex gap-1.5">
                 <button
                   onClick={() => void resolve(path, "ours")}
-                  className="text-[10px] px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 hover:bg-blue-500/20"
+                  className="text-[10px] px-2 py-0.5 rounded bg-git-information/10 text-git-information hover:bg-git-information/20"
                 >
                   {m.workbench_diff_conflicts_ours()}
                 </button>

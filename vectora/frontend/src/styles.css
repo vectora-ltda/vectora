@@ -50,6 +50,13 @@
   --destructive: #f97583;
   --destructive-foreground: #1a1a1a;
 
+  /* Git Workbench semantic tones. */
+  --git-addition: #3fb950;
+  --git-modification: #d29922;
+  --git-information: #58a6ff;
+  --git-warning: #f0883e;
+  --git-success: #3fb950;
+
   /* Highlights de etapa do Context Graph (bolinhas por arquivo): cada estágio
      do build (AST → semântica → concluído) tem cor própria para tornar o
      progresso visível. Únicos acentos coloridos da paleta neutra. */
@@ -172,6 +179,13 @@
   --destructive: #d32f2f;
   --destructive-foreground: #ffffff;
 
+  /* Git Workbench semantic tones with light-theme contrast. */
+  --git-addition: #1a7f37;
+  --git-modification: #9a6700;
+  --git-information: #0969da;
+  --git-warning: #bc4c00;
+  --git-success: #1a7f37;
+
   /* Highlights de etapa do Context Graph — tons mais escuros p/ contraste no claro. */
   --graph-stage-ast: #1f6feb;
   --graph-stage-semantic: #8957e5;
@@ -222,6 +236,12 @@
 
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+
+  --color-git-addition: var(--git-addition);
+  --color-git-modification: var(--git-modification);
+  --color-git-information: var(--git-information);
+  --color-git-warning: var(--git-warning);
+  --color-git-success: var(--git-success);
 
   --color-border: var(--border);
   --color-input: var(--input);
@@ -301,6 +321,21 @@
   }
 }
 
+@layer components {
+  .vectora-diff-added-line {
+    background-color: color-mix(in srgb, #16a34a 24%, transparent);
+  }
+
+  .vectora-diff-removed-line {
+    background-color: color-mix(in srgb, #dc2626 24%, transparent);
+  }
+
+  .vectora-diff-hunk-line {
+    background-color: color-mix(in srgb, var(--primary) 18%, transparent);
+    color: var(--foreground);
+  }
+}
+
 /* Todo container rolável da aplicação usa a mesma geometria visual. Classes
    específicas (`custom-scrollbar`/`app-scrollbar`) podem ajustar a opacidade,
    mas nenhum painel volta à scrollbar larga padrão do Chromium. */
@@ -327,6 +362,12 @@
 [class~="overflow-x-auto"]::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   border-radius: 3px;
+}
+
+/* Use this on dense split panes where an always-reserved gutter creates a
+   false third column between adjacent content areas. */
+.vectora-no-scrollbar-gutter {
+  scrollbar-gutter: auto;
 }
 
 /* Scrollbar customizada (chat, thread-list, collapsed-sidebar) — regra

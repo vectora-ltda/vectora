@@ -7,29 +7,212 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
+  act,
   render,
   screen,
   fireEvent,
   waitFor,
   cleanup,
 } from "@testing-library/react";
-import { HistoryView } from "../history-view";
+import { CommitDetails, HistoryView } from "../history-view";
 import * as api from "../api";
+import { m } from "@/lib/paraglide/messages";
 
-function commit(sha: string) {
+function commit(sha: string, body?: string) {
   return {
     sha,
     sha_short: sha.slice(0, 7),
     author: "Test <test@example.com>",
     date: "2026-01-01T00:00:00+00:00",
     message: `commit ${sha}`,
+    ...(body === undefined ? {} : { body }),
     refs: [],
   };
 }
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+describe("CommitDetails — altura do cabeçalho", () => {
+  it("mede a descrição completa mesmo quando o máximo anterior a cortava", () => {
+    const scrollHeight = vi
+      .spyOn(HTMLElement.prototype, "scrollHeight", "get")
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.getAttribute("data-testid") !== "commit-details-header") {
+          return 0;
+        }
+        const previousMax = Number.parseInt(this.style.maxHeight, 10);
+        return Number.isFinite(previousMax) ? Math.min(240, previousMax) : 240;
+      });
+
+    render(
+      <CommitDetails
+        commit={commit("with-body", "linha 1\nlinha 2\nlinha 3\nlinha 4")}
+        diff={null}
+        loading={false}
+      />,
+    );
+
+    const header = screen.getByTestId("commit-details-header");
+    expect(header.style.height).toBe("241px");
+    expect(header.style.maxHeight).toBe("241px");
+    expect(scrollHeight).toHaveBeenCalled();
+  });
+
+  it("inclui as bordas no máximo para evitar overflow de um pixel", () => {
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(
+      function (this: HTMLElement) {
+        return this.getAttribute("data-testid") === "commit-details-header"
+          ? 240
+          : 0;
+      },
+    );
+    render(
+      <CommitDetails
+        commit={commit("bordered", "Descrição")}
+        diff={null}
+        loading={false}
+      />,
+    );
+
+    expect(screen.getByTestId("commit-details-header")).toHaveStyle({
+      height: "241px",
+      maxHeight: "241px",
+    });
+  });
+
+  it("recalcula o máximo quando a largura muda e o texto quebra novamente", async () => {
+    let resizeCallback: ResizeObserverCallback | undefined;
+    let intrinsicHeight = 180;
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          resizeCallback = callback;
+        }
+        observe() {}
+        disconnect() {}
+        unobserve() {}
+      },
+    );
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(
+      function (this: HTMLElement) {
+        return this.getAttribute("data-testid") === "commit-details-header"
+          ? intrinsicHeight
+          : 0;
+      },
+    );
+
+    render(
+      <CommitDetails
+        commit={commit("responsive", "descrição que quebra conforme a largura")}
+        diff={null}
+        loading={false}
+      />,
+    );
+
+    const header = screen.getByTestId("commit-details-header");
+    expect(header.style.maxHeight).toBe("181px");
+
+    intrinsicHeight = 260;
+    await act(async () => {
+      resizeCallback?.(
+        [{ contentRect: { width: 240 } } as ResizeObserverEntry],
+        {} as ResizeObserver,
+      );
+    });
+
+    await waitFor(() => {
+      expect(header.style.maxHeight).toBe("261px");
+      expect(header.style.height).toBe("261px");
+    });
+  });
+
+  it("abre no tamanho da descrição e permite reduzir o cabeçalho", () => {
+    render(
+      <CommitDetails
+        commit={commit("with-body", "linha 1\nlinha 2\nlinha 3")}
+        diff={null}
+        loading={false}
+      />,
+    );
+
+    const header = screen.getByTestId("commit-details-header");
+    const separator = document.querySelector(
+      '[role="separator"][aria-orientation="horizontal"]',
+    );
+    expect(separator).not.toBeNull();
+    const initialHeight = Number.parseInt(header.style.height, 10);
+
+    expect(initialHeight).toBeGreaterThan(96);
+    expect(separator).toHaveAttribute("aria-valuenow", String(initialHeight));
+
+    fireEvent.keyDown(separator!, { key: "ArrowDown" });
+    expect(Number.parseInt(header.style.height, 10)).toBe(initialHeight);
+
+    fireEvent.keyDown(separator!, { key: "ArrowUp" });
+
+    expect(Number.parseInt(header.style.height, 10)).toBeLessThan(
+      initialHeight,
+    );
+  });
+
+  it("não cria resize nem altura fixa quando o commit não tem descrição", () => {
+    render(
+      <CommitDetails
+        commit={commit("without-body")}
+        diff={null}
+        loading={false}
+      />,
+    );
+
+    expect(screen.getByTestId("commit-details-header")).not.toHaveAttribute(
+      "style",
+    );
+    expect(
+      document.querySelector(
+        '[role="separator"][aria-orientation="horizontal"]',
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it("padroniza os separadores e mantém a coluna de arquivos em 140px", () => {
+    render(
+      <CommitDetails
+        commit={commit("with-files", "Descrição do commit")}
+        diff={"diff --git a/scenes/Game.tscn b/scenes/Game.tscn\n"}
+        loading={false}
+      />,
+    );
+
+    const separator = document.querySelector(
+      '[role="separator"][aria-orientation="vertical"]',
+    );
+    expect(separator).toHaveClass(
+      "w-1",
+      "bg-border/40",
+      "hover:bg-border",
+      "focus:bg-border",
+    );
+    expect(separator).not.toHaveClass("w-px");
+    expect(separator).toHaveAttribute("aria-valuenow", "140");
+
+    fireEvent.keyDown(separator!, { key: "ArrowLeft" });
+    expect(separator).toHaveAttribute("aria-valuenow", "140");
+
+    const headerSeparator = document.querySelector(
+      '[role="separator"][aria-orientation="horizontal"]',
+    );
+    expect(headerSeparator).toHaveClass(
+      "h-1",
+      "bg-border/40",
+      "hover:bg-border",
+      "focus:bg-border",
+    );
+  });
 });
 
 describe("HistoryView — paginação", () => {
@@ -103,6 +286,49 @@ describe("HistoryView — paginação", () => {
     const scrollable = container.querySelector(".overflow-y-auto");
     expect(scrollable).not.toBeNull();
     expect(scrollable?.className).toContain("min-h-0");
+  });
+
+  it("publica erro terminal quando o diff do commit falha", async () => {
+    const commitDiff = vi
+      .spyOn(api, "fetchCommitDiff")
+      .mockRejectedValue(new Error("diff indisponível"));
+    vi.spyOn(api, "fetchGitLog").mockResolvedValue({
+      branch: "main",
+      commits: [commit("failed-diff")],
+      has_more: false,
+    });
+    const onOpenCommitDetails = vi.fn();
+
+    render(
+      <HistoryView
+        workspaceId="ws1"
+        onChanged={() => {}}
+        onOpenCommitDetails={onOpenCommitDetails}
+      />,
+    );
+
+    const commitButton = await screen.findByRole("button", {
+      name: /commit failed-diff/,
+    });
+    fireEvent.click(commitButton);
+
+    await waitFor(() => {
+      expect(onOpenCommitDetails).toHaveBeenLastCalledWith({
+        commit: commit("failed-diff"),
+        diff: null,
+        loading: false,
+        error: m.workbench_git_operation_failed(),
+      });
+    });
+    expect(commitDiff).toHaveBeenCalledWith("ws1", "failed-diff");
+    expect(onOpenCommitDetails.mock.calls).toContainEqual([
+      expect.objectContaining({ commit: commit("failed-diff") }),
+    ]);
+    expect(
+      onOpenCommitDetails.mock.calls.some(
+        ([details]) => details.loading === false,
+      ),
+    ).toBe(true);
   });
 });
 

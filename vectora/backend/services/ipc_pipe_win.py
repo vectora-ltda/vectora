@@ -55,6 +55,7 @@ class _PipeSide(asyncio.Protocol):
         self._tcp_transport: asyncio.WriteTransport | None = None
         self._pending: list[bytes] = []
         self._connect_task: asyncio.Task[None] | None = None
+        self._closed = False
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
         self._transport = transport
@@ -66,10 +67,17 @@ class _PipeSide(asyncio.Protocol):
             transport, _ = await loop.create_connection(
                 lambda: _TCPSide(self), self._tcp_host, self._tcp_port
             )
+        except asyncio.CancelledError:
+            raise
         except OSError as exc:
+            if self._closed:
+                return
             logger.warning("ipc_pipe_win: falha ao conectar ao uvicorn: %s", exc)
             if self._transport and not self._transport.is_closing():
                 self._transport.close()
+            return
+        if self._closed:
+            transport.close()
             return
         if not isinstance(transport, asyncio.WriteTransport):
             transport.close()
@@ -86,6 +94,9 @@ class _PipeSide(asyncio.Protocol):
             self._pending.append(data)
 
     def connection_lost(self, exc: BaseException | None) -> None:
+        self._closed = True
+        if self._connect_task is not None and not self._connect_task.done():
+            self._connect_task.cancel()
         if self._tcp_transport and not self._tcp_transport.is_closing():
             self._tcp_transport.close()
 
@@ -119,9 +130,11 @@ async def serve_pipe(pipe_path: str, tcp_host: str, tcp_port: int) -> None:
     )
     logger.info("ipc_pipe_win: named pipe %s → %s:%d", pipe_path, tcp_host, tcp_port)
     try:
-        await asyncio.get_event_loop().create_future()
-    except asyncio.CancelledError:
-        pass
+        await asyncio.get_running_loop().create_future()
     finally:
         for srv in servers:
             srv.close()
+        await asyncio.gather(
+            *(srv.wait_closed() for srv in servers if hasattr(srv, "wait_closed")),
+            return_exceptions=True,
+        )

@@ -9,7 +9,7 @@ import { sendEmail } from "./lib/email";
 import { hardDeleteOneUser } from "./gdpr/routes";
 import { processUpdateTelemetry } from "./updates/worker";
 import { recordTelemetryEvent } from "./telemetry/routes";
-import { processRagReindex } from "./rag-library/routes";
+import { processRagReindex } from "./memory-buckets/routes";
 
 async function handleJob(env: Env, job: JobMessage): Promise<void> {
   switch (job.type) {

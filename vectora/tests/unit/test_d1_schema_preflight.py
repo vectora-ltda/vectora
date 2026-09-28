@@ -54,6 +54,7 @@ def _run_preflight(
     table_output: str,
     pragma_output: str = '{"name":"id"}',
     table_returncode: int = 0,
+    table: str = "skills_catalog",
 ) -> list[list[str]]:
     namespace = _load_sconstruct()
     commands: list[list[str]] = []
@@ -73,7 +74,7 @@ def _run_preflight(
     namespace["_upgrade_d1_schema"](
         SimpleNamespace(),
         skip_missing_tables=True,
-        tables_filter={"skills_catalog"},
+        tables_filter={table},
     )
     return commands
 
@@ -106,6 +107,25 @@ def test_missing_skills_catalog_is_left_for_base_schema(
     assert not any("ALTER TABLE" in command[-1] for command in commands)
 
 
+def test_existing_mcp_catalog_gets_timestamp_compatibility(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commands = _run_preflight(
+        monkeypatch,
+        table_output='{"name":"mcp_catalog"}',
+        table="mcp_catalog",
+    )
+
+    assert any(
+        "UPDATE mcp_catalog SET updated_at = datetime('now')" in command[-1]
+        for command in commands
+    )
+    assert any(
+        "CREATE TRIGGER IF NOT EXISTS mcp_catalog_updated_at_default" in command[-1]
+        for command in commands
+    )
+
+
 def test_table_probe_failure_aborts_preflight(monkeypatch: pytest.MonkeyPatch) -> None:
     namespace = _load_sconstruct()
 
@@ -131,7 +151,19 @@ def test_workflow_gates_schema_on_preflight() -> None:
     assert "id: services_schema_catalog_preflight" in workflow
     assert "steps.services_schema_catalog_preflight.outcome == 'success'" in workflow
     assert "bash scripts/d1_catalog_preflight.sh" in workflow
+    assert 'ensure_column gha_bot_review_jobs repository "TEXT"' in workflow
     assert "services_schema_legacy_catalog" not in workflow
+
+
+def test_catalog_timestamp_commands_use_configured_d1_target() -> None:
+    script = (
+        ROOT.parent / "services" / "scripts" / "d1_catalog_preflight.sh"
+    ).read_text(
+        encoding="utf-8",
+    )
+
+    assert script.count("pnpm --silent wrangler d1 execute vectora-db --remote") == 2
+    assert 'd1 execute "$DB_NAME" "$REMOTE_FLAG"' not in script
 
 
 def test_legacy_timestamp_is_backfilled_and_defaulted() -> None:

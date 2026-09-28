@@ -77,6 +77,14 @@ from backend.api.handlers.workspaces import (
 
 logger = logging.getLogger(__name__)
 
+
+def _gateway_local_url() -> str:
+    """Return the configured local URL for gateway-forwarded calls."""
+    host = os.environ.get("VECTORA_GATEWAY_LOCAL_HOST") or "localhost"
+    port = os.environ.get("VECTORA_PORT") or "8080"
+    return f"http://{host}:{port}"
+
+
 # Tempo máximo total para o shutdown — depois disso, `os._exit` em main.py
 # encerra o processo de qualquer jeito. Configurável via env.
 _SHUTDOWN_TIMEOUT_S = float(os.environ.get("VECTORA_SHUTDOWN_TIMEOUT_S", "10"))
@@ -399,6 +407,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             _gateway_client = GatewayClient(
                 gateway_url=_cfg.gateway_url,
                 app_secret=_cfg.vectora_app_secret,
+                local_url=_gateway_local_url(),
             )
             _gateway_client.start()
     except Exception as exc:
@@ -452,6 +461,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             if mq_initialized():
                 mq = await get_mq()
                 await mq.close()
+                logger.info("api/server: message queue fechada")
         except Exception:
             logger.warning("api/server: erro ao fechar message queue", exc_info=True)
 
@@ -468,6 +478,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             from backend.scheduling.nats_sidecar import stop_nats_sidecar
 
             await stop_nats_sidecar()
+            logger.info("api/server: sidecar NATS fechado")
         except Exception:
             logger.warning("api/server: erro ao encerrar sidecar NATS", exc_info=True)
 

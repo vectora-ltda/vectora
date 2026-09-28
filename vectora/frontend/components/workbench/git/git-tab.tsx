@@ -39,7 +39,7 @@ import {
 } from "./api";
 import { GitToolbar } from "./git-toolbar";
 import { ChangesView } from "./changes-view";
-import { HistoryView } from "./history-view";
+import { HistoryView, type GitCommitDetailsState } from "./history-view";
 import { CompareView } from "./compare-view";
 import { StashModal } from "./stash-modal";
 import { WorktreesModal } from "./worktrees-modal";
@@ -167,7 +167,13 @@ function PrDialog({
   );
 }
 
-export function GitTab(_props: { threadId: string }) {
+export function GitTab({
+  threadId: _threadId,
+  onOpenCommitDetails,
+}: {
+  threadId: string;
+  onOpenCommitDetails?: (details: GitCommitDetailsState) => void;
+}) {
   const workspace = useWorkspacesStore((s) => s.getActive());
   const wsId = workspace?.id ?? "";
   const lastCi = useCIStore((s) => s.lastRun);
@@ -215,10 +221,25 @@ export function GitTab(_props: { threadId: string }) {
   useEffect(() => {
     if (!wsId) return;
     if (refreshKey >= 0) {
-      void fetchGitStatus(wsId).then(setStatus);
+      void fetchGitStatus(wsId).then((nextStatus) => {
+        setStatus(nextStatus);
+        const active = nextStatus?.operation_in_progress;
+        if (active) {
+          setGitOperation(wsId, {
+            operationId: active.operation_id,
+            operation: active.operation,
+            state: active.state,
+            phase: active.phase,
+            progress: active.progress,
+            errorCode: active.error_code,
+            error: active.error,
+            updatedAt: (active.finished_at ?? active.created_at) * 1000,
+          });
+        }
+      });
       void fetchBranches(wsId).then(setBranches);
     }
-  }, [wsId, refreshKey]);
+  }, [wsId, refreshKey, setGitOperation]);
 
   // Reconcile the backend operation snapshot while a Git command is running.
   // The polling is deliberately scoped to the active workspace so switching
@@ -293,7 +314,7 @@ export function GitTab(_props: { threadId: string }) {
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full min-w-0 flex flex-col overflow-hidden">
       <GitToolbar
         workspaceId={wsId}
         status={status}
@@ -311,16 +332,16 @@ export function GitTab(_props: { threadId: string }) {
           href={lastCi.htmlUrl || undefined}
           target="_blank"
           rel="noreferrer"
-          className="flex items-center gap-1.5 px-3 py-1 shrink-0 border-b border-border/60 text-[11px] text-muted-foreground hover:bg-muted/40 transition-colors"
+          className="flex min-h-8 items-center gap-1.5 px-3 py-1.5 shrink-0 border-b border-border/60 text-[11px] text-muted-foreground hover:bg-muted/40 transition-colors"
           data-testid="git-ci-badge"
         >
           <span
             className={`w-2 h-2 rounded-full ${
               lastCi.status !== "completed"
-                ? "bg-amber-500 animate-pulse"
+                ? "bg-git-warning animate-pulse"
                 : lastCi.conclusion === "success"
-                  ? "bg-emerald-500"
-                  : "bg-red-500"
+                  ? "bg-git-success"
+                  : "bg-destructive"
             }`}
           />
           <span className="font-medium text-foreground/80">
@@ -335,7 +356,7 @@ export function GitTab(_props: { threadId: string }) {
       )}
 
       <div
-        className="flex shrink-0 border-b border-border/60"
+        className="flex shrink-0 min-w-0 items-center overflow-hidden border-b border-border/60 px-1"
         role="tablist"
         aria-label={m.workbench_git_documents()}
       >
@@ -347,7 +368,7 @@ export function GitTab(_props: { threadId: string }) {
           aria-pressed={!compareOpen && view === "changes"}
           role="tab"
           aria-selected={!compareOpen && view === "changes"}
-          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+          className={`flex-1 whitespace-nowrap px-2 py-1.5 text-center text-xs font-medium transition-colors ${
             !compareOpen && view === "changes"
               ? "border-b-2 border-primary text-foreground -mb-px"
               : "text-muted-foreground hover:text-foreground"
@@ -363,7 +384,7 @@ export function GitTab(_props: { threadId: string }) {
           aria-pressed={!compareOpen && view === "history"}
           role="tab"
           aria-selected={!compareOpen && view === "history"}
-          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+          className={`flex-1 whitespace-nowrap px-2 py-1.5 text-center text-xs font-medium transition-colors ${
             !compareOpen && view === "history"
               ? "border-b-2 border-primary text-foreground -mb-px"
               : "text-muted-foreground hover:text-foreground"
@@ -376,7 +397,7 @@ export function GitTab(_props: { threadId: string }) {
           aria-selected={compareOpen}
           aria-pressed={compareOpen}
           onClick={() => setCompareOpen(true)}
-          className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+          className={`flex-1 whitespace-nowrap px-2 py-1.5 text-center text-xs font-medium transition-colors ${
             compareOpen
               ? "border-b-2 border-primary text-foreground -mb-px"
               : "text-muted-foreground hover:text-foreground"
@@ -398,7 +419,11 @@ export function GitTab(_props: { threadId: string }) {
         ) : view === "changes" ? (
           <ChangesView workspaceId={wsId} summary={summary} />
         ) : (
-          <HistoryView workspaceId={wsId} onChanged={handleChanged} />
+          <HistoryView
+            workspaceId={wsId}
+            onChanged={handleChanged}
+            onOpenCommitDetails={onOpenCommitDetails}
+          />
         )}
       </div>
 

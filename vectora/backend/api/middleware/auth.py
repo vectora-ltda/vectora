@@ -49,6 +49,7 @@ _API_PREFIXES: tuple[str, ...] = (
     "/license",
     "/metrics",
     "/workspaces",
+    "/boards",
     "/agent-profiles",
     "/sessions",
     "/rag",
@@ -108,10 +109,8 @@ def _is_public_route(path: str, method: str = "GET") -> bool:
     # Rotas de API marcadas explicitamente como públicas (ex.: viewer de share)
     if any(path.startswith(p) for p in _EXTRA_PUBLIC_PREFIXES):
         return not (path.startswith("/threads/share/") and method.upper() != "GET")
-    # Arquivos estáticos (extensão presente) são sempre públicos
-    last_segment = path.rsplit("/", maxsplit=1)[-1]
-    if "." in last_segment:
-        return True
+    # An API path with a dotted filename remains private. Static assets only
+    # reach this branch when they are outside the API prefix above.
     return any(path.startswith(p) for p in _PUBLIC_PREFIXES)
 
 

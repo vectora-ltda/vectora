@@ -1048,6 +1048,7 @@ async def stream_chat(
         thread_id, user_msg, parent_message_id=parent_id, turn_id=request.turn_id
     )
     _thread_usage_event_ids[thread_id] = request.turn_id
+    run_id = uuid.uuid4().hex
 
     async def run(on_event: EventSink) -> str:
         chat_client = FallbackChatClient(primary_model_id=configurable.get("model", ""))
@@ -1058,6 +1059,7 @@ async def stream_chat(
             max_iterations=request.config.recursion_limit or 50,
             context_max_tokens=request.config.context_max_tokens,
             context_compaction_enabled=request.config.context_compaction_enabled,
+            run_id=run_id,
         )
         if native_agent.subagent_catalog:
             # `delegate_to_subagent` (backend/tools/subagent_delegate.py) lê
@@ -1138,6 +1140,7 @@ async def stream_chat(
             workspace_id=workspace_id or None,
             http_request=http_request,
             user_id=user_id,
+            run_id=run_id,
         ),
         media_type="text/event-stream",
         headers={
@@ -1268,6 +1271,7 @@ async def resume_chat(
         },
         "recursion_limit": 50,
     }
+    run_id = uuid.uuid4().hex
 
     async def run(on_event: EventSink) -> str:
         run_ctx = ctx_from_config(config)
@@ -1299,6 +1303,7 @@ async def resume_chat(
                 if request.context_compaction_enabled is not None
                 else selector_compaction_enabled
             ),
+            run_id=run_id,
         )
         if native_agent.subagent_catalog:
             run_ctx._extra["subagent_deps"] = SubagentDeps(
@@ -1382,6 +1387,7 @@ async def resume_chat(
             workspace_id=selector_workspace_id,
             http_request=http_request,
             user_id=resume_user_id,
+            run_id=run_id,
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},

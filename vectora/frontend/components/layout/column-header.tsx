@@ -11,7 +11,7 @@ export function ColumnHeader({
   return (
     <div
       data-testid="column-header"
-      className={`flex h-[var(--app-header-height)] min-h-[var(--app-header-height)] shrink-0 items-center border-b border-border/60 bg-sidebar ${className}`}
+      className={`flex h-16 min-h-16 shrink-0 items-center border-b border-border/60 bg-sidebar ${className}`}
     >
       {children}
     </div>

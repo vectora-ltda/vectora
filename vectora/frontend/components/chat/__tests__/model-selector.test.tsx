@@ -30,6 +30,8 @@ describe("ModelSelector", () => {
     render(<ModelSelector value={value} onChange={() => {}} />);
     const toggle = screen.getByRole("button", { expanded: false });
     expect(toggle).toHaveTextContent(getModelDisplayName(value));
+    expect(toggle).toHaveClass("max-w-full");
+    expect(toggle).toHaveClass("shrink");
   });
 
   it("abre o dropdown ao clicar", () => {

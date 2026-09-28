@@ -3,7 +3,8 @@
  * o canal de release no KV (`channels.<channel>.version`).
  *
  * Uso (depois de `scons release`, a partir de services/):
- *   pnpm release -- --channel=latest --version=0.1.1 [--dist=<path>]
+ *   pnpm release -- --channel=latest --version=0.2.0 [--dist=<path>]
+ *   pnpm release -- --channel=maintenance --version=0.1.23 [--dist=<path>]
  *
  * Sobe pra key `<channel>/<os>/<arch>/<version>/<filename>` (mesmo padrão que
  * `updates/worker.ts` já lê em GET /updates/... e GET /download/...). O
@@ -180,13 +181,20 @@ export function computeRetention(
   };
 }
 
-export function parseArgs(argv: string[]) {
+/** Canais públicos de atualização usados pelas linhas de release do produto. */
+export type UpdateChannel = "latest" | "maintenance" | (string & {});
+
+export function parseArgs(argv: string[]): {
+  channel: UpdateChannel;
+  version: string;
+  dist: string;
+} {
   const args = Object.fromEntries(
     argv
       .filter((a) => a.startsWith("--"))
       .map((a) => a.slice(2).split("=") as [string, string]),
   );
-  const channel = args.channel ?? "latest";
+  const channel = (args.channel?.trim() || "latest") as UpdateChannel;
   const version = args.version;
   const dist =
     args.dist ??

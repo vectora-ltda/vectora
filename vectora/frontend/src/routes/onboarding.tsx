@@ -15,5 +15,9 @@ export const Route = createFileRoute("/onboarding")({
 
 function OnboardingRoute() {
   const { continue: cont } = Route.useSearch();
-  return <PreAuthWizard startAtContinuation={cont === "1"} />;
+  return (
+    <div className="h-full min-h-0 overflow-y-auto">
+      <PreAuthWizard startAtContinuation={cont === "1"} />
+    </div>
+  );
 }

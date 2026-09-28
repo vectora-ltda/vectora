@@ -8,11 +8,10 @@ import {
   type ModelOption,
 } from "@/lib/config/deployment-config";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { m } from "@/lib/paraglide/messages";
 
 interface ProviderUsage {
@@ -176,86 +175,73 @@ export function UsagePopover({ tokensUsed, modelId }: UsagePopoverProps) {
   )} (${pct.toFixed(0)}%)`;
 
   return (
-    <div className="relative">
-      <TooltipProvider delayDuration={200}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={() => setOpen((v) => !v)}
-              className="flex items-center justify-center p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
-              aria-haspopup="dialog"
-              aria-expanded={open}
-              aria-label={`${m.meter_context_window()}: ${valueLabel}`}
-            >
-              <UsageRing pct={pct} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="z-[100] font-mono text-xs">
-            {valueLabel}
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-
-      {open && (
-        <>
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setOpen(false)}
-            aria-hidden
-          />
-          <div
-            role="dialog"
-            className="absolute right-0 bottom-full mb-2 z-50 w-72 rounded-lg border border-border/60 bg-background shadow-xl p-3 space-y-2"
-          >
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">
-                {m.meter_context_window()}
-              </span>
-              <span className="font-mono text-foreground/90">
-                {formatTokens(tokensUsed)} / {formatTokens(contextWindow)} (
-                {pct.toFixed(0)}%)
-              </span>
-            </div>
-            <UsageBar pct={pct} />
-            <p className="text-[11px] text-muted-foreground pt-1">{modelId}</p>
-
-            {mediaQuota && (
-              <div className="space-y-1 pt-2 mt-1 border-t border-border/60">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">
-                    {m.meter_media_quota()}
-                  </span>
-                  <span className="font-mono text-foreground/90">
-                    {mediaQuota.used} / {mediaQuota.limit}
-                  </span>
-                </div>
-                <UsageBar
-                  pct={
-                    mediaQuota.limit > 0
-                      ? (mediaQuota.used / mediaQuota.limit) * 100
-                      : 0
-                  }
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  {m.meter_media_remaining({ count: mediaQuota.remaining })}
-                </p>
-              </div>
-            )}
-
-            {providers.length > 0 && (
-              <div className="space-y-2 pt-2 mt-1 border-t border-border/60">
-                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                  {m.meter_provider_usage()}
-                </p>
-                {providers.map((item) => (
-                  <ProviderRow key={item.provider} item={item} />
-                ))}
-              </div>
-            )}
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-xs leading-4 font-medium text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-label={`${m.meter_context_window()}: ${valueLabel}`}
+          title={valueLabel}
+        >
+          <UsageRing pct={pct} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        side="top"
+        sideOffset={6}
+        className="z-[100] w-72 rounded-lg border border-border/60 bg-background p-3 shadow-xl"
+      >
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">
+              {m.meter_context_window()}
+            </span>
+            <span className="font-mono text-foreground/90">
+              {formatTokens(tokensUsed)} / {formatTokens(contextWindow)} (
+              {pct.toFixed(0)}%)
+            </span>
           </div>
-        </>
-      )}
-    </div>
+          <UsageBar pct={pct} />
+          <p className="text-[11px] text-muted-foreground pt-1">{modelId}</p>
+
+          {mediaQuota && (
+            <div className="space-y-1 pt-2 mt-1 border-t border-border/60">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">
+                  {m.meter_media_quota()}
+                </span>
+                <span className="font-mono text-foreground/90">
+                  {mediaQuota.used} / {mediaQuota.limit}
+                </span>
+              </div>
+              <UsageBar
+                pct={
+                  mediaQuota.limit > 0
+                    ? (mediaQuota.used / mediaQuota.limit) * 100
+                    : 0
+                }
+              />
+              <p className="text-[10px] text-muted-foreground">
+                {m.meter_media_remaining({ count: mediaQuota.remaining })}
+              </p>
+            </div>
+          )}
+
+          {providers.length > 0 && (
+            <div className="space-y-2 pt-2 mt-1 border-t border-border/60">
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                {m.meter_provider_usage()}
+              </p>
+              {providers.map((item) => (
+                <ProviderRow key={item.provider} item={item} />
+              ))}
+            </div>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }

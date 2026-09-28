@@ -100,6 +100,13 @@ const ToolPolicyPanel = lazyWithRetry(
     })),
   "settings-tool-policy-tab",
 );
+const GitSettingsTab = lazyWithRetry(
+  () =>
+    import("./git-settings-tab").then((mod) => ({
+      default: mod.GitSettingsTab,
+    })),
+  "settings-git-tab",
+);
 const HitlAllowlistPanel = lazyWithRetry(
   () =>
     import("./environment/tabs/hitl-allowlist-panel").then((mod) => ({
@@ -285,6 +292,12 @@ export function buildSettingsCategoryGroups({
       group: "ambiente",
       label: m.settings_category_hitl_allowlist(),
       Component: HitlAllowlistPanel,
+    },
+    {
+      id: "git",
+      group: "ambiente",
+      label: m.settings_category_git(),
+      Component: GitSettingsTab,
     },
   ];
 

@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from "react";
+
 /**
  * Registro de threads cujo workspace já foi escolhido nesta navegação SPA.
  *
@@ -14,21 +16,71 @@
 const TTL_MS = 5 * 60 * 1000;
 
 const chosen = new Map<string, number>();
+const listeners = new Map<string, Set<() => void>>();
+const expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function notify(threadId: string): void {
+  listeners.get(threadId)?.forEach((listener) => listener());
+}
+
+/**
+ * Inscreve um consumidor nas mudanças de escolha e devolve a função de cancelamento.
+ * A notificação é limitada ao `threadId` informado.
+ */
+export function subscribeWorkspaceChosen(
+  threadId: string,
+  listener: () => void,
+): () => void {
+  const bucket = listeners.get(threadId) ?? new Set<() => void>();
+  bucket.add(listener);
+  listeners.set(threadId, bucket);
+  return () => {
+    bucket.delete(listener);
+    if (!bucket.size) listeners.delete(threadId);
+  };
+}
 
 /** Marca que o workspace desta thread já foi escolhido pelo usuário. */
 export function markWorkspaceChosen(threadId: string): void {
-  chosen.set(threadId, Date.now());
+  const previousTimer = expiryTimers.get(threadId);
+  if (previousTimer) clearTimeout(previousTimer);
+  const chosenAt = Date.now();
+  chosen.set(threadId, chosenAt);
+  expiryTimers.set(
+    threadId,
+    setTimeout(() => {
+      if (chosen.get(threadId) !== chosenAt) return;
+      chosen.delete(threadId);
+      expiryTimers.delete(threadId);
+      notify(threadId);
+    }, TTL_MS + 1),
+  );
+  notify(threadId);
 }
 
 /** Retorna true se o usuário já escolheu o workspace desta thread. */
 export function isWorkspaceChosen(threadId: string): boolean {
   const at = chosen.get(threadId);
   if (at === undefined) return false;
-  if (Date.now() - at > TTL_MS) {
-    chosen.delete(threadId);
-    return false;
-  }
-  return true;
+  return Date.now() - at <= TTL_MS;
+}
+
+/** Remove a escolha e cancela o timer de expiração do thread. */
+export function clearWorkspaceChosen(threadId: string): void {
+  const timer = expiryTimers.get(threadId);
+  if (timer) clearTimeout(timer);
+  expiryTimers.delete(threadId);
+  chosen.delete(threadId);
+  notify(threadId);
+}
+
+/** Expõe a escolha de workspace de forma reativa para a UI. */
+export function useIsWorkspaceChosen(threadId: string): boolean {
+  return useSyncExternalStore(
+    (listener) => subscribeWorkspaceChosen(threadId, listener),
+    () => isWorkspaceChosen(threadId),
+    () => false,
+  );
 }
 
 /**

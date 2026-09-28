@@ -13,7 +13,7 @@ from datetime import UTC
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -44,6 +44,19 @@ def _artifacts_dir(session_id: str) -> Path:
     return settings.vectora_home / "artifacts" / safe
 
 
+async def _require_session_owner(request: Request | None, session_id: str) -> None:
+    """Require an authenticated owner before reading session artifacts."""
+    # Direct callers used by local tooling/tests do not have an HTTP request;
+    # routed requests always receive one from FastAPI and are enforced below.
+    if request is None:
+        return
+    if not getattr(request.state, "user", None):
+        raise HTTPException(status_code=401, detail="Não autenticado")
+    from backend.api.handlers.threads import _assert_existing_thread_ownership
+
+    await _assert_existing_thread_ownership(session_id, request)
+
+
 def _read_preview(path: Path, limit: int = 200) -> str | None:
     try:
         with path.open("r", encoding="utf-8", errors="replace") as f:
@@ -66,10 +79,12 @@ def _read_artifact_type(path: Path) -> str:
 @router.get("/", response_model=ListArtifactsResponse)
 async def list_artifacts(
     session_id: Annotated[str, Query()] = "",
+    request: Request = None,  # ty: ignore[invalid-parameter-default]
 ) -> ListArtifactsResponse:
     """Lista os artifacts da sessão, mais novos primeiro."""
     if not session_id:
         return ListArtifactsResponse(artifacts=[])
+    await _require_session_owner(request, session_id)
 
     base = _artifacts_dir(session_id)
     if not base.exists() or not base.is_dir():
@@ -148,8 +163,10 @@ def _media_artifacts(base: Path, session_id: str) -> list[ArtifactMetadata]:
 async def get_artifact(
     slug: str,
     session_id: Annotated[str, Query()],
+    request: Request = None,  # ty: ignore[invalid-parameter-default]
 ) -> ArtifactContent:
     """Devolve o markdown completo de um artifact."""
+    await _require_session_owner(request, session_id)
     base = _artifacts_dir(session_id)
     safe_slug = slug.replace("/", "").replace("\\", "").replace("..", "")
     path = base / f"{safe_slug}.md"
@@ -187,12 +204,17 @@ def _safe_path_segment(value: str) -> str:
 
 
 @router.get("/{session_id}/media/{filename}")
-async def get_media_artifact(session_id: str, filename: str) -> FileResponse:
+async def get_media_artifact(
+    session_id: str,
+    filename: str,
+    request: Request = None,  # ty: ignore[invalid-parameter-default]
+) -> FileResponse:
     """Serve o binário de mídia gerada por `generate_image`/
     `text_to_speech`/`generate_video` (`tools/media.py::_persist`) — sem
     isso, as tools devolviam só um `path` de arquivo NO SERVIDOR, que o
     `<img src>`/link de download do chat não conseguem carregar. A URL
     servível (`tools/media.py::_media_url`) aponta exatamente pra cá."""
+    await _require_session_owner(request, session_id)
     safe_session = _safe_path_segment(session_id)
     safe_filename = _safe_path_segment(filename)
     path = _artifacts_dir(safe_session) / "media" / safe_filename

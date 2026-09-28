@@ -17,17 +17,21 @@ em modo CLI/root local, usa ``"local"``.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hashlib
 import json
 import logging
-from collections.abc import AsyncGenerator
+import re
+from collections.abc import AsyncGenerator, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+
+from backend.vtypes.git import GitOperationSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +109,14 @@ class GitInitRequest(BaseModel):
     workspace_id: str
 
 
+class GitMentionUser(BaseModel):
+    """Usuário autorizado a ser mencionado no Git Workbench."""
+
+    id: str
+    username: str | None = None
+    name: str | None = None
+
+
 class StatusResponse(BaseModel):
     status: str
     message: str = ""
@@ -142,6 +154,7 @@ class SafeRootInfo(BaseModel):
     path: str
     label: str
     builtin: bool
+    archived_at: str | None = None
 
 
 class ListSafeRootsResponse(BaseModel):
@@ -338,17 +351,47 @@ async def create_workspace(
     request: Request, body: CreateWorkspaceRequest
 ) -> StatusResponse:
     """Registra uma pasta como workspace, opcionalmente confiando e iniciando git."""
+    from backend.rbac.safe_roots import (
+        SafeRootPersistenceError,
+        get_safe_root_registry,
+    )
     from backend.workspace.workspace import workspace_registry
 
     path = Path(body.path).expanduser()
-    if not path.exists() or not path.is_dir():
+    try:
+        resolved_path = path.resolve(strict=True)
+    except OSError:
+        resolved_path = None
+    if resolved_path is None or not resolved_path.is_dir():
         return StatusResponse(
             status="error", message=f"Diretório não encontrado: {body.path}"
         )
 
     uid = _user_id(request)
+    safe_roots = get_safe_root_registry()
+    privileged = _is_privileged(request)
+    try:
+        under_safe_root = (
+            await asyncio.to_thread(safe_roots.is_under_safe_root, str(resolved_path))
+            if not privileged
+            else None
+        )
+    except SafeRootPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if not privileged and under_safe_root is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Caminho fora das pastas seguras configuradas.",
+        )
+    if privileged:
+        try:
+            await asyncio.to_thread(
+                safe_roots.add, str(resolved_path), resolved_path.name, str(uid)
+            )
+        except SafeRootPersistenceError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
     ws = workspace_registry.create(
-        str(path), trust=body.trust, git_init=body.git_init, user_id=uid
+        str(resolved_path), trust=body.trust, git_init=body.git_init, user_id=uid
     )
     workspace_registry.set_active(ws.id, uid)
     return StatusResponse(status="ok", workspace=_to_info(ws))
@@ -519,7 +562,7 @@ def _list_drives() -> list[DirEntry]:
     return out
 
 
-def _resolve_and_authorize_dir(
+async def _resolve_and_authorize_dir(
     path: str,
     privileged: bool,
     registry: SafeRootRegistry,
@@ -553,14 +596,16 @@ def _resolve_and_authorize_dir(
 
     safe_root_id: str | None = None
     if not privileged:
-        containing = registry.is_under_safe_root(str(base))
+        containing = await asyncio.to_thread(registry.is_under_safe_root, str(base))
         if containing is None:
             if path:
                 raise HTTPException(
                     status_code=403,
                     detail="Caminho fora das pastas seguras configuradas.",
                 )
-            fallback = registry.closest_safe_root_for(str(Path.home()))
+            fallback = await asyncio.to_thread(
+                registry.closest_safe_root_for, str(Path.home())
+            )
             if fallback is None:
                 raise HTTPException(
                     status_code=403,
@@ -590,7 +635,10 @@ async def browse_dir(
     Privilegiados (root/admin/CLI local): navegação livre — necessário
     para o admin escolher novas pastas a marcar como confiáveis.
     """
-    from backend.rbac.safe_roots import get_safe_root_registry
+    from backend.rbac.safe_roots import (
+        SafeRootPersistenceError,
+        get_safe_root_registry,
+    )
 
     registry = get_safe_root_registry()
     privileged = _is_privileged(request)
@@ -607,7 +655,12 @@ async def browse_dir(
             at_drives_root=True,
         )
 
-    base, safe_root_id = _resolve_and_authorize_dir(path, privileged, registry)
+    try:
+        base, safe_root_id = await _resolve_and_authorize_dir(
+            path, privileged, registry
+        )
+    except SafeRootPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     entries: list[DirEntry] = []
     try:
@@ -635,7 +688,12 @@ async def browse_dir(
     elif privileged:
         parent = str(base.parent)
     else:
-        parent_under = registry.is_under_safe_root(str(base.parent))
+        try:
+            parent_under = await asyncio.to_thread(
+                registry.is_under_safe_root, str(base.parent)
+            )
+        except SafeRootPersistenceError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         parent = str(base.parent) if parent_under is not None else None
 
     return BrowseResponse(
@@ -656,7 +714,10 @@ async def mkdir_dir(request: Request, body: MkdirRequest) -> BrowseResponse:
     traversal)."""
     from fastapi import HTTPException
 
-    from backend.rbac.safe_roots import get_safe_root_registry
+    from backend.rbac.safe_roots import (
+        SafeRootPersistenceError,
+        get_safe_root_registry,
+    )
 
     if not body.path.strip():
         raise HTTPException(status_code=400, detail="Caminho da pasta é obrigatório.")
@@ -666,7 +727,12 @@ async def mkdir_dir(request: Request, body: MkdirRequest) -> BrowseResponse:
 
     registry = get_safe_root_registry()
     privileged = _is_privileged(request)
-    base, _ = _resolve_and_authorize_dir(body.path, privileged, registry, strict=True)
+    try:
+        base, _ = await _resolve_and_authorize_dir(
+            body.path, privileged, registry, strict=True
+        )
+    except SafeRootPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     new_dir = base / name
     if new_dir.exists():
@@ -698,13 +764,27 @@ async def mkdir_dir(request: Request, body: MkdirRequest) -> BrowseResponse:
 @router.get("/ListSafeRoots", response_model=ListSafeRootsResponse)
 async def list_safe_roots() -> ListSafeRootsResponse:
     """Lista as raízes confiáveis configuradas (visível a qualquer user)."""
-    from backend.rbac.safe_roots import get_safe_root_registry
+    from backend.rbac.safe_roots import (
+        SafeRootPersistenceError,
+        get_safe_root_registry,
+    )
 
     registry = get_safe_root_registry()
+
+    try:
+        roots = await asyncio.to_thread(registry.all_roots)
+    except SafeRootPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return ListSafeRootsResponse(
         roots=[
-            SafeRootInfo(id=r.id, path=r.path, label=r.label, builtin=r.builtin)
-            for r in registry.all_roots()
+            SafeRootInfo(
+                id=root.id,
+                path=root.path,
+                label=root.label,
+                builtin=root.builtin,
+                archived_at=root.archived_at,
+            )
+            for root in roots
         ],
     )
 
@@ -835,6 +915,29 @@ workspace_scoped_router = APIRouter(
     tags=["workspaces-view"],
     dependencies=[Depends(_enforce_workspace_ownership)],
 )
+
+
+@workspace_scoped_router.get("/git/members", response_model=list[GitMentionUser])
+async def git_members(workspace_id: str, request: Request) -> list[GitMentionUser]:
+    """Lista membros disponíveis para menções dentro do workspace autorizado."""
+    from backend.rbac.auth import get_user_by_id, list_users
+    from backend.workspace.workspace import workspace_registry
+
+    if _is_privileged(request):
+        users = await list_users()
+    else:
+        workspace = workspace_registry.get(workspace_id)
+        owner_id = getattr(workspace, "owner_id", None) or _user_id(request)
+        owner = await get_user_by_id(owner_id)
+        users = [owner] if owner is not None else []
+    return [
+        GitMentionUser(
+            id=user.id,
+            username=user.username or user.email,
+            name=user.name or user.username or user.email,
+        )
+        for user in users
+    ]
 
 
 @view_router.get("", response_model=ListWorkspacesResponse)
@@ -968,7 +1071,22 @@ class DiffFile(BaseModel):
 
 class DiffHunk(BaseModel):
     header: str
-    lines: list[str]
+    lines: list[DiffLine]
+
+
+class DiffLine(BaseModel):
+    """Linha de diff com as posições exatas antes e depois da mudança.
+
+    O contrato segue o modelo usado pelo GitHub Desktop: linhas adicionadas
+    só têm posição nova, linhas removidas só têm posição antiga e contexto
+    tem as duas posições.
+    """
+
+    text: str
+    type: Literal["context", "add", "delete"]
+    old_line_number: int | None = None
+    new_line_number: int | None = None
+    no_trailing_newline: bool = False
 
 
 class DiffSummary(BaseModel):
@@ -1215,16 +1333,59 @@ async def workspace_file_raw(
 
 
 def _parse_unified_diff(diff_text: str) -> list[DiffHunk]:
-    """Quebra um diff unificado em hunks (sem a linha 'diff --git' inicial)."""
+    """Quebra um diff unificado em hunks com números de linha reais."""
     hunks: list[DiffHunk] = []
     current: DiffHunk | None = None
+    old_line = 0
+    new_line = 0
+    header_re = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
     for line in diff_text.splitlines():
         if line.startswith("@@"):
             if current is not None:
                 hunks.append(current)
             current = DiffHunk(header=line, lines=[])
+            match = header_re.match(line)
+            if match is None:
+                old_line = 0
+                new_line = 0
+            else:
+                old_line = int(match.group(1))
+                new_line = int(match.group(3))
         elif current is not None:
-            current.lines.append(line)
+            if line.startswith("\\ No newline at end of file"):
+                if current.lines:
+                    current.lines[-1].no_trailing_newline = True
+                continue
+            prefix = line[:1]
+            if prefix == "+":
+                current.lines.append(
+                    DiffLine(
+                        text=line,
+                        type="add",
+                        new_line_number=new_line,
+                    )
+                )
+                new_line += 1
+            elif prefix == "-":
+                current.lines.append(
+                    DiffLine(
+                        text=line,
+                        type="delete",
+                        old_line_number=old_line,
+                    )
+                )
+                old_line += 1
+            elif prefix == " ":
+                current.lines.append(
+                    DiffLine(
+                        text=line,
+                        type="context",
+                        old_line_number=old_line,
+                        new_line_number=new_line,
+                    )
+                )
+                old_line += 1
+                new_line += 1
     if current is not None:
         hunks.append(current)
     return hunks
@@ -1243,7 +1404,15 @@ def _untracked_as_diff(content: str) -> list[DiffHunk]:
     n = len(lines)
     hunk = DiffHunk(
         header=f"@@ -0,0 +1,{n} @@",
-        lines=[f"+{line}" for line in lines],
+        lines=[
+            DiffLine(
+                text=f"+{line}",
+                type="add",
+                new_line_number=index,
+                no_trailing_newline=not content.endswith("\\n") and index == n,
+            )
+            for index, line in enumerate(lines, start=1)
+        ],
     )
     return [hunk]
 
@@ -1570,6 +1739,7 @@ class GitLogCommit(BaseModel):
     author: str
     date: str  # ISO 8601
     message: str
+    body: str = ""
     refs: list[str] = []  # branch/tag/HEAD decorations
 
 
@@ -1645,21 +1815,22 @@ async def git_log(
     has_more = len(commits) > n
     commits = commits[:n]
 
-    return GitLogResponse(
-        branch=ref,
-        has_more=has_more,
-        commits=[
+    log_commits: list[GitLogCommit] = []
+    for commit in commits:
+        lines = commit.message.strip().splitlines()
+        log_commits.append(
             GitLogCommit(
-                sha=c.hexsha,
-                sha_short=c.hexsha[:7],
-                author=str(c.author),
-                date=c.authored_datetime.isoformat(),
-                message=c.message.strip().splitlines()[0],
-                refs=ref_map.get(c.hexsha, []),
+                sha=commit.hexsha,
+                sha_short=commit.hexsha[:7],
+                author=str(commit.author),
+                date=commit.authored_datetime.isoformat(),
+                message=lines[0] if lines else "",
+                body="\n".join(lines[1:]).strip(),
+                refs=ref_map.get(commit.hexsha, []),
             )
-            for c in commits
-        ],
-    )
+        )
+
+    return GitLogResponse(branch=ref, has_more=has_more, commits=log_commits)
 
 
 @workspace_scoped_router.get("/git/commit/diff", response_model=CommitDiffResponse)
@@ -1706,6 +1877,59 @@ class GitCommitRequest(BaseModel):
     dry_run_hooks: bool = False
     body: str | None = None
     amend: bool = False
+    run_hooks: bool = False
+    signoff: bool = False
+    bypass: bool = False
+
+
+class GitCommitSuggestion(BaseModel):
+    """Rascunho editável de título e descrição para um novo commit."""
+
+    title: str
+    description: str
+
+
+def _git_commit_suggestion_sync(workspace_id: str) -> GitCommitSuggestion:
+    """Build a commit suggestion without blocking the FastAPI event loop."""
+    repo = _open_workspace_repo(workspace_id)
+    if repo is None:
+        return GitCommitSuggestion(title="", description="")
+    staged_paths = (
+        {
+            path
+            for item in repo.index.diff("HEAD")
+            for path in (item.a_path, item.b_path)
+            if path
+        }
+        if repo.head.is_valid()
+        else {path for path, _stage in repo.index.entries}
+    )
+    unstaged = repo.index.diff(None)
+    paths = staged_paths | {
+        path for item in unstaged for path in (item.a_path, item.b_path) if path
+    }
+    paths.update(path for path in repo.untracked_files if path)
+    count = len(paths)
+    if count == 0:
+        return GitCommitSuggestion(title="", description="")
+    noun = "arquivo" if count == 1 else "arquivos"
+    return GitCommitSuggestion(
+        title=f"Atualiza {count} {noun}",
+        description="Alterações agrupadas a partir do estado staged atual.",
+    )
+
+
+@workspace_scoped_router.get(
+    "/git/commit/suggestion", response_model=GitCommitSuggestion
+)
+async def git_commit_suggestion(workspace_id: str) -> GitCommitSuggestion:
+    """Gera um rascunho editável a partir das alterações do workspace.
+
+    O compositor de commit exibe alterações staged e unstaged na mesma lista.
+    Portanto, a sugestão precisa considerar ambos os estados (e também arquivos
+    não rastreados) para funcionar antes de o usuário fazer o stage manual.
+    """
+    return await asyncio.to_thread(_git_commit_suggestion_sync, workspace_id)
 
 
 class GitSquashRequest(BaseModel):
@@ -1775,7 +1999,7 @@ async def git_commit_inline(
     if repo is None:
         return StatusResponse(status="error", message="Repositório git não encontrado.")
     if body.dry_run_hooks:
-        hook_result = _run_pre_commit_hooks(repo)
+        hook_result = await asyncio.to_thread(_run_pre_commit_hooks, repo)
         if hook_result["passed"]:
             return StatusResponse(
                 status="hooks_ok", message=hook_result.get("output", "")
@@ -1783,8 +2007,25 @@ async def git_commit_inline(
         return StatusResponse(
             status="hooks_failed", message=hook_result.get("output", "")
         )
-    result = _git_commit_impl(
-        repo, body.message, body.all, body=body.body, amend=body.amend
+    # `git commit --amend` executa o pre-commit por conta própria. Rodar o
+    # hook manualmente antes dele duplicava efeitos e podia alterar o índice
+    # duas vezes. O dry-run continua explícito; no amend deixamos o Git
+    # executar exatamente uma vez.
+    if body.run_hooks and not body.bypass and not body.amend:
+        hook_result = await asyncio.to_thread(_run_pre_commit_hooks, repo)
+        if not hook_result["passed"]:
+            return StatusResponse(
+                status="hooks_failed", message=hook_result.get("output", "")
+            )
+    result = await asyncio.to_thread(
+        _git_commit_impl,
+        repo,
+        body.message,
+        body.all,
+        body=body.body,
+        amend=body.amend,
+        signoff=body.signoff,
+        bypass=body.bypass,
     )
     return StatusResponse(status=result["status"], message=result.get("message", ""))
 
@@ -2030,15 +2271,24 @@ async def git_revert_commit(
 
 
 class GitStatusResponse(BaseModel):
+    """Snapshot validado do estado atual do repositório e da operação ativa."""
+
     is_git_repo: bool = False
     branch: str = ""
     clean: bool = True
     ahead: int = 0
     behind: int = 0
+    operation_in_progress: GitOperationSnapshot | None = None
 
 
 class GitOperationResponse(BaseModel):
-    operation: dict[str, object] | None = None
+    operation: GitOperationSnapshot | None = None
+
+
+class GitOperationHistoryResponse(BaseModel):
+    """Operações recentes em ordem decrescente de criação para reconexão."""
+
+    operations: list[GitOperationSnapshot] = Field(default_factory=list)
 
 
 @workspace_scoped_router.get("/git/operation", response_model=GitOperationResponse)
@@ -2047,6 +2297,20 @@ async def git_operation(workspace_id: str) -> GitOperationResponse:
     from backend.services.git import git_service
 
     return GitOperationResponse(operation=await git_service.latest(workspace_id))
+
+
+@workspace_scoped_router.get(
+    "/git/operations", response_model=GitOperationHistoryResponse
+)
+async def git_operations(
+    workspace_id: str, limit: int = 50
+) -> GitOperationHistoryResponse:
+    """Lista operações Git recentes para reconexão e diagnóstico."""
+    from backend.services.git import git_service
+
+    return GitOperationHistoryResponse(
+        operations=await git_service.history(workspace_id, limit=limit)
+    )
 
 
 @workspace_scoped_router.get("/git/status", response_model=GitStatusResponse)
@@ -2065,15 +2329,17 @@ async def git_status(workspace_id: str) -> GitStatusResponse:
     except Exception:
         logger.exception("api/workspaces: git_status falhou ws=%s", workspace_id)
         return GitStatusResponse(is_git_repo=True)
-    branch = info.get("branch", "")
-    ahead = info.get("ahead", 0)
-    behind = info.get("behind", 0)
+    branch = info.branch
+    ahead = info.ahead
+    behind = info.behind
+    operation_in_progress = info.operation_in_progress
     return GitStatusResponse(
         is_git_repo=True,
         branch=branch if isinstance(branch, str) else "",
-        clean=bool(info.get("clean", True)),
-        ahead=int(ahead) if isinstance(ahead, int | float | str) else 0,
-        behind=int(behind) if isinstance(behind, int | float | str) else 0,
+        clean=info.clean,
+        ahead=ahead,
+        behind=behind,
+        operation_in_progress=operation_in_progress,
     )
 
 
@@ -2133,6 +2399,7 @@ async def git_checkout(workspace_id: str, body: GitCheckoutRequest) -> StatusRes
 class GitSyncRequest(BaseModel):
     remote: str = "origin"
     branch: str | None = None
+    force: bool = False
 
 
 @workspace_scoped_router.post("/git/fetch", response_model=StatusResponse)
@@ -2142,6 +2409,11 @@ async def git_fetch(workspace_id: str, body: GitSyncRequest) -> StatusResponse:
     if repo is None:
         return StatusResponse(status="error", message="Repositório git não encontrado.")
     from backend.services.git import GitOperationError, git_service
+
+    if body.force:
+        return StatusResponse(
+            status="invalid_request", message="force só pode ser usado no push."
+        )
 
     try:
         await git_service.execute(
@@ -2166,6 +2438,10 @@ async def git_pull(workspace_id: str, body: GitSyncRequest) -> StatusResponse:
     repo = _open_workspace_repo(workspace_id)
     if repo is None:
         return StatusResponse(status="error", message="Repositório git não encontrado.")
+    if body.force:
+        return StatusResponse(
+            status="invalid_request", message="force só pode ser usado no push."
+        )
     try:
         _, result = await git_service.execute(
             workspace_id,
@@ -2196,7 +2472,7 @@ async def git_push(workspace_id: str, body: GitSyncRequest) -> StatusResponse:
             workspace_id,
             repo,
             "push",
-            lambda: _git_push_impl(repo, body.remote, body.branch),
+            lambda: _git_push_impl(repo, body.remote, body.branch, body.force),
         )
         result = result or {}
         return StatusResponse(
@@ -3949,6 +4225,14 @@ async def toggle_rag_bucket(
     from backend.services import rag_buckets
     from backend.workspace.runtime_settings import runtime_settings
 
+    bucket = rag_buckets.get_bucket(runtime_settings, bucket_id)
+    if bucket is None:
+        # Toggling an already-absent bucket is a safe no-op. This keeps
+        # repeated UI updates idempotent without weakening the tenant check
+        # for a bucket that belongs to another workspace.
+        return body
+    if bucket.workspace_id != workspace_id:
+        raise HTTPException(status_code=404, detail="Bucket não encontrado")
     rag_buckets.set_active(
         runtime_settings,
         workspace_id=workspace_id,
@@ -3970,13 +4254,48 @@ async def delete_rag_bucket(workspace_id: str, bucket_id: str) -> dict:
     from backend.storage.factory import get_vector_store_backend
     from backend.workspace.runtime_settings import runtime_settings
 
-    rag_buckets.delete_bucket(runtime_settings, bucket_id)
+    bucket = rag_buckets.get_bucket(runtime_settings, bucket_id)
+    if bucket is None:
+        # A previous purge may have failed after the catalog row was removed.
+        # Retry only for the workspace that owns the persisted cleanup record.
+        pending_workspace = rag_buckets.get_pending_purge_workspace(
+            runtime_settings, bucket_id
+        )
+        if pending_workspace != workspace_id:
+            # DELETE is intentionally idempotent: a retry after a successful
+            # deletion has the same result as the original request.
+            return {"ok": True}
+        try:
+            backend = await get_vector_store_backend()
+            await backend.purge(f"bucket_{bucket_id}")
+        except Exception:
+            logger.warning(
+                "rag_buckets: falha ao repetir purge do bucket %s",
+                bucket_id,
+                exc_info=True,
+            )
+            return {"ok": True}
+        rag_buckets.clear_pending_purge(
+            runtime_settings, workspace_id=workspace_id, bucket_id=bucket_id
+        )
+        return {"ok": True}
+    if bucket.workspace_id != workspace_id:
+        raise HTTPException(status_code=404, detail="Bucket não encontrado")
+
+    rag_buckets.mark_pending_purge(
+        runtime_settings, workspace_id=workspace_id, bucket_id=bucket_id
+    )
+    rag_buckets.delete_bucket(runtime_settings, bucket_id, workspace_id=workspace_id)
     try:
         backend = await get_vector_store_backend()
         await backend.purge(f"bucket_{bucket_id}")
     except Exception:
         logger.warning(
             "rag_buckets: falha ao purgar tabela do bucket %s", bucket_id, exc_info=True
+        )
+    else:
+        rag_buckets.clear_pending_purge(
+            runtime_settings, workspace_id=workspace_id, bucket_id=bucket_id
         )
     return {"ok": True}
 

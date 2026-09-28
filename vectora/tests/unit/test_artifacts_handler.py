@@ -13,8 +13,12 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import HTTPException, Request
 
 # ---------------------------------------------------------------------------
 # Fixture — redireciona ~ para uma pasta temporária por teste
@@ -138,6 +142,55 @@ class TestListArtifacts:
         # Não pode ter "secreto" no resultado.
         paths = [a.path for a in resp.artifacts]
         assert not any("secreto" in p for p in paths)
+
+    @pytest.mark.asyncio
+    async def test_authenticated_owner_can_list_artifacts(self, fake_home):
+        from backend.api.handlers.artifacts import list_artifacts
+
+        _write_artifact(fake_home, "owned", "plan", "conteudo")
+        request = cast(
+            "Request",
+            SimpleNamespace(state=SimpleNamespace(user=SimpleNamespace(id="owner"))),
+        )
+        with patch(
+            "backend.api.handlers.threads._assert_existing_thread_ownership",
+            new=AsyncMock(),
+        ) as ownership:
+            response = await list_artifacts(session_id="owned", request=request)
+
+        ownership.assert_awaited_once_with("owned", request)
+        assert len(response.artifacts) == 1
+
+    @pytest.mark.asyncio
+    async def test_unauthenticated_artifact_request_is_rejected(self, fake_home):
+        from backend.api.handlers.artifacts import list_artifacts
+
+        request = cast("Request", SimpleNamespace(state=SimpleNamespace(user=None)))
+        with pytest.raises(HTTPException) as exc_info:
+            await list_artifacts(session_id="owned", request=request)
+
+        assert exc_info.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_different_authenticated_user_cannot_list_artifacts(self, fake_home):
+        from backend.api.handlers.artifacts import list_artifacts
+
+        request = cast(
+            "Request",
+            SimpleNamespace(state=SimpleNamespace(user=SimpleNamespace(id="other"))),
+        )
+        with patch(
+            "backend.api.handlers.threads._assert_existing_thread_ownership",
+            new=AsyncMock(
+                side_effect=HTTPException(
+                    status_code=404, detail="Thread não encontrada"
+                )
+            ),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await list_artifacts(session_id="owned", request=request)
+
+        assert exc_info.value.status_code == 404
 
 
 # ---------------------------------------------------------------------------

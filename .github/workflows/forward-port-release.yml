@@ -1,0 +1,143 @@
+name: Sync release fixes to master
+
+# Mantém a linha de manutenção isolada da linha de desenvolvimento e promove
+# diretamente as correções para a linha configurada de desenvolvimento. O
+# sentido é intencionalmente unidirecional.
+on:
+  push:
+    branches:
+      - master
+      - "release/**"
+
+concurrency:
+  group: sync-release-promotion
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync-master:
+    name: Promote maintenance fixes
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Merge maintenance fixes into master
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          token: ${{ github.token }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Load release line configuration
+        id: release-lines
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f .github/release-lines.json ]]; then
+            echo "::notice::Release-line configuration is not present on the trusted default branch; skipping promotion."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          jq -e '
+            (.development.branch | type == "string" and length > 0) and
+            (.maintenance.branch | type == "string" and length > 0) and
+            (.development.milestone | type == "string" and length > 0) and
+            (.maintenance.milestone | type == "string" and length > 0) and
+            (.development.branch != .maintenance.branch)
+          ' .github/release-lines.json >/dev/null
+          development_branch="$(jq -er '.development.branch' .github/release-lines.json)"
+          maintenance_branch="$(jq -er '.maintenance.branch' .github/release-lines.json)"
+          development_milestone="$(jq -er '.development.milestone' .github/release-lines.json)"
+          if [[ -z "$development_branch" || -z "$maintenance_branch" || -z "$development_milestone" ]]; then
+            echo "::error::Invalid release-line configuration." >&2
+            exit 1
+          fi
+          {
+            echo "enabled=true"
+            echo "development_branch=$development_branch"
+            echo "maintenance_branch=$maintenance_branch"
+            echo "development_milestone=$development_milestone"
+          } >> "$GITHUB_OUTPUT"
+      - name: Apply release branch to master
+        if: steps.release-lines.outputs.enabled == 'true' && github.ref_name == steps.release-lines.outputs.maintenance_branch
+        env:
+          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          MAINTENANCE_BRANCH: ${{ steps.release-lines.outputs.maintenance_branch }}
+          DEVELOPMENT_BRANCH: ${{ steps.release-lines.outputs.development_branch }}
+          DEVELOPMENT_MILESTONE: ${{ steps.release-lines.outputs.development_milestone }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$RELEASE_PLEASE_TOKEN" ]]; then
+            echo "::error::RELEASE_PLEASE_TOKEN is required to trigger downstream workflows." >&2
+            exit 1
+          fi
+          git remote set-url origin "https://x-access-token:${RELEASE_PLEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3; do
+            git fetch origin "$DEVELOPMENT_BRANCH" "$MAINTENANCE_BRANCH"
+            git switch --force-create sync-release-promotion "origin/$DEVELOPMENT_BRANCH"
+            base_sha="$(git rev-parse "origin/$DEVELOPMENT_BRANCH")"
+
+            if git merge-base --is-ancestor "origin/$MAINTENANCE_BRANCH" HEAD; then
+              echo "$DEVELOPMENT_BRANCH already contains $MAINTENANCE_BRANCH."
+              exit 0
+            fi
+
+            if ! git merge --no-edit "origin/$MAINTENANCE_BRANCH"; then
+              git merge --abort || true
+              conflict_branch="sync/release-promotion-${MAINTENANCE_BRANCH//\//-}-to-${DEVELOPMENT_BRANCH//\//-}"
+              if [[ -z "$GH_TOKEN" ]]; then
+                  echo "::error::RELEASE_PLEASE_TOKEN é necessário para abrir uma PR de resolução de conflitos." >&2
+                exit 1
+              fi
+              existing_pr="$(gh pr list \
+                --repo "$GITHUB_REPOSITORY" \
+                --base "$DEVELOPMENT_BRANCH" \
+                --head "$conflict_branch" \
+                --state open \
+                --json number \
+                --jq '.[0].number // empty')"
+              if [[ -n "$existing_pr" ]]; then
+                echo "Conflict-resolution PR #$existing_pr is already open; preserving resolver commits."
+              else
+                remote_conflict_sha="$(git ls-remote --heads origin "$conflict_branch" | awk '{print $1}')"
+                git switch --force-create "$conflict_branch" "origin/$MAINTENANCE_BRANCH"
+                if [[ -n "$remote_conflict_sha" ]]; then
+                  git push --force-with-lease="refs/heads/$conflict_branch:$remote_conflict_sha" origin "HEAD:$conflict_branch"
+                else
+                  git push origin "HEAD:$conflict_branch"
+                fi
+                gh pr create \
+                  --repo "$GITHUB_REPOSITORY" \
+                  --base "$DEVELOPMENT_BRANCH" \
+                  --head "$conflict_branch" \
+                  --title "chore: resolve release promotion conflicts" \
+                  --body "The automatic promotion from the maintenance line to the development line found merge conflicts. Resolve them in this PR, then merge it to forward the maintenance fixes." \
+                  --label "chore"
+              fi
+              echo "$MAINTENANCE_BRANCH cannot be merged into $DEVELOPMENT_BRANCH without conflicts; opened a resolution PR."
+              exit 1
+            fi
+
+            if git push origin "HEAD:$DEVELOPMENT_BRANCH"; then
+              exit 0
+            else
+              push_status=$?
+            fi
+
+            git fetch origin "$DEVELOPMENT_BRANCH"
+            remote_sha="$(git rev-parse "origin/$DEVELOPMENT_BRANCH")"
+            if [[ "$remote_sha" == "$base_sha" ]]; then
+              echo "::error::Push to $DEVELOPMENT_BRANCH was rejected without a concurrent update." >&2
+              exit "$push_status"
+            fi
+
+            echo "$DEVELOPMENT_BRANCH changed during attempt $attempt; retrying."
+          done
+
+          echo "$DEVELOPMENT_BRANCH changed during all promotion attempts."
+          exit 1
