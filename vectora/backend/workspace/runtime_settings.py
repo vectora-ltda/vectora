@@ -49,7 +49,14 @@ def _bootstrap_vectora_home() -> Path:
     ``backend.settings._default_vectora_home``.
     """
     env_value = os.environ.get("VECTORA_HOME")
-    return Path(env_value) if env_value else Path.home() / ".vectora"
+    if not env_value:
+        return Path.home() / ".vectora"
+    if env_value == "~":
+        env_value = str(Path.home())
+    elif env_value.startswith(("~/", "~\\")):
+        env_value = str(Path.home() / env_value[2:])
+    path = Path(env_value)
+    return path if path.is_absolute() else (Path.home() / path).resolve()
 
 
 _DB_PATH = _bootstrap_vectora_home() / "checkpoints.db"

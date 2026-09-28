@@ -89,6 +89,17 @@ def _runtime_home_for_profile(profile: str) -> Path:
     return Path.home() / f".vectora-{safe_profile}"
 
 
+def _normalize_vectora_home(value: str) -> Path:
+    """Resolve an explicit runtime home identically in every launch mode."""
+    expanded = value
+    if value == "~":
+        expanded = str(Path.home())
+    elif value.startswith(("~/", "~\\")):
+        expanded = str(Path.home() / value[2:])
+    path = Path(expanded)
+    return path if path.is_absolute() else (Path.home() / path).resolve()
+
+
 # ---------------------------------------------------------------------------
 # Terminal shutdown helpers
 # ---------------------------------------------------------------------------
@@ -613,9 +624,11 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
     runtime_profile = os.environ.setdefault(
         "VECTORA_RUNTIME_PROFILE", "dev" if dev_electron else "stable"
     )
-    os.environ.setdefault(
-        "VECTORA_HOME", str(_runtime_home_for_profile(runtime_profile))
-    )
+    configured_home = os.environ.get("VECTORA_HOME")
+    if configured_home:
+        os.environ["VECTORA_HOME"] = str(_normalize_vectora_home(configured_home))
+    else:
+        os.environ["VECTORA_HOME"] = str(_runtime_home_for_profile(runtime_profile))
 
     from backend.api.server import create_app
 
