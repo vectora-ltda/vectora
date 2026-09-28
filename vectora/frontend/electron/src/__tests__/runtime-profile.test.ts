@@ -21,6 +21,9 @@ describe("runtime profiles", () => {
     expect(runtimeHome({}, "dev", "/home/user")).toBe(
       path.join("/home/user", ".vectora-dev"),
     );
+    expect(runtimeHome({}, "preview", "/home/user")).toBe(
+      path.join("/home/user", ".vectora-preview"),
+    );
   });
 
   it("honors an explicitly isolated home", () => {

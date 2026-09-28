@@ -36,6 +36,7 @@ import argparse
 import asyncio
 import contextlib
 import logging
+import re
 import signal
 import socket
 import sys
@@ -76,6 +77,16 @@ from backend.services.log_setup import setup_logging
 setup_logging()
 logger = logging.getLogger(__name__)
 _SHUTDOWN_EVENTS: dict[int, asyncio.Event] = {}
+
+
+def _runtime_home_for_profile(profile: str) -> Path:
+    """Return the default backend home for a sanitized runtime profile."""
+    safe_profile = re.sub(r"[^A-Za-z0-9_-]", "-", profile)
+    if safe_profile == "stable":
+        return Path.home() / ".vectora"
+    if safe_profile == "dev":
+        return Path.home() / ".vectora-dev"
+    return Path.home() / f".vectora-{safe_profile}"
 
 
 # ---------------------------------------------------------------------------
@@ -554,8 +565,6 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
     """
     import uvicorn
 
-    from backend.api.server import create_app
-
     # `vectora web` is an explicit browser-only mode. Clear desktop flags that
     # could have been inherited from a launcher and never auto-start Electron,
     # including when the installed Electron binary is discoverable.
@@ -597,6 +606,18 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
         logger.info(
             "Electron (dev) resolvido — sobe como sidecar no startup do FastAPI"
         )
+
+    # Fixe o perfil e a home antes de importar módulos que podem construir o
+    # singleton de settings. Assim o backend iniciado diretamente usa a mesma
+    # home isolada que o Electron, inclusive para perfis nomeados.
+    runtime_profile = os.environ.setdefault(
+        "VECTORA_RUNTIME_PROFILE", "dev" if dev_electron else "stable"
+    )
+    os.environ.setdefault(
+        "VECTORA_HOME", str(_runtime_home_for_profile(runtime_profile))
+    )
+
+    from backend.api.server import create_app
 
     # TLS opcional — CLI tem prioridade; settings (env SSL_CERTFILE/SSL_KEYFILE
     # ou ~/.vectora/.env) é o fallback. Com cert+key o uvicorn serve https://,

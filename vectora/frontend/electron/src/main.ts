@@ -293,9 +293,10 @@ protocol.registerSchemesAsPrivileged([
  * - Windows: named pipe (\\.\pipe\vectora-<pid>) lido de stdout via VECTORA_IPC_PIPE
  * - Fallback Windows (sem pipe ainda pronto): TCP loopback
  */
+/** Build the IPC transport for the currently isolated runtime profile. */
 function backendTransport(): http.RequestOptions {
   if (process.platform !== "win32") {
-    return { socketPath: path.join(os.homedir(), ".vectora", "vectora.sock") };
+    return { socketPath: path.join(runtimeHome, "vectora.sock") };
   }
   if (backendPipePath) {
     return { socketPath: backendPipePath };
@@ -323,7 +324,7 @@ const _cookieStore = new Map<string, string>();
 // nenhuma, o login era perdido a cada restart do app. Grava um arquivo local
 // (criptografado via safeStorage — DPAPI no Windows/Keychain no macOS — quando
 // disponível) em vez de depender do cookie jar do Chromium.
-const _SESSION_STORE_FILE = path.join(os.homedir(), ".vectora", "session.dat");
+const _SESSION_STORE_FILE = path.join(runtimeHome, "session.dat");
 
 function persistCookieStore(): void {
   try {
@@ -461,6 +462,7 @@ function pingBackend(): Promise<boolean> {
 const _resourcesPath = (): string =>
   process.resourcesPath || path.join(__dirname, "..");
 
+/** Start or connect to the backend owned by this Electron profile. */
 async function startBackend(): Promise<void> {
   // Modo backend-primário em dev: quando o backend Python já é o processo
   // primário (`uv run vectora start` rodado direto, fora do Electron) e se
@@ -494,8 +496,12 @@ async function startBackend(): Promise<void> {
   const exePath = backendPath(process.env, process.platform, _resourcesPath());
   backend = spawnBackendProcess(exePath, ["start"], env);
   if (backend.pid) {
+    const backendPid = backend.pid;
     fs.promises
-      .writeFile(_BACKEND_PID_FILE, String(backend.pid), "utf-8")
+      .mkdir(path.dirname(_BACKEND_PID_FILE), { recursive: true })
+      .then(() =>
+        fs.promises.writeFile(_BACKEND_PID_FILE, String(backendPid), "utf-8"),
+      )
       .catch(() => {});
   }
   const pipeParser = new IpcPipeParser();
