@@ -236,7 +236,7 @@ export function WorkbenchNavBar({
   const wsId = workspace?.id ?? "";
   const activeTab = useWorkbenchStore((s) => s.getActiveTab(threadId));
   const activeExtension = useWorkbenchStore((s) =>
-    s.getActiveExtension(threadId),
+    s.getActiveExtension?.(threadId),
   );
   const isOpen = useWorkbenchStore((s) => s.isOpen(threadId));
   const selectTab = useWorkbenchStore((s) => s.selectTab);
@@ -342,7 +342,7 @@ export function WorkbenchContent({
   const wsId = workspace?.id ?? "";
   const activeTab = useWorkbenchStore((s) => s.getActiveTab(threadId));
   const activeExtension = useWorkbenchStore((s) =>
-    s.getActiveExtension(threadId),
+    s.getActiveExtension?.(threadId),
   );
   const setPanelOpen = useWorkbenchStore((s) => s.setPanelOpen);
   const extensionItems = useLibraryStore((s) => s.extensionItems);

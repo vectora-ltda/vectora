@@ -341,11 +341,9 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
     if (s.mcpLoading || (isFresh(s.mcpFetchedAt) && s.mcpQuery === q)) return;
     set({ mcpLoading: true });
     try {
-      const [items, installedIds, status] = await Promise.all([
-        fetchMcpRegistry(q),
-        fetchMcpInstalledIds(),
-        fetchMcpStatus(),
-      ]);
+      const items = await fetchMcpRegistry(q);
+      const installedIds = await fetchMcpInstalledIds();
+      const status = await fetchMcpStatus().catch(() => get().mcpStatus);
       set({
         mcpItems: items,
         mcpInstalledIds: installedIds,
@@ -379,7 +377,7 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
     try {
       const [items, status] = await Promise.all([
         fetchSkillsCatalog(q),
-        fetchSkillsStatus(),
+        fetchSkillsStatus().catch(() => get().skillsStatus),
       ]);
       set({
         skillsItems: items.filter(
