@@ -106,6 +106,21 @@ def test_release_please_scopes_pr_body_to_current_release_notes() -> None:
     assert 'echo "number=$number" >> "$GITHUB_OUTPUT"' in content
 
 
+def test_release_please_requires_candidates_and_uses_versioned_branches() -> None:
+    """Evita releases vazias e impede o retorno do nome genérico da automação."""
+    workflow = WORKFLOW.parent / "release-please.yml"
+    content = workflow.read_text(encoding="utf-8")
+
+    assert "Check for merged release candidates" in content
+    assert "steps.release-candidates.outputs.has_candidates == 'true'" in content
+    assert "Rename generated Release Please branch by version" in content
+    assert 'target="release-please-${major}.${minor}"' in content
+    assert 'target="release-please-${version}"' in content
+    assert 'test("^release-please--branches--")' in content
+    find_section = content.split("# Somente o branch exato", 1)[1]
+    assert "release-please--branches--" not in find_section
+
+
 def test_release_rotation_workflow_declares_release_entrypoint() -> None:
     """Mantém a criação pós-publicação limitada à branch e aos milestones."""
     workflow = WORKFLOW.parent / "rotate-release-lines.yml"
