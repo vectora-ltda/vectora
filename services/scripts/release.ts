@@ -19,7 +19,11 @@
  * (não tem API S3 e os valores são pequenos), autenticado por
  * CLOUDFLARE_API_TOKEN.
  */
-import { DeleteObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectsCommand,
+  ListObjectsV2Command,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -158,12 +162,38 @@ export function buildArchManifest(
   };
 }
 
-// Quantas versões ficam disponíveis em R2 por canal. A poda apaga pelas
-// chaves que cada versão gravou no KV (`uploads` abaixo), não por listagem
-// do bucket — a lista registrada é a fonte de verdade do que cada versão
-// publicou. 3 dá margem pra quem já está baixando uma versão no meio de um
-// up-release nunca ver o download sumir no meio do caminho.
+// Quantas versões ficam disponíveis em R2 por canal. 3 dá margem pra quem já
+// está baixando uma versão no meio de um up-release nunca ver o download sumir
+// no meio do caminho.
 export const RETENTION_COUNT = 3;
+
+const RELEASE_VERSION_RE = /^(\d+)\.(\d+)\.(\d+)$/;
+
+/** Extracts a release version from a channel/object key. */
+export function releaseVersionFromKey(
+  channel: string,
+  key: string,
+): string | null {
+  const prefix = `${channel}/`;
+  if (!key.startsWith(prefix)) return null;
+  const parts = key.slice(prefix.length).split("/");
+  const version = parts.length >= 4 ? parts[2] : null;
+  return version && RELEASE_VERSION_RE.test(version) ? version : null;
+}
+
+/** Sorts release versions numerically, independent of their discovery order. */
+export function sortReleaseVersions(versions: Iterable<string>): string[] {
+  return [...new Set(versions)].sort((left, right) => {
+    const a = left.match(RELEASE_VERSION_RE);
+    const b = right.match(RELEASE_VERSION_RE);
+    if (!a || !b) return left.localeCompare(right);
+    return (
+      Number(a[1]) - Number(b[1]) ||
+      Number(a[2]) - Number(b[2]) ||
+      Number(a[3]) - Number(b[3])
+    );
+  });
+}
 
 export function computeRetention(
   history: string[],
@@ -280,9 +310,42 @@ async function uploadBuffer(
   }).done();
 }
 
-async function deleteFile(bucket: string, key: string): Promise<void> {
-  console.log(`✗ ${key}`);
-  await s3Client().send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+async function deleteFiles(bucket: string, keys: string[]): Promise<void> {
+  for (let offset = 0; offset < keys.length; offset += 1000) {
+    const batch = keys.slice(offset, offset + 1000);
+    if (batch.length === 0) continue;
+    console.log(`✗ ${batch.length} objetos antigos`);
+    await s3Client().send(
+      new DeleteObjectsCommand({
+        Bucket: bucket,
+        Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
+      }),
+    );
+  }
+}
+
+async function listChannelObjects(
+  bucket: string,
+  channel: string,
+): Promise<string[]> {
+  const keys: string[] = [];
+  let continuationToken: string | undefined;
+  do {
+    const page = await s3Client().send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: `${channel}/`,
+        ContinuationToken: continuationToken,
+      }),
+    );
+    for (const object of page.Contents ?? []) {
+      if (object.Key) keys.push(object.Key);
+    }
+    continuationToken = page.IsTruncated
+      ? page.NextContinuationToken
+      : undefined;
+  } while (continuationToken);
+  return keys;
 }
 
 interface StoredConfig {
@@ -348,9 +411,9 @@ function writeConfig(config: StoredConfig) {
 }
 
 /**
- * Grava a nova versão no canal, registra as chaves R2 que ela publicou e
- * poda versões além de RETENTION_COUNT, apagando as chaves gravadas na
- * publicação delas.
+ * Grava a nova versão no canal, descobre o estado real do prefixo R2 e poda
+ * versões além de RETENTION_COUNT. O KV continua registrando uploads novos,
+ * mas a listagem do bucket também recupera versões criadas antes desse índice.
  */
 async function publishVersionAndPrune(
   bucket: string,
@@ -360,8 +423,12 @@ async function publishVersionAndPrune(
 ): Promise<void> {
   const config = readConfig();
   const existing = config.channels[channel];
+  const bucketKeys = await listChannelObjects(bucket, channel);
+  const discoveredVersions = bucketKeys
+    .map((key) => releaseVersionFromKey(channel, key))
+    .filter((candidate): candidate is string => candidate !== null);
   const { retained, pruned } = computeRetention(
-    existing?.history ?? [],
+    sortReleaseVersions([...(existing?.history ?? []), ...discoveredVersions]),
     version,
   );
 
@@ -373,13 +440,23 @@ async function publishVersionAndPrune(
   };
   config.uploads[`${channel}/${version}`] = uploadedKeys;
 
+  const keysByVersion = new Map<string, string[]>();
+  for (const key of bucketKeys) {
+    const keyVersion = releaseVersionFromKey(channel, key);
+    if (!keyVersion) continue;
+    const keys = keysByVersion.get(keyVersion) ?? [];
+    keys.push(key);
+    keysByVersion.set(keyVersion, keys);
+  }
+  const keysToDelete: string[] = [];
   for (const prunedVersion of pruned) {
     const prunedKey = `${channel}/${prunedVersion}`;
-    for (const key of config.uploads[prunedKey] ?? []) {
-      await deleteFile(bucket, key);
-    }
+    keysToDelete.push(
+      ...(keysByVersion.get(prunedVersion) ?? config.uploads[prunedKey] ?? []),
+    );
     delete config.uploads[prunedKey];
   }
+  await deleteFiles(bucket, [...new Set(keysToDelete)]);
 
   writeConfig(config);
   if (pruned.length > 0) {
