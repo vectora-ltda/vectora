@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import tempfile
+import zipfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -14,6 +16,8 @@ from pathlib import Path
 from backend.services.vext import ensure_supported_platform
 from backend.services.vext_artifact import verify_vext
 from backend.services.vext_registry import VextTrustStore
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,7 +246,14 @@ class VextInstallStore:
         if not self.versions.exists():
             return records
         for artifact in sorted(self.versions.glob("*/*/package.vext")):
-            result = verify_vext(artifact)
+            try:
+                result = verify_vext(artifact)
+            except (OSError, ValueError, zipfile.BadZipFile) as exc:
+                logger.warning(
+                    "Skipping invalid installed VEXT artifact",
+                    extra={"artifact": str(artifact), "error": str(exc)},
+                )
+                continue
             records.append(
                 InstalledExtension(
                     result.manifest.id,

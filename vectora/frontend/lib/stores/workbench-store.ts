@@ -286,6 +286,7 @@ interface WorkbenchState {
   selectTab: (threadId: string, tab: WorkbenchTab) => void;
   getActiveExtension: (threadId: string) => string | null;
   selectExtension: (threadId: string, extensionId: string) => void;
+  clearExtension: (threadId: string) => void;
 
   setSplitSize: (size: number) => void;
   setViewerHeight: (height: number) => void;
@@ -543,6 +544,13 @@ export const useWorkbenchStore = create<WorkbenchState>()(
               [threadId]: extensionId,
             },
             panelOpen: { ...s.panelOpen, [threadId]: true },
+          })),
+        clearExtension: (threadId) =>
+          set((s) => ({
+            activeExtensionByThread: {
+              ...s.activeExtensionByThread,
+              [threadId]: null,
+            },
           })),
 
         setSplitSize: (size) => set({ splitSize: size }),

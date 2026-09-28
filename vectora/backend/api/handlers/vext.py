@@ -2,13 +2,22 @@
 
 from __future__ import annotations
 
+import asyncio
 import mimetypes
 import tempfile
 import zipfile
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, File, HTTPException, Response, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+)
 from pydantic import BaseModel, Field
 
 from backend.services.vext import MAX_PACKAGE_BYTES
@@ -17,7 +26,16 @@ from backend.services.vext_install import VextInstallStore
 from backend.services.vext_registry import VextTrustStore
 from backend.settings import settings
 
-router = APIRouter(prefix="/vext", tags=["vext"])
+
+def _require_user(request: Request) -> object:
+    """Require the authentication middleware to attach a user to the request."""
+    user = getattr(request.state, "user", None)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Não autenticado")
+    return user
+
+
+router = APIRouter(prefix="/vext", tags=["vext"], dependencies=[Depends(_require_user)])
 
 
 def _store() -> VextInstallStore:
@@ -29,14 +47,53 @@ def _trust_store() -> VextTrustStore:
 
 
 class LifecycleRequest(BaseModel):
+    """Request selecting the installed version used by activation or rollback."""
+
     version: str = Field(min_length=1, max_length=64)
 
 
-@router.post("/install")
-async def install(artifact: Annotated[UploadFile, File(...)]) -> dict[str, object]:
+class LifecycleResponse(BaseModel):
+    """Result returned after an extension lifecycle mutation."""
+
+    id: str
+    version: str | None = None
+    active: bool | None = None
+    uninstalled: bool | None = None
+
+
+class InstalledExtensionResponse(BaseModel):
+    """Verified local extension metadata exposed to the Library."""
+
+    id: str
+    version: str
+    active: bool
+    manifest: dict[str, object]
+
+
+class InstalledExtensionsResponse(BaseModel):
+    """Collection of verified local extension installations."""
+
+    extensions: list[InstalledExtensionResponse]
+
+
+class ExtensionVersionResponse(BaseModel):
+    """One locally installed version and whether it is active."""
+
+    version: str
+    active: bool
+
+
+class ExtensionVersionsResponse(BaseModel):
+    """Versions available for local activation or rollback."""
+
+    versions: list[ExtensionVersionResponse]
+
+
+@router.post("/install", response_model=LifecycleResponse)
+async def install(artifact: Annotated[UploadFile, File(...)]) -> LifecycleResponse:
     """Install and activate a signed artifact uploaded by the Library."""
     if artifact.filename is None or not artifact.filename.lower().endswith(".vext"):
-        raise HTTPException(status_code=400, detail="arquivo .vext obrigatório")
+        raise HTTPException(status_code=400, detail="arquivo .vext obrigatÃ³rio")
     temporary_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -49,7 +106,9 @@ async def install(artifact: Annotated[UploadFile, File(...)]) -> dict[str, objec
                 if total > MAX_PACKAGE_BYTES:
                     raise HTTPException(status_code=413, detail="artefato muito grande")
                 temporary.write(chunk)
-        item = _store().install(temporary_path, trust_store=_trust_store())
+        item = await asyncio.to_thread(
+            _store().install, temporary_path, trust_store=_trust_store()
+        )
     except HTTPException:
         raise
     except (OSError, PermissionError, ValueError) as exc:
@@ -58,11 +117,11 @@ async def install(artifact: Annotated[UploadFile, File(...)]) -> dict[str, objec
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
         await artifact.close()
-    return {"id": item.extension_id, "version": item.version, "active": True}
+    return LifecycleResponse(id=item.extension_id, version=item.version, active=True)
 
 
-@router.get("/installed")
-async def list_installed() -> dict[str, object]:
+@router.get("/installed", response_model=InstalledExtensionsResponse)
+async def list_installed() -> InstalledExtensionsResponse:
     """List installed versions with manifest metadata for the Library.
 
     The local store is authoritative for artifacts installed during development
@@ -70,7 +129,7 @@ async def list_installed() -> dict[str, object]:
     extensions even when the remote registry has not published them yet.
     """
     records = _store().list_installed()
-    extensions: list[dict[str, object]] = []
+    extensions: list[InstalledExtensionResponse] = []
     for item in records:
         try:
             manifest = verify_vext(item.artifact).manifest.model_dump(mode="json")
@@ -78,14 +137,14 @@ async def list_installed() -> dict[str, object]:
             # A corrupt artifact must not make the whole Library unavailable.
             continue
         extensions.append(
-            {
-                "id": item.extension_id,
-                "version": item.version,
-                "active": item.active,
-                "manifest": manifest,
-            }
+            InstalledExtensionResponse(
+                id=item.extension_id,
+                version=item.version,
+                active=item.active,
+                manifest=manifest,
+            )
         )
-    return {"extensions": extensions}
+    return InstalledExtensionsResponse(extensions=extensions)
 
 
 def _active_verified_archive(
@@ -93,7 +152,7 @@ def _active_verified_archive(
 ) -> tuple[VextBuildResult, zipfile.ZipFile]:
     item = _store().active(extension_id)
     if item is None:
-        raise HTTPException(status_code=404, detail="extensão não instalada")
+        raise HTTPException(status_code=404, detail="extensÃ£o nÃ£o instalada")
     try:
         result = verify_vext(item.artifact)
         return result, zipfile.ZipFile(item.artifact)
@@ -111,10 +170,10 @@ async def readme(extension_id: str) -> Response:
             None,
         )
         if readme_path is None:
-            raise HTTPException(status_code=404, detail="README não encontrado")
+            raise HTTPException(status_code=404, detail="README nÃ£o encontrado")
         content = archive.read(readme_path).decode("utf-8")
     except (KeyError, UnicodeDecodeError) as exc:
-        raise HTTPException(status_code=422, detail="README inválido") from exc
+        raise HTTPException(status_code=422, detail="README invÃ¡lido") from exc
     finally:
         archive.close()
     return Response(
@@ -129,12 +188,12 @@ async def asset(extension_id: str, asset_path: str) -> Response:
     """Serve a relative README asset from the verified installed archive."""
     normalized = Path(asset_path)
     if normalized.is_absolute() or ".." in normalized.parts:
-        raise HTTPException(status_code=400, detail="caminho de asset inválido")
+        raise HTTPException(status_code=400, detail="caminho de asset invÃ¡lido")
     _, archive = _active_verified_archive(extension_id)
     try:
         data = archive.read(normalized.as_posix())
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail="asset não encontrado") from exc
+        raise HTTPException(status_code=404, detail="asset nÃ£o encontrado") from exc
     finally:
         archive.close()
     media_type = mimetypes.guess_type(normalized.name)[0] or "application/octet-stream"
@@ -152,14 +211,14 @@ async def frontend(extension_id: str) -> Response:
     """
     item = _store().active(extension_id)
     if item is None:
-        raise HTTPException(status_code=404, detail="extensão não instalada")
+        raise HTTPException(status_code=404, detail="extensÃ£o nÃ£o instalada")
     try:
         result = verify_vext(item.artifact)
         if (
             result.manifest.id != extension_id
             or not result.manifest.frontend_entrypoint
         ):
-            raise ValueError("extensão não possui frontend")
+            raise ValueError("extensÃ£o nÃ£o possui frontend")
         entrypoint = result.manifest.frontend_entrypoint
         with zipfile.ZipFile(item.artifact) as archive:
             code = archive.read(entrypoint).decode("utf-8")
@@ -190,12 +249,12 @@ async def icon(extension_id: str) -> Response:
     """Serve an extension's declared SVG icon from its verified artifact."""
     item = _store().active(extension_id)
     if item is None:
-        raise HTTPException(status_code=404, detail="extensão não instalada")
+        raise HTTPException(status_code=404, detail="extensÃ£o nÃ£o instalada")
     try:
         result = verify_vext(item.artifact)
         icon_path = result.manifest.icon
         if not icon_path:
-            raise ValueError("extensão não possui ícone")
+            raise ValueError("extensÃ£o nÃ£o possui Ã­cone")
         with zipfile.ZipFile(item.artifact) as archive:
             data = archive.read(icon_path)
     except (
@@ -213,50 +272,51 @@ async def icon(extension_id: str) -> Response:
     )
 
 
-@router.post("/{extension_id}/activate")
-async def activate(extension_id: str, body: LifecycleRequest) -> dict[str, object]:
+@router.post("/{extension_id}/activate", response_model=LifecycleResponse)
+async def activate(extension_id: str, body: LifecycleRequest) -> LifecycleResponse:
     """Activate a previously installed and verified version."""
     try:
         item = _store().activate(extension_id, body.version, trust_store=_trust_store())
     except (OSError, PermissionError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {"id": item.extension_id, "version": item.version, "active": True}
+    return LifecycleResponse(id=item.extension_id, version=item.version, active=True)
 
 
-@router.post("/{extension_id}/deactivate")
-async def deactivate(extension_id: str) -> dict[str, object]:
+@router.post("/{extension_id}/deactivate", response_model=LifecycleResponse)
+async def deactivate(extension_id: str) -> LifecycleResponse:
     """Deactivate an extension without deleting its rollback versions."""
     if not _store().deactivate(extension_id):
-        raise HTTPException(status_code=404, detail="extensão não instalada")
-    return {"id": extension_id, "active": False}
+        raise HTTPException(status_code=404, detail="extensÃ£o nÃ£o instalada")
+    return LifecycleResponse(id=extension_id, active=False)
 
 
-@router.delete("/{extension_id}")
-async def uninstall(extension_id: str) -> dict[str, object]:
+@router.delete("/{extension_id}", response_model=LifecycleResponse)
+async def uninstall(extension_id: str) -> LifecycleResponse:
     """Remove an extension and all of its local rollback versions."""
     if not _store().uninstall(extension_id):
-        raise HTTPException(status_code=404, detail="extensão não instalada")
-    return {"id": extension_id, "uninstalled": True}
+        raise HTTPException(status_code=404, detail="extensÃ£o nÃ£o instalada")
+    return LifecycleResponse(id=extension_id, uninstalled=True)
 
 
-@router.get("/{extension_id}/versions")
-async def versions(extension_id: str) -> dict[str, object]:
+@router.get("/{extension_id}/versions", response_model=ExtensionVersionsResponse)
+async def versions(extension_id: str) -> ExtensionVersionsResponse:
     """List verified local versions available for activation."""
     records = [
         item for item in _store().list_installed() if item.extension_id == extension_id
     ]
-    return {
-        "versions": [
-            {"version": item.version, "active": item.active} for item in records
+    return ExtensionVersionsResponse(
+        versions=[
+            ExtensionVersionResponse(version=item.version, active=item.active)
+            for item in records
         ]
-    }
+    )
 
 
-@router.post("/{extension_id}/rollback")
-async def rollback(extension_id: str, body: LifecycleRequest) -> dict[str, object]:
+@router.post("/{extension_id}/rollback", response_model=LifecycleResponse)
+async def rollback(extension_id: str, body: LifecycleRequest) -> LifecycleResponse:
     """Switch to a verified immutable local version."""
     try:
         item = _store().rollback(extension_id, body.version, trust_store=_trust_store())
     except (OSError, PermissionError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {"id": item.extension_id, "version": item.version, "active": True}
+    return LifecycleResponse(id=item.extension_id, version=item.version, active=True)

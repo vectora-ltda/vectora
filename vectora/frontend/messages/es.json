@@ -1693,5 +1693,12 @@
   "settings_shortcuts_description": "Revisa los atajos proporcionados por Vectora y las extensiones instaladas.",
   "settings_shortcuts_title": "Atajos de teclado",
   "settings_category_shortcuts": "Atajos de teclado",
-  "settings_shortcuts_extensions": "Atajos de extensiones"
+  "settings_shortcuts_extensions": "Atajos de extensiones",
+  "library_extension_desc_eslint": "Ejecuta los diagnósticos de ESLint en el workspace actual y revisa las correcciones sugeridas.",
+  "library_extension_desc_oxlint": "Ejecuta los diagnósticos de Oxlint en el workspace actual y revisa las correcciones sugeridas.",
+  "library_extension_desc_precommit": "Ejecuta los hooks de pre-commit del workspace y revisa los cambios reportados.",
+  "library_extension_desc_prettier": "Formatea los archivos del workspace con la configuración de Prettier.",
+  "library_extension_desc_pyright": "Ejecuta los diagnósticos de Pyright para los archivos Python del workspace.",
+  "library_extension_desc_ruff": "Ejecuta los diagnósticos y el formato de Ruff para los archivos Python del workspace.",
+  "library_extension_desc_ty": "Ejecuta los diagnósticos de Ty para los archivos Python del workspace."
 }

@@ -29,7 +29,7 @@ class VextTrustStore:
 
     def __init__(self, path: str | Path | None = None) -> None:
         self._keys: dict[tuple[str, str], PublisherKey] = {}
-        self.path = Path(path) if path is not None else None
+        self.path: Path | None = Path(path) if path is not None else None
         if self.path is not None:
             self._load()
 

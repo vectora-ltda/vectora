@@ -243,6 +243,7 @@ export function WorkbenchNavBar({
   const setPanelOpen = useWorkbenchStore((s) => s.setPanelOpen);
   const selectExtension = useWorkbenchStore((s) => s.selectExtension);
   const extensionItems = useLibraryStore((s) => s.extensionItems);
+  const extensionInstalledIds = useLibraryStore((s) => s.extensionInstalledIds);
   const ensureExtensionsLoaded = useLibraryStore(
     (s) => s.ensureExtensionsLoaded,
   );
@@ -251,6 +252,7 @@ export function WorkbenchNavBar({
   }, [ensureExtensionsLoaded]);
   const workbenchExtensions = extensionItems.filter(
     (item) =>
+      extensionInstalledIds.has(item.id) &&
       !item.native &&
       !NATIVE_EXTENSION_IDS.has(item.id) &&
       item.frontend_entrypoint &&
@@ -258,6 +260,11 @@ export function WorkbenchNavBar({
         (contribution) => contribution.entrypoint,
       ),
   );
+  useEffect(() => {
+    if (activeExtension && !extensionInstalledIds.has(activeExtension)) {
+      useWorkbenchStore.getState().clearExtension(threadId);
+    }
+  }, [activeExtension, extensionInstalledIds, threadId]);
 
   return (
     <div
@@ -346,6 +353,7 @@ export function WorkbenchContent({
   );
   const setPanelOpen = useWorkbenchStore((s) => s.setPanelOpen);
   const extensionItems = useLibraryStore((s) => s.extensionItems);
+  const extensionInstalledIds = useLibraryStore((s) => s.extensionInstalledIds);
   const ensureExtensionsLoaded = useLibraryStore(
     (s) => s.ensureExtensionsLoaded,
   );

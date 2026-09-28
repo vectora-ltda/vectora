@@ -8,7 +8,8 @@
   "files": [
     "dist",
     "vectora-extension.json",
-    "README.md"
+    "README.md",
+    "assets"
   ],
   "publishConfig": {
     "access": "public"

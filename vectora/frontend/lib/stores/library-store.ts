@@ -115,16 +115,13 @@ const TTL_MS = 5 * 60 * 1000;
 
 export const NATIVE_EXTENSION_IDS = new Set(["github", "gitlab"]);
 const EXTENSION_DESCRIPTIONS: Record<string, string> = {
-  eslint:
-    "Run ESLint diagnostics for the current workspace and inspect actionable fixes.",
-  oxlint:
-    "Run Oxlint diagnostics for the current workspace and inspect actionable fixes.",
-  precommit:
-    "Run the workspace pre-commit hooks and inspect their reported changes.",
-  prettier: "Format workspace files with the configured Prettier settings.",
-  pyright: "Run Pyright diagnostics for Python files in the current workspace.",
-  ruff: "Run Ruff diagnostics and formatting for Python files in the current workspace.",
-  ty: "Run Ty diagnostics for Python files in the current workspace.",
+  eslint: m.library_extension_desc_eslint(),
+  oxlint: m.library_extension_desc_oxlint(),
+  precommit: m.library_extension_desc_precommit(),
+  prettier: m.library_extension_desc_prettier(),
+  pyright: m.library_extension_desc_pyright(),
+  ruff: m.library_extension_desc_ruff(),
+  ty: m.library_extension_desc_ty(),
 };
 
 async function fetchMcpRegistry(q: string): Promise<MCPConnector[]> {

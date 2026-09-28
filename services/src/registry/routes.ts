@@ -251,13 +251,26 @@ registry.post("/extensions/publishers", async (c) => {
   ).join("");
   if (digest !== fingerprint)
     return c.json({ error: "fingerprint_mismatch" }, 422);
-  const id = crypto.randomUUID();
-  await c.env.DB.prepare(
-    `INSERT INTO vext_publishers (id, owner_user_id, name, public_key, fingerprint)
-     VALUES (?, ?, ?, ?, ?) ON CONFLICT(fingerprint) DO UPDATE SET name = excluded.name, updated_at = datetime('now')`,
+  const existingPublisher = await c.env.DB.prepare(
+    "SELECT id, owner_user_id FROM vext_publishers WHERE fingerprint = ?",
   )
-    .bind(id, userId, name, publicKey, fingerprint)
-    .run();
+    .bind(fingerprint)
+    .first<{ id: string; owner_user_id: string }>();
+  if (existingPublisher && existingPublisher.owner_user_id !== userId)
+    return c.json({ error: "publisher_fingerprint_owned" }, 409);
+  if (existingPublisher) {
+    await c.env.DB.prepare(
+      "UPDATE vext_publishers SET name = ?, public_key = ?, updated_at = datetime('now') WHERE id = ? AND owner_user_id = ?",
+    )
+      .bind(name, publicKey, existingPublisher.id, userId)
+      .run();
+  } else {
+    await c.env.DB.prepare(
+      "INSERT INTO vext_publishers (id, owner_user_id, name, public_key, fingerprint) VALUES (?, ?, ?, ?, ?)",
+    )
+      .bind(crypto.randomUUID(), userId, name, publicKey, fingerprint)
+      .run();
+  }
   const row = await c.env.DB.prepare(
     "SELECT id, name, fingerprint, revoked FROM vext_publishers WHERE owner_user_id = ? AND fingerprint = ?",
   )
@@ -379,7 +392,10 @@ registry.post("/extensions/publish", async (c) => {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
       throw new Error("manifest must be an object");
     manifestPayload = parsed as Record<string, unknown>;
+    const manifestId = manifestPayload.id;
     if (
+      typeof manifestId !== "string" ||
+      !manifestId ||
       manifestPayload.name !== name ||
       manifestPayload.version !== version ||
       manifestPayload.runtime !== runtime
@@ -417,8 +433,27 @@ registry.post("/extensions/publish", async (c) => {
     ))
   )
     return c.json({ error: "invalid_signature" }, 422);
+  const extensionId = manifestPayload.id as string;
+  const existingExtension = await c.env.DB.prepare(
+    "SELECT id, publisher_id, name FROM vext_extensions WHERE id = ?",
+  )
+    .bind(extensionId)
+    .first<{ id: string; publisher_id: string; name: string }>();
+  if (
+    existingExtension &&
+    (existingExtension.publisher_id !== publisher.id ||
+      existingExtension.name !== name)
+  )
+    return c.json({ error: "extension_id_conflict" }, 409);
+  const extensionByName = await c.env.DB.prepare(
+    "SELECT id, publisher_id FROM vext_extensions WHERE publisher_id = ? AND name = ?",
+  )
+    .bind(publisher.id, name)
+    .first<{ id: string; publisher_id: string }>();
+  if (extensionByName && extensionByName.id !== extensionId)
+    return c.json({ error: "extension_id_conflict" }, 409);
   const versionId = crypto.randomUUID();
-  const r2Key = `vext/${publisher.id}/${name}/${version}/${digest}.vext`;
+  const r2Key = `vext/${publisher.id}/${extensionId}/${version}/${digest}.vext`;
   await c.env.R2.put(r2Key, bytes, {
     httpMetadata: { contentType: "application/vnd.vectora.vext+zip" },
     customMetadata: { digest, publisher: publisher.id },
@@ -426,14 +461,14 @@ registry.post("/extensions/publish", async (c) => {
   try {
     await c.env.DB.batch([
       c.env.DB.prepare(
-        "INSERT INTO vext_extensions (id, publisher_id, name, description, readme) VALUES (?, ?, ?, ?, ?) ON CONFLICT(publisher_id, name) DO UPDATE SET description = excluded.description, readme = excluded.readme, updated_at = datetime('now')",
-      ).bind(crypto.randomUUID(), publisher.id, name, description, readme),
+        "INSERT INTO vext_extensions (id, publisher_id, name, description, readme) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET description = excluded.description, readme = excluded.readme, updated_at = datetime('now')",
+      ).bind(extensionId, publisher.id, name, description, readme),
       c.env.DB.prepare(
-        "INSERT INTO vext_versions (id, extension_id, version, api_version, protocol_version, runtime, platforms, permissions, size_bytes, digest, r2_key, signature, signature_verified, status) VALUES (?, (SELECT id FROM vext_extensions WHERE publisher_id = ? AND name = ?), ?, 1, 1, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
+        "INSERT INTO vext_versions (id, extension_id, version, api_version, protocol_version, runtime, platforms, permissions, size_bytes, digest, r2_key, signature, signature_verified, status) VALUES (?, ?, ?, 1, 1, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')",
       ).bind(
         versionId,
-        publisher.id,
-        name,
+        extensionId,
+        version,
         version,
         runtime,
         text("platforms") || '["any"]',

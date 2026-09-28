@@ -11,10 +11,7 @@
   "entrypoint": "dist/backend.js",
   "frontend_entrypoint": "dist/frontend.js",
   "backend_entrypoint": "dist/backend.js",
-  "permissions": [
-    "process.spawn",
-    "workspace.read"
-  ],
+  "permissions": ["process.spawn", "workspace.read", "network"],
   "publisher": "Vectora",
   "contributions": {
     "workbench": [
