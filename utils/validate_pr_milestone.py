@@ -90,6 +90,9 @@ type EventPayload = PullRequestEvent | dict[str, object]
 _VEXT_TOKEN = re.compile(r"(?<![A-Za-z0-9])vext(?![A-Za-z0-9])", re.IGNORECASE)
 _RELEASE_PLEASE_LABEL = "autorelease: pending"
 _RELEASE_PLEASE_BRANCH = re.compile(r"^release-please-\d+\.\d+\.\d+$")
+_LEGACY_RELEASE_PLEASE_BRANCH = re.compile(
+    r"^release-please--branches--(?P<base>.+)--components--vectora$"
+)
 
 
 class ReleaseLine(BaseModel):
@@ -161,19 +164,33 @@ def _is_release_please_pr(
         repository.full_name if repository else None
     ) or _RELEASE_PLEASE_LABEL not in _labels(pull_request):
         return False
-    legacy_branch = f"release-please--branches--{base}--components--vectora"
-    if head_ref == legacy_branch:
-        return True
-    if _RELEASE_PLEASE_BRANCH.fullmatch(head_ref) is None:
-        return False
     line = _line_for_base(base)
     if line is None:
         return False
+
+    legacy_match = _LEGACY_RELEASE_PLEASE_BRANCH.fullmatch(head_ref)
+    if legacy_match is not None:
+        # O nome legado codifica a base original. Compará-lo com a base atual
+        # impede que uma PR automática de desenvolvimento seja retargeteada
+        # silenciosamente para a linha de manutenção.
+        return legacy_match.group("base") == base
+
+    if _RELEASE_PLEASE_BRANCH.fullmatch(head_ref) is None:
+        return False
+
+    # O formato novo é emitido pelo fluxo controlado do Release Please. A
+    # origem confiável e o label já foram verificados acima; a base ainda deve
+    # ser a linha de desenvolvimento, pois uma PR de manutenção precisa de uma
+    # milestone explícita da linha correspondente.
+    if line is not _release_lines().development:
+        return False
+
+    # Não derive a isenção da milestone viva: durante uma rotação ela já pode
+    # apontar para a próxima minor enquanto a PR atual ainda publica a minor
+    # anterior. O formato semântico do branch é a informação controlada.
     version = head_ref.removeprefix("release-please-")
     major, minor, patch = version.split(".")
-    if line is _release_lines().development:
-        return f"{major}.{minor}" == line.milestone and patch == "0"
-    return f"{major}.{minor}" == line.milestone.removesuffix(".x")
+    return patch == "0" and all(part.isdigit() for part in (major, minor, patch))
 
 
 def _is_vext_pr(pull_request: PullRequestPayload) -> bool:

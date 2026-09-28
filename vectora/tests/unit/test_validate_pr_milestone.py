@@ -250,6 +250,17 @@ def test_release_please_branch_retargeted_to_maintenance_is_rejected() -> None:
     assert errors and "milestone" in errors[0]
 
 
+def test_legacy_release_please_branch_retargeted_to_maintenance_is_rejected() -> None:
+    event = _event(
+        base=MAINTENANCE_BRANCH,
+        milestone=None,
+        head=f"release-please--branches--{DEVELOPMENT_BRANCH}--components--vectora",
+        labels=["autorelease: pending"],
+    )
+    errors = validator.validate_pull_request(event)
+    assert errors and "milestone" in errors[0]
+
+
 def test_unsupported_base_is_rejected() -> None:
     errors = validator.validate_pull_request(
         _event(base="develop", milestone=DEVELOPMENT_MILESTONE)
