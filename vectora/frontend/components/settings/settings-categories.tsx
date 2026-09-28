@@ -46,6 +46,13 @@ const ContaTab = lazyWithRetry(
     })),
   "settings-conta-tab",
 );
+const ShortcutsTab = lazyWithRetry(
+  () =>
+    import("./preferencias/tabs/shortcuts-tab").then((mod) => ({
+      default: mod.ShortcutsTab,
+    })),
+  "settings-shortcuts-tab",
+);
 const IntegracoesTab = lazyWithRetry(
   () =>
     import("./environment/tabs/integracoes-tab").then((mod) => ({
@@ -230,6 +237,12 @@ export function buildSettingsCategoryGroups({
       group: "preferencias",
       label: m.settings_category_conta(),
       Component: ContaTab,
+    },
+    {
+      id: "shortcuts",
+      group: "preferencias",
+      label: m.settings_category_shortcuts(),
+      Component: ShortcutsTab,
     },
   ];
 

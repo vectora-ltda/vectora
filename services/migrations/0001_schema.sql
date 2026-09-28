@@ -442,6 +442,12 @@ ON CONFLICT (user_id) DO UPDATE SET
   current_period_end = NULL,
   updated_at = datetime('now');
 
+-- Unified migration blocks retained for idempotent fresh and existing D1 databases.
+-- BEGIN 0002_issue_sync_compat.sql
+-- Objetos auxiliares da sincronização GitHub. As colunas de `issues` vivem no
+-- shape final de 0001_schema.sql; o upgrade operacional adiciona-as apenas a
+-- bancos legados que já existiam antes desse shape.
+
 -- Objetos auxiliares da sincronização GitHub. Eles vivem nesta migration
 -- única para que uma instalação nova e uma reaplicação tenham o mesmo shape.
 CREATE TABLE IF NOT EXISTS issue_comments (
@@ -479,6 +485,64 @@ CREATE TABLE IF NOT EXISTS github_webhook_deliveries (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Bancos que já receberam a tabela antes do controle de lease precisam destas
+-- colunas adicionadas pelo upgrade operacional antes do Worker ser publicado.
+-- END 0002_issue_sync_compat.sql
+
+-- Unified migration blocks retained for idempotent fresh and existing D1 databases.
+-- BEGIN 0003_vext_registry.sql
+-- VEXT metadata is stored in D1; immutable package bytes are stored in R2.
+CREATE TABLE IF NOT EXISTS vext_publishers (
+  id TEXT PRIMARY KEY,
+  owner_user_id TEXT NOT NULL REFERENCES users(id),
+  name TEXT NOT NULL,
+  public_key TEXT NOT NULL,
+  fingerprint TEXT NOT NULL UNIQUE,
+  revoked INTEGER NOT NULL DEFAULT 0 CHECK (revoked IN (0, 1)),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS vext_extensions (
+  id TEXT PRIMARY KEY,
+  publisher_id TEXT NOT NULL REFERENCES vext_publishers(id),
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  readme TEXT NOT NULL DEFAULT '',
+  homepage TEXT,
+  vectora_verified INTEGER NOT NULL DEFAULT 0 CHECK (vectora_verified IN (0, 1)),
+  revoked INTEGER NOT NULL DEFAULT 0 CHECK (revoked IN (0, 1)),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(publisher_id, name)
+);
+CREATE TABLE IF NOT EXISTS vext_versions (
+  id TEXT PRIMARY KEY,
+  extension_id TEXT NOT NULL REFERENCES vext_extensions(id) ON DELETE CASCADE,
+  version TEXT NOT NULL,
+  api_version INTEGER NOT NULL,
+  protocol_version INTEGER NOT NULL,
+  runtime TEXT NOT NULL CHECK (runtime IN ('node', 'python', 'none')),
+  platforms TEXT NOT NULL DEFAULT '["any"]',
+  permissions TEXT NOT NULL DEFAULT '[]',
+  dependencies TEXT NOT NULL DEFAULT '[]',
+  changelog TEXT,
+  size_bytes INTEGER NOT NULL,
+  digest TEXT NOT NULL,
+  r2_key TEXT NOT NULL UNIQUE,
+  signature TEXT NOT NULL,
+  signature_verified INTEGER NOT NULL DEFAULT 0 CHECK (signature_verified IN (0, 1)),
+  sbom TEXT,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'published', 'revoked')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  published_at TEXT,
+  UNIQUE(extension_id, version)
+);
+CREATE INDEX IF NOT EXISTS idx_vext_extensions_name ON vext_extensions(name COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_vext_versions_extension ON vext_versions(extension_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_vext_versions_status ON vext_versions(status);
+-- END 0003_vext_registry.sql
+
+-- Unified migration blocks retained for idempotent fresh and existing D1 databases.
 -- Seeds legados removidos da biblioteca pública. DELETE é idempotente e
 -- mantém a limpeza efetiva quando o schema é reaplicado em um banco existente.
 DELETE FROM skills_catalog
