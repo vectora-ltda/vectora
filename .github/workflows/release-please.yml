@@ -250,7 +250,10 @@ jobs:
         run: |
           set -euo pipefail
           encoded_target="${TARGET_BRANCH//\//%2F}"
-          prefix="release-please--branches--${encoded_target}--components--vectora--release-notes"
+          release_prefix="release-please"
+          branch_segment="--branches--"
+          component_segment="--components--vectora--release-notes"
+          prefix="${release_prefix}${branch_segment}${encoded_target}${component_segment}"
           refs="$(gh api --paginate \
             "/repos/$GITHUB_REPOSITORY/git/matching-refs/heads/$prefix" \
             --jq '.[].ref' || true)"
