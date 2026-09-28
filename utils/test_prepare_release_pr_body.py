@@ -5,6 +5,7 @@ from prepare_release_pr_body import current_release_section, prepare_body
 
 
 def test_keeps_only_the_first_release_section() -> None:
+    """Mantém somente a seção da release atual no corpo da PR."""
     notes = """:robot: release
 ---
 
@@ -27,6 +28,7 @@ def test_keeps_only_the_first_release_section() -> None:
 
 
 def test_compacts_links_when_current_section_is_too_large() -> None:
+    """Remove URLs repetitivas antes de recorrer ao resumo curto."""
     notes = "## [0.2.0](https://example.test/release)\n\n" + "\n".join(
         f"* change {index} ([commit](https://example.test/commits/{index}))"
         for index in range(100)
@@ -41,11 +43,13 @@ def test_compacts_links_when_current_section_is_too_large() -> None:
 
 
 def test_rejects_notes_without_a_release_heading() -> None:
+    """Rejeita notas que não identificam uma seção de release."""
     with pytest.raises(ValueError, match="release heading"):
         current_release_section("no release here")
 
 
 def test_drops_changelog_document_header() -> None:
+    """Não duplica o título geral do changelog no corpo da PR."""
     body = prepare_body("# Changelog\n\n## [0.2.0]\n\n### Features\n\n* current\n")
 
     assert body.startswith("## [0.2.0]")
@@ -53,6 +57,7 @@ def test_drops_changelog_document_header() -> None:
 
 
 def test_strips_process_metadata_from_release_entries() -> None:
+    """Remove metadados de planejamento e revisão das entradas publicadas."""
     notes = """## [0.2.0]
 
 ### Features
@@ -71,6 +76,7 @@ def test_strips_process_metadata_from_release_entries() -> None:
 
 
 def test_summarizes_release_when_compacted_notes_still_exceed_limit() -> None:
+    """Usa um resumo mínimo quando o changelog continua grande após compactação."""
     notes = "## [0.2.0]\n\n### Features\n\n" + "\n".join(
         f"* change {index}" for index in range(100)
     )

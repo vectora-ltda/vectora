@@ -112,11 +112,19 @@ def test_release_please_requires_candidates_and_uses_versioned_branches() -> Non
     content = workflow.read_text(encoding="utf-8")
 
     assert "Check for merged release candidates" in content
+    assert "git fetch --tags --force origin" in content
+    assert "--json milestone,labels,mergedAt" in content
+    assert "fromdateiso8601" in content
+    assert "latest_tag_epoch" in content
     assert "steps.release-candidates.outputs.has_candidates == 'true'" in content
     assert "Rename generated Release Please branch by version" in content
     assert 'target="release-please-${major}.${minor}"' in content
     assert 'target="release-please-${version}"' in content
     assert 'test("^release-please--branches--")' in content
+    assert (
+        'git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"'
+        in content
+    )
     find_section = content.split("# Somente o branch exato", 1)[1]
     assert "release-please--branches--" not in find_section
 

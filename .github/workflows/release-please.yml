@@ -106,9 +106,17 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$TARGET_BRANCH" == "${{ steps.release-line.outputs.maintenance_branch }}" ]]; then RELEASE_MILESTONE="$MAINTENANCE_MILESTONE"; else RELEASE_MILESTONE="$DEVELOPMENT_MILESTONE"; fi
-          prs="$(gh pr list --repo "$GITHUB_REPOSITORY" --base "$TARGET_BRANCH" --state merged --limit 100 --json milestone,labels)"
-          has_candidates="$(jq -r --arg milestone "$RELEASE_MILESTONE" '
-            any(.[]; (.milestone.title? == $milestone) and (([.labels[].name] | index("autorelease: pending")) == null))
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --tags --force origin
+          latest_tag="$(git tag --merged "origin/$TARGET_BRANCH" --list 'v*' --sort=-version:refname | head -n 1)"
+          if [[ -n "$latest_tag" ]]; then
+            latest_tag_epoch="$(git show -s --format=%ct "$latest_tag")"
+          else
+            latest_tag_epoch=0
+          fi
+          prs="$(gh pr list --repo "$GITHUB_REPOSITORY" --base "$TARGET_BRANCH" --state merged --limit 100 --json milestone,labels,mergedAt)"
+          has_candidates="$(jq -r --arg milestone "$RELEASE_MILESTONE" --argjson latest_tag_epoch "$latest_tag_epoch" '
+            any(.[]; (.milestone.title? == $milestone) and (.mergedAt != null) and ((.mergedAt | fromdateiso8601) > $latest_tag_epoch) and (([.labels[].name] | index("autorelease: pending")) == null))
           ' <<< "$prs")"
           echo "has_candidates=$has_candidates" >> "$GITHUB_OUTPUT"
       - uses: googleapis/release-please-action@v5
@@ -150,6 +158,7 @@ jobs:
           if [[ "$source" == "$target" ]]; then exit 0; fi
           existing="$(gh pr list --repo "$GITHUB_REPOSITORY" --base "$TARGET_BRANCH" --head "$target" --state open --json number --jq '.[0].number // empty')"
           if [[ -z "$existing" ]]; then
+            git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
             git fetch origin "$source"
             git push origin "origin/$source:refs/heads/$target"
             body_file="$RUNNER_TEMP/release-please-body.md"
