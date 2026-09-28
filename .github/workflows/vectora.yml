@@ -735,6 +735,7 @@ jobs:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
       - name: Read released version
         id: version
+        working-directory: .
         shell: bash
         run: |
           set -euo pipefail
