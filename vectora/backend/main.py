@@ -584,7 +584,14 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
     # sozinho, no seu próprio startup, se faz sentido subir uma janela.
     from backend.services.electron_sidecar import should_spawn_electron
 
-    if not force_web and should_spawn_electron():
+    dev_electron = not force_web and should_spawn_electron()
+    if dev_electron:
+        # A development desktop must never reuse the installed app's
+        # databases, sockets, PID file or NATS JetStream store. Keep an
+        # explicit VECTORA_HOME untouched so callers can choose another
+        # profile for automated runs.
+        os.environ.setdefault("VECTORA_RUNTIME_PROFILE", "dev")
+        os.environ.setdefault("VECTORA_HOME", str(Path.home() / ".vectora-dev"))
         os.environ["VECTORA_DESKTOP"] = "1"
         os.environ["VECTORA_SPAWN_ELECTRON"] = "1"
         logger.info(

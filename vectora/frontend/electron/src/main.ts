@@ -74,6 +74,11 @@ import {
   restoreUpdateBackup,
 } from "./update-backup.js";
 import { startUpdateDownload as startUpdateDownloadAfterBackup } from "./updater-download.js";
+import {
+  resolveRuntimeProfile,
+  runtimeHome as resolveRuntimeHome,
+  runtimeUserDataName,
+} from "./runtime-profile.js";
 
 const ELECTRON_RESTART_EXIT_CODE = 42;
 
@@ -115,6 +120,24 @@ interface UpdateStatus {
 // que não é o nome do produto. setName() força %APPDATA%\vectora\ sem
 // precisar renomear o pacote. Chamado antes de qualquer path ser resolvido.
 app.setName("vectora");
+
+// O Electron mantém o lock de instância e o perfil Chromium dentro de
+// `userData`. A versão instalada e o Electron de desenvolvimento precisam de
+// perfis distintos para poderem coexistir na mesma máquina. O backend recebe
+// o mesmo perfil por `VECTORA_RUNTIME_PROFILE`/`VECTORA_HOME`, isolando também
+// banco, socket, PID e armazenamento do NATS.
+const safeRuntimeProfile = resolveRuntimeProfile(process.env, app.isPackaged);
+app.setPath(
+  "userData",
+  path.join(app.getPath("appData"), runtimeUserDataName(safeRuntimeProfile)),
+);
+
+const runtimeHome = resolveRuntimeHome(
+  process.env,
+  safeRuntimeProfile,
+  os.homedir(),
+);
+if (!process.env.VECTORA_HOME) process.env.VECTORA_HOME = runtimeHome;
 
 let backend: ChildProcess | null = null;
 let backendPort: number | null = null;
@@ -235,7 +258,7 @@ const _MAX_LOG_LINES = 60;
 
 // Arquivo que persiste o PID do sidecar backend entre sessões. Permite matar
 // processo órfão deixado por crash do Electron sem disparar before-quit.
-const _BACKEND_PID_FILE = path.join(os.homedir(), ".vectora", "backend.pid");
+const _BACKEND_PID_FILE = path.join(runtimeHome, "backend.pid");
 
 async function killStaleBackend(): Promise<void> {
   try {
@@ -461,6 +484,8 @@ async function startBackend(): Promise<void> {
   );
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    VECTORA_RUNTIME_PROFILE: safeRuntimeProfile,
+    VECTORA_HOME: runtimeHome,
     VECTORA_PORT: String(backendPort),
     VECTORA_DESKTOP: "1",
     VECTORA_DESKTOP_BRIDGE_TOKEN: desktopBridgeToken,
