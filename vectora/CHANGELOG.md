@@ -4,43 +4,50 @@ Esta versï¿½o consolida as alteraï¿½ï¿½es publicadas desde a versï¿½
 
 ## [0.2.0](https://github.com/vectora-ltda/vectora/compare/v0.1.22...v0.2.0) (2026-09-28)
 
+Esta seção reúne as alterações publicadas nesta versão.
 
 ### Features
 
-* add Chromium browser settings and profile isolation ([#221](https://github.com/vectora-ltda/vectora/issues/221)) ([928577e](https://github.com/vectora-ltda/vectora/commit/928577ee386805709049a61844c4ad7af0d23dbf))
-* add global responsive session layout bands ([#223](https://github.com/vectora-ltda/vectora/issues/223)) ([dae2c6c](https://github.com/vectora-ltda/vectora/commit/dae2c6c0e9b44a8aa47331c023130567d0341dba))
-* archive safe roots and enforce workspace access ([#222](https://github.com/vectora-ltda/vectora/issues/222)) ([d3d1cbc](https://github.com/vectora-ltda/vectora/commit/d3d1cbc84fd37b07d4fa18711dfc8c1299443d40))
-* consolidar o shell e modernizar a UI/UX do App ([#272](https://github.com/vectora-ltda/vectora/issues/272)) ([56f5c9c](https://github.com/vectora-ltda/vectora/commit/56f5c9c4d2b44a7482323128c4df2dbd731f32b9))
-* navigate created folders and surface new sessions ([#217](https://github.com/vectora-ltda/vectora/issues/217)) ([2e1bee3](https://github.com/vectora-ltda/vectora/commit/2e1bee3b683cc72a3fdf63f829bc59ed8a58368b))
-* support parallel release lines with milestones ([#247](https://github.com/vectora-ltda/vectora/issues/247)) ([caef9fc](https://github.com/vectora-ltda/vectora/commit/caef9fc5180cb8016f9fe56276d4320816ff081d)), closes [#245](https://github.com/vectora-ltda/vectora/issues/245)
-* validate GitHub review job contracts ([#227](https://github.com/vectora-ltda/vectora/issues/227)) ([ad9898f](https://github.com/vectora-ltda/vectora/commit/ad9898f5cb15059bb2fda84ac725320c22036ed1))
+Os recursos incluídos nesta versão são listados abaixo.
+
+- add Chromium browser settings and profile isolation ([#221](https://github.com/vectora-ltda/vectora/issues/221)) ([928577e](https://github.com/vectora-ltda/vectora/commit/928577ee386805709049a61844c4ad7af0d23dbf))
+- add global responsive session layout bands ([#223](https://github.com/vectora-ltda/vectora/issues/223)) ([dae2c6c](https://github.com/vectora-ltda/vectora/commit/dae2c6c0e9b44a8aa47331c023130567d0341dba))
+- archive safe roots and enforce workspace access ([#222](https://github.com/vectora-ltda/vectora/issues/222)) ([d3d1cbc](https://github.com/vectora-ltda/vectora/commit/d3d1cbc84fd37b07d4fa18711dfc8c1299443d40))
+- consolidar o shell e modernizar a UI/UX do App ([#272](https://github.com/vectora-ltda/vectora/issues/272)) ([56f5c9c](https://github.com/vectora-ltda/vectora/commit/56f5c9c4d2b44a7482323128c4df2dbd731f32b9))
+- navigate created folders and surface new sessions ([#217](https://github.com/vectora-ltda/vectora/issues/217)) ([2e1bee3](https://github.com/vectora-ltda/vectora/commit/2e1bee3b683cc72a3fdf63f829bc59ed8a58368b))
+- support parallel release lines with milestones ([#247](https://github.com/vectora-ltda/vectora/issues/247)) ([caef9fc](https://github.com/vectora-ltda/vectora/commit/caef9fc5180cb8016f9fe56276d4320816ff081d)), closes [#245](https://github.com/vectora-ltda/vectora/issues/245)
+- validate GitHub review job contracts ([#227](https://github.com/vectora-ltda/vectora/issues/227)) ([ad9898f](https://github.com/vectora-ltda/vectora/commit/ad9898f5cb15059bb2fda84ac725320c22036ed1))
 
 
 ### Bug Fixes
 
-* anchor minor release at published tag ([cc2fcd1](https://github.com/vectora-ltda/vectora/commit/cc2fcd1b5204033dc6268d06491c70e9fe6debd5))
-* authorize automatic release milestone assignment ([e87b4ba](https://github.com/vectora-ltda/vectora/commit/e87b4ba1f04f4b360c4c3125f4b0af37c43456ee))
-* authorize release-line migration mutations ([8f9d054](https://github.com/vectora-ltda/vectora/commit/8f9d054e757f28d6ccf8242e583a149ce098206e))
-* build release PR body from generated changelog ([de6a359](https://github.com/vectora-ltda/vectora/commit/de6a359b26748530973b31a4f989c2f40710612b))
-* corrige deploy do D1 com colunas legadas de skills ([#236](https://github.com/vectora-ltda/vectora/issues/236)) ([e4f7c41](https://github.com/vectora-ltda/vectora/commit/e4f7c41547352ea9fe5ae1983a15b72f910e5d3b))
-* gate releases on successful app distribution ([#289](https://github.com/vectora-ltda/vectora/issues/289)) ([87aa24f](https://github.com/vectora-ltda/vectora/commit/87aa24f7bf4ab65135baadd9cb3e8c114e71431f))
-* install uv before aligning release lines ([#281](https://github.com/vectora-ltda/vectora/issues/281)) ([8f19017](https://github.com/vectora-ltda/vectora/commit/8f190175a0cea16f253965103e02a7609fdb88aa))
-* integrate release line rotation into Release Please ([#280](https://github.com/vectora-ltda/vectora/issues/280)) ([0214d63](https://github.com/vectora-ltda/vectora/commit/0214d632e93c7a250e45e0d7b0c42f1d443f8c62))
-* match release please note delimiters ([f86ce29](https://github.com/vectora-ltda/vectora/commit/f86ce2980059273883880724c613727605a7f6a3))
-* preserve release please markers and version progression ([0b4d734](https://github.com/vectora-ltda/vectora/commit/0b4d734e40a07a7319b2ff39960934a3d0e91df3))
-* prevent Electron updates from stalling on locked files ([#235](https://github.com/vectora-ltda/vectora/issues/235)) ([7ea3459](https://github.com/vectora-ltda/vectora/commit/7ea3459e35cd9dace7c046c4c4d9bc4a71450e51))
-* **release/0.1:** resolve findings de CI, sessão e workspaces ([#265](https://github.com/vectora-ltda/vectora/issues/265)) ([883084d](https://github.com/vectora-ltda/vectora/commit/883084df1d2e61faa634af0dd99f4b72804100e6))
-* remediate release review findings ([#241](https://github.com/vectora-ltda/vectora/issues/241)) ([eac4cdb](https://github.com/vectora-ltda/vectora/commit/eac4cdb71634fdeda426cad191bd584b0095ad5a))
-* remove process metadata from release PR bodies ([#282](https://github.com/vectora-ltda/vectora/issues/282)) ([225ee43](https://github.com/vectora-ltda/vectora/commit/225ee4359c2b7a712fbc422eaa8fbc1fdb96b1ba))
-* resolve release-please idempotence and security findings ([#243](https://github.com/vectora-ltda/vectora/issues/243)) ([54251d0](https://github.com/vectora-ltda/vectora/commit/54251d0c633a625b2283c6afebcc8639d47fb9e6))
-* restore release please branch filter ([e31fea9](https://github.com/vectora-ltda/vectora/commit/e31fea9cec24334b27d55a4c08e42c9a918262ad))
-* restore release please progression from last published tag ([#288](https://github.com/vectora-ltda/vectora/issues/288)) ([18511c5](https://github.com/vectora-ltda/vectora/commit/18511c51b2b0752e16f65948ae841e8be587cacd))
-* scope release PR bodies to current notes ([a27bdf5](https://github.com/vectora-ltda/vectora/commit/a27bdf5eaf6acf87403c9448e7e262921854a571))
+As correções incluídas nesta versão são listadas abaixo.
+
+- anchor minor release at published tag ([cc2fcd1](https://github.com/vectora-ltda/vectora/commit/cc2fcd1b5204033dc6268d06491c70e9fe6debd5))
+- authorize automatic release milestone assignment ([e87b4ba](https://github.com/vectora-ltda/vectora/commit/e87b4ba1f04f4b360c4c3125f4b0af37c43456ee))
+- authorize release-line migration mutations ([8f9d054](https://github.com/vectora-ltda/vectora/commit/8f9d054e757f28d6ccf8242e583a149ce098206e))
+- build release PR body from generated changelog ([de6a359](https://github.com/vectora-ltda/vectora/commit/de6a359b26748530973b31a4f989c2f40710612b))
+- corrige deploy do D1 com colunas legadas de skills ([#236](https://github.com/vectora-ltda/vectora/issues/236)) ([e4f7c41](https://github.com/vectora-ltda/vectora/commit/e4f7c41547352ea9fe5ae1983a15b72f910e5d3b))
+- gate releases on successful app distribution ([#289](https://github.com/vectora-ltda/vectora/issues/289)) ([87aa24f](https://github.com/vectora-ltda/vectora/commit/87aa24f7bf4ab65135baadd9cb3e8c114e71431f))
+- install uv before aligning release lines ([#281](https://github.com/vectora-ltda/vectora/issues/281)) ([8f19017](https://github.com/vectora-ltda/vectora/commit/8f190175a0cea16f253965103e02a7609fdb88aa))
+- integrate release line rotation into Release Please ([#280](https://github.com/vectora-ltda/vectora/issues/280)) ([0214d63](https://github.com/vectora-ltda/vectora/commit/0214d632e93c7a250e45e0d7b0c42f1d443f8c62))
+- match release please note delimiters ([f86ce29](https://github.com/vectora-ltda/vectora/commit/f86ce2980059273883880724c613727605a7f6a3))
+- preserve release please markers and version progression ([0b4d734](https://github.com/vectora-ltda/vectora/commit/0b4d734e40a07a7319b2ff39960934a3d0e91df3))
+- prevent Electron updates from stalling on locked files ([#235](https://github.com/vectora-ltda/vectora/issues/235)) ([7ea3459](https://github.com/vectora-ltda/vectora/commit/7ea3459e35cd9dace7c046c4c4d9bc4a71450e51))
+- **release/0.1:** resolve findings de CI, sessão e workspaces ([#265](https://github.com/vectora-ltda/vectora/issues/265)) ([883084d](https://github.com/vectora-ltda/vectora/commit/883084df1d2e61faa634af0dd99f4b72804100e6))
+- remediate release review findings ([#241](https://github.com/vectora-ltda/vectora/issues/241)) ([eac4cdb](https://github.com/vectora-ltda/vectora/commit/eac4cdb71634fdeda426cad191bd584b0095ad5a))
+- remove process metadata from release PR bodies ([#282](https://github.com/vectora-ltda/vectora/issues/282)) ([225ee43](https://github.com/vectora-ltda/vectora/commit/225ee4359c2b7a712fbc422eaa8fbc1fdb96b1ba))
+- resolve release-please idempotence and security findings ([#243](https://github.com/vectora-ltda/vectora/issues/243)) ([54251d0](https://github.com/vectora-ltda/vectora/commit/54251d0c633a625b2283c6afebcc8639d47fb9e6))
+- restore release please branch filter ([e31fea9](https://github.com/vectora-ltda/vectora/commit/e31fea9cec24334b27d55a4c08e42c9a918262ad))
+- restore release please progression from last published tag ([#288](https://github.com/vectora-ltda/vectora/issues/288)) ([18511c5](https://github.com/vectora-ltda/vectora/commit/18511c51b2b0752e16f65948ae841e8be587cacd))
+- scope release PR bodies to current notes ([a27bdf5](https://github.com/vectora-ltda/vectora/commit/a27bdf5eaf6acf87403c9448e7e262921854a571))
 
 
 ### Reverts
 
-* remove release fixes committed directly to master ([#277](https://github.com/vectora-ltda/vectora/issues/277)) ([1ec7d52](https://github.com/vectora-ltda/vectora/commit/1ec7d520d4c98f974d0a337bad7a6feb98bc6bfe))
+Os itens desta seção são listados abaixo.
+
+- remove release fixes committed directly to master ([#277](https://github.com/vectora-ltda/vectora/issues/277)) ([1ec7d52](https://github.com/vectora-ltda/vectora/commit/1ec7d520d4c98f974d0a337bad7a6feb98bc6bfe))
 
 ## [0.1.22](https://github.com/vectora-ltda/vectora/compare/v0.1.21...v0.1.22) (2026-09-14)
 
