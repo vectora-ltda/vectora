@@ -33,6 +33,15 @@ describe("runtime profiles", () => {
         "dev",
         "/home/user",
       ),
-    ).toBe("/tmp/vectora-profile");
+    ).toBe(path.normalize("/tmp/vectora-profile"));
+  });
+
+  it("normalizes tilde and relative explicit homes", () => {
+    expect(
+      runtimeHome({ VECTORA_HOME: "~/vectora-profile" }, "dev", "/home/user"),
+    ).toBe(path.resolve("/home/user", "vectora-profile"));
+    expect(
+      runtimeHome({ VECTORA_HOME: "profiles/vectora" }, "dev", "/home/user"),
+    ).toBe(path.resolve("/home/user", "profiles", "vectora"));
   });
 });

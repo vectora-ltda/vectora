@@ -27,7 +27,15 @@ export function runtimeHome(
   profile: string,
   homeDirectory: string,
 ): string {
-  if (env.VECTORA_HOME) return env.VECTORA_HOME;
+  if (env.VECTORA_HOME) {
+    const configuredHome = env.VECTORA_HOME;
+    if (configuredHome === "~") return path.resolve(homeDirectory);
+    if (/^~[\\/]/.test(configuredHome)) {
+      return path.resolve(homeDirectory, configuredHome.slice(2));
+    }
+    if (path.isAbsolute(configuredHome)) return path.normalize(configuredHome);
+    return path.resolve(homeDirectory, configuredHome);
+  }
   const directoryName =
     profile === "stable"
       ? ".vectora"
