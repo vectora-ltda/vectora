@@ -553,6 +553,10 @@ export const useSettingsStore = create<SettingsState>()(
           s.chatSidebarWidth = widths.chatSidebarWidth;
           if (s.themePreset === "dark") s.themePreset = "default-dark";
           else if (s.themePreset === "light") s.themePreset = "default-light";
+          else if (s.themePreset === "godot-dark")
+            s.themePreset = "default-dark";
+          else if (s.themePreset === "godot-light")
+            s.themePreset = "default-light";
           s.installedThemes = migrateInstalledThemes(s.installedThemes);
         }
         return s;

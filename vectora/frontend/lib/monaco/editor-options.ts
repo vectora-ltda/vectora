@@ -11,6 +11,9 @@ export function godotEditorOptions(
     domReadOnly: readOnly,
     fontSize,
     fontFamily,
+    // O editor da Godot reserva um pouco mais de respiro entre as linhas;
+    // manter a proporção explícita evita depender do default do Monaco.
+    lineHeight: Math.round(fontSize * 1.7),
     fontLigatures: false,
     // Mantém o comportamento padrão do editor da Godot: Ctrl/Cmd + roda
     // ajusta o zoom do código sem interferir na rolagem normal.

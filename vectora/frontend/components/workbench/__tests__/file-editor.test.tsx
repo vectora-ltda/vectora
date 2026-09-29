@@ -32,6 +32,7 @@ vi.mock("@monaco-editor/react", () => ({
     options?: {
       readOnly?: boolean;
       fontSize?: number;
+      lineHeight?: number;
       mouseWheelZoom?: boolean;
     };
   }) => (
@@ -39,6 +40,7 @@ vi.mock("@monaco-editor/react", () => ({
       data-testid="monaco-editor"
       data-readonly={String(!!options?.readOnly)}
       data-font-size={options?.fontSize}
+      data-line-height={options?.lineHeight}
       data-mouse-wheel-zoom={String(!!options?.mouseWheelZoom)}
       value={value ?? ""}
       onChange={(e) => onChange?.(e.target.value)}
@@ -143,6 +145,9 @@ describe("FileEditor", () => {
     expect(
       screen.getByTestId("monaco-editor").getAttribute("data-mouse-wheel-zoom"),
     ).toBe("true");
+    expect(
+      screen.getByTestId("monaco-editor").getAttribute("data-line-height"),
+    ).toBe("22");
   });
 
   it("arquivo binário delega para o FileViewer em vez de montar o Monaco", async () => {

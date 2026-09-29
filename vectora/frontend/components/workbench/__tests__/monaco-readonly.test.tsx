@@ -16,6 +16,7 @@ vi.mock("@monaco-editor/react", () => ({
       readOnly?: boolean;
       domReadOnly?: boolean;
       fontSize?: number;
+      lineHeight?: number;
       mouseWheelZoom?: boolean;
     };
   }) => (
@@ -26,6 +27,7 @@ vi.mock("@monaco-editor/react", () => ({
       data-readonly={String(!!options?.readOnly)}
       data-dom-readonly={String(!!options?.domReadOnly)}
       data-font-size={options?.fontSize}
+      data-line-height={options?.lineHeight}
       data-mouse-wheel-zoom={String(!!options?.mouseWheelZoom)}
     >
       {value}
