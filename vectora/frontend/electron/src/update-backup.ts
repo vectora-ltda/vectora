@@ -77,7 +77,8 @@ async function collectFiles(
   } catch (error) {
     if (!isTransientFileLock(error)) throw error;
     const relative = path.relative(root, current);
-    if (relative) skipped.push(relative);
+    if (!relative) throw error;
+    skipped.push(relative);
     console.warn("[updater] backup omitindo diretório bloqueado", {
       path: relative || ".",
       error,
