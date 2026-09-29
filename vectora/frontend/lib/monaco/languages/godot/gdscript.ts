@@ -64,7 +64,7 @@ export const gdscriptLanguage: EngineLanguageContribution = {
         [/(?<=\bfunc\s+)[A-Za-z_]\w*(?=\s*\()/, t.functionDefinition],
         [/[A-Za-z_]\w*(?=\s*\()/, t.function],
         [/\b(?:signal)\s+([A-Za-z_]\w*)/, ["keyword", t.functionSignal]],
-        [/\.[A-Za-z_]\w*/, [t.delimiter, t.variableMember]],
+        [/(\.)([A-Za-z_]\w*)/, [t.delimiter, t.variableMember]],
         [
           /[A-Z][A-Za-z0-9_]*/,
           {

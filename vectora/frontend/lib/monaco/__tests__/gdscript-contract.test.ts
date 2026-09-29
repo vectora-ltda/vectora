@@ -57,4 +57,19 @@ describe("Godot source contract", () => {
       ),
     ).toBe(true);
   });
+
+  it("classifies static members after a dot separately from engine types", () => {
+    const root = gdscriptLanguage.tokenizer.tokenizer?.root ?? [];
+    expect(
+      root.some(
+        (rule) =>
+          Array.isArray(rule) &&
+          rule[0] instanceof RegExp &&
+          rule[0].source === "(\\.)([A-Za-z_]\\w*)" &&
+          Array.isArray(rule[1]) &&
+          rule[1][0] === "delimiter" &&
+          rule[1][1] === "variable.member",
+      ),
+    ).toBe(true);
+  });
 });
