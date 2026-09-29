@@ -16,7 +16,7 @@ export function godotEditorOptions(
       enabled: !readOnly,
       showSlider: "always",
       renderCharacters: true,
-      maxColumn: 120,
+      maxColumn: 80,
       scale: 1,
     },
     lineNumbers: "on",
@@ -43,6 +43,6 @@ export function godotEditorOptions(
     overviewRulerBorder: false,
     automaticLayout: true,
     tabSize: 2,
-    wordWrap: readOnly ? "on" : "off",
+    wordWrap: "off",
   };
 }

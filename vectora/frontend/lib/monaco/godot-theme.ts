@@ -20,12 +20,14 @@ export interface GodotMonacoPalette {
   globalFunction: string;
   variable: string;
   string: string;
+  stringPlaceholder: string;
   number: string;
   annotation: string;
   nodePath: string;
   nodeReference: string;
   stringName: string;
   property: string;
+  symbol: string;
   operator: string;
   selection: string;
   lineHighlight: string;
@@ -52,13 +54,15 @@ export const GODOT_PALETTES: Record<"dark" | "light", GodotMonacoPalette> = {
     globalFunction: "#a3a3f5",
     variable: "#d6d6d6",
     string: "#ffeca1",
+    stringPlaceholder: "#ffbf66",
     number: "#a1ffe0",
     annotation: "#ffb273",
     nodePath: "#b7c47d",
     nodeReference: "#63c25a",
     stringName: "#ffc2a6",
-    property: "#8ed1d1",
-    operator: "#d4d4d4",
+    property: "#a3c8e6",
+    symbol: "#abc9ff",
+    operator: "#abc9ff",
     selection: "#365a78",
     lineHighlight: "#282828",
     border: "#303030",
@@ -82,12 +86,14 @@ export const GODOT_PALETTES: Record<"dark" | "light", GodotMonacoPalette> = {
     globalFunction: "#5c2eb8",
     variable: "#343434",
     string: "#996b00",
+    stringPlaceholder: "#ed9952",
     number: "#008c47",
     annotation: "#cc5e00",
     nodePath: "#2e8c00",
     nodeReference: "#008000",
     stringName: "#cc8f73",
     property: "#0066ad",
+    symbol: "#00009c",
     operator: "#343434",
     selection: "#c8ddf0",
     lineHighlight: "#e9edf2",
@@ -104,7 +110,6 @@ const rules = (p: GodotMonacoPalette): Monaco.editor.ITokenThemeRule[] => [
   {
     token: "comment.doc",
     foreground: p.docComment.slice(1),
-    fontStyle: "italic",
   },
   { token: "keyword", foreground: p.keyword.slice(1) },
   {
@@ -128,7 +133,7 @@ const rules = (p: GodotMonacoPalette): Monaco.editor.ITokenThemeRule[] => [
   { token: "variable.member", foreground: p.property.slice(1) },
   { token: "variable.nodereference", foreground: p.nodeReference.slice(1) },
   { token: "string", foreground: p.string.slice(1) },
-  { token: "string.placeholder", foreground: p.annotation.slice(1) },
+  { token: "string.placeholder", foreground: p.stringPlaceholder.slice(1) },
   { token: "string.name", foreground: p.stringName.slice(1) },
   { token: "string.nodepath", foreground: p.nodePath.slice(1) },
   { token: "number", foreground: p.number.slice(1) },
@@ -140,8 +145,8 @@ const rules = (p: GodotMonacoPalette): Monaco.editor.ITokenThemeRule[] => [
     fontStyle: "bold",
   },
   { token: "operator", foreground: p.operator.slice(1) },
-  { token: "delimiter", foreground: p.foreground.slice(1) },
-  { token: "delimiter.bracket", foreground: p.foreground.slice(1) },
+  { token: "delimiter", foreground: p.symbol.slice(1) },
+  { token: "delimiter.bracket", foreground: p.symbol.slice(1) },
 ];
 
 function themeData(
@@ -240,14 +245,23 @@ export function ensureMonacoThemes(
 export function resolveMonacoTheme({
   presetId,
   isDark,
+  language,
 }: {
   presetId?: string;
   isDark: boolean;
+  language?: string;
 }): string {
   if (presetId === GODOT_DARK_THEME || presetId === "godot-dark")
     return GODOT_DARK_THEME;
   if (presetId === GODOT_LIGHT_THEME || presetId === "godot-light")
     return GODOT_LIGHT_THEME;
+  if (
+    language === "gdscript" ||
+    language === "gdshader" ||
+    language === "godot-resource" ||
+    language === "godot-project"
+  )
+    return isDark ? GODOT_DARK_THEME : GODOT_LIGHT_THEME;
   return isDark ? VECTOR_DARK_THEME : VECTOR_LIGHT_THEME;
 }
 export function godotThemeFor(isDark: boolean): string {

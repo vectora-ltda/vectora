@@ -30,7 +30,8 @@ export function FileEditor({
   workspaceId: string;
   path: string;
 }) {
-  const monacoTheme = useMonacoTheme();
+  const language = languageFromPath(path);
+  const monacoTheme = useMonacoTheme(language);
   const monacoFontSize = useSettingsStore((s) => s.monacoFontSize);
   const editorFontFamily = useSettingsStore((s) => s.editorFontFamily);
   const media = getMediaKind(path);
@@ -153,7 +154,7 @@ export function FileEditor({
           height="100%"
           width="100%"
           value={value}
-          language={languageFromPath(path)}
+          language={language}
           theme={monacoTheme}
           onChange={(v) => setValue(v ?? "")}
           onMount={handleMount}

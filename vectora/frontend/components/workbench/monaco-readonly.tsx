@@ -32,12 +32,13 @@ export default function MonacoReadOnly({
 }) {
   const monacoFontSize = useSettingsStore((s) => s.monacoFontSize);
   const editorFontFamily = useSettingsStore((s) => s.editorFontFamily);
-  const presetTheme = useMonacoTheme();
+  const language = languageFromPath(path);
+  const presetTheme = useMonacoTheme(language);
   const theme = _isDark === undefined ? presetTheme : godotThemeFor(_isDark);
   return (
     <MonacoEditor
       value={value}
-      language={languageFromPath(path)}
+      language={language}
       theme={theme}
       options={godotEditorOptions(monacoFontSize, editorFontFamily, true)}
       onMount={(editor) => {

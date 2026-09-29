@@ -6,6 +6,7 @@ import {
   godotThemeFor,
   registerGodotLanguage,
   registerGodotMonacoTheme,
+  resolveMonacoTheme,
   vectoraDarkTheme,
 } from "../godot-theme";
 import { GODOT_PALETTES } from "../godot-theme";
@@ -43,6 +44,23 @@ describe("Godot Monaco theme", () => {
   it("selects a stable theme for each appearance mode", () => {
     expect(godotThemeFor(true)).toBe(GODOT_DARK_THEME);
     expect(godotThemeFor(false)).toBe(GODOT_LIGHT_THEME);
+  });
+
+  it("uses the Godot editor theme automatically for Godot languages", () => {
+    expect(
+      resolveMonacoTheme({
+        presetId: "default-dark",
+        isDark: true,
+        language: "gdscript",
+      }),
+    ).toBe(GODOT_DARK_THEME);
+    expect(
+      resolveMonacoTheme({
+        presetId: "default-light",
+        isDark: false,
+        language: "godot-resource",
+      }),
+    ).toBe(GODOT_LIGHT_THEME);
   });
 
   it("registers both themes and the GDScript language", () => {

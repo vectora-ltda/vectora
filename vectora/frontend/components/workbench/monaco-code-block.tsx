@@ -11,7 +11,7 @@ export function MonacoCodeBlock({
   code: string;
   language: string;
 }) {
-  const theme = useMonacoTheme();
+  const theme = useMonacoTheme(language);
   const [lines, setLines] = useState<string[] | null>(null);
   useEffect(() => {
     let cancelled = false;
