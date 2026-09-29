@@ -14,13 +14,14 @@ import MonacoEditor, { type OnMount } from "@monaco-editor/react";
 import { Loader2, Save } from "lucide-react";
 
 import { languageFromPath } from "@/lib/monaco/setup";
-import { useIsDark } from "@/lib/hooks/use-is-dark";
 import { useSettingsStore } from "@/lib/stores/settings-store";
 import { fetchFile, apiUpdateFile } from "@/lib/api/fs-files";
 import type { FileContent } from "@/lib/stores/workbench-store";
 import { useToastStore } from "@/lib/stores/toast-store";
 import { getMediaKind, FileViewer } from "@/components/workbench/file-viewer";
 import { m } from "@/lib/paraglide/messages";
+import { useMonacoTheme } from "@/lib/monaco/use-monaco-theme";
+import { godotEditorOptions } from "@/lib/monaco/editor-options";
 
 export function FileEditor({
   workspaceId,
@@ -29,8 +30,9 @@ export function FileEditor({
   workspaceId: string;
   path: string;
 }) {
-  const isDark = useIsDark();
+  const monacoTheme = useMonacoTheme();
   const monacoFontSize = useSettingsStore((s) => s.monacoFontSize);
+  const editorFontFamily = useSettingsStore((s) => s.editorFontFamily);
   const media = getMediaKind(path);
 
   const [file, setFile] = useState<FileContent | null>(null);
@@ -152,18 +154,14 @@ export function FileEditor({
           width="100%"
           value={value}
           language={languageFromPath(path)}
-          theme={isDark ? "vs-dark" : "vs"}
+          theme={monacoTheme}
           onChange={(v) => setValue(v ?? "")}
           onMount={handleMount}
-          options={{
+          options={godotEditorOptions(
+            monacoFontSize,
+            editorFontFamily,
             readOnly,
-            fontSize: monacoFontSize,
-            minimap: { enabled: true },
-            scrollBeyondLastLine: false,
-            automaticLayout: true,
-            tabSize: 2,
-            wordWrap: "off",
-          }}
+          )}
           loading={
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
           }

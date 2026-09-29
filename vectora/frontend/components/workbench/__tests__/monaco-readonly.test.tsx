@@ -68,16 +68,16 @@ describe("MonacoReadOnly", () => {
     ).toBe("21");
   });
 
-  it("isDark controla o tema vs-dark/vs", () => {
+  it("isDark controla o tema Godot claro/escuro", () => {
     const { rerender } = render(
       <MonacoReadOnly value="x" path="a.ts" isDark={true} />,
     );
     expect(screen.getByTestId("monaco-editor").getAttribute("data-theme")).toBe(
-      "vs-dark",
+      "vectora-godot-dark",
     );
     rerender(<MonacoReadOnly value="x" path="a.ts" isDark={false} />);
     expect(screen.getByTestId("monaco-editor").getAttribute("data-theme")).toBe(
-      "vs",
+      "vectora-godot-light",
     );
   });
 

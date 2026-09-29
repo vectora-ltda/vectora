@@ -28,7 +28,6 @@
   "feedback_error": "Não foi possível enviar.",
   "feedback_required": "Descreva o problema ou sugestão.",
   "sidebar_report_issue": "Reportar problema",
-  "sidebar_open": "Abrir sessões",
   "sidebar_collapse": "Recolher",
   "layout_open_chat": "Abrir chat",
   "layout_open_workbench": "Abrir bancada",
@@ -1638,5 +1637,13 @@
   "about_panel_mode_web": "Web",
   "feedback_include_context": "Incluir contexto técnico",
   "sidebar_ctx_resume": "Abrir neste dispositivo",
-  "sidebar_remote_activity_tooltip": "Ativa em outro dispositivo {time}"
+  "sidebar_remote_activity_tooltip": "Ativa em outro dispositivo {time}",
+  "prefs_fonts_section": "Fontes",
+  "prefs_editor_font": "Fonte do editor",
+  "prefs_editor_font_help": "Fonte usada pelo editor Monaco.",
+  "prefs_mono_font": "Fonte monoespaçada",
+  "prefs_mono_font_help": "Fonte usada por terminais, diffs e blocos de código.",
+  "prefs_ui_font": "Fonte da interface",
+  "prefs_ui_font_help": "Fonte usada pelo restante do Vectora.",
+  "prefs_fonts_godot_help": "Inter e JetBrains Mono são as fontes padrão usadas pela Godot 4. As famílias escolhidas precisam estar instaladas no sistema."
 }

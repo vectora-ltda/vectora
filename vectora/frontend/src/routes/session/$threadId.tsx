@@ -904,12 +904,6 @@ function SessionPage() {
         showToolCalls={showToolCalls}
         onToggleToolCalls={() => setShowToolCalls((v) => !v)}
         onShowShortcuts={() => setShowShortcutsDialog(true)}
-        onOpenSidebar={
-          uiMode === "ide" || !isCompactSession
-            ? undefined
-            : () => setIsMobileSidebarOpen(true)
-        }
-        sidebarTriggerCompactOnly={uiMode !== "ide" && isCompactSession}
         showModeSwitch={!chatMode}
       />
     ),

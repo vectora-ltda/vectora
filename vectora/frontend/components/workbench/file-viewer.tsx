@@ -12,7 +12,6 @@ import { Loader2, Pencil } from "lucide-react";
 import { MarkdownView } from "@/components/workbench/markdown-view";
 import { useToastStore } from "@/lib/stores/toast-store";
 import { m } from "@/lib/paraglide/messages";
-import { useIsDark } from "@/lib/hooks/use-is-dark";
 
 // Monaco depende de `window` — carregado sob demanda (lazy) para não entrar no
 // grafo de import estático do viewer (quebraria testes/SSR sem DOM).
@@ -199,7 +198,6 @@ export function FileViewer({
   path: string;
 }) {
   const media = getMediaKind(path);
-  const isDark = useIsDark();
   const [text, setText] = useState<RawText | null>(null);
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -318,11 +316,7 @@ export function FileViewer({
             </div>
           }
         >
-          <MonacoReadOnly
-            value={text?.content ?? ""}
-            path={path}
-            isDark={isDark}
-          />
+          <MonacoReadOnly value={text?.content ?? ""} path={path} />
         </Suspense>
       </div>
       {text?.truncated && (

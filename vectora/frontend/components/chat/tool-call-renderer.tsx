@@ -18,6 +18,8 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { m } from "@/lib/paraglide/messages";
 import type { ToolCall, RenderHint } from "@/lib/types";
+import { languageFromPath } from "@/lib/monaco/languages";
+import { MonacoCodeBlock } from "@/components/workbench/monaco-code-block";
 
 // ============================================================================
 // Props
@@ -76,6 +78,18 @@ function DiffViewer({ content }: { content: string }) {
 
 /** Bloco de código com syntax highlight — file_read, file_write, fetch_url */
 function CodeBlockViewer({ content, name }: { content: string; name: string }) {
+  const engineLanguage = languageFromPath(name);
+  if (
+    ["gdscript", "godot-resource", "godot-project", "gdshader"].includes(
+      engineLanguage,
+    )
+  ) {
+    return (
+      <div className="mt-1 max-h-60 overflow-auto rounded border border-border bg-muted/40 p-3 font-mono text-[11px]">
+        <MonacoCodeBlock code={content} language={engineLanguage} />
+      </div>
+    );
+  }
   const ext = name.split(".").pop() ?? "text";
   const langMap: Record<string, string> = {
     py: "python",

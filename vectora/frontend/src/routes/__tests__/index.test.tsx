@@ -138,16 +138,6 @@ describe("HomeScreen — excluir thread", () => {
   });
 });
 
-describe("HomeScreen — abrir a sidebar em mobile", () => {
-  it("passa onOpenSidebar pro Header — regressão: em mobile não havia como abrir a lista de sessões nesta rota", () => {
-    render(<HomeScreen />);
-
-    const call = headerMock.mock.calls[0] as unknown as
-      [{ onOpenSidebar?: unknown }] | undefined;
-    expect(typeof call?.[0]?.onOpenSidebar).toBe("function");
-  });
-});
-
 describe("HomeScreen — dialog de nova sessão code", () => {
   it("confirmar 'criar novo workspace' (null, default sem active_id) delega null pra signalWorkspaceChoiceForNewSession", async () => {
     useWorkspacesStore.setState({ active_id: null, workspaces: [] });

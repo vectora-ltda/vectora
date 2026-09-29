@@ -171,7 +171,7 @@ function HomeScreen() {
         </Sheet>
 
         <main className="flex-1 min-h-0 overflow-auto flex flex-col">
-          <Header onOpenSidebar={() => setIsMobileSidebarOpen(true)} />
+          <Header />
           <EmptyStateHeader
             onStartChat={handleStartChat}
             onStartCode={handleStartCode}
