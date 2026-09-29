@@ -208,6 +208,28 @@ describe("update backups", () => {
     ).resolves.toBe("safe");
   });
 
+  it("recusa restaurar um snapshot parcial", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "vectora-update-"));
+    const userData = path.join(root, "user-data");
+    const backups = path.join(root, "backups");
+    await mkdir(userData, { recursive: true });
+    await writeFile(path.join(userData, "settings.json"), "safe");
+    const entry = await createRotatingUpdateBackup(userData, backups, "0.1.0");
+    const manifestPath = path.join(entry.path, "manifest.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
+      skipped?: string[];
+    };
+    manifest.skipped = ["locked.db"];
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+    await expect(restoreUpdateBackup(entry, userData, backups)).rejects.toThrow(
+      "Backup parcial não pode ser restaurado",
+    );
+    await expect(
+      readFile(path.join(userData, "settings.json"), "utf8"),
+    ).resolves.toBe("safe");
+  });
+
   it("serializa restaurações concorrentes sem deixar estado intermediário", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "vectora-update-"));
     const userData = path.join(root, "user-data");

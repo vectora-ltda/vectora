@@ -206,10 +206,16 @@ export function pingBackendHttp(
 export function fetchBackendJson<T = unknown>(
   transport: http.RequestOptions,
   urlPath: string,
+  headers: Record<string, string> = {},
 ): Promise<T | null> {
   return new Promise((resolve) => {
     const req = http.request(
-      { ...transport, method: "GET", path: urlPath },
+      {
+        ...transport,
+        method: "GET",
+        path: urlPath,
+        ...(Object.keys(headers).length > 0 ? { headers } : {}),
+      },
       (res) => {
         if ((res.statusCode ?? 500) >= 400) {
           res.resume();

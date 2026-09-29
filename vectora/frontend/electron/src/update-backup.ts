@@ -64,9 +64,27 @@ function digestTree(files: readonly UpdateBackupFile[]): string {
   return hash.digest("hex");
 }
 
-async function collectFiles(root: string, current = root): Promise<string[]> {
+/** Coleta arquivos e registra caminhos omitidos por bloqueio transitório. */
+async function collectFiles(
+  root: string,
+  current = root,
+  skipped: string[] = [],
+): Promise<string[]> {
   const result: string[] = [];
-  for (const name of await fs.readdir(current)) {
+  let names: string[];
+  try {
+    names = await fs.readdir(current);
+  } catch (error) {
+    if (!isTransientFileLock(error)) throw error;
+    const relative = path.relative(root, current);
+    if (relative) skipped.push(relative);
+    console.warn("[updater] backup omitindo diretório bloqueado", {
+      path: relative || ".",
+      error,
+    });
+    return result;
+  }
+  for (const name of names) {
     const relative = path.relative(root, path.join(current, name));
     if (isExcluded(relative) || name.endsWith(".lock")) continue;
     const source = path.join(current, name);
@@ -75,6 +93,7 @@ async function collectFiles(root: string, current = root): Promise<string[]> {
       stat = await withFileLockRetry(() => fs.lstat(source));
     } catch (error) {
       if (isTransientFileLock(error)) {
+        skipped.push(relative);
         console.warn("[updater] backup omitindo caminho bloqueado", {
           path: relative,
           error,
@@ -84,7 +103,8 @@ async function collectFiles(root: string, current = root): Promise<string[]> {
       throw error;
     }
     if (stat.isSymbolicLink()) throw new Error("userData contém symlink");
-    if (stat.isDirectory()) result.push(...(await collectFiles(root, source)));
+    if (stat.isDirectory())
+      result.push(...(await collectFiles(root, source, skipped)));
     else if (stat.isFile() && stat.size <= MAX_FILE_BYTES)
       result.push(relative);
   }
@@ -122,6 +142,7 @@ async function removeManagedContent(
   }
 }
 
+/** Copy one regular source file and fail closed when the destination is unavailable. */
 async function copySafe(
   source: string,
   destination: string,
@@ -131,12 +152,18 @@ async function copySafe(
     throw new Error("entrada não regular");
   if (stat.size > MAX_FILE_BYTES) throw new Error("arquivo excede o limite");
   const data = await withFileLockRetry(() => fs.readFile(source));
-  await withFileLockRetry(() =>
-    fs.mkdir(path.dirname(destination), { recursive: true }),
-  );
-  await withFileLockRetry(() =>
-    fs.writeFile(destination, data, { mode: 0o600 }),
-  );
+  try {
+    await withFileLockRetry(() =>
+      fs.mkdir(path.dirname(destination), { recursive: true }),
+    );
+    await withFileLockRetry(() =>
+      fs.writeFile(destination, data, { mode: 0o600 }),
+    );
+  } catch (error) {
+    throw new Error("falha ao gravar arquivo no destino do backup", {
+      cause: error,
+    });
+  }
   return {
     path: "",
     bytes: data.byteLength,
@@ -144,6 +171,7 @@ async function copySafe(
   };
 }
 
+/** Serialize snapshot creation and restoration to avoid concurrent mutations. */
 async function withSnapshotLock<T>(operation: () => Promise<T>): Promise<T> {
   const previous = snapshotQueue;
   let release!: () => void;
@@ -172,7 +200,7 @@ export async function createRotatingUpdateBackup(
     try {
       const files: UpdateBackupFile[] = [];
       const skipped: string[] = [];
-      for (const relative of await collectFiles(userData)) {
+      for (const relative of await collectFiles(userData, userData, skipped)) {
         try {
           const copied = await copySafe(
             path.join(userData, relative),
@@ -259,6 +287,7 @@ export async function listUpdateBackups(
   return entries.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+/** Validate and restore a complete update snapshot while preserving managed files. */
 async function restoreUpdateBackupUnlocked(
   entry: UpdateBackupEntry,
   userData: string,
@@ -295,6 +324,8 @@ async function restoreUpdateBackupUnlocked(
     manifest.sha256 !== digestTree(manifest.files)
   )
     throw new Error("Backup inválido");
+  if (manifest.skipped && manifest.skipped.length > 0)
+    throw new Error("Backup parcial não pode ser restaurado");
   for (const file of manifest.files) {
     const source = path.join(resolvedPath, file.path);
     const relative = path.relative(resolvedPath, source);

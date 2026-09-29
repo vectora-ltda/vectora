@@ -778,13 +778,17 @@ async function isAutoUpdateEnabled(): Promise<boolean> {
   return prefs?.autoUpdateEnabled !== false;
 }
 
+/** Resolve changelog notes from the packaged manifest, using the authenticated backend as fallback. */
 async function fetchPackagedChangelog(fallback: string): Promise<string> {
+  const packaged = fallback.trim();
+  if (packaged) return packaged;
   try {
     const payload = await fetchBackendJson<{ notes?: string }>(
       backendTransport(),
       "/api/updates/changelog",
+      _cookieStore.size > 0 ? { cookie: buildCookieHeader(_cookieStore) } : {},
     );
-    return fallback || payload?.notes?.trim() || "";
+    return payload?.notes?.trim() || "";
   } catch (error) {
     console.warn("[updater] não foi possível carregar o changelog", error);
     return fallback;
@@ -805,7 +809,7 @@ function setupAutoUpdater(): void {
 
   let latestStatus: UpdateStatus = { state: "not-available" };
 
-  const broadcast = (status: UpdateStatus) => {
+  const broadcast = (status: Partial<UpdateStatus>) => {
     latestStatus = { ...latestStatus, ...status };
     mainWindow?.webContents.send("vectora:update-status", latestStatus);
   };
@@ -832,8 +836,10 @@ function setupAutoUpdater(): void {
     });
     broadcast({ state: "available", message: info.version, changelog: notes });
     void fetchPackagedChangelog(notes).then((changelog) => {
-      if (changelog) {
-        broadcast({ state: "available", changelog });
+      if (changelog && changelog !== notes) {
+        // Atualiza somente as notas. Preserva `downloading`/`downloaded` caso
+        // a resposta do backend chegue depois do progresso do download.
+        broadcast({ changelog });
       }
     });
     void startUpdateDownload().catch((error: unknown) => {
