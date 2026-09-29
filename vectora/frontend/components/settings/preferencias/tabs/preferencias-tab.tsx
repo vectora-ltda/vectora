@@ -21,8 +21,11 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
 import {
   useSettingsStore,
+  MONACO_FONT_SIZE_MIN,
+  MONACO_FONT_SIZE_MAX,
   SUPPORTED_LANGS,
   UI_SCALE_PRESETS,
   type Theme,
@@ -288,6 +291,8 @@ export function PreferenciasTab() {
     setEditorFontFamily,
     setMonoFontFamily,
     setUiFontFamily,
+    monacoFontSize,
+    setMonacoFontSize,
   } = useSettingsStore();
 
   const isDark = useIsDark();
@@ -595,6 +600,35 @@ export function PreferenciasTab() {
             value={editorFontFamily}
             onChange={setEditorFontFamily}
           />
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <Label htmlFor="editor-font-size">
+                {m.prefs_editor_font_size()}
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                {m.prefs_editor_font_size_help()}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Input
+                id="editor-font-size"
+                type="number"
+                min={MONACO_FONT_SIZE_MIN}
+                max={MONACO_FONT_SIZE_MAX}
+                step={1}
+                value={monacoFontSize}
+                onChange={(event) => {
+                  const value = Number(event.target.value);
+                  if (Number.isFinite(value)) setMonacoFontSize(value);
+                }}
+                className="w-[100px]"
+                aria-label={m.prefs_editor_font_size()}
+              />
+              <span className="text-xs text-muted-foreground">
+                {m.prefs_editor_font_size_unit()}
+              </span>
+            </div>
+          </div>
           <FontSelect
             id="mono-font-family"
             label={m.prefs_mono_font()}
