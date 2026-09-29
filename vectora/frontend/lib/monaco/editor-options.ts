@@ -12,6 +12,9 @@ export function godotEditorOptions(
     fontSize,
     fontFamily,
     fontLigatures: false,
+    // Mantém o comportamento padrão do editor da Godot: Ctrl/Cmd + roda
+    // ajusta o zoom do código sem interferir na rolagem normal.
+    mouseWheelZoom: true,
     minimap: {
       enabled: !readOnly,
       showSlider: "always",

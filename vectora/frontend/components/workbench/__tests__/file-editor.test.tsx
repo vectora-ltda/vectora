@@ -29,12 +29,17 @@ vi.mock("@monaco-editor/react", () => ({
   }: {
     value?: string;
     onChange?: (v: string | undefined) => void;
-    options?: { readOnly?: boolean; fontSize?: number };
+    options?: {
+      readOnly?: boolean;
+      fontSize?: number;
+      mouseWheelZoom?: boolean;
+    };
   }) => (
     <textarea
       data-testid="monaco-editor"
       data-readonly={String(!!options?.readOnly)}
       data-font-size={options?.fontSize}
+      data-mouse-wheel-zoom={String(!!options?.mouseWheelZoom)}
       value={value ?? ""}
       onChange={(e) => onChange?.(e.target.value)}
     />
@@ -123,6 +128,21 @@ describe("FileEditor", () => {
     const editor = await screen.findByTestId("monaco-editor");
     expect(editor.getAttribute("data-font-size")).toBe("18");
     mockSettings.monacoFontSize = 13;
+  });
+
+  it("habilita zoom do Monaco por Ctrl/Cmd + roda do mouse", async () => {
+    fetchFile.mockResolvedValue({
+      content: "x",
+      sha256: "abc",
+      kind: "text",
+      truncated: false,
+      size: 1,
+    });
+    render(<FileEditor workspaceId="ws1" path="src/a.ts" />);
+    await screen.findByTestId("monaco-editor");
+    expect(
+      screen.getByTestId("monaco-editor").getAttribute("data-mouse-wheel-zoom"),
+    ).toBe("true");
   });
 
   it("arquivo binário delega para o FileViewer em vez de montar o Monaco", async () => {
