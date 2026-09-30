@@ -34,7 +34,7 @@ export function Header({ onShowShortcuts, showModeSwitch }: HeaderProps) {
           </div>
         )}
 
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="ml-auto flex items-center gap-3 shrink-0">
           <ContextualHelp onShowShortcuts={onShowShortcuts} />
           <SettingsMenu />
         </div>
