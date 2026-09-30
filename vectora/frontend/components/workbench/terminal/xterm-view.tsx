@@ -76,7 +76,10 @@ export function XtermView({
       if (cancelled) return;
 
       const term = new Terminal({
-        fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+        fontFamily:
+          getComputedStyle(document.documentElement).getPropertyValue(
+            "--font-family-mono",
+          ) || '"JetBrains Mono", ui-monospace, monospace',
         fontSize: 13,
         cursorBlink: true,
         theme: readXtermTheme(),

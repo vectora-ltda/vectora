@@ -4,11 +4,8 @@ import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 
 vi.mock("@/lib/paraglide/messages", () => ({
   m: {
+    app_name: () => "Vectora",
     welcome_title: () => "O que posso fazer por você?",
-    welcome_start_chat: () => "Chat",
-    welcome_start_chat_desc: () => "Conversa livre, sem projeto",
-    welcome_start_code: () => "Sessão de código",
-    welcome_start_code_desc: () => "Com pasta de projeto e ferramentas",
     welcome_suggestion_1: () => "Sugestão 1",
     welcome_suggestion_2: () => "Sugestão 2",
     welcome_suggestion_3: () => "Sugestão 3",
@@ -47,79 +44,32 @@ describe("EmptyStateHeader", () => {
     expect(screen.queryByText("Sessão de código")).toBeNull();
   });
 
-  it("exibe botão Chat quando onStartChat é fornecido", () => {
-    render(<EmptyStateHeader onStartChat={vi.fn()} />);
-    expect(screen.getByText("Chat")).toBeInTheDocument();
-    expect(screen.getByText("Conversa livre, sem projeto")).toBeInTheDocument();
-  });
-
-  it("exibe botão Sessão de código quando onStartCode é fornecido", () => {
-    render(<EmptyStateHeader onStartCode={vi.fn()} />);
-    expect(screen.getByText("Sessão de código")).toBeInTheDocument();
-    expect(
-      screen.getByText("Com pasta de projeto e ferramentas"),
-    ).toBeInTheDocument();
-  });
-
-  it("exibe ambos os botões quando os dois handlers são fornecidos (home screen)", () => {
-    render(<EmptyStateHeader onStartChat={vi.fn()} onStartCode={vi.fn()} />);
-    expect(screen.getByText("Chat")).toBeInTheDocument();
-    expect(screen.getByText("Sessão de código")).toBeInTheDocument();
-  });
-
-  it("clicar em Chat chama onStartChat", () => {
-    const onStartChat = vi.fn();
-    render(
-      <EmptyStateHeader onStartChat={onStartChat} onStartCode={vi.fn()} />,
-    );
-    fireEvent.click(screen.getByText("Chat").closest("button")!);
-    expect(onStartChat).toHaveBeenCalledOnce();
-  });
-
-  it("clicar em Sessão de código chama onStartCode", () => {
-    const onStartCode = vi.fn();
-    render(
-      <EmptyStateHeader onStartChat={vi.fn()} onStartCode={onStartCode} />,
-    );
-    fireEvent.click(screen.getByText("Sessão de código").closest("button")!);
-    expect(onStartCode).toHaveBeenCalledOnce();
-  });
-
   it("não renderiza sugestões quando onSelect não é fornecido", () => {
-    render(<EmptyStateHeader onStartChat={vi.fn()} onStartCode={vi.fn()} />);
+    render(<EmptyStateHeader />);
     // mDyn retorna a chave; sugestões renderizam como "stack.unknown.1" etc.
     expect(screen.queryByText("stack.unknown.1")).toBeNull();
   });
 
   it("renderiza sugestões quando onSelect é fornecido e chama ao clicar", () => {
     const onSelect = vi.fn();
-    render(
-      <EmptyStateHeader
-        onSelect={onSelect}
-        onStartChat={vi.fn()}
-        onStartCode={vi.fn()}
-      />,
-    );
+    render(<EmptyStateHeader onSelect={onSelect} />);
     const chip = screen.getByText("stack.unknown.1");
     fireEvent.click(chip);
     expect(onSelect).toHaveBeenCalledWith("stack.unknown.1");
   });
 
-  it("edge: apenas onStartChat — sem botão Sessão de código", () => {
-    render(<EmptyStateHeader onStartChat={vi.fn()} />);
-    expect(screen.queryByText("Sessão de código")).toBeNull();
+  it("mantém as sugestões em uma única coluna", () => {
+    const onSelect = vi.fn();
+    render(<EmptyStateHeader onSelect={onSelect} />);
+    const suggestion = screen.getByText("stack.unknown.1");
+    expect(suggestion.parentElement).toHaveClass("flex-col");
   });
 
-  it("edge: apenas onStartCode — sem botão Chat", () => {
-    render(<EmptyStateHeader onStartCode={vi.fn()} />);
-    expect(screen.queryByText("Chat")).toBeNull();
-  });
-
-  it("edge: handlers undefined explícito — sem CTAs", () => {
-    render(
-      <EmptyStateHeader onStartChat={undefined} onStartCode={undefined} />,
+  it("compacta a marca e o título no painel estreito do IDE", () => {
+    render(<EmptyStateHeader compact onSelect={vi.fn()} />);
+    expect(screen.getByText("Vectora").parentElement).toHaveClass("flex-col");
+    expect(screen.getByText("O que posso fazer por você?")).toHaveClass(
+      "text-lg",
     );
-    expect(screen.queryByText("Chat")).toBeNull();
-    expect(screen.queryByText("Sessão de código")).toBeNull();
   });
 });

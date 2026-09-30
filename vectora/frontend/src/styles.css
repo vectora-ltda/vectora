@@ -4,6 +4,38 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-Regular.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-Italic.woff2") format("woff2");
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-Bold.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-BoldItalic.woff2") format("woff2");
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+}
+
 /* =============================================================================
    Tokens de design — Vectora
    Arquitetura:
@@ -15,6 +47,9 @@
 /* ── Tema escuro (padrão) — "Dark" (baseado em miguelsolorio.min-theme, adaptado) ── */
 :root {
   --app-header-height: 4rem;
+  --font-family-editor: "JetBrains Mono", ui-monospace, monospace;
+  --font-family-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-family-ui: Inter, ui-sans-serif, system-ui, sans-serif;
   /* Safe-area tokens: use these semantic classes on viewport-edge UI. */
   --safe-area-top: env(safe-area-inset-top, 0px);
   --safe-area-right: env(safe-area-inset-right, 0px);
@@ -270,6 +305,7 @@
 
   --font-aeonik-mono:
     "JetBrains Mono", ui-monospace, "Cascadia Code", Menlo, Monaco, monospace;
+  --font-mono: var(--font-family-mono);
 }
 
 @layer base {
@@ -290,16 +326,7 @@
     background-color: var(--background);
     color: var(--foreground);
     font-family:
-      ui-sans-serif,
-      system-ui,
-      -apple-system,
-      BlinkMacSystemFont,
-      "Segoe UI",
-      Roboto,
-      "Helvetica Neue",
-      Arial,
-      "Noto Sans",
-      sans-serif;
+      var(--font-family-ui, ui-sans-serif), ui-sans-serif, system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }

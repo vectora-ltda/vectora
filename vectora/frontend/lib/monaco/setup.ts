@@ -26,6 +26,13 @@ import cssWorker from "../../node_modules/monaco-editor/esm/vs/language/css/css.
 import htmlWorker from "../../node_modules/monaco-editor/esm/vs/language/html/html.worker.js?worker";
 import tsWorker from "../../node_modules/monaco-editor/esm/vs/language/typescript/ts.worker.js?worker";
 import { loader } from "@monaco-editor/react";
+import { ensureMonacoThemes } from "@/lib/monaco/godot-theme";
+import { registerEngineLanguages } from "@/lib/monaco/languages/register";
+import { godotLanguages } from "@/lib/monaco/languages/godot";
+import {
+  languageFromPath as resolveLanguageFromPath,
+  languageFromFence as resolveLanguageFromFence,
+} from "@/lib/monaco/languages/resolve";
 
 declare global {
   interface Window {
@@ -51,72 +58,20 @@ self.MonacoEnvironment = {
 
 loader.config({ monaco });
 
+export function prepareMonaco(
+  instance: typeof import("monaco-editor") = monaco,
+): void {
+  ensureMonacoThemes(instance);
+  registerEngineLanguages(instance, godotLanguages);
+}
+
+prepareMonaco(monaco);
+
 /** Linguagem do Monaco a partir do caminho do arquivo.
  *
  * Trata primeiro nomes especiais e dotfiles (sem extensão "real"), depois
  * cai na extensão. Desconhecido → "plaintext" (ainda editável no Monaco). */
-export function languageFromPath(path: string): string {
-  const base = (path.split(/[/\\]/).pop() ?? "").toLowerCase();
-
-  // Nomes especiais / dotfiles cujo realce não vem da extensão.
-  const byName: Record<string, string> = {
-    ".gitignore": "ignore",
-    ".dockerignore": "ignore",
-    ".npmignore": "ignore",
-    ".gitattributes": "ini",
-    ".editorconfig": "ini",
-    dockerfile: "dockerfile",
-    makefile: "makefile",
-    procfile: "yaml",
-    ".bashrc": "shell",
-    ".zshrc": "shell",
-    ".profile": "shell",
-  };
-  if (base in byName) return byName[base];
-  if (base.startsWith(".env")) return "ini"; // .env, .env.local, .env.production
-  if (base.startsWith("dockerfile")) return "dockerfile"; // Dockerfile.dev
-
-  const ext = base.includes(".") ? (base.split(".").pop() ?? "") : "";
-  const map: Record<string, string> = {
-    ts: "typescript",
-    tsx: "typescript",
-    js: "javascript",
-    jsx: "javascript",
-    mjs: "javascript",
-    cjs: "javascript",
-    json: "json",
-    css: "css",
-    scss: "scss",
-    less: "less",
-    html: "html",
-    htm: "html",
-    xml: "xml",
-    md: "markdown",
-    markdown: "markdown",
-    diff: "diff",
-    py: "python",
-    rs: "rust",
-    go: "go",
-    java: "java",
-    c: "c",
-    h: "c",
-    cpp: "cpp",
-    hpp: "cpp",
-    cs: "csharp",
-    rb: "ruby",
-    php: "php",
-    sh: "shell",
-    bash: "shell",
-    yaml: "yaml",
-    yml: "yaml",
-    toml: "ini",
-    ini: "ini",
-    sql: "sql",
-    graphql: "graphql",
-    swift: "swift",
-    kt: "kotlin",
-    scala: "scala",
-    r: "r",
-  };
-  return map[ext] ?? "plaintext";
-}
+export const languageFromPath = (path: string): string =>
+  resolveLanguageFromPath(path, godotLanguages);
+export const languageFromFence = (label: string): string =>
+  resolveLanguageFromFence(label, godotLanguages);
