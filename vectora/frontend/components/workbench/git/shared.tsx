@@ -8,6 +8,9 @@ import type {
   DiffLine,
 } from "@/lib/stores/workbench-store";
 import { m } from "@/lib/paraglide/messages";
+import { useEffect, useState } from "react";
+import { colorizeLines } from "@/lib/monaco/colorize";
+import { languageFromPath } from "@/lib/monaco/languages";
 
 export const STATUS_TONE: Record<string, string> = {
   M: "text-git-modification",
@@ -34,7 +37,30 @@ function gutterTone(type: DiffLine["type"]): string {
 }
 
 /** Renderiza um hunk no mesmo modelo de duas colunas do GitHub Desktop. */
-export function HunkView({ hunk }: { hunk: DiffHunk }) {
+function DiffCodeLine({ text, path }: { text: string; path?: string }) {
+  const language = path ? languageFromPath(path) : "plaintext";
+  const [html, setHtml] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (language !== "plaintext")
+      void colorizeLines(text, language).then((lines) => {
+        if (!cancelled) setHtml(lines?.[0] ?? null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [language, text]);
+  if (html)
+    return (
+      <span
+        className="whitespace-pre px-2"
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    );
+  return <span className="whitespace-pre px-2">{text}</span>;
+}
+
+export function HunkView({ hunk, path }: { hunk: DiffHunk; path?: string }) {
   return (
     <div className="overflow-x-auto rounded-sm bg-muted/30 font-mono text-[11px] leading-5">
       <div className="border-b border-border/50 px-2 py-1 text-sky-300/80">
@@ -73,7 +99,7 @@ export function HunkView({ hunk }: { hunk: DiffHunk }) {
                 {line.new_line_number ?? ""}
               </span>
               <span className="px-1 text-center select-none">{sign}</span>
-              <span className="whitespace-pre px-2">{line.text.slice(1)}</span>
+              <DiffCodeLine text={line.text.slice(1)} path={path} />
             </div>
             {line.no_trailing_newline && (
               <div className="px-3 py-0.5 text-[10px] italic text-muted-foreground">

@@ -12,7 +12,13 @@ vi.mock("@monaco-editor/react", () => ({
     value?: string;
     language?: string;
     theme?: string;
-    options?: { readOnly?: boolean; domReadOnly?: boolean; fontSize?: number };
+    options?: {
+      readOnly?: boolean;
+      domReadOnly?: boolean;
+      fontSize?: number;
+      lineHeight?: number;
+      mouseWheelZoom?: boolean;
+    };
   }) => (
     <div
       data-testid="monaco-editor"
@@ -21,6 +27,8 @@ vi.mock("@monaco-editor/react", () => ({
       data-readonly={String(!!options?.readOnly)}
       data-dom-readonly={String(!!options?.domReadOnly)}
       data-font-size={options?.fontSize}
+      data-line-height={options?.lineHeight}
+      data-mouse-wheel-zoom={String(!!options?.mouseWheelZoom)}
     >
       {value}
     </div>
@@ -68,16 +76,23 @@ describe("MonacoReadOnly", () => {
     ).toBe("21");
   });
 
-  it("isDark controla o tema vs-dark/vs", () => {
+  it("mantém o zoom por Ctrl/Cmd + roda do mouse disponível", () => {
+    render(<MonacoReadOnly value="x" path="a.ts" isDark={false} />);
+    expect(
+      screen.getByTestId("monaco-editor").getAttribute("data-mouse-wheel-zoom"),
+    ).toBe("true");
+  });
+
+  it("isDark controla o tema Godot claro/escuro", () => {
     const { rerender } = render(
       <MonacoReadOnly value="x" path="a.ts" isDark={true} />,
     );
     expect(screen.getByTestId("monaco-editor").getAttribute("data-theme")).toBe(
-      "vs-dark",
+      "vectora-godot-dark",
     );
     rerender(<MonacoReadOnly value="x" path="a.ts" isDark={false} />);
     expect(screen.getByTestId("monaco-editor").getAttribute("data-theme")).toBe(
-      "vs",
+      "vectora-godot-light",
     );
   });
 
