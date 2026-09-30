@@ -77,6 +77,33 @@ function digestTree(files: readonly UpdateBackupFile[]): string {
   return hash.digest("hex");
 }
 
+function isRetentionManifest(
+  candidate: unknown,
+  entryName: string,
+  backupRoot: string,
+): candidate is UpdateBackupEntry {
+  if (!candidate || typeof candidate !== "object") return false;
+  const manifest = candidate as Partial<UpdateBackupEntry>;
+  if (
+    manifest.id !== entryName ||
+    typeof manifest.path !== "string" ||
+    path.resolve(manifest.path) !== path.resolve(backupRoot, entryName) ||
+    !Array.isArray(manifest.files) ||
+    manifest.files.some(
+      (file) =>
+        !file ||
+        typeof file !== "object" ||
+        typeof (file as UpdateBackupFile).path !== "string" ||
+        typeof (file as UpdateBackupFile).bytes !== "number" ||
+        typeof (file as UpdateBackupFile).sha256 !== "string",
+    ) ||
+    typeof manifest.sha256 !== "string" ||
+    manifest.sha256 !== digestTree(manifest.files)
+  )
+    return false;
+  return true;
+}
+
 /** Coleta arquivos e registra caminhos omitidos por bloqueio transitório. */
 async function collectFiles(
   root: string,
@@ -220,6 +247,7 @@ export async function createRotatingUpdateBackup(
   backupRoot: string,
   appVersion: string,
   maxBackups = 5,
+  maxPartialBackups = maxBackups,
 ): Promise<UpdateBackupEntry> {
   return withSnapshotLock(async () => {
     const id = `${new Date().toISOString().replace(/[:.]/g, "-")}-${appVersion}`;
@@ -267,14 +295,17 @@ export async function createRotatingUpdateBackup(
       );
       await withFileLockRetry(() => fs.rename(temporary, destination));
       const completeEntries: string[] = [];
+      const partialEntries: string[] = [];
       for (const entry of await fs.readdir(backupRoot)) {
         if (entry.startsWith(".tmp-")) continue;
         try {
           const manifest = JSON.parse(
             await fs.readFile(path.join(backupRoot, entry, MANIFEST), "utf8"),
           ) as Partial<UpdateBackupEntry>;
+          if (!isRetentionManifest(manifest, entry, backupRoot)) continue;
           if (!manifest.skipped || manifest.skipped.length === 0)
             completeEntries.push(entry);
+          else if (Array.isArray(manifest.skipped)) partialEntries.push(entry);
         } catch {
           // Ignore malformed or unrelated directories during retention.
         }
@@ -282,6 +313,16 @@ export async function createRotatingUpdateBackup(
       completeEntries.sort().reverse();
       await Promise.all(
         completeEntries.slice(maxBackups).map((entry) =>
+          withFileLockRetry(() =>
+            fs.rm(path.join(backupRoot, entry), {
+              recursive: true,
+              force: true,
+            }),
+          ).catch(() => undefined),
+        ),
+      );
+      await Promise.all(
+        partialEntries.slice(maxPartialBackups).map((entry) =>
           withFileLockRetry(() =>
             fs.rm(path.join(backupRoot, entry), {
               recursive: true,

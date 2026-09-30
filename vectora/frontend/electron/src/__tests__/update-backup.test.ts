@@ -79,7 +79,7 @@ describe("update backups", () => {
     expect(entries).toHaveLength(5);
   });
 
-  it("preserves complete snapshots while partial snapshots accumulate", async () => {
+  it("retains complete and partial snapshots under independent limits", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "vectora-update-"));
     const userData = path.join(root, "user-data");
     const backups = path.join(root, "backups");
@@ -107,7 +107,29 @@ describe("update backups", () => {
     }
     const entries = await listUpdateBackups(backups);
     expect(entries.filter((entry) => !entry.skipped)).toHaveLength(2);
-    expect(entries.filter((entry) => entry.skipped)).toHaveLength(3);
+    expect(entries.filter((entry) => entry.skipped)).toHaveLength(2);
+  });
+
+  it("ignores parseable but incompatible manifests during retention", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "vectora-update-"));
+    const userData = path.join(root, "user-data");
+    const backups = path.join(root, "backups");
+    await mkdir(userData, { recursive: true });
+    await mkdir(path.join(backups, "invalid"), { recursive: true });
+    await writeFile(path.join(userData, "settings.json"), "safe");
+    await writeFile(
+      path.join(backups, "invalid", "manifest.json"),
+      JSON.stringify({}),
+    );
+
+    for (let index = 0; index < 2; index += 1) {
+      await createRotatingUpdateBackup(userData, backups, `0.3.${index}`, 1);
+    }
+
+    await expect(
+      readFile(path.join(backups, "invalid", "manifest.json")),
+    ).resolves.toBeDefined();
+    expect(await listUpdateBackups(backups)).toHaveLength(1);
   });
 
   it("rejects a renderer-supplied backup outside the root", async () => {
