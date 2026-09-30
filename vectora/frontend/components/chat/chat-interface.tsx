@@ -1355,6 +1355,7 @@ export function ChatInterface({
           <EmptyStateHeader
             onSelect={(prompt) => setInput(prompt)}
             workspaceId={activeWorkspaceId}
+            compact={compact}
           />
         ) : (
           <MessageList

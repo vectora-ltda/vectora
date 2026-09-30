@@ -64,4 +64,12 @@ describe("EmptyStateHeader", () => {
     const suggestion = screen.getByText("stack.unknown.1");
     expect(suggestion.parentElement).toHaveClass("flex-col");
   });
+
+  it("compacta a marca e o título no painel estreito do IDE", () => {
+    render(<EmptyStateHeader compact onSelect={vi.fn()} />);
+    expect(screen.getByText("Vectora").parentElement).toHaveClass("flex-col");
+    expect(screen.getByText("O que posso fazer por você?")).toHaveClass(
+      "text-lg",
+    );
+  });
 });
