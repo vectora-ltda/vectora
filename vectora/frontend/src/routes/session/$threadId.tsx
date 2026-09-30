@@ -495,11 +495,6 @@ function SessionPage() {
     setShowNewChatDialog(true);
   }, [chatMode, navigate]);
 
-  const handleStartChatFromWelcome = useCallback(() => {
-    setChatMode(true);
-    markWorkspaceChosen(threadId);
-  }, [threadId, setChatMode]);
-
   const handleConfirmNewChat = useCallback(
     (workspaceId: string | null) => {
       // Não persiste a thread no backend ainda — isso evita acumular
@@ -929,8 +924,6 @@ function SessionPage() {
   // guarda e restaura por thread — não por manter a instância montada.
   const renderChatPanel = useCallback(
     (compact: boolean, onCollapse?: () => void) => {
-      const welcomeActions =
-        !compact && hydrated && isNewRoute && !workspaceChosen;
       return (
         <div className="flex flex-col h-full min-h-0 overflow-hidden">
           {compact && (
@@ -970,12 +963,6 @@ function SessionPage() {
               // id. Keep the history loader from treating that id as persisted.
               isNewThread={isNewRoute || isNew(threadId) || isNewSession}
               compact={compact}
-              onStartChat={
-                welcomeActions ? handleStartChatFromWelcome : undefined
-              }
-              onStartCode={
-                welcomeActions ? () => setShowNewChatDialog(true) : undefined
-              }
             />
           </div>
         </div>
@@ -993,11 +980,8 @@ function SessionPage() {
       handleThreadPersistFailed,
       handleThreadNotFound,
       inputLocked,
-      hydrated,
       isNewRoute,
       isNewSession,
-      workspaceChosen,
-      handleStartChatFromWelcome,
       handleOpenEditedFile,
     ],
   );

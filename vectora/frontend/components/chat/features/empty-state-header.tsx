@@ -11,10 +11,6 @@ interface EmptyStateHeaderProps {
   onSelect?: (prompt: string) => void;
   /** Workspace ativo, se houver — usado para detectar a stack e adaptar as sugestões. */
   workspaceId?: string;
-  /** Quando presente, exibe CTAs de seleção de modo (home screen). */
-  onStartChat?: () => void;
-  /** Quando presente, exibe CTAs de seleção de modo (home screen). */
-  onStartCode?: () => void;
 }
 
 /** Stacks conhecidas com 3 sugestões cada. "unknown" é o fallback. */
@@ -36,8 +32,6 @@ function isKnownStack(s: string): s is KnownStack {
 export function EmptyStateHeader({
   onSelect,
   workspaceId,
-  onStartChat,
-  onStartCode,
 }: EmptyStateHeaderProps) {
   // Busca o stack hint apenas quando há workspace ativo.
   const { data: hintData } = useQuery({
@@ -58,68 +52,37 @@ export function EmptyStateHeader({
 
   return (
     <div className="flex-1 flex items-center justify-center px-3 sm:px-4">
-      <div className="w-full max-w-3xl -mt-10 sm:-mt-20 text-center">
-        <div className="mb-6 flex items-center justify-center gap-3 sm:gap-4">
+      <div className="w-full max-w-3xl -mt-6 sm:-mt-20 text-center">
+        <div className="mb-4 sm:mb-6 flex items-center justify-center gap-2 sm:gap-4">
           <Image
             src="/vectora.svg"
-            alt="Vectora"
+            alt={m.app_name()}
             width={64}
             height={64}
             priority
-            className="h-12 w-12 sm:h-16 sm:w-16"
+            className="h-10 w-10 sm:h-14 sm:w-16"
           />
           <span
-            className="text-5xl sm:text-6xl font-bold tracking-tight text-primary"
+            className="text-3xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-primary break-words"
             style={{ fontFamily: "var(--font-aeonik-mono)" }}
           >
-            Vectora
+            {m.app_name()}
           </span>
         </div>
         <h2
-          className="text-2xl sm:text-4xl font-semibold text-foreground mb-8"
+          className="px-2 text-xl sm:text-3xl lg:text-4xl font-semibold text-foreground mb-6 sm:mb-8 break-words"
           style={{ fontFamily: "var(--font-aeonik-mono)" }}
         >
           {m.welcome_title()}
         </h2>
 
-        {(onStartChat || onStartCode) && (
-          <div className="flex flex-col sm:flex-row gap-3 justify-center mb-8">
-            {onStartChat && (
-              <button
-                onClick={onStartChat}
-                className="flex flex-col items-start px-5 py-4 rounded-xl border border-border/60 bg-muted/30 hover:bg-muted/60 transition-colors sm:flex-1 sm:max-w-[200px] text-left group"
-              >
-                <span className="text-base font-semibold text-foreground mb-0.5 group-hover:text-primary transition-colors">
-                  {m.welcome_start_chat()}
-                </span>
-                <span className="text-xs text-foreground/60">
-                  {m.welcome_start_chat_desc()}
-                </span>
-              </button>
-            )}
-            {onStartCode && (
-              <button
-                onClick={onStartCode}
-                className="flex flex-col items-start px-5 py-4 rounded-xl border border-border/60 bg-muted/30 hover:bg-muted/60 transition-colors sm:flex-1 sm:max-w-[200px] text-left group"
-              >
-                <span className="text-base font-semibold text-foreground mb-0.5 group-hover:text-primary transition-colors">
-                  {m.welcome_start_code()}
-                </span>
-                <span className="text-xs text-foreground/60">
-                  {m.welcome_start_code_desc()}
-                </span>
-              </button>
-            )}
-          </div>
-        )}
-
         {onSelect && (
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+          <div className="flex w-full max-w-xl mx-auto flex-col gap-3">
             {suggestions.map((s) => (
               <button
                 key={s}
                 onClick={() => onSelect(s)}
-                className="px-4 py-3 rounded-xl border border-border/60 bg-muted/30 hover:bg-muted/60 text-sm text-foreground/80 hover:text-foreground transition-colors text-left sm:flex-1 sm:max-w-[240px]"
+                className="w-full px-4 py-3 rounded-xl border border-border/60 bg-muted/30 hover:bg-muted/60 text-sm text-foreground/80 hover:text-foreground transition-colors text-left"
               >
                 {s}
               </button>
