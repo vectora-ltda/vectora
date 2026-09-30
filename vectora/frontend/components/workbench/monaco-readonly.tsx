@@ -14,34 +14,33 @@ import { Loader2 } from "lucide-react";
 
 import { languageFromPath } from "@/lib/monaco/setup";
 import { useSettingsStore } from "@/lib/stores/settings-store";
+import { useMonacoTheme } from "@/lib/monaco/use-monaco-theme";
+import { godotThemeFor } from "@/lib/monaco/godot-theme";
+import { godotEditorOptions } from "@/lib/monaco/editor-options";
 
 export default function MonacoReadOnly({
   value,
   path,
-  isDark,
+  isDark: _isDark,
   diffColors = false,
 }: {
   value: string;
   path: string;
-  isDark: boolean;
+  /** @deprecated The active preset is resolved by useMonacoTheme. */
+  isDark?: boolean;
   diffColors?: boolean;
 }) {
   const monacoFontSize = useSettingsStore((s) => s.monacoFontSize);
+  const editorFontFamily = useSettingsStore((s) => s.editorFontFamily);
+  const language = languageFromPath(path);
+  const presetTheme = useMonacoTheme(language);
+  const theme = _isDark === undefined ? presetTheme : godotThemeFor(_isDark);
   return (
     <MonacoEditor
       value={value}
-      language={languageFromPath(path)}
-      theme={isDark ? "vs-dark" : "vs"}
-      options={{
-        readOnly: true,
-        domReadOnly: true,
-        fontSize: monacoFontSize,
-        minimap: { enabled: false },
-        scrollBeyondLastLine: false,
-        automaticLayout: true,
-        tabSize: 2,
-        wordWrap: "on",
-      }}
+      language={language}
+      theme={theme}
+      options={godotEditorOptions(monacoFontSize, editorFontFamily, true)}
       onMount={(editor) => {
         if (!diffColors) return;
         const decorations = value.split("\n").flatMap((line, index) => {

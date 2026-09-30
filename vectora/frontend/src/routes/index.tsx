@@ -14,12 +14,7 @@ import { queryClient } from "../router";
 import { listThreads } from "@/lib/api/vectora-client";
 import { THREAD_FETCH_LIMIT } from "@/lib/constants/features";
 import { EmptyStateHeader } from "@/components/chat/features/empty-state-header";
-import { NewChatDialog } from "@/components/sidebar/new-chat-dialog";
 import { Header } from "@/components/header/header";
-import {
-  signalWorkspacePreChosen,
-  signalWorkspaceChoiceForNewSession,
-} from "@/lib/stores/new-session-signal";
 import { disposeBrowserThread } from "@/lib/browser-session-store";
 import { useToastStore } from "@/lib/stores/toast-store";
 import { m } from "@/lib/paraglide/messages";
@@ -57,7 +52,6 @@ function HomeScreen() {
   const sidebarWidth = useSettingsStore((s) => s.sidebarWidth);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [leaving, setLeaving] = useState(false);
-  const [showDialog, setShowDialog] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   /** Anima a sidebar encolhendo e navega após a animação terminar. */
@@ -76,32 +70,6 @@ function HomeScreen() {
   };
 
   const handleNewChat = () => {
-    go(() => {
-      void navigate({ to: "/session/$threadId", params: { threadId: "new" } });
-    });
-  };
-
-  const handleStartChat = () => {
-    go(() => {
-      setChatMode(true);
-      signalWorkspacePreChosen();
-      void navigate({ to: "/session/$threadId", params: { threadId: "new" } });
-    });
-  };
-
-  /** Abre o seletor de workspace direto — após confirmar, navega para a sessão. */
-  const handleStartCode = () => {
-    setShowDialog(true);
-  };
-
-  const handleDialogConfirm = (workspaceId: string | null) => {
-    setChatMode(false);
-    // Mesma decisão de sinal usada por $threadId.tsx::handleConfirmNewChat
-    // ao sair de uma sessão existente — centralizada em
-    // signalWorkspaceChoiceForNewSession pra não poder duplicar e divergir
-    // de novo (era exatamente isso que causava "criar novo workspace" na
-    // tela inicial se comportar como "sem escolha").
-    signalWorkspaceChoiceForNewSession(workspaceId);
     go(() => {
       void navigate({ to: "/session/$threadId", params: { threadId: "new" } });
     });
@@ -171,19 +139,10 @@ function HomeScreen() {
         </Sheet>
 
         <main className="flex-1 min-h-0 overflow-auto flex flex-col">
-          <Header onOpenSidebar={() => setIsMobileSidebarOpen(true)} />
-          <EmptyStateHeader
-            onStartChat={handleStartChat}
-            onStartCode={handleStartCode}
-          />
+          <Header />
+          <EmptyStateHeader />
         </main>
       </div>
-
-      <NewChatDialog
-        open={showDialog}
-        onOpenChange={setShowDialog}
-        onConfirm={handleDialogConfirm}
-      />
     </div>
   );
 }

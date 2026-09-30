@@ -122,7 +122,7 @@ function FileRow({
               <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
             )}
             {hunks?.map((h, i) => (
-              <HunkView key={i} hunk={h} />
+              <HunkView key={i} hunk={h} path={file.path} />
             ))}
           </div>
         )}

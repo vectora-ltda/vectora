@@ -29,7 +29,6 @@ import {
 } from "./api";
 import { useContextMenu, type ContextMenuItem } from "./git-context-menu";
 import { m } from "@/lib/paraglide/messages";
-import { useIsDark } from "@/lib/hooks/use-is-dark";
 
 const MonacoReadOnly = lazy(
   () => import("@/components/workbench/monaco-readonly"),
@@ -130,7 +129,6 @@ export function CommitDetails({
   } | null>(null);
 
   const selected = files.find((file) => file.path === selectedPath) ?? files[0];
-  const isDark = useIsDark();
 
   useLayoutEffect(() => {
     if (!hasDescription || !headerRef.current) return;
@@ -397,8 +395,7 @@ export function CommitDetails({
                     <MonacoReadOnly
                       key={selected.path}
                       value={selected.lines.join("\n")}
-                      path={`${selected.path}.diff`}
-                      isDark={isDark}
+                      path={selected.path}
                       diffColors
                     />
                   </Suspense>

@@ -39,13 +39,22 @@ describe("PreferenciasTab — modo e paleta não se contaminam", () => {
     expect(useSettingsStore.getState().themePreset).toBe("github-light");
   });
 
-  it("selecionar uma paleta (github-dark) em modo 'system' preserva o modo", () => {
+  it("selecionar uma paleta (github-light) em modo 'system' preserva o modo", () => {
     render(<PreferenciasTab />);
-    const card = screen.getByText("GitHub Dark").closest("div")!;
+    fireEvent.change(
+      screen.getByPlaceholderText(m.prefs_theme_search_placeholder()),
+      {
+        target: { value: "GitHub Light" },
+      },
+    );
+    const card = [...document.querySelectorAll("p")].find(
+      (label) => label.textContent === "GitHub Light",
+    )?.parentElement;
+    if (!card) throw new Error("GitHub Light theme card was not rendered");
     fireEvent.click(card.querySelector("button")!);
 
     const state = useSettingsStore.getState();
-    expect(state.themePreset).toBe("github-dark");
+    expect(state.themePreset).toBe("github-light");
     expect(state.theme).toBe("system");
   });
 
