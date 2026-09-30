@@ -339,6 +339,9 @@ function RootComponent() {
   const fontScaleUi = useSettingsStore((s) => s.fontScaleUi);
   const fontScaleChat = useSettingsStore((s) => s.fontScaleChat);
   const fontScaleMarkdown = useSettingsStore((s) => s.fontScaleMarkdown);
+  const editorFontFamily = useSettingsStore((s) => s.editorFontFamily);
+  const monoFontFamily = useSettingsStore((s) => s.monoFontFamily);
+  const uiFontFamily = useSettingsStore((s) => s.uiFontFamily);
   useEffect(() => {
     if (typeof document === "undefined") return;
     const root = document.documentElement;
@@ -354,7 +357,17 @@ function RootComponent() {
       "--font-scale-markdown",
       String(fontScaleMarkdown / FONT_SCALE_BASE_PX),
     );
-  }, [fontScaleUi, fontScaleChat, fontScaleMarkdown]);
+    root.style.setProperty("--font-family-editor", editorFontFamily);
+    root.style.setProperty("--font-family-mono", monoFontFamily);
+    root.style.setProperty("--font-family-ui", uiFontFamily);
+  }, [
+    editorFontFamily,
+    fontScaleChat,
+    fontScaleMarkdown,
+    fontScaleUi,
+    monoFontFamily,
+    uiFontFamily,
+  ]);
 
   return (
     <div

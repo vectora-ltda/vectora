@@ -25,6 +25,7 @@ concurrency:
 permissions:
   contents: read
   issues: write
+  pull-requests: read
 
 jobs:
   release-milestone:
@@ -59,6 +60,22 @@ jobs:
               return;
             }
             const milestoneTitle = line.milestone;
+
+            // Eventos de sincronização e edição já carregam a milestone atual
+            // no payload. Evita uma chamada autenticada desnecessária quando
+            // o PR já está correto, inclusive em reexecuções sem credencial de
+            // escrita disponível.
+            const payloadMilestone =
+              context.payload.pull_request.milestone?.title ?? "";
+            if (payloadMilestone === milestoneTitle) {
+              core.info(
+                `Pull request already uses milestone ${milestoneTitle} from the event payload.`,
+              );
+              core.setOutput("milestone", milestoneTitle);
+              core.setOutput("current_milestone", payloadMilestone);
+              core.setOutput("current_base", base);
+              return;
+            }
 
             const { owner, repo } = context.repo;
             const currentPullRequest = await github.rest.pulls.get({

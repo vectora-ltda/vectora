@@ -121,7 +121,6 @@ def test_main_rejects_malformed_event(
 def test_main_uses_milestone_assigned_during_workflow(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Usa a milestone atualizada pelo workflow em vez do snapshot do webhook."""
     """Valida a milestone atualizada em vez do snapshot obsoleto do webhook."""
     event_path = tmp_path / "event.json"
     event_path.write_text(

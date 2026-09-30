@@ -21,8 +21,11 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
 import {
   useSettingsStore,
+  MONACO_FONT_SIZE_MIN,
+  MONACO_FONT_SIZE_MAX,
   SUPPORTED_LANGS,
   UI_SCALE_PRESETS,
   type Theme,
@@ -67,6 +70,66 @@ const CUSTOM_COLOR_FIELDS: { key: keyof BaseThemeColors; labelKey: string }[] =
     { key: "sidebar", labelKey: "prefs.custom_color.sidebar" },
     { key: "userBubble", labelKey: "prefs.custom_color.user_bubble" },
   ];
+
+const FONT_OPTIONS = [
+  {
+    value: '"JetBrains Mono", ui-monospace, monospace',
+    label: "JetBrains Mono",
+  },
+  {
+    value: '"Source Code Pro", ui-monospace, monospace',
+    label: "Source Code Pro",
+  },
+  { value: '"Cascadia Code", ui-monospace, monospace', label: "Cascadia Code" },
+  { value: "Inter, ui-sans-serif, system-ui, sans-serif", label: "Inter" },
+  { value: '"Segoe UI", ui-sans-serif, sans-serif', label: "Segoe UI" },
+  { value: "system-ui, sans-serif", label: "System UI" },
+] as const;
+
+function FontSelect({
+  id,
+  label,
+  help,
+  value,
+  onChange,
+  mono = false,
+}: {
+  id: string;
+  label: string;
+  help: string;
+  value: string;
+  onChange: (value: string) => void;
+  mono?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <Label htmlFor={id}>{label}</Label>
+        <p className="text-xs text-muted-foreground">{help}</p>
+      </div>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger
+          id={id}
+          className="w-[210px] shrink-0"
+          style={{ fontFamily: mono ? value : undefined }}
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {FONT_OPTIONS.map((option) => (
+            <SelectItem
+              key={option.value}
+              value={option.value}
+              style={{ fontFamily: option.value }}
+            >
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
 
 /** Toggle de auto-update (Electron) + botão de checagem manual — a checagem
  * manual funciona independente do toggle (dispara `checkForUpdates()` sob
@@ -222,6 +285,16 @@ export function PreferenciasTab() {
     addInstalledTheme,
     uiScalePercent,
     setUiScalePercent,
+    editorFontFamily,
+    monoFontFamily,
+    uiFontFamily,
+    setEditorFontFamily,
+    setMonoFontFamily,
+    setUiFontFamily,
+    monacoFontSize,
+    setMonacoFontSize,
+    editorAutoSave,
+    setEditorAutoSave,
   } = useSettingsStore();
 
   const isDark = useIsDark();
@@ -510,6 +583,83 @@ export function PreferenciasTab() {
               id: String(preset),
               label: `${preset}%`,
             }))}
+          />
+        </div>
+
+        <div className="space-y-3 rounded-lg border border-border/60 p-4">
+          <div>
+            <h4 className="text-sm font-medium text-foreground">
+              {m.prefs_fonts_section()}
+            </h4>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {m.prefs_fonts_godot_help()}
+            </p>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <Label htmlFor="editor-auto-save">
+                {m.prefs_editor_auto_save()}
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                {m.prefs_editor_auto_save_help()}
+              </p>
+            </div>
+            <Switch
+              id="editor-auto-save"
+              checked={editorAutoSave}
+              onCheckedChange={setEditorAutoSave}
+            />
+          </div>
+          <FontSelect
+            id="editor-font-family"
+            label={m.prefs_editor_font()}
+            help={m.prefs_editor_font_help()}
+            value={editorFontFamily}
+            onChange={setEditorFontFamily}
+          />
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <Label htmlFor="editor-font-size">
+                {m.prefs_editor_font_size()}
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                {m.prefs_editor_font_size_help()}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Input
+                id="editor-font-size"
+                type="number"
+                min={MONACO_FONT_SIZE_MIN}
+                max={MONACO_FONT_SIZE_MAX}
+                step={1}
+                value={monacoFontSize}
+                onChange={(event) => {
+                  const value = Number(event.target.value);
+                  if (Number.isFinite(value)) setMonacoFontSize(value);
+                }}
+                className="w-[100px]"
+                aria-label={m.prefs_editor_font_size()}
+              />
+              <span className="text-xs text-muted-foreground">
+                {m.prefs_editor_font_size_unit()}
+              </span>
+            </div>
+          </div>
+          <FontSelect
+            id="mono-font-family"
+            label={m.prefs_mono_font()}
+            help={m.prefs_mono_font_help()}
+            value={monoFontFamily}
+            onChange={setMonoFontFamily}
+            mono
+          />
+          <FontSelect
+            id="ui-font-family"
+            label={m.prefs_ui_font()}
+            help={m.prefs_ui_font_help()}
+            value={uiFontFamily}
+            onChange={setUiFontFamily}
           />
         </div>
       </div>
