@@ -11,17 +11,23 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import MonacoEditor, { type OnMount } from "@monaco-editor/react";
-import { Loader2, Save } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 import { languageFromPath } from "@/lib/monaco/setup";
 import { useSettingsStore } from "@/lib/stores/settings-store";
 import { fetchFile, apiUpdateFile } from "@/lib/api/fs-files";
+import { apiFsCreateFile } from "@/components/workbench/files/files-api";
 import type { FileContent } from "@/lib/stores/workbench-store";
 import { useToastStore } from "@/lib/stores/toast-store";
 import { getMediaKind, FileViewer } from "@/components/workbench/file-viewer";
 import { m } from "@/lib/paraglide/messages";
 import { useMonacoTheme } from "@/lib/monaco/use-monaco-theme";
 import { godotEditorOptions } from "@/lib/monaco/editor-options";
+import {
+  editorBuffers,
+  editorKey,
+  useEditorRegistry,
+} from "@/lib/stores/editor-registry";
 
 export function FileEditor({
   workspaceId,
@@ -34,6 +40,7 @@ export function FileEditor({
   const monacoTheme = useMonacoTheme(language);
   const monacoFontSize = useSettingsStore((s) => s.monacoFontSize);
   const editorFontFamily = useSettingsStore((s) => s.editorFontFamily);
+  const autoSave = useSettingsStore((s) => s.editorAutoSave);
   const media = getMediaKind(path);
 
   const [file, setFile] = useState<FileContent | null>(null);
@@ -42,6 +49,7 @@ export function FileEditor({
   const [saving, setSaving] = useState(false);
   const shaRef = useRef<string | null>(null);
   const requestEpochRef = useRef(0);
+  const key = editorKey(workspaceId, path);
 
   const dirty = file?.content !== undefined && value !== file.content;
   const readOnly =
@@ -51,6 +59,17 @@ export function FileEditor({
     if (media) return;
     const requestEpoch = ++requestEpochRef.current;
     let cancelled = false;
+    const buffered = editorBuffers.get(editorKey(workspaceId, path));
+    if (buffered) {
+      // oxlint-disable-next-line react/set-state-in-effect
+      setFile(buffered.file);
+      setValue(buffered.value);
+      shaRef.current = buffered.sha256;
+      setLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
     // Busca o conteúdo do arquivo no backend (rede) ao trocar de path.
     // oxlint-disable-next-line react/set-state-in-effect
     setLoading(true);
@@ -60,6 +79,13 @@ export function FileEditor({
         setFile(data);
         setValue(data?.content ?? "");
         shaRef.current = data?.sha256 ?? null;
+        if (data) {
+          editorBuffers.set(editorKey(workspaceId, path), {
+            file: data,
+            value: data.content ?? "",
+            sha256: data.sha256 ?? null,
+          });
+        }
       })
       .finally(() => {
         if (!cancelled && requestEpoch === requestEpochRef.current)
@@ -83,6 +109,11 @@ export function FileEditor({
     if (result.ok) {
       shaRef.current = result.sha256;
       setFile((prev) => (prev ? { ...prev, content: value } : prev));
+      editorBuffers.set(key, {
+        file: { ...file, content: value },
+        value,
+        sha256: result.sha256,
+      });
       return;
     }
     useToastStore
@@ -93,7 +124,64 @@ export function FileEditor({
           : m.workbench_files_save_error(),
         { description: result.message },
       );
-  }, [file, readOnly, saving, workspaceId, path, value]);
+  }, [file, key, readOnly, saving, workspaceId, path, value]);
+
+  const handleSaveAs = useCallback(
+    async (targetPath: string) => {
+      if (
+        !file ||
+        file.content === undefined ||
+        readOnly ||
+        !targetPath.trim()
+      ) {
+        return false;
+      }
+      const result = await apiFsCreateFile(
+        workspaceId,
+        targetPath.trim(),
+        value,
+      );
+      if (!result.ok) {
+        useToastStore.getState().error(m.workbench_files_save_error(), {
+          description: result.message,
+        });
+      }
+      return result.ok;
+    },
+    [file, readOnly, workspaceId, value],
+  );
+
+  const registerEditor = useEditorRegistry((s) => s.register);
+  const setEditorDirty = useEditorRegistry((s) => s.setDirty);
+
+  useEffect(() => {
+    setEditorDirty(key, Boolean(dirty));
+  }, [dirty, key, setEditorDirty]);
+
+  useEffect(() => {
+    registerEditor(key, {
+      workspaceId,
+      path,
+      dirty: Boolean(dirty),
+      save: async () => {
+        await handleSave();
+        return !useEditorRegistry.getState().entries[key]?.dirty;
+      },
+      saveAs: handleSaveAs,
+    });
+  }, [dirty, handleSave, handleSaveAs, key, path, registerEditor, workspaceId]);
+
+  useEffect(() => {
+    const buffered = editorBuffers.get(key);
+    if (!file || !buffered) return;
+    editorBuffers.set(key, { ...buffered, file, value });
+  }, [file, key, value]);
+
+  useEffect(() => {
+    if (!autoSave || !dirty || readOnly) return;
+    const timer = window.setTimeout(() => void handleSave(), 800);
+    return () => window.clearTimeout(timer);
+  }, [autoSave, dirty, handleSave, readOnly]);
 
   const handleMount: OnMount = useCallback(
     (editor, monaco) => {
@@ -121,34 +209,13 @@ export function FileEditor({
   }
 
   return (
-    <div className="flex h-full w-full min-w-0 flex-col">
-      <div className="flex h-7 shrink-0 items-center justify-end border-b border-border/60 bg-muted/30 px-2">
-        {/* Sem o nome do arquivo aqui: já aparece na aba/barra de título de
-            quem monta este editor (FileWindow, DockedEditor) — repetir vira
-            ruído. Só o indicador de "não salvo" e o botão Salvar, que não
-            existem em nenhum outro lugar. */}
-        {dirty && (
-          <span
-            className="mr-auto h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500"
-            title={m.workbench_files_unsaved()}
-          />
-        )}
-        {!readOnly && (
-          <button
-            onClick={() => void handleSave()}
-            disabled={!dirty || saving}
-            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 disabled:hover:bg-transparent"
-            title={m.workbench_files_save()}
-          >
-            {saving ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <Save className="h-3 w-3" />
-            )}
-            {m.workbench_files_save()}
-          </button>
-        )}
-      </div>
+    <div className="relative flex h-full w-full min-w-0 flex-col">
+      {dirty && (
+        <span
+          className="absolute right-2 top-2 z-10 h-1.5 w-1.5 rounded-full bg-amber-500"
+          title={m.workbench_files_unsaved()}
+        />
+      )}
       <div className="min-h-0 w-full flex-1">
         <MonacoEditor
           height="100%"

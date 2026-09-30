@@ -16,6 +16,8 @@ import {
   type FileWindowState,
 } from "@/lib/stores/windows-store";
 import { m } from "@/lib/paraglide/messages";
+import { EditorTab } from "@/components/workbench/windows/editor-tab";
+import { editorKey, useEditorRegistry } from "@/lib/stores/editor-registry";
 
 const TITLE_BAR_CLASS = "vectora-window-drag-handle";
 
@@ -26,7 +28,7 @@ export function FileWindow({ win }: { win: FileWindowState }) {
   const minimize = useWindowsStore((s) => s.minimize);
   const setActiveTab = useWindowsStore((s) => s.setActiveTab);
   const setBounds = useWindowsStore((s) => s.setBounds);
-
+  const entries = useEditorRegistry((s) => s.entries);
   const hasTabs = win.tabs.length > 1;
 
   return (
@@ -86,28 +88,25 @@ export function FileWindow({ win }: { win: FileWindowState }) {
               const isActive = tab === win.activeTab;
               const name = tab.split(/[/\\]/).pop() || tab;
               return (
-                <div
+                <EditorTab
                   key={tab}
-                  className={`group flex items-center gap-1 px-2 py-1 text-[11px] cursor-pointer shrink-0 border-r border-border/40 ${
-                    isActive
-                      ? "bg-background text-foreground font-medium"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
-                  }`}
-                  onClick={() => setActiveTab(win.id, tab)}
-                  title={tab}
-                >
-                  <span className="truncate max-w-[120px]">{name}</span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      closeTab(win.id, tab);
-                    }}
-                    className="opacity-0 group-hover:opacity-100 shrink-0 rounded p-0.5 hover:bg-muted/60"
-                    aria-label={m.window_close()}
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
+                  name={name}
+                  path={tab}
+                  active={isActive}
+                  dirty={Boolean(
+                    entries[editorKey(win.workspaceId, tab)]?.dirty,
+                  )}
+                  onActivate={() => setActiveTab(win.id, tab)}
+                  onClose={() => closeTab(win.id, tab)}
+                  onSave={() =>
+                    entries[editorKey(win.workspaceId, tab)]?.save() ??
+                    Promise.resolve(false)
+                  }
+                  onSaveAs={(target) =>
+                    entries[editorKey(win.workspaceId, tab)]?.saveAs(target) ??
+                    Promise.resolve(false)
+                  }
+                />
               );
             })}
           </div>

@@ -293,6 +293,8 @@ export function PreferenciasTab() {
     setUiFontFamily,
     monacoFontSize,
     setMonacoFontSize,
+    editorAutoSave,
+    setEditorAutoSave,
   } = useSettingsStore();
 
   const isDark = useIsDark();
@@ -592,6 +594,21 @@ export function PreferenciasTab() {
             <p className="mt-1 text-xs text-muted-foreground">
               {m.prefs_fonts_godot_help()}
             </p>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <Label htmlFor="editor-auto-save">
+                {m.prefs_editor_auto_save()}
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                {m.prefs_editor_auto_save_help()}
+              </p>
+            </div>
+            <Switch
+              id="editor-auto-save"
+              checked={editorAutoSave}
+              onCheckedChange={setEditorAutoSave}
+            />
           </div>
           <FontSelect
             id="editor-font-family"

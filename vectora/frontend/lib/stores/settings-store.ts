@@ -143,6 +143,8 @@ export interface SettingsState {
   fontScaleMarkdown: number;
   /** Tamanho de fonte (px) do editor Monaco. */
   monacoFontSize: number;
+  /** Salva arquivos do editor automaticamente após uma pausa na edição. */
+  editorAutoSave: boolean;
   /** Família tipográfica do código no Monaco (Godot usa JetBrains Mono). */
   editorFontFamily: FontFamily;
   /** Família monoespaçada usada por terminais, diffs e blocos de código. */
@@ -183,6 +185,7 @@ export interface SettingsState {
   setFontScaleChat: (v: number) => void;
   setFontScaleMarkdown: (v: number) => void;
   setMonacoFontSize: (v: number) => void;
+  setEditorAutoSave: (v: boolean) => void;
   setEditorFontFamily: (v: FontFamily) => void;
   setMonoFontFamily: (v: FontFamily) => void;
   setUiFontFamily: (v: FontFamily) => void;
@@ -362,6 +365,7 @@ const DEFAULTS = {
   fontScaleChat: FONT_SCALE_BASE_PX,
   fontScaleMarkdown: FONT_SCALE_BASE_PX,
   monacoFontSize: 13,
+  editorAutoSave: false,
   editorFontFamily: '"JetBrains Mono", ui-monospace, monospace',
   monoFontFamily: '"JetBrains Mono", ui-monospace, monospace',
   uiFontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
@@ -513,6 +517,7 @@ export const useSettingsStore = create<SettingsState>()(
       setFontScaleMarkdown: (v) =>
         set({ fontScaleMarkdown: clampFontScale(v) }),
       setMonacoFontSize: (v) => set({ monacoFontSize: clampMonacoFontSize(v) }),
+      setEditorAutoSave: (v) => set({ editorAutoSave: v }),
       setEditorFontFamily: (v) => set({ editorFontFamily: v }),
       setMonoFontFamily: (v) => set({ monoFontFamily: v }),
       setUiFontFamily: (v) => set({ uiFontFamily: v }),
@@ -592,6 +597,7 @@ export const useSettingsStore = create<SettingsState>()(
         fontScaleChat: state.fontScaleChat,
         fontScaleMarkdown: state.fontScaleMarkdown,
         monacoFontSize: state.monacoFontSize,
+        editorAutoSave: state.editorAutoSave,
         editorFontFamily: state.editorFontFamily,
         monoFontFamily: state.monoFontFamily,
         uiFontFamily: state.uiFontFamily,
