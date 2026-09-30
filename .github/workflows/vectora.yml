@@ -732,7 +732,11 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
+          # O job cria e envia a tag no passo seguinte. As credenciais
+          # precisam permanecer no remote para que `git push origin "$TAG"`
+          # consiga autenticar com contents: write.
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          persist-credentials: true
       - name: Read released version
         id: version
         working-directory: .
