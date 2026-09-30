@@ -10,6 +10,10 @@ Everything you configure through the UI lives in three separate dialogs, each wi
 Personal settings, for your user.
 
 - **General** — theme (system/light/dark/preset/custom), language, custom system prompt, model fallback order, and custom colors (background, foreground, card, border, primary, accent, muted, sidebar, user bubble color).
+
+The **Godot Dark** and **Godot Light** presets apply a Godot palette to the whole shell and keep Monaco in sync. They cover GDScript, `.tscn` scenes, `.tres` resources, `project.godot`, `.gdshader`/`.gdshaderinc` shaders, and the `gdscript`, `gd`, `tscn`, `tres`, `godot`, and `gdshader` fences in Markdown and chat. Other presets keep their shell appearance and only use the Godot language rules in code.
+
+This delivery is lexical: comments, strings, types, keywords, properties, node references, folding, and brackets. It does not provide semantic autocomplete, engine diagnostics, or F1 documentation. The palette approximates Godot's default theme and pre-blends editor states for Monaco; breakpoint and bookmark colors are part of the color contract only.
 - **Memory** — list of persistent memories (key-value pairs). Add, edit inline, delete one or clear all, with a last-updated timeline.
 - **Account** — name (editable), email (read-only), role (root/admin/member/viewer).
 

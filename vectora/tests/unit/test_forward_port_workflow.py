@@ -74,6 +74,8 @@ def test_pr_milestone_workflow_assigns_milestone_from_base() -> None:
     assert "milestone: milestone.number" in content
     assert "issues: write" in content
     assert "github-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}" in content
+    assert "context.payload.pull_request.milestone?.title" in content
+    assert 'core.setOutput("current_milestone", payloadMilestone)' in content
 
 
 def test_release_please_uses_trusted_config_for_branch_gate() -> None:
@@ -104,6 +106,29 @@ def test_release_please_scopes_pr_body_to_current_release_notes() -> None:
     assert 'gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY"' in content
     assert '--body-file "$RUNNER_TEMP/release-pr-body.md"' in content
     assert 'echo "number=$number" >> "$GITHUB_OUTPUT"' in content
+
+
+def test_release_please_requires_candidates_and_uses_versioned_branches() -> None:
+    """Evita releases vazias e impede o retorno do nome genérico da automação."""
+    workflow = WORKFLOW.parent / "release-please.yml"
+    content = workflow.read_text(encoding="utf-8")
+
+    assert "Check for merged release candidates" in content
+    assert "git fetch --tags --force origin" in content
+    assert "--json milestone,labels,mergedAt" in content
+    assert "fromdateiso8601" in content
+    assert "latest_tag_epoch" in content
+    assert "steps.release-candidates.outputs.has_candidates == 'true'" in content
+    assert "Rename generated Release Please branch by version" in content
+    assert 'target="release-please-${major}.${minor}"' in content
+    assert 'target="release-please-${version}"' in content
+    assert 'test("^release-please--branches--")' in content
+    assert (
+        'git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"'
+        in content
+    )
+    find_section = content.split("# Somente o branch exato", 1)[1]
+    assert "release-please--branches--" not in find_section
 
 
 def test_release_rotation_workflow_declares_release_entrypoint() -> None:

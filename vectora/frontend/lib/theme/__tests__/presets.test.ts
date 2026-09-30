@@ -176,6 +176,12 @@ describe("THEME_PRESETS — catálogo expandido", () => {
     }
   });
 
+  it("não mistura o tema de sintaxe Godot ao catálogo visual do Vectora", () => {
+    const ids = new Set(THEME_PRESETS.map((preset) => preset.id));
+    expect(ids.has("godot-dark")).toBe(false);
+    expect(ids.has("godot-light")).toBe(false);
+  });
+
   it("cada fam�lia tem exatamente uma variante clara e uma escura", () => {
     for (const family of new Set(
       THEME_PRESETS.map((preset) => preset.family),
