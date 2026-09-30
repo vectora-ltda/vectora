@@ -9,7 +9,11 @@
  */
 
 import { contextBridge, ipcRenderer } from "electron";
-import type { BrowserViewEvent, ViewBounds } from "./browser-view-manager.js";
+import type {
+  BrowserViewEvent,
+  BrowserViewOptions,
+  ViewBounds,
+} from "./browser-view-manager.js";
 import type { UpdateBackupEntry } from "./update-backup-types.js";
 
 export interface VectoraDesktopBridge {
@@ -90,7 +94,7 @@ export interface VectoraDesktopBridge {
    * própria (cookies/cache persistentes, contexto de navegação de nível
    * superior, imune a X-Frame-Options). Ver electron/src/browser-view-manager.ts. */
   browserView: {
-    createView: (profileId?: string) => Promise<number>;
+    createView: (options: BrowserViewOptions) => Promise<number>;
     destroyView: (viewId: number) => void;
     navigate: (
       viewId: number,
@@ -189,8 +193,8 @@ const bridge: VectoraDesktopBridge = {
     },
   },
   browserView: {
-    createView: (profileId?: string) =>
-      ipcRenderer.invoke("vectora:browser-create-view", profileId),
+    createView: (options: BrowserViewOptions) =>
+      ipcRenderer.invoke("vectora:browser-create-view", options),
     destroyView: (viewId) =>
       ipcRenderer.send("vectora:browser-destroy-view", viewId),
     navigate: (viewId, url) =>

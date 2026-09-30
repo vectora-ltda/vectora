@@ -24,12 +24,8 @@ import {
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { XtermView } from "./xterm-view";
 import { m } from "@/lib/paraglide/messages";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { WorkbenchDialog } from "@/components/workbench/workbench-dialog";
+import type { WorkbenchSettingsContext } from "@/lib/types/workbench-settings";
 import { Button } from "@/components/ui/button";
 import { apiFsCreateFile } from "@/components/workbench/files/files-api";
 import { apiUpdateFile, fetchFile } from "@/lib/api/fs-files";
@@ -95,7 +91,7 @@ function useSandboxStatus(workspaceId: string | undefined): {
   return { status, refetch };
 }
 
-function SandboxConfigDialog({
+function SandboxSettingsForm({
   workspaceId,
   diagnostic,
   open,
@@ -225,11 +221,14 @@ function SandboxConfigDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>{m.terminal_sandbox_dialog_title()}</DialogTitle>
-        </DialogHeader>
+    <WorkbenchDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={m.terminal_sandbox_dialog_title()}
+      description={m.terminal_sandbox_editor_autosync_hint()}
+      testId="terminal-settings-panel"
+    >
+      <div className="space-y-4 p-4">
         <p className="text-sm text-muted-foreground">{message}</p>
         {initError && <p className="text-xs text-destructive">{initError}</p>}
         <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs">
@@ -314,8 +313,42 @@ function SandboxConfigDialog({
             </Button>
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </WorkbenchDialog>
+  );
+}
+
+/** Entrada do contrato global de configurações para o sandbox do Terminal. */
+export function TerminalSettings({ workspaceId }: WorkbenchSettingsContext) {
+  const [open, setOpen] = useState(false);
+  const { status, refetch } = useSandboxStatus(workspaceId ?? undefined);
+
+  if (!workspaceId) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        {m.workbench_settings_missing_workspace()}
+      </p>
+    );
+  }
+
+  return (
+    <div className="min-w-0 space-y-3">
+      <p className="text-sm text-muted-foreground">
+        {status?.enabled
+          ? m.terminal_sandbox_active()
+          : m.terminal_no_sandbox_warning()}
+      </p>
+      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+        {m.terminal_sandbox_configure_link()}
+      </Button>
+      <SandboxSettingsForm
+        workspaceId={workspaceId}
+        diagnostic={status?.diagnostic ?? null}
+        open={open}
+        onOpenChange={setOpen}
+        onInitDone={refetch}
+      />
+    </div>
   );
 }
 
@@ -440,7 +473,7 @@ export function TerminalPanel({ threadId }: TerminalPanelProps) {
         </div>
       )}
       {workspace && (
-        <SandboxConfigDialog
+        <SandboxSettingsForm
           workspaceId={workspace.id}
           diagnostic={sandboxStatus?.diagnostic ?? null}
           open={sandboxDialogOpen}

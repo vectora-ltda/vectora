@@ -44,6 +44,8 @@ import { CompareView } from "./compare-view";
 import { StashModal } from "./stash-modal";
 import { WorktreesModal } from "./worktrees-modal";
 import { m } from "@/lib/paraglide/messages";
+import { WorkbenchSettingsSurface } from "@/components/workbench/settings/workbench-settings-surface";
+import { gitSettings } from "@/components/workbench/settings/workbench-settings-registry";
 
 type GitView = "changes" | "history";
 
@@ -197,6 +199,7 @@ export function GitTab({
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [branches, setBranches] = useState<GitBranches | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Diff summary via SWR (mesmo padrão do antigo DiffTab).
   useEffect(() => {
@@ -324,7 +327,16 @@ export function GitTab({
         onOpenWorktrees={() => setWorktreesOpen(true)}
         onOpenPR={handleOpenPR}
         onChanged={handleChanged}
+        onOpenSettings={() => setSettingsOpen(true)}
         operation={gitOps.operation}
+      />
+
+      <WorkbenchSettingsSurface
+        descriptor={gitSettings}
+        context={{ threadId: _threadId, workspaceId: wsId || null }}
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        testId="git-settings-panel"
       />
 
       {lastCi && (

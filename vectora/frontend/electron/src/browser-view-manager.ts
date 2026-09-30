@@ -34,6 +34,7 @@ export interface ManagedWebContents {
   goForward(): void;
   reload(): void;
   stop(): void;
+  close?(): void;
   canGoBack(): boolean;
   canGoForward(): boolean;
   getURL(): string;
@@ -52,6 +53,13 @@ export interface ManagedWebContents {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     listener: (...args: any[]) => void,
   ): void;
+  on(
+    event: "before-input-event",
+    listener: (
+      event: { preventDefault(): void },
+      input: { type: string; key: string },
+    ) => void,
+  ): void;
   setWindowOpenHandler?(
     handler: (details: { url: string }) => { action: "allow" | "deny" },
   ): void;
@@ -60,6 +68,12 @@ export interface ManagedWebContents {
 export interface ManagedView {
   webContents: ManagedWebContents;
   setBounds(bounds: ViewBounds): void;
+}
+
+export type BrowserViewKind = "tab" | "native-settings";
+export interface BrowserViewOptions {
+  profileId: string;
+  kind: BrowserViewKind;
 }
 
 export type BrowserViewEvent =
@@ -72,6 +86,7 @@ export type BrowserViewEvent =
   | { type: "titleUpdated"; title: string }
   | { type: "faviconUpdated"; favicon: string }
   | { type: "loadingChanged"; isLoading: boolean }
+  | { type: "escapePressed" }
   | {
       type: "loadFailed";
       errorCode: number;
@@ -80,7 +95,7 @@ export type BrowserViewEvent =
     };
 
 export interface BrowserViewManagerDeps {
-  createView(profileId?: string): ManagedView;
+  createView(profileId?: string, kind?: BrowserViewKind): ManagedView;
   attach(view: ManagedView): void;
   destroyView(view: ManagedView): void;
   emit(viewId: number, event: BrowserViewEvent): void;
@@ -99,21 +114,61 @@ interface Entry {
   view: ManagedView;
   visible: boolean;
   bounds: ViewBounds;
+  kind: BrowserViewKind;
+  ownerId: number | null;
 }
 
 const ALLOWED_SCHEMES = new Set(["http:", "https:"]);
-const CHROME_SETTINGS_URL = /^chrome:\/\/settings(?:\/.*)?$/i;
+export const NATIVE_SETTINGS_ROUTES = new Set([
+  "",
+  "/",
+  "/autofill",
+  "/clearbrowserdata",
+  "/content",
+  "/downloads",
+  "/extensions",
+  "/languages",
+  "/onstartup",
+  "/passwords",
+  "/performance",
+  "/privacy",
+  "/reset",
+  "/search",
+  "/security",
+  "/sitedata",
+  "/syncsetup",
+  "/system",
+  "/youandgoogle",
+]);
+
+function isNativeSettingsUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    return (
+      url.protocol === "chrome:" &&
+      url.hostname.toLowerCase() === "settings" &&
+      url.search === "" &&
+      url.hash === "" &&
+      NATIVE_SETTINGS_ROUTES.has(url.pathname.trim().toLowerCase())
+    );
+  } catch {
+    return false;
+  }
+}
 
 function normalizeProfileId(profileId: string | undefined): string {
   const normalized = profileId?.trim();
   return normalized || "default";
 }
 
-export function isNavigableUrl(raw: string): boolean {
+export function isNavigableUrl(
+  raw: string,
+  kind: BrowserViewKind = "tab",
+): boolean {
   // ``chrome://settings`` is an Electron-owned page. It must stay intact;
   // passing it through the generic URL normalizer turns it into the invalid
   // ``https://chrome//settings`` URL seen after a tray restart.
-  if (CHROME_SETTINGS_URL.test(raw.trim())) return true;
+  if (kind === "native-settings") return isNativeSettingsUrl(raw.trim());
   try {
     return ALLOWED_SCHEMES.has(new URL(raw).protocol);
   } catch {
@@ -127,11 +182,25 @@ export class BrowserViewManager {
 
   constructor(private readonly deps: BrowserViewManagerDeps) {}
 
-  createView(profileId?: string): number {
-    const view = this.deps.createView(normalizeProfileId(profileId));
+  createView(
+    profileId?: string,
+    kind: BrowserViewKind = "tab",
+    ownerId: number | null = null,
+  ): number {
+    const normalizedProfileId = normalizeProfileId(profileId);
+    const view =
+      kind === "tab"
+        ? this.deps.createView(normalizedProfileId)
+        : this.deps.createView(normalizedProfileId, kind);
     const id = this.nextId++;
-    this.entries.set(id, { view, visible: false, bounds: HIDDEN_BOUNDS });
-    this.wireEvents(id, view);
+    this.entries.set(id, {
+      view,
+      visible: false,
+      bounds: HIDDEN_BOUNDS,
+      kind,
+      ownerId,
+    });
+    this.wireEvents(id, view, kind);
     this.deps.attach(view);
     return id;
   }
@@ -142,25 +211,50 @@ export class BrowserViewManager {
     );
   }
 
-  destroyView(id: number): void {
+  destroyView(id: number, ownerId: number | null = null): void {
     const entry = this.entries.get(id);
-    if (!entry) return;
-    this.deps.destroyView(entry.view);
-    this.entries.delete(id);
+    if (!entry || !this.owns(entry, ownerId)) return;
+    try {
+      this.deps.destroyView(entry.view);
+    } catch {
+      // A view may already have been detached by Electron during shutdown.
+    } finally {
+      try {
+        entry.view.webContents.close?.();
+      } finally {
+        this.entries.delete(id);
+      }
+    }
   }
 
-  navigate(id: number, url: string): { ok: boolean; error?: string } {
+  navigate(
+    id: number,
+    url: string,
+    ownerId: number | null = null,
+  ): { ok: boolean; error?: string } {
     const entry = this.entries.get(id);
     if (!entry) return { ok: false, error: "view inexistente" };
-    if (!isNavigableUrl(url)) {
+    if (!this.owns(entry, ownerId))
+      return { ok: false, error: "view não pertence ao remetente" };
+    if (!isNavigableUrl(url, entry.kind)) {
       return { ok: false, error: `esquema não permitido: ${url}` };
     }
-    void entry.view.webContents.loadURL(url);
+    void entry.view.webContents.loadURL(url).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      this.deps.emit(id, {
+        type: "loadFailed",
+        errorCode: -2,
+        errorDescription: message,
+        url,
+      });
+    });
     return { ok: true };
   }
 
-  goBack(id: number): void {
-    const wc = this.entries.get(id)?.view.webContents;
+  goBack(id: number, ownerId: number | null = null): void {
+    const entry = this.entries.get(id);
+    if (!entry || !this.owns(entry, ownerId)) return;
+    const wc = entry.view.webContents;
     if (!wc) return;
     if (wc.navigationHistory) {
       wc.navigationHistory.goBack();
@@ -169,8 +263,10 @@ export class BrowserViewManager {
     }
   }
 
-  goForward(id: number): void {
-    const wc = this.entries.get(id)?.view.webContents;
+  goForward(id: number, ownerId: number | null = null): void {
+    const entry = this.entries.get(id);
+    if (!entry || !this.owns(entry, ownerId)) return;
+    const wc = entry.view.webContents;
     if (!wc) return;
     if (wc.navigationHistory) {
       wc.navigationHistory.goForward();
@@ -179,38 +275,66 @@ export class BrowserViewManager {
     }
   }
 
-  reload(id: number): void {
-    this.entries.get(id)?.view.webContents.reload();
-  }
-
-  stop(id: number): void {
-    this.entries.get(id)?.view.webContents.stop();
-  }
-
-  setBounds(id: number, bounds: ViewBounds): void {
+  reload(id: number, ownerId: number | null = null): void {
     const entry = this.entries.get(id);
-    if (!entry) return;
+    if (entry && this.owns(entry, ownerId)) entry.view.webContents.reload();
+  }
+
+  stop(id: number, ownerId: number | null = null): void {
+    const entry = this.entries.get(id);
+    if (entry && this.owns(entry, ownerId)) entry.view.webContents.stop();
+  }
+
+  setBounds(
+    id: number,
+    bounds: ViewBounds,
+    ownerId: number | null = null,
+  ): void {
+    const entry = this.entries.get(id);
+    if (!entry || !this.owns(entry, ownerId)) return;
     entry.bounds = bounds;
     if (entry.visible) entry.view.setBounds(bounds);
   }
 
-  setVisible(id: number, visible: boolean): void {
+  setVisible(
+    id: number,
+    visible: boolean,
+    ownerId: number | null = null,
+  ): void {
     const entry = this.entries.get(id);
-    if (!entry) return;
+    if (!entry || !this.owns(entry, ownerId)) return;
     entry.visible = visible;
     entry.view.setBounds(visible ? entry.bounds : HIDDEN_BOUNDS);
   }
 
-  private wireEvents(id: number, view: ManagedView): void {
+  private owns(entry: Entry, ownerId: number | null): boolean {
+    return (
+      entry.ownerId === null || ownerId === null || entry.ownerId === ownerId
+    );
+  }
+
+  private wireEvents(
+    id: number,
+    view: ManagedView,
+    kind: BrowserViewKind,
+  ): void {
     const wc = view.webContents;
     const cancelUnsafeNavigation = (
       event: { preventDefault(): void },
       url: string,
     ) => {
-      if (!isNavigableUrl(url)) event.preventDefault();
+      if (!isNavigableUrl(url, kind)) event.preventDefault();
     };
     wc.on("will-navigate", cancelUnsafeNavigation);
     wc.on("will-redirect", cancelUnsafeNavigation);
+    if (kind === "native-settings") {
+      wc.on("before-input-event", (event, input) => {
+        if (input.type === "keyDown" && input.key === "Escape") {
+          event.preventDefault();
+          this.deps.emit(id, { type: "escapePressed" });
+        }
+      });
+    }
     // Popups are denied until they can be created as managed views. Allowing
     // them would bypass the manager's bounds, lifecycle and navigation guards.
     wc.setWindowOpenHandler?.(() => ({ action: "deny" }));

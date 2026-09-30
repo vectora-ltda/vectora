@@ -59,9 +59,17 @@ import {
 import {
   BrowserViewManager,
   clearBrowserSessionData,
+  type BrowserViewKind,
   type ManagedView,
   type ViewBounds,
 } from "./browser-view-manager.js";
+import {
+  isValidBrowserUrl,
+  isValidBrowserViewKind,
+  isValidProfileId,
+  isValidViewBounds,
+  isValidViewId,
+} from "./browser-ipc-validation.js";
 
 import { computeDefaultWindowSize } from "./window-size.js";
 import {
@@ -186,7 +194,7 @@ async function rollbackPendingUpdate(): Promise<boolean> {
 function getBrowserViewManager(): BrowserViewManager {
   if (browserViewManager) return browserViewManager;
   browserViewManager = new BrowserViewManager({
-    createView: (profileId = "default") =>
+    createView: (profileId = "default", _kind: BrowserViewKind = "tab") =>
       new WebContentsView({
         webPreferences: {
           contextIsolation: true,
@@ -1004,44 +1012,105 @@ function registerIpc(): void {
   // Browser real da aba Browser (ver getBrowserViewManager) — comandos
   // invoke/handle (resposta esperada) + eventos fire-and-forget, mesmo
   // padrão do restante deste arquivo.
-  ipcMain.handle("vectora:browser-create-view", (_event, profileId?: string) =>
-    getBrowserViewManager().createView(profileId),
-  );
-  ipcMain.on("vectora:browser-destroy-view", (_event, viewId: number) => {
-    getBrowserViewManager().destroyView(viewId);
+  const isTrustedBrowserSender = (event: unknown): boolean => {
+    const candidate = event as {
+      sender?: unknown;
+      senderFrame?: { url?: string } | null;
+    };
+    return (
+      candidate.sender === mainWindow?.webContents &&
+      (candidate.senderFrame?.url ?? "").startsWith(`${APP_SCHEME}://`)
+    );
+  };
+  const browserOwnerId = (event: unknown): number =>
+    (event as { sender?: { id?: number } }).sender?.id ?? -1;
+  ipcMain.handle("vectora:browser-create-view", (event, options: unknown) => {
+    if (!isTrustedBrowserSender(event)) throw new Error("origem IPC inválida");
+    if (!options || typeof options !== "object")
+      throw new Error("opções inválidas");
+    const { profileId, kind } = options as Partial<{
+      profileId: string;
+      kind: BrowserViewKind;
+    }>;
+    if (typeof profileId !== "string" || !isValidProfileId(profileId)) {
+      throw new Error("profileId inválido");
+    }
+    if (!isValidBrowserViewKind(kind)) throw new Error("kind inválido");
+    return getBrowserViewManager().createView(
+      profileId,
+      kind,
+      browserOwnerId(event),
+    );
+  });
+  ipcMain.on("vectora:browser-destroy-view", (event, viewId: number) => {
+    if (!isTrustedBrowserSender(event)) return;
+    if (!isValidViewId(viewId)) return;
+    getBrowserViewManager().destroyView(viewId, browserOwnerId(event));
   });
   ipcMain.handle(
     "vectora:browser-navigate",
-    (_event, viewId: number, url: string) =>
-      getBrowserViewManager().navigate(viewId, url),
+    (event, viewId: number, url: string) => {
+      if (!isTrustedBrowserSender(event))
+        return { ok: false, error: "origem IPC inválida" };
+      if (!isValidViewId(viewId) || !isValidBrowserUrl(url)) {
+        return { ok: false, error: "argumentos inválidos" };
+      }
+      return getBrowserViewManager().navigate(
+        viewId,
+        url,
+        browserOwnerId(event),
+      );
+    },
   );
-  ipcMain.on("vectora:browser-go-back", (_event, viewId: number) => {
-    getBrowserViewManager().goBack(viewId);
+  ipcMain.on("vectora:browser-go-back", (event, viewId: number) => {
+    if (!isTrustedBrowserSender(event)) return;
+    if (!isValidViewId(viewId)) return;
+    getBrowserViewManager().goBack(viewId, browserOwnerId(event));
   });
-  ipcMain.on("vectora:browser-go-forward", (_event, viewId: number) => {
-    getBrowserViewManager().goForward(viewId);
+  ipcMain.on("vectora:browser-go-forward", (event, viewId: number) => {
+    if (!isTrustedBrowserSender(event)) return;
+    if (!isValidViewId(viewId)) return;
+    getBrowserViewManager().goForward(viewId, browserOwnerId(event));
   });
-  ipcMain.on("vectora:browser-reload", (_event, viewId: number) => {
-    getBrowserViewManager().reload(viewId);
+  ipcMain.on("vectora:browser-reload", (event, viewId: number) => {
+    if (!isTrustedBrowserSender(event)) return;
+    if (!isValidViewId(viewId)) return;
+    getBrowserViewManager().reload(viewId, browserOwnerId(event));
   });
-  ipcMain.on("vectora:browser-stop", (_event, viewId: number) => {
-    getBrowserViewManager().stop(viewId);
+  ipcMain.on("vectora:browser-stop", (event, viewId: number) => {
+    if (!isTrustedBrowserSender(event)) return;
+    if (!isValidViewId(viewId)) return;
+    getBrowserViewManager().stop(viewId, browserOwnerId(event));
   });
   ipcMain.on(
     "vectora:browser-set-bounds",
-    (_event, viewId: number, bounds: ViewBounds) => {
-      getBrowserViewManager().setBounds(viewId, bounds);
+    (event, viewId: number, bounds: ViewBounds) => {
+      if (!isTrustedBrowserSender(event)) return;
+      if (!isValidViewId(viewId) || !isValidViewBounds(bounds)) return;
+      getBrowserViewManager().setBounds(viewId, bounds, browserOwnerId(event));
     },
   );
   ipcMain.handle(
     "vectora:browser-clear-profile-data",
-    (_event, profileId?: string) =>
-      getBrowserViewManager().clearData(profileId),
+    (event, profileId?: string) => {
+      if (!isTrustedBrowserSender(event))
+        throw new Error("origem IPC inválida");
+      if (profileId !== undefined && !isValidProfileId(profileId)) {
+        throw new Error("profileId inválido");
+      }
+      return getBrowserViewManager().clearData(profileId);
+    },
   );
   ipcMain.on(
     "vectora:browser-set-visible",
-    (_event, viewId: number, visible: boolean) => {
-      getBrowserViewManager().setVisible(viewId, visible);
+    (event, viewId: number, visible: boolean) => {
+      if (!isTrustedBrowserSender(event)) return;
+      if (!isValidViewId(viewId) || typeof visible !== "boolean") return;
+      getBrowserViewManager().setVisible(
+        viewId,
+        visible,
+        browserOwnerId(event),
+      );
     },
   );
 
