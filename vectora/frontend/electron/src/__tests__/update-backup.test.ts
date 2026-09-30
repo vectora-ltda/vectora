@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createRotatingUpdateBackup,
+  listUpdateBackups,
   restoreUpdateBackup,
   withFileLockRetry,
 } from "../update-backup.js";
@@ -76,6 +77,37 @@ describe("update backups", () => {
       ({ listUpdateBackups }) => listUpdateBackups(backups),
     );
     expect(entries).toHaveLength(5);
+  });
+
+  it("preserves complete snapshots while partial snapshots accumulate", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "vectora-update-"));
+    const userData = path.join(root, "user-data");
+    const backups = path.join(root, "backups");
+    await mkdir(userData, { recursive: true });
+    await writeFile(path.join(userData, "settings.json"), "complete");
+
+    const complete = [];
+    for (let index = 0; index < 2; index += 1) {
+      complete.push(
+        await createRotatingUpdateBackup(userData, backups, `0.1.${index}`),
+      );
+    }
+
+    const oversized = path.join(userData, "locked-cache.bin");
+    await writeFile(oversized, "");
+    await truncate(oversized, 256 * 1024 * 1024 + 1);
+    for (let index = 0; index < 3; index += 1) {
+      await createRotatingUpdateBackup(userData, backups, `0.2.${index}`, 2);
+    }
+
+    for (const entry of complete) {
+      await expect(
+        readFile(path.join(entry.path, "manifest.json")),
+      ).resolves.toBeDefined();
+    }
+    const entries = await listUpdateBackups(backups);
+    expect(entries.filter((entry) => !entry.skipped)).toHaveLength(2);
+    expect(entries.filter((entry) => entry.skipped)).toHaveLength(3);
   });
 
   it("rejects a renderer-supplied backup outside the root", async () => {

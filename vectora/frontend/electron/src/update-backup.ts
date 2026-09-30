@@ -56,6 +56,19 @@ function isExcluded(relativePath: string): boolean {
     .some((component) => EXCLUDED.has(component));
 }
 
+/** Resolve a relative backup path without allowing it to escape its root. */
+function resolveBackupPath(root: string, relativePath: string): string {
+  const resolvedRoot = path.resolve(root);
+  const resolvedPath = path.resolve(resolvedRoot, relativePath);
+  if (
+    resolvedPath !== resolvedRoot &&
+    !resolvedPath.startsWith(`${resolvedRoot}${path.sep}`)
+  ) {
+    throw new Error("Caminho do backup fora da área permitida");
+  }
+  return resolvedPath;
+}
+
 function digestTree(files: readonly UpdateBackupFile[]): string {
   const hash = createHash("sha256");
   for (const file of [...files].sort((a, b) => a.path.localeCompare(b.path))) {
@@ -220,7 +233,7 @@ export async function createRotatingUpdateBackup(
         try {
           const copied = await copySafe(
             path.join(userData, relative),
-            path.join(temporary, relative),
+            resolveBackupPath(temporary, relative),
           );
           files.push({ ...copied, path: relative });
         } catch (error) {
@@ -253,12 +266,22 @@ export async function createRotatingUpdateBackup(
         ),
       );
       await withFileLockRetry(() => fs.rename(temporary, destination));
-      const entries = (await fs.readdir(backupRoot))
-        .filter((entry) => !entry.startsWith(".tmp-"))
-        .sort()
-        .reverse();
+      const completeEntries: string[] = [];
+      for (const entry of await fs.readdir(backupRoot)) {
+        if (entry.startsWith(".tmp-")) continue;
+        try {
+          const manifest = JSON.parse(
+            await fs.readFile(path.join(backupRoot, entry, MANIFEST), "utf8"),
+          ) as Partial<UpdateBackupEntry>;
+          if (!manifest.skipped || manifest.skipped.length === 0)
+            completeEntries.push(entry);
+        } catch {
+          // Ignore malformed or unrelated directories during retention.
+        }
+      }
+      completeEntries.sort().reverse();
       await Promise.all(
-        entries.slice(maxBackups).map((entry) =>
+        completeEntries.slice(maxBackups).map((entry) =>
           withFileLockRetry(() =>
             fs.rm(path.join(backupRoot, entry), {
               recursive: true,
