@@ -594,7 +594,6 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
         # explicit VECTORA_HOME untouched so callers can choose another
         # profile for automated runs.
         os.environ.setdefault("VECTORA_RUNTIME_PROFILE", "dev")
-        os.environ.setdefault("VECTORA_HOME", str(Path.home() / ".vectora-dev"))
         os.environ["VECTORA_DESKTOP"] = "1"
         os.environ["VECTORA_SPAWN_ELECTRON"] = "1"
         logger.info(

@@ -44,7 +44,9 @@ class TestBootstrapVectoraHome:
         monkeypatch.delenv("VECTORA_HOME", raising=False)
         assert lic._bootstrap_vectora_home() == Path.home() / ".vectora"
 
-    def test_expande_home_e_respeita_perfil(self, monkeypatch: pytest.MonkeyPatch):
+    def test_expande_home_e_respeita_perfil(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.delenv("VECTORA_HOME", raising=False)
         monkeypatch.setenv("VECTORA_RUNTIME_PROFILE", "preview")
         assert lic._bootstrap_vectora_home() == Path.home() / ".vectora-preview"
