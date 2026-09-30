@@ -97,7 +97,7 @@ describe("update backups", () => {
     await writeFile(oversized, "");
     await truncate(oversized, 256 * 1024 * 1024 + 1);
     for (let index = 0; index < 3; index += 1) {
-      await createRotatingUpdateBackup(userData, backups, `0.2.${index}`, 2);
+      await createRotatingUpdateBackup(userData, backups, `0.2.${index}`, 2, 1);
     }
 
     for (const entry of complete) {
@@ -107,7 +107,7 @@ describe("update backups", () => {
     }
     const entries = await listUpdateBackups(backups);
     expect(entries.filter((entry) => !entry.skipped)).toHaveLength(2);
-    expect(entries.filter((entry) => entry.skipped)).toHaveLength(2);
+    expect(entries.filter((entry) => entry.skipped)).toHaveLength(1);
   });
 
   it("ignores parseable but incompatible manifests during retention", async () => {
