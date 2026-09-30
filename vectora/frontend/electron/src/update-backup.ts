@@ -104,10 +104,25 @@ async function collectFiles(
       throw error;
     }
     if (stat.isSymbolicLink()) throw new Error("userData contém symlink");
-    if (stat.isDirectory())
+    if (stat.isDirectory()) {
       result.push(...(await collectFiles(root, source, skipped)));
-    else if (stat.isFile() && stat.size <= MAX_FILE_BYTES)
-      result.push(relative);
+    } else if (stat.isFile()) {
+      if (stat.size <= MAX_FILE_BYTES) {
+        result.push(relative);
+      } else {
+        skipped.push(relative);
+        console.warn("[updater] backup omitindo arquivo acima do limite", {
+          path: relative,
+          bytes: stat.size,
+          limit: MAX_FILE_BYTES,
+        });
+      }
+    } else {
+      skipped.push(relative);
+      console.warn("[updater] backup omitindo entrada não regular", {
+        path: relative,
+      });
+    }
   }
   return result;
 }
@@ -217,6 +232,9 @@ export async function createRotatingUpdateBackup(
           });
         }
       }
+      const normalizedSkipped = [...new Set(skipped)].sort((a, b) =>
+        a.localeCompare(b),
+      );
       const manifest: UpdateBackupEntry = {
         id,
         createdAt: new Date().toISOString(),
@@ -225,7 +243,7 @@ export async function createRotatingUpdateBackup(
         bytes: files.reduce((sum, file) => sum + file.bytes, 0),
         sha256: digestTree(files),
         files,
-        ...(skipped.length > 0 ? { skipped } : {}),
+        ...(normalizedSkipped.length > 0 ? { skipped: normalizedSkipped } : {}),
       };
       await withFileLockRetry(() =>
         fs.writeFile(

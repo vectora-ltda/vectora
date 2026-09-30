@@ -1,4 +1,11 @@
-import { mkdtemp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  truncate,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -228,6 +235,23 @@ describe("update backups", () => {
     await expect(
       readFile(path.join(userData, "settings.json"), "utf8"),
     ).resolves.toBe("safe");
+  });
+
+  it("marca arquivos acima do limite como omitidos", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "vectora-update-"));
+    const userData = path.join(root, "user-data");
+    const backups = path.join(root, "backups");
+    await mkdir(userData, { recursive: true });
+    const oversized = path.join(userData, "large-cache.bin");
+    await writeFile(oversized, "");
+    await truncate(oversized, 256 * 1024 * 1024 + 1);
+
+    const entry = await createRotatingUpdateBackup(userData, backups, "0.1.0");
+
+    expect(entry.skipped).toEqual(["large-cache.bin"]);
+    await expect(restoreUpdateBackup(entry, userData, backups)).rejects.toThrow(
+      "Backup parcial não pode ser restaurado",
+    );
   });
 
   it("serializa restaurações concorrentes sem deixar estado intermediário", async () => {
