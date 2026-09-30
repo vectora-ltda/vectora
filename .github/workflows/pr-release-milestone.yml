@@ -41,7 +41,7 @@ jobs:
         id: assign-milestone
         uses: actions/github-script@v8
         with:
-          github-token: ${{ github.token }}
+          github-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           script: |
             const fs = require("fs");
             const config = JSON.parse(
