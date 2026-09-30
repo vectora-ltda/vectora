@@ -13,7 +13,8 @@ export function resolveRuntimeProfile(
   isPackaged: boolean,
 ): string {
   const raw = env.VECTORA_RUNTIME_PROFILE ?? (isPackaged ? "stable" : "dev");
-  return raw.replace(/[^A-Za-z0-9_-]/g, "-");
+  const sanitized = raw.trim().replace(/[^A-Za-z0-9_-]/gu, "-");
+  return sanitized || (isPackaged ? "stable" : "dev");
 }
 
 /** Return the Electron userData directory name for a runtime profile. */

@@ -22,6 +22,8 @@ from dotenv import dotenv_values, load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from backend.runtime_profile import resolve_runtime_home
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,21 +34,11 @@ def _default_vectora_home() -> Path:
     ``_load_environment_hierarchy`` (roda dentro do ``__init__`` do próprio
     ``Settings``, antes de ``self.vectora_home`` existir na instância — não
     pode depender de ``self.vectora_home`` nem do singleton ``settings``, é o
-    próprio singleton sendo construído). Outros módulos que precisam resolver
-    o diretório base antes do singleton ``settings`` estar disponível (ex.:
-    ``backend/workspace/runtime_settings.py``, importado de dentro deste
-    bootstrap) replicam esta mesma leitura direta de ``os.environ`` em vez de
-    importar este helper, para não criar import circular com este módulo.
+    próprio singleton sendo construído). A resolução compartilhada vive em
+    ``backend.runtime_profile`` para que os módulos do bootstrap usem a mesma
+    regra sem importar este singleton.
     """
-    env_value = os.environ.get("VECTORA_HOME")
-    if not env_value:
-        return Path.home() / ".vectora"
-    if env_value == "~":
-        env_value = str(Path.home())
-    elif env_value.startswith(("~/", "~\\")):
-        env_value = str(Path.home() / env_value[2:])
-    path = Path(env_value)
-    return path if path.is_absolute() else (Path.home() / path).resolve()
+    return resolve_runtime_home()
 
 
 class Settings(BaseSettings):

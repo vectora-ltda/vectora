@@ -34,29 +34,22 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+from backend.runtime_profile import resolve_runtime_home
+
 logger = logging.getLogger(__name__)
 
 
 def _bootstrap_vectora_home() -> Path:
-    """Lê ``VECTORA_HOME`` direto de ``os.environ`` em vez de importar
-    ``backend.settings.settings``.
+    """Resolve a home sem importar ``backend.settings.settings``.
 
     Este módulo é importado de dentro de
     ``Settings._load_environment_hierarchy`` (import local, para evitar
     ciclo) antes do singleton ``settings`` existir — importar
     ``backend.settings.settings`` aqui levantaria ImportError de módulo
-    parcialmente inicializado. Espelha a mesma leitura de
-    ``backend.settings._default_vectora_home``.
+    parcialmente inicializado. Usa o resolvedor compartilhado para manter
+    banco e settings no mesmo perfil.
     """
-    env_value = os.environ.get("VECTORA_HOME")
-    if not env_value:
-        return Path.home() / ".vectora"
-    if env_value == "~":
-        env_value = str(Path.home())
-    elif env_value.startswith(("~/", "~\\")):
-        env_value = str(Path.home() / env_value[2:])
-    path = Path(env_value)
-    return path if path.is_absolute() else (Path.home() / path).resolve()
+    return resolve_runtime_home()
 
 
 _DB_PATH = _bootstrap_vectora_home() / "checkpoints.db"

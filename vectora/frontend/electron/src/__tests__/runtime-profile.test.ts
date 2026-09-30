@@ -24,6 +24,12 @@ describe("runtime profiles", () => {
     expect(runtimeHome({}, "preview", "/home/user")).toBe(
       path.join("/home/user", ".vectora-preview"),
     );
+    expect(
+      resolveRuntimeProfile({ VECTORA_RUNTIME_PROFILE: "   " }, false),
+    ).toBe("dev");
+    expect(
+      resolveRuntimeProfile({ VECTORA_RUNTIME_PROFILE: "prévia🚀" }, false),
+    ).toBe("pr-via-");
   });
 
   it("honors an explicitly isolated home", () => {

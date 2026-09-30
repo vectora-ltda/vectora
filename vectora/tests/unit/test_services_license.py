@@ -44,6 +44,14 @@ class TestBootstrapVectoraHome:
         monkeypatch.delenv("VECTORA_HOME", raising=False)
         assert lic._bootstrap_vectora_home() == Path.home() / ".vectora"
 
+    def test_expande_home_e_respeita_perfil(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("VECTORA_HOME", raising=False)
+        monkeypatch.setenv("VECTORA_RUNTIME_PROFILE", "preview")
+        assert lic._bootstrap_vectora_home() == Path.home() / ".vectora-preview"
+
+        monkeypatch.setenv("VECTORA_HOME", "~/vectora-license")
+        assert lic._bootstrap_vectora_home() == Path.home() / "vectora-license"
+
 
 def test_bypass_returns_active_pro(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("VECTORA_LICENSE_BYPASS", "1")

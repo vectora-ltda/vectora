@@ -36,7 +36,6 @@ import argparse
 import asyncio
 import contextlib
 import logging
-import re
 import signal
 import socket
 import sys
@@ -72,32 +71,16 @@ _project_root = Path(__file__).parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
+from backend.runtime_profile import (
+    normalize_runtime_home,
+    runtime_home_for_profile,
+    sanitize_runtime_profile,
+)
 from backend.services.log_setup import setup_logging
 
 setup_logging()
 logger = logging.getLogger(__name__)
 _SHUTDOWN_EVENTS: dict[int, asyncio.Event] = {}
-
-
-def _runtime_home_for_profile(profile: str) -> Path:
-    """Return the default backend home for a sanitized runtime profile."""
-    safe_profile = re.sub(r"[^A-Za-z0-9_-]", "-", profile)
-    if safe_profile == "stable":
-        return Path.home() / ".vectora"
-    if safe_profile == "dev":
-        return Path.home() / ".vectora-dev"
-    return Path.home() / f".vectora-{safe_profile}"
-
-
-def _normalize_vectora_home(value: str) -> Path:
-    """Resolve an explicit runtime home identically in every launch mode."""
-    expanded = value
-    if value == "~":
-        expanded = str(Path.home())
-    elif value.startswith(("~/", "~\\")):
-        expanded = str(Path.home() / value[2:])
-    path = Path(expanded)
-    return path if path.is_absolute() else (Path.home() / path).resolve()
 
 
 # ---------------------------------------------------------------------------
@@ -621,14 +604,16 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
     # Fixe o perfil e a home antes de importar módulos que podem construir o
     # singleton de settings. Assim o backend iniciado diretamente usa a mesma
     # home isolada que o Electron, inclusive para perfis nomeados.
-    runtime_profile = os.environ.setdefault(
-        "VECTORA_RUNTIME_PROFILE", "dev" if dev_electron else "stable"
+    runtime_profile = sanitize_runtime_profile(
+        os.environ.get("VECTORA_RUNTIME_PROFILE"),
+        "dev" if dev_electron else "stable",
     )
+    os.environ["VECTORA_RUNTIME_PROFILE"] = runtime_profile
     configured_home = os.environ.get("VECTORA_HOME")
     if configured_home:
-        os.environ["VECTORA_HOME"] = str(_normalize_vectora_home(configured_home))
+        os.environ["VECTORA_HOME"] = str(normalize_runtime_home(configured_home))
     else:
-        os.environ["VECTORA_HOME"] = str(_runtime_home_for_profile(runtime_profile))
+        os.environ["VECTORA_HOME"] = str(runtime_home_for_profile(runtime_profile))
 
     from backend.api.server import create_app
 
