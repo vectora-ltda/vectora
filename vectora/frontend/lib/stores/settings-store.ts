@@ -38,6 +38,11 @@ export type ReasoningEffort = "low" | "medium" | "high" | "max";
  *  "kanban" é o board multi-agente. */
 export type UiMode = "assistant" | "ide" | "kanban";
 
+/** Fontes configuráveis por superfície. O valor é uma família CSS, não um
+ * caminho de arquivo; isso permite usar fontes instaladas no sistema sem
+ * empacotar fontes proprietárias no Vectora. */
+export type FontFamily = string;
+
 /** Presets de UI Scale exibidos no seletor — percentuais, não pixels; 100 =
  *  tamanho base (`FONT_SCALE_BASE_PX`). */
 export const UI_SCALE_PRESETS = [90, 100, 110, 125, 150, 175] as const;
@@ -138,6 +143,14 @@ export interface SettingsState {
   fontScaleMarkdown: number;
   /** Tamanho de fonte (px) do editor Monaco. */
   monacoFontSize: number;
+  /** Salva arquivos do editor automaticamente após uma pausa na edição. */
+  editorAutoSave: boolean;
+  /** Família tipográfica do código no Monaco (Godot usa JetBrains Mono). */
+  editorFontFamily: FontFamily;
+  /** Família monoespaçada usada por terminais, diffs e blocos de código. */
+  monoFontFamily: FontFamily;
+  /** Família proporcional usada pela interface. */
+  uiFontFamily: FontFamily;
   /** Executa hooks locais antes do commit. */
   gitHooksEnabled: boolean;
   /** Adiciona o trailer Signed-off-by usando a identidade Git configurada. */
@@ -172,6 +185,10 @@ export interface SettingsState {
   setFontScaleChat: (v: number) => void;
   setFontScaleMarkdown: (v: number) => void;
   setMonacoFontSize: (v: number) => void;
+  setEditorAutoSave: (v: boolean) => void;
+  setEditorFontFamily: (v: FontFamily) => void;
+  setMonoFontFamily: (v: FontFamily) => void;
+  setUiFontFamily: (v: FontFamily) => void;
   setGitHooksEnabled: (v: boolean) => void;
   setGitSignoffEnabled: (v: boolean) => void;
   setGitBypassEnabled: (v: boolean) => void;
@@ -348,6 +365,10 @@ const DEFAULTS = {
   fontScaleChat: FONT_SCALE_BASE_PX,
   fontScaleMarkdown: FONT_SCALE_BASE_PX,
   monacoFontSize: 13,
+  editorAutoSave: false,
+  editorFontFamily: '"JetBrains Mono", ui-monospace, monospace',
+  monoFontFamily: '"JetBrains Mono", ui-monospace, monospace',
+  uiFontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
   gitHooksEnabled: false,
   gitSignoffEnabled: false,
   gitBypassEnabled: false,
@@ -496,6 +517,10 @@ export const useSettingsStore = create<SettingsState>()(
       setFontScaleMarkdown: (v) =>
         set({ fontScaleMarkdown: clampFontScale(v) }),
       setMonacoFontSize: (v) => set({ monacoFontSize: clampMonacoFontSize(v) }),
+      setEditorAutoSave: (v) => set({ editorAutoSave: v }),
+      setEditorFontFamily: (v) => set({ editorFontFamily: v }),
+      setMonoFontFamily: (v) => set({ monoFontFamily: v }),
+      setUiFontFamily: (v) => set({ uiFontFamily: v }),
       setGitHooksEnabled: (v) => set({ gitHooksEnabled: v }),
       setGitSignoffEnabled: (v) => set({ gitSignoffEnabled: v }),
       setGitBypassEnabled: (v) => set({ gitBypassEnabled: v }),
@@ -508,7 +533,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: getStorageKey(), // Chave default; re-hidratada ao chamar loadUserSettings()
-      version: 5, // v5: adiciona metadados de variantes e migra ids legados
+      version: 6, // v6: adiciona fontes configuráveis por superfície
       // v4: clampa sidebarWidth/chatSidebarWidth pros limites atuais mesmo fora do default legado exato (teto do chat caiu de 800→480)
       migrate: (persistedState) => {
         const s = persistedState as Record<string, unknown>;
@@ -533,6 +558,10 @@ export const useSettingsStore = create<SettingsState>()(
           s.chatSidebarWidth = widths.chatSidebarWidth;
           if (s.themePreset === "dark") s.themePreset = "default-dark";
           else if (s.themePreset === "light") s.themePreset = "default-light";
+          else if (s.themePreset === "godot-dark")
+            s.themePreset = "default-dark";
+          else if (s.themePreset === "godot-light")
+            s.themePreset = "default-light";
           s.installedThemes = migrateInstalledThemes(s.installedThemes);
         }
         return s;
@@ -568,6 +597,10 @@ export const useSettingsStore = create<SettingsState>()(
         fontScaleChat: state.fontScaleChat,
         fontScaleMarkdown: state.fontScaleMarkdown,
         monacoFontSize: state.monacoFontSize,
+        editorAutoSave: state.editorAutoSave,
+        editorFontFamily: state.editorFontFamily,
+        monoFontFamily: state.monoFontFamily,
+        uiFontFamily: state.uiFontFamily,
         gitHooksEnabled: state.gitHooksEnabled,
         gitSignoffEnabled: state.gitSignoffEnabled,
         gitBypassEnabled: state.gitBypassEnabled,

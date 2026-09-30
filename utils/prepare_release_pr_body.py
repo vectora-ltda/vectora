@@ -60,12 +60,21 @@ def prepare_body(notes: str, max_body_bytes: int = MAX_BODY_BYTES) -> str:
         return body
 
     compacted = join_parts(_compact_links(section))
-    if len(compacted.encode("utf-8")) > max_body_bytes:
+    if len(compacted.encode("utf-8")) <= max_body_bytes:
+        return compacted
+
+    # Keep the PR body reviewable when the generated changelog contains more
+    # entries than GitHub accepts. The full notes remain in the branch.
+    heading = section.partition("\n")[0]
+    summary = (
+        f"{heading}\n\n"
+        "The complete release notes are maintained in `vectora/CHANGELOG.md`.\n"
+    )
+    if len(summary.encode("utf-8")) > max_body_bytes:
         raise ValueError(
-            "the current release section exceeds the GitHub pull-request body limit "
-            "even after compacting links"
+            "the pull-request body limit is too small for a release heading"
         )
-    return compacted
+    return summary
 
 
 def main() -> int:
