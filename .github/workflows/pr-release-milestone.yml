@@ -25,6 +25,7 @@ concurrency:
 permissions:
   contents: read
   issues: write
+  pull-requests: read
 
 jobs:
   release-milestone:
@@ -40,7 +41,7 @@ jobs:
         id: assign-milestone
         uses: actions/github-script@v8
         with:
-          github-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          github-token: ${{ github.token }}
           script: |
             const fs = require("fs");
             const config = JSON.parse(
