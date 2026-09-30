@@ -1,0 +1,113 @@
+/** Static parts of Godot 4's GDScript contract, mirrored from upstream C++. */
+export const GODOT_GDSCRIPT_CONTROL_FLOW = [
+  "break",
+  "continue",
+  "elif",
+  "else",
+  "for",
+  "if",
+  "match",
+  "pass",
+  "return",
+  "when",
+  "while",
+] as const;
+export const GODOT_GDSCRIPT_DECLARATIONS = [
+  "class",
+  "class_name",
+  "const",
+  "enum",
+  "extends",
+  "func",
+  "namespace",
+  "signal",
+  "static",
+  "trait",
+  "var",
+] as const;
+export const GODOT_GDSCRIPT_OTHER_KEYWORDS = [
+  "await",
+  "breakpoint",
+  "self",
+  "super",
+  "yield",
+] as const;
+export const GODOT_GDSCRIPT_OPERATORS = [
+  "and",
+  "as",
+  "in",
+  "is",
+  "not",
+  "or",
+] as const;
+export const GODOT_GDSCRIPT_LITERALS = ["false", "null", "true"] as const;
+export const GODOT_GDSCRIPT_CONSTANTS = ["INF", "NAN", "PI", "TAU"] as const;
+export const GODOT_GDSCRIPT_GLOBAL_FUNCTIONS = ["assert", "preload"] as const;
+export const GODOT_GDSCRIPT_BUILTIN_ACCESSORS = ["get", "set"] as const;
+export const GODOT_GDSCRIPT_BUILTIN_TYPES = [
+  "bool",
+  "int",
+  "float",
+  "String",
+  "Vector2",
+  "Vector2i",
+  "Rect2",
+  "Rect2i",
+  "Transform2D",
+  "Vector3",
+  "Vector3i",
+  "Vector4",
+  "Vector4i",
+  "Plane",
+  "Quaternion",
+  "AABB",
+  "Basis",
+  "Transform3D",
+  "Projection",
+  "Color",
+  "StringName",
+  "NodePath",
+  "RID",
+  "Callable",
+  "Signal",
+  "Dictionary",
+  "Array",
+  "PackedByteArray",
+  "PackedInt32Array",
+  "PackedInt64Array",
+  "PackedFloat32Array",
+  "PackedFloat64Array",
+  "PackedStringArray",
+  "PackedVector2Array",
+  "PackedVector3Array",
+  "PackedColorArray",
+  "PackedVector4Array",
+  "Variant",
+  "void",
+] as const;
+export const GODOT_GDSCRIPT_RESERVED_WORDS = [
+  ...GODOT_GDSCRIPT_CONTROL_FLOW,
+  ...GODOT_GDSCRIPT_DECLARATIONS,
+  ...GODOT_GDSCRIPT_OTHER_KEYWORDS,
+  ...GODOT_GDSCRIPT_OPERATORS,
+  ...GODOT_GDSCRIPT_LITERALS,
+  ...GODOT_GDSCRIPT_CONSTANTS,
+  ...GODOT_GDSCRIPT_GLOBAL_FUNCTIONS,
+  ...GODOT_GDSCRIPT_BUILTIN_ACCESSORS,
+] as const;
+export const GODOT_GDSCRIPT_SOURCE_CONTRACT = {
+  engine: "Godot",
+  version: "4.x",
+  files: [
+    "modules/gdscript/gdscript_tokenizer.cpp",
+    "modules/gdscript/gdscript.cpp",
+    "modules/gdscript/editor/gdscript_highlighter.cpp",
+    "core/variant/variant.cpp",
+  ],
+  dynamicSymbols: [
+    "ClassDB engine types",
+    "GDScript utility functions",
+    "global classes and autoloads",
+    "edited resource members",
+  ],
+} as const;

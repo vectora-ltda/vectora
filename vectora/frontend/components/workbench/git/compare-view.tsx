@@ -78,7 +78,7 @@ function CompareFileRow({
           {hunks === null ? (
             <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
           ) : (
-            hunks.map((h, i) => <HunkView key={i} hunk={h} />)
+            hunks.map((h, i) => <HunkView key={i} hunk={h} path={file.path} />)
           )}
         </div>
       )}

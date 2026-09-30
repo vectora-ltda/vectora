@@ -1,9 +1,11 @@
 "use client";
 
-import { Code2, X } from "lucide-react";
+import { Code2 } from "lucide-react";
 import { useWindowsStore } from "@/lib/stores/windows-store";
 import { FileEditor } from "@/components/workbench/file-editor";
 import { m } from "@/lib/paraglide/messages";
+import { EditorTab } from "@/components/workbench/windows/editor-tab";
+import { editorKey, useEditorRegistry } from "@/lib/stores/editor-registry";
 
 interface DockedEditorProps {
   /** Workspace ativo da sessão atual. Quando fornecido e divergente de
@@ -19,6 +21,7 @@ export function DockedEditor({ activeWorkspaceId }: DockedEditorProps = {}) {
   const dockedActiveTab = useWindowsStore((s) => s.dockedActiveTab);
   const setDockedActiveTab = useWindowsStore((s) => s.setDockedActiveTab);
   const closeDockedTab = useWindowsStore((s) => s.closeDockedTab);
+  const entries = useEditorRegistry((s) => s.entries);
 
   const belongsToOtherWorkspace =
     activeWorkspaceId != null &&
@@ -50,31 +53,23 @@ export function DockedEditor({ activeWorkspaceId }: DockedEditorProps = {}) {
           const name = tab.split(/[/\\]/).pop() || tab;
           const isActive = tab === dockedActiveTab;
           return (
-            <div
+            <EditorTab
               key={tab}
-              role="tab"
-              aria-selected={isActive}
-              className={`group flex items-center gap-1 px-3 py-1.5 text-[11px] cursor-pointer shrink-0 border-r border-border/40 ${
-                isActive
-                  ? "bg-background text-foreground font-medium"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
-              }`}
-              onClick={() => setDockedActiveTab(tab)}
-              title={tab}
-            >
-              <span className="truncate max-w-[160px]">{name}</span>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  closeDockedTab(tab);
-                }}
-                className="opacity-0 group-hover:opacity-100 rounded p-0.5 hover:bg-muted/60 ml-1 shrink-0"
-                aria-label={m.window_close()}
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
+              name={name}
+              path={tab}
+              active={isActive}
+              dirty={Boolean(entries[editorKey(dockedWorkspaceId, tab)]?.dirty)}
+              onActivate={() => setDockedActiveTab(tab)}
+              onClose={() => closeDockedTab(tab)}
+              onSave={() =>
+                entries[editorKey(dockedWorkspaceId, tab)]?.save() ??
+                Promise.resolve(false)
+              }
+              onSaveAs={(target) =>
+                entries[editorKey(dockedWorkspaceId, tab)]?.saveAs(target) ??
+                Promise.resolve(false)
+              }
+            />
           );
         })}
       </div>

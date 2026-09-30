@@ -579,3 +579,7 @@ A inicialização orienta a configuração local ou remota e preserva o ambiente
 - Cria backups rotativos do diretório de dados antes da atualização, verifica manifestos e hashes e restaura automaticamente após falhas de inicialização.
 - Mantém até cinco snapshots rotativos com manifestos SHA-256, exclui caches, tokens e segredos, rejeita symlinks e arquivos acima do limite e restaura com validação de caminho, lock e rollback transacional.
 - Mantém perfis de navegador Chromium isolados, com armazenamento persistente por perfil, limpeza de dados e validação de esquemas e destinos navegáveis.
+
+### Bug Fixes
+
+### Reverts

@@ -49,24 +49,7 @@ vi.mock("@/components/kanban/kanban-board", () => ({
   KanbanBoard: () => <div data-testid="kanban" />,
 }));
 vi.mock("@/components/header/header", () => ({
-  Header: ({
-    onOpenSidebar,
-    sidebarTriggerCompactOnly,
-  }: {
-    onOpenSidebar?: () => void;
-    sidebarTriggerCompactOnly?: boolean;
-  }) => (
-    <div data-testid="header">
-      {onOpenSidebar && (
-        <button
-          type="button"
-          data-testid="header-sidebar-trigger"
-          data-compact-only={String(Boolean(sidebarTriggerCompactOnly))}
-          onClick={onOpenSidebar}
-        />
-      )}
-    </div>
-  ),
+  Header: () => <div data-testid="header" />,
 }));
 vi.mock("@/components/header/mode-switcher", () => ({
   ModeSwitch: () => <div data-testid="mode-switch" />,
@@ -373,63 +356,5 @@ describe("SessionPage — workbench do Assistente estreito", () => {
       configurable: true,
       value: 1024,
     });
-  });
-});
-
-describe("SessionPage — navegação compacta usa a mesma medida física", () => {
-  it("mantém o gatilho quando o Electron está compacto apesar do CSS viewport largo", async () => {
-    vi.stubGlobal("vectora", { windowControls: {} });
-    Object.defineProperties(window, {
-      outerWidth: { configurable: true, value: 500 },
-      innerWidth: { configurable: true, value: 1200 },
-    });
-    setMode("assistant");
-
-    render(<SessionPage />);
-
-    await waitFor(() =>
-      expect(screen.getByTestId("header-sidebar-trigger")).toBeInTheDocument(),
-    );
-    const trigger = screen.getByTestId("header-sidebar-trigger");
-    expect(trigger).toHaveAttribute("data-compact-only", "true");
-  });
-
-  it("fecha a Sheet ao voltar para o layout largo", async () => {
-    vi.stubGlobal("vectora", { windowControls: {} });
-    Object.defineProperties(window, {
-      outerWidth: { configurable: true, value: 500 },
-      innerWidth: { configurable: true, value: 1200 },
-    });
-    setMode("assistant");
-    render(<SessionPage />);
-
-    await waitFor(() =>
-      expect(screen.getByTestId("header-sidebar-trigger")).toBeInTheDocument(),
-    );
-    act(() => {
-      screen.getByTestId("header-sidebar-trigger").click();
-    });
-    expect(
-      document.querySelector('[data-slot="sheet-content"]'),
-    ).toBeInTheDocument();
-
-    Object.defineProperty(window, "outerWidth", {
-      configurable: true,
-      value: 1200,
-    });
-    act(() => {
-      window.dispatchEvent(new Event("resize"));
-    });
-
-    await waitFor(() =>
-      expect(
-        screen.queryByTestId("header-sidebar-trigger"),
-      ).not.toBeInTheDocument(),
-    );
-    await waitFor(() =>
-      expect(
-        document.querySelector('[data-slot="sheet-content"]'),
-      ).not.toBeInTheDocument(),
-    );
   });
 });

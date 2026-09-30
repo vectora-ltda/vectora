@@ -58,6 +58,8 @@ import {
   spokenMessageText,
   useSpeechSynthesis,
 } from "@/lib/hooks/use-speech-synthesis";
+import { languageFromFence } from "@/lib/monaco/languages";
+import { MonacoCodeBlock } from "@/components/workbench/monaco-code-block";
 
 /** Locale do date-fns a partir do idioma da UI (item 9 — "há quanto tempo"). */
 const DATE_FNS_LOCALES = { pt: ptBR, es: esLocale, en: enUS } as const;
@@ -558,6 +560,7 @@ export const MessageItem = memo(
         }: any) => {
           const match = /language-(\w+)/.exec(className || "");
           const language = match ? match[1] : "text";
+          const resolvedLanguage = languageFromFence(language);
           const codeString = String(children).replace(/\n$/, "");
 
           // Check if it's inline code: single backticks or no newlines
@@ -586,6 +589,27 @@ export const MessageItem = memo(
           // This prevents flickering during streaming when code content changes
           const blockIndex = codeBlockIndexRef.current++;
           const codeBlockId = `${message.id}-code-${blockIndex}`;
+
+          if (
+            [
+              "gdscript",
+              "godot-resource",
+              "godot-project",
+              "gdshader",
+            ].includes(resolvedLanguage)
+          ) {
+            return (
+              <div
+                key={codeBlockId}
+                className="my-4 overflow-x-auto rounded-lg border border-border bg-muted/40 p-4 font-mono text-[13px]"
+              >
+                <MonacoCodeBlock
+                  code={codeString}
+                  language={resolvedLanguage}
+                />
+              </div>
+            );
+          }
 
           // Render a separate component for the code block with copy functionality
           return (
