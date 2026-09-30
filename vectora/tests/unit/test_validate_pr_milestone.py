@@ -89,6 +89,7 @@ def _event(
     head_repo: str = "vectora-ltda/vectora",
     title: str = "fix: routine maintenance",
 ) -> PullRequestEvent:
+    """Monta um evento mínimo de pull request para os testes do validador."""
     return {
         "repository": {"full_name": "vectora-ltda/vectora"},
         "pull_request": {
@@ -102,12 +103,14 @@ def _event(
 
 
 def test_empty_event_is_accepted() -> None:
+    """Aceita eventos sem pull request para manter o webhook tolerante."""
     assert validator.validate_pull_request({}) == []
 
 
 def test_main_rejects_malformed_event(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Retorna erro quando o arquivo de evento não segue o contrato."""
     event_path = tmp_path / "event.json"
     event_path.write_text('{"pull_request": "malformed"}', encoding="utf-8")
     monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
@@ -132,6 +135,7 @@ def test_main_uses_milestone_assigned_during_workflow(
 
 
 def test_master_feature_pr_is_accepted() -> None:
+    """Aceita uma feature na base de desenvolvimento com sua milestone."""
     assert (
         validator.validate_pull_request(
             _event(base=DEVELOPMENT_BRANCH, milestone=DEVELOPMENT_MILESTONE)
@@ -141,6 +145,7 @@ def test_master_feature_pr_is_accepted() -> None:
 
 
 def test_master_pr_rejects_maintenance_milestone() -> None:
+    """Rejeita milestone de manutenção em uma PR de desenvolvimento."""
     errors = validator.validate_pull_request(
         _event(base=DEVELOPMENT_BRANCH, milestone=MAINTENANCE_MILESTONE)
     )
@@ -148,6 +153,7 @@ def test_master_pr_rejects_maintenance_milestone() -> None:
 
 
 def test_scoped_vext_pr_accepts_minor_milestone() -> None:
+    """Aceita uma PR VEXT com a milestone da próxima minor."""
     event = _event(
         base=DEVELOPMENT_BRANCH,
         milestone=DEVELOPMENT_MILESTONE,
@@ -157,6 +163,7 @@ def test_scoped_vext_pr_accepts_minor_milestone() -> None:
 
 
 def test_vext_pr_rejects_maintenance_milestone() -> None:
+    """Rejeita milestone de manutenção em uma PR VEXT de desenvolvimento."""
     event = _event(
         base=DEVELOPMENT_BRANCH,
         milestone=MAINTENANCE_MILESTONE,
@@ -167,6 +174,7 @@ def test_vext_pr_rejects_maintenance_milestone() -> None:
 
 
 def test_master_pr_requires_a_milestone() -> None:
+    """Exige milestone explícita para PRs na base de desenvolvimento."""
     errors = validator.validate_pull_request(
         _event(base=DEVELOPMENT_BRANCH, milestone=None)
     )
@@ -174,6 +182,7 @@ def test_master_pr_requires_a_milestone() -> None:
 
 
 def test_maintenance_accepts_the_rolling_patch_milestone() -> None:
+    """Aceita a milestone contínua da linha de manutenção."""
     assert (
         validator.validate_pull_request(
             _event(base=MAINTENANCE_BRANCH, milestone=MAINTENANCE_MILESTONE)
@@ -183,6 +192,7 @@ def test_maintenance_accepts_the_rolling_patch_milestone() -> None:
 
 
 def test_maintenance_rejects_exact_patch() -> None:
+    """Rejeita uma milestone de patch exata na linha contínua."""
     errors = validator.validate_pull_request(
         _event(base=MAINTENANCE_BRANCH, milestone="0.1.23")
     )
@@ -190,6 +200,7 @@ def test_maintenance_rejects_exact_patch() -> None:
 
 
 def test_maintenance_rejects_minor() -> None:
+    """Rejeita a milestone de desenvolvimento na linha de manutenção."""
     errors = validator.validate_pull_request(
         _event(base=MAINTENANCE_BRANCH, milestone=DEVELOPMENT_MILESTONE)
     )
@@ -197,6 +208,7 @@ def test_maintenance_rejects_minor() -> None:
 
 
 def test_release_please_pr_is_exempt_with_controlled_source_and_label() -> None:
+    """Isenta a branch versionada de desenvolvimento com origem confiável."""
     event = _event(
         base=DEVELOPMENT_BRANCH,
         milestone=None,
@@ -207,6 +219,7 @@ def test_release_please_pr_is_exempt_with_controlled_source_and_label() -> None:
 
 
 def test_release_please_pr_from_another_repo_is_rejected() -> None:
+    """Rejeita uma branch de release criada a partir de outro repositório."""
     event = _event(
         base=DEVELOPMENT_BRANCH,
         milestone=None,
@@ -219,6 +232,7 @@ def test_release_please_pr_from_another_repo_is_rejected() -> None:
 
 
 def test_release_please_pr_without_pending_label_is_rejected() -> None:
+    """Exige o label controlado para isentar uma PR automática de release."""
     event = _event(
         base=DEVELOPMENT_BRANCH,
         milestone=None,
@@ -229,6 +243,7 @@ def test_release_please_pr_without_pending_label_is_rejected() -> None:
 
 
 def test_release_please_lookalike_branch_is_rejected() -> None:
+    """Rejeita branches que apenas se parecem com o formato automático."""
     event = _event(
         base=DEVELOPMENT_BRANCH,
         milestone=None,
@@ -240,6 +255,7 @@ def test_release_please_lookalike_branch_is_rejected() -> None:
 
 
 def test_release_please_branch_retargeted_to_maintenance_is_rejected() -> None:
+    """Rejeita uma branch minor automática redirecionada à manutenção."""
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=None,
@@ -251,6 +267,7 @@ def test_release_please_branch_retargeted_to_maintenance_is_rejected() -> None:
 
 
 def test_legacy_release_please_branch_retargeted_to_maintenance_is_rejected() -> None:
+    """Rejeita o formato legado redirecionado à linha de manutenção."""
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=None,
@@ -262,6 +279,7 @@ def test_legacy_release_please_branch_retargeted_to_maintenance_is_rejected() ->
 
 
 def test_release_please_patch_branch_is_exempt_on_maintenance_line() -> None:
+    """Isenta uma branch de patch versionada na linha de manutenção."""
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=None,
@@ -272,6 +290,7 @@ def test_release_please_patch_branch_is_exempt_on_maintenance_line() -> None:
 
 
 def test_unsupported_base_is_rejected() -> None:
+    """Rejeita bases que não estão declaradas nas linhas ativas."""
     errors = validator.validate_pull_request(
         _event(base="develop", milestone=DEVELOPMENT_MILESTONE)
     )
