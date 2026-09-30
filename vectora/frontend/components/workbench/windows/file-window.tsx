@@ -7,6 +7,7 @@
  * mídia e binários). Fechar a última aba fecha a janela.
  */
 
+import { useState } from "react";
 import { Minus, X } from "lucide-react";
 import { Rnd } from "react-rnd";
 
@@ -18,6 +19,15 @@ import {
 import { m } from "@/lib/paraglide/messages";
 import { EditorTab } from "@/components/workbench/windows/editor-tab";
 import { editorKey, useEditorRegistry } from "@/lib/stores/editor-registry";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 const TITLE_BAR_CLASS = "vectora-window-drag-handle";
 
@@ -29,7 +39,29 @@ export function FileWindow({ win }: { win: FileWindowState }) {
   const setActiveTab = useWindowsStore((s) => s.setActiveTab);
   const setBounds = useWindowsStore((s) => s.setBounds);
   const entries = useEditorRegistry((s) => s.entries);
+  const [closeDialogOpen, setCloseDialogOpen] = useState(false);
+  const [closing, setClosing] = useState(false);
   const hasTabs = win.tabs.length > 1;
+  const dirtyTabs = win.tabs.filter(
+    (tab) => entries[editorKey(win.workspaceId, tab)]?.dirty,
+  );
+
+  const requestWindowClose = () => {
+    if (dirtyTabs.length > 0) setCloseDialogOpen(true);
+    else close(win.id);
+  };
+
+  const saveAndCloseWindow = async () => {
+    setClosing(true);
+    const results = await Promise.all(
+      dirtyTabs.map((tab) => entries[editorKey(win.workspaceId, tab)]?.save()),
+    );
+    setClosing(false);
+    if (results.every(Boolean)) {
+      setCloseDialogOpen(false);
+      close(win.id);
+    }
+  };
 
   return (
     <Rnd
@@ -72,7 +104,7 @@ export function FileWindow({ win }: { win: FileWindowState }) {
             <Minus className="w-3.5 h-3.5" />
           </button>
           <button
-            onClick={() => close(win.id)}
+            onClick={requestWindowClose}
             className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-muted/60"
             aria-label={m.window_close()}
             title={m.window_close()}
@@ -117,6 +149,37 @@ export function FileWindow({ win }: { win: FileWindowState }) {
           <FileEditor workspaceId={win.workspaceId} path={win.activeTab} />
         </div>
       </div>
+      <Dialog open={closeDialogOpen} onOpenChange={setCloseDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{m.workbench_files_discard_title()}</DialogTitle>
+            <DialogDescription>
+              {m.workbench_files_discard_desc()}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCloseDialogOpen(false)}>
+              {m.workbench_files_cancel()}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={closing}
+              onClick={() => {
+                setCloseDialogOpen(false);
+                close(win.id);
+              }}
+            >
+              {m.workbench_files_discard()}
+            </Button>
+            <Button
+              disabled={closing}
+              onClick={() => void saveAndCloseWindow()}
+            >
+              {m.workbench_files_save()}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Rnd>
   );
 }
