@@ -779,16 +779,23 @@ async function isAutoUpdateEnabled(): Promise<boolean> {
 }
 
 /** Resolve changelog notes from the packaged manifest, using the authenticated backend as fallback. */
-async function fetchPackagedChangelog(fallback: string): Promise<string> {
+async function fetchPackagedChangelog(
+  fallback: string,
+  expectedVersion: string,
+): Promise<string> {
   const packaged = fallback.trim();
   if (packaged) return packaged;
   try {
-    const payload = await fetchBackendJson<{ notes?: string }>(
+    const payload = await fetchBackendJson<{
+      notes?: string;
+      version?: string;
+    }>(
       backendTransport(),
       "/api/updates/changelog",
       _cookieStore.size > 0 ? { cookie: buildCookieHeader(_cookieStore) } : {},
     );
-    return payload?.notes?.trim() || "";
+    if (payload?.version !== expectedVersion) return "";
+    return payload.notes?.trim() || "";
   } catch (error) {
     console.warn("[updater] não foi possível carregar o changelog", error);
     return fallback;
@@ -836,7 +843,7 @@ function setupAutoUpdater(): void {
       );
     });
     broadcast({ state: "available", message: info.version, changelog: notes });
-    void fetchPackagedChangelog(notes).then((changelog) => {
+    void fetchPackagedChangelog(notes, info.version).then((changelog) => {
       if (changelog && changelog !== notes) {
         // Atualiza somente as notas. Preserva `downloading`/`downloaded` caso
         // a resposta do backend chegue depois do progresso do download.
