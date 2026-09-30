@@ -803,6 +803,7 @@ async function fetchPackagedChangelog(fallback: string): Promise<string> {
  * (`vectora:check-for-update`, ver `registerIpc()`) também precisa desses
  * listeners pra a UI mostrar o resultado.
  */
+/** Register updater events and expose their merged status to the renderer. */
 function setupAutoUpdater(): void {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;

@@ -152,6 +152,7 @@ export function resolveInstaller(
   return installer;
 }
 
+/** Build the per-architecture update manifest consumed by electron-updater. */
 export function buildArchManifest(
   version: string,
   installerPath: string,
@@ -342,6 +343,7 @@ async function uploadBuffer(
   }).done();
 }
 
+/** Delete uploaded objects in S3-compatible batches of at most 1,000 keys. */
 async function deleteFiles(bucket: string, keys: string[]): Promise<void> {
   for (let offset = 0; offset < keys.length; offset += 1000) {
     const batch = keys.slice(offset, offset + 1000);
@@ -356,6 +358,7 @@ async function deleteFiles(bucket: string, keys: string[]): Promise<void> {
   }
 }
 
+/** List every object currently published under one update channel. */
 async function listChannelObjects(
   bucket: string,
   channel: string,

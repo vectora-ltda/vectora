@@ -203,6 +203,7 @@ export function pingBackendHttp(
  * auto-update em GET /settings/prefs). `null` em qualquer falha (rede,
  * status >= 400, JSON inválido) — o chamador decide o default nesse caso.
  */
+/** Fetch a JSON response from the local backend with optional auth headers. */
 export function fetchBackendJson<T = unknown>(
   transport: http.RequestOptions,
   urlPath: string,
