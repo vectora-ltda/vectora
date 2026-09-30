@@ -61,7 +61,7 @@ jobs:
             }
             const milestoneTitle = line.milestone;
 
-            // O workflow da branch base também contém este fast path. Eventos
+            // O workflow do master também contém este fast path. Eventos
             // de sincronização e edição já carregam a milestone atual
             // no payload. Evita uma chamada autenticada desnecessária quando
             // o PR já está correto, inclusive em reexecuções sem credencial de
