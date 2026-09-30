@@ -94,7 +94,7 @@ win:
   target:
     - target: nsis
       arch: [x64, arm64]
-    - target: msi
+    - target: msi-wrapped
       arch: [x64, arm64]
   icon: public/vectora.ico
   # Sem opções de assinatura fixas: o electron-builder assina automaticamente
