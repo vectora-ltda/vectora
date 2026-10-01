@@ -1,4 +1,7 @@
-import type { WorkbenchSettingsDescriptor } from "@/lib/types/workbench-settings";
+import type {
+  WorkbenchSettingsDescriptor,
+  WorkbenchId,
+} from "@/lib/types/workbench-settings";
 import { createElement } from "react";
 import type { WorkbenchSettingsContext } from "@/lib/types/workbench-settings";
 import { lazyWithRetry } from "@/lib/lazy-with-retry";
@@ -8,6 +11,13 @@ import { BrowserSettingsContent } from "./browser-settings-content";
 import { ContextGraphSettingsForm } from "./context-graph-settings-form";
 import { TerminalSettings } from "@/components/workbench/terminal/terminal-panel";
 import { GitSettingsTab } from "@/components/settings/git-settings-tab";
+import { WORKBENCH_TABS } from "@/lib/stores/workbench-store";
+import {
+  FileSystemSettingsForm,
+  LibrarySettingsForm,
+  PlanSettingsForm,
+  TasksSettingsForm,
+} from "./workbench-settings-forms";
 
 const MemorySettings = lazyWithRetry(
   () =>
@@ -50,10 +60,7 @@ export const browserSettings: WorkbenchSettingsDescriptor = {
   icon: Settings2,
   scope: "session",
   Component: BrowserSettingsContent,
-  surface: {
-    workbench: "native-view",
-    settings: "link",
-  },
+  surface: { workbench: "form", settings: "form" },
 };
 
 export const terminalSettings: WorkbenchSettingsDescriptor = {
@@ -78,11 +85,59 @@ export const gitSettings: WorkbenchSettingsDescriptor = {
   surface: { workbench: "form", settings: "form" },
 };
 
+export const filesSettings: WorkbenchSettingsDescriptor = {
+  id: "files-settings",
+  workbench: "files",
+  title: () => m.workbench_tab_files(),
+  icon: Settings2,
+  scope: "user",
+  Component: FileSystemSettingsForm,
+  surface: { workbench: "form", settings: "form" },
+};
+
+export const planSettings: WorkbenchSettingsDescriptor = {
+  id: "plan-settings",
+  workbench: "plan",
+  title: () => m.workbench_tab_plan(),
+  icon: Settings2,
+  scope: "user",
+  Component: PlanSettingsForm,
+  surface: { workbench: "form", settings: "form" },
+};
+
+export const tasksSettings: WorkbenchSettingsDescriptor = {
+  id: "tasks-settings",
+  workbench: "tasks",
+  title: () => m.workbench_tab_tasks(),
+  icon: Settings2,
+  scope: "user",
+  Component: TasksSettingsForm,
+  surface: { workbench: "form", settings: "form" },
+};
+
+export const librarySettings: WorkbenchSettingsDescriptor = {
+  id: "library-settings",
+  workbench: "library",
+  title: () => m.workbench_tab_library(),
+  icon: Settings2,
+  scope: "user",
+  Component: LibrarySettingsForm,
+  surface: { workbench: "form", settings: "form" },
+};
+
+const SETTINGS_BY_WORKBENCH: Record<WorkbenchId, WorkbenchSettingsDescriptor> =
+  {
+    files: filesSettings,
+    git: gitSettings,
+    plan: planSettings,
+    tasks: tasksSettings,
+    browser: browserSettings,
+    storage: memorySettings,
+    context_graph: contextGraphSettings,
+    library: librarySettings,
+    terminal: terminalSettings,
+  };
+
 /** Fonte única dos descriptors registrados pelas workbenches. */
-export const WORKBENCH_SETTINGS: readonly WorkbenchSettingsDescriptor[] = [
-  contextGraphSettings,
-  memorySettings,
-  browserSettings,
-  terminalSettings,
-  gitSettings,
-] satisfies readonly WorkbenchSettingsDescriptor[];
+export const WORKBENCH_SETTINGS: readonly WorkbenchSettingsDescriptor[] =
+  WORKBENCH_TABS.map((id) => SETTINGS_BY_WORKBENCH[id]);

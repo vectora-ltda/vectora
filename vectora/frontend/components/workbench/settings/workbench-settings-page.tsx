@@ -7,6 +7,7 @@ import type {
 } from "@/lib/types/workbench-settings";
 import { m } from "@/lib/paraglide/messages";
 import { WorkbenchSettingsContent } from "@/components/workbench/settings/workbench-settings-content";
+import { WORKBENCH_TABS } from "@/lib/stores/workbench-store";
 
 interface WorkbenchSettingsPageProps {
   descriptors: readonly WorkbenchSettingsDescriptor[];
@@ -21,6 +22,8 @@ const WORKBENCH_LABELS: Record<WorkbenchId, () => string> = {
   git: () => m.workbench_tab_git(),
   terminal: () => m.workbench_tab_terminal(),
   files: () => m.workbench_tab_files(),
+  plan: () => m.workbench_tab_plan(),
+  library: () => m.workbench_tab_library(),
 };
 
 /** Página global que agrupa os mesmos descriptors por workbench. */
@@ -44,6 +47,9 @@ export function WorkbenchSettingsPage({
     result.set(descriptor.workbench, group);
     return result;
   }, new Map());
+  const orderedWorkbenches = WORKBENCH_TABS.filter((workbench) =>
+    groups.has(workbench),
+  );
 
   return (
     <div className="flex min-w-0 w-full flex-col gap-6 overflow-y-auto p-4">
@@ -52,7 +58,7 @@ export function WorkbenchSettingsPage({
           {m.workbench_settings_page_index()}
         </p>
         <div className="flex min-w-0 flex-wrap gap-x-4 gap-y-1 text-sm">
-          {[...groups.keys()].map((workbench) => (
+          {orderedWorkbenches.map((workbench) => (
             <a
               key={workbench}
               href={`#workbench-settings-${workbench}`}
@@ -63,44 +69,47 @@ export function WorkbenchSettingsPage({
           ))}
         </div>
       </nav>
-      {[...groups.entries()].map(([workbench, items]) => (
-        <section
-          key={workbench}
-          id={`workbench-settings-${workbench}`}
-          className="min-w-0 scroll-mt-4"
-        >
-          <h2 className="mb-3 break-words text-base font-semibold">
-            {WORKBENCH_LABELS[workbench]()}
-          </h2>
-          <div className="flex min-w-0 flex-col gap-4">
-            {items.map((descriptor) => {
-              return (
-                <article
-                  key={descriptor.id}
-                  className="min-w-0 rounded-lg border border-border/60 p-4"
-                >
-                  <header className="mb-3 min-w-0">
-                    <h3 className="break-words text-sm font-medium">
-                      {descriptor.title()}
-                    </h3>
-                    {descriptor.description?.() && (
-                      <p className="mt-1 break-words text-xs text-muted-foreground">
-                        {descriptor.description?.()}
-                      </p>
-                    )}
-                  </header>
-                  <div className="min-w-0">
-                    <WorkbenchSettingsContent
-                      descriptor={descriptor}
-                      context={{ ...context, presentation: "settings" }}
-                    />
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        </section>
-      ))}
+      {orderedWorkbenches.map((workbench) => {
+        const items = groups.get(workbench) ?? [];
+        return (
+          <section
+            key={workbench}
+            id={`workbench-settings-${workbench}`}
+            className="min-w-0 scroll-mt-4"
+          >
+            <h2 className="mb-3 break-words text-base font-semibold">
+              {WORKBENCH_LABELS[workbench]()}
+            </h2>
+            <div className="flex min-w-0 flex-col gap-4">
+              {items.map((descriptor) => {
+                return (
+                  <article
+                    key={descriptor.id}
+                    className="min-w-0 rounded-lg border border-border/60 p-4"
+                  >
+                    <header className="mb-3 min-w-0">
+                      <h3 className="break-words text-sm font-medium">
+                        {descriptor.title()}
+                      </h3>
+                      {descriptor.description?.() && (
+                        <p className="mt-1 break-words text-xs text-muted-foreground">
+                          {descriptor.description?.()}
+                        </p>
+                      )}
+                    </header>
+                    <div className="min-w-0">
+                      <WorkbenchSettingsContent
+                        descriptor={descriptor}
+                        context={{ ...context, presentation: "settings" }}
+                      />
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }

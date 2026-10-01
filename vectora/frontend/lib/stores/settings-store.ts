@@ -157,6 +157,20 @@ export interface SettingsState {
   gitSignoffEnabled: boolean;
   /** Permite solicitar bypass de proteções Git no Workbench. */
   gitBypassEnabled: boolean;
+  /** Expande automaticamente itens de planos recém-abertos. */
+  planAutoExpand: boolean;
+  /** Ordem usada para listar itens do plano. */
+  planSort: "created" | "title";
+  /** Exibe notificações para tarefas em segundo plano. */
+  taskNotifications: boolean;
+  /** Número de tentativas automáticas de tarefas que falham. */
+  taskRetryCount: number;
+  /** Limite de execuções concorrentes de tarefas. */
+  taskConcurrency: number;
+  /** Exibe skills na Library. */
+  libraryShowSkills: boolean;
+  /** Exibe servidores MCP na Library. */
+  libraryShowMcp: boolean;
 
   // Ações
   setShowToolCalls: (v: boolean) => void;
@@ -192,6 +206,13 @@ export interface SettingsState {
   setGitHooksEnabled: (v: boolean) => void;
   setGitSignoffEnabled: (v: boolean) => void;
   setGitBypassEnabled: (v: boolean) => void;
+  setPlanAutoExpand: (v: boolean) => void;
+  setPlanSort: (v: "created" | "title") => void;
+  setTaskNotifications: (v: boolean) => void;
+  setTaskRetryCount: (v: number) => void;
+  setTaskConcurrency: (v: number) => void;
+  setLibraryShowSkills: (v: boolean) => void;
+  setLibraryShowMcp: (v: boolean) => void;
   resetSettings: () => void;
 }
 
@@ -372,6 +393,13 @@ const DEFAULTS = {
   gitHooksEnabled: false,
   gitSignoffEnabled: false,
   gitBypassEnabled: false,
+  planAutoExpand: true,
+  planSort: "created" as "created" | "title",
+  taskNotifications: true,
+  taskRetryCount: 0,
+  taskConcurrency: 2,
+  libraryShowSkills: true,
+  libraryShowMcp: true,
 };
 
 // ---------------------------------------------------------------------------
@@ -524,6 +552,15 @@ export const useSettingsStore = create<SettingsState>()(
       setGitHooksEnabled: (v) => set({ gitHooksEnabled: v }),
       setGitSignoffEnabled: (v) => set({ gitSignoffEnabled: v }),
       setGitBypassEnabled: (v) => set({ gitBypassEnabled: v }),
+      setPlanAutoExpand: (v) => set({ planAutoExpand: v }),
+      setPlanSort: (v) => set({ planSort: v }),
+      setTaskNotifications: (v) => set({ taskNotifications: v }),
+      setTaskRetryCount: (v) =>
+        set({ taskRetryCount: Math.max(0, Math.min(5, Math.round(v))) }),
+      setTaskConcurrency: (v) =>
+        set({ taskConcurrency: Math.max(1, Math.min(8, Math.round(v))) }),
+      setLibraryShowSkills: (v) => set({ libraryShowSkills: v }),
+      setLibraryShowMcp: (v) => set({ libraryShowMcp: v }),
       resetSettings: () =>
         set({
           ...DEFAULTS,
@@ -604,6 +641,13 @@ export const useSettingsStore = create<SettingsState>()(
         gitHooksEnabled: state.gitHooksEnabled,
         gitSignoffEnabled: state.gitSignoffEnabled,
         gitBypassEnabled: state.gitBypassEnabled,
+        planAutoExpand: state.planAutoExpand,
+        planSort: state.planSort,
+        taskNotifications: state.taskNotifications,
+        taskRetryCount: state.taskRetryCount,
+        taskConcurrency: state.taskConcurrency,
+        libraryShowSkills: state.libraryShowSkills,
+        libraryShowMcp: state.libraryShowMcp,
       }),
     },
   ),

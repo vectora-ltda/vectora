@@ -56,19 +56,9 @@ describe("isNavigableUrl", () => {
     expect(isNavigableUrl("http://localhost:3000")).toBe(true);
   });
 
-  it("preserva a página interna de configurações do Chromium", () => {
+  it("rejeita páginas internas do Chromium", () => {
     expect(isNavigableUrl("chrome://settings")).toBe(false);
     expect(isNavigableUrl("chrome://settings/passwords")).toBe(false);
-    expect(isNavigableUrl("chrome://settings", "native-settings")).toBe(true);
-    expect(
-      isNavigableUrl("chrome://settings/passwords", "native-settings"),
-    ).toBe(true);
-    expect(
-      isNavigableUrl("  CHROME://SETTINGS/PRIVACY  ", "native-settings"),
-    ).toBe(true);
-    expect(isNavigableUrl("chrome://settings/unknown", "native-settings")).toBe(
-      false,
-    );
     expect(isNavigableUrl("https://chrome//settings/")).toBe(true);
   });
 
@@ -148,21 +138,6 @@ describe("BrowserViewManager", () => {
     });
   });
 
-  it("emite escapePressed somente para views de settings", () => {
-    const settingsId = manager.createView("profile-a", "native-settings");
-    const view = views[0];
-    const inputEvent = { preventDefault: vi.fn() };
-    view.emitFake("before-input-event", inputEvent, {
-      type: "keyDown",
-      key: "Escape",
-    });
-    expect(inputEvent.preventDefault).toHaveBeenCalledOnce();
-    expect(emitted).toContainEqual({
-      viewId: settingsId,
-      event: { type: "escapePressed" },
-    });
-  });
-
   it("destroi a view via deps.destroyView; id inexistente não quebra", () => {
     const id = manager.createView();
     manager.destroyView(id);
@@ -176,15 +151,6 @@ describe("BrowserViewManager", () => {
     expect(result.ok).toBe(true);
     expect(views[0].webContents.loadURL).toHaveBeenCalledWith(
       "https://example.com",
-    );
-  });
-
-  it("navigate mantém a URL interna de settings sem convertê-la em HTTPS", () => {
-    const settingsId = manager.createView("profile-a", "native-settings");
-    const result = manager.navigate(settingsId, "chrome://settings/");
-    expect(result.ok).toBe(true);
-    expect(views[0].webContents.loadURL).toHaveBeenCalledWith(
-      "chrome://settings/",
     );
   });
 

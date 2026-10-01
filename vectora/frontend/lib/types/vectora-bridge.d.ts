@@ -43,7 +43,7 @@ export type VectoraBrowserViewEvent =
       errorDescription: string;
       url: string;
     };
-export type VectoraBrowserViewKind = "tab" | "native-settings";
+export type VectoraBrowserViewKind = "tab";
 export interface VectoraBrowserViewOptions {
   profileId: string;
   kind: VectoraBrowserViewKind;

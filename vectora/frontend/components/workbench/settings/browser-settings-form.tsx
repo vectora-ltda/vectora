@@ -7,19 +7,13 @@ import { resolveBrowserProfileId } from "@/lib/browser-profile";
 import { m } from "@/lib/paraglide/messages";
 import type { WorkbenchSettingsContext } from "@/lib/types/workbench-settings";
 
-interface BrowserSettingsFormProps extends WorkbenchSettingsContext {
-  settingsViewError?: boolean;
-  onRetry?: () => void;
-}
+interface BrowserSettingsFormProps extends WorkbenchSettingsContext {}
 
 /** Configurações persistentes do perfil do Browser, reutilizadas no modal e no Settings. */
 export function BrowserSettingsForm({
   threadId,
   workspaceId,
   browserProfileId,
-  requestOpenNativeSettings,
-  settingsViewError = false,
-  onRetry,
 }: BrowserSettingsFormProps) {
   const [clearProfileError, setClearProfileError] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -33,15 +27,7 @@ export function BrowserSettingsForm({
       <p>{m.workbench_browser_settings_description()}</p>
       {desktopBrowser ? (
         <>
-          {requestOpenNativeSettings ? (
-            <button
-              type="button"
-              className="rounded border border-border px-2 py-1 text-left hover:bg-accent"
-              onClick={requestOpenNativeSettings}
-            >
-              {m.workbench_browser_settings_toggle()}
-            </button>
-          ) : null}
+          <p>{m.workbench_browser_settings_local_notice()}</p>
           <button
             type="button"
             className="max-w-full rounded border border-destructive/40 px-2 py-1 text-left text-destructive hover:bg-destructive/10"
@@ -74,20 +60,6 @@ export function BrowserSettingsForm({
             <p role="alert" className="text-destructive">
               {m.workbench_browser_clear_profile_error()}
             </p>
-          ) : null}
-          {settingsViewError ? (
-            <div role="alert" className="space-y-2 text-destructive">
-              <p>{m.workbench_browser_settings_error()}</p>
-              {onRetry ? (
-                <button
-                  type="button"
-                  className="rounded border border-destructive/40 px-2 py-1 hover:bg-destructive/10"
-                  onClick={onRetry}
-                >
-                  {m.workbench_browser_settings_toggle()}
-                </button>
-              ) : null}
-            </div>
           ) : null}
         </>
       ) : (

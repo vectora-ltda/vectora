@@ -29,8 +29,6 @@ import { m as msg } from "@/lib/paraglide/messages";
 import { BrowserDevtoolsPanel } from "./browser-devtools-panel";
 import { WorkbenchSettingsSurface } from "@/components/workbench/settings/workbench-settings-surface";
 import { browserSettings } from "@/components/workbench/settings/workbench-settings-registry";
-import { useBrowserSettingsView } from "./use-browser-settings-view";
-import { useBrowserSettingsController } from "@/lib/stores/browser-settings-controller";
 import { resolveBrowserProfileId } from "@/lib/browser-profile";
 import {
   getBrowserSessionGeneration,
@@ -258,23 +256,6 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const toggleBrowserSettings = useCallback(() => {
     setBrowserSettingsOpen((open) => !open);
   }, []);
-
-  const consumePendingOpen = useBrowserSettingsController(
-    (state) => state.consumePendingOpen,
-  );
-  useEffect(() => {
-    if (!threadId) return;
-    if (consumePendingOpen(threadId)) setBrowserSettingsOpen(true);
-  }, [consumePendingOpen, threadId]);
-
-  const { error: settingsViewError } = useBrowserSettingsView({
-    profileId,
-    open: browserSettingsOpen,
-    visible,
-    settingsOverlayOpen: settingsOpen,
-    containerRef: browserViewContainerRef,
-    onClose: () => setBrowserSettingsOpen(false),
-  });
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1294,11 +1275,6 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
           threadId,
           workspaceId: wsId || null,
           browserProfileId: profileId,
-          settingsViewError,
-          onRetry: () => {
-            setBrowserSettingsOpen(false);
-            window.setTimeout(() => setBrowserSettingsOpen(true), 0);
-          },
         }}
         open={browserSettingsOpen}
         onOpenChange={(open) => {

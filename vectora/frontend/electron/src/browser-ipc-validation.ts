@@ -15,7 +15,7 @@ export function isValidProfileId(value: unknown): value is string {
 export function isValidBrowserViewKind(
   value: unknown,
 ): value is BrowserViewKind {
-  return value === "tab" || value === "native-settings";
+  return value === "tab";
 }
 
 export function isValidViewId(value: unknown): value is number {

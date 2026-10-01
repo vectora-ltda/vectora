@@ -27,6 +27,8 @@ const WORKBENCH_ID_IS_TAB: Record<WorkbenchId, WorkbenchTab> = {
   git: "git",
   terminal: "terminal",
   files: "files",
+  plan: "plan",
+  library: "library",
 };
 
 function descriptor(

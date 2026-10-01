@@ -8,7 +8,9 @@ export type WorkbenchId =
   | "browser"
   | "git"
   | "terminal"
-  | "files";
+  | "files"
+  | "plan"
+  | "library";
 
 /** Dono dos dados alterados por uma configuração. */
 export type WorkbenchSettingsScope =
@@ -24,9 +26,6 @@ export interface WorkbenchSettingsContext {
   workspaceId: string | null;
   /** Perfil Chromium resolvido para a sessão da Browser Workbench. */
   browserProfileId?: string | null;
-  requestOpenNativeSettings?: () => void;
-  settingsViewError?: boolean;
-  onRetry?: () => void;
   presentation: WorkbenchSettingsPresentation;
 }
 

@@ -70,7 +70,7 @@ export interface ManagedView {
   setBounds(bounds: ViewBounds): void;
 }
 
-export type BrowserViewKind = "tab" | "native-settings";
+export type BrowserViewKind = "tab";
 export interface BrowserViewOptions {
   profileId: string;
   kind: BrowserViewKind;
@@ -119,43 +119,6 @@ interface Entry {
 }
 
 const ALLOWED_SCHEMES = new Set(["http:", "https:"]);
-export const NATIVE_SETTINGS_ROUTES = new Set([
-  "",
-  "/",
-  "/autofill",
-  "/clearbrowserdata",
-  "/content",
-  "/downloads",
-  "/extensions",
-  "/languages",
-  "/onstartup",
-  "/passwords",
-  "/performance",
-  "/privacy",
-  "/reset",
-  "/search",
-  "/security",
-  "/sitedata",
-  "/syncsetup",
-  "/system",
-  "/youandgoogle",
-]);
-
-function isNativeSettingsUrl(raw: string): boolean {
-  try {
-    const url = new URL(raw);
-    return (
-      url.protocol === "chrome:" &&
-      url.hostname.toLowerCase() === "settings" &&
-      url.search === "" &&
-      url.hash === "" &&
-      NATIVE_SETTINGS_ROUTES.has(url.pathname.trim().toLowerCase())
-    );
-  } catch {
-    return false;
-  }
-}
-
 function normalizeProfileId(profileId: string | undefined): string {
   const normalized = profileId?.trim();
   return normalized || "default";
@@ -165,10 +128,6 @@ export function isNavigableUrl(
   raw: string,
   kind: BrowserViewKind = "tab",
 ): boolean {
-  // ``chrome://settings`` is an Electron-owned page. It must stay intact;
-  // passing it through the generic URL normalizer turns it into the invalid
-  // ``https://chrome//settings`` URL seen after a tray restart.
-  if (kind === "native-settings") return isNativeSettingsUrl(raw.trim());
   try {
     return ALLOWED_SCHEMES.has(new URL(raw).protocol);
   } catch {
@@ -327,14 +286,6 @@ export class BrowserViewManager {
     };
     wc.on("will-navigate", cancelUnsafeNavigation);
     wc.on("will-redirect", cancelUnsafeNavigation);
-    if (kind === "native-settings") {
-      wc.on("before-input-event", (event, input) => {
-        if (input.type === "keyDown" && input.key === "Escape") {
-          event.preventDefault();
-          this.deps.emit(id, { type: "escapePressed" });
-        }
-      });
-    }
     // Popups are denied until they can be created as managed views. Allowing
     // them would bypass the manager's bounds, lifecycle and navigation guards.
     wc.setWindowOpenHandler?.(() => ({ action: "deny" }));

@@ -39,7 +39,6 @@ import { HunkView, statusTone } from "./shared";
 import { useContextMenu, type ContextMenuItem } from "./git-context-menu";
 import { m } from "@/lib/paraglide/messages";
 import { useToastStore } from "@/lib/stores/toast-store";
-import { useSettingsOverlayStore } from "@/lib/stores/settings-overlay-store";
 import { useSettingsStore } from "@/lib/stores/settings-store";
 
 function FileRow({
@@ -161,9 +160,11 @@ function DiffGroup({
 export function ChangesView({
   workspaceId,
   summary,
+  onOpenSettings,
 }: {
   workspaceId: string;
   summary: DiffSummary;
+  onOpenSettings?: () => void;
 }) {
   const invalidateGit = useWorkbenchStore((s) => s.invalidateGit);
   const setGitFileSelection = useWorkbenchStore((s) => s.setGitFileSelection);
@@ -180,7 +181,6 @@ export function ChangesView({
   const showError = useCallback((message: string) => {
     useToastStore.getState().error("Git", { description: message });
   }, []);
-  const openGitSettings = useSettingsOverlayStore((s) => s.openCategory);
   const gitHooksEnabled = useSettingsStore((s) => s.gitHooksEnabled);
   const gitSignoffEnabled = useSettingsStore((s) => s.gitSignoffEnabled);
   const gitBypassEnabled = useSettingsStore((s) => s.gitBypassEnabled);
@@ -607,7 +607,7 @@ export function ChangesView({
               type="button"
               title={m.workbench_git_settings()}
               aria-label={m.workbench_git_settings()}
-              onClick={() => openGitSettings("git")}
+              onClick={() => onOpenSettings?.()}
               className="rounded p-1 hover:bg-muted/50"
             >
               <Settings2 className="h-3.5 w-3.5" />

@@ -7,7 +7,6 @@ import type {
   WorkbenchSettingsContext,
   WorkbenchSettingsDescriptor,
 } from "@/lib/types/workbench-settings";
-import { resolveBrowserSurfaceMode } from "@/lib/browser-capabilities";
 
 interface WorkbenchSettingsContentProps {
   descriptor: WorkbenchSettingsDescriptor;
@@ -43,38 +42,6 @@ export function WorkbenchSettingsContent({
   }
 
   const Component = descriptor.Component;
-  const mode = resolveBrowserSurfaceMode(
-    descriptor.surface[context.presentation],
-  );
-  if (mode === "unavailable") {
-    return (
-      <EmptyState>{m.workbench_browser_settings_unavailable()}</EmptyState>
-    );
-  }
-  if (mode === "link") {
-    const hasNativeBridge =
-      typeof window !== "undefined" && Boolean(window.vectora?.browserView);
-    if (!hasNativeBridge) {
-      return (
-        <EmptyState>{m.workbench_browser_settings_unavailable()}</EmptyState>
-      );
-    }
-    return (
-      <div className="flex min-h-32 items-center justify-center px-4 py-8 text-center text-sm text-muted-foreground">
-        {context.requestOpenNativeSettings ? (
-          <button
-            type="button"
-            className="rounded border border-border px-3 py-2 text-foreground hover:bg-accent"
-            onClick={context.requestOpenNativeSettings}
-          >
-            {m.workbench_browser_settings_toggle()}
-          </button>
-        ) : (
-          descriptor.title()
-        )}
-      </div>
-    );
-  }
   return (
     <div className="flex min-w-0 w-full flex-col gap-3 p-4">
       <div className="flex min-w-0 flex-col gap-1">

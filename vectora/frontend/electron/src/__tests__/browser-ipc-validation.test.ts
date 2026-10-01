@@ -17,7 +17,7 @@ describe("browser IPC validation", () => {
 
   it("validates kinds, ids, bounds and URLs", () => {
     expect(isValidBrowserViewKind("tab")).toBe(true);
-    expect(isValidBrowserViewKind("native-settings")).toBe(true);
+    expect(isValidBrowserViewKind("native-settings")).toBe(false);
     expect(isValidBrowserViewKind("settings")).toBe(false);
     expect(isValidViewId(1)).toBe(true);
     expect(isValidViewId(1.2)).toBe(false);
