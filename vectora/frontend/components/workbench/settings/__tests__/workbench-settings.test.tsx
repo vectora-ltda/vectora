@@ -66,6 +66,14 @@ describe("workbench settings contract", () => {
     );
   });
 
+  it("does not advertise capabilities that have no implementation", () => {
+    expect(
+      WORKBENCH_SETTINGS.flatMap((item) => item.capabilities).every(
+        (capability) => capability.status === "available",
+      ),
+    ).toBe(true);
+  });
+
   it("renders a responsive modal shell and closes through Radix Escape", () => {
     const onOpenChange = vi.fn();
     render(
