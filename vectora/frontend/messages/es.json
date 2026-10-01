@@ -1687,5 +1687,9 @@
   "workbench_library_skills_help": "Incluye Skills instaladas en la workbench Library.",
   "workbench_library_mcp_label": "Mostrar servidores MCP",
   "workbench_library_mcp_help": "Incluye servidores MCP conectados en la workbench Library.",
-  "workbench_browser_settings_local_notice": "Vectora administra aquí la configuración del navegador para este perfil."
+  "workbench_browser_settings_local_notice": "Vectora administra aquí la configuración del navegador para este perfil.",
+  "workbench_browser_popups_label": "Permitir ventanas emergentes",
+  "workbench_browser_popups_help": "Permite que las páginas abran ventanas nuevas en este perfil del navegador.",
+  "workbench_browser_zoom_label": "Zoom de página",
+  "workbench_browser_zoom_help": "Aplica el zoom de Chromium a todas las pestañas de este perfil."
 }

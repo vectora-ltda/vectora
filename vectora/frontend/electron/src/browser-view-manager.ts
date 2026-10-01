@@ -63,6 +63,7 @@ export interface ManagedWebContents {
   setWindowOpenHandler?(
     handler: (details: { url: string }) => { action: "allow" | "deny" },
   ): void;
+  setZoomLevel?(level: number): void;
 }
 
 export interface ManagedView {
@@ -74,6 +75,8 @@ export type BrowserViewKind = "tab";
 export interface BrowserViewOptions {
   profileId: string;
   kind: BrowserViewKind;
+  allowPopups?: boolean;
+  zoomPercent?: number;
 }
 
 export type BrowserViewEvent =
@@ -95,7 +98,11 @@ export type BrowserViewEvent =
     };
 
 export interface BrowserViewManagerDeps {
-  createView(profileId?: string, kind?: BrowserViewKind): ManagedView;
+  createView(
+    profileId?: string,
+    kind?: BrowserViewKind,
+    options?: Pick<BrowserViewOptions, "allowPopups" | "zoomPercent">,
+  ): ManagedView;
   attach(view: ManagedView): void;
   destroyView(view: ManagedView): void;
   emit(viewId: number, event: BrowserViewEvent): void;
@@ -116,6 +123,7 @@ interface Entry {
   bounds: ViewBounds;
   kind: BrowserViewKind;
   ownerId: number | null;
+  allowPopups: boolean;
 }
 
 const ALLOWED_SCHEMES = new Set(["http:", "https:"]);
@@ -145,12 +153,13 @@ export class BrowserViewManager {
     profileId?: string,
     kind: BrowserViewKind = "tab",
     ownerId: number | null = null,
+    options: Pick<BrowserViewOptions, "allowPopups" | "zoomPercent"> = {},
   ): number {
     const normalizedProfileId = normalizeProfileId(profileId);
     const view =
       kind === "tab"
-        ? this.deps.createView(normalizedProfileId)
-        : this.deps.createView(normalizedProfileId, kind);
+        ? this.deps.createView(normalizedProfileId, kind, options)
+        : this.deps.createView(normalizedProfileId, kind, options);
     const id = this.nextId++;
     this.entries.set(id, {
       view,
@@ -158,10 +167,23 @@ export class BrowserViewManager {
       bounds: HIDDEN_BOUNDS,
       kind,
       ownerId,
+      allowPopups: options.allowPopups === true,
     });
     this.wireEvents(id, view, kind);
     this.deps.attach(view);
     return id;
+  }
+
+  setZoomPercent(
+    id: number,
+    percent: number,
+    ownerId: number | null = null,
+  ): void {
+    const entry = this.entries.get(id);
+    if (!entry || !this.owns(entry, ownerId)) return;
+    const normalized = Math.max(25, Math.min(500, Math.round(percent)));
+    const factor = normalized / 100;
+    entry.view.webContents.setZoomLevel?.(Math.log(factor) / Math.log(1.2));
   }
 
   async clearData(profileId = "default"): Promise<void> {
@@ -288,7 +310,9 @@ export class BrowserViewManager {
     wc.on("will-redirect", cancelUnsafeNavigation);
     // Popups are denied until they can be created as managed views. Allowing
     // them would bypass the manager's bounds, lifecycle and navigation guards.
-    wc.setWindowOpenHandler?.(() => ({ action: "deny" }));
+    wc.setWindowOpenHandler?.(() => ({
+      action: this.entries.get(id)?.allowPopups ? "allow" : "deny",
+    }));
     const navigated = () =>
       this.deps.emit(id, {
         type: "navigated",

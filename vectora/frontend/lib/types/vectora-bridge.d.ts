@@ -47,6 +47,8 @@ export type VectoraBrowserViewKind = "tab";
 export interface VectoraBrowserViewOptions {
   profileId: string;
   kind: VectoraBrowserViewKind;
+  allowPopups?: boolean;
+  zoomPercent?: number;
 }
 
 export interface VectoraVscodeThemeFile {
@@ -117,6 +119,7 @@ export interface VectoraDesktopBridge {
     stop: (viewId: number) => void;
     setBounds: (viewId: number, bounds: VectoraViewBounds) => void;
     setVisible: (viewId: number, visible: boolean) => void;
+    setZoom?: (viewId: number, percent: number) => void;
     clearProfileData: (profileId?: string) => Promise<void>;
     onEvent: (
       handler: (viewId: number, event: VectoraBrowserViewEvent) => void,

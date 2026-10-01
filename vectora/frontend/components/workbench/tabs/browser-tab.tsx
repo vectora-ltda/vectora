@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { useChatInputStore } from "@/lib/stores/chat-input-store";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { useSettingsOverlayStore } from "@/lib/stores/settings-overlay-store";
+import { useSettingsStore } from "@/lib/stores/settings-store";
 import { m as msg } from "@/lib/paraglide/messages";
 import { BrowserDevtoolsPanel } from "./browser-devtools-panel";
 import { WorkbenchSettingsSurface } from "@/components/workbench/settings/workbench-settings-surface";
@@ -135,6 +136,8 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const sessionKey = `${wsId}:${threadId}`;
   const settingsOpen = useSettingsOverlayStore((s) => s.open);
   const [browserSettingsOpen, setBrowserSettingsOpen] = useState(false);
+  const allowPopups = useSettingsStore((s) => s.browserAllowPopups);
+  const browserZoomPercent = useSettingsStore((s) => s.browserZoomPercent);
 
   // Presente só no desktop Electron — quando ausente, cai no `<iframe>` de
   // fallback abaixo (sujeito a X-Frame-Options, único caminho possível fora
@@ -204,6 +207,12 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     tabsRef.current = tabs;
   }, [tabs]);
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
+
+  useEffect(() => {
+    if (desktopBrowser && activeTab?.viewId != null) {
+      desktopBrowser.setZoom?.(activeTab.viewId, browserZoomPercent);
+    }
+  }, [desktopBrowser, activeTab?.viewId, browserZoomPercent]);
 
   useEffect(() => {
     if (previousSessionKeyRef.current === sessionKey) return;
@@ -338,7 +347,12 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       const sessionGeneration = getBrowserSessionGeneration(sessionKey);
       pendingViewCreatesRef.current.add(tabId);
       void desktopBrowser
-        .createView({ profileId, kind: "tab" })
+        .createView({
+          profileId,
+          kind: "tab",
+          allowPopups,
+          zoomPercent: browserZoomPercent,
+        })
         .then((viewId) => {
           if (
             !pendingViewCreatesRef.current.has(tabId) ||
@@ -367,7 +381,14 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
           }
         });
     },
-    [desktopBrowser, profileId, sessionKey, updateTab],
+    [
+      desktopBrowser,
+      profileId,
+      sessionKey,
+      updateTab,
+      allowPopups,
+      browserZoomPercent,
+    ],
   );
 
   const addTab = useCallback(
@@ -477,7 +498,12 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       pendingViewCreatesRef.current.add(tab.id);
       const sessionGeneration = getBrowserSessionGeneration(sessionKey);
       void desktopBrowser
-        .createView({ profileId, kind: "tab" })
+        .createView({
+          profileId,
+          kind: "tab",
+          allowPopups,
+          zoomPercent: browserZoomPercent,
+        })
         .then((viewId) => {
           if (
             !pendingViewCreatesRef.current.has(tab.id) ||

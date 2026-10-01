@@ -194,15 +194,25 @@ async function rollbackPendingUpdate(): Promise<boolean> {
 function getBrowserViewManager(): BrowserViewManager {
   if (browserViewManager) return browserViewManager;
   browserViewManager = new BrowserViewManager({
-    createView: (profileId = "default", _kind: BrowserViewKind = "tab") =>
-      new WebContentsView({
+    createView: (
+      profileId = "default",
+      _kind: BrowserViewKind = "tab",
+      options = {},
+    ) => {
+      const view = new WebContentsView({
         webPreferences: {
           contextIsolation: true,
           sandbox: true,
           nodeIntegration: false,
           session: session.fromPartition(`persist:browser-${profileId}`),
         },
-      }) as unknown as ManagedView,
+      });
+      if (options.zoomPercent !== undefined) {
+        const factor = Math.max(0.25, Math.min(5, options.zoomPercent / 100));
+        view.webContents.setZoomLevel(Math.log(factor) / Math.log(1.2));
+      }
+      return view as unknown as ManagedView;
+    },
     attach: (view) => {
       mainWindow?.contentView.addChildView(view as unknown as WebContentsView);
     },
@@ -1028,18 +1038,30 @@ function registerIpc(): void {
     if (!isTrustedBrowserSender(event)) throw new Error("origem IPC inválida");
     if (!options || typeof options !== "object")
       throw new Error("opções inválidas");
-    const { profileId, kind } = options as Partial<{
+    const { profileId, kind, allowPopups, zoomPercent } = options as Partial<{
       profileId: string;
       kind: BrowserViewKind;
+      allowPopups: boolean;
+      zoomPercent: number;
     }>;
     if (typeof profileId !== "string" || !isValidProfileId(profileId)) {
       throw new Error("profileId inválido");
     }
     if (!isValidBrowserViewKind(kind)) throw new Error("kind inválido");
+    if (allowPopups !== undefined && typeof allowPopups !== "boolean") {
+      throw new Error("allowPopups inválido");
+    }
+    if (
+      zoomPercent !== undefined &&
+      (typeof zoomPercent !== "number" || !Number.isFinite(zoomPercent))
+    ) {
+      throw new Error("zoomPercent inválido");
+    }
     return getBrowserViewManager().createView(
       profileId,
       kind,
       browserOwnerId(event),
+      { allowPopups, zoomPercent },
     );
   });
   ipcMain.on("vectora:browser-destroy-view", (event, viewId: number) => {
@@ -1109,6 +1131,23 @@ function registerIpc(): void {
       getBrowserViewManager().setVisible(
         viewId,
         visible,
+        browserOwnerId(event),
+      );
+    },
+  );
+  ipcMain.on(
+    "vectora:browser-set-zoom",
+    (event, viewId: number, percent: number) => {
+      if (!isTrustedBrowserSender(event)) return;
+      if (
+        !isValidViewId(viewId) ||
+        typeof percent !== "number" ||
+        !Number.isFinite(percent)
+      )
+        return;
+      getBrowserViewManager().setZoomPercent(
+        viewId,
+        percent,
         browserOwnerId(event),
       );
     },

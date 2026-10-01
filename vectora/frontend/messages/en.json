@@ -1687,5 +1687,9 @@
   "workbench_library_skills_help": "Include installed Skills in the Library workbench.",
   "workbench_library_mcp_label": "Show MCP servers",
   "workbench_library_mcp_help": "Include connected MCP servers in the Library workbench.",
-  "workbench_browser_settings_local_notice": "Browser settings are managed here by Vectora for this profile."
+  "workbench_browser_settings_local_notice": "Browser settings are managed here by Vectora for this profile.",
+  "workbench_browser_popups_label": "Allow pop-ups",
+  "workbench_browser_popups_help": "Allow pages to open new windows from this browser profile.",
+  "workbench_browser_zoom_label": "Page zoom",
+  "workbench_browser_zoom_help": "Apply Chromium page zoom to every tab in this profile."
 }

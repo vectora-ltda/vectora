@@ -171,6 +171,10 @@ export interface SettingsState {
   libraryShowSkills: boolean;
   /** Exibe servidores MCP na Library. */
   libraryShowMcp: boolean;
+  /** Permite que páginas abram pop-ups em novas janelas do Browser. */
+  browserAllowPopups: boolean;
+  /** Zoom das views Chromium do Browser, em percentual. */
+  browserZoomPercent: number;
 
   // Ações
   setShowToolCalls: (v: boolean) => void;
@@ -213,6 +217,8 @@ export interface SettingsState {
   setTaskConcurrency: (v: number) => void;
   setLibraryShowSkills: (v: boolean) => void;
   setLibraryShowMcp: (v: boolean) => void;
+  setBrowserAllowPopups: (v: boolean) => void;
+  setBrowserZoomPercent: (v: number) => void;
   resetSettings: () => void;
 }
 
@@ -400,6 +406,8 @@ const DEFAULTS = {
   taskConcurrency: 2,
   libraryShowSkills: true,
   libraryShowMcp: true,
+  browserAllowPopups: false,
+  browserZoomPercent: 100,
 };
 
 // ---------------------------------------------------------------------------
@@ -561,6 +569,9 @@ export const useSettingsStore = create<SettingsState>()(
         set({ taskConcurrency: Math.max(1, Math.min(8, Math.round(v))) }),
       setLibraryShowSkills: (v) => set({ libraryShowSkills: v }),
       setLibraryShowMcp: (v) => set({ libraryShowMcp: v }),
+      setBrowserAllowPopups: (v) => set({ browserAllowPopups: v }),
+      setBrowserZoomPercent: (v) =>
+        set({ browserZoomPercent: Math.max(25, Math.min(500, Math.round(v))) }),
       resetSettings: () =>
         set({
           ...DEFAULTS,
@@ -648,6 +659,8 @@ export const useSettingsStore = create<SettingsState>()(
         taskConcurrency: state.taskConcurrency,
         libraryShowSkills: state.libraryShowSkills,
         libraryShowMcp: state.libraryShowMcp,
+        browserAllowPopups: state.browserAllowPopups,
+        browserZoomPercent: state.browserZoomPercent,
       }),
     },
   ),

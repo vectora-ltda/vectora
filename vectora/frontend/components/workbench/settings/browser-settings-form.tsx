@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToastStore } from "@/lib/stores/toast-store";
 import { resolveBrowserProfileId } from "@/lib/browser-profile";
+import { useSettingsStore } from "@/lib/stores/settings-store";
 import { m } from "@/lib/paraglide/messages";
 import type { WorkbenchSettingsContext } from "@/lib/types/workbench-settings";
 
@@ -17,6 +18,10 @@ export function BrowserSettingsForm({
 }: BrowserSettingsFormProps) {
   const [clearProfileError, setClearProfileError] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  const allowPopups = useSettingsStore((s) => s.browserAllowPopups);
+  const zoomPercent = useSettingsStore((s) => s.browserZoomPercent);
+  const setAllowPopups = useSettingsStore((s) => s.setBrowserAllowPopups);
+  const setZoomPercent = useSettingsStore((s) => s.setBrowserZoomPercent);
   const desktopBrowser =
     typeof window !== "undefined" ? window.vectora?.browserView : undefined;
   const profileId =
@@ -28,6 +33,40 @@ export function BrowserSettingsForm({
       {desktopBrowser ? (
         <>
           <p>{m.workbench_browser_settings_local_notice()}</p>
+          <label className="flex items-start gap-2 rounded border border-border/60 p-2 text-foreground">
+            <input
+              type="checkbox"
+              checked={allowPopups}
+              onChange={(event) => setAllowPopups(event.target.checked)}
+            />
+            <span>
+              <span className="block font-medium">
+                {m.workbench_browser_popups_label()}
+              </span>
+              <span className="block text-muted-foreground">
+                {m.workbench_browser_popups_help()}
+              </span>
+            </span>
+          </label>
+          <label className="flex items-center justify-between gap-3 rounded border border-border/60 p-2 text-foreground">
+            <span>
+              <span className="block font-medium">
+                {m.workbench_browser_zoom_label()}
+              </span>
+              <span className="block text-muted-foreground">
+                {m.workbench_browser_zoom_help()}
+              </span>
+            </span>
+            <input
+              className="w-20 rounded border border-border/60 bg-background px-2 py-1 text-right"
+              type="number"
+              min={25}
+              max={500}
+              step={5}
+              value={zoomPercent}
+              onChange={(event) => setZoomPercent(Number(event.target.value))}
+            />
+          </label>
           <button
             type="button"
             className="max-w-full rounded border border-destructive/40 px-2 py-1 text-left text-destructive hover:bg-destructive/10"
