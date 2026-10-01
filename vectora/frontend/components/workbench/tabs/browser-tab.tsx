@@ -626,9 +626,16 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         prev.map((t) => {
           if (t.viewId !== eventViewId) return t;
           if (event.type === "navigated") {
+            const normalized = normalizeUrl(event.url ?? "");
+            const nextHistory =
+              normalized && t.history.at(-1) !== normalized
+                ? [...t.history, normalized].slice(-100)
+                : t.history;
             return {
               ...t,
               desktopUrl: event.url ?? t.desktopUrl,
+              history: nextHistory,
+              historyIndex: nextHistory.length - 1,
               canGoBack: event.canGoBack ?? t.canGoBack,
               canGoForward: event.canGoForward ?? t.canGoForward,
               loadError: null,

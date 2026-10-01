@@ -91,7 +91,10 @@ export const terminalSettings: WorkbenchSettingsDescriptor = {
   icon: Settings2,
   scope: "workspace",
   sections: [section("sandbox", () => m.terminal_title())],
-  capabilities: [capability("sandbox", "available")],
+  capabilities: [
+    capability("sandbox", "available"),
+    capability("terminal-display", "available"),
+  ],
   Component: TerminalSettings,
   surface: { workbench: "form", settings: "form" },
 };
