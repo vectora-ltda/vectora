@@ -15,6 +15,10 @@ import {
 } from "@/components/ui/select";
 import { m } from "@/lib/paraglide/messages";
 import type { WorkbenchSettingsContext } from "@/lib/types/workbench-settings";
+import {
+  getBrowserCapabilityMatrix,
+  getBrowserRuntime,
+} from "@/lib/browser-capability-matrix";
 
 interface BrowserSettingsFormProps extends WorkbenchSettingsContext {}
 
@@ -66,6 +70,13 @@ export function BrowserSettingsForm({
   >([]);
   const desktopBrowser =
     typeof window !== "undefined" ? window.vectora?.browserView : undefined;
+  const browserRuntime = getBrowserRuntime(Boolean(desktopBrowser));
+  const nativeProfileAvailable = getBrowserCapabilityMatrix(
+    browserRuntime,
+  ).some(
+    (capability) =>
+      capability.id === "profile-storage" && capability.status === "available",
+  );
   const profileId =
     browserProfileId ?? resolveBrowserProfileId(threadId, workspaceId);
   const sessionKey = `${workspaceId ?? ""}:${threadId ?? ""}`;
@@ -98,9 +109,12 @@ export function BrowserSettingsForm({
   }, [desktopBrowser, profileId]);
 
   return (
-    <div className="min-w-0 space-y-3 p-4 text-xs text-muted-foreground">
+    <div
+      className="min-w-0 space-y-3 p-4 text-xs text-muted-foreground"
+      data-browser-runtime={browserRuntime}
+    >
       <p>{m.workbench_browser_settings_description()}</p>
-      {desktopBrowser ? (
+      {desktopBrowser && nativeProfileAvailable ? (
         <>
           <p>{m.workbench_browser_settings_local_notice()}</p>
           <label className="flex items-start gap-2 rounded border border-border/60 p-2 text-foreground">
