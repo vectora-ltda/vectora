@@ -31,6 +31,8 @@ import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { Switch } from "@/components/ui/switch";
 import { WorkbenchDialog } from "@/components/workbench/workbench-dialog";
 import { m } from "@/lib/paraglide/messages";
+import { useSettingsStore } from "@/lib/stores/settings-store";
+import { useToastStore } from "@/lib/stores/toast-store";
 
 interface DraftState {
   kind: BackgroundKind;
@@ -184,6 +186,7 @@ async function resolveRun(
 export function TasksTab({ threadId }: { threadId: string }) {
   const navigate = useNavigate();
   const workspace = useWorkspacesStore((s) => s.getActive());
+  const taskNotifications = useSettingsStore((s) => s.taskNotifications);
   const {
     tasks,
     runs,
@@ -202,9 +205,14 @@ export function TasksTab({ threadId }: { threadId: string }) {
   // Revalida ao receber um evento de run em segundo plano via SSE.
   const onWebhook = useCallback(
     (evt: { provider: string }) => {
-      if (evt.provider === "background") void refetch();
+      if (evt.provider === "background") {
+        void refetch();
+        if (taskNotifications) {
+          useToastStore.getState().info(m.background_tasks_title());
+        }
+      }
     },
-    [refetch],
+    [refetch, taskNotifications],
   );
   useWebhookEvents(onWebhook);
 

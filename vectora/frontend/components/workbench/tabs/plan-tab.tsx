@@ -51,6 +51,7 @@ import {
   type TodoItem,
 } from "@/lib/stores/workbench-store";
 import { m } from "@/lib/paraglide/messages";
+import { useSettingsStore } from "@/lib/stores/settings-store";
 
 async function fetchArtifacts(threadId: string): Promise<PlanItem[]> {
   const qs = new URLSearchParams({ session_id: threadId });
@@ -184,6 +185,8 @@ export function PlanTab({ threadId, onOpenPlanDocument }: PlanTabProps) {
   const contentsBySlug = useWorkbenchStore(
     (s) => s.getPlan(threadId).contentsBySlug,
   );
+  const planAutoExpand = useSettingsStore((s) => s.planAutoExpand);
+  const planSort = useSettingsStore((s) => s.planSort);
 
   const setPlanItems = useWorkbenchStore((s) => s.setPlanItems);
   const togglePlanOpenSlug = useWorkbenchStore((s) => s.togglePlanOpenSlug);
@@ -226,10 +229,20 @@ export function PlanTab({ threadId, onOpenPlanDocument }: PlanTabProps) {
             },
           ]
         : [];
-    return [...todosEntry, ...artifactEntries].toSorted(
-      (a, b) => b.timestamp - a.timestamp,
-    );
-  }, [items, todos]);
+    return [...todosEntry, ...artifactEntries].toSorted((a, b) => {
+      if (a.item && b.item && planSort === "title") {
+        return a.item.title.localeCompare(b.item.title);
+      }
+      return b.timestamp - a.timestamp;
+    });
+  }, [items, todos, planSort]);
+
+  useEffect(() => {
+    if (!planAutoExpand || entries.length === 0) return;
+    const first = entries[0]?.slug;
+    if (first && !openSlugs.includes(first))
+      togglePlanOpenSlug(threadId, first);
+  }, [entries, openSlugs, planAutoExpand, threadId, togglePlanOpenSlug]);
 
   const handleAccordionChange = useCallback(
     (next: string[]) => {
