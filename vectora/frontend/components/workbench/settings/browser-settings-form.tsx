@@ -45,6 +45,12 @@ export function BrowserSettingsForm({
   );
   const [originInput, setOriginInput] = useState("");
   const [originMode, setOriginMode] = useState<"allow" | "deny">("deny");
+  const [credentials, setCredentials] = useState<
+    Array<{ id: string; origin: string; username: string; updatedAt: string }>
+  >([]);
+  const [credentialOrigin, setCredentialOrigin] = useState("");
+  const [credentialUsername, setCredentialUsername] = useState("");
+  const [credentialPassword, setCredentialPassword] = useState("");
   const [downloads, setDownloads] = useState<
     Array<{
       id: string;
@@ -69,6 +75,14 @@ export function BrowserSettingsForm({
         return [{ ...event }, ...next].slice(0, 10);
       });
     });
+  }, [desktopBrowser, profileId]);
+
+  useEffect(() => {
+    if (!desktopBrowser?.listCredentials || !profileId) return;
+    void desktopBrowser
+      .listCredentials(profileId)
+      .then(setCredentials)
+      .catch(() => setCredentials([]));
   }, [desktopBrowser, profileId]);
 
   return (
@@ -250,6 +264,88 @@ export function BrowserSettingsForm({
           >
             {m.workbench_browser_clear_profile_data()}
           </button>
+          <div className="space-y-2 rounded border border-border/60 p-2 text-foreground">
+            <div>
+              <p className="font-medium">
+                {m.workbench_browser_password_manager_title()}
+              </p>
+              <p className="text-muted-foreground">
+                {m.workbench_browser_password_manager_help()}
+              </p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <input
+                className="rounded border border-border/60 bg-background px-2 py-1"
+                placeholder={m.workbench_browser_password_origin()}
+                value={credentialOrigin}
+                onChange={(event) => setCredentialOrigin(event.target.value)}
+              />
+              <input
+                className="rounded border border-border/60 bg-background px-2 py-1"
+                placeholder={m.workbench_browser_password_username()}
+                value={credentialUsername}
+                onChange={(event) => setCredentialUsername(event.target.value)}
+              />
+              <input
+                className="rounded border border-border/60 bg-background px-2 py-1"
+                type="password"
+                placeholder={m.workbench_browser_password_secret()}
+                value={credentialPassword}
+                onChange={(event) => setCredentialPassword(event.target.value)}
+              />
+            </div>
+            <button
+              type="button"
+              className="rounded border border-border/60 px-2 py-1"
+              onClick={async () => {
+                if (!desktopBrowser?.saveCredential || !profileId) return;
+                try {
+                  const saved = await desktopBrowser.saveCredential({
+                    profileId,
+                    origin: new URL(credentialOrigin).origin,
+                    username: credentialUsername,
+                    password: credentialPassword,
+                  });
+                  setCredentials((current) => [
+                    saved,
+                    ...current.filter((item) => item.id !== saved.id),
+                  ]);
+                  setCredentialPassword("");
+                } catch {
+                  useToastStore
+                    .getState()
+                    .error(m.workbench_browser_password_save_error());
+                }
+              }}
+            >
+              {m.workbench_browser_password_save()}
+            </button>
+            {credentials.map((credential) => (
+              <div
+                key={credential.id}
+                className="flex items-center justify-between gap-2 text-xs"
+              >
+                <span className="truncate">
+                  {credential.origin} · {credential.username}
+                </span>
+                <button
+                  type="button"
+                  className="text-destructive"
+                  onClick={async () => {
+                    await desktopBrowser?.deleteCredential?.({
+                      profileId: profileId ?? "",
+                      id: credential.id,
+                    });
+                    setCredentials((current) =>
+                      current.filter((item) => item.id !== credential.id),
+                    );
+                  }}
+                >
+                  {m.workbench_browser_password_remove()}
+                </button>
+              </div>
+            ))}
+          </div>
           <div className="space-y-2 rounded border border-border/60 p-2 text-foreground">
             <div>
               <p className="font-medium">

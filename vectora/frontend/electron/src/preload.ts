@@ -25,6 +25,14 @@ export interface BrowserDownloadEvent {
   totalBytes: number;
 }
 
+export interface BrowserCredential {
+  id: string;
+  origin: string;
+  username: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface VectoraDesktopBridge {
   /** "win32" | "darwin" | "linux" — útil para shortcuts e UI condicional. */
   readonly platform: NodeJS.Platform;
@@ -130,6 +138,17 @@ export interface VectoraDesktopBridge {
       handler: (viewId: number, event: BrowserViewEvent) => void,
     ) => () => void;
     onDownload: (handler: (event: BrowserDownloadEvent) => void) => () => void;
+    listCredentials: (profileId: string) => Promise<BrowserCredential[]>;
+    saveCredential: (input: {
+      profileId: string;
+      origin: string;
+      username: string;
+      password: string;
+    }) => Promise<BrowserCredential>;
+    deleteCredential: (input: {
+      profileId: string;
+      id: string;
+    }) => Promise<void>;
   };
   /** Busca/instalação de temas do VS Code Marketplace — baixa e
    * descompacta o `.vsix` no processo principal (ver
@@ -254,6 +273,12 @@ const bridge: VectoraDesktopBridge = {
       return () =>
         ipcRenderer.removeListener("vectora:browser-download", listener);
     },
+    listCredentials: (profileId) =>
+      ipcRenderer.invoke("vectora:browser-list-credentials", profileId),
+    saveCredential: (input) =>
+      ipcRenderer.invoke("vectora:browser-save-credential", input),
+    deleteCredential: (input) =>
+      ipcRenderer.invoke("vectora:browser-delete-credential", input),
   },
   themes: {
     fetchMarketplace: (extensionId) =>

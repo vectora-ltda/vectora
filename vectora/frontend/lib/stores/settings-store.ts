@@ -153,6 +153,10 @@ export interface SettingsState {
   editorMinimap: boolean;
   editorWordWrap: boolean;
   editorFormatOnType: boolean;
+  /** Formata o conteúdo com o serviço local antes de salvar. */
+  editorFormatterEnabled: boolean;
+  /** Executa diagnósticos locais do arquivo aberto. */
+  editorLinterEnabled: boolean;
   editorQuickSuggestions: boolean;
   editorLineNumbers: boolean;
   editorTabSize: number;
@@ -241,6 +245,8 @@ export interface SettingsState {
   setEditorMinimap: (v: boolean) => void;
   setEditorWordWrap: (v: boolean) => void;
   setEditorFormatOnType: (v: boolean) => void;
+  setEditorFormatterEnabled: (v: boolean) => void;
+  setEditorLinterEnabled: (v: boolean) => void;
   setEditorQuickSuggestions: (v: boolean) => void;
   setEditorLineNumbers: (v: boolean) => void;
   setEditorTabSize: (v: number) => void;
@@ -455,6 +461,8 @@ const DEFAULTS = {
   editorMinimap: true,
   editorWordWrap: false,
   editorFormatOnType: true,
+  editorFormatterEnabled: true,
+  editorLinterEnabled: true,
   editorQuickSuggestions: true,
   editorLineNumbers: true,
   editorTabSize: 2,
@@ -648,6 +656,8 @@ export const useSettingsStore = create<SettingsState>()(
       setEditorMinimap: (v) => set({ editorMinimap: v }),
       setEditorWordWrap: (v) => set({ editorWordWrap: v }),
       setEditorFormatOnType: (v) => set({ editorFormatOnType: v }),
+      setEditorFormatterEnabled: (v) => set({ editorFormatterEnabled: v }),
+      setEditorLinterEnabled: (v) => set({ editorLinterEnabled: v }),
       setEditorQuickSuggestions: (v) => set({ editorQuickSuggestions: v }),
       setEditorLineNumbers: (v) => set({ editorLineNumbers: v }),
       setEditorTabSize: (v) =>
@@ -797,6 +807,8 @@ export const useSettingsStore = create<SettingsState>()(
         editorMinimap: state.editorMinimap,
         editorWordWrap: state.editorWordWrap,
         editorFormatOnType: state.editorFormatOnType,
+        editorFormatterEnabled: state.editorFormatterEnabled,
+        editorLinterEnabled: state.editorLinterEnabled,
         editorQuickSuggestions: state.editorQuickSuggestions,
         editorLineNumbers: state.editorLineNumbers,
         editorTabSize: state.editorTabSize,

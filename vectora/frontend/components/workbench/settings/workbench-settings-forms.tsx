@@ -156,6 +156,20 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
         onChange={settings.setEditorFormatOnType}
       />
       <Toggle
+        id="files-formatter-service"
+        label="Formatter local"
+        help="Formata JSON e normaliza espaços e finais de linha ao salvar."
+        checked={settings.editorFormatterEnabled}
+        onChange={settings.setEditorFormatterEnabled}
+      />
+      <Toggle
+        id="files-linter-service"
+        label="Linter local"
+        help="Executa diagnósticos locais para JSON inválido e espaços finais."
+        checked={settings.editorLinterEnabled}
+        onChange={settings.setEditorLinterEnabled}
+      />
+      <Toggle
         id="files-quick-suggestions"
         label={m.workbench_files_quick_suggestions_label()}
         help={m.workbench_files_quick_suggestions_help()}

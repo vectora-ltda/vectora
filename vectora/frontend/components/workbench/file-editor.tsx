@@ -9,7 +9,7 @@
  * truncados/binários caem no `FileViewer` read-only.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import MonacoEditor, { type OnMount } from "@monaco-editor/react";
 import { Loader2 } from "lucide-react";
 
@@ -23,6 +23,7 @@ import { getMediaKind, FileViewer } from "@/components/workbench/file-viewer";
 import { m } from "@/lib/paraglide/messages";
 import { useMonacoTheme } from "@/lib/monaco/use-monaco-theme";
 import { godotEditorOptions } from "@/lib/monaco/editor-options";
+import { formatEditorText, lintEditorText } from "@/lib/editor-services";
 import {
   editorBuffers,
   editorKey,
@@ -45,6 +46,10 @@ export function FileEditor({
   const editorMinimap = useSettingsStore((s) => s.editorMinimap);
   const editorWordWrap = useSettingsStore((s) => s.editorWordWrap);
   const editorFormatOnType = useSettingsStore((s) => s.editorFormatOnType);
+  const editorFormatterEnabled = useSettingsStore(
+    (s) => s.editorFormatterEnabled,
+  );
+  const editorLinterEnabled = useSettingsStore((s) => s.editorLinterEnabled);
   const editorQuickSuggestions = useSettingsStore(
     (s) => s.editorQuickSuggestions,
   );
@@ -78,6 +83,10 @@ export function FileEditor({
   const key = editorKey(workspaceId, path);
 
   const dirty = file?.content !== undefined && value !== file.content;
+  const diagnostics = useMemo(
+    () => (editorLinterEnabled ? lintEditorText(path, value) : []),
+    [editorLinterEnabled, path, value],
+  );
   const readOnly =
     file?.kind === "binary" || file?.truncated || file?.sha256 == null;
 
@@ -124,20 +133,24 @@ export function FileEditor({
 
   const handleSave = useCallback(async () => {
     if (!file || file.content === undefined || readOnly || saving) return;
+    const contentToSave = editorFormatterEnabled
+      ? formatEditorText(path, value)
+      : value;
+    if (contentToSave !== value) setValue(contentToSave);
     setSaving(true);
     const result = await apiUpdateFile(
       workspaceId,
       path,
-      value,
+      contentToSave,
       shaRef.current,
     );
     setSaving(false);
     if (result.ok) {
       shaRef.current = result.sha256;
-      setFile((prev) => (prev ? { ...prev, content: value } : prev));
+      setFile((prev) => (prev ? { ...prev, content: contentToSave } : prev));
       editorBuffers.set(key, {
-        file: { ...file, content: value },
-        value,
+        file: { ...file, content: contentToSave },
+        value: contentToSave,
         sha256: result.sha256,
       });
       return;
@@ -150,7 +163,16 @@ export function FileEditor({
           : m.workbench_files_save_error(),
         { description: result.message },
       );
-  }, [file, key, readOnly, saving, workspaceId, path, value]);
+  }, [
+    editorFormatterEnabled,
+    file,
+    key,
+    path,
+    readOnly,
+    saving,
+    value,
+    workspaceId,
+  ]);
 
   useEffect(() => {
     saveRef.current = handleSave;
@@ -219,11 +241,19 @@ export function FileEditor({
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
         void handleSave();
       });
+      editor.addCommand(
+        monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF,
+        () => {
+          if (!editorFormatterEnabled || readOnly) return;
+          const next = formatEditorText(path, editor.getValue());
+          if (next !== editor.getValue()) editor.setValue(next);
+        },
+      );
       editor.onDidBlurEditorText(() => {
         if (autoSaveModeRef.current === "onFocusChange") void saveRef.current();
       });
     },
-    [handleSave],
+    [editorFormatterEnabled, handleSave, path, readOnly],
   );
 
   if (media) {
@@ -290,6 +320,15 @@ export function FileEditor({
         <p className="shrink-0 border-t border-border/60 px-2 py-1 text-[10px] text-muted-foreground">
           {m.workbench_files_read_only_truncated()}
         </p>
+      )}
+      {diagnostics.length > 0 && (
+        <div className="shrink-0 border-t border-border/60 px-2 py-1 text-[10px] text-amber-600">
+          {m.workbench_files_diagnostics({
+            count: diagnostics.length,
+            message: diagnostics[0]?.message ?? "",
+            line: diagnostics[0]?.line ?? 0,
+          })}
+        </div>
       )}
     </div>
   );

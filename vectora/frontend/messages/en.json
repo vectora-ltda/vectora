@@ -1768,5 +1768,14 @@
   "workbench_terminal_scrollback_label": "Scrollback lines",
   "workbench_terminal_scrollback_help": "Number of output lines retained for each terminal.",
   "workbench_terminal_cursor_blink_label": "Blinking cursor",
-  "workbench_terminal_cursor_blink_help": "Show a blinking cursor while the terminal is focused."
+  "workbench_terminal_cursor_blink_help": "Show a blinking cursor while the terminal is focused.",
+  "workbench_files_diagnostics": "{count} diagnostic(s): {message} (line {line})",
+  "workbench_browser_password_manager_title": "Password manager",
+  "workbench_browser_password_manager_help": "Credentials are encrypted by the system secure vault and never returned in the list.",
+  "workbench_browser_password_origin": "https://example.com",
+  "workbench_browser_password_username": "Username",
+  "workbench_browser_password_secret": "Password",
+  "workbench_browser_password_save": "Save credential",
+  "workbench_browser_password_remove": "Remove",
+  "workbench_browser_password_save_error": "The credential could not be saved."
 }

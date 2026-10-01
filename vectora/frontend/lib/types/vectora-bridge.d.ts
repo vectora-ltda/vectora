@@ -118,6 +118,19 @@ export interface VectoraDesktopBridge {
    * própria) — presente só no desktop; sem isso, a aba Browser cai no
    * `<iframe>` de fallback (sujeito a X-Frame-Options). */
   browserView?: {
+    listCredentials?: (
+      profileId: string,
+    ) => Promise<VectoraBrowserCredential[]>;
+    saveCredential?: (input: {
+      profileId: string;
+      origin: string;
+      username: string;
+      password: string;
+    }) => Promise<VectoraBrowserCredential>;
+    deleteCredential?: (input: {
+      profileId: string;
+      id: string;
+    }) => Promise<void>;
     createView: (options: VectoraBrowserViewOptions) => Promise<number>;
     destroyView: (viewId: number) => void;
     navigate: (
@@ -169,6 +182,14 @@ export interface VectoraDesktopBridge {
     setPercent: (percent: number) => void;
     get: () => Promise<number>;
   };
+}
+
+export interface VectoraBrowserCredential {
+  id: string;
+  origin: string;
+  username: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface VectoraBackupPreview {

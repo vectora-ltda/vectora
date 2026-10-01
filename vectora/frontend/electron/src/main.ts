@@ -392,6 +392,66 @@ const _cookieStore = new Map<string, string>();
 // disponível) em vez de depender do cookie jar do Chromium.
 const _SESSION_STORE_FILE = path.join(os.homedir(), ".vectora", "session.dat");
 
+interface BrowserCredentialRecord {
+  id: string;
+  origin: string;
+  username: string;
+  password: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function browserCredentialFile(profileId: string): string {
+  return path.join(
+    app.getPath("userData"),
+    "browser-credentials",
+    `${profileId}.dat`,
+  );
+}
+
+async function readBrowserCredentials(
+  profileId: string,
+): Promise<BrowserCredentialRecord[]> {
+  try {
+    const raw = await fs.promises.readFile(browserCredentialFile(profileId));
+    if (!safeStorage.isEncryptionAvailable()) return [];
+    const parsed = JSON.parse(safeStorage.decryptString(raw)) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is BrowserCredentialRecord => {
+          const value = item as Partial<BrowserCredentialRecord>;
+          return (
+            typeof value.id === "string" &&
+            typeof value.origin === "string" &&
+            typeof value.username === "string" &&
+            typeof value.password === "string"
+          );
+        })
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeBrowserCredentials(
+  profileId: string,
+  records: BrowserCredentialRecord[],
+): Promise<void> {
+  if (!safeStorage.isEncryptionAvailable())
+    throw new Error("armazenamento seguro indisponível");
+  const file = browserCredentialFile(profileId);
+  await fs.promises.mkdir(path.dirname(file), { recursive: true });
+  await fs.promises.writeFile(
+    file,
+    safeStorage.encryptString(JSON.stringify(records)),
+    { mode: 0o600 },
+  );
+}
+
+function publicCredential(record: BrowserCredentialRecord) {
+  const { password: _password, ...metadata } = record;
+  return metadata;
+}
+
 function persistCookieStore(): void {
   try {
     const json = JSON.stringify(Object.fromEntries(_cookieStore));
@@ -1237,6 +1297,85 @@ function registerIpc(): void {
         throw new Error("opções de limpeza inválidas");
       }
       return getBrowserViewManager().clearData(profileId, options);
+    },
+  );
+  ipcMain.handle(
+    "vectora:browser-list-credentials",
+    async (event, profileId: unknown) => {
+      if (
+        !isTrustedBrowserSender(event) ||
+        typeof profileId !== "string" ||
+        !isValidProfileId(profileId)
+      ) {
+        throw new Error("perfil inválido");
+      }
+      return (await readBrowserCredentials(profileId)).map(publicCredential);
+    },
+  );
+  ipcMain.handle(
+    "vectora:browser-save-credential",
+    async (event, input: unknown) => {
+      if (!isTrustedBrowserSender(event) || !input || typeof input !== "object")
+        throw new Error("credencial inválida");
+      const { profileId, origin, username, password } = input as Record<
+        string,
+        unknown
+      >;
+      if (
+        typeof profileId !== "string" ||
+        !isValidProfileId(profileId) ||
+        typeof origin !== "string" ||
+        !/^https?:\/\/[^/]+$/.test(origin) ||
+        typeof username !== "string" ||
+        username.length === 0 ||
+        username.length > 320 ||
+        typeof password !== "string" ||
+        password.length === 0 ||
+        password.length > 4096
+      ) {
+        throw new Error("credencial inválida");
+      }
+      const records = await readBrowserCredentials(profileId);
+      const now = new Date().toISOString();
+      const existing = records.find(
+        (record) => record.origin === origin && record.username === username,
+      );
+      const record: BrowserCredentialRecord = existing
+        ? { ...existing, password, updatedAt: now }
+        : {
+            id: randomUUID(),
+            origin,
+            username,
+            password,
+            createdAt: now,
+            updatedAt: now,
+          };
+      await writeBrowserCredentials(
+        profileId,
+        existing
+          ? records.map((item) => (item.id === record.id ? record : item))
+          : [...records, record],
+      );
+      return publicCredential(record);
+    },
+  );
+  ipcMain.handle(
+    "vectora:browser-delete-credential",
+    async (event, input: unknown) => {
+      if (!isTrustedBrowserSender(event) || !input || typeof input !== "object")
+        throw new Error("credencial inválida");
+      const { profileId, id } = input as Record<string, unknown>;
+      if (
+        typeof profileId !== "string" ||
+        !isValidProfileId(profileId) ||
+        typeof id !== "string"
+      )
+        throw new Error("credencial inválida");
+      const records = await readBrowserCredentials(profileId);
+      await writeBrowserCredentials(
+        profileId,
+        records.filter((record) => record.id !== id),
+      );
     },
   );
   ipcMain.on(

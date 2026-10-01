@@ -1768,5 +1768,14 @@
   "workbench_terminal_scrollback_label": "Linhas de histórico",
   "workbench_terminal_scrollback_help": "Quantidade de linhas de saída mantidas em cada terminal.",
   "workbench_terminal_cursor_blink_label": "Cursor piscante",
-  "workbench_terminal_cursor_blink_help": "Exibe um cursor piscante enquanto o terminal está em foco."
+  "workbench_terminal_cursor_blink_help": "Exibe um cursor piscante enquanto o terminal está em foco.",
+  "workbench_files_diagnostics": "{count} diagnóstico(s): {message} (linha {line})",
+  "workbench_browser_password_manager_title": "Gerenciador de senhas",
+  "workbench_browser_password_manager_help": "As credenciais são criptografadas pelo cofre seguro do sistema e nunca aparecem na lista.",
+  "workbench_browser_password_origin": "https://exemplo.com",
+  "workbench_browser_password_username": "Usuário",
+  "workbench_browser_password_secret": "Senha",
+  "workbench_browser_password_save": "Salvar credencial",
+  "workbench_browser_password_remove": "Remover",
+  "workbench_browser_password_save_error": "Não foi possível salvar a credencial."
 }
