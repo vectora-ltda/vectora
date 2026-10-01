@@ -42,6 +42,7 @@ export type UiMode = "assistant" | "ide" | "kanban";
  * caminho de arquivo; isso permite usar fontes instaladas no sistema sem
  * empacotar fontes proprietárias no Vectora. */
 export type FontFamily = string;
+export type EditorAutoSaveMode = "off" | "afterDelay" | "onFocusChange";
 
 /** Presets de UI Scale exibidos no seletor — percentuais, não pixels; 100 =
  *  tamanho base (`FONT_SCALE_BASE_PX`). */
@@ -145,6 +146,10 @@ export interface SettingsState {
   monacoFontSize: number;
   /** Salva arquivos do editor automaticamente após uma pausa na edição. */
   editorAutoSave: boolean;
+  /** Estratégia de salvamento automático do editor. */
+  editorAutoSaveMode: EditorAutoSaveMode;
+  /** Intervalo de silêncio antes do salvamento automático, em milissegundos. */
+  editorAutoSaveDelay: number;
   editorMinimap: boolean;
   editorWordWrap: boolean;
   editorFormatOnType: boolean;
@@ -215,6 +220,8 @@ export interface SettingsState {
   setFontScaleMarkdown: (v: number) => void;
   setMonacoFontSize: (v: number) => void;
   setEditorAutoSave: (v: boolean) => void;
+  setEditorAutoSaveMode: (v: EditorAutoSaveMode) => void;
+  setEditorAutoSaveDelay: (v: number) => void;
   setEditorMinimap: (v: boolean) => void;
   setEditorWordWrap: (v: boolean) => void;
   setEditorFormatOnType: (v: boolean) => void;
@@ -414,6 +421,8 @@ const DEFAULTS = {
   fontScaleMarkdown: FONT_SCALE_BASE_PX,
   monacoFontSize: 13,
   editorAutoSave: false,
+  editorAutoSaveMode: "off" as EditorAutoSaveMode,
+  editorAutoSaveDelay: 800,
   editorMinimap: true,
   editorWordWrap: false,
   editorFormatOnType: true,
@@ -584,7 +593,17 @@ export const useSettingsStore = create<SettingsState>()(
       setFontScaleMarkdown: (v) =>
         set({ fontScaleMarkdown: clampFontScale(v) }),
       setMonacoFontSize: (v) => set({ monacoFontSize: clampMonacoFontSize(v) }),
-      setEditorAutoSave: (v) => set({ editorAutoSave: v }),
+      setEditorAutoSave: (v) =>
+        set({
+          editorAutoSave: v,
+          editorAutoSaveMode: v ? "afterDelay" : "off",
+        }),
+      setEditorAutoSaveMode: (v) =>
+        set({ editorAutoSaveMode: v, editorAutoSave: v !== "off" }),
+      setEditorAutoSaveDelay: (v) =>
+        set({
+          editorAutoSaveDelay: Math.max(200, Math.min(5000, Math.round(v))),
+        }),
       setEditorMinimap: (v) => set({ editorMinimap: v }),
       setEditorWordWrap: (v) => set({ editorWordWrap: v }),
       setEditorFormatOnType: (v) => set({ editorFormatOnType: v }),
@@ -623,7 +642,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: getStorageKey(), // Chave default; re-hidratada ao chamar loadUserSettings()
-      version: 6, // v6: adiciona fontes configuráveis por superfície
+      version: 7, // v7: adiciona modo e intervalo do salvamento automático
       // v4: clampa sidebarWidth/chatSidebarWidth pros limites atuais mesmo fora do default legado exato (teto do chat caiu de 800→480)
       migrate: (persistedState) => {
         const s = persistedState as Record<string, unknown>;
@@ -653,6 +672,12 @@ export const useSettingsStore = create<SettingsState>()(
           else if (s.themePreset === "godot-light")
             s.themePreset = "default-light";
           s.installedThemes = migrateInstalledThemes(s.installedThemes);
+          if (s.editorAutoSaveMode === undefined) {
+            s.editorAutoSaveMode =
+              s.editorAutoSave === true ? "afterDelay" : "off";
+          }
+          if (typeof s.editorAutoSaveDelay !== "number")
+            s.editorAutoSaveDelay = 800;
         }
         return s;
       },
@@ -688,6 +713,8 @@ export const useSettingsStore = create<SettingsState>()(
         fontScaleMarkdown: state.fontScaleMarkdown,
         monacoFontSize: state.monacoFontSize,
         editorAutoSave: state.editorAutoSave,
+        editorAutoSaveMode: state.editorAutoSaveMode,
+        editorAutoSaveDelay: state.editorAutoSaveDelay,
         editorMinimap: state.editorMinimap,
         editorWordWrap: state.editorWordWrap,
         editorFormatOnType: state.editorFormatOnType,

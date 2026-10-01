@@ -144,7 +144,11 @@ export const tasksSettings: WorkbenchSettingsDescriptor = {
   icon: Settings2,
   scope: "user",
   sections: [section("tasks", () => m.workbench_tab_tasks())],
-  capabilities: [capability("background-tasks", "available")],
+  capabilities: [
+    capability("background-tasks", "available"),
+    capability("retry-policy", "planned"),
+    capability("concurrency-limit", "planned"),
+  ],
   Component: TasksSettingsForm,
   surface: { workbench: "form", settings: "form" },
 };

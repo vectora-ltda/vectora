@@ -42,13 +42,61 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
   const settings = useSettingsStore();
   return (
     <div className="space-y-4">
-      <Toggle
-        id="files-autosave"
-        label={m.workbench_files_autosave_label()}
-        help={m.workbench_files_autosave_help()}
-        checked={settings.editorAutoSave}
-        onChange={settings.setEditorAutoSave}
-      />
+      <div className="space-y-1">
+        <Label htmlFor="files-autosave-mode">
+          {m.workbench_files_autosave_label()}
+        </Label>
+        <p className="text-xs text-muted-foreground">
+          {m.workbench_files_autosave_help()}
+        </p>
+        <Select
+          value={settings.editorAutoSaveMode}
+          onValueChange={(value) =>
+            settings.setEditorAutoSaveMode(
+              value as "off" | "afterDelay" | "onFocusChange",
+            )
+          }
+        >
+          <SelectTrigger id="files-autosave-mode">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="off">
+              {m.workbench_files_autosave_off()}
+            </SelectItem>
+            <SelectItem value="afterDelay">
+              {m.workbench_files_autosave_after_delay()}
+            </SelectItem>
+            <SelectItem value="onFocusChange">
+              {m.workbench_files_autosave_on_focus_change()}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      {settings.editorAutoSaveMode === "afterDelay" && (
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <Label htmlFor="files-autosave-delay">
+              {m.workbench_files_autosave_delay_label()}
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {m.workbench_files_autosave_delay_help()}
+            </p>
+          </div>
+          <Input
+            id="files-autosave-delay"
+            type="number"
+            min={200}
+            max={5000}
+            step={100}
+            value={settings.editorAutoSaveDelay}
+            onChange={(event) =>
+              settings.setEditorAutoSaveDelay(Number(event.target.value))
+            }
+            className="w-24"
+          />
+        </div>
+      )}
       <div className="flex items-center justify-between gap-3">
         <div>
           <Label htmlFor="files-font-size">
@@ -235,46 +283,9 @@ export function TasksSettingsForm(_context: WorkbenchSettingsContext) {
         checked={settings.taskNotifications}
         onChange={settings.setTaskNotifications}
       />
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <Label htmlFor="tasks-retry">{m.workbench_tasks_retry_label()}</Label>
-          <p className="text-xs text-muted-foreground">
-            {m.workbench_tasks_retry_help()}
-          </p>
-        </div>
-        <Input
-          id="tasks-retry"
-          type="number"
-          min={0}
-          max={5}
-          value={settings.taskRetryCount}
-          onChange={(event) =>
-            settings.setTaskRetryCount(Number(event.target.value))
-          }
-          className="w-24"
-        />
-      </div>
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <Label htmlFor="tasks-concurrency">
-            {m.workbench_tasks_concurrency_label()}
-          </Label>
-          <p className="text-xs text-muted-foreground">
-            {m.workbench_tasks_concurrency_help()}
-          </p>
-        </div>
-        <Input
-          id="tasks-concurrency"
-          type="number"
-          min={1}
-          max={8}
-          value={settings.taskConcurrency}
-          onChange={(event) =>
-            settings.setTaskConcurrency(Number(event.target.value))
-          }
-          className="w-24"
-        />
-      </div>
+      <p className="text-xs text-muted-foreground">
+        {m.workbench_tasks_advanced_planned_help()}
+      </p>
     </div>
   );
 }

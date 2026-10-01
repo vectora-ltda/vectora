@@ -40,7 +40,8 @@ export function FileEditor({
   const monacoTheme = useMonacoTheme(language);
   const monacoFontSize = useSettingsStore((s) => s.monacoFontSize);
   const editorFontFamily = useSettingsStore((s) => s.editorFontFamily);
-  const autoSave = useSettingsStore((s) => s.editorAutoSave);
+  const autoSaveMode = useSettingsStore((s) => s.editorAutoSaveMode);
+  const autoSaveDelay = useSettingsStore((s) => s.editorAutoSaveDelay);
   const editorMinimap = useSettingsStore((s) => s.editorMinimap);
   const editorWordWrap = useSettingsStore((s) => s.editorWordWrap);
   const editorFormatOnType = useSettingsStore((s) => s.editorFormatOnType);
@@ -64,6 +65,8 @@ export function FileEditor({
   const [saving, setSaving] = useState(false);
   const shaRef = useRef<string | null>(null);
   const requestEpochRef = useRef(0);
+  const saveRef = useRef<() => Promise<void>>(async () => undefined);
+  const autoSaveModeRef = useRef(autoSaveMode);
   const key = editorKey(workspaceId, path);
 
   const dirty = file?.content !== undefined && value !== file.content;
@@ -141,6 +144,11 @@ export function FileEditor({
       );
   }, [file, key, readOnly, saving, workspaceId, path, value]);
 
+  useEffect(() => {
+    saveRef.current = handleSave;
+    autoSaveModeRef.current = autoSaveMode;
+  }, [autoSaveMode, handleSave]);
+
   const handleSaveAs = useCallback(
     async (targetPath: string) => {
       if (
@@ -193,15 +201,18 @@ export function FileEditor({
   }, [file, key, value]);
 
   useEffect(() => {
-    if (!autoSave || !dirty || readOnly) return;
-    const timer = window.setTimeout(() => void handleSave(), 800);
+    if (autoSaveMode !== "afterDelay" || !dirty || readOnly) return;
+    const timer = window.setTimeout(() => void handleSave(), autoSaveDelay);
     return () => window.clearTimeout(timer);
-  }, [autoSave, dirty, handleSave, readOnly]);
+  }, [autoSaveDelay, autoSaveMode, dirty, handleSave, readOnly]);
 
   const handleMount: OnMount = useCallback(
     (editor, monaco) => {
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
         void handleSave();
+      });
+      editor.onDidBlurEditorText(() => {
+        if (autoSaveModeRef.current === "onFocusChange") void saveRef.current();
       });
     },
     [handleSave],
