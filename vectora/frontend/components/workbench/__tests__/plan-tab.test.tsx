@@ -16,6 +16,7 @@ import {
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useWorkbenchStore } from "@/lib/stores/workbench-store";
+import { useSettingsStore } from "@/lib/stores/settings-store";
 import { m } from "@/lib/paraglide/messages";
 import { PlanTab } from "../tabs/plan-tab";
 
@@ -39,6 +40,9 @@ function openAccordionItem(name: RegExp) {
 }
 
 beforeEach(() => {
+  // Os casos controlam a abertura explicitamente; desative o auto-expand
+  // persistido para que o clique do teste nunca feche um item já aberto.
+  useSettingsStore.getState().setPlanAutoExpand(false);
   fetchMock.mockReset();
   fetchMock.mockImplementation((url: string) => {
     if (typeof url === "string" && url.includes("/artifacts/")) {
