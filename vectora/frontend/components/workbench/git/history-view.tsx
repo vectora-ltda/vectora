@@ -23,7 +23,7 @@ import {
   apiReorder,
   apiRevert,
   apiSquash,
-  fetchCommitDiff,
+  fetchGitCommitDiff,
   fetchGitLog,
   type GitLogCommit,
 } from "./api";
@@ -491,7 +491,7 @@ export function HistoryView({
       setDiffLoading(true);
       onOpenCommitDetails?.({ commit, diff: null, loading: true });
       try {
-        const diff = await fetchCommitDiff(requestedWorkspace, commit.sha);
+        const diff = await fetchGitCommitDiff(requestedWorkspace, commit.sha);
         if (
           request !== detailsRequest.current ||
           epoch !== workspaceRequest.current ||

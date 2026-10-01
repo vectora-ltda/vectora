@@ -290,7 +290,7 @@ describe("HistoryView — paginação", () => {
 
   it("publica erro terminal quando o diff do commit falha", async () => {
     const commitDiff = vi
-      .spyOn(api, "fetchCommitDiff")
+      .spyOn(api, "fetchGitCommitDiff")
       .mockRejectedValue(new Error("diff indisponível"));
     vi.spyOn(api, "fetchGitLog").mockResolvedValue({
       branch: "main",

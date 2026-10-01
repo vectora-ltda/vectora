@@ -129,7 +129,7 @@ beforeEach(() => {
     branches: ["main"],
     remotes: [],
   });
-  vi.spyOn(api, "fetchDiff").mockResolvedValue(null);
+  vi.spyOn(api, "fetchGitDiff").mockResolvedValue(null);
   vi.spyOn(api, "fetchGitOperation").mockResolvedValue(null);
 });
 

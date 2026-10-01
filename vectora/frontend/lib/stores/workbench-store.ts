@@ -175,7 +175,7 @@ export interface GitOpsState {
   operation: GitOpsSnapshot | null;
 }
 
-interface DiffCache {
+interface GitCache {
   summary: DiffSummary | null;
   openFiles: string[];
   hunksByFile: Record<string, DiffHunk[]>;
@@ -296,7 +296,7 @@ interface WorkbenchState {
 
   // ── Caches voláteis ───────────────────────────────────────────────────────
   files: Record<string, FilesCache>;
-  git: Record<string, DiffCache>;
+  git: Record<string, GitCache>;
   plan: Record<string, PlanCache>;
   todos: Record<string, TodoItem[]>;
   gitOps: Record<string, GitOpsState>;
@@ -311,7 +311,7 @@ interface WorkbenchState {
   invalidateFiles: (wsId?: string) => void;
 
   // Git workbench cache
-  getGit: (wsId: string) => DiffCache;
+  getGit: (wsId: string) => GitCache;
   setGitSummary: (wsId: string, summary: DiffSummary) => void;
   setGitOpenFile: (wsId: string, path: string, open: boolean) => void;
   setGitHunks: (wsId: string, path: string, hunks: DiffHunk[]) => void;
@@ -366,7 +366,7 @@ const EMPTY_FILES: FilesCache = {
   filter: "",
   fetchedAt: {},
 };
-const EMPTY_DIFF: DiffCache = {
+const EMPTY_GIT_CACHE: GitCache = {
   summary: null,
   openFiles: [],
   hunksByFile: {},
@@ -612,10 +612,10 @@ export const useWorkbenchStore = create<WorkbenchState>()(
             };
           }),
 
-        getGit: (wsId) => get().git[wsId] ?? EMPTY_DIFF,
+        getGit: (wsId) => get().git[wsId] ?? EMPTY_GIT_CACHE,
         setGitSummary: (wsId, summary) =>
           set((s) => {
-            const cur = s.git[wsId] ?? EMPTY_DIFF;
+            const cur = s.git[wsId] ?? EMPTY_GIT_CACHE;
             return {
               git: {
                 ...s.git,
@@ -629,7 +629,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           }),
         setGitOpenFile: (wsId, path, open) =>
           set((s) => {
-            const cur = s.git[wsId] ?? EMPTY_DIFF;
+            const cur = s.git[wsId] ?? EMPTY_GIT_CACHE;
             const next = open
               ? [...new Set([...cur.openFiles, path])]
               : cur.openFiles.filter((p) => p !== path);
@@ -637,7 +637,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           }),
         setGitHunks: (wsId, path, hunks) =>
           set((s) => {
-            const cur = s.git[wsId] ?? EMPTY_DIFF;
+            const cur = s.git[wsId] ?? EMPTY_GIT_CACHE;
             return {
               git: {
                 ...s.git,

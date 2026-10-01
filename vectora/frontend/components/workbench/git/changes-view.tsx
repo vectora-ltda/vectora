@@ -33,7 +33,7 @@ import {
   apiGitFileAction,
   apiGitignoreAppend,
   fetchGitCommitSuggestion,
-  fetchDiffFile,
+  fetchGitDiffFile,
 } from "./api";
 import { HunkView, statusTone } from "./shared";
 import { useContextMenu, type ContextMenuItem } from "./git-context-menu";
@@ -66,7 +66,7 @@ function FileRow({
   const setGitHunks = useWorkbenchStore((s) => s.setGitHunks);
 
   const revalidate = useCallback(async () => {
-    const h = await fetchDiffFile(workspaceId, file.path);
+    const h = await fetchGitDiffFile(workspaceId, file.path);
     if (h) setGitHunks(workspaceId, file.path, h);
   }, [workspaceId, file.path, setGitHunks]);
 

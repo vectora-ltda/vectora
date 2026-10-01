@@ -29,7 +29,7 @@ import { GitSkeleton } from "../tabs/git-skeleton";
 import {
   apiCreatePR,
   fetchBranches,
-  fetchDiff,
+  fetchGitDiff,
   fetchGitStatus,
   fetchGitOperation,
   fetchPullRequests,
@@ -213,7 +213,7 @@ export function GitTab({
     isStale: () => Date.now() - fetchedAt > WORKBENCH_STALE_MS,
     revalidate: async () => {
       if (!wsId) return;
-      const data = await fetchDiff(wsId);
+      const data = await fetchGitDiff(wsId);
       if (data) setGitSummary(wsId, data);
     },
     skip: !wsId,
