@@ -31,9 +31,17 @@ export function isValidViewBounds(value: unknown): value is ViewBounds {
 }
 
 export function isValidBrowserUrl(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    value.length > 0 &&
-    value.length <= MAX_URL_LENGTH
-  );
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > MAX_URL_LENGTH
+  ) {
+    return false;
+  }
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }

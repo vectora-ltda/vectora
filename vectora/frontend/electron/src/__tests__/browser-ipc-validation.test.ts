@@ -25,7 +25,10 @@ describe("browser IPC validation", () => {
     expect(isValidViewBounds({ x: -1, y: 0, width: 10, height: 10 })).toBe(
       false,
     );
-    expect(isValidBrowserUrl("chrome://settings")).toBe(true);
+    expect(isValidBrowserUrl("https://example.com/path")).toBe(true);
+    expect(isValidBrowserUrl("chrome://settings")).toBe(false);
+    expect(isValidBrowserUrl("file:///tmp/example")).toBe(false);
+    expect(isValidBrowserUrl("not a URL")).toBe(false);
     expect(isValidBrowserUrl("")).toBe(false);
   });
 });
