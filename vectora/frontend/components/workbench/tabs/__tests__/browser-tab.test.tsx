@@ -590,91 +590,20 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
     await waitFor(() => expect(bridge.clearProfileData).toHaveBeenCalledOnce());
   });
 
-  it("posiciona a view de configurações em uma aba nova", async () => {
+  it("abre as configurações do perfil no painel do Vectora sem criar uma view extra", async () => {
     const bridge = mockBrowserView();
     mockFetch({ configurations: [] });
-    const view = render(<BrowserTab threadId="desktop-settings-bounds" />);
+    render(<BrowserTab threadId="desktop-settings-panel" />);
     await waitFor(() => expect(bridge.createView).toHaveBeenCalledTimes(1));
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
-      x: 10,
-      y: 20,
-      width: 640,
-      height: 480,
-      top: 20,
-      right: 650,
-      bottom: 500,
-      left: 10,
-      toJSON: () => ({}),
-    });
 
     fireEvent.click(screen.getByTestId("browser-settings-btn"));
-    await waitFor(() =>
-      expect(bridge.setVisible).toHaveBeenCalledWith(expect.any(Number), true),
-    );
-    expect(bridge.setBounds).toHaveBeenCalledWith(
+    await screen.findByTestId("browser-settings-panel");
+
+    expect(bridge.createView).toHaveBeenCalledTimes(1);
+    expect(bridge.navigate).not.toHaveBeenCalledWith(
       expect.any(Number),
-      expect.objectContaining({
-        width: expect.any(Number),
-        height: expect.any(Number),
-      }),
+      expect.stringContaining("chrome://"),
     );
-  });
-
-  it("oculta a view de configurações quando a aba fica invisível", async () => {
-    const bridge = mockBrowserView();
-    mockFetch({ configurations: [] });
-    const view = render(<BrowserTab threadId="desktop-settings-hidden" />);
-    await waitFor(() => expect(bridge.createView).toHaveBeenCalledTimes(1));
-
-    fireEvent.click(screen.getByTestId("browser-settings-btn"));
-    await waitFor(() =>
-      expect(bridge.setVisible).toHaveBeenCalledWith(expect.any(Number), true),
-    );
-
-    view.rerender(
-      <BrowserTab threadId="desktop-settings-hidden" visible={false} />,
-    );
-    await waitFor(() =>
-      expect(bridge.setVisible).toHaveBeenCalledWith(expect.any(Number), false),
-    );
-  });
-
-  it("mantém o painel aberto e mostra erro quando a view de configurações falha", async () => {
-    const bridge = mockBrowserView();
-    mockFetch({ configurations: [] });
-    render(<BrowserTab threadId="desktop-settings-error" />);
-    await waitFor(() => expect(bridge.createView).toHaveBeenCalledTimes(1));
-    bridge.createView.mockRejectedValueOnce(new Error("IPC indisponível"));
-
-    fireEvent.click(screen.getByTestId("browser-settings-btn"));
-    await screen.findByTestId("browser-settings-panel");
-    expect(
-      await screen.findByText("workbench_browser_settings_error"),
-    ).toBeTruthy();
-  });
-
-  it("destrói a view de configurações se ela resolver depois que o painel for fechado", async () => {
-    const bridge = mockBrowserView();
-    let resolveSettingsView!: (viewId: number) => void;
-    mockFetch({ configurations: [] });
-    render(<BrowserTab threadId="desktop-settings-stale" />);
-    await waitFor(() => expect(bridge.createView).toHaveBeenCalledTimes(1));
-
-    bridge.createView.mockImplementationOnce(
-      () =>
-        new Promise<number>((resolve) => {
-          resolveSettingsView = resolve;
-        }),
-    );
-
-    fireEvent.click(screen.getByTestId("browser-settings-btn"));
-    await screen.findByTestId("browser-settings-panel");
-    fireEvent.click(screen.getByTestId("browser-settings-btn"));
-
-    await act(async () => resolveSettingsView(77));
-
-    expect(bridge.destroyView).toHaveBeenCalledWith(77);
-    expect(bridge.navigate).not.toHaveBeenCalledWith(77, "chrome://settings");
   });
 
   it("trocar de workspace sem sessão cria a WebContentsView nativa e navega nela", async () => {
