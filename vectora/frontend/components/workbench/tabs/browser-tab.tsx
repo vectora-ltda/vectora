@@ -142,6 +142,9 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const browserPermissionMode = useSettingsStore(
     (s) => s.browserPermissionMode,
   );
+  const browserOriginPermissions = useSettingsStore(
+    (s) => s.browserOriginPermissions,
+  );
 
   // Presente só no desktop Electron — quando ausente, cai no `<iframe>` de
   // fallback abaixo (sujeito a X-Frame-Options, único caminho possível fora
@@ -218,6 +221,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       desktopBrowser.setPolicy?.(activeTab.viewId, {
         allowPopups,
         permissionMode: browserPermissionMode,
+        originPermissions: browserOriginPermissions,
       });
     }
   }, [
@@ -226,6 +230,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     browserZoomPercent,
     allowPopups,
     browserPermissionMode,
+    browserOriginPermissions,
   ]);
 
   useEffect(() => {
@@ -390,6 +395,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
           allowPopups,
           zoomPercent: browserZoomPercent,
           permissionMode: browserPermissionMode,
+          originPermissions: browserOriginPermissions,
         })
         .then((viewId) => {
           if (
@@ -427,6 +433,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       allowPopups,
       browserZoomPercent,
       browserPermissionMode,
+      browserOriginPermissions,
     ],
   );
 
@@ -543,6 +550,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
           allowPopups,
           zoomPercent: browserZoomPercent,
           permissionMode: browserPermissionMode,
+          originPermissions: browserOriginPermissions,
         })
         .then((viewId) => {
           if (

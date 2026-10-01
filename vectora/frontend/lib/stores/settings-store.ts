@@ -199,6 +199,7 @@ export interface SettingsState {
   browserZoomPercent: number;
   /** Política padrão de permissões de origem no Browser. */
   browserPermissionMode: "allow" | "deny";
+  browserOriginPermissions: Record<string, "allow" | "deny">;
   /** Tamanho da fonte do terminal em pixels. */
   terminalFontSize: number;
   /** Número de linhas mantidas no scrollback do terminal. */
@@ -268,6 +269,8 @@ export interface SettingsState {
   setBrowserAllowPopups: (v: boolean) => void;
   setBrowserZoomPercent: (v: number) => void;
   setBrowserPermissionMode: (v: "allow" | "deny") => void;
+  setBrowserOriginPermission: (origin: string, mode: "allow" | "deny") => void;
+  removeBrowserOriginPermission: (origin: string) => void;
   setTerminalFontSize: (v: number) => void;
   setTerminalScrollback: (v: number) => void;
   setTerminalCursorBlink: (v: boolean) => void;
@@ -479,6 +482,7 @@ const DEFAULTS = {
   browserAllowPopups: false,
   browserZoomPercent: 100,
   browserPermissionMode: "deny" as "allow" | "deny",
+  browserOriginPermissions: {},
   terminalFontSize: 13,
   terminalScrollback: 5000,
   terminalCursorBlink: true,
@@ -684,6 +688,19 @@ export const useSettingsStore = create<SettingsState>()(
       setBrowserZoomPercent: (v) =>
         set({ browserZoomPercent: Math.max(25, Math.min(500, Math.round(v))) }),
       setBrowserPermissionMode: (v) => set({ browserPermissionMode: v }),
+      setBrowserOriginPermission: (origin, mode) =>
+        set((state) => ({
+          browserOriginPermissions: {
+            ...state.browserOriginPermissions,
+            [origin]: mode,
+          },
+        })),
+      removeBrowserOriginPermission: (origin) =>
+        set((state) => {
+          const next = { ...state.browserOriginPermissions };
+          delete next[origin];
+          return { browserOriginPermissions: next };
+        }),
       setTerminalFontSize: (v) =>
         set({ terminalFontSize: Math.max(8, Math.min(32, Math.round(v))) }),
       setTerminalScrollback: (v) =>
@@ -805,6 +822,7 @@ export const useSettingsStore = create<SettingsState>()(
         browserAllowPopups: state.browserAllowPopups,
         browserZoomPercent: state.browserZoomPercent,
         browserPermissionMode: state.browserPermissionMode,
+        browserOriginPermissions: state.browserOriginPermissions,
         terminalFontSize: state.terminalFontSize,
         terminalScrollback: state.terminalScrollback,
         terminalCursorBlink: state.terminalCursorBlink,

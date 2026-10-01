@@ -78,6 +78,7 @@ export interface BrowserViewOptions {
   allowPopups?: boolean;
   zoomPercent?: number;
   permissionMode?: "allow" | "deny";
+  originPermissions?: Record<string, "allow" | "deny">;
 }
 
 export type BrowserViewEvent =
@@ -105,7 +106,7 @@ export interface BrowserViewManagerDeps {
     kind?: BrowserViewKind,
     options?: Pick<
       BrowserViewOptions,
-      "allowPopups" | "zoomPercent" | "permissionMode"
+      "allowPopups" | "zoomPercent" | "permissionMode" | "originPermissions"
     >,
   ): ManagedView;
   attach(view: ManagedView): void;
@@ -115,7 +116,11 @@ export interface BrowserViewManagerDeps {
     partition: string,
     options?: BrowserDataClearOptions,
   ): Promise<void>;
-  setPermissionMode?(profileId: string, mode: "allow" | "deny"): void;
+  setPermissionMode?(
+    profileId: string,
+    mode: "allow" | "deny",
+    originPermissions?: Record<string, "allow" | "deny">,
+  ): void;
 }
 
 export interface BrowserDataClearOptions {
@@ -176,7 +181,7 @@ export class BrowserViewManager {
     ownerId: number | null = null,
     options: Pick<
       BrowserViewOptions,
-      "allowPopups" | "zoomPercent" | "permissionMode"
+      "allowPopups" | "zoomPercent" | "permissionMode" | "originPermissions"
     > = {},
   ): number {
     const normalizedProfileId = normalizeProfileId(profileId);
@@ -226,11 +231,12 @@ export class BrowserViewManager {
   setPermissionMode(
     id: number,
     mode: "allow" | "deny",
+    originPermissions: Record<string, "allow" | "deny"> | undefined = undefined,
     ownerId: number | null = null,
   ): void {
     const entry = this.entries.get(id);
     if (!entry || !this.owns(entry, ownerId)) return;
-    this.deps.setPermissionMode?.(entry.profileId, mode);
+    this.deps.setPermissionMode?.(entry.profileId, mode, originPermissions);
   }
 
   async clearData(

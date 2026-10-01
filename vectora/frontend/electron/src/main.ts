@@ -135,6 +135,10 @@ let updateReady = false;
 let browserViewManager: BrowserViewManager | null = null;
 const configuredBrowserDownloadSessions = new Set<Electron.Session>();
 const browserPermissionModes = new Map<string, "allow" | "deny">();
+const browserOriginPermissions = new Map<
+  string,
+  Map<string, "allow" | "deny">
+>();
 const desktopBridgeToken =
   process.env.VECTORA_DESKTOP_BRIDGE_TOKEN ?? randomUUID();
 let selectedBackupPath: string | null = null;
@@ -223,12 +227,25 @@ function getBrowserViewManager(): BrowserViewManager {
       const permissionMode = options.permissionMode ?? "deny";
       browserPermissionModes.set(profileId, permissionMode);
       browserSession.setPermissionRequestHandler?.(
-        (_webContents, _permission, callback) => {
-          callback(browserPermissionModes.get(profileId) === "allow");
+        (webContents, _permission, callback) => {
+          let origin = "";
+          try {
+            origin = new URL(webContents.getURL()).origin;
+          } catch {
+            origin = "";
+          }
+          const originMode = origin
+            ? browserOriginPermissions.get(profileId)?.get(origin)
+            : undefined;
+          callback(
+            (originMode ?? browserPermissionModes.get(profileId)) === "allow",
+          );
         },
       );
       browserSession.setPermissionCheckHandler?.(
-        () => browserPermissionModes.get(profileId) === "allow",
+        (_webContents, _permission, requestingOrigin) =>
+          (browserOriginPermissions.get(profileId)?.get(requestingOrigin) ??
+            browserPermissionModes.get(profileId)) === "allow",
       );
       if (options.zoomPercent !== undefined) {
         const factor = Math.max(0.25, Math.min(5, options.zoomPercent / 100));
@@ -1067,14 +1084,21 @@ function registerIpc(): void {
     if (!isTrustedBrowserSender(event)) throw new Error("origem IPC inválida");
     if (!options || typeof options !== "object")
       throw new Error("opções inválidas");
-    const { profileId, kind, allowPopups, zoomPercent, permissionMode } =
-      options as Partial<{
-        profileId: string;
-        kind: BrowserViewKind;
-        allowPopups: boolean;
-        zoomPercent: number;
-        permissionMode: "allow" | "deny";
-      }>;
+    const {
+      profileId,
+      kind,
+      allowPopups,
+      zoomPercent,
+      permissionMode,
+      originPermissions,
+    } = options as Partial<{
+      profileId: string;
+      kind: BrowserViewKind;
+      allowPopups: boolean;
+      zoomPercent: number;
+      permissionMode: "allow" | "deny";
+      originPermissions: Record<string, "allow" | "deny">;
+    }>;
     if (typeof profileId !== "string" || !isValidProfileId(profileId)) {
       throw new Error("profileId inválido");
     }
@@ -1089,6 +1113,23 @@ function registerIpc(): void {
     ) {
       throw new Error("permissionMode inválido");
     }
+    if (originPermissions !== undefined) {
+      if (!originPermissions || typeof originPermissions !== "object") {
+        throw new Error("originPermissions inválido");
+      }
+      for (const [origin, mode] of Object.entries(originPermissions)) {
+        if (
+          !/^https?:\/\/[^/]+$/.test(origin) ||
+          (mode !== "allow" && mode !== "deny")
+        ) {
+          throw new Error("originPermissions inválido");
+        }
+      }
+      browserOriginPermissions.set(
+        profileId,
+        new Map(Object.entries(originPermissions)),
+      );
+    }
     if (
       zoomPercent !== undefined &&
       (typeof zoomPercent !== "number" || !Number.isFinite(zoomPercent))
@@ -1099,7 +1140,7 @@ function registerIpc(): void {
       profileId,
       kind,
       browserOwnerId(event),
-      { allowPopups, zoomPercent, permissionMode },
+      { allowPopups, zoomPercent, permissionMode, originPermissions },
     );
   });
   ipcMain.on("vectora:browser-destroy-view", (event, viewId: number) => {
@@ -1206,7 +1247,11 @@ function registerIpc(): void {
     (
       event,
       viewId: number,
-      policy: { allowPopups?: boolean; permissionMode?: "allow" | "deny" },
+      policy: {
+        allowPopups?: boolean;
+        permissionMode?: "allow" | "deny";
+        originPermissions?: Record<string, "allow" | "deny">;
+      },
     ) => {
       if (!isTrustedBrowserSender(event)) return;
       if (!isValidViewId(viewId) || !policy || typeof policy !== "object")
@@ -1228,6 +1273,7 @@ function registerIpc(): void {
         getBrowserViewManager().setPermissionMode(
           viewId,
           policy.permissionMode,
+          policy.originPermissions,
           browserOwnerId(event),
         );
       }
