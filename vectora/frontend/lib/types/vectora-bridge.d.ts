@@ -45,6 +45,14 @@ export type VectoraBrowserViewEvent =
       url: string;
     };
 export type VectoraBrowserViewKind = "tab";
+export interface VectoraBrowserDownloadEvent {
+  id: string;
+  profileId: string;
+  filename: string;
+  state: "progressing" | "completed" | "cancelled" | "interrupted";
+  receivedBytes: number;
+  totalBytes: number;
+}
 export interface VectoraBrowserViewOptions {
   profileId: string;
   kind: VectoraBrowserViewKind;
@@ -137,6 +145,9 @@ export interface VectoraDesktopBridge {
     ) => Promise<void>;
     onEvent: (
       handler: (viewId: number, event: VectoraBrowserViewEvent) => void,
+    ) => () => void;
+    onDownload?: (
+      handler: (event: VectoraBrowserDownloadEvent) => void,
     ) => () => void;
   };
   /** Instalação de temas do VS Code Marketplace — só existe no desktop

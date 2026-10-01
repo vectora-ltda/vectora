@@ -16,6 +16,15 @@ import type {
 } from "./browser-view-manager.js";
 import type { UpdateBackupEntry } from "./update-backup-types.js";
 
+export interface BrowserDownloadEvent {
+  id: string;
+  profileId: string;
+  filename: string;
+  state: "progressing" | "completed" | "cancelled" | "interrupted";
+  receivedBytes: number;
+  totalBytes: number;
+}
+
 export interface VectoraDesktopBridge {
   /** "win32" | "darwin" | "linux" — útil para shortcuts e UI condicional. */
   readonly platform: NodeJS.Platform;
@@ -120,6 +129,7 @@ export interface VectoraDesktopBridge {
     onEvent: (
       handler: (viewId: number, event: BrowserViewEvent) => void,
     ) => () => void;
+    onDownload: (handler: (event: BrowserDownloadEvent) => void) => () => void;
   };
   /** Busca/instalação de temas do VS Code Marketplace — baixa e
    * descompacta o `.vsix` no processo principal (ver
@@ -236,6 +246,13 @@ const bridge: VectoraDesktopBridge = {
       return () => {
         ipcRenderer.removeListener("vectora:browser-view-event", listener);
       };
+    },
+    onDownload: (handler) => {
+      const listener = (_event: unknown, download: BrowserDownloadEvent) =>
+        handler(download);
+      ipcRenderer.on("vectora:browser-download", listener);
+      return () =>
+        ipcRenderer.removeListener("vectora:browser-download", listener);
     },
   },
   themes: {

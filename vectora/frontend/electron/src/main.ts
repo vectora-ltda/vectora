@@ -64,6 +64,7 @@ import {
   type ManagedView,
   type ViewBounds,
 } from "./browser-view-manager.js";
+import type { BrowserDownloadEvent } from "./preload.js";
 import {
   isValidBrowserUrl,
   isValidBrowserViewKind,
@@ -212,8 +213,33 @@ function getBrowserViewManager(): BrowserViewManager {
       if (!configuredBrowserDownloadSessions.has(browserSession)) {
         configuredBrowserDownloadSessions.add(browserSession);
         browserSession.on("will-download", (_event, item) => {
+          const id = randomUUID();
           const safeName = path.basename(item.getFilename()) || "download";
           item.setSavePath(path.join(app.getPath("downloads"), safeName));
+          const publish = (state: BrowserDownloadEvent["state"]) => {
+            mainWindow?.webContents.send("vectora:browser-download", {
+              id,
+              profileId,
+              filename: safeName,
+              state,
+              receivedBytes: item.getReceivedBytes(),
+              totalBytes: item.getTotalBytes(),
+            } satisfies BrowserDownloadEvent);
+          };
+          publish("progressing");
+          item.on("updated", () => {
+            const state = item.isPaused() ? "interrupted" : "progressing";
+            publish(state);
+          });
+          item.once("done", (_doneEvent, state) => {
+            publish(
+              state === "completed"
+                ? "completed"
+                : state === "cancelled"
+                  ? "cancelled"
+                  : "interrupted",
+            );
+          });
         });
       }
       const view = new WebContentsView({

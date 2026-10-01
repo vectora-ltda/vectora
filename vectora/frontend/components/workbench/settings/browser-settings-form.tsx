@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToastStore } from "@/lib/stores/toast-store";
 import { resolveBrowserProfileId } from "@/lib/browser-profile";
@@ -43,11 +43,31 @@ export function BrowserSettingsForm({
   );
   const [originInput, setOriginInput] = useState("");
   const [originMode, setOriginMode] = useState<"allow" | "deny">("deny");
+  const [downloads, setDownloads] = useState<
+    Array<{
+      id: string;
+      filename: string;
+      state: "progressing" | "completed" | "cancelled" | "interrupted";
+      receivedBytes: number;
+      totalBytes: number;
+    }>
+  >([]);
   const desktopBrowser =
     typeof window !== "undefined" ? window.vectora?.browserView : undefined;
   const profileId =
     browserProfileId ?? resolveBrowserProfileId(threadId, workspaceId);
   const sessionKey = `${workspaceId ?? ""}:${threadId ?? ""}`;
+
+  useEffect(() => {
+    if (!desktopBrowser?.onDownload) return;
+    return desktopBrowser.onDownload((event) => {
+      if (event.profileId !== profileId) return;
+      setDownloads((current) => {
+        const next = current.filter((download) => download.id !== event.id);
+        return [{ ...event }, ...next].slice(0, 10);
+      });
+    });
+  }, [desktopBrowser, profileId]);
 
   return (
     <div className="min-w-0 space-y-3 p-4 text-xs text-muted-foreground">
@@ -197,6 +217,43 @@ export function BrowserSettingsForm({
           >
             {m.workbench_browser_clear_profile_data()}
           </button>
+          <div className="space-y-2 rounded border border-border/60 p-2 text-foreground">
+            <div>
+              <p className="font-medium">
+                {m.workbench_browser_downloads_label()}
+              </p>
+              <p className="text-muted-foreground">
+                {m.workbench_browser_downloads_help()}
+              </p>
+            </div>
+            {downloads.length === 0 ? (
+              <p className="text-muted-foreground">
+                {m.workbench_browser_downloads_empty()}
+              </p>
+            ) : (
+              <ul className="space-y-1">
+                {downloads.map((download) => (
+                  <li
+                    key={download.id}
+                    className="flex items-center justify-between gap-2"
+                  >
+                    <span className="min-w-0 truncate">
+                      {download.filename}
+                    </span>
+                    <span className="shrink-0 text-muted-foreground">
+                      {download.state === "progressing"
+                        ? download.totalBytes > 0
+                          ? `${Math.round((download.receivedBytes / download.totalBytes) * 100)}%`
+                          : m.workbench_browser_downloads_in_progress()
+                        : download.state === "completed"
+                          ? m.workbench_browser_downloads_completed()
+                          : m.workbench_browser_downloads_failed()}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
           <div className="space-y-2 rounded border border-border/60 p-2 text-foreground">
             <p className="font-medium">
               {m.workbench_browser_clear_scope_label()}
