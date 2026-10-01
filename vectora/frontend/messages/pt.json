@@ -1741,7 +1741,7 @@
   "workbench_browser_popups_help": "Permite que páginas abram novas janelas neste perfil do navegador.",
   "workbench_browser_zoom_label": "Zoom da página",
   "workbench_browser_zoom_help": "Aplica o zoom do Chromium a todas as abas deste perfil.",
-  "workbench_browser_clear_history": "Limpar histórico das abas do Vectora",
+  "workbench_browser_clear_history": "Limpar histórico do navegador",
   "workbench_browser_permissions_label": "Permissões dos sites",
   "workbench_browser_permissions_help": "Escolha a política padrão para câmera, microfone, localização e notificações.",
   "workbench_browser_permissions_allow": "Permitir",
