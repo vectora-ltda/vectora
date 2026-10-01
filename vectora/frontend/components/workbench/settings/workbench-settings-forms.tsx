@@ -163,6 +163,13 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
         onChange={settings.setEditorFormatterEnabled}
       />
       <Toggle
+        id="files-format-on-save"
+        label={m.workbench_files_format_on_save_label()}
+        help={m.workbench_files_format_on_save_help()}
+        checked={settings.editorFormatOnSave}
+        onChange={settings.setEditorFormatOnSave}
+      />
+      <Toggle
         id="files-linter-service"
         label="Linter local"
         help="Executa diagnósticos locais para JSON inválido e espaços finais."

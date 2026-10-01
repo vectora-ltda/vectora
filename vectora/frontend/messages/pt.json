@@ -1691,6 +1691,8 @@
   "workbench_files_word_wrap_help": "Quebra linhas longas na largura disponível do editor.",
   "workbench_files_format_on_type_label": "Formatar ao digitar",
   "workbench_files_format_on_type_help": "Permite que os serviços de linguagem formatem durante a digitação.",
+  "workbench_files_format_on_save_label": "Formatar ao salvar",
+  "workbench_files_format_on_save_help": "Executa o formatter local antes de salvar o arquivo.",
   "workbench_files_quick_suggestions_label": "Sugestões rápidas",
   "workbench_files_quick_suggestions_help": "Exibe sugestões de conclusão enquanto você digita.",
   "workbench_files_parameter_hints_label": "Dicas de parâmetros",

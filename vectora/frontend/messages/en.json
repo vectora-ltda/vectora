@@ -1691,6 +1691,8 @@
   "workbench_files_word_wrap_help": "Wrap long lines to the available editor width.",
   "workbench_files_format_on_type_label": "Format while typing",
   "workbench_files_format_on_type_help": "Allow Monaco language services to format when you type.",
+  "workbench_files_format_on_save_label": "Format on save",
+  "workbench_files_format_on_save_help": "Run the local formatter before saving the file.",
   "workbench_files_quick_suggestions_label": "Quick suggestions",
   "workbench_files_quick_suggestions_help": "Show completion suggestions while typing.",
   "workbench_files_parameter_hints_label": "Parameter hints",

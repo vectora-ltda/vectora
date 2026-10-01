@@ -49,6 +49,7 @@ export function FileEditor({
   const editorFormatterEnabled = useSettingsStore(
     (s) => s.editorFormatterEnabled,
   );
+  const editorFormatOnSave = useSettingsStore((s) => s.editorFormatOnSave);
   const editorLinterEnabled = useSettingsStore((s) => s.editorLinterEnabled);
   const editorInlineSuggestions = useSettingsStore(
     (s) => s.editorInlineSuggestions,
@@ -155,9 +156,10 @@ export function FileEditor({
 
   const handleSave = useCallback(async () => {
     if (!file || file.content === undefined || readOnly || saving) return;
-    let contentToSave = editorFormatterEnabled
-      ? formatEditorText(path, value)
-      : value;
+    let contentToSave =
+      editorFormatterEnabled && editorFormatOnSave
+        ? formatEditorText(path, value)
+        : value;
     contentToSave = contentToSave.replace(/\r\n|\r|\n/g, "\n");
     if (editorEndOfLine === "crlf")
       contentToSave = contentToSave.replace(/\n/g, "\r\n");
@@ -195,6 +197,7 @@ export function FileEditor({
     editorEncoding,
     editorEndOfLine,
     editorFormatterEnabled,
+    editorFormatOnSave,
     file,
     key,
     path,

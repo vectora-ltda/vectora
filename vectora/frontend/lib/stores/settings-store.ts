@@ -155,6 +155,8 @@ export interface SettingsState {
   editorFormatOnType: boolean;
   /** Formata o conteúdo com o serviço local antes de salvar. */
   editorFormatterEnabled: boolean;
+  /** Executa o formatter local automaticamente durante o salvamento. */
+  editorFormatOnSave: boolean;
   /** Executa diagnósticos locais do arquivo aberto. */
   editorLinterEnabled: boolean;
   editorInlineSuggestions: boolean;
@@ -253,6 +255,7 @@ export interface SettingsState {
   setEditorWordWrap: (v: boolean) => void;
   setEditorFormatOnType: (v: boolean) => void;
   setEditorFormatterEnabled: (v: boolean) => void;
+  setEditorFormatOnSave: (v: boolean) => void;
   setEditorLinterEnabled: (v: boolean) => void;
   setEditorInlineSuggestions: (v: boolean) => void;
   setEditorBreadcrumbs: (v: boolean) => void;
@@ -476,6 +479,7 @@ const DEFAULTS = {
   editorWordWrap: false,
   editorFormatOnType: true,
   editorFormatterEnabled: true,
+  editorFormatOnSave: true,
   editorLinterEnabled: true,
   editorInlineSuggestions: true,
   editorBreadcrumbs: true,
@@ -678,6 +682,7 @@ export const useSettingsStore = create<SettingsState>()(
       setEditorWordWrap: (v) => set({ editorWordWrap: v }),
       setEditorFormatOnType: (v) => set({ editorFormatOnType: v }),
       setEditorFormatterEnabled: (v) => set({ editorFormatterEnabled: v }),
+      setEditorFormatOnSave: (v) => set({ editorFormatOnSave: v }),
       setEditorLinterEnabled: (v) => set({ editorLinterEnabled: v }),
       setEditorInlineSuggestions: (v) => set({ editorInlineSuggestions: v }),
       setEditorBreadcrumbs: (v) => set({ editorBreadcrumbs: v }),
@@ -836,6 +841,7 @@ export const useSettingsStore = create<SettingsState>()(
         editorWordWrap: state.editorWordWrap,
         editorFormatOnType: state.editorFormatOnType,
         editorFormatterEnabled: state.editorFormatterEnabled,
+        editorFormatOnSave: state.editorFormatOnSave,
         editorLinterEnabled: state.editorLinterEnabled,
         editorInlineSuggestions: state.editorInlineSuggestions,
         editorBreadcrumbs: state.editorBreadcrumbs,
