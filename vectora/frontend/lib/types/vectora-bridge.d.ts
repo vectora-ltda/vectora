@@ -160,7 +160,7 @@ export interface VectoraDesktopBridge {
     ) => void;
     clearProfileData: (
       profileId?: string,
-      options?: { storage: boolean; cache: boolean },
+      options?: { storage: boolean; cache: boolean; credentials?: boolean },
     ) => Promise<void>;
     onEvent: (
       handler: (viewId: number, event: VectoraBrowserViewEvent) => void,

@@ -126,6 +126,7 @@ export interface BrowserViewManagerDeps {
 export interface BrowserDataClearOptions {
   storage: boolean;
   cache: boolean;
+  credentials?: boolean;
 }
 
 /** Clears persisted browser storage and HTTP cache for one profile. */

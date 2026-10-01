@@ -998,6 +998,7 @@
   "workbench_browser_clear_scope_label": "Data to clear",
   "workbench_browser_clear_storage_label": "Cookies and site storage",
   "workbench_browser_clear_cache_label": "HTTP cache",
+  "workbench_browser_clear_credentials_label": "Saved passwords",
   "workbench_browser_clear_profile_confirm": "Clear cookies, cache, and site data for this browser profile?",
   "workbench_browser_clear_profile_error": "Could not clear browser data.",
   "workbench_browser_clear_profile_success": "Browser data cleared.",

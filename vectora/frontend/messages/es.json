@@ -998,6 +998,7 @@
   "workbench_browser_clear_scope_label": "Datos que borrar",
   "workbench_browser_clear_storage_label": "Cookies y almacenamiento de sitios",
   "workbench_browser_clear_cache_label": "Caché HTTP",
+  "workbench_browser_clear_credentials_label": "Contraseñas guardadas",
   "workbench_browser_clear_profile_confirm": "¿Borrar cookies, caché y datos de sitios de este perfil del navegador?",
   "workbench_browser_clear_profile_error": "No se pudieron borrar los datos del navegador.",
   "workbench_browser_clear_profile_success": "Datos del navegador borrados.",

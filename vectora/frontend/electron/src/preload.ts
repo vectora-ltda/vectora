@@ -139,7 +139,7 @@ export interface VectoraDesktopBridge {
     ) => void;
     clearProfileData: (
       profileId?: string,
-      options?: { storage: boolean; cache: boolean },
+      options?: { storage: boolean; cache: boolean; credentials?: boolean },
     ) => Promise<void>;
     /** Subscreve a eventos de navegação (navigated/titleUpdated/
      * faviconUpdated/loadingChanged/loadFailed) de qualquer view criada. */

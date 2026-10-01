@@ -28,6 +28,7 @@ export function BrowserSettingsForm({
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearStorage, setClearStorage] = useState(true);
   const [clearCache, setClearCache] = useState(true);
+  const [clearCredentials, setClearCredentials] = useState(false);
   const allowPopups = useSettingsStore((s) => s.browserAllowPopups);
   const zoomPercent = useSettingsStore((s) => s.browserZoomPercent);
   const setAllowPopups = useSettingsStore((s) => s.setBrowserAllowPopups);
@@ -452,6 +453,14 @@ export function BrowserSettingsForm({
               />
               {m.workbench_browser_clear_cache_label()}
             </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={clearCredentials}
+                onChange={(event) => setClearCredentials(event.target.checked)}
+              />
+              {m.workbench_browser_clear_credentials_label()}
+            </label>
           </div>
           <button
             type="button"
@@ -474,8 +483,10 @@ export function BrowserSettingsForm({
                 await desktopBrowser.clearProfileData(profileId ?? undefined, {
                   storage: clearStorage,
                   cache: clearCache,
+                  credentials: clearCredentials,
                 });
                 clearBrowserSessionHistory(sessionKey);
+                if (clearCredentials) setCredentials([]);
               } catch {
                 setClearProfileError(true);
                 return;

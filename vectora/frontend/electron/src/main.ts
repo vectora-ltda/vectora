@@ -292,7 +292,11 @@ function getBrowserViewManager(): BrowserViewManager {
     },
     clearData: async (
       partition,
-      options: BrowserDataClearOptions = { storage: true, cache: true },
+      options: BrowserDataClearOptions = {
+        storage: true,
+        cache: true,
+        credentials: false,
+      },
     ) => {
       const browserSession = session.fromPartition(partition);
       await clearBrowserSessionData(browserSession, options);
@@ -1285,10 +1289,14 @@ function registerIpc(): void {
   );
   ipcMain.handle(
     "vectora:browser-clear-profile-data",
-    (
+    async (
       event,
       profileId?: string,
-      options: BrowserDataClearOptions = { storage: true, cache: true },
+      options: BrowserDataClearOptions = {
+        storage: true,
+        cache: true,
+        credentials: false,
+      },
     ) => {
       if (!isTrustedBrowserSender(event))
         throw new Error("origem IPC inválida");
@@ -1298,11 +1306,16 @@ function registerIpc(): void {
       if (
         typeof options !== "object" ||
         typeof options.storage !== "boolean" ||
-        typeof options.cache !== "boolean"
+        typeof options.cache !== "boolean" ||
+        (options.credentials !== undefined &&
+          typeof options.credentials !== "boolean")
       ) {
         throw new Error("opções de limpeza inválidas");
       }
-      return getBrowserViewManager().clearData(profileId, options);
+      await getBrowserViewManager().clearData(profileId, options);
+      if (options.credentials) {
+        await writeBrowserCredentials(profileId ?? "default", []);
+      }
     },
   );
   ipcMain.handle(
