@@ -9,6 +9,7 @@ import { WORKBENCH_SETTINGS } from "../workbench-settings-registry";
 import type { WorkbenchSettingsDescriptor } from "@/lib/types/workbench-settings";
 import type { WorkbenchId } from "@/lib/types/workbench-settings";
 import type { WorkbenchTab } from "@/lib/stores/workbench-store";
+import { WORKBENCH_TABS } from "@/lib/stores/workbench-store";
 
 afterEach(cleanup);
 
@@ -55,6 +56,12 @@ describe("workbench settings contract", () => {
   it("starts with a registry that has unique descriptor ids", () => {
     const ids = WORKBENCH_SETTINGS.map((item) => item.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("keeps settings in the same order as the navigation contract", () => {
+    expect(WORKBENCH_SETTINGS.map((item) => item.workbench)).toEqual(
+      WORKBENCH_TABS,
+    );
   });
 
   it("renders a responsive modal shell and closes through Radix Escape", () => {
