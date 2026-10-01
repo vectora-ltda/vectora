@@ -110,16 +110,30 @@ export interface BrowserViewManagerDeps {
   attach(view: ManagedView): void;
   destroyView(view: ManagedView): void;
   emit(viewId: number, event: BrowserViewEvent): void;
-  clearData?(partition: string): Promise<void>;
+  clearData?(
+    partition: string,
+    options?: BrowserDataClearOptions,
+  ): Promise<void>;
   setPermissionMode?(profileId: string, mode: "allow" | "deny"): void;
 }
 
+export interface BrowserDataClearOptions {
+  storage: boolean;
+  cache: boolean;
+}
+
 /** Clears persisted browser storage and HTTP cache for one profile. */
-export async function clearBrowserSessionData(session: {
-  clearStorageData: () => Promise<void>;
-  clearCache: () => Promise<void>;
-}): Promise<void> {
-  await Promise.all([session.clearStorageData(), session.clearCache()]);
+export async function clearBrowserSessionData(
+  session: {
+    clearStorageData: () => Promise<void>;
+    clearCache: () => Promise<void>;
+  },
+  options: BrowserDataClearOptions = { storage: true, cache: true },
+): Promise<void> {
+  const operations: Promise<void>[] = [];
+  if (options.storage) operations.push(session.clearStorageData());
+  if (options.cache) operations.push(session.clearCache());
+  await Promise.all(operations);
 }
 
 interface Entry {
@@ -218,10 +232,16 @@ export class BrowserViewManager {
     this.deps.setPermissionMode?.(entry.profileId, mode);
   }
 
-  async clearData(profileId = "default"): Promise<void> {
-    await this.deps.clearData?.(
-      `persist:browser-${normalizeProfileId(profileId)}`,
-    );
+  async clearData(
+    profileId = "default",
+    options?: BrowserDataClearOptions,
+  ): Promise<void> {
+    const partition = `persist:browser-${normalizeProfileId(profileId)}`;
+    if (options === undefined) {
+      await this.deps.clearData?.(partition);
+      return;
+    }
+    await this.deps.clearData?.(partition, options);
   }
 
   destroyView(id: number, ownerId: number | null = null): void {

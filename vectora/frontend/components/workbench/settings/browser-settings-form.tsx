@@ -26,6 +26,8 @@ export function BrowserSettingsForm({
 }: BrowserSettingsFormProps) {
   const [clearProfileError, setClearProfileError] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [clearStorage, setClearStorage] = useState(true);
+  const [clearCache, setClearCache] = useState(true);
   const allowPopups = useSettingsStore((s) => s.browserAllowPopups);
   const zoomPercent = useSettingsStore((s) => s.browserZoomPercent);
   const setAllowPopups = useSettingsStore((s) => s.setBrowserAllowPopups);
@@ -113,6 +115,27 @@ export function BrowserSettingsForm({
           >
             {m.workbench_browser_clear_profile_data()}
           </button>
+          <div className="space-y-2 rounded border border-border/60 p-2 text-foreground">
+            <p className="font-medium">
+              {m.workbench_browser_clear_scope_label()}
+            </p>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={clearStorage}
+                onChange={(event) => setClearStorage(event.target.checked)}
+              />
+              {m.workbench_browser_clear_storage_label()}
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={clearCache}
+                onChange={(event) => setClearCache(event.target.checked)}
+              />
+              {m.workbench_browser_clear_cache_label()}
+            </label>
+          </div>
           <button
             type="button"
             className="max-w-full rounded border border-border/60 px-2 py-1 text-left text-foreground hover:bg-muted/40"
@@ -131,7 +154,10 @@ export function BrowserSettingsForm({
               setConfirmClear(false);
               setClearProfileError(false);
               try {
-                await desktopBrowser.clearProfileData(profileId ?? undefined);
+                await desktopBrowser.clearProfileData(profileId ?? undefined, {
+                  storage: clearStorage,
+                  cache: clearCache,
+                });
                 clearBrowserSessionHistory(sessionKey);
               } catch {
                 setClearProfileError(true);

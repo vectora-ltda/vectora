@@ -60,6 +60,7 @@ import {
   BrowserViewManager,
   clearBrowserSessionData,
   type BrowserViewKind,
+  type BrowserDataClearOptions,
   type ManagedView,
   type ViewBounds,
 } from "./browser-view-manager.js";
@@ -246,9 +247,12 @@ function getBrowserViewManager(): BrowserViewManager {
     emit: (viewId, event) => {
       mainWindow?.webContents.send("vectora:browser-view-event", viewId, event);
     },
-    clearData: async (partition) => {
+    clearData: async (
+      partition,
+      options: BrowserDataClearOptions = { storage: true, cache: true },
+    ) => {
       const browserSession = session.fromPartition(partition);
-      await clearBrowserSessionData(browserSession);
+      await clearBrowserSessionData(browserSession, options);
     },
     setPermissionMode: (profileId, mode) => {
       browserPermissionModes.set(profileId, mode);
@@ -1148,13 +1152,24 @@ function registerIpc(): void {
   );
   ipcMain.handle(
     "vectora:browser-clear-profile-data",
-    (event, profileId?: string) => {
+    (
+      event,
+      profileId?: string,
+      options: BrowserDataClearOptions = { storage: true, cache: true },
+    ) => {
       if (!isTrustedBrowserSender(event))
         throw new Error("origem IPC inválida");
       if (profileId !== undefined && !isValidProfileId(profileId)) {
         throw new Error("profileId inválido");
       }
-      return getBrowserViewManager().clearData(profileId);
+      if (
+        typeof options !== "object" ||
+        typeof options.storage !== "boolean" ||
+        typeof options.cache !== "boolean"
+      ) {
+        throw new Error("opções de limpeza inválidas");
+      }
+      return getBrowserViewManager().clearData(profileId, options);
     },
   );
   ipcMain.on(

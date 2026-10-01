@@ -125,7 +125,10 @@ export interface VectoraDesktopBridge {
       viewId: number,
       policy: { allowPopups?: boolean; permissionMode?: "allow" | "deny" },
     ) => void;
-    clearProfileData: (profileId?: string) => Promise<void>;
+    clearProfileData: (
+      profileId?: string,
+      options?: { storage: boolean; cache: boolean },
+    ) => Promise<void>;
     onEvent: (
       handler: (viewId: number, event: VectoraBrowserViewEvent) => void,
     ) => () => void;
