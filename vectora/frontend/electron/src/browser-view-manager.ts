@@ -91,6 +91,7 @@ export type BrowserViewEvent =
   | { type: "faviconUpdated"; favicon: string }
   | { type: "loadingChanged"; isLoading: boolean }
   | { type: "escapePressed" }
+  | { type: "popupRequested"; url: string }
   | {
       type: "loadFailed";
       errorCode: number;
@@ -360,11 +361,15 @@ export class BrowserViewManager {
     };
     wc.on("will-navigate", cancelUnsafeNavigation);
     wc.on("will-redirect", cancelUnsafeNavigation);
-    // Popups are denied until they can be created as managed views. Allowing
-    // them would bypass the manager's bounds, lifecycle and navigation guards.
-    wc.setWindowOpenHandler?.(() => ({
-      action: this.entries.get(id)?.allowPopups ? "allow" : "deny",
-    }));
+    // Popups become managed tabs. Returning `deny` prevents Electron from
+    // creating an unmanaged BrowserWindow while the renderer receives the URL
+    // and creates a view with the same profile and navigation policies.
+    wc.setWindowOpenHandler?.((details) => {
+      if (this.entries.get(id)?.allowPopups) {
+        this.deps.emit(id, { type: "popupRequested", url: details.url });
+      }
+      return { action: "deny" };
+    });
     const navigated = () =>
       this.deps.emit(id, {
         type: "navigated",

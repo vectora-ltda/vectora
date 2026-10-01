@@ -139,10 +139,14 @@ describe("BrowserViewManager", () => {
     });
   });
 
-  it("permite popups somente quando o perfil os habilita", () => {
+  it("converte popups autorizados em eventos para novas abas gerenciadas", () => {
     manager.createView("profile-a", "tab", null, { allowPopups: true });
     expect(views[0].getWindowOpenAction("https://example.com")).toEqual({
-      action: "allow",
+      action: "deny",
+    });
+    expect(emitted).toContainEqual({
+      viewId: 1,
+      event: { type: "popupRequested", url: "https://example.com" },
     });
   });
 

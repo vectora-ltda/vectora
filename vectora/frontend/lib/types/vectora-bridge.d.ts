@@ -37,6 +37,7 @@ export type VectoraBrowserViewEvent =
   | { type: "faviconUpdated"; favicon: string }
   | { type: "loadingChanged"; isLoading: boolean }
   | { type: "escapePressed" }
+  | { type: "popupRequested"; url: string }
   | {
       type: "loadFailed";
       errorCode: number;

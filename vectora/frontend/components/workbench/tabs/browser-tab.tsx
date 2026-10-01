@@ -618,6 +618,10 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   useEffect(() => {
     if (!desktopBrowser) return;
     return desktopBrowser.onEvent((eventViewId, event) => {
+      if (event.type === "popupRequested") {
+        if (event.url) addTab(event.url);
+        return;
+      }
       setTabs((prev) =>
         prev.map((t) => {
           if (t.viewId !== eventViewId) return t;
@@ -643,7 +647,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         }),
       );
     });
-  }, [desktopBrowser]);
+  }, [desktopBrowser, addTab]);
 
   // Visibilidade: só a view da aba ATIVA fica visível — todas as outras
   // (abas em segundo plano) ficam escondidas, senão desenhariam por cima
