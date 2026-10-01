@@ -163,6 +163,27 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
         onChange={settings.setEditorQuickSuggestions}
       />
       <Toggle
+        id="files-parameter-hints"
+        label={m.workbench_files_parameter_hints_label()}
+        help={m.workbench_files_parameter_hints_help()}
+        checked={settings.editorParameterHints}
+        onChange={settings.setEditorParameterHints}
+      />
+      <Toggle
+        id="files-font-ligatures"
+        label={m.workbench_files_font_ligatures_label()}
+        help={m.workbench_files_font_ligatures_help()}
+        checked={settings.editorFontLigatures}
+        onChange={settings.setEditorFontLigatures}
+      />
+      <Toggle
+        id="files-glyph-margin"
+        label={m.workbench_files_glyph_margin_label()}
+        help={m.workbench_files_glyph_margin_help()}
+        checked={settings.editorGlyphMargin}
+        onChange={settings.setEditorGlyphMargin}
+      />
+      <Toggle
         id="files-line-numbers"
         label={m.workbench_files_line_numbers_label()}
         help={m.workbench_files_line_numbers_help()}
@@ -225,6 +246,48 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
         checked={settings.editorStickyScroll}
         onChange={settings.setEditorStickyScroll}
       />
+      <Toggle
+        id="files-bracket-guides"
+        label={m.workbench_files_bracket_guides_label()}
+        help={m.workbench_files_bracket_guides_help()}
+        checked={settings.editorBracketPairGuides}
+        onChange={settings.setEditorBracketPairGuides}
+      />
+      <Toggle
+        id="files-insert-spaces"
+        label={m.workbench_files_insert_spaces_label()}
+        help={m.workbench_files_insert_spaces_help()}
+        checked={settings.editorInsertSpaces}
+        onChange={settings.setEditorInsertSpaces}
+      />
+      <div className="space-y-1">
+        <Label htmlFor="files-cursor-style">
+          {m.workbench_files_cursor_style_label()}
+        </Label>
+        <Select
+          value={settings.editorCursorStyle}
+          onValueChange={(value) =>
+            settings.setEditorCursorStyle(
+              value as "line" | "block" | "underline",
+            )
+          }
+        >
+          <SelectTrigger id="files-cursor-style">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="line">
+              {m.workbench_files_cursor_line()}
+            </SelectItem>
+            <SelectItem value="block">
+              {m.workbench_files_cursor_block()}
+            </SelectItem>
+            <SelectItem value="underline">
+              {m.workbench_files_cursor_underline()}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
       <Toggle
         id="files-smooth-scrolling"
         label={m.workbench_files_smooth_scrolling_label()}

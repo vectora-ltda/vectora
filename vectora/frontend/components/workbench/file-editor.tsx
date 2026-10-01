@@ -57,6 +57,14 @@ export function FileEditor({
   const editorSmoothScrolling = useSettingsStore(
     (s) => s.editorSmoothScrolling,
   );
+  const editorFontLigatures = useSettingsStore((s) => s.editorFontLigatures);
+  const editorGlyphMargin = useSettingsStore((s) => s.editorGlyphMargin);
+  const editorBracketPairGuides = useSettingsStore(
+    (s) => s.editorBracketPairGuides,
+  );
+  const editorInsertSpaces = useSettingsStore((s) => s.editorInsertSpaces);
+  const editorParameterHints = useSettingsStore((s) => s.editorParameterHints);
+  const editorCursorStyle = useSettingsStore((s) => s.editorCursorStyle);
   const media = getMediaKind(path);
 
   const [file, setFile] = useState<FileContent | null>(null);
@@ -265,6 +273,12 @@ export function FileEditor({
               renderWhitespace: editorRenderWhitespace,
               stickyScroll: editorStickyScroll,
               smoothScrolling: editorSmoothScrolling,
+              fontLigatures: editorFontLigatures,
+              glyphMargin: editorGlyphMargin,
+              bracketPairGuides: editorBracketPairGuides,
+              insertSpaces: editorInsertSpaces,
+              parameterHints: editorParameterHints,
+              cursorStyle: editorCursorStyle,
             },
           )}
           loading={

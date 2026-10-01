@@ -10,6 +10,12 @@ export interface EditorPreferences {
   renderWhitespace?: "none" | "selection" | "all";
   stickyScroll?: boolean;
   smoothScrolling?: boolean;
+  fontLigatures?: boolean;
+  glyphMargin?: boolean;
+  bracketPairGuides?: boolean;
+  insertSpaces?: boolean;
+  parameterHints?: boolean;
+  cursorStyle?: "line" | "block" | "underline";
 }
 
 /** Opções visuais e de navegação inspiradas no CodeEdit do Godot. */
@@ -27,7 +33,7 @@ export function godotEditorOptions(
     // O editor da Godot reserva um pouco mais de respiro entre as linhas;
     // manter a proporção explícita evita depender do default do Monaco.
     lineHeight: Math.round(fontSize * 1.7),
-    fontLigatures: false,
+    fontLigatures: preferences.fontLigatures ?? false,
     // Mantém o comportamento padrão do editor da Godot: Ctrl/Cmd + roda
     // ajusta o zoom do código sem interferir na rolagem normal.
     mouseWheelZoom: true,
@@ -39,7 +45,7 @@ export function godotEditorOptions(
       scale: 1,
     },
     lineNumbers: preferences.lineNumbers === false ? "off" : "on",
-    glyphMargin: true,
+    glyphMargin: preferences.glyphMargin ?? true,
     folding: true,
     foldingHighlight: true,
     showFoldingControls: "mouseover",
@@ -48,7 +54,7 @@ export function godotEditorOptions(
     guides: {
       indentation: true,
       highlightActiveIndentation: true,
-      bracketPairs: true,
+      bracketPairs: preferences.bracketPairGuides ?? true,
     },
     bracketPairColorization: { enabled: false },
     stickyScroll: { enabled: preferences.stickyScroll ?? false },
@@ -63,6 +69,9 @@ export function godotEditorOptions(
     automaticLayout: true,
     formatOnType: preferences.formatOnType ?? true,
     quickSuggestions: preferences.quickSuggestions ?? true,
+    parameterHints: { enabled: preferences.parameterHints ?? true },
+    cursorStyle: preferences.cursorStyle ?? "line",
+    insertSpaces: preferences.insertSpaces ?? true,
     tabSize: preferences.tabSize ?? 2,
     wordWrap: preferences.wordWrap ? "on" : "off",
   };

@@ -159,6 +159,12 @@ export interface SettingsState {
   editorRenderWhitespace: "none" | "selection" | "all";
   editorStickyScroll: boolean;
   editorSmoothScrolling: boolean;
+  editorFontLigatures: boolean;
+  editorGlyphMargin: boolean;
+  editorBracketPairGuides: boolean;
+  editorInsertSpaces: boolean;
+  editorParameterHints: boolean;
+  editorCursorStyle: "line" | "block" | "underline";
   /** Família tipográfica do código no Monaco (Godot usa JetBrains Mono). */
   editorFontFamily: FontFamily;
   /** Família monoespaçada usada por terminais, diffs e blocos de código. */
@@ -233,6 +239,12 @@ export interface SettingsState {
   setEditorRenderWhitespace: (v: "none" | "selection" | "all") => void;
   setEditorStickyScroll: (v: boolean) => void;
   setEditorSmoothScrolling: (v: boolean) => void;
+  setEditorFontLigatures: (v: boolean) => void;
+  setEditorGlyphMargin: (v: boolean) => void;
+  setEditorBracketPairGuides: (v: boolean) => void;
+  setEditorInsertSpaces: (v: boolean) => void;
+  setEditorParameterHints: (v: boolean) => void;
+  setEditorCursorStyle: (v: "line" | "block" | "underline") => void;
   setEditorFontFamily: (v: FontFamily) => void;
   setMonoFontFamily: (v: FontFamily) => void;
   setUiFontFamily: (v: FontFamily) => void;
@@ -435,6 +447,12 @@ const DEFAULTS = {
   editorRenderWhitespace: "selection" as "none" | "selection" | "all",
   editorStickyScroll: false,
   editorSmoothScrolling: true,
+  editorFontLigatures: false,
+  editorGlyphMargin: true,
+  editorBracketPairGuides: true,
+  editorInsertSpaces: true,
+  editorParameterHints: true,
+  editorCursorStyle: "line" as "line" | "block" | "underline",
   editorFontFamily: '"JetBrains Mono", ui-monospace, monospace',
   monoFontFamily: '"JetBrains Mono", ui-monospace, monospace',
   uiFontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
@@ -618,6 +636,12 @@ export const useSettingsStore = create<SettingsState>()(
       setEditorRenderWhitespace: (v) => set({ editorRenderWhitespace: v }),
       setEditorStickyScroll: (v) => set({ editorStickyScroll: v }),
       setEditorSmoothScrolling: (v) => set({ editorSmoothScrolling: v }),
+      setEditorFontLigatures: (v) => set({ editorFontLigatures: v }),
+      setEditorGlyphMargin: (v) => set({ editorGlyphMargin: v }),
+      setEditorBracketPairGuides: (v) => set({ editorBracketPairGuides: v }),
+      setEditorInsertSpaces: (v) => set({ editorInsertSpaces: v }),
+      setEditorParameterHints: (v) => set({ editorParameterHints: v }),
+      setEditorCursorStyle: (v) => set({ editorCursorStyle: v }),
       setEditorFontFamily: (v) => set({ editorFontFamily: v }),
       setMonoFontFamily: (v) => set({ monoFontFamily: v }),
       setUiFontFamily: (v) => set({ uiFontFamily: v }),
@@ -739,6 +763,12 @@ export const useSettingsStore = create<SettingsState>()(
         editorRenderWhitespace: state.editorRenderWhitespace,
         editorStickyScroll: state.editorStickyScroll,
         editorSmoothScrolling: state.editorSmoothScrolling,
+        editorFontLigatures: state.editorFontLigatures,
+        editorGlyphMargin: state.editorGlyphMargin,
+        editorBracketPairGuides: state.editorBracketPairGuides,
+        editorInsertSpaces: state.editorInsertSpaces,
+        editorParameterHints: state.editorParameterHints,
+        editorCursorStyle: state.editorCursorStyle,
         editorFontFamily: state.editorFontFamily,
         monoFontFamily: state.monoFontFamily,
         uiFontFamily: state.uiFontFamily,
