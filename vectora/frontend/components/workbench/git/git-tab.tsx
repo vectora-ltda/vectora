@@ -27,6 +27,7 @@ import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { useCIStore } from "@/lib/stores/ci-store";
 import { GitSkeleton } from "../tabs/git-skeleton";
 import {
+  apiSync,
   apiCreatePR,
   fetchBranches,
   fetchGitDiff,
@@ -46,6 +47,7 @@ import { WorktreesModal } from "./worktrees-modal";
 import { m } from "@/lib/paraglide/messages";
 import { WorkbenchSettingsSurface } from "@/components/workbench/settings/workbench-settings-surface";
 import { gitSettings } from "@/components/workbench/settings/workbench-settings-registry";
+import { useSettingsStore } from "@/lib/stores/settings-store";
 
 type GitView = "changes" | "history";
 
@@ -178,6 +180,10 @@ export function GitTab({
 }) {
   const workspace = useWorkspacesStore((s) => s.getActive());
   const wsId = workspace?.id ?? "";
+  const autoFetchEnabled = useSettingsStore((s) => s.gitAutoFetchEnabled);
+  const autoFetchIntervalSeconds = useSettingsStore(
+    (s) => s.gitAutoFetchIntervalSeconds,
+  );
   const lastCi = useCIStore((s) => s.lastRun);
 
   const summary = useWorkbenchStore((s) => s.getGit(wsId).summary);
@@ -282,6 +288,32 @@ export function GitTab({
       window.clearInterval(timer);
     };
   }, [wsId, setGitOperation]);
+
+  // Busca remota opcional, limitada ao workspace ativo e serializada para não
+  // iniciar uma segunda operação enquanto a primeira ainda está pendente.
+  useEffect(() => {
+    if (!wsId || !autoFetchEnabled) return;
+    let cancelled = false;
+    let inFlight = false;
+    const fetchRemoteRefs = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        const result = await apiSync(wsId, "fetch");
+        if (!cancelled && result.status === "ok") invalidateGit(wsId);
+      } finally {
+        inFlight = false;
+      }
+    };
+    const timer = window.setInterval(
+      () => void fetchRemoteRefs(),
+      autoFetchIntervalSeconds * 1000,
+    );
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [autoFetchEnabled, autoFetchIntervalSeconds, invalidateGit, wsId]);
 
   const handleChanged = useCallback(() => {
     if (wsId) invalidateGit(wsId);

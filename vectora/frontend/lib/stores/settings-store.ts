@@ -190,6 +190,9 @@ export interface SettingsState {
   gitSignoffEnabled: boolean;
   /** Permite solicitar bypass de proteções Git no Workbench. */
   gitBypassEnabled: boolean;
+  /** Atualiza referências remotas automaticamente enquanto o Git está aberto. */
+  gitAutoFetchEnabled: boolean;
+  gitAutoFetchIntervalSeconds: number;
   /** Expande automaticamente itens de planos recém-abertos. */
   planAutoExpand: boolean;
   /** Ordem usada para listar itens do plano. */
@@ -282,6 +285,8 @@ export interface SettingsState {
   setGitHooksEnabled: (v: boolean) => void;
   setGitSignoffEnabled: (v: boolean) => void;
   setGitBypassEnabled: (v: boolean) => void;
+  setGitAutoFetchEnabled: (v: boolean) => void;
+  setGitAutoFetchIntervalSeconds: (v: number) => void;
   setPlanAutoExpand: (v: boolean) => void;
   setPlanSort: (v: "created" | "title") => void;
   setTaskNotifications: (v: boolean) => void;
@@ -506,6 +511,8 @@ const DEFAULTS = {
   gitHooksEnabled: false,
   gitSignoffEnabled: false,
   gitBypassEnabled: false,
+  gitAutoFetchEnabled: false,
+  gitAutoFetchIntervalSeconds: 300,
   planAutoExpand: true,
   planSort: "created" as "created" | "title",
   taskNotifications: true,
@@ -710,6 +717,14 @@ export const useSettingsStore = create<SettingsState>()(
       setGitHooksEnabled: (v) => set({ gitHooksEnabled: v }),
       setGitSignoffEnabled: (v) => set({ gitSignoffEnabled: v }),
       setGitBypassEnabled: (v) => set({ gitBypassEnabled: v }),
+      setGitAutoFetchEnabled: (v) => set({ gitAutoFetchEnabled: v }),
+      setGitAutoFetchIntervalSeconds: (v) =>
+        set({
+          gitAutoFetchIntervalSeconds: Math.max(
+            30,
+            Math.min(3600, Math.round(v)),
+          ),
+        }),
       setPlanAutoExpand: (v) => set({ planAutoExpand: v }),
       setPlanSort: (v) => set({ planSort: v }),
       setTaskNotifications: (v) => set({ taskNotifications: v }),
@@ -764,7 +779,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: getStorageKey(), // Chave default; re-hidratada ao chamar loadUserSettings()
-      version: 7, // v7: adiciona modo e intervalo do salvamento automático
+      version: 8, // v8: adiciona auto-fetch e intervalo do Git
       // v4: clampa sidebarWidth/chatSidebarWidth pros limites atuais mesmo fora do default legado exato (teto do chat caiu de 800→480)
       migrate: (persistedState) => {
         const s = persistedState as Record<string, unknown>;
@@ -868,6 +883,8 @@ export const useSettingsStore = create<SettingsState>()(
         gitHooksEnabled: state.gitHooksEnabled,
         gitSignoffEnabled: state.gitSignoffEnabled,
         gitBypassEnabled: state.gitBypassEnabled,
+        gitAutoFetchEnabled: state.gitAutoFetchEnabled,
+        gitAutoFetchIntervalSeconds: state.gitAutoFetchIntervalSeconds,
         planAutoExpand: state.planAutoExpand,
         planSort: state.planSort,
         taskNotifications: state.taskNotifications,
