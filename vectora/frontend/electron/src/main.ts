@@ -1400,12 +1400,12 @@ function registerIpc(): void {
       return cookies.map(
         (cookie) =>
           ({
-            name: cookie.name,
-            value: cookie.value,
-            domain: cookie.domain,
-            path: cookie.path,
-            secure: cookie.secure,
-            httpOnly: cookie.httpOnly,
+            name: cookie.name ?? "",
+            value: cookie.value ?? "",
+            domain: cookie.domain ?? "",
+            path: cookie.path ?? "/",
+            secure: cookie.secure ?? false,
+            httpOnly: cookie.httpOnly ?? false,
             ...(cookie.expirationDate
               ? { expirationDate: cookie.expirationDate }
               : {}),
