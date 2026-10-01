@@ -62,6 +62,17 @@ const mockWorkbench = {
 };
 vi.mock("@/lib/stores/workbench-store", () => ({
   WORKBENCH_STALE_MS: 30000,
+  WORKBENCH_TABS: [
+    "files",
+    "git",
+    "plan",
+    "tasks",
+    "browser",
+    "storage",
+    "context_graph",
+    "library",
+    "terminal",
+  ],
   useWorkbenchStore: (sel: (s: typeof mockWorkbench) => unknown) =>
     sel(mockWorkbench),
 }));
@@ -192,7 +203,7 @@ describe("GitTab", () => {
   it("mostra mensagem de nenhum workspace quando não há workspace ativo", () => {
     mockActiveWorkspace = null;
     render(<GitTab threadId="t1" />);
-    expect(screen.getByText("workbench_diff_no_workspace")).toBeInTheDocument();
+    expect(screen.getByText("workbench_git_no_workspace")).toBeInTheDocument();
   });
 
   it("mostra a mensagem de repositório não-git quando summary.is_git_repo é false", async () => {
@@ -203,7 +214,7 @@ describe("GitTab", () => {
       files: [],
     };
     render(<GitTab threadId="t1" />);
-    expect(screen.getByText("workbench_diff_not_git")).toBeInTheDocument();
+    expect(screen.getByText("workbench_git_not_git")).toBeInTheDocument();
     await waitFor(() => expect(api.fetchGitStatus).toHaveBeenCalled());
   });
 
@@ -237,7 +248,7 @@ describe("GitTab", () => {
     ).toHaveAttribute("aria-selected", "true");
 
     fireEvent.click(
-      screen.getByRole("tab", { name: "workbench_diff_tab_changes" }),
+      screen.getByRole("tab", { name: "workbench_git_tab_changes" }),
     );
     expect(screen.getByText("stub-changes")).toBeInTheDocument();
     expect(screen.queryByText("stub-compare")).not.toBeInTheDocument();

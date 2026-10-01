@@ -470,10 +470,10 @@ export function ChangesView({
         {summary.files.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center gap-2 p-4 text-center">
             <p className="text-xs text-muted-foreground">
-              {m.workbench_diff_clean()}
+              {m.workbench_git_clean()}
             </p>
             <p className="text-[10px] text-muted-foreground/60">
-              {m.workbench_diff_clean_hint()}
+              {m.workbench_git_clean_hint()}
             </p>
           </div>
         ) : (
@@ -506,7 +506,7 @@ export function ChangesView({
           type="text"
           value={commitMsg}
           onChange={(e) => setCommitMsg(e.target.value)}
-          placeholder={m.workbench_diff_commit_placeholder()}
+          placeholder={m.workbench_git_commit_placeholder()}
           className="w-full rounded-md border border-border/60 bg-background px-3 py-2 text-xs font-mono placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
@@ -519,7 +519,7 @@ export function ChangesView({
           <textarea
             value={commitBody}
             onChange={(e) => setCommitBody(e.target.value)}
-            placeholder={m.workbench_diff_commit_body_placeholder()}
+            placeholder={m.workbench_git_commit_body_placeholder()}
             rows={2}
             className="w-full resize-none rounded-md border border-border/60 bg-background px-3 py-2 pb-8 text-xs font-mono placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
             onKeyDown={(e) => {
@@ -625,7 +625,7 @@ export function ChangesView({
           ) : (
             <GitCommit className="w-3 h-3" />
           )}
-          {m.workbench_diff_commit_button()}
+          {m.workbench_git_commit_button()}
         </button>
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
           <input
@@ -634,7 +634,7 @@ export function ChangesView({
             onChange={(event) => setAmend(event.target.checked)}
             data-testid="git-commit-amend"
           />
-          {m.workbench_diff_commit_amend_label()}
+          {m.workbench_git_commit_amend_label()}
         </label>
       </div>
     </div>

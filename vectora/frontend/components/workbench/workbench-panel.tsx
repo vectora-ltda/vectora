@@ -4,7 +4,7 @@
  * Painel lateral direito do workbench, dividido em 2 partes (estilo VS Code):
  *
  * - `WorkbenchNavBar` — faixa estreita (48px) sempre visível, com os ícones
- *   das abas (Arquivos, Diff, Plano, Terminal). Não é redimensionável.
+ *   das abas (Arquivos, Git, Plano, Terminal). Não é redimensionável.
  *   Clicar numa aba já ativa com o painel aberto colapsa o painel; clicar em
  *   outra aba (ou com o painel fechado) troca/abre.
  * - `WorkbenchContent` — painel de conteúdo da aba ativa, redimensionável,

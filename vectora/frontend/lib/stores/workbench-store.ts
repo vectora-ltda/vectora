@@ -1,6 +1,6 @@
 /**
  * workbench-store — estado do painel lateral multi-aba
- * (Terminal · Arquivos · Diff · Plano).
+ * (Terminal · Arquivos · Git · Plano).
  *
  * Estrutura em duas camadas:
  *   1. **Shell persistido** (zustand/middleware/persist) — sobrevive reload:
@@ -310,7 +310,7 @@ interface WorkbenchState {
   setFilesFilter: (wsId: string, filter: string) => void;
   invalidateFiles: (wsId?: string) => void;
 
-  // Git workbench diff cache
+  // Git workbench cache
   getGit: (wsId: string) => DiffCache;
   setGitSummary: (wsId: string, summary: DiffSummary) => void;
   setGitOpenFile: (wsId: string, path: string, open: boolean) => void;

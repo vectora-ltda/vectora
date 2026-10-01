@@ -48,7 +48,7 @@ describe("StashModal", () => {
 
     await waitFor(() => expect(spy).toHaveBeenCalledWith("ws1", "list"));
     expect(
-      await screen.findByText("workbench_diff_stash_empty"),
+      await screen.findByText("workbench_git_stash_empty"),
     ).toBeInTheDocument();
   });
 
@@ -100,7 +100,7 @@ describe("StashModal", () => {
     await waitFor(() => expect(spy).toHaveBeenCalledWith("ws1", "list"));
 
     const input = screen.getByPlaceholderText(
-      "workbench_diff_stash_name_placeholder",
+      "workbench_git_stash_name_placeholder",
     );
     fireEvent.change(input, { target: { value: "meu-stash" } });
     fireEvent.keyDown(input, { key: "Enter" });
@@ -130,7 +130,7 @@ describe("StashModal", () => {
       />,
     );
 
-    fireEvent.click(await screen.findByText("workbench_diff_stash_pop"));
+    fireEvent.click(await screen.findByText("workbench_git_stash_pop"));
 
     await waitFor(() => expect(spy).toHaveBeenCalledWith("ws1", "pop", {}));
   });
@@ -155,7 +155,7 @@ describe("StashModal", () => {
     );
 
     await screen.findByText("stash@{2}");
-    const dropBtn = screen.getByTitle("workbench_diff_stash_drop");
+    const dropBtn = screen.getByTitle("workbench_git_stash_drop");
     fireEvent.click(dropBtn);
 
     await waitFor(() =>

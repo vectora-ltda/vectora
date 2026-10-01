@@ -347,11 +347,11 @@ export function CommitDetails({
             className="shrink-0 min-w-0 overflow-y-auto vectora-no-scrollbar-gutter bg-[#202020]"
           >
             <div className="flex h-7 items-center justify-center border-b border-border/60 bg-[#2a2a2a] px-2 text-xs text-muted-foreground">
-              {m.workbench_diff_summary({ n: files.length })}
+              {m.workbench_git_summary({ n: files.length })}
             </div>
             {files.length === 0 ? (
               <p className="p-3 text-xs text-muted-foreground">
-                {m.workbench_diff_clean()}
+                {m.workbench_git_clean()}
               </p>
             ) : (
               files.map((file) => (
@@ -602,7 +602,7 @@ export function HistoryView({
             label: m.workbench_git_ctx_squash_here({ n: baseIdx - idx + 1 }),
             onSelect: () => {
               const message = window.prompt(
-                m.workbench_diff_commit_placeholder(),
+                m.workbench_git_commit_placeholder(),
               );
               if (!message?.trim()) return;
               void apiSquash(workspaceId, squashBase, message.trim()).then(

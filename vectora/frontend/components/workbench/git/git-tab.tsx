@@ -201,7 +201,7 @@ export function GitTab({
   const [refreshKey, setRefreshKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  // Diff summary via SWR (mesmo padrão do antigo DiffTab).
+  // Git status via SWR (mesmo padrão da workbench Git).
   useEffect(() => {
     // fetchedAt dispara a limpeza do pending sempre que um novo fetch chega.
     if (wsId && fetchedAt) clearPending(wsId, "git");
@@ -298,7 +298,7 @@ export function GitTab({
   if (!workspace) {
     return (
       <div className="h-full flex items-center justify-center text-xs text-muted-foreground p-4 text-center">
-        {m.workbench_diff_no_workspace()}
+        {m.workbench_git_no_workspace()}
       </div>
     );
   }
@@ -310,7 +310,7 @@ export function GitTab({
       <div className="h-full flex flex-col items-center justify-center gap-2 p-4 text-center">
         <GitBranch className="w-6 h-6 text-muted-foreground" />
         <p className="text-xs text-muted-foreground">
-          {m.workbench_diff_not_git()}
+          {m.workbench_git_not_git()}
         </p>
       </div>
     );
@@ -386,7 +386,7 @@ export function GitTab({
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
-          {m.workbench_diff_tab_changes()}
+          {m.workbench_git_tab_changes()}
         </button>
         <button
           onClick={() => {
