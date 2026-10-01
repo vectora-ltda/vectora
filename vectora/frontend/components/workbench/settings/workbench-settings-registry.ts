@@ -95,8 +95,11 @@ export const terminalSettings: WorkbenchSettingsDescriptor = {
   title: () => m.terminal_title(),
   description: () => m.terminal_sandbox_editor_autosync_hint(),
   icon: Settings2,
-  scope: "workspace",
-  sections: [section("sandbox", () => m.terminal_title(), "workspace")],
+  scope: "user",
+  sections: [
+    section("display", () => m.workbench_terminal_display_title(), "user"),
+    section("sandbox", () => m.terminal_title(), "workspace"),
+  ],
   capabilities: [
     capability("sandbox", "available"),
     capability("terminal-display", "available"),

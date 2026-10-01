@@ -338,14 +338,6 @@ export function TerminalSettings({ workspaceId }: WorkbenchSettingsContext) {
   const setScrollback = useSettingsStore((s) => s.setTerminalScrollback);
   const setCursorBlink = useSettingsStore((s) => s.setTerminalCursorBlink);
 
-  if (!workspaceId) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        {m.workbench_settings_missing_workspace()}
-      </p>
-    );
-  }
-
   return (
     <div className="space-y-6">
       <section className="space-y-3 rounded-md border border-border/60 p-4">
@@ -403,14 +395,20 @@ export function TerminalSettings({ workspaceId }: WorkbenchSettingsContext) {
           <Switch checked={cursorBlink} onCheckedChange={setCursorBlink} />
         </label>
       </section>
-      <SandboxSettingsForm
-        workspaceId={workspaceId}
-        diagnostic={status?.diagnostic ?? null}
-        open
-        inline
-        onOpenChange={() => undefined}
-        onInitDone={refetch}
-      />
+      {workspaceId ? (
+        <SandboxSettingsForm
+          workspaceId={workspaceId}
+          diagnostic={status?.diagnostic ?? null}
+          open
+          inline
+          onOpenChange={() => undefined}
+          onInitDone={refetch}
+        />
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          {m.workbench_settings_missing_workspace()}
+        </p>
+      )}
     </div>
   );
 }

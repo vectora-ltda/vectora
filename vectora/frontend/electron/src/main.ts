@@ -297,8 +297,14 @@ function getBrowserViewManager(): BrowserViewManager {
       const browserSession = session.fromPartition(partition);
       await clearBrowserSessionData(browserSession, options);
     },
-    setPermissionMode: (profileId, mode) => {
+    setPermissionMode: (profileId, mode, originPermissions) => {
       browserPermissionModes.set(profileId, mode);
+      if (originPermissions) {
+        browserOriginPermissions.set(
+          profileId,
+          new Map(Object.entries(originPermissions)),
+        );
+      }
     },
   });
   return browserViewManager;

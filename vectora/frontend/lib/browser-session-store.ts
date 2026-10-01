@@ -40,7 +40,18 @@ function readPersistedSession(
     if (!Array.isArray(parsed.tabs) || typeof parsed.activeTabId !== "string") {
       return undefined;
     }
-    return parsed as PersistedBrowserSession;
+    // Native WebContentsView ids belong to the current Electron process. They
+    // must never be restored from localStorage after a restart; the Browser
+    // tab will create a fresh view and navigate to the persisted URL.
+    return {
+      ...parsed,
+      tabs: parsed.tabs.map((tab) => ({
+        ...tab,
+        viewId: null,
+        canGoBack: false,
+        canGoForward: false,
+      })),
+    } as PersistedBrowserSession;
   } catch {
     return undefined;
   }

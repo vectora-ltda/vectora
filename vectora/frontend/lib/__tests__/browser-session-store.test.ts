@@ -3,6 +3,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   clearBrowserSessionHistory,
+  clearBrowserSessionCache,
   getBrowserSession,
   setBrowserSession,
   type PersistedBrowserSession,
@@ -30,6 +31,7 @@ const SESSION: PersistedBrowserSession = {
 describe("browser-session-store", () => {
   beforeEach(() => {
     window.localStorage.clear();
+    clearBrowserSessionCache();
   });
 
   it("persiste e restaura a sessão de abas no storage do renderer", () => {
@@ -47,5 +49,18 @@ describe("browser-session-store", () => {
     expect(current?.profileId).toBe("session-profile");
     expect(current?.tabs[0].history).toEqual([]);
     expect(current?.tabs[0].historyIndex).toBe(-1);
+  });
+
+  it("descarta ids nativos restaurados depois de reiniciar o renderer", () => {
+    window.localStorage.setItem(
+      "vectora-browser-session:workspace:thread",
+      JSON.stringify({
+        ...SESSION,
+        tabs: [{ ...SESSION.tabs[0], viewId: 91, canGoBack: true }],
+      }),
+    );
+    const restored = getBrowserSession(SESSION_KEY);
+    expect(restored?.tabs[0].viewId).toBeNull();
+    expect(restored?.tabs[0].canGoBack).toBe(false);
   });
 });
