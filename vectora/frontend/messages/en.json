@@ -1003,6 +1003,7 @@
   "workbench_browser_clear_profile_error": "Could not clear browser data.",
   "workbench_browser_clear_profile_success": "Browser data cleared.",
   "workbench_browser_settings_unavailable": "Browser data settings are available in the desktop app.",
+  "workbench_browser_web_runtime_notice": "Search, zoom, and popup preferences still apply here. Cookies, downloads, permissions, and secure credentials require the desktop app.",
   "workbench_settings_capabilities_title": "Contract capabilities",
   "workbench_settings_capability_available": "Available",
   "workbench_settings_capability_planned": "Planned",

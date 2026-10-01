@@ -1003,6 +1003,7 @@
   "workbench_browser_clear_profile_error": "No se pudieron borrar los datos del navegador.",
   "workbench_browser_clear_profile_success": "Datos del navegador borrados.",
   "workbench_browser_settings_unavailable": "La configuración de datos del navegador está disponible en la aplicación de escritorio.",
+  "workbench_browser_web_runtime_notice": "Las preferencias de búsqueda, zoom y ventanas emergentes siguen funcionando aquí. Las cookies, descargas, permisos y credenciales seguras requieren la aplicación de escritorio.",
   "workbench_settings_capabilities_title": "Capacidades del contrato",
   "workbench_settings_capability_available": "Disponible",
   "workbench_settings_capability_planned": "Planificada",

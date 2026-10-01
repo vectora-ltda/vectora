@@ -517,7 +517,67 @@ export function BrowserSettingsForm({
           ) : null}
         </>
       ) : (
-        <p>{m.workbench_browser_settings_unavailable()}</p>
+        <>
+          <p>{m.workbench_browser_settings_unavailable()}</p>
+          <p className="rounded border border-amber-500/40 bg-amber-500/5 p-2 text-amber-700 dark:text-amber-300">
+            {m.workbench_browser_web_runtime_notice()}
+          </p>
+          <label className="flex items-start gap-2 rounded border border-border/60 p-2 text-foreground">
+            <input
+              type="checkbox"
+              checked={allowPopups}
+              onChange={(event) => setAllowPopups(event.target.checked)}
+            />
+            <span>
+              <span className="block font-medium">
+                {m.workbench_browser_popups_label()}
+              </span>
+              <span className="block text-muted-foreground">
+                {m.workbench_browser_popups_help()}
+              </span>
+            </span>
+          </label>
+          <div className="flex items-center justify-between gap-3 rounded border border-border/60 p-2 text-foreground">
+            <span className="font-medium">
+              {m.workbench_browser_search_engine_label()}
+            </span>
+            <Select
+              value={searchEngine}
+              onValueChange={(value) =>
+                setSearchEngine(value as "duckduckgo" | "google" | "bing")
+              }
+            >
+              <SelectTrigger className="w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="duckduckgo">
+                  {m.workbench_browser_search_engine_duckduckgo()}
+                </SelectItem>
+                <SelectItem value="google">
+                  {m.workbench_browser_search_engine_google()}
+                </SelectItem>
+                <SelectItem value="bing">
+                  {m.workbench_browser_search_engine_bing()}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <label className="flex items-center justify-between gap-3 rounded border border-border/60 p-2 text-foreground">
+            <span className="font-medium">
+              {m.workbench_browser_zoom_label()}
+            </span>
+            <input
+              className="w-20 rounded border border-border/60 bg-background px-2 py-1 text-right"
+              type="number"
+              min={25}
+              max={500}
+              step={5}
+              value={zoomPercent}
+              onChange={(event) => setZoomPercent(Number(event.target.value))}
+            />
+          </label>
+        </>
       )}
     </div>
   );
