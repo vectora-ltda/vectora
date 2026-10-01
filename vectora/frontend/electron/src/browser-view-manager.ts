@@ -77,6 +77,7 @@ export interface BrowserViewOptions {
   kind: BrowserViewKind;
   allowPopups?: boolean;
   zoomPercent?: number;
+  permissionMode?: "allow" | "deny";
 }
 
 export type BrowserViewEvent =
@@ -101,7 +102,10 @@ export interface BrowserViewManagerDeps {
   createView(
     profileId?: string,
     kind?: BrowserViewKind,
-    options?: Pick<BrowserViewOptions, "allowPopups" | "zoomPercent">,
+    options?: Pick<
+      BrowserViewOptions,
+      "allowPopups" | "zoomPercent" | "permissionMode"
+    >,
   ): ManagedView;
   attach(view: ManagedView): void;
   destroyView(view: ManagedView): void;
@@ -153,7 +157,10 @@ export class BrowserViewManager {
     profileId?: string,
     kind: BrowserViewKind = "tab",
     ownerId: number | null = null,
-    options: Pick<BrowserViewOptions, "allowPopups" | "zoomPercent"> = {},
+    options: Pick<
+      BrowserViewOptions,
+      "allowPopups" | "zoomPercent" | "permissionMode"
+    > = {},
   ): number {
     const normalizedProfileId = normalizeProfileId(profileId);
     const hasOptions = Object.keys(options).length > 0;

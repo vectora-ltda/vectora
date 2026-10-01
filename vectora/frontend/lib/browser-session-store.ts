@@ -23,6 +23,28 @@ interface BrowserViewBridge {
 
 const browserSessions = new Map<string, PersistedBrowserSession>();
 const browserSessionGenerations = new Map<string, number>();
+const STORAGE_PREFIX = "vectora-browser-session:";
+
+function storageKey(sessionKey: string): string {
+  return `${STORAGE_PREFIX}${sessionKey}`;
+}
+
+function readPersistedSession(
+  sessionKey: string,
+): PersistedBrowserSession | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const raw = window.localStorage.getItem(storageKey(sessionKey));
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as Partial<PersistedBrowserSession>;
+    if (!Array.isArray(parsed.tabs) || typeof parsed.activeTabId !== "string") {
+      return undefined;
+    }
+    return parsed as PersistedBrowserSession;
+  } catch {
+    return undefined;
+  }
+}
 
 /** Derives a collision-free, partition-safe identifier from a session key. */
 export function getBrowserProfileId(sessionKey: string): string {
@@ -45,7 +67,11 @@ function getBrowserViewBridge(): BrowserViewBridge | undefined {
 export function getBrowserSession(
   sessionKey: string,
 ): PersistedBrowserSession | undefined {
-  return browserSessions.get(sessionKey);
+  const cached = browserSessions.get(sessionKey);
+  if (cached) return cached;
+  const persisted = readPersistedSession(sessionKey);
+  if (persisted) browserSessions.set(sessionKey, persisted);
+  return persisted;
 }
 
 export function setBrowserSession(
@@ -53,6 +79,41 @@ export function setBrowserSession(
   session: PersistedBrowserSession,
 ): void {
   browserSessions.set(sessionKey, session);
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.setItem(
+        storageKey(sessionKey),
+        JSON.stringify(session),
+      );
+    } catch {
+      // Storage may be unavailable or full; the in-memory session remains valid.
+    }
+  }
+}
+
+/** Removes renderer-owned tab history while keeping the Chromium profile. */
+export function clearBrowserSessionHistory(sessionKey: string): void {
+  const session = getBrowserSession(sessionKey);
+  if (!session) return;
+  const cleared: PersistedBrowserSession = {
+    ...session,
+    tabs: session.tabs.map((tab) => ({
+      ...tab,
+      history: [],
+      historyIndex: -1,
+      iframeKey: tab.iframeKey + 1,
+      canGoBack: false,
+      canGoForward: false,
+    })),
+  };
+  setBrowserSession(sessionKey, cleared);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent("vectora:browser-clear-history", {
+        detail: { sessionKey },
+      }),
+    );
+  }
 }
 
 export function getBrowserSessionGeneration(sessionKey: string): number {
@@ -74,6 +135,13 @@ export function disposeBrowserSession(sessionKey: string): void {
     }
   }
   browserSessions.delete(sessionKey);
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.removeItem(storageKey(sessionKey));
+    } catch {
+      // Ignore unavailable storage during teardown.
+    }
+  }
 }
 
 /** Destroys every browser session belonging to a workspace. */

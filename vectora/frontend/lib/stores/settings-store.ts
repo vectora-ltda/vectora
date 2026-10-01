@@ -180,6 +180,8 @@ export interface SettingsState {
   browserAllowPopups: boolean;
   /** Zoom das views Chromium do Browser, em percentual. */
   browserZoomPercent: number;
+  /** Política padrão de permissões de origem no Browser. */
+  browserPermissionMode: "allow" | "deny";
 
   // Ações
   setShowToolCalls: (v: boolean) => void;
@@ -229,6 +231,7 @@ export interface SettingsState {
   setLibraryShowMcp: (v: boolean) => void;
   setBrowserAllowPopups: (v: boolean) => void;
   setBrowserZoomPercent: (v: number) => void;
+  setBrowserPermissionMode: (v: "allow" | "deny") => void;
   resetSettings: () => void;
 }
 
@@ -423,6 +426,7 @@ const DEFAULTS = {
   libraryShowMcp: true,
   browserAllowPopups: false,
   browserZoomPercent: 100,
+  browserPermissionMode: "deny" as "allow" | "deny",
 };
 
 // ---------------------------------------------------------------------------
@@ -592,6 +596,7 @@ export const useSettingsStore = create<SettingsState>()(
       setBrowserAllowPopups: (v) => set({ browserAllowPopups: v }),
       setBrowserZoomPercent: (v) =>
         set({ browserZoomPercent: Math.max(25, Math.min(500, Math.round(v))) }),
+      setBrowserPermissionMode: (v) => set({ browserPermissionMode: v }),
       resetSettings: () =>
         set({
           ...DEFAULTS,
@@ -686,6 +691,7 @@ export const useSettingsStore = create<SettingsState>()(
         libraryShowMcp: state.libraryShowMcp,
         browserAllowPopups: state.browserAllowPopups,
         browserZoomPercent: state.browserZoomPercent,
+        browserPermissionMode: state.browserPermissionMode,
       }),
     },
   ),

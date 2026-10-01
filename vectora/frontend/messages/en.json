@@ -1701,5 +1701,10 @@
   "workbench_browser_popups_label": "Allow pop-ups",
   "workbench_browser_popups_help": "Allow pages to open new windows from this browser profile.",
   "workbench_browser_zoom_label": "Page zoom",
-  "workbench_browser_zoom_help": "Apply Chromium page zoom to every tab in this profile."
+  "workbench_browser_zoom_help": "Apply Chromium page zoom to every tab in this profile.",
+  "workbench_browser_clear_history": "Clear Vectora tab history",
+  "workbench_browser_permissions_label": "Site permissions",
+  "workbench_browser_permissions_help": "Choose the default policy for camera, microphone, location and notifications.",
+  "workbench_browser_permissions_allow": "Allow",
+  "workbench_browser_permissions_deny": "Deny"
 }

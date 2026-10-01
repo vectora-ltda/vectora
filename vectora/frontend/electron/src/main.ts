@@ -132,6 +132,7 @@ let tray: Tray | null = null;
 let pendingDeepLink: string | null = null;
 let updateReady = false;
 let browserViewManager: BrowserViewManager | null = null;
+const configuredBrowserDownloadSessions = new Set<Electron.Session>();
 const desktopBridgeToken =
   process.env.VECTORA_DESKTOP_BRIDGE_TOKEN ?? randomUUID();
 let selectedBackupPath: string | null = null;
@@ -199,14 +200,33 @@ function getBrowserViewManager(): BrowserViewManager {
       _kind: BrowserViewKind = "tab",
       options = {},
     ) => {
+      const browserSession = session.fromPartition(
+        `persist:browser-${profileId}`,
+      );
+      if (!configuredBrowserDownloadSessions.has(browserSession)) {
+        configuredBrowserDownloadSessions.add(browserSession);
+        browserSession.on("will-download", (_event, item) => {
+          const safeName = path.basename(item.getFilename()) || "download";
+          item.setSavePath(path.join(app.getPath("downloads"), safeName));
+        });
+      }
       const view = new WebContentsView({
         webPreferences: {
           contextIsolation: true,
           sandbox: true,
           nodeIntegration: false,
-          session: session.fromPartition(`persist:browser-${profileId}`),
+          session: browserSession,
         },
       });
+      const permissionMode = options.permissionMode ?? "deny";
+      browserSession.setPermissionRequestHandler?.(
+        (_webContents, _permission, callback) => {
+          callback(permissionMode === "allow");
+        },
+      );
+      browserSession.setPermissionCheckHandler?.(
+        () => permissionMode === "allow",
+      );
       if (options.zoomPercent !== undefined) {
         const factor = Math.max(0.25, Math.min(5, options.zoomPercent / 100));
         view.webContents.setZoomLevel(Math.log(factor) / Math.log(1.2));
@@ -1038,18 +1058,27 @@ function registerIpc(): void {
     if (!isTrustedBrowserSender(event)) throw new Error("origem IPC inválida");
     if (!options || typeof options !== "object")
       throw new Error("opções inválidas");
-    const { profileId, kind, allowPopups, zoomPercent } = options as Partial<{
-      profileId: string;
-      kind: BrowserViewKind;
-      allowPopups: boolean;
-      zoomPercent: number;
-    }>;
+    const { profileId, kind, allowPopups, zoomPercent, permissionMode } =
+      options as Partial<{
+        profileId: string;
+        kind: BrowserViewKind;
+        allowPopups: boolean;
+        zoomPercent: number;
+        permissionMode: "allow" | "deny";
+      }>;
     if (typeof profileId !== "string" || !isValidProfileId(profileId)) {
       throw new Error("profileId inválido");
     }
     if (!isValidBrowserViewKind(kind)) throw new Error("kind inválido");
     if (allowPopups !== undefined && typeof allowPopups !== "boolean") {
       throw new Error("allowPopups inválido");
+    }
+    if (
+      permissionMode !== undefined &&
+      permissionMode !== "allow" &&
+      permissionMode !== "deny"
+    ) {
+      throw new Error("permissionMode inválido");
     }
     if (
       zoomPercent !== undefined &&
@@ -1061,7 +1090,7 @@ function registerIpc(): void {
       profileId,
       kind,
       browserOwnerId(event),
-      { allowPopups, zoomPercent },
+      { allowPopups, zoomPercent, permissionMode },
     );
   });
   ipcMain.on("vectora:browser-destroy-view", (event, viewId: number) => {

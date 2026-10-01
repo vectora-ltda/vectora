@@ -39,6 +39,7 @@ import {
 
 export {
   clearBrowserSessionCache,
+  clearBrowserSessionHistory,
   getBrowserProfileId,
 } from "@/lib/browser-session-store";
 
@@ -138,6 +139,9 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const [browserSettingsOpen, setBrowserSettingsOpen] = useState(false);
   const allowPopups = useSettingsStore((s) => s.browserAllowPopups);
   const browserZoomPercent = useSettingsStore((s) => s.browserZoomPercent);
+  const browserPermissionMode = useSettingsStore(
+    (s) => s.browserPermissionMode,
+  );
 
   // Presente só no desktop Electron — quando ausente, cai no `<iframe>` de
   // fallback abaixo (sujeito a X-Frame-Options, único caminho possível fora
@@ -255,6 +259,29 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     });
   }, [sessionKey, tabs, activeTabId, profileId]);
 
+  useEffect(() => {
+    const onClearHistory = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionKey?: string }>).detail;
+      if (detail?.sessionKey !== sessionKey) return;
+      setTabs((previous) =>
+        previous.map((tab) => ({
+          ...tab,
+          history: [],
+          historyIndex: -1,
+          iframeKey: tab.iframeKey + 1,
+          canGoBack: false,
+          canGoForward: false,
+        })),
+      );
+    };
+    window.addEventListener("vectora:browser-clear-history", onClearHistory);
+    return () =>
+      window.removeEventListener(
+        "vectora:browser-clear-history",
+        onClearHistory,
+      );
+  }, [sessionKey]);
+
   const [urlInput, setUrlInput] = useState("");
   const [editingUrl, setEditingUrl] = useState(false);
 
@@ -352,6 +379,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
           kind: "tab",
           allowPopups,
           zoomPercent: browserZoomPercent,
+          permissionMode: browserPermissionMode,
         })
         .then((viewId) => {
           if (
@@ -388,6 +416,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       updateTab,
       allowPopups,
       browserZoomPercent,
+      browserPermissionMode,
     ],
   );
 
@@ -503,6 +532,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
           kind: "tab",
           allowPopups,
           zoomPercent: browserZoomPercent,
+          permissionMode: browserPermissionMode,
         })
         .then((viewId) => {
           if (

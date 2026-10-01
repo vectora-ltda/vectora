@@ -49,6 +49,7 @@ export interface VectoraBrowserViewOptions {
   kind: VectoraBrowserViewKind;
   allowPopups?: boolean;
   zoomPercent?: number;
+  permissionMode?: "allow" | "deny";
 }
 
 export interface VectoraVscodeThemeFile {
