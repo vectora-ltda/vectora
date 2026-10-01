@@ -159,6 +159,10 @@ export interface SettingsState {
   editorFormatOnSave: boolean;
   /** Executa diagnósticos locais do arquivo aberto. */
   editorLinterEnabled: boolean;
+  /** Executa diagnósticos enquanto o conteúdo é editado. */
+  editorLintOnType: boolean;
+  /** Valida o conteúdo antes de persistir o arquivo. */
+  editorLintOnSave: boolean;
   editorInlineSuggestions: boolean;
   editorBreadcrumbs: boolean;
   editorConfirmDelete: boolean;
@@ -262,6 +266,8 @@ export interface SettingsState {
   setEditorFormatterEnabled: (v: boolean) => void;
   setEditorFormatOnSave: (v: boolean) => void;
   setEditorLinterEnabled: (v: boolean) => void;
+  setEditorLintOnType: (v: boolean) => void;
+  setEditorLintOnSave: (v: boolean) => void;
   setEditorInlineSuggestions: (v: boolean) => void;
   setEditorBreadcrumbs: (v: boolean) => void;
   setEditorConfirmDelete: (v: boolean) => void;
@@ -489,6 +495,8 @@ const DEFAULTS = {
   editorFormatterEnabled: true,
   editorFormatOnSave: true,
   editorLinterEnabled: true,
+  editorLintOnType: true,
+  editorLintOnSave: true,
   editorInlineSuggestions: true,
   editorBreadcrumbs: true,
   editorConfirmDelete: true,
@@ -695,6 +703,8 @@ export const useSettingsStore = create<SettingsState>()(
       setEditorFormatterEnabled: (v) => set({ editorFormatterEnabled: v }),
       setEditorFormatOnSave: (v) => set({ editorFormatOnSave: v }),
       setEditorLinterEnabled: (v) => set({ editorLinterEnabled: v }),
+      setEditorLintOnType: (v) => set({ editorLintOnType: v }),
+      setEditorLintOnSave: (v) => set({ editorLintOnSave: v }),
       setEditorInlineSuggestions: (v) => set({ editorInlineSuggestions: v }),
       setEditorBreadcrumbs: (v) => set({ editorBreadcrumbs: v }),
       setEditorConfirmDelete: (v) => set({ editorConfirmDelete: v }),
@@ -864,6 +874,8 @@ export const useSettingsStore = create<SettingsState>()(
         editorFormatterEnabled: state.editorFormatterEnabled,
         editorFormatOnSave: state.editorFormatOnSave,
         editorLinterEnabled: state.editorLinterEnabled,
+        editorLintOnType: state.editorLintOnType,
+        editorLintOnSave: state.editorLintOnSave,
         editorInlineSuggestions: state.editorInlineSuggestions,
         editorBreadcrumbs: state.editorBreadcrumbs,
         editorConfirmDelete: state.editorConfirmDelete,

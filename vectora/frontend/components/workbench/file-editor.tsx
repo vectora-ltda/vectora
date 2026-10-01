@@ -51,6 +51,8 @@ export function FileEditor({
   );
   const editorFormatOnSave = useSettingsStore((s) => s.editorFormatOnSave);
   const editorLinterEnabled = useSettingsStore((s) => s.editorLinterEnabled);
+  const editorLintOnType = useSettingsStore((s) => s.editorLintOnType);
+  const editorLintOnSave = useSettingsStore((s) => s.editorLintOnSave);
   const editorInlineSuggestions = useSettingsStore(
     (s) => s.editorInlineSuggestions,
   );
@@ -95,8 +97,11 @@ export function FileEditor({
 
   const dirty = file?.content !== undefined && value !== file.content;
   const diagnostics = useMemo(
-    () => (editorLinterEnabled ? lintEditorText(path, value) : []),
-    [editorLinterEnabled, path, value],
+    () =>
+      editorLinterEnabled && editorLintOnType
+        ? lintEditorText(path, value)
+        : [],
+    [editorLintOnType, editorLinterEnabled, path, value],
   );
   const readOnly =
     file?.kind === "binary" || file?.truncated || file?.sha256 == null;
@@ -171,6 +176,15 @@ export function FileEditor({
       editorFormatterEnabled && editorFormatOnSave
         ? formatEditorText(path, value)
         : value;
+    if (editorLinterEnabled && editorLintOnSave) {
+      const saveDiagnostics = lintEditorText(path, contentToSave);
+      if (
+        saveDiagnostics.some((diagnostic) => diagnostic.severity === "error")
+      ) {
+        useToastStore.getState().error(m.workbench_files_lint_save_error());
+        return;
+      }
+    }
     contentToSave = contentToSave.replace(/\r\n|\r|\n/g, "\n");
     if (editorEndOfLine === "crlf")
       contentToSave = contentToSave.replace(/\n/g, "\r\n");
@@ -209,6 +223,8 @@ export function FileEditor({
     editorEndOfLine,
     editorFormatterEnabled,
     editorFormatOnSave,
+    editorLintOnSave,
+    editorLinterEnabled,
     file,
     key,
     path,

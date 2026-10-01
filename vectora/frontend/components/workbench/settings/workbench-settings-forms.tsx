@@ -198,6 +198,20 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
         onChange={settings.setEditorLinterEnabled}
       />
       <Toggle
+        id="files-lint-on-type"
+        label={m.workbench_files_lint_on_type_label()}
+        help={m.workbench_files_lint_on_type_help()}
+        checked={settings.editorLintOnType}
+        onChange={settings.setEditorLintOnType}
+      />
+      <Toggle
+        id="files-lint-on-save"
+        label={m.workbench_files_lint_on_save_label()}
+        help={m.workbench_files_lint_on_save_help()}
+        checked={settings.editorLintOnSave}
+        onChange={settings.setEditorLintOnSave}
+      />
+      <Toggle
         id="files-inline-suggestions"
         label={m.workbench_files_inline_suggestions()}
         help={m.workbench_files_inline_suggestions_help()}
