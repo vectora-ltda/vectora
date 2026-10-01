@@ -74,6 +74,21 @@ describe("workbench settings contract", () => {
     ).toBe(true);
   });
 
+  it("ships the formerly planned services as available capabilities", () => {
+    const capabilities = new Map(
+      WORKBENCH_SETTINGS.flatMap((item) =>
+        item.capabilities.map(
+          (itemCapability) =>
+            [itemCapability.id, itemCapability.status] as const,
+        ),
+      ),
+    );
+
+    expect(capabilities.get("password-manager-ui")).toBe("available");
+    expect(capabilities.get("formatter-service")).toBe("available");
+    expect(capabilities.get("linter-service")).toBe("available");
+  });
+
   it("renders a responsive modal shell and closes through Radix Escape", () => {
     const onOpenChange = vi.fn();
     render(
