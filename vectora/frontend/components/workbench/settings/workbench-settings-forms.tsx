@@ -170,6 +170,98 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
         onChange={settings.setEditorLinterEnabled}
       />
       <Toggle
+        id="files-inline-suggestions"
+        label={m.workbench_files_inline_suggestions()}
+        help={m.workbench_files_inline_suggestions_help()}
+        checked={settings.editorInlineSuggestions}
+        onChange={settings.setEditorInlineSuggestions}
+      />
+      <Toggle
+        id="files-breadcrumbs"
+        label={m.workbench_files_breadcrumbs()}
+        help={m.workbench_files_breadcrumbs_help()}
+        checked={settings.editorBreadcrumbs}
+        onChange={settings.setEditorBreadcrumbs}
+      />
+      <Toggle
+        id="files-file-watcher"
+        label={m.workbench_files_file_watcher()}
+        help={m.workbench_files_file_watcher_help()}
+        checked={settings.editorFileWatcherEnabled}
+        onChange={settings.setEditorFileWatcherEnabled}
+      />
+      <Toggle
+        id="files-confirm-delete"
+        label={m.workbench_files_confirm_delete()}
+        help={m.workbench_files_confirm_delete_help()}
+        checked={settings.editorConfirmDelete}
+        onChange={settings.setEditorConfirmDelete}
+      />
+      <div className="space-y-1">
+        <Label htmlFor="files-editor-theme">
+          {m.workbench_files_editor_theme()}
+        </Label>
+        <Select
+          value={settings.editorTheme}
+          onValueChange={(value) =>
+            settings.setEditorTheme(value as "auto" | "light" | "dark")
+          }
+        >
+          <SelectTrigger id="files-editor-theme">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="auto">
+              {m.workbench_files_theme_auto()}
+            </SelectItem>
+            <SelectItem value="light">
+              {m.workbench_files_theme_light()}
+            </SelectItem>
+            <SelectItem value="dark">
+              {m.workbench_files_theme_dark()}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label htmlFor="files-encoding">{m.workbench_files_encoding()}</Label>
+          <Select
+            value={settings.editorEncoding}
+            onValueChange={(value) =>
+              settings.setEditorEncoding(value as "utf8" | "utf8bom")
+            }
+          >
+            <SelectTrigger id="files-encoding">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="utf8">{m.workbench_files_utf8()}</SelectItem>
+              <SelectItem value="utf8bom">
+                {m.workbench_files_utf8bom()}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="files-eol">{m.workbench_files_eol()}</Label>
+          <Select
+            value={settings.editorEndOfLine}
+            onValueChange={(value) =>
+              settings.setEditorEndOfLine(value as "lf" | "crlf")
+            }
+          >
+            <SelectTrigger id="files-eol">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="lf">{m.workbench_files_lf()}</SelectItem>
+              <SelectItem value="crlf">{m.workbench_files_crlf()}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <Toggle
         id="files-quick-suggestions"
         label={m.workbench_files_quick_suggestions_label()}
         help={m.workbench_files_quick_suggestions_help()}

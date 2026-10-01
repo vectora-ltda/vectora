@@ -16,6 +16,7 @@ export interface EditorPreferences {
   insertSpaces?: boolean;
   parameterHints?: boolean;
   cursorStyle?: "line" | "block" | "underline";
+  inlineSuggestions?: boolean;
 }
 
 /** Opções visuais e de navegação inspiradas no CodeEdit do Godot. */
@@ -71,6 +72,7 @@ export function godotEditorOptions(
     quickSuggestions: preferences.quickSuggestions ?? true,
     parameterHints: { enabled: preferences.parameterHints ?? true },
     cursorStyle: preferences.cursorStyle ?? "line",
+    inlineSuggest: { enabled: preferences.inlineSuggestions ?? true },
     insertSpaces: preferences.insertSpaces ?? true,
     tabSize: preferences.tabSize ?? 2,
     wordWrap: preferences.wordWrap ? "on" : "off",

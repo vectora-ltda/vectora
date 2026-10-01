@@ -50,6 +50,15 @@ export function FileEditor({
     (s) => s.editorFormatterEnabled,
   );
   const editorLinterEnabled = useSettingsStore((s) => s.editorLinterEnabled);
+  const editorInlineSuggestions = useSettingsStore(
+    (s) => s.editorInlineSuggestions,
+  );
+  const editorBreadcrumbs = useSettingsStore((s) => s.editorBreadcrumbs);
+  const editorFileWatcherEnabled = useSettingsStore(
+    (s) => s.editorFileWatcherEnabled,
+  );
+  const editorEndOfLine = useSettingsStore((s) => s.editorEndOfLine);
+  const editorEncoding = useSettingsStore((s) => s.editorEncoding);
   const editorQuickSuggestions = useSettingsStore(
     (s) => s.editorQuickSuggestions,
   );
@@ -131,11 +140,30 @@ export function FileEditor({
     };
   }, [workspaceId, path, media]);
 
+  useEffect(() => {
+    if (!editorFileWatcherEnabled || media || readOnly || dirty) return;
+    const timer = window.setInterval(() => {
+      void fetchFile(workspaceId, path).then((latest) => {
+        if (!latest || latest.sha256 === shaRef.current || dirty) return;
+        setFile(latest);
+        setValue(latest.content ?? "");
+        shaRef.current = latest.sha256 ?? null;
+      });
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [dirty, editorFileWatcherEnabled, media, path, readOnly, workspaceId]);
+
   const handleSave = useCallback(async () => {
     if (!file || file.content === undefined || readOnly || saving) return;
-    const contentToSave = editorFormatterEnabled
+    let contentToSave = editorFormatterEnabled
       ? formatEditorText(path, value)
       : value;
+    contentToSave = contentToSave.replace(/\r\n|\r|\n/g, "\n");
+    if (editorEndOfLine === "crlf")
+      contentToSave = contentToSave.replace(/\n/g, "\r\n");
+    if (editorEncoding === "utf8bom" && !contentToSave.startsWith("\ufeff")) {
+      contentToSave = `\ufeff${contentToSave}`;
+    }
     if (contentToSave !== value) setValue(contentToSave);
     setSaving(true);
     const result = await apiUpdateFile(
@@ -164,6 +192,8 @@ export function FileEditor({
         { description: result.message },
       );
   }, [
+    editorEncoding,
+    editorEndOfLine,
     editorFormatterEnabled,
     file,
     key,
@@ -280,6 +310,11 @@ export function FileEditor({
           title={m.workbench_files_unsaved()}
         />
       )}
+      {editorBreadcrumbs && (
+        <div className="shrink-0 border-b border-border/60 px-2 py-1 text-[10px] text-muted-foreground">
+          {path.split(/[\\/]/).join(" › ")}
+        </div>
+      )}
       <div className="min-h-0 w-full flex-1">
         <MonacoEditor
           height="100%"
@@ -309,6 +344,7 @@ export function FileEditor({
               insertSpaces: editorInsertSpaces,
               parameterHints: editorParameterHints,
               cursorStyle: editorCursorStyle,
+              inlineSuggestions: editorInlineSuggestions,
             },
           )}
           loading={

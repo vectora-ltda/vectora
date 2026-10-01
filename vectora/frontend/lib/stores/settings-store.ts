@@ -157,6 +157,13 @@ export interface SettingsState {
   editorFormatterEnabled: boolean;
   /** Executa diagnósticos locais do arquivo aberto. */
   editorLinterEnabled: boolean;
+  editorInlineSuggestions: boolean;
+  editorBreadcrumbs: boolean;
+  editorConfirmDelete: boolean;
+  editorFileWatcherEnabled: boolean;
+  editorEndOfLine: "lf" | "crlf";
+  editorEncoding: "utf8" | "utf8bom";
+  editorTheme: "auto" | "light" | "dark";
   editorQuickSuggestions: boolean;
   editorLineNumbers: boolean;
   editorTabSize: number;
@@ -247,6 +254,13 @@ export interface SettingsState {
   setEditorFormatOnType: (v: boolean) => void;
   setEditorFormatterEnabled: (v: boolean) => void;
   setEditorLinterEnabled: (v: boolean) => void;
+  setEditorInlineSuggestions: (v: boolean) => void;
+  setEditorBreadcrumbs: (v: boolean) => void;
+  setEditorConfirmDelete: (v: boolean) => void;
+  setEditorFileWatcherEnabled: (v: boolean) => void;
+  setEditorEndOfLine: (v: "lf" | "crlf") => void;
+  setEditorEncoding: (v: "utf8" | "utf8bom") => void;
+  setEditorTheme: (v: "auto" | "light" | "dark") => void;
   setEditorQuickSuggestions: (v: boolean) => void;
   setEditorLineNumbers: (v: boolean) => void;
   setEditorTabSize: (v: number) => void;
@@ -463,6 +477,13 @@ const DEFAULTS = {
   editorFormatOnType: true,
   editorFormatterEnabled: true,
   editorLinterEnabled: true,
+  editorInlineSuggestions: true,
+  editorBreadcrumbs: true,
+  editorConfirmDelete: true,
+  editorFileWatcherEnabled: true,
+  editorEndOfLine: "lf" as "lf" | "crlf",
+  editorEncoding: "utf8" as "utf8" | "utf8bom",
+  editorTheme: "auto" as "auto" | "light" | "dark",
   editorQuickSuggestions: true,
   editorLineNumbers: true,
   editorTabSize: 2,
@@ -658,6 +679,13 @@ export const useSettingsStore = create<SettingsState>()(
       setEditorFormatOnType: (v) => set({ editorFormatOnType: v }),
       setEditorFormatterEnabled: (v) => set({ editorFormatterEnabled: v }),
       setEditorLinterEnabled: (v) => set({ editorLinterEnabled: v }),
+      setEditorInlineSuggestions: (v) => set({ editorInlineSuggestions: v }),
+      setEditorBreadcrumbs: (v) => set({ editorBreadcrumbs: v }),
+      setEditorConfirmDelete: (v) => set({ editorConfirmDelete: v }),
+      setEditorFileWatcherEnabled: (v) => set({ editorFileWatcherEnabled: v }),
+      setEditorEndOfLine: (v) => set({ editorEndOfLine: v }),
+      setEditorEncoding: (v) => set({ editorEncoding: v }),
+      setEditorTheme: (v) => set({ editorTheme: v }),
       setEditorQuickSuggestions: (v) => set({ editorQuickSuggestions: v }),
       setEditorLineNumbers: (v) => set({ editorLineNumbers: v }),
       setEditorTabSize: (v) =>
@@ -809,6 +837,13 @@ export const useSettingsStore = create<SettingsState>()(
         editorFormatOnType: state.editorFormatOnType,
         editorFormatterEnabled: state.editorFormatterEnabled,
         editorLinterEnabled: state.editorLinterEnabled,
+        editorInlineSuggestions: state.editorInlineSuggestions,
+        editorBreadcrumbs: state.editorBreadcrumbs,
+        editorConfirmDelete: state.editorConfirmDelete,
+        editorFileWatcherEnabled: state.editorFileWatcherEnabled,
+        editorEndOfLine: state.editorEndOfLine,
+        editorEncoding: state.editorEncoding,
+        editorTheme: state.editorTheme,
         editorQuickSuggestions: state.editorQuickSuggestions,
         editorLineNumbers: state.editorLineNumbers,
         editorTabSize: state.editorTabSize,
