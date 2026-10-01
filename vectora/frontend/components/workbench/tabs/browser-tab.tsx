@@ -343,6 +343,18 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     : activeTab.historyIndex < activeTab.history.length - 1;
   const desktopLoading = activeTab.loading;
   const desktopLoadError = activeTab.loadError;
+  const activeOrigin = (() => {
+    try {
+      return currentUrl ? new URL(currentUrl).origin : "";
+    } catch {
+      return "";
+    }
+  })();
+  const webOriginPermission = activeOrigin
+    ? browserOriginPermissions[activeOrigin]
+    : undefined;
+  const webPermissionsAllowed =
+    (webOriginPermission ?? browserPermissionMode) === "allow";
 
   const updateTab = useCallback(
     (id: string, patch: Partial<TabState> | ((t: TabState) => TabState)) => {
@@ -1480,11 +1492,20 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
             src={currentUrl}
             className="flex-1 w-full border-0 bg-white"
             title={msg.workbench_browser_frame_title()}
-            sandbox={
-              isTrustedWorkspaceServer(currentUrl)
-                ? "allow-scripts allow-forms allow-modals allow-popups allow-same-origin"
-                : "allow-scripts allow-forms allow-modals allow-popups"
+            allow={
+              webPermissionsAllowed
+                ? "camera; microphone; geolocation; notifications"
+                : ""
             }
+            sandbox={[
+              "allow-scripts",
+              "allow-forms",
+              "allow-modals",
+              allowPopups ? "allow-popups" : null,
+              isTrustedWorkspaceServer(currentUrl) ? "allow-same-origin" : null,
+            ]
+              .filter((token): token is string => token !== null)
+              .join(" ")}
           />
         ) : (
           emptyBrowserState
