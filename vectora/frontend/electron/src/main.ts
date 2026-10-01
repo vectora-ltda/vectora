@@ -64,7 +64,7 @@ import {
   type ManagedView,
   type ViewBounds,
 } from "./browser-view-manager.js";
-import type { BrowserDownloadEvent } from "./preload.js";
+import type { BrowserCookie, BrowserDownloadEvent } from "./preload.js";
 import {
   isValidBrowserUrl,
   isValidBrowserViewKind,
@@ -1382,6 +1382,56 @@ function registerIpc(): void {
         profileId,
         records.filter((record) => record.id !== id),
       );
+    },
+  );
+  ipcMain.handle(
+    "vectora:browser-list-cookies",
+    async (event, profileId: unknown) => {
+      if (
+        !isTrustedBrowserSender(event) ||
+        typeof profileId !== "string" ||
+        !isValidProfileId(profileId)
+      ) {
+        throw new Error("perfil inválido");
+      }
+      const cookies = await session
+        .fromPartition(`persist:browser-${profileId}`)
+        .cookies.get({});
+      return cookies.map(
+        (cookie) =>
+          ({
+            name: cookie.name,
+            value: cookie.value,
+            domain: cookie.domain,
+            path: cookie.path,
+            secure: cookie.secure,
+            httpOnly: cookie.httpOnly,
+            ...(cookie.expirationDate
+              ? { expirationDate: cookie.expirationDate }
+              : {}),
+          }) satisfies BrowserCookie,
+      );
+    },
+  );
+  ipcMain.handle(
+    "vectora:browser-remove-cookie",
+    async (event, input: unknown) => {
+      if (!isTrustedBrowserSender(event) || !input || typeof input !== "object")
+        throw new Error("cookie inválido");
+      const { profileId, url, name } = input as Record<string, unknown>;
+      if (
+        typeof profileId !== "string" ||
+        !isValidProfileId(profileId) ||
+        typeof url !== "string" ||
+        !isValidBrowserUrl(url) ||
+        typeof name !== "string" ||
+        name.length === 0
+      ) {
+        throw new Error("cookie inválido");
+      }
+      await session
+        .fromPartition(`persist:browser-${profileId}`)
+        .cookies.remove(url, name);
     },
   );
   ipcMain.on(

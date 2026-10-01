@@ -51,6 +51,9 @@ export function BrowserSettingsForm({
   const [credentialOrigin, setCredentialOrigin] = useState("");
   const [credentialUsername, setCredentialUsername] = useState("");
   const [credentialPassword, setCredentialPassword] = useState("");
+  const [cookies, setCookies] = useState<
+    Array<{ name: string; domain: string; path: string; value: string }>
+  >([]);
   const [downloads, setDownloads] = useState<
     Array<{
       id: string;
@@ -75,6 +78,14 @@ export function BrowserSettingsForm({
         return [{ ...event }, ...next].slice(0, 10);
       });
     });
+  }, [desktopBrowser, profileId]);
+
+  useEffect(() => {
+    if (!desktopBrowser?.listCookies || !profileId) return;
+    void desktopBrowser
+      .listCookies(profileId)
+      .then(setCookies)
+      .catch(() => setCookies([]));
   }, [desktopBrowser, profileId]);
 
   useEffect(() => {
@@ -256,6 +267,44 @@ export function BrowserSettingsForm({
                 </button>
               </div>
             ))}
+          </div>
+          <div className="space-y-2 rounded border border-border/60 p-2 text-foreground">
+            <p className="font-medium">{m.workbench_browser_cookies_title()}</p>
+            <p className="text-muted-foreground">
+              {m.workbench_browser_cookies_help()}
+            </p>
+            {cookies.length === 0 ? (
+              <p className="text-muted-foreground">
+                {m.workbench_browser_cookies_empty()}
+              </p>
+            ) : (
+              cookies.map((cookie) => (
+                <div
+                  key={`${cookie.domain}:${cookie.path}:${cookie.name}`}
+                  className="flex items-center justify-between gap-2 text-xs"
+                >
+                  <span className="min-w-0 truncate">
+                    {cookie.domain} · {cookie.name}
+                  </span>
+                  <button
+                    type="button"
+                    className="text-destructive"
+                    onClick={async () => {
+                      await desktopBrowser?.removeCookie?.({
+                        profileId: profileId ?? "",
+                        url: `https://${cookie.domain.replace(/^\./, "")}${cookie.path}`,
+                        name: cookie.name,
+                      });
+                      setCookies((current) =>
+                        current.filter((item) => item !== cookie),
+                      );
+                    }}
+                  >
+                    {m.workbench_browser_cookies_remove()}
+                  </button>
+                </div>
+              ))
+            )}
           </div>
           <button
             type="button"

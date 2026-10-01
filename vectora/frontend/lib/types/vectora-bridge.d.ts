@@ -131,6 +131,12 @@ export interface VectoraDesktopBridge {
       profileId: string;
       id: string;
     }) => Promise<void>;
+    listCookies?: (profileId: string) => Promise<VectoraBrowserCookie[]>;
+    removeCookie?: (input: {
+      profileId: string;
+      url: string;
+      name: string;
+    }) => Promise<void>;
     createView: (options: VectoraBrowserViewOptions) => Promise<number>;
     destroyView: (viewId: number) => void;
     navigate: (
@@ -190,6 +196,16 @@ export interface VectoraBrowserCredential {
   username: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface VectoraBrowserCookie {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  secure: boolean;
+  httpOnly: boolean;
+  expirationDate?: number;
 }
 
 export interface VectoraBackupPreview {

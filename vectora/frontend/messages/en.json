@@ -1795,5 +1795,9 @@
   "workbench_files_utf8": "UTF-8",
   "workbench_files_utf8bom": "UTF-8 with BOM",
   "workbench_files_lf": "LF",
-  "workbench_files_crlf": "CRLF"
+  "workbench_files_crlf": "CRLF",
+  "workbench_browser_cookies_title": "Cookies",
+  "workbench_browser_cookies_help": "Cookies stored by this browser profile.",
+  "workbench_browser_cookies_empty": "No cookies stored.",
+  "workbench_browser_cookies_remove": "Remove"
 }

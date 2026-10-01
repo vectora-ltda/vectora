@@ -33,6 +33,16 @@ export interface BrowserCredential {
   updatedAt: string;
 }
 
+export interface BrowserCookie {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  secure: boolean;
+  httpOnly: boolean;
+  expirationDate?: number;
+}
+
 export interface VectoraDesktopBridge {
   /** "win32" | "darwin" | "linux" — útil para shortcuts e UI condicional. */
   readonly platform: NodeJS.Platform;
@@ -148,6 +158,12 @@ export interface VectoraDesktopBridge {
     deleteCredential: (input: {
       profileId: string;
       id: string;
+    }) => Promise<void>;
+    listCookies: (profileId: string) => Promise<BrowserCookie[]>;
+    removeCookie: (input: {
+      profileId: string;
+      url: string;
+      name: string;
     }) => Promise<void>;
   };
   /** Busca/instalação de temas do VS Code Marketplace — baixa e
@@ -279,6 +295,10 @@ const bridge: VectoraDesktopBridge = {
       ipcRenderer.invoke("vectora:browser-save-credential", input),
     deleteCredential: (input) =>
       ipcRenderer.invoke("vectora:browser-delete-credential", input),
+    listCookies: (profileId) =>
+      ipcRenderer.invoke("vectora:browser-list-cookies", profileId),
+    removeCookie: (input) =>
+      ipcRenderer.invoke("vectora:browser-remove-cookie", input),
   },
   themes: {
     fetchMarketplace: (extensionId) =>
