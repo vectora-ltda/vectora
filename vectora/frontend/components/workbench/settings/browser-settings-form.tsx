@@ -32,6 +32,8 @@ export function BrowserSettingsForm({
   const zoomPercent = useSettingsStore((s) => s.browserZoomPercent);
   const setAllowPopups = useSettingsStore((s) => s.setBrowserAllowPopups);
   const setZoomPercent = useSettingsStore((s) => s.setBrowserZoomPercent);
+  const searchEngine = useSettingsStore((s) => s.browserSearchEngine);
+  const setSearchEngine = useSettingsStore((s) => s.setBrowserSearchEngine);
   const permissionMode = useSettingsStore((s) => s.browserPermissionMode);
   const setPermissionMode = useSettingsStore((s) => s.setBrowserPermissionMode);
   const originPermissions = useSettingsStore((s) => s.browserOriginPermissions);
@@ -90,6 +92,37 @@ export function BrowserSettingsForm({
               </span>
             </span>
           </label>
+          <div className="flex items-center justify-between gap-3 rounded border border-border/60 p-2 text-foreground">
+            <span>
+              <span className="block font-medium">
+                {m.workbench_browser_search_engine_label()}
+              </span>
+              <span className="block text-muted-foreground">
+                {m.workbench_browser_search_engine_help()}
+              </span>
+            </span>
+            <Select
+              value={searchEngine}
+              onValueChange={(value) =>
+                setSearchEngine(value as "duckduckgo" | "google" | "bing")
+              }
+            >
+              <SelectTrigger className="w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="duckduckgo">
+                  {m.workbench_browser_search_engine_duckduckgo()}
+                </SelectItem>
+                <SelectItem value="google">
+                  {m.workbench_browser_search_engine_google()}
+                </SelectItem>
+                <SelectItem value="bing">
+                  {m.workbench_browser_search_engine_bing()}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <label className="flex items-center justify-between gap-3 rounded border border-border/60 p-2 text-foreground">
             <span>
               <span className="block font-medium">

@@ -200,6 +200,7 @@ export interface SettingsState {
   /** Política padrão de permissões de origem no Browser. */
   browserPermissionMode: "allow" | "deny";
   browserOriginPermissions: Record<string, "allow" | "deny">;
+  browserSearchEngine: "duckduckgo" | "google" | "bing";
   /** Tamanho da fonte do terminal em pixels. */
   terminalFontSize: number;
   /** Número de linhas mantidas no scrollback do terminal. */
@@ -269,6 +270,7 @@ export interface SettingsState {
   setBrowserAllowPopups: (v: boolean) => void;
   setBrowserZoomPercent: (v: number) => void;
   setBrowserPermissionMode: (v: "allow" | "deny") => void;
+  setBrowserSearchEngine: (v: "duckduckgo" | "google" | "bing") => void;
   setBrowserOriginPermission: (origin: string, mode: "allow" | "deny") => void;
   removeBrowserOriginPermission: (origin: string) => void;
   setTerminalFontSize: (v: number) => void;
@@ -483,6 +485,7 @@ const DEFAULTS = {
   browserZoomPercent: 100,
   browserPermissionMode: "deny" as "allow" | "deny",
   browserOriginPermissions: {},
+  browserSearchEngine: "duckduckgo" as "duckduckgo" | "google" | "bing",
   terminalFontSize: 13,
   terminalScrollback: 5000,
   terminalCursorBlink: true,
@@ -688,6 +691,7 @@ export const useSettingsStore = create<SettingsState>()(
       setBrowserZoomPercent: (v) =>
         set({ browserZoomPercent: Math.max(25, Math.min(500, Math.round(v))) }),
       setBrowserPermissionMode: (v) => set({ browserPermissionMode: v }),
+      setBrowserSearchEngine: (v) => set({ browserSearchEngine: v }),
       setBrowserOriginPermission: (origin, mode) =>
         set((state) => ({
           browserOriginPermissions: {
@@ -823,6 +827,7 @@ export const useSettingsStore = create<SettingsState>()(
         browserZoomPercent: state.browserZoomPercent,
         browserPermissionMode: state.browserPermissionMode,
         browserOriginPermissions: state.browserOriginPermissions,
+        browserSearchEngine: state.browserSearchEngine,
         terminalFontSize: state.terminalFontSize,
         terminalScrollback: state.terminalScrollback,
         terminalCursorBlink: state.terminalCursorBlink,

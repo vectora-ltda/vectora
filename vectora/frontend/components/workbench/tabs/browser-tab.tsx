@@ -84,13 +84,25 @@ function genId(): string {
     : `tab-${Math.random().toString(36).slice(2)}`;
 }
 
-function normalizeUrl(raw: string): string {
+function normalizeUrl(
+  raw: string,
+  searchEngine: "duckduckgo" | "google" | "bing" = "duckduckgo",
+): string {
   const trimmed = raw.trim();
   if (!trimmed) return "";
   // Chromium internal pages belong to the native settings surface. They must
   // never be accepted by a normal browser tab navigation.
   if (/^chrome:\/\//i.test(trimmed)) return "";
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (/\s/.test(trimmed)) {
+    const encoded = encodeURIComponent(trimmed);
+    const searchUrls = {
+      duckduckgo: `https://duckduckgo.com/?q=${encoded}`,
+      google: `https://www.google.com/search?q=${encoded}`,
+      bing: `https://www.bing.com/search?q=${encoded}`,
+    } as const;
+    return searchUrls[searchEngine];
+  }
   return `https://${trimmed}`;
 }
 
@@ -145,6 +157,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const browserOriginPermissions = useSettingsStore(
     (s) => s.browserOriginPermissions,
   );
+  const browserSearchEngine = useSettingsStore((s) => s.browserSearchEngine);
 
   // Presente só no desktop Electron — quando ausente, cai no `<iframe>` de
   // fallback abaixo (sujeito a X-Frame-Options, único caminho possível fora
@@ -348,7 +361,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
 
   const navigateInTab = useCallback(
     (tabId: string, raw: string) => {
-      const url = normalizeUrl(raw);
+      const url = normalizeUrl(raw, browserSearchEngine);
       if (!url) return;
       if (desktopBrowser) {
         updateTab(tabId, { desktopUrl: url });
@@ -375,7 +388,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         };
       });
     },
-    [desktopBrowser, updateTab],
+    [browserSearchEngine, desktopBrowser, updateTab],
   );
 
   const navigate = useCallback(
@@ -444,9 +457,12 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       setActiveTabId(id);
       if (url) {
         if (desktopBrowser) {
-          pendingNavigateRef.current.set(id, normalizeUrl(url));
+          pendingNavigateRef.current.set(
+            id,
+            normalizeUrl(url, browserSearchEngine),
+          );
         } else {
-          const normalized = normalizeUrl(url);
+          const normalized = normalizeUrl(url, browserSearchEngine);
           setTabs((prev) =>
             prev.map((t) =>
               t.id === id
@@ -634,7 +650,10 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         prev.map((t) => {
           if (t.viewId !== eventViewId) return t;
           if (event.type === "navigated") {
-            const normalized = normalizeUrl(event.url ?? "");
+            const normalized = normalizeUrl(
+              event.url ?? "",
+              browserSearchEngine,
+            );
             const nextHistory =
               normalized && t.history.at(-1) !== normalized
                 ? [...t.history, normalized].slice(-100)
@@ -662,7 +681,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         }),
       );
     });
-  }, [desktopBrowser, addTab]);
+  }, [browserSearchEngine, desktopBrowser, addTab]);
 
   // Visibilidade: só a view da aba ATIVA fica visível — todas as outras
   // (abas em segundo plano) ficam escondidas, senão desenhariam por cima
