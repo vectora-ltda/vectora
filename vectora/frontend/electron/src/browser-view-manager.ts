@@ -111,6 +111,7 @@ export interface BrowserViewManagerDeps {
   destroyView(view: ManagedView): void;
   emit(viewId: number, event: BrowserViewEvent): void;
   clearData?(partition: string): Promise<void>;
+  setPermissionMode?(profileId: string, mode: "allow" | "deny"): void;
 }
 
 /** Clears persisted browser storage and HTTP cache for one profile. */
@@ -128,6 +129,7 @@ interface Entry {
   kind: BrowserViewKind;
   ownerId: number | null;
   allowPopups: boolean;
+  profileId: string;
 }
 
 const ALLOWED_SCHEMES = new Set(["http:", "https:"]);
@@ -177,6 +179,7 @@ export class BrowserViewManager {
       kind,
       ownerId,
       allowPopups: options.allowPopups === true,
+      profileId: normalizedProfileId,
     });
     this.wireEvents(id, view, kind);
     this.deps.attach(view);
@@ -193,6 +196,26 @@ export class BrowserViewManager {
     const normalized = Math.max(25, Math.min(500, Math.round(percent)));
     const factor = normalized / 100;
     entry.view.webContents.setZoomLevel?.(Math.log(factor) / Math.log(1.2));
+  }
+
+  setPopupPolicy(
+    id: number,
+    allowPopups: boolean,
+    ownerId: number | null = null,
+  ): void {
+    const entry = this.entries.get(id);
+    if (!entry || !this.owns(entry, ownerId)) return;
+    entry.allowPopups = allowPopups;
+  }
+
+  setPermissionMode(
+    id: number,
+    mode: "allow" | "deny",
+    ownerId: number | null = null,
+  ): void {
+    const entry = this.entries.get(id);
+    if (!entry || !this.owns(entry, ownerId)) return;
+    this.deps.setPermissionMode?.(entry.profileId, mode);
   }
 
   async clearData(profileId = "default"): Promise<void> {

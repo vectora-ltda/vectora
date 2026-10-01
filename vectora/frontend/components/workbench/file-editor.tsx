@@ -48,6 +48,14 @@ export function FileEditor({
     (s) => s.editorQuickSuggestions,
   );
   const editorLineNumbers = useSettingsStore((s) => s.editorLineNumbers);
+  const editorTabSize = useSettingsStore((s) => s.editorTabSize);
+  const editorRenderWhitespace = useSettingsStore(
+    (s) => s.editorRenderWhitespace,
+  );
+  const editorStickyScroll = useSettingsStore((s) => s.editorStickyScroll);
+  const editorSmoothScrolling = useSettingsStore(
+    (s) => s.editorSmoothScrolling,
+  );
   const media = getMediaKind(path);
 
   const [file, setFile] = useState<FileContent | null>(null);
@@ -242,6 +250,10 @@ export function FileEditor({
               formatOnType: editorFormatOnType,
               quickSuggestions: editorQuickSuggestions,
               lineNumbers: editorLineNumbers,
+              tabSize: editorTabSize,
+              renderWhitespace: editorRenderWhitespace,
+              stickyScroll: editorStickyScroll,
+              smoothScrolling: editorSmoothScrolling,
             },
           )}
           loading={

@@ -107,6 +107,10 @@ export interface VectoraDesktopBridge {
     setBounds: (viewId: number, bounds: ViewBounds) => void;
     setVisible: (viewId: number, visible: boolean) => void;
     setZoom: (viewId: number, percent: number) => void;
+    setPolicy: (
+      viewId: number,
+      policy: { allowPopups?: boolean; permissionMode?: "allow" | "deny" },
+    ) => void;
     clearProfileData: (profileId?: string) => Promise<void>;
     /** Subscreve a eventos de navegação (navigated/titleUpdated/
      * faviconUpdated/loadingChanged/loadFailed) de qualquer view criada. */
@@ -211,6 +215,8 @@ const bridge: VectoraDesktopBridge = {
       ipcRenderer.send("vectora:browser-set-visible", viewId, visible),
     setZoom: (viewId, percent) =>
       ipcRenderer.send("vectora:browser-set-zoom", viewId, percent),
+    setPolicy: (viewId, policy) =>
+      ipcRenderer.send("vectora:browser-set-policy", viewId, policy),
     clearProfileData: (profileId?: string) =>
       ipcRenderer.invoke("vectora:browser-clear-profile-data", profileId),
     onEvent: (handler) => {

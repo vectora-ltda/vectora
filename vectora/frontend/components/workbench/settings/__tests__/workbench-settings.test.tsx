@@ -42,6 +42,8 @@ function descriptor(
     description: () => "Configure the terminal",
     icon: Icon,
     scope: "user",
+    sections: [{ id: "general", title: () => "General" }],
+    capabilities: [{ id: "general", status: "available" }],
     Component: () => <p>settings form</p>,
     surface: { workbench: "form", settings: "form" },
     ...overrides,

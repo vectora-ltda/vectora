@@ -121,6 +121,10 @@ export interface VectoraDesktopBridge {
     setBounds: (viewId: number, bounds: VectoraViewBounds) => void;
     setVisible: (viewId: number, visible: boolean) => void;
     setZoom?: (viewId: number, percent: number) => void;
+    setPolicy?: (
+      viewId: number,
+      policy: { allowPopups?: boolean; permissionMode?: "allow" | "deny" },
+    ) => void;
     clearProfileData: (profileId?: string) => Promise<void>;
     onEvent: (
       handler: (viewId: number, event: VectoraBrowserViewEvent) => void,

@@ -1,6 +1,7 @@
 import type {
   WorkbenchSettingsDescriptor,
   WorkbenchId,
+  WorkbenchSettingsCapability,
 } from "@/lib/types/workbench-settings";
 import { createElement } from "react";
 import type { WorkbenchSettingsContext } from "@/lib/types/workbench-settings";
@@ -27,7 +28,15 @@ const MemorySettings = lazyWithRetry(
   "workbench-memory-settings",
 );
 function GitWorkbenchSettings(_context: WorkbenchSettingsContext) {
-  return createElement(GitSettingsTab);
+  return createElement(GitSettingsTab, { showHeading: false });
+}
+
+function section(id: string, title: () => string) {
+  return { id, title } as const;
+}
+
+function capability(id: string, status: WorkbenchSettingsCapability["status"]) {
+  return { id, status } as const;
 }
 
 export const contextGraphSettings: WorkbenchSettingsDescriptor = {
@@ -37,6 +46,8 @@ export const contextGraphSettings: WorkbenchSettingsDescriptor = {
   description: () => m.graph_settings_filetypes_help(),
   icon: Settings2,
   scope: "user",
+  sections: [section("indexing", () => m.graph_settings_title())],
+  capabilities: [capability("indexing", "available")],
   Component: ContextGraphSettingsForm,
   surface: { workbench: "form", settings: "form" },
 };
@@ -48,6 +59,8 @@ export const memorySettings: WorkbenchSettingsDescriptor = {
   description: () => m.rag_settings_title(),
   icon: Settings2,
   scope: "instance",
+  sections: [section("retrieval", () => m.rag_settings_title())],
+  capabilities: [capability("retrieval", "available")],
   Component: MemorySettings,
   surface: { workbench: "form", settings: "form" },
 };
@@ -59,6 +72,13 @@ export const browserSettings: WorkbenchSettingsDescriptor = {
   description: () => m.workbench_browser_settings_description(),
   icon: Settings2,
   scope: "session",
+  sections: [section("profile", () => m.workbench_browser_settings_title())],
+  capabilities: [
+    capability("profile-storage", "available"),
+    capability("permissions", "available"),
+    capability("downloads", "available"),
+    capability("password-manager-ui", "planned"),
+  ],
   Component: BrowserSettingsContent,
   surface: { workbench: "form", settings: "form" },
 };
@@ -70,6 +90,8 @@ export const terminalSettings: WorkbenchSettingsDescriptor = {
   description: () => m.terminal_sandbox_editor_autosync_hint(),
   icon: Settings2,
   scope: "workspace",
+  sections: [section("sandbox", () => m.terminal_title())],
+  capabilities: [capability("sandbox", "available")],
   Component: TerminalSettings,
   surface: { workbench: "form", settings: "form" },
 };
@@ -81,6 +103,8 @@ export const gitSettings: WorkbenchSettingsDescriptor = {
   description: () => m.settings_git_description(),
   icon: Settings2,
   scope: "user",
+  sections: [section("git", () => m.settings_category_git())],
+  capabilities: [capability("hooks", "available")],
   Component: GitWorkbenchSettings,
   surface: { workbench: "form", settings: "form" },
 };
@@ -91,6 +115,12 @@ export const filesSettings: WorkbenchSettingsDescriptor = {
   title: () => m.workbench_tab_files(),
   icon: Settings2,
   scope: "user",
+  sections: [section("editor", () => m.workbench_tab_files())],
+  capabilities: [
+    capability("monaco-editor", "available"),
+    capability("formatter-service", "planned"),
+    capability("linter-service", "planned"),
+  ],
   Component: FileSystemSettingsForm,
   surface: { workbench: "form", settings: "form" },
 };
@@ -101,6 +131,8 @@ export const planSettings: WorkbenchSettingsDescriptor = {
   title: () => m.workbench_tab_plan(),
   icon: Settings2,
   scope: "user",
+  sections: [section("plan", () => m.workbench_tab_plan())],
+  capabilities: [capability("plan-view", "available")],
   Component: PlanSettingsForm,
   surface: { workbench: "form", settings: "form" },
 };
@@ -111,6 +143,8 @@ export const tasksSettings: WorkbenchSettingsDescriptor = {
   title: () => m.workbench_tab_tasks(),
   icon: Settings2,
   scope: "user",
+  sections: [section("tasks", () => m.workbench_tab_tasks())],
+  capabilities: [capability("background-tasks", "available")],
   Component: TasksSettingsForm,
   surface: { workbench: "form", settings: "form" },
 };
@@ -121,6 +155,8 @@ export const librarySettings: WorkbenchSettingsDescriptor = {
   title: () => m.workbench_tab_library(),
   icon: Settings2,
   scope: "user",
+  sections: [section("catalogs", () => m.workbench_tab_library())],
+  capabilities: [capability("library-catalogs", "available")],
   Component: LibrarySettingsForm,
   surface: { workbench: "form", settings: "form" },
 };

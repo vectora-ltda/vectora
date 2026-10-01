@@ -3,7 +3,11 @@
 import { useSettingsStore } from "@/lib/stores/settings-store";
 import { m } from "@/lib/paraglide/messages";
 
-export function GitSettingsTab() {
+export function GitSettingsTab({
+  showHeading = true,
+}: {
+  showHeading?: boolean;
+}) {
   const hooks = useSettingsStore((s) => s.gitHooksEnabled);
   const signoff = useSettingsStore((s) => s.gitSignoffEnabled);
   const bypass = useSettingsStore((s) => s.gitBypassEnabled);
@@ -12,12 +16,16 @@ export function GitSettingsTab() {
   const setBypass = useSettingsStore((s) => s.setGitBypassEnabled);
   return (
     <div className="space-y-5 max-w-xl">
-      <div>
-        <h2 className="text-base font-semibold">{m.settings_category_git()}</h2>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {m.settings_git_description()}
-        </p>
-      </div>
+      {showHeading ? (
+        <div>
+          <h2 className="text-base font-semibold">
+            {m.settings_category_git()}
+          </h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {m.settings_git_description()}
+          </p>
+        </div>
+      ) : null}
       <label className="flex items-start gap-3 rounded-md border border-border/60 p-3">
         <input
           type="checkbox"

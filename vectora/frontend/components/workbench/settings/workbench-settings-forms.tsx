@@ -121,6 +121,69 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
         checked={settings.editorLineNumbers}
         onChange={settings.setEditorLineNumbers}
       />
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <Label htmlFor="files-tab-size">
+            {m.workbench_files_tab_size_label()}
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            {m.workbench_files_tab_size_help()}
+          </p>
+        </div>
+        <Input
+          id="files-tab-size"
+          type="number"
+          min={1}
+          max={8}
+          value={settings.editorTabSize}
+          onChange={(event) =>
+            settings.setEditorTabSize(Number(event.target.value))
+          }
+          className="w-20"
+        />
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor="files-whitespace">
+          {m.workbench_files_whitespace_label()}
+        </Label>
+        <Select
+          value={settings.editorRenderWhitespace}
+          onValueChange={(value) =>
+            settings.setEditorRenderWhitespace(
+              value as "none" | "selection" | "all",
+            )
+          }
+        >
+          <SelectTrigger id="files-whitespace">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">
+              {m.workbench_files_whitespace_none()}
+            </SelectItem>
+            <SelectItem value="selection">
+              {m.workbench_files_whitespace_selection()}
+            </SelectItem>
+            <SelectItem value="all">
+              {m.workbench_files_whitespace_all()}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <Toggle
+        id="files-sticky-scroll"
+        label={m.workbench_files_sticky_scroll_label()}
+        help={m.workbench_files_sticky_scroll_help()}
+        checked={settings.editorStickyScroll}
+        onChange={settings.setEditorStickyScroll}
+      />
+      <Toggle
+        id="files-smooth-scrolling"
+        label={m.workbench_files_smooth_scrolling_label()}
+        help={m.workbench_files_smooth_scrolling_help()}
+        checked={settings.editorSmoothScrolling}
+        onChange={settings.setEditorSmoothScrolling}
+      />
     </div>
   );
 }

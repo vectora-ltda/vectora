@@ -215,8 +215,18 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   useEffect(() => {
     if (desktopBrowser && activeTab?.viewId != null) {
       desktopBrowser.setZoom?.(activeTab.viewId, browserZoomPercent);
+      desktopBrowser.setPolicy?.(activeTab.viewId, {
+        allowPopups,
+        permissionMode: browserPermissionMode,
+      });
     }
-  }, [desktopBrowser, activeTab?.viewId, browserZoomPercent]);
+  }, [
+    desktopBrowser,
+    activeTab?.viewId,
+    browserZoomPercent,
+    allowPopups,
+    browserPermissionMode,
+  ]);
 
   useEffect(() => {
     if (previousSessionKeyRef.current === sessionKey) return;

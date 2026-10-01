@@ -6,6 +6,10 @@ export interface EditorPreferences {
   formatOnType?: boolean;
   quickSuggestions?: boolean;
   lineNumbers?: boolean;
+  tabSize?: number;
+  renderWhitespace?: "none" | "selection" | "all";
+  stickyScroll?: boolean;
+  smoothScrolling?: boolean;
 }
 
 /** Opções visuais e de navegação inspiradas no CodeEdit do Godot. */
@@ -40,15 +44,15 @@ export function godotEditorOptions(
     foldingHighlight: true,
     showFoldingControls: "mouseover",
     renderLineHighlight: "line",
-    renderWhitespace: "selection",
+    renderWhitespace: preferences.renderWhitespace ?? "selection",
     guides: {
       indentation: true,
       highlightActiveIndentation: true,
       bracketPairs: true,
     },
     bracketPairColorization: { enabled: false },
-    stickyScroll: { enabled: false },
-    smoothScrolling: true,
+    stickyScroll: { enabled: preferences.stickyScroll ?? false },
+    smoothScrolling: preferences.smoothScrolling ?? true,
     scrollBeyondLastLine: false,
     scrollbar: {
       verticalScrollbarSize: 12,
@@ -59,7 +63,7 @@ export function godotEditorOptions(
     automaticLayout: true,
     formatOnType: preferences.formatOnType ?? true,
     quickSuggestions: preferences.quickSuggestions ?? true,
-    tabSize: 2,
+    tabSize: preferences.tabSize ?? 2,
     wordWrap: preferences.wordWrap ? "on" : "off",
   };
 }

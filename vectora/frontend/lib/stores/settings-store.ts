@@ -150,6 +150,10 @@ export interface SettingsState {
   editorFormatOnType: boolean;
   editorQuickSuggestions: boolean;
   editorLineNumbers: boolean;
+  editorTabSize: number;
+  editorRenderWhitespace: "none" | "selection" | "all";
+  editorStickyScroll: boolean;
+  editorSmoothScrolling: boolean;
   /** Família tipográfica do código no Monaco (Godot usa JetBrains Mono). */
   editorFontFamily: FontFamily;
   /** Família monoespaçada usada por terminais, diffs e blocos de código. */
@@ -216,6 +220,10 @@ export interface SettingsState {
   setEditorFormatOnType: (v: boolean) => void;
   setEditorQuickSuggestions: (v: boolean) => void;
   setEditorLineNumbers: (v: boolean) => void;
+  setEditorTabSize: (v: number) => void;
+  setEditorRenderWhitespace: (v: "none" | "selection" | "all") => void;
+  setEditorStickyScroll: (v: boolean) => void;
+  setEditorSmoothScrolling: (v: boolean) => void;
   setEditorFontFamily: (v: FontFamily) => void;
   setMonoFontFamily: (v: FontFamily) => void;
   setUiFontFamily: (v: FontFamily) => void;
@@ -411,6 +419,10 @@ const DEFAULTS = {
   editorFormatOnType: true,
   editorQuickSuggestions: true,
   editorLineNumbers: true,
+  editorTabSize: 2,
+  editorRenderWhitespace: "selection" as "none" | "selection" | "all",
+  editorStickyScroll: false,
+  editorSmoothScrolling: true,
   editorFontFamily: '"JetBrains Mono", ui-monospace, monospace',
   monoFontFamily: '"JetBrains Mono", ui-monospace, monospace',
   uiFontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
@@ -578,6 +590,11 @@ export const useSettingsStore = create<SettingsState>()(
       setEditorFormatOnType: (v) => set({ editorFormatOnType: v }),
       setEditorQuickSuggestions: (v) => set({ editorQuickSuggestions: v }),
       setEditorLineNumbers: (v) => set({ editorLineNumbers: v }),
+      setEditorTabSize: (v) =>
+        set({ editorTabSize: Math.max(1, Math.min(8, Math.round(v))) }),
+      setEditorRenderWhitespace: (v) => set({ editorRenderWhitespace: v }),
+      setEditorStickyScroll: (v) => set({ editorStickyScroll: v }),
+      setEditorSmoothScrolling: (v) => set({ editorSmoothScrolling: v }),
       setEditorFontFamily: (v) => set({ editorFontFamily: v }),
       setMonoFontFamily: (v) => set({ monoFontFamily: v }),
       setUiFontFamily: (v) => set({ uiFontFamily: v }),
@@ -676,6 +693,10 @@ export const useSettingsStore = create<SettingsState>()(
         editorFormatOnType: state.editorFormatOnType,
         editorQuickSuggestions: state.editorQuickSuggestions,
         editorLineNumbers: state.editorLineNumbers,
+        editorTabSize: state.editorTabSize,
+        editorRenderWhitespace: state.editorRenderWhitespace,
+        editorStickyScroll: state.editorStickyScroll,
+        editorSmoothScrolling: state.editorSmoothScrolling,
         editorFontFamily: state.editorFontFamily,
         monoFontFamily: state.monoFontFamily,
         uiFontFamily: state.uiFontFamily,

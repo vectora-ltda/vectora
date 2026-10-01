@@ -133,6 +133,7 @@ let pendingDeepLink: string | null = null;
 let updateReady = false;
 let browserViewManager: BrowserViewManager | null = null;
 const configuredBrowserDownloadSessions = new Set<Electron.Session>();
+const browserPermissionModes = new Map<string, "allow" | "deny">();
 const desktopBridgeToken =
   process.env.VECTORA_DESKTOP_BRIDGE_TOKEN ?? randomUUID();
 let selectedBackupPath: string | null = null;
@@ -219,13 +220,14 @@ function getBrowserViewManager(): BrowserViewManager {
         },
       });
       const permissionMode = options.permissionMode ?? "deny";
+      browserPermissionModes.set(profileId, permissionMode);
       browserSession.setPermissionRequestHandler?.(
         (_webContents, _permission, callback) => {
-          callback(permissionMode === "allow");
+          callback(browserPermissionModes.get(profileId) === "allow");
         },
       );
       browserSession.setPermissionCheckHandler?.(
-        () => permissionMode === "allow",
+        () => browserPermissionModes.get(profileId) === "allow",
       );
       if (options.zoomPercent !== undefined) {
         const factor = Math.max(0.25, Math.min(5, options.zoomPercent / 100));
@@ -247,6 +249,9 @@ function getBrowserViewManager(): BrowserViewManager {
     clearData: async (partition) => {
       const browserSession = session.fromPartition(partition);
       await clearBrowserSessionData(browserSession);
+    },
+    setPermissionMode: (profileId, mode) => {
+      browserPermissionModes.set(profileId, mode);
     },
   });
   return browserViewManager;
@@ -1179,6 +1184,38 @@ function registerIpc(): void {
         percent,
         browserOwnerId(event),
       );
+    },
+  );
+  ipcMain.on(
+    "vectora:browser-set-policy",
+    (
+      event,
+      viewId: number,
+      policy: { allowPopups?: boolean; permissionMode?: "allow" | "deny" },
+    ) => {
+      if (!isTrustedBrowserSender(event)) return;
+      if (!isValidViewId(viewId) || !policy || typeof policy !== "object")
+        return;
+      if (policy.allowPopups !== undefined) {
+        if (typeof policy.allowPopups !== "boolean") return;
+        getBrowserViewManager().setPopupPolicy(
+          viewId,
+          policy.allowPopups,
+          browserOwnerId(event),
+        );
+      }
+      if (policy.permissionMode !== undefined) {
+        if (
+          policy.permissionMode !== "allow" &&
+          policy.permissionMode !== "deny"
+        )
+          return;
+        getBrowserViewManager().setPermissionMode(
+          viewId,
+          policy.permissionMode,
+          browserOwnerId(event),
+        );
+      }
     },
   );
 
