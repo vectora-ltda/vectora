@@ -178,6 +178,8 @@ export interface SettingsState {
   editorInsertSpaces: boolean;
   editorParameterHints: boolean;
   editorCursorStyle: "line" | "block" | "underline";
+  /** Limite preventivo para abrir arquivos grandes no editor Monaco. */
+  editorMaxFileSizeMb: number;
   /** Família tipográfica do código no Monaco (Godot usa JetBrains Mono). */
   editorFontFamily: FontFamily;
   /** Família monoespaçada usada por terminais, diffs e blocos de código. */
@@ -279,6 +281,7 @@ export interface SettingsState {
   setEditorInsertSpaces: (v: boolean) => void;
   setEditorParameterHints: (v: boolean) => void;
   setEditorCursorStyle: (v: "line" | "block" | "underline") => void;
+  setEditorMaxFileSizeMb: (v: number) => void;
   setEditorFontFamily: (v: FontFamily) => void;
   setMonoFontFamily: (v: FontFamily) => void;
   setUiFontFamily: (v: FontFamily) => void;
@@ -505,6 +508,7 @@ const DEFAULTS = {
   editorInsertSpaces: true,
   editorParameterHints: true,
   editorCursorStyle: "line" as "line" | "block" | "underline",
+  editorMaxFileSizeMb: 10,
   editorFontFamily: '"JetBrains Mono", ui-monospace, monospace',
   monoFontFamily: '"JetBrains Mono", ui-monospace, monospace',
   uiFontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
@@ -711,6 +715,8 @@ export const useSettingsStore = create<SettingsState>()(
       setEditorInsertSpaces: (v) => set({ editorInsertSpaces: v }),
       setEditorParameterHints: (v) => set({ editorParameterHints: v }),
       setEditorCursorStyle: (v) => set({ editorCursorStyle: v }),
+      setEditorMaxFileSizeMb: (v) =>
+        set({ editorMaxFileSizeMb: Math.max(1, Math.min(100, Math.round(v))) }),
       setEditorFontFamily: (v) => set({ editorFontFamily: v }),
       setMonoFontFamily: (v) => set({ monoFontFamily: v }),
       setUiFontFamily: (v) => set({ uiFontFamily: v }),
@@ -877,6 +883,7 @@ export const useSettingsStore = create<SettingsState>()(
         editorInsertSpaces: state.editorInsertSpaces,
         editorParameterHints: state.editorParameterHints,
         editorCursorStyle: state.editorCursorStyle,
+        editorMaxFileSizeMb: state.editorMaxFileSizeMb,
         editorFontFamily: state.editorFontFamily,
         monoFontFamily: state.monoFontFamily,
         uiFontFamily: state.uiFontFamily,

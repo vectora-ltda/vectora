@@ -120,6 +120,27 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
       </div>
       <div className="flex items-center justify-between gap-3">
         <div>
+          <Label htmlFor="files-max-size">
+            {m.workbench_files_max_size_label()}
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            {m.workbench_files_max_size_help()}
+          </p>
+        </div>
+        <Input
+          id="files-max-size"
+          type="number"
+          min={1}
+          max={100}
+          value={settings.editorMaxFileSizeMb}
+          onChange={(event) =>
+            settings.setEditorMaxFileSizeMb(Number(event.target.value))
+          }
+          className="w-24"
+        />
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <div>
           <Label htmlFor="files-font-family">
             {m.workbench_files_font_label()}
           </Label>

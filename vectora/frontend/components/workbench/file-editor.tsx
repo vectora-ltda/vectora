@@ -80,6 +80,7 @@ export function FileEditor({
   const editorInsertSpaces = useSettingsStore((s) => s.editorInsertSpaces);
   const editorParameterHints = useSettingsStore((s) => s.editorParameterHints);
   const editorCursorStyle = useSettingsStore((s) => s.editorCursorStyle);
+  const editorMaxFileSizeMb = useSettingsStore((s) => s.editorMaxFileSizeMb);
   const media = getMediaKind(path);
 
   const [file, setFile] = useState<FileContent | null>(null);
@@ -99,6 +100,9 @@ export function FileEditor({
   );
   const readOnly =
     file?.kind === "binary" || file?.truncated || file?.sha256 == null;
+  const exceedsSizeLimit =
+    file?.size !== undefined && file.size > editorMaxFileSizeMb * 1024 * 1024;
+  const editorReadOnly = readOnly || exceedsSizeLimit;
 
   useEffect(() => {
     if (media) return;
@@ -142,7 +146,7 @@ export function FileEditor({
   }, [workspaceId, path, media]);
 
   useEffect(() => {
-    if (!editorFileWatcherEnabled || media || readOnly || dirty) return;
+    if (!editorFileWatcherEnabled || media || editorReadOnly || dirty) return;
     const timer = window.setInterval(() => {
       void fetchFile(workspaceId, path).then((latest) => {
         if (!latest || latest.sha256 === shaRef.current || dirty) return;
@@ -152,10 +156,17 @@ export function FileEditor({
       });
     }, 3000);
     return () => window.clearInterval(timer);
-  }, [dirty, editorFileWatcherEnabled, media, path, readOnly, workspaceId]);
+  }, [
+    dirty,
+    editorFileWatcherEnabled,
+    editorReadOnly,
+    media,
+    path,
+    workspaceId,
+  ]);
 
   const handleSave = useCallback(async () => {
-    if (!file || file.content === undefined || readOnly || saving) return;
+    if (!file || file.content === undefined || editorReadOnly || saving) return;
     let contentToSave =
       editorFormatterEnabled && editorFormatOnSave
         ? formatEditorText(path, value)
@@ -201,7 +212,7 @@ export function FileEditor({
     file,
     key,
     path,
-    readOnly,
+    editorReadOnly,
     saving,
     value,
     workspaceId,
@@ -217,7 +228,7 @@ export function FileEditor({
       if (
         !file ||
         file.content === undefined ||
-        readOnly ||
+        editorReadOnly ||
         !targetPath.trim()
       ) {
         return false;
@@ -234,7 +245,7 @@ export function FileEditor({
       }
       return result.ok;
     },
-    [file, readOnly, workspaceId, value],
+    [editorReadOnly, file, workspaceId, value],
   );
 
   const registerEditor = useEditorRegistry((s) => s.register);
@@ -264,10 +275,10 @@ export function FileEditor({
   }, [file, key, value]);
 
   useEffect(() => {
-    if (autoSaveMode !== "afterDelay" || !dirty || readOnly) return;
+    if (autoSaveMode !== "afterDelay" || !dirty || editorReadOnly) return;
     const timer = window.setTimeout(() => void handleSave(), autoSaveDelay);
     return () => window.clearTimeout(timer);
-  }, [autoSaveDelay, autoSaveMode, dirty, handleSave, readOnly]);
+  }, [autoSaveDelay, autoSaveMode, dirty, editorReadOnly, handleSave]);
 
   const handleMount: OnMount = useCallback(
     (editor, monaco) => {
@@ -277,7 +288,7 @@ export function FileEditor({
       editor.addCommand(
         monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF,
         () => {
-          if (!editorFormatterEnabled || readOnly) return;
+          if (!editorFormatterEnabled || editorReadOnly) return;
           const next = formatEditorText(path, editor.getValue());
           if (next !== editor.getValue()) editor.setValue(next);
         },
@@ -286,7 +297,7 @@ export function FileEditor({
         if (autoSaveModeRef.current === "onFocusChange") void saveRef.current();
       });
     },
-    [editorFormatterEnabled, handleSave, path, readOnly],
+    [editorFormatterEnabled, editorReadOnly, handleSave, path],
   );
 
   if (media) {
@@ -330,7 +341,7 @@ export function FileEditor({
           options={godotEditorOptions(
             monacoFontSize,
             editorFontFamily,
-            readOnly,
+            editorReadOnly,
             {
               minimap: editorMinimap,
               wordWrap: editorWordWrap,
@@ -355,11 +366,15 @@ export function FileEditor({
           }
         />
       </div>
-      {file?.truncated && (
+      {exceedsSizeLimit ? (
+        <p className="shrink-0 border-t border-border/60 px-2 py-1 text-[10px] text-amber-600">
+          {m.workbench_files_too_large({ size: editorMaxFileSizeMb })}
+        </p>
+      ) : file?.truncated ? (
         <p className="shrink-0 border-t border-border/60 px-2 py-1 text-[10px] text-muted-foreground">
           {m.workbench_files_read_only_truncated()}
         </p>
-      )}
+      ) : null}
       {diagnostics.length > 0 && (
         <div className="shrink-0 border-t border-border/60 px-2 py-1 text-[10px] text-amber-600">
           {m.workbench_files_diagnostics({
