@@ -283,9 +283,68 @@ export function TasksSettingsForm(_context: WorkbenchSettingsContext) {
         checked={settings.taskNotifications}
         onChange={settings.setTaskNotifications}
       />
-      <p className="text-xs text-muted-foreground">
-        {m.workbench_tasks_advanced_planned_help()}
-      </p>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <Label htmlFor="tasks-retry">{m.workbench_tasks_retry_label()}</Label>
+          <p className="text-xs text-muted-foreground">
+            {m.workbench_tasks_retry_help()}
+          </p>
+        </div>
+        <Input
+          id="tasks-retry"
+          type="number"
+          min={0}
+          max={5}
+          value={settings.taskRetryCount}
+          onChange={(event) =>
+            settings.setTaskRetryCount(Number(event.target.value))
+          }
+          className="w-24"
+        />
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <Label htmlFor="tasks-concurrency">
+            {m.workbench_tasks_concurrency_label()}
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            {m.workbench_tasks_concurrency_help()}
+          </p>
+        </div>
+        <Input
+          id="tasks-concurrency"
+          type="number"
+          min={1}
+          max={8}
+          value={settings.taskConcurrency}
+          onChange={(event) =>
+            settings.setTaskConcurrency(Number(event.target.value))
+          }
+          className="w-24"
+        />
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <Label htmlFor="tasks-backoff">
+            {m.workbench_tasks_backoff_label()}
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            {m.workbench_tasks_backoff_help()}
+          </p>
+        </div>
+        <Input
+          id="tasks-backoff"
+          type="number"
+          min={100}
+          max={30000}
+          step={100}
+          value={settings.taskRetryBackoffMs}
+          onChange={(event) =>
+            settings.setTaskRetryBackoffMs(Number(event.target.value))
+          }
+          className="w-24"
+        />
+      </div>
     </div>
   );
 }

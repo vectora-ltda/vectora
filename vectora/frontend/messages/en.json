@@ -1710,6 +1710,8 @@
   "workbench_tasks_advanced_planned_help": "Retry and concurrency policies will be enabled when the scheduler exposes these workspace settings.",
   "workbench_tasks_retry_label": "Retry attempts",
   "workbench_tasks_retry_help": "Automatic retries for failed background tasks.",
+  "workbench_tasks_backoff_label": "Retry backoff",
+  "workbench_tasks_backoff_help": "Initial delay in milliseconds; each retry doubles it.",
   "workbench_tasks_concurrency_label": "Concurrent tasks",
   "workbench_tasks_concurrency_help": "Maximum background tasks running at once.",
   "workbench_library_skills_label": "Show Skills",

@@ -1710,6 +1710,8 @@
   "workbench_tasks_advanced_planned_help": "As políticas de tentativas e concorrência serão habilitadas quando o scheduler expuser essas configurações do workspace.",
   "workbench_tasks_retry_label": "Tentativas de repetição",
   "workbench_tasks_retry_help": "Repetições automáticas para tarefas que falharem.",
+  "workbench_tasks_backoff_label": "Intervalo entre tentativas",
+  "workbench_tasks_backoff_help": "Atraso inicial em milissegundos; cada tentativa dobra o valor.",
   "workbench_tasks_concurrency_label": "Tarefas simultâneas",
   "workbench_tasks_concurrency_help": "Máximo de tarefas em segundo plano executando ao mesmo tempo.",
   "workbench_library_skills_label": "Mostrar Skills",

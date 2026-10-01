@@ -18,6 +18,9 @@ export interface FrontendPrefs {
   weeklyInsightEnabled?: boolean;
   weeklyInsightWeeks?: 1 | 2 | 4;
   weeklyInsightDismissedWindow?: string;
+  taskRetryCount?: number;
+  taskConcurrency?: number;
+  taskRetryBackoffMs?: number;
 }
 
 export interface WeeklyUsageInsight {

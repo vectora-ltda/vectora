@@ -1710,6 +1710,8 @@
   "workbench_tasks_advanced_planned_help": "Las políticas de reintento y concurrencia se habilitarán cuando el planificador exponga estos ajustes del workspace.",
   "workbench_tasks_retry_label": "Intentos de reintento",
   "workbench_tasks_retry_help": "Reintentos automáticos para tareas fallidas.",
+  "workbench_tasks_backoff_label": "Espera entre reintentos",
+  "workbench_tasks_backoff_help": "Retraso inicial en milisegundos; cada reintento lo duplica.",
   "workbench_tasks_concurrency_label": "Tareas simultáneas",
   "workbench_tasks_concurrency_help": "Máximo de tareas en segundo plano ejecutándose a la vez.",
   "workbench_library_skills_label": "Mostrar Skills",

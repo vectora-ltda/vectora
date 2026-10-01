@@ -181,6 +181,8 @@ export interface SettingsState {
   taskRetryCount: number;
   /** Limite de execuções concorrentes de tarefas. */
   taskConcurrency: number;
+  /** Atraso inicial entre tentativas automáticas, em milissegundos. */
+  taskRetryBackoffMs: number;
   /** Exibe skills na Library. */
   libraryShowSkills: boolean;
   /** Exibe servidores MCP na Library. */
@@ -242,6 +244,7 @@ export interface SettingsState {
   setTaskNotifications: (v: boolean) => void;
   setTaskRetryCount: (v: number) => void;
   setTaskConcurrency: (v: number) => void;
+  setTaskRetryBackoffMs: (v: number) => void;
   setLibraryShowSkills: (v: boolean) => void;
   setLibraryShowMcp: (v: boolean) => void;
   setBrowserAllowPopups: (v: boolean) => void;
@@ -443,6 +446,7 @@ const DEFAULTS = {
   taskNotifications: true,
   taskRetryCount: 0,
   taskConcurrency: 2,
+  taskRetryBackoffMs: 1000,
   libraryShowSkills: true,
   libraryShowMcp: true,
   browserAllowPopups: false,
@@ -623,10 +627,21 @@ export const useSettingsStore = create<SettingsState>()(
       setPlanAutoExpand: (v) => set({ planAutoExpand: v }),
       setPlanSort: (v) => set({ planSort: v }),
       setTaskNotifications: (v) => set({ taskNotifications: v }),
-      setTaskRetryCount: (v) =>
-        set({ taskRetryCount: Math.max(0, Math.min(5, Math.round(v))) }),
-      setTaskConcurrency: (v) =>
-        set({ taskConcurrency: Math.max(1, Math.min(8, Math.round(v))) }),
+      setTaskRetryCount: (v) => {
+        const value = Math.max(0, Math.min(5, Math.round(v)));
+        set({ taskRetryCount: value });
+        void pushPrefs({ taskRetryCount: value });
+      },
+      setTaskConcurrency: (v) => {
+        const value = Math.max(1, Math.min(8, Math.round(v)));
+        set({ taskConcurrency: value });
+        void pushPrefs({ taskConcurrency: value });
+      },
+      setTaskRetryBackoffMs: (v) => {
+        const value = Math.max(100, Math.min(30_000, Math.round(v)));
+        set({ taskRetryBackoffMs: value });
+        void pushPrefs({ taskRetryBackoffMs: value });
+      },
       setLibraryShowSkills: (v) => set({ libraryShowSkills: v }),
       setLibraryShowMcp: (v) => set({ libraryShowMcp: v }),
       setBrowserAllowPopups: (v) => set({ browserAllowPopups: v }),
@@ -735,6 +750,7 @@ export const useSettingsStore = create<SettingsState>()(
         taskNotifications: state.taskNotifications,
         taskRetryCount: state.taskRetryCount,
         taskConcurrency: state.taskConcurrency,
+        taskRetryBackoffMs: state.taskRetryBackoffMs,
         libraryShowSkills: state.libraryShowSkills,
         libraryShowMcp: state.libraryShowMcp,
         browserAllowPopups: state.browserAllowPopups,
