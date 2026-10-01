@@ -145,6 +145,11 @@ export interface SettingsState {
   monacoFontSize: number;
   /** Salva arquivos do editor automaticamente após uma pausa na edição. */
   editorAutoSave: boolean;
+  editorMinimap: boolean;
+  editorWordWrap: boolean;
+  editorFormatOnType: boolean;
+  editorQuickSuggestions: boolean;
+  editorLineNumbers: boolean;
   /** Família tipográfica do código no Monaco (Godot usa JetBrains Mono). */
   editorFontFamily: FontFamily;
   /** Família monoespaçada usada por terminais, diffs e blocos de código. */
@@ -204,6 +209,11 @@ export interface SettingsState {
   setFontScaleMarkdown: (v: number) => void;
   setMonacoFontSize: (v: number) => void;
   setEditorAutoSave: (v: boolean) => void;
+  setEditorMinimap: (v: boolean) => void;
+  setEditorWordWrap: (v: boolean) => void;
+  setEditorFormatOnType: (v: boolean) => void;
+  setEditorQuickSuggestions: (v: boolean) => void;
+  setEditorLineNumbers: (v: boolean) => void;
   setEditorFontFamily: (v: FontFamily) => void;
   setMonoFontFamily: (v: FontFamily) => void;
   setUiFontFamily: (v: FontFamily) => void;
@@ -393,6 +403,11 @@ const DEFAULTS = {
   fontScaleMarkdown: FONT_SCALE_BASE_PX,
   monacoFontSize: 13,
   editorAutoSave: false,
+  editorMinimap: true,
+  editorWordWrap: false,
+  editorFormatOnType: true,
+  editorQuickSuggestions: true,
+  editorLineNumbers: true,
   editorFontFamily: '"JetBrains Mono", ui-monospace, monospace',
   monoFontFamily: '"JetBrains Mono", ui-monospace, monospace',
   uiFontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
@@ -554,6 +569,11 @@ export const useSettingsStore = create<SettingsState>()(
         set({ fontScaleMarkdown: clampFontScale(v) }),
       setMonacoFontSize: (v) => set({ monacoFontSize: clampMonacoFontSize(v) }),
       setEditorAutoSave: (v) => set({ editorAutoSave: v }),
+      setEditorMinimap: (v) => set({ editorMinimap: v }),
+      setEditorWordWrap: (v) => set({ editorWordWrap: v }),
+      setEditorFormatOnType: (v) => set({ editorFormatOnType: v }),
+      setEditorQuickSuggestions: (v) => set({ editorQuickSuggestions: v }),
+      setEditorLineNumbers: (v) => set({ editorLineNumbers: v }),
       setEditorFontFamily: (v) => set({ editorFontFamily: v }),
       setMonoFontFamily: (v) => set({ monoFontFamily: v }),
       setUiFontFamily: (v) => set({ uiFontFamily: v }),
@@ -646,6 +666,11 @@ export const useSettingsStore = create<SettingsState>()(
         fontScaleMarkdown: state.fontScaleMarkdown,
         monacoFontSize: state.monacoFontSize,
         editorAutoSave: state.editorAutoSave,
+        editorMinimap: state.editorMinimap,
+        editorWordWrap: state.editorWordWrap,
+        editorFormatOnType: state.editorFormatOnType,
+        editorQuickSuggestions: state.editorQuickSuggestions,
+        editorLineNumbers: state.editorLineNumbers,
         editorFontFamily: state.editorFontFamily,
         monoFontFamily: state.monoFontFamily,
         uiFontFamily: state.uiFontFamily,

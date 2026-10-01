@@ -86,6 +86,41 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
       <p className="text-xs text-muted-foreground">
         {m.workbench_files_editor_options_hint()}
       </p>
+      <Toggle
+        id="files-minimap"
+        label={m.workbench_files_minimap_label()}
+        help={m.workbench_files_minimap_help()}
+        checked={settings.editorMinimap}
+        onChange={settings.setEditorMinimap}
+      />
+      <Toggle
+        id="files-word-wrap"
+        label={m.workbench_files_word_wrap_label()}
+        help={m.workbench_files_word_wrap_help()}
+        checked={settings.editorWordWrap}
+        onChange={settings.setEditorWordWrap}
+      />
+      <Toggle
+        id="files-format-on-type"
+        label={m.workbench_files_format_on_type_label()}
+        help={m.workbench_files_format_on_type_help()}
+        checked={settings.editorFormatOnType}
+        onChange={settings.setEditorFormatOnType}
+      />
+      <Toggle
+        id="files-quick-suggestions"
+        label={m.workbench_files_quick_suggestions_label()}
+        help={m.workbench_files_quick_suggestions_help()}
+        checked={settings.editorQuickSuggestions}
+        onChange={settings.setEditorQuickSuggestions}
+      />
+      <Toggle
+        id="files-line-numbers"
+        label={m.workbench_files_line_numbers_label()}
+        help={m.workbench_files_line_numbers_help()}
+        checked={settings.editorLineNumbers}
+        onChange={settings.setEditorLineNumbers}
+      />
     </div>
   );
 }
