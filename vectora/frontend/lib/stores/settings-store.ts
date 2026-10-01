@@ -199,6 +199,12 @@ export interface SettingsState {
   browserZoomPercent: number;
   /** Política padrão de permissões de origem no Browser. */
   browserPermissionMode: "allow" | "deny";
+  /** Tamanho da fonte do terminal em pixels. */
+  terminalFontSize: number;
+  /** Número de linhas mantidas no scrollback do terminal. */
+  terminalScrollback: number;
+  /** Pisca o cursor do terminal. */
+  terminalCursorBlink: boolean;
 
   // Ações
   setShowToolCalls: (v: boolean) => void;
@@ -262,6 +268,9 @@ export interface SettingsState {
   setBrowserAllowPopups: (v: boolean) => void;
   setBrowserZoomPercent: (v: number) => void;
   setBrowserPermissionMode: (v: "allow" | "deny") => void;
+  setTerminalFontSize: (v: number) => void;
+  setTerminalScrollback: (v: number) => void;
+  setTerminalCursorBlink: (v: boolean) => void;
   resetSettings: () => void;
 }
 
@@ -470,6 +479,9 @@ const DEFAULTS = {
   browserAllowPopups: false,
   browserZoomPercent: 100,
   browserPermissionMode: "deny" as "allow" | "deny",
+  terminalFontSize: 13,
+  terminalScrollback: 5000,
+  terminalCursorBlink: true,
 };
 
 // ---------------------------------------------------------------------------
@@ -672,6 +684,13 @@ export const useSettingsStore = create<SettingsState>()(
       setBrowserZoomPercent: (v) =>
         set({ browserZoomPercent: Math.max(25, Math.min(500, Math.round(v))) }),
       setBrowserPermissionMode: (v) => set({ browserPermissionMode: v }),
+      setTerminalFontSize: (v) =>
+        set({ terminalFontSize: Math.max(8, Math.min(32, Math.round(v))) }),
+      setTerminalScrollback: (v) =>
+        set({
+          terminalScrollback: Math.max(100, Math.min(50_000, Math.round(v))),
+        }),
+      setTerminalCursorBlink: (v) => set({ terminalCursorBlink: v }),
       resetSettings: () =>
         set({
           ...DEFAULTS,
@@ -786,6 +805,9 @@ export const useSettingsStore = create<SettingsState>()(
         browserAllowPopups: state.browserAllowPopups,
         browserZoomPercent: state.browserZoomPercent,
         browserPermissionMode: state.browserPermissionMode,
+        terminalFontSize: state.terminalFontSize,
+        terminalScrollback: state.terminalScrollback,
+        terminalCursorBlink: state.terminalCursorBlink,
       }),
     },
   ),

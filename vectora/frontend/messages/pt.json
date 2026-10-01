@@ -1741,5 +1741,13 @@
   "workbench_browser_permissions_label": "Permissões dos sites",
   "workbench_browser_permissions_help": "Escolha a política padrão para câmera, microfone, localização e notificações.",
   "workbench_browser_permissions_allow": "Permitir",
-  "workbench_browser_permissions_deny": "Negar"
+  "workbench_browser_permissions_deny": "Negar",
+  "workbench_terminal_display_title": "Exibição do terminal",
+  "workbench_terminal_display_help": "Personalize a aparência e o histórico de saída do terminal neste perfil.",
+  "workbench_terminal_font_size_label": "Tamanho da fonte",
+  "workbench_terminal_font_size_help": "Aplicado a novas sessões. Faixa permitida: 8–32 px.",
+  "workbench_terminal_scrollback_label": "Linhas de histórico",
+  "workbench_terminal_scrollback_help": "Quantidade de linhas de saída mantidas em cada terminal.",
+  "workbench_terminal_cursor_blink_label": "Cursor piscante",
+  "workbench_terminal_cursor_blink_help": "Exibe um cursor piscante enquanto o terminal está em foco."
 }
