@@ -156,10 +156,12 @@ export class BrowserViewManager {
     options: Pick<BrowserViewOptions, "allowPopups" | "zoomPercent"> = {},
   ): number {
     const normalizedProfileId = normalizeProfileId(profileId);
-    const view =
-      kind === "tab"
-        ? this.deps.createView(normalizedProfileId, kind, options)
-        : this.deps.createView(normalizedProfileId, kind, options);
+    const hasOptions = Object.keys(options).length > 0;
+    const view = hasOptions
+      ? this.deps.createView(normalizedProfileId, kind, options)
+      : kind === "tab"
+        ? this.deps.createView(normalizedProfileId)
+        : this.deps.createView(normalizedProfileId, kind);
     const id = this.nextId++;
     this.entries.set(id, {
       view,
