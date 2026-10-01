@@ -1011,6 +1011,7 @@
   "workbench_settings_scope_workspace": "Workspace",
   "workbench_settings_scope_session": "Sessão",
   "workbench_settings_scope_instance": "Instância",
+  "workbench_settings_sections": "Seções de configurações",
   "workbench_settings_missing_workspace": "Selecione um workspace para editar esta configuração.",
   "workbench_settings_missing_session": "Abra uma sessão para editar esta configuração.",
   "workbench_settings_instance_warning": "Esta alteração afeta todos os usuários desta instância.",

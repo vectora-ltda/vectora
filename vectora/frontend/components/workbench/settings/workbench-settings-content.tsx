@@ -54,6 +54,22 @@ export function WorkbenchSettingsContent({
           </p>
         )}
       </div>
+      {descriptor.sections.length > 1 && (
+        <nav
+          aria-label={m.workbench_settings_sections()}
+          className="flex flex-wrap gap-2"
+        >
+          {descriptor.sections.map((section) => (
+            <span
+              key={section.id}
+              className="rounded border border-border/60 px-2 py-1 text-[10px] text-muted-foreground"
+            >
+              {section.title()}
+              {section.scope ? ` · ${SCOPE_LABELS[section.scope]()}` : ""}
+            </span>
+          ))}
+        </nav>
+      )}
       {descriptor.capabilities.length > 0 && (
         <div className="rounded-md border border-border/60 bg-muted/10 px-3 py-2 text-xs">
           <p className="font-medium text-foreground">
