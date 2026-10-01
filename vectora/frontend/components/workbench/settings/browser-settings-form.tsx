@@ -52,7 +52,7 @@ export function BrowserSettingsForm({
   const [credentialUsername, setCredentialUsername] = useState("");
   const [credentialPassword, setCredentialPassword] = useState("");
   const [cookies, setCookies] = useState<
-    Array<{ name: string; domain: string; path: string; value: string }>
+    Array<{ name: string; domain: string; path: string }>
   >([]);
   const [downloads, setDownloads] = useState<
     Array<{

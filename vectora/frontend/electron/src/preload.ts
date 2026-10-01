@@ -35,7 +35,6 @@ export interface BrowserCredential {
 
 export interface BrowserCookie {
   name: string;
-  value: string;
   domain: string;
   path: string;
   secure: boolean;

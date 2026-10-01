@@ -200,7 +200,6 @@ export interface VectoraBrowserCredential {
 
 export interface VectoraBrowserCookie {
   name: string;
-  value: string;
   domain: string;
   path: string;
   secure: boolean;

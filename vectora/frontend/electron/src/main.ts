@@ -1401,7 +1401,6 @@ function registerIpc(): void {
         (cookie) =>
           ({
             name: cookie.name ?? "",
-            value: cookie.value ?? "",
             domain: cookie.domain ?? "",
             path: cookie.path ?? "/",
             secure: cookie.secure ?? false,
