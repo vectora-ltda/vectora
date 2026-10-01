@@ -2,7 +2,7 @@
 
 1 watcher por workspace: usa watchdog para detectar mudanças em disco
 com debounce 300ms. Publica evento de invalidação via KV pub/sub para que
-o SSE notifique o frontend e invalide os tabs (files, diff).
+o SSE notifique o frontend e invalide os tabs (files, git).
 """
 
 from __future__ import annotations
@@ -146,7 +146,7 @@ class FileWatcher:
         )
         payload = {
             "workspace_id": self._workspace_id,
-            "tabs": ["files", "diff"],
+            "tabs": ["files", "git"],
             "changed_paths": list(paths),
         }
         await _kv_publish(self._workspace_id, "vectora:files_changed", payload)

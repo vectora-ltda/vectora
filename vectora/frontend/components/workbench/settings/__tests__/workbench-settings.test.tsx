@@ -24,7 +24,7 @@ const WORKBENCH_ID_IS_TAB: Record<WorkbenchId, WorkbenchTab> = {
   storage: "storage",
   tasks: "tasks",
   browser: "browser",
-  diff: "diff",
+  git: "git",
   terminal: "terminal",
   files: "files",
 };
@@ -96,7 +96,7 @@ describe("workbench settings contract", () => {
           descriptor({ id: "terminal-settings", workbench: "terminal" }),
           descriptor({
             id: "git-settings",
-            workbench: "diff",
+            workbench: "git",
             title: () => "Git settings",
           }),
         ]}
@@ -108,7 +108,7 @@ describe("workbench settings contract", () => {
       "#workbench-settings-terminal",
     );
     expect(
-      document.getElementById("workbench-settings-diff"),
+      document.getElementById("workbench-settings-git"),
     ).toBeInTheDocument();
     expect(screen.getByText("Git settings")).toBeInTheDocument();
   });

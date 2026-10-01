@@ -18,7 +18,7 @@ const WORKBENCH_LABELS: Record<WorkbenchId, () => string> = {
   storage: () => m.workbench_tab_storage(),
   tasks: () => m.workbench_tab_tasks(),
   browser: () => m.workbench_tab_browser(),
-  diff: () => m.workbench_tab_diff(),
+  git: () => m.workbench_tab_git(),
   terminal: () => m.workbench_tab_terminal(),
   files: () => m.workbench_tab_files(),
 };

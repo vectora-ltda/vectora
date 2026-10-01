@@ -1,5 +1,5 @@
 /**
- * DiffSkeleton — placeholder de carregamento da aba Diff do workbench.
+ * GitSkeleton — placeholder de carregamento da aba Git do workbench.
  * Simula o cabeçalho de grupo (Staged/Modificados) e algumas entradas de
  * arquivo com badge de status, para que a forma do skeleton já anuncie o
  * layout que vai aparecer.
@@ -25,7 +25,7 @@ function FileRowPlaceholder({
   );
 }
 
-export const DiffSkeleton = memo(function DiffSkeleton() {
+export const GitSkeleton = memo(function GitSkeleton() {
   return (
     <div className="py-2 space-y-4" aria-hidden="true">
       <div>

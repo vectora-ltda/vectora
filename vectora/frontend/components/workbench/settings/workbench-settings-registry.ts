@@ -69,7 +69,7 @@ export const terminalSettings: WorkbenchSettingsDescriptor = {
 
 export const gitSettings: WorkbenchSettingsDescriptor = {
   id: "git-settings",
-  workbench: "diff",
+  workbench: "git",
   title: () => m.settings_category_git(),
   description: () => m.settings_git_description(),
   icon: Settings2,

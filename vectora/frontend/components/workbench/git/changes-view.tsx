@@ -54,22 +54,22 @@ function FileRow({
   selected: boolean;
 }) {
   const open = useWorkbenchStore((s) =>
-    s.getDiff(workspaceId).openFiles.includes(file.path),
+    s.getGit(workspaceId).openFiles.includes(file.path),
   );
   const hunks = useWorkbenchStore(
-    (s) => s.getDiff(workspaceId).hunksByFile[file.path],
+    (s) => s.getGit(workspaceId).hunksByFile[file.path],
   );
   const fetchedAt = useWorkbenchStore(
-    (s) => s.getDiff(workspaceId).fileFetchedAt[file.path] ?? 0,
+    (s) => s.getGit(workspaceId).fileFetchedAt[file.path] ?? 0,
   );
-  const setDiffOpenFile = useWorkbenchStore((s) => s.setDiffOpenFile);
+  const setGitOpenFile = useWorkbenchStore((s) => s.setGitOpenFile);
   const toggleSelection = useWorkbenchStore((s) => s.toggleGitFileSelection);
-  const setDiffHunks = useWorkbenchStore((s) => s.setDiffHunks);
+  const setGitHunks = useWorkbenchStore((s) => s.setGitHunks);
 
   const revalidate = useCallback(async () => {
     const h = await fetchDiffFile(workspaceId, file.path);
-    if (h) setDiffHunks(workspaceId, file.path, h);
-  }, [workspaceId, file.path, setDiffHunks]);
+    if (h) setGitHunks(workspaceId, file.path, h);
+  }, [workspaceId, file.path, setGitHunks]);
 
   useWorkbenchSWR({
     key: `diff:${workspaceId}:${file.path}`,
@@ -94,7 +94,7 @@ function FileRow({
             className="ml-3 accent-primary"
           />
           <button
-            onClick={() => setDiffOpenFile(workspaceId, file.path, !open)}
+            onClick={() => setGitOpenFile(workspaceId, file.path, !open)}
             className="grid min-w-0 flex-1 grid-cols-[auto_auto_minmax(0,1fr)_2rem_2rem] items-center gap-0 py-2 pl-2 pr-0 text-left text-xs"
           >
             {open ? (
@@ -165,7 +165,7 @@ export function ChangesView({
   workspaceId: string;
   summary: DiffSummary;
 }) {
-  const invalidateDiff = useWorkbenchStore((s) => s.invalidateDiff);
+  const invalidateGit = useWorkbenchStore((s) => s.invalidateGit);
   const setGitFileSelection = useWorkbenchStore((s) => s.setGitFileSelection);
   const gitOps = useWorkbenchStore(
     (s) =>
@@ -198,8 +198,8 @@ export function ChangesView({
   const suggestionRequest = useRef(0);
 
   const handleRefresh = useCallback(() => {
-    invalidateDiff(workspaceId);
-  }, [workspaceId, invalidateDiff]);
+    invalidateGit(workspaceId);
+  }, [workspaceId, invalidateGit]);
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, file: DiffFile) => {

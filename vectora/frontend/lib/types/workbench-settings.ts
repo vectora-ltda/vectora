@@ -6,7 +6,7 @@ export type WorkbenchId =
   | "storage"
   | "tasks"
   | "browser"
-  | "diff"
+  | "git"
   | "terminal"
   | "files";
 
