@@ -11,6 +11,7 @@ import {
   Plug,
   Plus,
   RefreshCcw,
+  Settings2,
   ShieldCheck,
   TerminalSquare,
   X,
@@ -33,6 +34,8 @@ import { Switch } from "@/components/ui/switch";
 import { apiFsCreateFile } from "@/components/workbench/files/files-api";
 import { apiUpdateFile, fetchFile } from "@/lib/api/fs-files";
 import { useSettingsStore } from "@/lib/stores/settings-store";
+import { WorkbenchSettingsSurface } from "@/components/workbench/settings/workbench-settings-surface";
+import { terminalSettings } from "@/components/workbench/settings/workbench-settings-registry";
 
 interface SandboxStatus {
   enabled: boolean;
@@ -434,6 +437,7 @@ export function TerminalPanel({ threadId }: TerminalPanelProps) {
   const { status: sandboxStatus, refetch: refetchSandboxStatus } =
     useSandboxStatus(workspace?.id);
   const [sandboxDialogOpen, setSandboxDialogOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Abre 1 terminal automaticamente quando o painel monta sem nenhum.
   // Lê o store inline (não a captura reativa) — Strict Mode roda effects
@@ -523,7 +527,25 @@ export function TerminalPanel({ threadId }: TerminalPanelProps) {
         >
           <Plus className="w-3.5 h-3.5" />
         </button>
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+          className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 shrink-0"
+          title={m.terminal_title()}
+          aria-label={m.terminal_title()}
+          data-testid="terminal-settings-btn"
+        >
+          <Settings2 className="w-3.5 h-3.5" />
+        </button>
       </div>
+
+      <WorkbenchSettingsSurface
+        descriptor={terminalSettings}
+        context={{ threadId, workspaceId: workspace?.id ?? null }}
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        testId="terminal-workbench-settings-panel"
+      />
 
       {/* Indicador dinâmico: sandboxed (informativo) vs sem sandbox (aviso,
           acionável via dialog de diagnóstico). sandboxStatus === null
