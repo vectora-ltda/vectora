@@ -157,14 +157,27 @@ const ALLOWED_TAB_SCHEMES = new Set(["http:", "https:"]);
 const NATIVE_SETTINGS_HOST = "settings";
 const MAX_BROWSER_URL_LENGTH = 8192;
 
+/** Rotas WebUI verificadas para a versão embarcada do Chromium. */
+export const NATIVE_SETTINGS_ROUTES = new Set([
+  "/",
+  "/appearance",
+  "/clearBrowserData",
+  "/downloads",
+  "/languages",
+  "/onStartup",
+  "/passwords",
+  "/privacy",
+  "/search",
+  "/security",
+  "/siteData",
+]);
+
 /** Native Chromium settings are deliberately limited to the settings WebUI. */
 export function isNativeSettingsUrl(url: URL): boolean {
   return (
     url.protocol === "chrome:" &&
     url.hostname === NATIVE_SETTINGS_HOST &&
-    (url.pathname === "" ||
-      url.pathname === "/" ||
-      url.pathname.startsWith("/"))
+    NATIVE_SETTINGS_ROUTES.has(url.pathname.replace(/\/$/, "") || "/")
   );
 }
 function normalizeProfileId(profileId: string | undefined): string {

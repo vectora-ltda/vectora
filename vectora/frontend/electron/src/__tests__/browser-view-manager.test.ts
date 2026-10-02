@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   BrowserViewManager,
   clearBrowserSessionData,
+  isNativeSettingsUrl,
   isNavigableUrl,
   type BrowserViewManagerDeps,
   type BrowserViewEvent,
@@ -58,6 +59,12 @@ describe("isNavigableUrl", () => {
   });
 
   it("rejeita páginas internas do Chromium", () => {
+    expect(isNativeSettingsUrl(new URL("chrome://settings"))).toBe(true);
+    expect(isNativeSettingsUrl(new URL("chrome://settings/passwords/"))).toBe(
+      true,
+    );
+    expect(isNativeSettingsUrl(new URL("chrome://settings/flags"))).toBe(false);
+    expect(isNativeSettingsUrl(new URL("chrome://settings/help"))).toBe(false);
     expect(isNavigableUrl("chrome://settings")).toBe(false);
     expect(isNavigableUrl("chrome://settings/passwords")).toBe(false);
     expect(isNavigableUrl("chrome://settings", "native-settings")).toBe(true);
