@@ -77,7 +77,10 @@ afterEach(async () => {
 });
 
 import { ContextGraphViewer } from "../context-graph-viewer";
-import type { GraphQueryResult } from "@/lib/hooks/use-context-graph";
+import type {
+  GraphQueryResult,
+  RawGraphData,
+} from "@/lib/hooks/use-context-graph";
 import { useContextGraphSettingsStore } from "@/lib/stores/context-graph-settings-store";
 
 const GRAPH_DATA = {
@@ -100,7 +103,7 @@ const GRAPH_DATA = {
 async function renderViewer(
   overrides: {
     workspaceId?: string | null;
-    fetchGraphData?: () => Promise<typeof GRAPH_DATA | null>;
+    fetchGraphData?: () => Promise<RawGraphData | null>;
     pathBetween?: (
       source: string,
       target: string,
@@ -161,6 +164,27 @@ describe("ContextGraphViewer", () => {
     expect(screen.getByText("Billing")).toBeTruthy();
     expect(screen.getByText("2")).toBeTruthy(); // Auth tem 2 nós
     expect(screen.getByText("1")).toBeTruthy(); // Billing tem 1 nó
+  });
+
+  it("prefere o contrato explícito de comunidades exportado pelo backend", async () => {
+    await renderViewer({
+      fetchGraphData: () =>
+        Promise.resolve({
+          ...GRAPH_DATA,
+          communities: [
+            {
+              id: 0,
+              key: "community-auth",
+              name: "Authentication domain",
+              count: 2,
+              cohesion: 0.8,
+            },
+          ],
+        }),
+    });
+
+    expect(screen.getByText("Authentication domain")).toBeTruthy();
+    expect(screen.queryByText("Auth")).toBeNull();
   });
 
   it("expõe um divisor acessível e persiste a largura por workspace", async () => {

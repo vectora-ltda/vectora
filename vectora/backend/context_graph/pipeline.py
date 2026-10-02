@@ -364,6 +364,7 @@ async def build_workspace_graph(
                 communities,
                 str(graph_json),
                 community_labels=community_labels,
+                community_cohesion=cohesion,
             )
         except Exception:
             logger.exception(

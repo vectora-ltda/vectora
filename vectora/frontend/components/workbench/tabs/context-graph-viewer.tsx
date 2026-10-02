@@ -7,6 +7,7 @@ import { Loader2, Search, Waypoints, X } from "lucide-react";
 
 import type {
   GraphQueryResult,
+  RawGraphCommunity,
   RawGraphData,
   RawGraphLink,
   RawGraphNode,
@@ -54,9 +55,11 @@ function communityColor(cid: number | null | undefined): string {
 
 interface CommunityInfo {
   id: number;
+  key: string;
   name: string;
   count: number;
   color: string;
+  cohesion?: number;
 }
 
 export function ContextGraphViewer({
@@ -131,6 +134,12 @@ export function ContextGraphViewer({
   const rawLinks = useMemo(() => data?.links ?? [], [data]);
 
   const communities = useMemo<CommunityInfo[]>(() => {
+    if (data?.communities?.length) {
+      return data.communities.map((community: RawGraphCommunity) => ({
+        ...community,
+        color: communityColor(community.id),
+      }));
+    }
     const counts = new Map<number, { name: string; count: number }>();
     for (const n of rawNodes) {
       if (n.community == null) continue;
@@ -146,6 +155,7 @@ export function ContextGraphViewer({
       .toSorted((a, b) => a[0] - b[0])
       .map(([id, v]) => ({
         id,
+        key: `community-${id}`,
         name: v.name,
         count: v.count,
         color: communityColor(id),
