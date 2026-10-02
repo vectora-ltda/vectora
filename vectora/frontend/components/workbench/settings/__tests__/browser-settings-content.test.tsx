@@ -151,6 +151,7 @@ describe("BrowserSettingsContent", () => {
   });
 
   it("oferece link global que seleciona a Browser Workbench", () => {
+    installBridge();
     render(
       <BrowserSettingsContent
         threadId="thread-1"
@@ -163,6 +164,23 @@ describe("BrowserSettingsContent", () => {
     expect(setOpen).toHaveBeenCalledWith(false);
     expect(requestOpenNativeSettings).toHaveBeenCalledWith("thread-1");
     expect(openBrowserSettings).toHaveBeenCalledWith("thread-1");
+  });
+
+  it("mostra indisponibilidade no Settings global sem bridge desktop", () => {
+    render(
+      <BrowserSettingsContent
+        threadId="thread-1"
+        workspaceId="workspace-1"
+        browserProfileId="session-profile"
+        presentation="settings"
+      />,
+    );
+    expect(
+      screen.getByText(
+        "Browser data settings are available in the desktop app.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("falha com segurança quando a navegação nativa é rejeitada", async () => {

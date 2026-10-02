@@ -13,7 +13,7 @@ aba HTTP e uma aba HTTPS. Registre a versão do Electron e o sistema operacional
 - [ ] confirmar que as duas sessões recebem `profileId` diferentes;
 - [ ] abrir `Settings > Workbenches` sem sessão ativa;
 - [ ] confirmar o estado vazio para opções que exigem sessão;
-- [ ] abrir a categoria Browser no runtime web e confirmar o fallback Vectora.
+- [ ] abrir a categoria Browser no runtime web e confirmar o estado de indisponibilidade.
 
 ## Superfície nativa
 

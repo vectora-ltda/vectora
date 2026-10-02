@@ -65,6 +65,15 @@ function NativeBrowserSettings({
 /** Descriptor entry point for browser settings in both presentations. */
 export function BrowserSettingsContent(context: WorkbenchSettingsContext) {
   if (context.presentation === "settings") {
+    const hasBrowserBridge =
+      typeof window !== "undefined" && Boolean(window.vectora?.browserView);
+    if (!hasBrowserBridge) {
+      return (
+        <p className="text-sm text-muted-foreground">
+          {m.workbench_browser_settings_unavailable()}
+        </p>
+      );
+    }
     return (
       <div className="space-y-3 rounded border border-border/60 p-4">
         <p className="text-sm text-muted-foreground">
@@ -73,7 +82,7 @@ export function BrowserSettingsContent(context: WorkbenchSettingsContext) {
         <button
           type="button"
           className="rounded border border-border/60 px-3 py-2 text-sm hover:bg-muted/40"
-          disabled={!context.threadId}
+          disabled={!context.threadId || !hasBrowserBridge}
           onClick={() => {
             if (!context.threadId) return;
             useSettingsOverlayStore.getState().setOpen(false);

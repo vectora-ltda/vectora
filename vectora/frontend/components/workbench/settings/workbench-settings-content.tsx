@@ -83,7 +83,11 @@ export function WorkbenchSettingsContent({
     context,
   );
   if (resolvedSurface === "unavailable") {
-    return <EmptyState>{m.workbench_settings_unavailable()}</EmptyState>;
+    return (
+      <div data-surface-mode="unavailable">
+        <EmptyState>{m.workbench_settings_unavailable()}</EmptyState>
+      </div>
+    );
   }
 
   const resolvedCapabilities = resolveWorkbenchSettingsCapabilities(
