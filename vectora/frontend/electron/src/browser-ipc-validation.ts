@@ -1,4 +1,8 @@
-import type { BrowserViewKind, ViewBounds } from "./browser-view-manager.js";
+import {
+  NATIVE_SETTINGS_ROUTES,
+  type BrowserViewKind,
+  type ViewBounds,
+} from "./browser-view-manager.js";
 
 const PROFILE_ID = /^(?:default|session-[A-Za-z0-9_-]+)$/;
 const MAX_PROFILE_ID_LENGTH = 256;
@@ -47,9 +51,7 @@ export function isValidBrowserUrl(
       return (
         url.protocol === "chrome:" &&
         url.hostname === "settings" &&
-        (url.pathname === "" ||
-          url.pathname === "/" ||
-          url.pathname.startsWith("/"))
+        NATIVE_SETTINGS_ROUTES.has(url.pathname.replace(/\/$/, "") || "/")
       );
     }
     return url.protocol === "http:" || url.protocol === "https:";
