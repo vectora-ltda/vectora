@@ -11,195 +11,159 @@ import {
 } from "@testing-library/react";
 import { BrowserSettingsContent } from "../browser-settings-content";
 
-type BrowserViewEvent =
-  | {
-      type: "navigated";
-      url: string;
-      canGoBack: boolean;
-      canGoForward: boolean;
-    }
-  | { type: "escapePressed" };
+const state = {
+  browserAllowPopups: false,
+  browserZoomPercent: 100,
+  browserPermissionMode: "deny" as const,
+  browserSearchEngine: "duckduckgo" as const,
+  browserOriginPermissions: {} as Record<string, "allow" | "deny">,
+  setBrowserAllowPopups: vi.fn(),
+  setBrowserZoomPercent: vi.fn(),
+  setBrowserPermissionMode: vi.fn(),
+  setBrowserSearchEngine: vi.fn(),
+  setBrowserOriginPermission: vi.fn(),
+  removeBrowserOriginPermission: vi.fn(),
+};
 
-const setOpen = vi.fn();
-const openBrowserSettings = vi.fn();
-const requestOpenNativeSettings = vi.fn();
-
-vi.mock("@/lib/stores/settings-overlay-store", () => ({
-  useSettingsOverlayStore: Object.assign(
-    (selector: (state: { open: boolean }) => unknown) =>
-      selector({ open: false }),
-    {
-      getState: () => ({ setOpen }),
-    },
-  ),
-}));
-
-vi.mock("@/lib/stores/workbench-store", () => ({
-  useWorkbenchStore: {
-    getState: () => ({ openBrowserSettings }),
-  },
-}));
-
-vi.mock("@/lib/stores/browser-settings-controller", () => ({
-  useBrowserSettingsController: {
-    getState: () => ({ requestOpenNativeSettings }),
-  },
+vi.mock("@/lib/stores/settings-store", () => ({
+  useSettingsStore: () => state,
 }));
 
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   Reflect.deleteProperty(window, "vectora");
+  state.browserOriginPermissions = {};
 });
 
 function installBridge() {
-  let eventHandler: ((viewId: number, event: BrowserViewEvent) => void) | null =
-    null;
   const bridge = {
-    createView: vi.fn(async () => 42),
-    destroyView: vi.fn(),
-    navigate: vi.fn(async () => ({ ok: true })),
-    setBounds: vi.fn(),
-    setVisible: vi.fn(),
-    onEvent: vi.fn((handler: typeof eventHandler) => {
-      eventHandler = handler;
-      return () => {
-        eventHandler = null;
-      };
-    }),
+    listCredentials: vi.fn(async () => [
+      {
+        id: "credential-1",
+        origin: "https://example.com",
+        username: "bruno",
+        createdAt: "2026-01-01",
+        updatedAt: "2026-01-01",
+      },
+    ]),
+    saveCredential: vi.fn(
+      async (input: {
+        profileId: string;
+        origin: string;
+        username: string;
+        password: string;
+      }) => ({
+        id: "credential-2",
+        origin: input.origin,
+        username: input.username,
+        createdAt: "2026-01-01",
+        updatedAt: "2026-01-01",
+      }),
+    ),
+    deleteCredential: vi.fn(async () => undefined),
+    listCookies: vi.fn(async () => [
+      {
+        name: "session",
+        domain: "example.com",
+        path: "/",
+        secure: true,
+        httpOnly: true,
+      },
+    ]),
+    removeCookie: vi.fn(async () => undefined),
+    clearProfileData: vi.fn(async () => undefined),
+    onDownload: vi.fn(() => () => undefined),
   };
   Object.defineProperty(window, "vectora", {
     configurable: true,
     value: { browserView: bridge },
   });
-  return {
-    bridge,
-    emit(event: BrowserViewEvent) {
-      eventHandler?.(42, event);
-    },
-  };
+  return bridge;
 }
 
+const context = {
+  threadId: "thread-1",
+  workspaceId: "workspace-1",
+  browserProfileId: "profile-1",
+  presentation: "workbench" as const,
+  open: true,
+};
+
 describe("BrowserSettingsContent", () => {
-  it("não cria a view nativa enquanto a superfície está fechada", async () => {
-    const native = installBridge();
-    const { rerender } = render(
-      <BrowserSettingsContent
-        threadId="thread-closed"
-        workspaceId="workspace-1"
-        browserProfileId="session-profile"
-        presentation="workbench"
-        open={false}
-      />,
-    );
-    await act(async () => Promise.resolve());
-    expect(native.bridge.createView).not.toHaveBeenCalled();
-    rerender(
-      <BrowserSettingsContent
-        threadId="thread-closed"
-        workspaceId="workspace-1"
-        browserProfileId="session-profile"
-        presentation="workbench"
-        open={true}
-      />,
-    );
-    await waitFor(() => expect(native.bridge.createView).toHaveBeenCalled());
-  });
+  it("renders the Vectora-owned form without navigating to chrome settings", async () => {
+    const bridge = installBridge();
+    render(<BrowserSettingsContent {...context} />);
 
-  it("cria, navega, dimensiona e destrói a view nativa", async () => {
-    const native = installBridge();
-    const onRequestClose = vi.fn();
-    const { unmount } = render(
-      <BrowserSettingsContent
-        threadId="thread-1"
-        workspaceId="workspace-1"
-        browserProfileId="session-profile"
-        presentation="workbench"
-        open={true}
-        onRequestClose={onRequestClose}
-      />,
-    );
-
-    await waitFor(() =>
-      expect(native.bridge.createView).toHaveBeenCalledWith({
-        profileId: "session-profile",
-        kind: "native-settings",
-      }),
-    );
-    expect(native.bridge.navigate).toHaveBeenCalledWith(
-      42,
-      "chrome://settings",
-    );
-    await act(async () => {
-      native.emit({
-        type: "navigated",
-        url: "chrome://settings",
-        canGoBack: false,
-        canGoForward: false,
-      });
-    });
-    await waitFor(() =>
-      expect(native.bridge.setVisible).toHaveBeenCalledWith(42, false),
-    );
-
-    await act(async () => {
-      native.emit({ type: "escapePressed" });
-    });
-    expect(onRequestClose).toHaveBeenCalledOnce();
-    unmount();
-    expect(native.bridge.destroyView).toHaveBeenCalledWith(42);
-  });
-
-  it("oferece link global que seleciona a Browser Workbench", () => {
-    installBridge();
-    render(
-      <BrowserSettingsContent
-        threadId="thread-1"
-        workspaceId="workspace-1"
-        browserProfileId="session-profile"
-        presentation="settings"
-      />,
-    );
-    fireEvent.click(screen.getByRole("button"));
-    expect(setOpen).toHaveBeenCalledWith(false);
-    expect(requestOpenNativeSettings).toHaveBeenCalledWith("thread-1");
-    expect(openBrowserSettings).toHaveBeenCalledWith("thread-1");
-  });
-
-  it("mostra indisponibilidade no Settings global sem bridge desktop", () => {
-    render(
-      <BrowserSettingsContent
-        threadId="thread-1"
-        workspaceId="workspace-1"
-        browserProfileId="session-profile"
-        presentation="settings"
-      />,
-    );
     expect(
       screen.getByText(
-        "Browser data settings are available in the desktop app.",
+        "Browser settings are managed here by Vectora for this profile.",
       ),
     ).toBeTruthy();
-    expect(screen.queryByRole("button")).toBeNull();
+    await waitFor(() =>
+      expect(bridge.listCredentials).toHaveBeenCalledWith("profile-1"),
+    );
+    expect(screen.getByText("https://example.com · bruno")).toBeTruthy();
+    expect(screen.getByText("session · example.com")).toBeTruthy();
   });
 
-  it("falha com segurança quando a navegação nativa é rejeitada", async () => {
-    const native = installBridge();
-    native.bridge.navigate.mockResolvedValue({ ok: false });
-    const { unmount } = render(
-      <BrowserSettingsContent
-        threadId="thread-timeout"
-        workspaceId="workspace-1"
-        browserProfileId="session-profile"
-        presentation="workbench"
-        open={true}
-      />,
-    );
+  it("persists browser preferences and origin overrides", async () => {
+    const bridge = installBridge();
+    render(<BrowserSettingsContent {...context} />);
+    await waitFor(() => expect(bridge.listCredentials).toHaveBeenCalled());
 
-    expect(
-      await screen.findByText("Could not open browser settings."),
-    ).toBeTruthy();
-    expect(native.bridge.destroyView).toHaveBeenCalledWith(42);
-    unmount();
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(state.setBrowserAllowPopups).toHaveBeenCalledWith(true);
+    fireEvent.change(screen.getAllByPlaceholderText("https://example.com")[0], {
+      target: { value: "https://login.example.com/" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    expect(state.setBrowserOriginPermission).toHaveBeenCalledWith(
+      "https://login.example.com",
+      "allow",
+    );
+  });
+
+  it("saves and removes credentials through the profile bridge", async () => {
+    const bridge = installBridge();
+    render(<BrowserSettingsContent {...context} />);
+    await waitFor(() => expect(bridge.listCredentials).toHaveBeenCalled());
+    fireEvent.change(screen.getAllByPlaceholderText("https://example.com")[1], {
+      target: { value: "https://new.example.com" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Username"), {
+      target: { value: "alice" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Password"), {
+      target: { value: "secret" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save credential" }));
+    await waitFor(() => expect(bridge.saveCredential).toHaveBeenCalled());
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]);
+    await waitFor(() =>
+      expect(bridge.deleteCredential).toHaveBeenCalledWith({
+        profileId: "profile-1",
+        id: "credential-1",
+      }),
+    );
+  });
+
+  it("shows the web limitation instead of claiming native profile support", () => {
+    render(<BrowserSettingsContent {...context} browserProfileId={null} />);
+    expect(screen.getByText(/Cookies, downloads, permissions/)).toBeTruthy();
+  });
+
+  it("clears profile data through the bridge", async () => {
+    const bridge = installBridge();
+    render(<BrowserSettingsContent {...context} />);
+    await waitFor(() => expect(bridge.listCredentials).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Clear browser data" }));
+    await waitFor(() =>
+      expect(bridge.clearProfileData).toHaveBeenCalledWith("profile-1", {
+        storage: true,
+        cache: true,
+        credentials: true,
+      }),
+    );
   });
 });

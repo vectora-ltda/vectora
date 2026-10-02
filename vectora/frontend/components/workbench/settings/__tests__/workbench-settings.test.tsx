@@ -81,13 +81,9 @@ describe("workbench settings contract", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("keeps the issue registry limited to the five official workbenches", () => {
+  it("registers every workbench in the canonical navigation order", () => {
     expect(WORKBENCH_SETTINGS.map((item) => item.workbench)).toEqual([
-      "browser",
-      "context_graph",
-      "storage",
-      "terminal",
-      "git",
+      ...WORKBENCH_TABS,
     ]);
   });
 
@@ -102,12 +98,12 @@ describe("workbench settings contract", () => {
     expect(
       WORKBENCH_SETTINGS.find((item) => item.workbench === "browser")?.surface,
     ).toEqual({
-      workbench: "native-view",
-      settings: "link",
+      workbench: "form",
+      settings: "form",
     });
   });
 
-  it("resolve native surfaces to unavailable or native view by runtime", () => {
+  it("resolves native surfaces to unavailable and Vectora Browser to a form", () => {
     const native = descriptor({
       id: "native-settings",
       surface: { workbench: "native-view", settings: "form" },
@@ -123,7 +119,7 @@ describe("workbench settings contract", () => {
         WORKBENCH_SETTINGS.find((item) => item.id === "browser-settings")!,
         { ...context, presentation: "workbench" },
       ),
-    ).toBe("unavailable");
+    ).toBe("form");
   });
 
   it("resolves every browser capability as unavailable on the web runtime", () => {

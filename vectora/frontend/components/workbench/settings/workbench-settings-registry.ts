@@ -89,7 +89,9 @@ export const browserSettings: WorkbenchSettingsDescriptor = {
     capability("popups", "available"),
   ],
   Component: BrowserSettingsContent,
-  surface: { workbench: "native-view", settings: "link" },
+  // Chromium does not ship Chrome's `chrome://settings` WebUI. The shared
+  // Vectora form is therefore the canonical surface in both destinations.
+  surface: { workbench: "form", settings: "form" },
 };
 
 export const terminalSettings: WorkbenchSettingsDescriptor = {
@@ -194,22 +196,9 @@ const SETTINGS_BY_WORKBENCH: Record<WorkbenchId, WorkbenchSettingsDescriptor> =
   };
 
 /** Descriptors oficiais do contrato da issue #305. */
-export const WORKBENCH_SETTINGS = [
-  browserSettings,
-  contextGraphSettings,
-  memorySettings,
-  terminalSettings,
-  gitSettings,
-] as const satisfies readonly WorkbenchSettingsDescriptor[];
-
-/** Extensões de configuração para workbenches que não são parte do núcleo da issue. */
-export const WORKBENCH_SETTINGS_EXTENSIONS = [
-  filesSettings,
-  planSettings,
-  tasksSettings,
-  librarySettings,
-] as const satisfies readonly WorkbenchSettingsDescriptor[];
-
-/** Página global completa, preservando a ordem visual da navegação. */
-export const ALL_WORKBENCH_SETTINGS: readonly WorkbenchSettingsDescriptor[] =
+/** Fonte única do contrato, na mesma ordem visual do Workbench Nav. */
+export const WORKBENCH_SETTINGS: readonly WorkbenchSettingsDescriptor[] =
   WORKBENCH_TABS.map((id) => SETTINGS_BY_WORKBENCH[id]);
+
+/** Alias explícito para consumidores que ainda usam o nome antigo. */
+export const ALL_WORKBENCH_SETTINGS = WORKBENCH_SETTINGS;
