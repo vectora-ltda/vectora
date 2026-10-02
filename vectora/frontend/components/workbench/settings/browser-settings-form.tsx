@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSettingsStore } from "@/lib/stores/settings-store";
+import {
+  getBrowserProfileSettings,
+  useSettingsStore,
+} from "@/lib/stores/settings-store";
 import { clearBrowserSessionHistory } from "@/lib/browser-session-store";
 import { m } from "@/lib/paraglide/messages";
 import type {
@@ -47,6 +50,7 @@ export function BrowserSettingsForm(context: WorkbenchSettingsContext) {
   const bridge =
     typeof window !== "undefined" ? window.vectora?.browserView : undefined;
   const profileId = context.browserProfileId ?? null;
+  const profileSettings = getBrowserProfileSettings(settings, profileId);
   const sessionKey = `${context.workspaceId ?? ""}:${context.threadId ?? ""}`;
   const [credentials, setCredentials] = useState<VectoraBrowserCredential[]>(
     [],
@@ -91,7 +95,13 @@ export function BrowserSettingsForm(context: WorkbenchSettingsContext) {
   const addOriginPermission = () => {
     const normalized = origin.trim().replace(/\/$/, "");
     if (!/^https?:\/\/[^/]+$/i.test(normalized)) return;
-    settings.setBrowserOriginPermission(normalized, "allow");
+    if (profileId) {
+      settings.setBrowserProfileSettings(profileId, {
+        originPermissions: { [normalized]: "allow" },
+      });
+    } else {
+      settings.setBrowserOriginPermission(normalized, "allow");
+    }
     setOrigin("");
   };
 
@@ -177,8 +187,14 @@ export function BrowserSettingsForm(context: WorkbenchSettingsContext) {
           id="browser-allow-popups"
           label={m.workbench_browser_popups_label()}
           help={m.workbench_browser_popups_help()}
-          checked={settings.browserAllowPopups}
-          onChange={settings.setBrowserAllowPopups}
+          checked={profileSettings.allowPopups}
+          onChange={(value) =>
+            profileId
+              ? settings.setBrowserProfileSettings(profileId, {
+                  allowPopups: value,
+                })
+              : settings.setBrowserAllowPopups(value)
+          }
         />
         <label className="flex items-center justify-between gap-3">
           <span>
@@ -195,9 +211,13 @@ export function BrowserSettingsForm(context: WorkbenchSettingsContext) {
             min={25}
             max={500}
             step={10}
-            value={settings.browserZoomPercent}
+            value={profileSettings.zoomPercent}
             onChange={(event) =>
-              settings.setBrowserZoomPercent(Number(event.target.value))
+              profileId
+                ? settings.setBrowserProfileSettings(profileId, {
+                    zoomPercent: Number(event.target.value),
+                  })
+                : settings.setBrowserZoomPercent(Number(event.target.value))
             }
             className="w-20 rounded border border-border/60 bg-background px-2 py-1"
           />
@@ -213,11 +233,16 @@ export function BrowserSettingsForm(context: WorkbenchSettingsContext) {
           </span>
           <select
             aria-label={m.workbench_browser_search_engine_label()}
-            value={settings.browserSearchEngine}
+            value={profileSettings.searchEngine}
             onChange={(event) =>
-              settings.setBrowserSearchEngine(
-                event.target.value as "duckduckgo" | "google" | "bing",
-              )
+              profileId
+                ? settings.setBrowserProfileSettings(profileId, {
+                    searchEngine: event.target.value as
+                      "duckduckgo" | "google" | "bing",
+                  })
+                : settings.setBrowserSearchEngine(
+                    event.target.value as "duckduckgo" | "google" | "bing",
+                  )
             }
             className="rounded border border-border/60 bg-background px-2 py-1"
           >
@@ -242,11 +267,15 @@ export function BrowserSettingsForm(context: WorkbenchSettingsContext) {
         </p>
         <select
           aria-label={m.workbench_browser_permissions_label()}
-          value={settings.browserPermissionMode}
+          value={profileSettings.permissionMode}
           onChange={(event) =>
-            settings.setBrowserPermissionMode(
-              event.target.value as "allow" | "deny",
-            )
+            profileId
+              ? settings.setBrowserProfileSettings(profileId, {
+                  permissionMode: event.target.value as "allow" | "deny",
+                })
+              : settings.setBrowserPermissionMode(
+                  event.target.value as "allow" | "deny",
+                )
           }
           className="rounded border border-border/60 bg-background px-2 py-1"
         >
@@ -276,14 +305,26 @@ export function BrowserSettingsForm(context: WorkbenchSettingsContext) {
             {m.workbench_browser_origin_permissions_add()}
           </button>
         </div>
-        {Object.entries(settings.browserOriginPermissions).map(
+        {Object.entries(profileSettings.originPermissions).map(
           ([site, mode]) => (
             <div key={site} className="flex items-center justify-between gap-2">
               <span className="truncate text-xs">{site}</span>
               <span className="text-xs text-muted-foreground">{mode}</span>
               <button
                 type="button"
-                onClick={() => settings.removeBrowserOriginPermission(site)}
+                onClick={() => {
+                  if (!profileId) {
+                    settings.removeBrowserOriginPermission(site);
+                    return;
+                  }
+                  const originPermissions = {
+                    ...profileSettings.originPermissions,
+                  };
+                  delete originPermissions[site];
+                  settings.setBrowserProfileSettings(profileId, {
+                    originPermissions,
+                  });
+                }}
                 className="text-xs text-muted-foreground hover:text-foreground"
               >
                 {m.workbench_browser_password_remove()}

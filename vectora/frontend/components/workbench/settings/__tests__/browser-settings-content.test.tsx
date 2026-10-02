@@ -17,16 +17,44 @@ const state = {
   browserPermissionMode: "deny" as const,
   browserSearchEngine: "duckduckgo" as const,
   browserOriginPermissions: {} as Record<string, "allow" | "deny">,
+  browserProfileSettings: {} as Record<
+    string,
+    {
+      allowPopups: boolean;
+      zoomPercent: number;
+      permissionMode: "allow" | "deny";
+      originPermissions: Record<string, "allow" | "deny">;
+      searchEngine: "duckduckgo" | "google" | "bing";
+    }
+  >,
   setBrowserAllowPopups: vi.fn(),
   setBrowserZoomPercent: vi.fn(),
   setBrowserPermissionMode: vi.fn(),
   setBrowserSearchEngine: vi.fn(),
   setBrowserOriginPermission: vi.fn(),
   removeBrowserOriginPermission: vi.fn(),
+  setBrowserProfileSettings: vi.fn(),
 };
 
 vi.mock("@/lib/stores/settings-store", () => ({
   useSettingsStore: () => state,
+  getBrowserProfileSettings: (
+    current: typeof state,
+    profileId: string | null,
+  ) => {
+    const profile = profileId
+      ? current.browserProfileSettings[profileId]
+      : null;
+    return (
+      profile ?? {
+        allowPopups: current.browserAllowPopups,
+        zoomPercent: current.browserZoomPercent,
+        permissionMode: current.browserPermissionMode,
+        originPermissions: current.browserOriginPermissions,
+        searchEngine: current.browserSearchEngine,
+      }
+    );
+  },
 }));
 
 afterEach(() => {
@@ -34,6 +62,7 @@ afterEach(() => {
   vi.clearAllMocks();
   Reflect.deleteProperty(window, "vectora");
   state.browserOriginPermissions = {};
+  state.browserProfileSettings = {};
 });
 
 function installBridge() {
@@ -113,15 +142,16 @@ describe("BrowserSettingsContent", () => {
     await waitFor(() => expect(bridge.listCredentials).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole("checkbox"));
-    expect(state.setBrowserAllowPopups).toHaveBeenCalledWith(true);
+    expect(state.setBrowserProfileSettings).toHaveBeenCalledWith("profile-1", {
+      allowPopups: true,
+    });
     fireEvent.change(screen.getAllByPlaceholderText("https://example.com")[0], {
       target: { value: "https://login.example.com/" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
-    expect(state.setBrowserOriginPermission).toHaveBeenCalledWith(
-      "https://login.example.com",
-      "allow",
-    );
+    expect(state.setBrowserProfileSettings).toHaveBeenCalledWith("profile-1", {
+      originPermissions: { "https://login.example.com": "allow" },
+    });
   });
 
   it("saves and removes credentials through the profile bridge", async () => {
