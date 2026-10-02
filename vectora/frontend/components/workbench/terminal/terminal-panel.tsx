@@ -434,9 +434,7 @@ export function TerminalPanel({ threadId }: TerminalPanelProps) {
   const terminalFontSize = useSettingsStore((s) => s.terminalFontSize);
   const terminalScrollback = useSettingsStore((s) => s.terminalScrollback);
   const terminalCursorBlink = useSettingsStore((s) => s.terminalCursorBlink);
-  const { status: sandboxStatus, refetch: refetchSandboxStatus } =
-    useSandboxStatus(workspace?.id);
-  const [sandboxDialogOpen, setSandboxDialogOpen] = useState(false);
+  const { status: sandboxStatus } = useSandboxStatus(workspace?.id);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Abre 1 terminal automaticamente quando o painel monta sem nenhum.
@@ -563,22 +561,12 @@ export function TerminalPanel({ threadId }: TerminalPanelProps) {
           <button
             type="button"
             className="underline underline-offset-2 hover:text-amber-500 shrink-0"
-            onClick={() => setSandboxDialogOpen(true)}
+            onClick={() => setSettingsOpen(true)}
           >
             {m.terminal_sandbox_configure_link()}
           </button>
         </div>
       )}
-      {workspace && (
-        <SandboxSettingsForm
-          workspaceId={workspace.id}
-          diagnostic={sandboxStatus?.diagnostic ?? null}
-          open={sandboxDialogOpen}
-          onOpenChange={setSandboxDialogOpen}
-          onInitDone={refetchSandboxStatus}
-        />
-      )}
-
       {/* Body — só renderiza o terminal ativo (poupa CPU; estado fica no PTY) */}
       <div className="flex-1 relative">
         {terminals.map((term) => (

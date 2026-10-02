@@ -1746,7 +1746,7 @@
   "workbench_plan_sort_title": "Título",
   "workbench_tasks_notifications_label": "Notificaciones de tareas",
   "workbench_tasks_notifications_help": "Muestra una notificación cuando termina una tarea en segundo plano.",
-  "workbench_tasks_advanced_planned_help": "Las políticas de reintento y concurrencia se habilitarán cuando el planificador exponga estos ajustes del workspace.",
+  "workbench_tasks_advanced_planned_help": "Las políticas de reintento y concurrencia se aplican a las ejecuciones en segundo plano.",
   "workbench_tasks_retry_label": "Intentos de reintento",
   "workbench_tasks_retry_help": "Reintentos automáticos para tareas fallidas.",
   "workbench_tasks_backoff_label": "Espera entre reintentos",
