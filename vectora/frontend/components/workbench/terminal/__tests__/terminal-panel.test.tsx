@@ -177,8 +177,8 @@ describe("TerminalPanel", () => {
     mockActiveId = "a";
     render(<TerminalPanel threadId="t1" />);
     await flush();
-    expect(screen.getByText("shell 1")).toBeInTheDocument();
-    expect(screen.getByText("shell 2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "shell 1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "shell 2" })).toBeInTheDocument();
   });
 
   it("clicar no botão + (nova aba) chama open() com o threadId correto", async () => {
@@ -196,7 +196,7 @@ describe("TerminalPanel", () => {
     mockActiveId = "a";
     render(<TerminalPanel threadId="t1" />);
     await flush();
-    fireEvent.click(screen.getByText("shell 2"));
+    fireEvent.click(screen.getByRole("button", { name: "shell 2" }));
     expect(mockSetActive).toHaveBeenCalledWith("t1", "b");
   });
 

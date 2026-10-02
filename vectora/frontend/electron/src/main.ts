@@ -1026,6 +1026,9 @@ function scheduleAutoUpdateChecks(): void {
 // IPC handlers (responde ao preload bridge)
 // ---------------------------------------------------------------------------
 
+const browserOwnerId = (event: unknown): number =>
+  (event as { sender?: { id?: number } }).sender?.id ?? -1;
+
 function registerIpc(): void {
   ipcMain.handle("vectora:open-external", (_event, url: string) =>
     shell.openExternal(url),
@@ -1174,8 +1177,6 @@ function registerIpc(): void {
       (candidate.senderFrame?.url ?? "").startsWith(`${APP_SCHEME}://`)
     );
   };
-  const browserOwnerId = (event: unknown): number =>
-    (event as { sender?: { id?: number } }).sender?.id ?? -1;
   ipcMain.handle("vectora:browser-create-view", (event, options: unknown) => {
     if (!isTrustedBrowserSender(event)) throw new Error("origem IPC inválida");
     if (!options || typeof options !== "object")

@@ -490,7 +490,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       }
       return id;
     },
-    [desktopBrowser, createDesktopView],
+    [browserSearchEngine, createDesktopView, desktopBrowser],
   );
 
   const closeTab = useCallback(
