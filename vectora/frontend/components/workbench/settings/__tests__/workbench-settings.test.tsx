@@ -102,6 +102,22 @@ describe("workbench settings contract", () => {
     });
   });
 
+  it("keeps owner scopes explicit for session, instance, and workspace data", () => {
+    expect(
+      WORKBENCH_SETTINGS.find((item) => item.workbench === "browser")?.scope,
+    ).toBe("session");
+    expect(
+      WORKBENCH_SETTINGS.find((item) => item.workbench === "storage")?.scope,
+    ).toBe("instance");
+    expect(
+      WORKBENCH_SETTINGS.find((item) => item.workbench === "terminal")
+        ?.sections,
+    ).toEqual([
+      expect.objectContaining({ id: "display", scope: "user" }),
+      expect.objectContaining({ id: "sandbox", scope: "workspace" }),
+    ]);
+  });
+
   it("resolves native surfaces to unavailable and Vectora Browser to a form", () => {
     const native = descriptor({
       id: "native-settings",
