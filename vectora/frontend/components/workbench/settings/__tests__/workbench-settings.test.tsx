@@ -12,6 +12,8 @@ import {
 import { WorkbenchSettingsPage } from "../workbench-settings-page";
 import {
   ALL_WORKBENCH_SETTINGS,
+  contextGraphSettings,
+  gitSettings,
   WORKBENCH_SETTINGS,
 } from "../workbench-settings-registry";
 import type { WorkbenchSettingsDescriptor } from "@/lib/types/workbench-settings";
@@ -277,6 +279,20 @@ describe("workbench settings contract", () => {
       "href",
       "#workbench-settings-git",
     );
+  });
+
+  it("renders the real Git and Context Graph forms through the shared page", () => {
+    render(
+      <WorkbenchSettingsPage
+        descriptors={[contextGraphSettings, gitSettings]}
+        context={context}
+      />,
+    );
+
+    expect(screen.getByText(/file types/i)).toBeInTheDocument();
+    expect(screen.getByText(/run hooks before commit/i)).toBeInTheDocument();
+    expect(screen.getByRole("navigation")).toHaveTextContent("Context Graph");
+    expect(screen.getByRole("navigation")).toHaveTextContent("Git");
   });
 
   it("does not render contract capability metadata", () => {
