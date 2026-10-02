@@ -461,11 +461,7 @@ export function GitTab({
             onOpenPR={handleOpenPR}
           />
         ) : view === "changes" ? (
-          <ChangesView
-            workspaceId={wsId}
-            summary={summary}
-            onOpenSettings={() => setSettingsOpen(true)}
-          />
+          <ChangesView workspaceId={wsId} summary={summary} />
         ) : (
           <HistoryView
             workspaceId={wsId}

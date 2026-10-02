@@ -1481,7 +1481,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
           <div
             ref={browserViewContainerRef}
             data-testid="browser-webcontentsview-container"
-            className="relative flex-1 w-full bg-white"
+            className="relative flex-1 w-full bg-background"
           >
             {!currentUrl && emptyBrowserState}
           </div>
@@ -1490,7 +1490,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
             ref={iframeRef}
             key={`${activeTab.id}-${activeTab.iframeKey}`}
             src={currentUrl}
-            className="flex-1 w-full border-0 bg-white"
+            className="flex-1 w-full border-0 bg-background"
             title={msg.workbench_browser_frame_title()}
             allow={
               webPermissionsAllowed

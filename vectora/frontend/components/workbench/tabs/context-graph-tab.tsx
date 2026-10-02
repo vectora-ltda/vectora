@@ -88,7 +88,7 @@ export function ContextGraphTab({
   return (
     <div className="relative flex flex-col h-full overflow-hidden">
       {/* Barra de ação — alinhada à esquerda (padrão dos workbenches). */}
-      <div className="relative flex min-w-0 flex-wrap items-center justify-start gap-2 px-3 py-2 border-b border-border/60 shrink-0">
+      <div className="relative flex min-w-0 items-center gap-2 overflow-hidden px-3 py-2 border-b border-border/60 shrink-0">
         {isBuilt && !isRunning && (
           <button
             onClick={() => update({ mode: graphMode, fileTypes })}
@@ -105,19 +105,21 @@ export function ContextGraphTab({
           data-testid="graph-build-btn"
           className={
             isRunning
-              ? "flex shrink-0 items-center gap-1.5 whitespace-nowrap text-xs px-2.5 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:border-border/80"
-              : "flex shrink-0 items-center gap-1.5 whitespace-nowrap text-xs px-2.5 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+              ? "flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap text-xs px-2.5 py-1 rounded border border-border text-muted-foreground hover:text-foreground hover:border-border/80"
+              : "flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap text-xs px-2.5 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
           }
         >
           {isRunning ? (
             <>
               <X className="h-3 w-3" />
-              {m.graph_cancel_button()}
+              <span className="truncate">{m.graph_cancel_button()}</span>
             </>
           ) : (
             <>
               <RefreshCw className="h-3 w-3" />
-              {isBuilt ? m.graph_rebuild_button() : m.graph_build_button()}
+              <span className="truncate">
+                {isBuilt ? m.graph_rebuild_button() : m.graph_build_button()}
+              </span>
             </>
           )}
         </button>

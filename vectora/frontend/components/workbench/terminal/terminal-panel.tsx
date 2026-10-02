@@ -476,22 +476,33 @@ export function TerminalPanel({ threadId }: TerminalPanelProps) {
     });
   };
 
+  // Keep the active terminal discoverable while avoiding a row of repeated
+  // labels. The tab strip remains horizontally scrollable only when the
+  // compact icon-only tabs themselves no longer fit.
+  const compactTabs = terminals.length >= 5;
+
   return (
     <div className="h-full flex flex-col bg-sidebar">
       {/* Tabs + ações */}
-      <div className="flex items-center gap-1 bg-sidebar border-b border-border/60 px-2 py-1 overflow-x-auto">
+      <div className="flex items-center gap-1 overflow-x-auto bg-sidebar border-b border-border/60 px-2 py-1">
         {terminals.map((term) => (
           <button
             key={term.id}
             onClick={() => setActive(threadId, term.id)}
-            className={`group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-md text-xs select-none transition-colors shrink-0 ${
+            aria-label={term.title}
+            title={term.title}
+            className={`group flex items-center gap-1.5 rounded-md py-1 text-xs select-none transition-colors shrink-0 ${
               term.id === active?.id
                 ? "bg-muted text-foreground"
                 : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
             }`}
           >
             <TerminalSquare className="w-3.5 h-3.5" />
-            <span className="truncate max-w-[120px]">{term.title}</span>
+            {term.id === active?.id && !compactTabs && (
+              <span className="max-w-[120px] truncate whitespace-nowrap">
+                {term.title}
+              </span>
+            )}
             <span
               role="button"
               tabIndex={0}
