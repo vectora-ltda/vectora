@@ -13,6 +13,8 @@ interface NativeBrowserSettingsProps {
   onRequestClose?: () => void;
 }
 
+const NATIVE_SETTINGS_CONFIRMATION_TIMEOUT_MS = 8_000;
+
 function NativeBrowserSettings({
   profileId,
   onRequestClose,
@@ -41,6 +43,7 @@ function NativeBrowserSettings({
     let disposed = false;
     let nativeViewId: number | null = null;
     let unsubscribe: (() => void) | undefined;
+    let confirmationTimer: ReturnType<typeof setTimeout> | undefined;
 
     const fail = () => {
       if (disposed) return;
@@ -68,6 +71,7 @@ function NativeBrowserSettings({
             event.type === "navigated" &&
             event.url.startsWith("chrome://settings")
           ) {
+            if (confirmationTimer) clearTimeout(confirmationTimer);
             setState("ready");
           } else if (event.type === "loadFailed") {
             fail();
@@ -75,15 +79,22 @@ function NativeBrowserSettings({
             closeRequestRef.current?.();
           }
         });
+        confirmationTimer = setTimeout(
+          fail,
+          NATIVE_SETTINGS_CONFIRMATION_TIMEOUT_MS,
+        );
         return browserView.navigate(createdViewId, "chrome://settings");
       })
       .then((result) => {
-        if (result && !result.ok) fail();
+        if (result && !result.ok) {
+          fail();
+        }
       })
       .catch(fail);
 
     return () => {
       disposed = true;
+      if (confirmationTimer) clearTimeout(confirmationTimer);
       unsubscribe?.();
       if (nativeViewId !== null) {
         browserView.setVisible(nativeViewId, false);

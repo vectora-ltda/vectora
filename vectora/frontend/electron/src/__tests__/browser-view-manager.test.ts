@@ -73,6 +73,9 @@ describe("isNavigableUrl", () => {
     expect(isNavigableUrl("file:///etc/passwd")).toBe(false);
     expect(isNavigableUrl("javascript:alert(1)")).toBe(false);
     expect(isNavigableUrl("não é uma url")).toBe(false);
+    expect(isNavigableUrl(`https://example.com/${"x".repeat(8192)}`)).toBe(
+      false,
+    );
   });
 });
 

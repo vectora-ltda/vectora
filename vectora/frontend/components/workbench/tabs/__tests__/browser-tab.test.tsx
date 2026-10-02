@@ -576,7 +576,7 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
     render(<BrowserTab threadId="desktop-settings" />);
     await waitFor(() => expect(bridge.onEvent).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByTestId("browser-settings-btn"));
+    fireEvent.click(screen.getByTestId("browser-clear-profile-btn"));
     fireEvent.click(
       screen.getByRole("button", {
         name: /workbench_browser_clear_profile_data/i,
@@ -590,7 +590,7 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
     await waitFor(() => expect(bridge.clearProfileData).toHaveBeenCalledOnce());
   });
 
-  it("abre as configurações do perfil no painel do Vectora sem criar uma view extra", async () => {
+  it("abre as configurações nativas do perfil em uma view dedicada", async () => {
     const bridge = mockBrowserView();
     mockFetch({ configurations: [] });
     render(<BrowserTab threadId="desktop-settings-panel" />);
@@ -599,11 +599,8 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
     fireEvent.click(screen.getByTestId("browser-settings-btn"));
     await screen.findByTestId("browser-settings-panel");
 
-    expect(bridge.createView).toHaveBeenCalledTimes(1);
-    expect(bridge.navigate).not.toHaveBeenCalledWith(
-      expect.any(Number),
-      expect.stringContaining("chrome://"),
-    );
+    await waitFor(() => expect(bridge.createView).toHaveBeenCalledTimes(2));
+    expect(bridge.navigate).toHaveBeenCalledWith(2, "chrome://settings");
   });
 
   it("trocar de workspace sem sessão cria a WebContentsView nativa e navega nela", async () => {

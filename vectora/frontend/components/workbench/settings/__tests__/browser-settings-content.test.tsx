@@ -126,4 +126,26 @@ describe("BrowserSettingsContent", () => {
     expect(setOpen).toHaveBeenCalledWith(false);
     expect(openBrowserSettings).toHaveBeenCalledWith("thread-1");
   });
+
+  it("falha com segurança quando a navegação nativa não confirma o carregamento", async () => {
+    vi.useFakeTimers();
+    const native = installBridge();
+    const { unmount } = render(
+      <BrowserSettingsContent
+        threadId="thread-timeout"
+        workspaceId="workspace-1"
+        browserProfileId="session-profile"
+        presentation="workbench"
+      />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      vi.advanceTimersByTime(8_000);
+    });
+    expect(screen.getByText("Could not open browser settings.")).toBeTruthy();
+    expect(native.bridge.destroyView).toHaveBeenCalledWith(42);
+    unmount();
+    vi.useRealTimers();
+  });
 });

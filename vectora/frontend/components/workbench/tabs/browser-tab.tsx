@@ -29,6 +29,7 @@ import { useSettingsStore } from "@/lib/stores/settings-store";
 import { useWorkbenchStore } from "@/lib/stores/workbench-store";
 import { m as msg } from "@/lib/paraglide/messages";
 import { BrowserDevtoolsPanel } from "./browser-devtools-panel";
+import { BrowserProfileCleanupAction } from "./browser-profile-cleanup-action";
 import { WorkbenchSettingsSurface } from "@/components/workbench/settings/workbench-settings-surface";
 import { browserSettings } from "@/components/workbench/settings/workbench-settings-registry";
 import { resolveBrowserProfileId } from "@/lib/browser-profile";
@@ -1401,6 +1402,11 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         >
           <Settings2 className="h-3.5 w-3.5" />
         </button>
+        <BrowserProfileCleanupAction
+          profileId={profileId}
+          sessionKey={`${wsId ?? ""}:${threadId}`}
+          clearProfileData={desktopBrowser?.clearProfileData}
+        />
       </div>
 
       <WorkbenchSettingsSurface

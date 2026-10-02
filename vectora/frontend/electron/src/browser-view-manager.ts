@@ -155,6 +155,7 @@ interface Entry {
 
 const ALLOWED_TAB_SCHEMES = new Set(["http:", "https:"]);
 const NATIVE_SETTINGS_HOST = "settings";
+const MAX_BROWSER_URL_LENGTH = 8192;
 
 /** Native Chromium settings are deliberately limited to the settings WebUI. */
 export function isNativeSettingsUrl(url: URL): boolean {
@@ -175,6 +176,7 @@ export function isNavigableUrl(
   raw: string,
   kind: BrowserViewKind = "tab",
 ): boolean {
+  if (raw.length > MAX_BROWSER_URL_LENGTH) return false;
   try {
     const url = new URL(raw);
     if (kind === "native-settings") return isNativeSettingsUrl(url);
