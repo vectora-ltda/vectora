@@ -65,6 +65,15 @@ describe("workbench settings contract", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  it("registers a reusable settings surface for every workbench", () => {
+    expect(WORKBENCH_SETTINGS).toHaveLength(WORKBENCH_TABS.length);
+    for (const item of WORKBENCH_SETTINGS) {
+      expect(item.Component).toBeDefined();
+      expect(item.surface).toEqual({ workbench: "form", settings: "form" });
+      expect(item.sections.length).toBeGreaterThan(0);
+    }
+  });
+
   it("keeps settings in the same order as the navigation contract", () => {
     expect(WORKBENCH_SETTINGS.map((item) => item.workbench)).toEqual(
       WORKBENCH_TABS,
