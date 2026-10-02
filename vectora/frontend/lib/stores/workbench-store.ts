@@ -354,10 +354,7 @@ interface WorkbenchState {
   markPending: (wsId: string) => void;
   clearPending: (wsId: string, key: "files" | "git") => void;
 
-  /** Solicitação transitória para abrir as configurações nativas do Browser. */
-  browserSettingsRequests: Record<string, number>;
   openBrowserSettings: (threadId: string) => void;
-  consumeBrowserSettingsRequest: (threadId: string) => void;
 }
 
 // Caches default usados pelos getters quando uma chave ainda não existe.
@@ -422,7 +419,6 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         viewerHeight: 280,
         pinnedFiles: {},
         pending: {},
-        browserSettingsRequests: {},
 
         list: (threadId) => get().byThread[threadId] ?? EMPTY_LIST,
         active: (threadId) => {
@@ -527,19 +523,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
               [threadId]: "browser",
             },
             panelOpen: { ...s.panelOpen, [threadId]: true },
-            browserSettingsRequests: {
-              ...s.browserSettingsRequests,
-              [threadId]: (s.browserSettingsRequests[threadId] ?? 0) + 1,
-            },
           })),
-
-        consumeBrowserSettingsRequest: (threadId) =>
-          set((s) => {
-            if (!(threadId in s.browserSettingsRequests)) return s;
-            const next = { ...s.browserSettingsRequests };
-            delete next[threadId];
-            return { browserSettingsRequests: next };
-          }),
 
         setSplitSize: (size) => set({ splitSize: size }),
         setViewerHeight: (height) => set({ viewerHeight: height }),

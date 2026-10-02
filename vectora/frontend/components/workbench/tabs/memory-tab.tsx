@@ -29,6 +29,7 @@ import { MarkdownView } from "@/components/workbench/markdown-view";
 import { Switch } from "@/components/ui/switch";
 import { WorkspaceTrustDialog } from "@/components/sidebar/workspace-trust-dialog";
 import {
+  RagCollectionsSection,
   RagSettingsButton,
   useRagSettings,
 } from "@/components/workbench/rag-settings-panel";
@@ -724,6 +725,12 @@ export function MemoryTab({ threadId }: MemoryTabProps) {
         />
         <div className="flex-1 space-y-4 overflow-auto px-3 py-3">
           <BucketsPanel />
+          <RagCollectionsSection
+            collections={ragSettings.collections}
+            collectionsStatus={ragSettings.collectionsStatus}
+            loadCollections={ragSettings.loadCollections}
+            deleteCollection={ragSettings.deleteCollection}
+          />
           <JourneyPanel />
           {unifiedSection}
           {searchSection}
@@ -769,6 +776,12 @@ export function MemoryTab({ threadId }: MemoryTabProps) {
       />
       <div className="flex-1 space-y-4 overflow-auto px-3 pb-3 pt-3">
         <BucketsPanel />
+        <RagCollectionsSection
+          collections={ragSettings.collections}
+          collectionsStatus={ragSettings.collectionsStatus}
+          loadCollections={ragSettings.loadCollections}
+          deleteCollection={ragSettings.deleteCollection}
+        />
         <JourneyPanel />
         {unifiedSection}
         {searchSection}

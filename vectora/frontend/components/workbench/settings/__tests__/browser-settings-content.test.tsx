@@ -22,16 +22,27 @@ type BrowserViewEvent =
 
 const setOpen = vi.fn();
 const openBrowserSettings = vi.fn();
+const requestOpenNativeSettings = vi.fn();
 
 vi.mock("@/lib/stores/settings-overlay-store", () => ({
-  useSettingsOverlayStore: {
-    getState: () => ({ setOpen }),
-  },
+  useSettingsOverlayStore: Object.assign(
+    (selector: (state: { open: boolean }) => unknown) =>
+      selector({ open: false }),
+    {
+      getState: () => ({ setOpen }),
+    },
+  ),
 }));
 
 vi.mock("@/lib/stores/workbench-store", () => ({
   useWorkbenchStore: {
     getState: () => ({ openBrowserSettings }),
+  },
+}));
+
+vi.mock("@/lib/stores/browser-settings-controller", () => ({
+  useBrowserSettingsController: {
+    getState: () => ({ requestOpenNativeSettings }),
   },
 }));
 
@@ -70,6 +81,31 @@ function installBridge() {
 }
 
 describe("BrowserSettingsContent", () => {
+  it("não cria a view nativa enquanto a superfície está fechada", async () => {
+    const native = installBridge();
+    const { rerender } = render(
+      <BrowserSettingsContent
+        threadId="thread-closed"
+        workspaceId="workspace-1"
+        browserProfileId="session-profile"
+        presentation="workbench"
+        open={false}
+      />,
+    );
+    await act(async () => Promise.resolve());
+    expect(native.bridge.createView).not.toHaveBeenCalled();
+    rerender(
+      <BrowserSettingsContent
+        threadId="thread-closed"
+        workspaceId="workspace-1"
+        browserProfileId="session-profile"
+        presentation="workbench"
+        open={true}
+      />,
+    );
+    await waitFor(() => expect(native.bridge.createView).toHaveBeenCalled());
+  });
+
   it("cria, navega, dimensiona e destrói a view nativa", async () => {
     const native = installBridge();
     const onRequestClose = vi.fn();
@@ -79,6 +115,7 @@ describe("BrowserSettingsContent", () => {
         workspaceId="workspace-1"
         browserProfileId="session-profile"
         presentation="workbench"
+        open={true}
         onRequestClose={onRequestClose}
       />,
     );
@@ -124,28 +161,27 @@ describe("BrowserSettingsContent", () => {
     );
     fireEvent.click(screen.getByRole("button"));
     expect(setOpen).toHaveBeenCalledWith(false);
+    expect(requestOpenNativeSettings).toHaveBeenCalledWith("thread-1");
     expect(openBrowserSettings).toHaveBeenCalledWith("thread-1");
   });
 
-  it("falha com segurança quando a navegação nativa não confirma o carregamento", async () => {
-    vi.useFakeTimers();
+  it("falha com segurança quando a navegação nativa é rejeitada", async () => {
     const native = installBridge();
+    native.bridge.navigate.mockResolvedValue({ ok: false });
     const { unmount } = render(
       <BrowserSettingsContent
         threadId="thread-timeout"
         workspaceId="workspace-1"
         browserProfileId="session-profile"
         presentation="workbench"
+        open={true}
       />,
     );
 
-    await act(async () => {
-      await Promise.resolve();
-      vi.advanceTimersByTime(8_000);
-    });
-    expect(screen.getByText("Could not open browser settings.")).toBeTruthy();
+    expect(
+      await screen.findByText("Could not open browser settings."),
+    ).toBeTruthy();
     expect(native.bridge.destroyView).toHaveBeenCalledWith(42);
     unmount();
-    vi.useRealTimers();
   });
 });

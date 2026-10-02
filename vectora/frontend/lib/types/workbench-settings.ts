@@ -43,6 +43,8 @@ export interface WorkbenchSettingsContext {
   /** Perfil Chromium resolvido para a sessão da Browser Workbench. */
   browserProfileId?: string | null;
   presentation: WorkbenchSettingsPresentation;
+  /** Indica se a superfície de workbench está visível. */
+  open?: boolean;
   /** Fecha a superfície atual quando uma view nativa solicita fechamento. */
   onRequestClose?: () => void;
 }

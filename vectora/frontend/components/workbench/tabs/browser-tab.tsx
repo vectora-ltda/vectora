@@ -27,6 +27,7 @@ import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { useSettingsOverlayStore } from "@/lib/stores/settings-overlay-store";
 import { useSettingsStore } from "@/lib/stores/settings-store";
 import { useWorkbenchStore } from "@/lib/stores/workbench-store";
+import { useBrowserSettingsController } from "@/lib/stores/browser-settings-controller";
 import { m as msg } from "@/lib/paraglide/messages";
 import { BrowserDevtoolsPanel } from "./browser-devtools-panel";
 import { BrowserProfileCleanupAction } from "./browser-profile-cleanup-action";
@@ -150,14 +151,12 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   wsIdRef.current = wsId;
   const sessionKey = `${wsId}:${threadId}`;
   const settingsOpen = useSettingsOverlayStore((s) => s.open);
-  const browserSettingsRequest = useWorkbenchStore(
-    (s) => s.browserSettingsRequests[threadId] ?? 0,
+  const browserSettingsRequest = useBrowserSettingsController(
+    (s) => s.pendingOpen?.threadId === threadId,
   );
-  const [browserSettingsOpen, setBrowserSettingsOpen] = useState(
-    browserSettingsRequest > 0,
-  );
-  const consumeBrowserSettingsRequest = useWorkbenchStore(
-    (s) => s.consumeBrowserSettingsRequest,
+  const [browserSettingsOpen, setBrowserSettingsOpen] = useState(false);
+  const consumeBrowserSettingsRequest = useBrowserSettingsController(
+    (s) => s.consumePendingOpen,
   );
   const allowPopups = useSettingsStore((s) => s.browserAllowPopups);
   const browserZoomPercent = useSettingsStore((s) => s.browserZoomPercent);
@@ -332,7 +331,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   }, []);
 
   useEffect(() => {
-    if (browserSettingsRequest === 0) return;
+    if (!browserSettingsRequest) return;
     // This effect consumes a one-shot external store request after the tab
     // mounts; the state update is intentional synchronization, not derived UI.
     // oxlint-disable-next-line react/set-state-in-effect

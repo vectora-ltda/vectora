@@ -28,6 +28,7 @@ export function WorkbenchSettingsSurface({
 }: WorkbenchSettingsSurfaceProps) {
   const resolvedContext: WorkbenchSettingsContext = {
     ...context,
+    open,
     presentation: "workbench",
     onRequestClose: () => onOpenChange(false),
   };

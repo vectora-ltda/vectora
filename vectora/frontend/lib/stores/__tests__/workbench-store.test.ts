@@ -29,7 +29,6 @@ beforeEach(() => {
     pinnedFiles: {},
     activeTabByThread: {},
     panelOpen: {},
-    browserSettingsRequests: {},
   });
 });
 
@@ -48,15 +47,11 @@ describe("Workbench — última aba ao reabrir", () => {
   );
 });
 
-describe("Workbench — abertura das configurações nativas do Browser", () => {
-  it("seleciona Browser, abre o painel e consome a solicitação uma vez", () => {
+describe("Workbench — abertura das configurações do Browser", () => {
+  it("seleciona Browser e abre o painel", () => {
     s().openBrowserSettings("t1");
     expect(s().getActiveTab("t1")).toBe("browser");
     expect(s().isOpen("t1")).toBe(true);
-    expect(s().browserSettingsRequests.t1).toBe(1);
-
-    s().consumeBrowserSettingsRequest("t1");
-    expect(s().browserSettingsRequests).toEqual({});
   });
 });
 
