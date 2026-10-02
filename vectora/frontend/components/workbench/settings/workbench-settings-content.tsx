@@ -13,6 +13,7 @@ import {
   getBrowserCapabilityMatrix,
   getBrowserRuntime,
 } from "@/lib/browser-capability-matrix";
+import { resolveBrowserSurfaceMode } from "@/lib/browser-capabilities";
 
 interface WorkbenchSettingsContentProps {
   descriptor: WorkbenchSettingsDescriptor;
@@ -43,8 +44,10 @@ export function resolveWorkbenchSettingsSurfaceMode(
   if (declared !== "native-view") return declared;
   const hasNativeBrowser =
     typeof window !== "undefined" && Boolean(window.vectora?.browserView);
-  if (hasNativeBrowser) return declared;
-  return descriptor.id === "browser-settings" ? "form" : "unavailable";
+  if (descriptor.id === "browser-settings" && !hasNativeBrowser) {
+    return "form";
+  }
+  return resolveBrowserSurfaceMode(declared, hasNativeBrowser);
 }
 
 /** Resolve declared capabilities against the actual desktop/web runtime. */
