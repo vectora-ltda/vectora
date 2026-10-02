@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useTheme } from "next-themes";
 import { GraphCanvas, darkTheme, lightTheme } from "reagraph";
 import type { GraphEdge, GraphNode } from "reagraph";
 import { Loader2, Search, Waypoints, X } from "lucide-react";
@@ -12,6 +11,7 @@ import type {
   RawGraphLink,
   RawGraphNode,
 } from "@/lib/hooks/use-context-graph";
+import { useIsDark } from "@/lib/hooks/use-is-dark";
 import { m } from "@/lib/paraglide/messages";
 
 interface ContextGraphViewerProps {
@@ -58,9 +58,12 @@ export function ContextGraphViewer({
   onExplainNode,
   onAffectedNode,
 }: ContextGraphViewerProps) {
-  const { resolvedTheme } = useTheme();
+  // Use the Vectora settings store as the source of truth. `next-themes` can
+  // briefly lag behind ThemeSync, which made reagraph render its white
+  // default canvas while the surrounding workbench was already dark.
+  const isDark = useIsDark();
   const graphTheme = useMemo(() => {
-    const baseTheme = resolvedTheme === "dark" ? darkTheme : lightTheme;
+    const baseTheme = isDark ? darkTheme : lightTheme;
     return {
       ...baseTheme,
       // Reagraph owns the WebGL canvas and does not inherit the workbench
@@ -68,10 +71,10 @@ export function ContextGraphViewer({
       // back to the browser's white canvas when the app is in dark mode.
       canvas: {
         ...baseTheme.canvas,
-        background: resolvedTheme === "dark" ? "#1E2026" : "#ffffff",
+        background: isDark ? "#1E2026" : "#ffffff",
       },
     };
-  }, [resolvedTheme]);
+  }, [isDark]);
   const [data, setData] = useState<RawGraphData | null>(null);
   const [loading, setLoading] = useState(true);
   const [hiddenCommunities, setHiddenCommunities] = useState<Set<number>>(
