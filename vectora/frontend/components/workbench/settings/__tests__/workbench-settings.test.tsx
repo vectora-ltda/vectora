@@ -10,7 +10,10 @@ import {
   resolveWorkbenchSettingsSurfaceMode,
 } from "../workbench-settings-content";
 import { WorkbenchSettingsPage } from "../workbench-settings-page";
-import { WORKBENCH_SETTINGS } from "../workbench-settings-registry";
+import {
+  ALL_WORKBENCH_SETTINGS,
+  WORKBENCH_SETTINGS,
+} from "../workbench-settings-registry";
 import type { WorkbenchSettingsDescriptor } from "@/lib/types/workbench-settings";
 import type { WorkbenchId } from "@/lib/types/workbench-settings";
 import type { WorkbenchTab } from "@/lib/stores/workbench-store";
@@ -76,9 +79,19 @@ describe("workbench settings contract", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  it("keeps the issue registry limited to the five official workbenches", () => {
+    expect(WORKBENCH_SETTINGS.map((item) => item.workbench)).toEqual([
+      "browser",
+      "context_graph",
+      "storage",
+      "terminal",
+      "git",
+    ]);
+  });
+
   it("registers a reusable settings surface for every workbench", () => {
-    expect(WORKBENCH_SETTINGS).toHaveLength(WORKBENCH_TABS.length);
-    for (const item of WORKBENCH_SETTINGS) {
+    expect(ALL_WORKBENCH_SETTINGS).toHaveLength(WORKBENCH_TABS.length);
+    for (const item of ALL_WORKBENCH_SETTINGS) {
       expect(item.Component).toBeDefined();
       expect(item.surface.workbench).toBeDefined();
       expect(item.surface.settings).toBeDefined();
@@ -134,7 +147,7 @@ describe("workbench settings contract", () => {
   });
 
   it("keeps settings in the same order as the navigation contract", () => {
-    expect(WORKBENCH_SETTINGS.map((item) => item.workbench)).toEqual(
+    expect(ALL_WORKBENCH_SETTINGS.map((item) => item.workbench)).toEqual(
       WORKBENCH_TABS,
     );
   });
@@ -149,7 +162,7 @@ describe("workbench settings contract", () => {
 
   it("ships the formerly planned services as available capabilities", () => {
     const capabilities = new Map(
-      WORKBENCH_SETTINGS.flatMap((item) =>
+      ALL_WORKBENCH_SETTINGS.flatMap((item) =>
         item.capabilities.map(
           (itemCapability) =>
             [itemCapability.id, itemCapability.status] as const,

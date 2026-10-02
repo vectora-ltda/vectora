@@ -193,6 +193,23 @@ const SETTINGS_BY_WORKBENCH: Record<WorkbenchId, WorkbenchSettingsDescriptor> =
     terminal: terminalSettings,
   };
 
-/** Fonte única dos descriptors registrados pelas workbenches. */
-export const WORKBENCH_SETTINGS: readonly WorkbenchSettingsDescriptor[] =
+/** Descriptors oficiais do contrato da issue #305. */
+export const WORKBENCH_SETTINGS = [
+  browserSettings,
+  contextGraphSettings,
+  memorySettings,
+  terminalSettings,
+  gitSettings,
+] as const satisfies readonly WorkbenchSettingsDescriptor[];
+
+/** Extensões de configuração para workbenches que não são parte do núcleo da issue. */
+export const WORKBENCH_SETTINGS_EXTENSIONS = [
+  filesSettings,
+  planSettings,
+  tasksSettings,
+  librarySettings,
+] as const satisfies readonly WorkbenchSettingsDescriptor[];
+
+/** Página global completa, preservando a ordem visual da navegação. */
+export const ALL_WORKBENCH_SETTINGS: readonly WorkbenchSettingsDescriptor[] =
   WORKBENCH_TABS.map((id) => SETTINGS_BY_WORKBENCH[id]);
