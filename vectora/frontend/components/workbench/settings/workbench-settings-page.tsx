@@ -57,6 +57,23 @@ export function WorkbenchSettingsPage({
 
   return (
     <div className="flex min-w-0 w-full flex-col gap-3 overflow-y-auto p-4">
+      <nav
+        aria-label={m.workbench_settings_page_index()}
+        className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border/60 pb-3 text-sm"
+      >
+        <span className="shrink-0 font-medium text-muted-foreground">
+          {m.workbench_settings_page_index()}
+        </span>
+        {orderedWorkbenches.map((workbench) => (
+          <a
+            key={workbench}
+            href={`#workbench-settings-${workbench}`}
+            className="truncate text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            {WORKBENCH_LABELS[workbench]()}
+          </a>
+        ))}
+      </nav>
       {orderedWorkbenches.map((workbench) => {
         const items = groups.get(workbench) ?? [];
         return (

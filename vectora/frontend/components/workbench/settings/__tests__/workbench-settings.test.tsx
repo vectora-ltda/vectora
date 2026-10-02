@@ -154,6 +154,11 @@ describe("workbench settings contract", () => {
       document.getElementById("workbench-settings-git"),
     ).toBeInTheDocument();
     expect(screen.getAllByText("settings form")).toHaveLength(2);
+    expect(screen.getByRole("navigation")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Git" })).toHaveAttribute(
+      "href",
+      "#workbench-settings-git",
+    );
   });
 
   it("does not render contract capability metadata", () => {
