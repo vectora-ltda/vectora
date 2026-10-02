@@ -1250,7 +1250,7 @@ function registerIpc(): void {
     (event, viewId: number, url: string) => {
       if (!isTrustedBrowserSender(event))
         return { ok: false, error: "origem IPC inválida" };
-      if (!isValidViewId(viewId) || !isValidBrowserUrl(url)) {
+      if (!isValidViewId(viewId) || typeof url !== "string") {
         return { ok: false, error: "argumentos inválidos" };
       }
       return getBrowserViewManager().navigate(

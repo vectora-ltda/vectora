@@ -60,6 +60,11 @@ describe("isNavigableUrl", () => {
   it("rejeita páginas internas do Chromium", () => {
     expect(isNavigableUrl("chrome://settings")).toBe(false);
     expect(isNavigableUrl("chrome://settings/passwords")).toBe(false);
+    expect(isNavigableUrl("chrome://settings", "native-settings")).toBe(true);
+    expect(
+      isNavigableUrl("chrome://settings/passwords", "native-settings"),
+    ).toBe(true);
+    expect(isNavigableUrl("chrome://flags", "native-settings")).toBe(false);
     expect(isNavigableUrl("https://chrome//settings/")).toBe(true);
   });
 
@@ -210,6 +215,35 @@ describe("BrowserViewManager", () => {
     expect(navigateEvent.preventDefault).toHaveBeenCalledOnce();
     expect(redirectEvent.preventDefault).toHaveBeenCalledOnce();
     expect(id).toBe(1);
+  });
+
+  it("emite escapePressed somente para a view nativa de settings", () => {
+    const native = manager.createView("profile-a", "native-settings");
+    const tab = manager.createView("profile-a", "tab");
+    const nativeListener = views[0].handlers["before-input-event"];
+    const tabListener = views[1].handlers["before-input-event"];
+    const nativePreventDefault = vi.fn();
+    const tabPreventDefault = vi.fn();
+
+    nativeListener?.(
+      { preventDefault: nativePreventDefault },
+      { type: "keyDown", key: "Escape" },
+    );
+    tabListener?.(
+      { preventDefault: tabPreventDefault },
+      { type: "keyDown", key: "Escape" },
+    );
+
+    expect(nativePreventDefault).toHaveBeenCalledOnce();
+    expect(tabPreventDefault).not.toHaveBeenCalled();
+    expect(emitted).toContainEqual({
+      viewId: native,
+      event: { type: "escapePressed" },
+    });
+    expect(emitted).not.toContainEqual({
+      viewId: tab,
+      event: { type: "escapePressed" },
+    });
   });
 
   it("navigate em view inexistente retorna erro em vez de lançar", () => {

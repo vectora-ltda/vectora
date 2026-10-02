@@ -71,7 +71,7 @@ export interface ManagedView {
   setBounds(bounds: ViewBounds): void;
 }
 
-export type BrowserViewKind = "tab";
+export type BrowserViewKind = "tab" | "native-settings";
 export interface BrowserViewOptions {
   profileId: string;
   kind: BrowserViewKind;
@@ -153,7 +153,19 @@ interface Entry {
   profileId: string;
 }
 
-const ALLOWED_SCHEMES = new Set(["http:", "https:"]);
+const ALLOWED_TAB_SCHEMES = new Set(["http:", "https:"]);
+const NATIVE_SETTINGS_HOST = "settings";
+
+/** Native Chromium settings are deliberately limited to the settings WebUI. */
+export function isNativeSettingsUrl(url: URL): boolean {
+  return (
+    url.protocol === "chrome:" &&
+    url.hostname === NATIVE_SETTINGS_HOST &&
+    (url.pathname === "" ||
+      url.pathname === "/" ||
+      url.pathname.startsWith("/"))
+  );
+}
 function normalizeProfileId(profileId: string | undefined): string {
   const normalized = profileId?.trim();
   return normalized || "default";
@@ -164,7 +176,9 @@ export function isNavigableUrl(
   kind: BrowserViewKind = "tab",
 ): boolean {
   try {
-    return ALLOWED_SCHEMES.has(new URL(raw).protocol);
+    const url = new URL(raw);
+    if (kind === "native-settings") return isNativeSettingsUrl(url);
+    return ALLOWED_TAB_SCHEMES.has(url.protocol);
   } catch {
     return false;
   }
@@ -368,6 +382,16 @@ export class BrowserViewManager {
     };
     wc.on("will-navigate", cancelUnsafeNavigation);
     wc.on("will-redirect", cancelUnsafeNavigation);
+    wc.on("before-input-event", (event, input) => {
+      if (
+        kind === "native-settings" &&
+        input.type === "keyDown" &&
+        input.key === "Escape"
+      ) {
+        event.preventDefault();
+        this.deps.emit(id, { type: "escapePressed" });
+      }
+    });
     // Popups become managed tabs. Returning `deny` prevents Electron from
     // creating an unmanaged BrowserWindow while the renderer receives the URL
     // and creates a view with the same profile and navigation policies.

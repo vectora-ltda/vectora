@@ -26,6 +26,7 @@ import { useChatInputStore } from "@/lib/stores/chat-input-store";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { useSettingsOverlayStore } from "@/lib/stores/settings-overlay-store";
 import { useSettingsStore } from "@/lib/stores/settings-store";
+import { useWorkbenchStore } from "@/lib/stores/workbench-store";
 import { m as msg } from "@/lib/paraglide/messages";
 import { BrowserDevtoolsPanel } from "./browser-devtools-panel";
 import { WorkbenchSettingsSurface } from "@/components/workbench/settings/workbench-settings-surface";
@@ -148,7 +149,15 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   wsIdRef.current = wsId;
   const sessionKey = `${wsId}:${threadId}`;
   const settingsOpen = useSettingsOverlayStore((s) => s.open);
-  const [browserSettingsOpen, setBrowserSettingsOpen] = useState(false);
+  const browserSettingsRequest = useWorkbenchStore(
+    (s) => s.browserSettingsRequests[threadId] ?? 0,
+  );
+  const [browserSettingsOpen, setBrowserSettingsOpen] = useState(
+    browserSettingsRequest > 0,
+  );
+  const consumeBrowserSettingsRequest = useWorkbenchStore(
+    (s) => s.consumeBrowserSettingsRequest,
+  );
   const allowPopups = useSettingsStore((s) => s.browserAllowPopups);
   const browserZoomPercent = useSettingsStore((s) => s.browserZoomPercent);
   const browserPermissionMode = useSettingsStore(
@@ -320,6 +329,15 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const toggleBrowserSettings = useCallback(() => {
     setBrowserSettingsOpen((open) => !open);
   }, []);
+
+  useEffect(() => {
+    if (browserSettingsRequest === 0) return;
+    // This effect consumes a one-shot external store request after the tab
+    // mounts; the state update is intentional synchronization, not derived UI.
+    // oxlint-disable-next-line react/set-state-in-effect
+    setBrowserSettingsOpen(true);
+    consumeBrowserSettingsRequest(threadId);
+  }, [browserSettingsRequest, consumeBrowserSettingsRequest, threadId]);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);

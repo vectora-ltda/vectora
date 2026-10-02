@@ -73,9 +73,16 @@ describe("workbench settings contract", () => {
     expect(WORKBENCH_SETTINGS).toHaveLength(WORKBENCH_TABS.length);
     for (const item of WORKBENCH_SETTINGS) {
       expect(item.Component).toBeDefined();
-      expect(item.surface).toEqual({ workbench: "form", settings: "form" });
+      expect(item.surface.workbench).toBeDefined();
+      expect(item.surface.settings).toBeDefined();
       expect(item.sections.length).toBeGreaterThan(0);
     }
+    expect(
+      WORKBENCH_SETTINGS.find((item) => item.workbench === "browser")?.surface,
+    ).toEqual({
+      workbench: "native-view",
+      settings: "link",
+    });
   });
 
   it("keeps settings in the same order as the navigation contract", () => {

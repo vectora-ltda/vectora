@@ -75,9 +75,9 @@ export const browserSettings: WorkbenchSettingsDescriptor = {
   title: () => m.workbench_browser_settings_title(),
   description: () => m.workbench_browser_settings_description(),
   icon: Settings2,
-  scope: "user",
+  scope: "session",
   sections: [
-    section("profile", () => m.workbench_browser_settings_title(), "user"),
+    section("profile", () => m.workbench_browser_settings_title(), "session"),
   ],
   capabilities: [
     capability("profile-storage", "available"),
@@ -89,7 +89,7 @@ export const browserSettings: WorkbenchSettingsDescriptor = {
     capability("popups", "available"),
   ],
   Component: BrowserSettingsContent,
-  surface: { workbench: "form", settings: "form" },
+  surface: { workbench: "native-view", settings: "link" },
 };
 
 export const terminalSettings: WorkbenchSettingsDescriptor = {

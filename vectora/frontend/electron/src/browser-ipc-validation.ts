@@ -15,7 +15,7 @@ export function isValidProfileId(value: unknown): value is string {
 export function isValidBrowserViewKind(
   value: unknown,
 ): value is BrowserViewKind {
-  return value === "tab";
+  return value === "tab" || value === "native-settings";
 }
 
 export function isValidViewId(value: unknown): value is number {
@@ -30,7 +30,10 @@ export function isValidViewBounds(value: unknown): value is ViewBounds {
   );
 }
 
-export function isValidBrowserUrl(value: unknown): value is string {
+export function isValidBrowserUrl(
+  value: unknown,
+  kind: BrowserViewKind = "tab",
+): value is string {
   if (
     typeof value !== "string" ||
     value.length === 0 ||
@@ -40,6 +43,15 @@ export function isValidBrowserUrl(value: unknown): value is string {
   }
   try {
     const url = new URL(value);
+    if (kind === "native-settings") {
+      return (
+        url.protocol === "chrome:" &&
+        url.hostname === "settings" &&
+        (url.pathname === "" ||
+          url.pathname === "/" ||
+          url.pathname.startsWith("/"))
+      );
+    }
     return url.protocol === "http:" || url.protocol === "https:";
   } catch {
     return false;
