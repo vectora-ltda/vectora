@@ -34,6 +34,12 @@ describe("browser IPC validation", () => {
       isValidBrowserUrl("chrome://settings/passwords/", "native-settings"),
     ).toBe(true);
     expect(
+      isValidBrowserUrl(
+        "  CHROME://SETTINGS/Passwords///  ",
+        "native-settings",
+      ),
+    ).toBe(true);
+    expect(
       isValidBrowserUrl("chrome://settings/flags", "native-settings"),
     ).toBe(false);
     expect(isValidBrowserUrl("chrome://settings/help", "native-settings")).toBe(

@@ -71,6 +71,9 @@ describe("isNavigableUrl", () => {
     expect(
       isNavigableUrl("chrome://settings/passwords", "native-settings"),
     ).toBe(true);
+    expect(
+      isNavigableUrl("  CHROME://SETTINGS/Passwords///  ", "native-settings"),
+    ).toBe(true);
     expect(isNavigableUrl("chrome://flags", "native-settings")).toBe(false);
     expect(isNavigableUrl("https://chrome//settings/")).toBe(true);
   });

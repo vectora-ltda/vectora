@@ -161,23 +161,29 @@ const MAX_BROWSER_URL_LENGTH = 8192;
 export const NATIVE_SETTINGS_ROUTES = new Set([
   "/",
   "/appearance",
-  "/clearBrowserData",
+  "/clearbrowserdata",
   "/downloads",
   "/languages",
-  "/onStartup",
+  "/onstartup",
   "/passwords",
   "/privacy",
   "/search",
   "/security",
-  "/siteData",
+  "/sitedata",
 ]);
+
+/** Normalizes Chromium WebUI paths before applying the explicit allowlist. */
+export function normalizeNativeSettingsPath(pathname: string): string {
+  const normalized = pathname.trim().toLowerCase().replace(/\/+$/, "");
+  return normalized || "/";
+}
 
 /** Native Chromium settings are deliberately limited to the settings WebUI. */
 export function isNativeSettingsUrl(url: URL): boolean {
   return (
     url.protocol === "chrome:" &&
-    url.hostname === NATIVE_SETTINGS_HOST &&
-    NATIVE_SETTINGS_ROUTES.has(url.pathname.replace(/\/$/, "") || "/")
+    url.hostname.toLowerCase() === NATIVE_SETTINGS_HOST &&
+    NATIVE_SETTINGS_ROUTES.has(normalizeNativeSettingsPath(url.pathname))
   );
 }
 function normalizeProfileId(profileId: string | undefined): string {
@@ -189,9 +195,14 @@ export function isNavigableUrl(
   raw: string,
   kind: BrowserViewKind = "tab",
 ): boolean {
-  if (raw.length > MAX_BROWSER_URL_LENGTH) return false;
+  const normalizedRaw = raw.trim();
+  if (
+    normalizedRaw.length === 0 ||
+    normalizedRaw.length > MAX_BROWSER_URL_LENGTH
+  )
+    return false;
   try {
-    const url = new URL(raw);
+    const url = new URL(normalizedRaw);
     if (kind === "native-settings") return isNativeSettingsUrl(url);
     return ALLOWED_TAB_SCHEMES.has(url.protocol);
   } catch {
@@ -330,18 +341,21 @@ export class BrowserViewManager {
     if (!entry) return { ok: false, error: "view inexistente" };
     if (!this.owns(entry, ownerId))
       return { ok: false, error: "view não pertence ao remetente" };
-    if (!isNavigableUrl(url, entry.kind)) {
+    const normalizedUrl = url.trim();
+    if (!isNavigableUrl(normalizedUrl, entry.kind)) {
       return { ok: false, error: `esquema não permitido: ${url}` };
     }
-    void entry.view.webContents.loadURL(url).catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      this.deps.emit(id, {
-        type: "loadFailed",
-        errorCode: -2,
-        errorDescription: message,
-        url,
+    void entry.view.webContents
+      .loadURL(normalizedUrl)
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.deps.emit(id, {
+          type: "loadFailed",
+          errorCode: -2,
+          errorDescription: message,
+          url: normalizedUrl,
+        });
       });
-    });
     return { ok: true };
   }
 

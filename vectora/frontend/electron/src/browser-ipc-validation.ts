@@ -1,4 +1,5 @@
 import {
+  normalizeNativeSettingsPath,
   NATIVE_SETTINGS_ROUTES,
   type BrowserViewKind,
   type ViewBounds,
@@ -46,12 +47,12 @@ export function isValidBrowserUrl(
     return false;
   }
   try {
-    const url = new URL(value);
+    const url = new URL(value.trim());
     if (kind === "native-settings") {
       return (
         url.protocol === "chrome:" &&
-        url.hostname === "settings" &&
-        NATIVE_SETTINGS_ROUTES.has(url.pathname.replace(/\/$/, "") || "/")
+        url.hostname.toLowerCase() === "settings" &&
+        NATIVE_SETTINGS_ROUTES.has(normalizeNativeSettingsPath(url.pathname))
       );
     }
     return url.protocol === "http:" || url.protocol === "https:";
