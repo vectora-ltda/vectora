@@ -215,6 +215,33 @@ async def test_build_knowledge_graph_success(tmp_path):
     assert "15" in result
 
 
+@pytest.mark.asyncio
+async def test_build_knowledge_graph_ignores_non_string_optional_index_error(tmp_path):
+    """A partial/legacy result object must still render the graph summary."""
+    from backend.tools.context_graph import build_knowledge_graph
+
+    ws, _ = _make_ws(tmp_path)
+    result_mock = MagicMock()
+    result_mock.error = None
+    result_mock.node_count = 2
+    result_mock.edge_count = 1
+    result_mock.god_nodes = []
+    result_mock.suggested_questions = []
+    result_mock.report_path = tmp_path / "report.md"
+    with (
+        _patch_registry(ws),
+        patch(
+            "backend.context_graph.pipeline.build_workspace_graph",
+            new_callable=AsyncMock,
+            return_value=result_mock,
+        ),
+    ):
+        result = await build_knowledge_graph(_ctx("ws1"), model="", mode="semantic")
+
+    assert "2" in result
+    assert "degradação" not in result.lower()
+
+
 # ---------------------------------------------------------------------------
 # graph_affected
 # ---------------------------------------------------------------------------
