@@ -7,7 +7,6 @@ import { useBrowserSettingsController } from "@/lib/stores/browser-settings-cont
 import { useWorkbenchStore } from "@/lib/stores/workbench-store";
 import { m } from "@/lib/paraglide/messages";
 import type { WorkbenchSettingsContext } from "@/lib/types/workbench-settings";
-import { BrowserSettingsForm } from "./browser-settings-form";
 import { useBrowserSettingsView } from "../tabs/use-browser-settings-view";
 
 interface NativeBrowserSettingsProps {
@@ -92,9 +91,14 @@ export function BrowserSettingsContent(context: WorkbenchSettingsContext) {
 
   const browserView =
     typeof window !== "undefined" ? window.vectora?.browserView : undefined;
-  if (!browserView || !context.browserProfileId) {
-    return <BrowserSettingsForm {...context} />;
+  if (!browserView) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        {m.workbench_browser_settings_unavailable()}
+      </p>
+    );
   }
+  if (!context.browserProfileId) return null;
 
   return (
     <NativeBrowserSettings

@@ -44,9 +44,6 @@ export function resolveWorkbenchSettingsSurfaceMode(
   if (declared !== "native-view") return declared;
   const hasNativeBrowser =
     typeof window !== "undefined" && Boolean(window.vectora?.browserView);
-  if (descriptor.id === "browser-settings" && !hasNativeBrowser) {
-    return "form";
-  }
   return resolveBrowserSurfaceMode(declared, hasNativeBrowser);
 }
 

@@ -138,6 +138,15 @@ describe("ContextGraphViewer", () => {
     expect(canvasEdges().length).toBe(2);
   });
 
+  it("passa o background resolvido dos tokens do tema ao canvas", async () => {
+    document.documentElement.style.setProperty("--background", "#123456");
+    await renderViewer();
+    expect(
+      (lastCanvasProps?.theme as { canvas: { background: string } }).canvas
+        .background,
+    ).toBe("#123456");
+  });
+
   it("fetchGraphData retornando null não quebra — canvas some sem grafo", async () => {
     await renderViewer({ fetchGraphData: () => Promise.resolve(null) });
     expect(screen.queryByTestId("fake-node-n1")).toBeNull();

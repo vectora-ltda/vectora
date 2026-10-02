@@ -92,7 +92,7 @@ describe("workbench settings contract", () => {
     });
   });
 
-  it("resolve native surfaces to a form fallback or unavailable state", () => {
+  it("resolve native surfaces to unavailable or native view by runtime", () => {
     const native = descriptor({
       id: "native-settings",
       surface: { workbench: "native-view", settings: "form" },
@@ -108,7 +108,7 @@ describe("workbench settings contract", () => {
         WORKBENCH_SETTINGS.find((item) => item.id === "browser-settings")!,
         { ...context, presentation: "workbench" },
       ),
-    ).toBe("form");
+    ).toBe("unavailable");
   });
 
   it("resolves every browser capability as unavailable on the web runtime", () => {

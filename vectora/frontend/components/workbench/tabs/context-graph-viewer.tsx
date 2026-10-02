@@ -12,6 +12,7 @@ import type {
   RawGraphNode,
 } from "@/lib/hooks/use-context-graph";
 import { useIsDark } from "@/lib/hooks/use-is-dark";
+import { useSettingsStore } from "@/lib/stores/settings-store";
 import { m } from "@/lib/paraglide/messages";
 
 interface ContextGraphViewerProps {
@@ -62,8 +63,18 @@ export function ContextGraphViewer({
   // briefly lag behind ThemeSync, which made reagraph render its white
   // default canvas while the surrounding workbench was already dark.
   const isDark = useIsDark();
+  const themePreset = useSettingsStore((state) => state.themePreset);
+  const customThemeColors = useSettingsStore(
+    (state) => state.customThemeColors,
+  );
   const graphTheme = useMemo(() => {
     const baseTheme = isDark ? darkTheme : lightTheme;
+    const cssBackground =
+      typeof document !== "undefined"
+        ? getComputedStyle(document.documentElement)
+            .getPropertyValue("--background")
+            .trim()
+        : "";
     return {
       ...baseTheme,
       // Reagraph owns the WebGL canvas and does not inherit the workbench
@@ -71,10 +82,10 @@ export function ContextGraphViewer({
       // back to the browser's white canvas when the app is in dark mode.
       canvas: {
         ...baseTheme.canvas,
-        background: isDark ? "#1E2026" : "#ffffff",
+        background: cssBackground || (isDark ? "#1E2026" : "#ffffff"),
       },
     };
-  }, [isDark]);
+  }, [customThemeColors, isDark, themePreset]);
   const [data, setData] = useState<RawGraphData | null>(null);
   const [loading, setLoading] = useState(true);
   const [hiddenCommunities, setHiddenCommunities] = useState<Set<number>>(
