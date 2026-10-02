@@ -18,6 +18,10 @@ function Icon() {
   return <span aria-hidden="true" />;
 }
 
+function Broken(): ReactElement {
+  throw new Error("settings failed");
+}
+
 const context = {
   threadId: "thread-1",
   workspaceId: "workspace-1",
@@ -161,9 +165,6 @@ describe("workbench settings contract", () => {
     const errorSpy = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
-    function Broken(): ReactElement {
-      throw new Error("settings failed");
-    }
     render(
       <WorkbenchSettingsContent
         descriptor={descriptor({ Component: Broken })}
