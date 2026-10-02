@@ -17,7 +17,11 @@ function Icon() {
   return <span aria-hidden="true" />;
 }
 
-const context = { threadId: "thread-1", workspaceId: "workspace-1" };
+const context = {
+  threadId: "thread-1",
+  workspaceId: "workspace-1",
+  presentation: "settings" as const,
+};
 
 // Compile-time guard: descriptors can only target real workbench tabs.
 const WORKBENCH_ID_IS_TAB: Record<WorkbenchId, WorkbenchTab> = {
@@ -123,7 +127,7 @@ describe("workbench settings contract", () => {
     expect(screen.getByText(/workspace/i)).toBeInTheDocument();
   });
 
-  it("renders grouped settings with stable anchors", () => {
+  it("renders grouped settings as an accordion with stable anchors", () => {
     render(
       <WorkbenchSettingsPage
         descriptors={[
@@ -137,13 +141,26 @@ describe("workbench settings contract", () => {
         context={context}
       />,
     );
-    expect(screen.getByRole("link", { name: "Terminal" })).toHaveAttribute(
-      "href",
-      "#workbench-settings-terminal",
-    );
+    expect(
+      screen.getByText("Terminal", { selector: "summary span" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Git", { selector: "summary span" }),
+    ).toBeInTheDocument();
+    expect(
+      document.querySelector("details#workbench-settings-git"),
+    ).toHaveAttribute("open");
     expect(
       document.getElementById("workbench-settings-git"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Git settings")).toBeInTheDocument();
+    expect(screen.getAllByText("settings form")).toHaveLength(2);
+  });
+
+  it("does not render contract capability metadata", () => {
+    render(
+      <WorkbenchSettingsContent descriptor={descriptor()} context={context} />,
+    );
+    expect(screen.queryByText("general")).not.toBeInTheDocument();
+    expect(screen.queryByText(/capabilit/i)).not.toBeInTheDocument();
   });
 });
