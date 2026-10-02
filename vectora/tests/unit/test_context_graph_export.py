@@ -270,6 +270,19 @@ class TestToJson:
         assert "nodes" in data
         assert "links" in data or "edges" in data
 
+    def test_json_preserves_calculated_community_names(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        from backend.context_graph.export import to_json
+
+        monkeypatch.setenv("GRAPH_NO_BACKUP", "1")
+        G = _simple_graph()
+        output = str(tmp_path / "graph.json")
+        to_json(G, {0: ["a", "b"]}, output, community_labels={0: "Authentication"})
+
+        data = json.loads(Path(output).read_text())
+        assert {node["community_name"] for node in data["nodes"]} == {"Authentication"}
+
     def test_no_overwrite_when_existing_graph_is_larger(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
