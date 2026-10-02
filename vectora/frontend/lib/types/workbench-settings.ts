@@ -31,6 +31,8 @@ export interface WorkbenchSettingsSection {
 export interface WorkbenchSettingsContext {
   threadId: string | null;
   workspaceId: string | null;
+  /** Chave estável do dono da configuração resolvida pelo host. */
+  scopeKey?: string;
   /** Perfil Chromium resolvido para a sessão da Browser Workbench. */
   browserProfileId?: string | null;
   presentation: WorkbenchSettingsPresentation;

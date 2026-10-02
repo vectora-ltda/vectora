@@ -6,6 +6,7 @@ import { lazy, type ReactElement } from "react";
 import { WorkbenchDialog } from "@/components/workbench/workbench-dialog";
 import {
   WorkbenchSettingsContent,
+  getWorkbenchSettingsScopeKey,
   resolveWorkbenchSettingsSurfaceMode,
 } from "../workbench-settings-content";
 import { WorkbenchSettingsPage } from "../workbench-settings-page";
@@ -172,6 +173,40 @@ describe("workbench settings contract", () => {
       />,
     );
     expect(screen.getByText(/workspace/i)).toBeInTheDocument();
+  });
+
+  it("resolves isolated owner keys for user, workspace, session, and instance", () => {
+    expect(getWorkbenchSettingsScopeKey("user", context)).toBe("user");
+    expect(getWorkbenchSettingsScopeKey("instance", context)).toBe("instance");
+    expect(getWorkbenchSettingsScopeKey("workspace", context)).toBe(
+      "workspace-1",
+    );
+    expect(getWorkbenchSettingsScopeKey("session", context)).toBe(
+      "workspace-1:thread-1",
+    );
+    expect(
+      getWorkbenchSettingsScopeKey("session", {
+        threadId: null,
+        workspaceId: "workspace-1",
+      }),
+    ).toBeNull();
+  });
+
+  it("publishes the resolved scope on the shared host", () => {
+    render(
+      <WorkbenchSettingsContent
+        descriptor={descriptor({ scope: "session" })}
+        context={context}
+      />,
+    );
+    expect(screen.getByTestId("workbench-settings-content")).toHaveAttribute(
+      "data-settings-scope",
+      "session",
+    );
+    expect(screen.getByTestId("workbench-settings-content")).toHaveAttribute(
+      "data-settings-scope-key",
+      "workspace-1:thread-1",
+    );
   });
 
   it("renders translated loading and error fallbacks", async () => {

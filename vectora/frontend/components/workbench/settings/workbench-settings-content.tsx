@@ -30,6 +30,17 @@ function EmptyState({ children }: { children: string }) {
   );
 }
 
+/** Resolve o identificador do dono da configuração sem misturar escopos. */
+export function getWorkbenchSettingsScopeKey(
+  scope: WorkbenchSettingsDescriptor["scope"],
+  context: Pick<WorkbenchSettingsContext, "threadId" | "workspaceId">,
+): string | null {
+  if (scope === "user" || scope === "instance") return scope;
+  if (scope === "workspace") return context.workspaceId;
+  if (!context.threadId) return null;
+  return `${context.workspaceId ?? "global"}:${context.threadId}`;
+}
+
 /** Resolves a declared surface against runtime capabilities without hiding web fallbacks. */
 export function resolveWorkbenchSettingsSurfaceMode(
   descriptor: WorkbenchSettingsDescriptor,
@@ -67,11 +78,19 @@ export function WorkbenchSettingsContent({
     );
   }
 
+  const scopeKey = getWorkbenchSettingsScopeKey(descriptor.scope, context);
+  if (!scopeKey) {
+    return <EmptyState>{m.workbench_settings_missing_session()}</EmptyState>;
+  }
+
   const Component = descriptor.Component;
   return (
     <div
       className="flex min-w-0 w-full flex-col gap-3 p-4"
+      data-testid="workbench-settings-content"
       data-surface-mode={resolvedSurface}
+      data-settings-scope={descriptor.scope}
+      data-settings-scope-key={scopeKey}
     >
       <div className="flex min-w-0 flex-col gap-1">
         <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -103,7 +122,7 @@ export function WorkbenchSettingsContent({
         <Suspense
           fallback={<EmptyState>{m.workbench_settings_loading()}</EmptyState>}
         >
-          <Component {...context} />
+          <Component {...context} scopeKey={scopeKey} />
         </Suspense>
       </ErrorBoundary>
     </div>
