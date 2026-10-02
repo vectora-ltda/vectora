@@ -132,10 +132,11 @@ export function ContextGraphViewer({
 
   const rawNodes = useMemo(() => data?.nodes ?? [], [data]);
   const rawLinks = useMemo(() => data?.links ?? [], [data]);
+  const metadataCommunities = data?.communities;
 
   const communities = useMemo<CommunityInfo[]>(() => {
-    if (data?.communities?.length) {
-      return data.communities.map((community: RawGraphCommunity) => ({
+    if (metadataCommunities?.length) {
+      return metadataCommunities.map((community: RawGraphCommunity) => ({
         ...community,
         color: communityColor(community.id),
       }));
@@ -160,7 +161,7 @@ export function ContextGraphViewer({
         count: v.count,
         color: communityColor(id),
       }));
-  }, [rawNodes]);
+  }, [metadataCommunities, rawNodes]);
 
   const searchNorm = search.trim().toLowerCase();
   const matchedIds = useMemo(() => {
@@ -270,6 +271,19 @@ export function ContextGraphViewer({
     () => pathResult?.nodes.map((n) => n.id) ?? [],
     [pathResult],
   );
+  const selectedNeighbors = useMemo(() => {
+    if (!selected) return [];
+    const nodeById = new Map(rawNodes.map((node) => [node.id, node]));
+    const neighborIds = new Set<string>();
+    for (const link of rawLinks) {
+      if (link.source === selected.id) neighborIds.add(link.target);
+      if (link.target === selected.id) neighborIds.add(link.source);
+    }
+    return [...neighborIds]
+      .map((id) => nodeById.get(id))
+      .filter((node): node is RawGraphNode => Boolean(node))
+      .slice(0, 8);
+  }, [rawLinks, rawNodes, selected]);
 
   function togglePathMode() {
     setPathMode((v) => !v);
@@ -428,7 +442,12 @@ export function ContextGraphViewer({
             </div>
             {selected.source_file && (
               <p className="text-muted-foreground truncate">
-                {selected.source_file}
+                {m.graph_node_source({ source: selected.source_file })}
+              </p>
+            )}
+            {selected.file_type && (
+              <p className="text-muted-foreground">
+                {m.graph_node_type({ type: selected.file_type })}
               </p>
             )}
             {selected.community_name && (
@@ -441,6 +460,26 @@ export function ContextGraphViewer({
                 />
                 {selected.community_name}
               </p>
+            )}
+            <p className="text-muted-foreground">
+              {m.graph_node_degree({ count: selectedNeighbors.length })}
+            </p>
+            {selectedNeighbors.length > 0 && (
+              <div data-testid="graph-node-neighbors" className="space-y-0.5">
+                <p className="font-medium text-foreground">
+                  {m.graph_node_neighbors()}
+                </p>
+                {selectedNeighbors.map((neighbor) => (
+                  <button
+                    key={neighbor.id}
+                    type="button"
+                    className="block max-w-full truncate text-left text-muted-foreground hover:text-foreground"
+                    onClick={() => setSelected(neighbor)}
+                  >
+                    {neighbor.label ?? neighbor.id}
+                  </button>
+                ))}
+              </div>
             )}
             <div className="flex gap-2 pt-1">
               <button

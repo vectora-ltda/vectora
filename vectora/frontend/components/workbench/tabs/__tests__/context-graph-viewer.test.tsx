@@ -231,6 +231,9 @@ describe("ContextGraphViewer", () => {
 
     expect(screen.getByTestId("graph-node-info")).toBeTruthy();
     expect(screen.getByText("AuthService")).toBeTruthy();
+    expect(screen.getByTestId("graph-node-neighbors")).toHaveTextContent(
+      "TokenUtils",
+    );
 
     fireEvent.click(screen.getByText("graph_explain_node_button"));
     expect(onExplainNode).toHaveBeenCalledWith("AuthService");
