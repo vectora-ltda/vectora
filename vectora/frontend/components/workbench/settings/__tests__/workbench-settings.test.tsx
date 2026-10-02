@@ -6,6 +6,7 @@ import { lazy, type ReactElement } from "react";
 import { WorkbenchDialog } from "@/components/workbench/workbench-dialog";
 import {
   WorkbenchSettingsContent,
+  resolveWorkbenchSettingsCapabilities,
   resolveWorkbenchSettingsSurfaceMode,
 } from "../workbench-settings-content";
 import { WorkbenchSettingsPage } from "../workbench-settings-page";
@@ -108,6 +109,28 @@ describe("workbench settings contract", () => {
         { ...context, presentation: "workbench" },
       ),
     ).toBe("form");
+  });
+
+  it("resolves every browser capability as unavailable on the web runtime", () => {
+    const browser = WORKBENCH_SETTINGS.find(
+      (item) => item.workbench === "browser",
+    )!;
+    expect(
+      resolveWorkbenchSettingsCapabilities(browser, false).every(
+        (capability) => capability.status === "unavailable",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps browser capabilities available on the desktop runtime", () => {
+    const browser = WORKBENCH_SETTINGS.find(
+      (item) => item.workbench === "browser",
+    )!;
+    expect(
+      resolveWorkbenchSettingsCapabilities(browser, true).every(
+        (capability) => capability.status === "available",
+      ),
+    ).toBe(true);
   });
 
   it("keeps settings in the same order as the navigation contract", () => {

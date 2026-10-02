@@ -5,9 +5,14 @@ import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { m } from "@/lib/paraglide/messages";
 import type {
   WorkbenchSettingsContext,
+  WorkbenchSettingsCapability,
   WorkbenchSettingsDescriptor,
   ResolvedSurfaceMode,
 } from "@/lib/types/workbench-settings";
+import {
+  getBrowserCapabilityMatrix,
+  getBrowserRuntime,
+} from "@/lib/browser-capability-matrix";
 
 interface WorkbenchSettingsContentProps {
   descriptor: WorkbenchSettingsDescriptor;
@@ -42,6 +47,24 @@ export function resolveWorkbenchSettingsSurfaceMode(
   return descriptor.id === "browser-settings" ? "form" : "unavailable";
 }
 
+/** Resolve declared capabilities against the actual desktop/web runtime. */
+export function resolveWorkbenchSettingsCapabilities(
+  descriptor: WorkbenchSettingsDescriptor,
+  hasDesktopBridge: boolean,
+): readonly WorkbenchSettingsCapability[] {
+  if (descriptor.workbench !== "browser") return descriptor.capabilities;
+
+  const statuses = new Map<string, "available" | "unavailable">(
+    getBrowserCapabilityMatrix(getBrowserRuntime(hasDesktopBridge)).map(
+      (capability) => [capability.id, capability.status] as const,
+    ),
+  );
+  return descriptor.capabilities.map((capability) => ({
+    ...capability,
+    status: statuses.get(capability.id) ?? "unavailable",
+  }));
+}
+
 /** Renderiza o conteúdo de um descriptor com as regras comuns de escopo. */
 export function WorkbenchSettingsContent({
   descriptor,
@@ -63,11 +86,19 @@ export function WorkbenchSettingsContent({
     return <EmptyState>{m.workbench_settings_unavailable()}</EmptyState>;
   }
 
+  const resolvedCapabilities = resolveWorkbenchSettingsCapabilities(
+    descriptor,
+    typeof window !== "undefined" && Boolean(window.vectora?.browserView),
+  );
+
   const Component = descriptor.Component;
   return (
     <div
       className="flex min-w-0 w-full flex-col gap-3 p-4"
       data-surface-mode={resolvedSurface}
+      data-capability-status={resolvedCapabilities
+        .map((capability) => `${capability.id}:${capability.status}`)
+        .join(",")}
     >
       <div className="flex min-w-0 flex-col gap-1">
         <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
