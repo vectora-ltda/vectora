@@ -1711,6 +1711,8 @@
   "workbench_files_formatter_help": "Formata JSON e normaliza espaços e finais de linha antes de salvar.",
   "workbench_files_linter_label": "Linter local",
   "workbench_files_linter_help": "Executa diagnósticos locais para JSON inválido e espaços no fim da linha.",
+  "workbench_files_lint_warnings_as_errors": "Tratar avisos do linter como erros",
+  "workbench_files_lint_warnings_as_errors_help": "Impede o salvamento enquanto houver avisos.",
   "workbench_files_format_on_save_label": "Formatar ao salvar",
   "workbench_files_format_on_save_help": "Executa o formatter local antes de salvar o arquivo.",
   "workbench_files_lint_on_type_label": "Lint ao digitar",

@@ -1711,6 +1711,8 @@
   "workbench_files_formatter_help": "Formats JSON and normalizes whitespace and line endings before saving.",
   "workbench_files_linter_label": "Local linter",
   "workbench_files_linter_help": "Runs local diagnostics for invalid JSON and trailing whitespace.",
+  "workbench_files_lint_warnings_as_errors": "Treat lint warnings as errors",
+  "workbench_files_lint_warnings_as_errors_help": "Prevent saving while warnings are present.",
   "workbench_files_format_on_save_label": "Format on save",
   "workbench_files_format_on_save_help": "Run the local formatter before saving the file.",
   "workbench_files_lint_on_type_label": "Lint while typing",

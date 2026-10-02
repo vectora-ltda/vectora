@@ -171,6 +171,8 @@ export interface SettingsState {
   editorLintOnType: boolean;
   /** Valida o conteúdo antes de persistir o arquivo. */
   editorLintOnSave: boolean;
+  /** Bloqueia salvamento quando o linter emitir warnings. */
+  editorLintWarningsAsErrors: boolean;
   editorInlineSuggestions: boolean;
   editorBreadcrumbs: boolean;
   editorConfirmDelete: boolean;
@@ -278,6 +280,7 @@ export interface SettingsState {
   setEditorLinterEnabled: (v: boolean) => void;
   setEditorLintOnType: (v: boolean) => void;
   setEditorLintOnSave: (v: boolean) => void;
+  setEditorLintWarningsAsErrors: (v: boolean) => void;
   setEditorInlineSuggestions: (v: boolean) => void;
   setEditorBreadcrumbs: (v: boolean) => void;
   setEditorConfirmDelete: (v: boolean) => void;
@@ -512,6 +515,7 @@ const DEFAULTS = {
   editorLinterEnabled: true,
   editorLintOnType: true,
   editorLintOnSave: true,
+  editorLintWarningsAsErrors: true,
   editorInlineSuggestions: true,
   editorBreadcrumbs: true,
   editorConfirmDelete: true,
@@ -721,6 +725,8 @@ export const useSettingsStore = create<SettingsState>()(
       setEditorLinterEnabled: (v) => set({ editorLinterEnabled: v }),
       setEditorLintOnType: (v) => set({ editorLintOnType: v }),
       setEditorLintOnSave: (v) => set({ editorLintOnSave: v }),
+      setEditorLintWarningsAsErrors: (v) =>
+        set({ editorLintWarningsAsErrors: v }),
       setEditorInlineSuggestions: (v) => set({ editorInlineSuggestions: v }),
       setEditorBreadcrumbs: (v) => set({ editorBreadcrumbs: v }),
       setEditorConfirmDelete: (v) => set({ editorConfirmDelete: v }),
@@ -915,6 +921,7 @@ export const useSettingsStore = create<SettingsState>()(
         editorLinterEnabled: state.editorLinterEnabled,
         editorLintOnType: state.editorLintOnType,
         editorLintOnSave: state.editorLintOnSave,
+        editorLintWarningsAsErrors: state.editorLintWarningsAsErrors,
         editorInlineSuggestions: state.editorInlineSuggestions,
         editorBreadcrumbs: state.editorBreadcrumbs,
         editorConfirmDelete: state.editorConfirmDelete,

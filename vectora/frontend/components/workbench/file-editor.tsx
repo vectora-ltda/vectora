@@ -23,7 +23,11 @@ import { getMediaKind, FileViewer } from "@/components/workbench/file-viewer";
 import { m } from "@/lib/paraglide/messages";
 import { useMonacoTheme } from "@/lib/monaco/use-monaco-theme";
 import { godotEditorOptions } from "@/lib/monaco/editor-options";
-import { formatEditorText, lintEditorText } from "@/lib/editor-services";
+import {
+  formatEditorText,
+  hasBlockingDiagnostics,
+  lintEditorText,
+} from "@/lib/editor-services";
 import {
   editorBuffers,
   editorKey,
@@ -53,6 +57,9 @@ export function FileEditor({
   const editorLinterEnabled = useSettingsStore((s) => s.editorLinterEnabled);
   const editorLintOnType = useSettingsStore((s) => s.editorLintOnType);
   const editorLintOnSave = useSettingsStore((s) => s.editorLintOnSave);
+  const editorLintWarningsAsErrors = useSettingsStore(
+    (s) => s.editorLintWarningsAsErrors,
+  );
   const editorInlineSuggestions = useSettingsStore(
     (s) => s.editorInlineSuggestions,
   );
@@ -99,9 +106,17 @@ export function FileEditor({
   const diagnostics = useMemo(
     () =>
       editorLinterEnabled && editorLintOnType
-        ? lintEditorText(path, value)
+        ? lintEditorText(path, value, {
+            warningsAsErrors: editorLintWarningsAsErrors,
+          })
         : [],
-    [editorLintOnType, editorLinterEnabled, path, value],
+    [
+      editorLintOnType,
+      editorLintWarningsAsErrors,
+      editorLinterEnabled,
+      path,
+      value,
+    ],
   );
   const readOnly =
     file?.kind === "binary" || file?.truncated || file?.sha256 == null;
@@ -177,10 +192,10 @@ export function FileEditor({
         ? formatEditorText(path, value)
         : value;
     if (editorLinterEnabled && editorLintOnSave) {
-      const saveDiagnostics = lintEditorText(path, contentToSave);
-      if (
-        saveDiagnostics.some((diagnostic) => diagnostic.severity === "error")
-      ) {
+      const saveDiagnostics = lintEditorText(path, contentToSave, {
+        warningsAsErrors: editorLintWarningsAsErrors,
+      });
+      if (hasBlockingDiagnostics(saveDiagnostics, editorLintWarningsAsErrors)) {
         useToastStore.getState().error(m.workbench_files_lint_save_error());
         return;
       }
@@ -224,6 +239,7 @@ export function FileEditor({
     editorFormatterEnabled,
     editorFormatOnSave,
     editorLintOnSave,
+    editorLintWarningsAsErrors,
     editorLinterEnabled,
     file,
     key,
