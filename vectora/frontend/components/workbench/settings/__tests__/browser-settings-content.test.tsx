@@ -141,7 +141,7 @@ describe("BrowserSettingsContent", () => {
     render(<BrowserSettingsContent {...context} />);
     await waitFor(() => expect(bridge.listCredentials).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(document.getElementById("browser-allow-popups")!);
     expect(state.setBrowserProfileSettings).toHaveBeenCalledWith("profile-1", {
       allowPopups: true,
     });
@@ -187,6 +187,12 @@ describe("BrowserSettingsContent", () => {
     const bridge = installBridge();
     render(<BrowserSettingsContent {...context} />);
     await waitFor(() => expect(bridge.listCredentials).toHaveBeenCalled());
+    const credentialsToggle = screen
+      .getByText("Saved passwords")
+      .closest("label")
+      ?.querySelector("input");
+    expect(credentialsToggle).toBeTruthy();
+    fireEvent.click(credentialsToggle as HTMLInputElement);
     fireEvent.click(screen.getByRole("button", { name: "Clear browser data" }));
     await waitFor(() =>
       expect(bridge.clearProfileData).toHaveBeenCalledWith("profile-1", {

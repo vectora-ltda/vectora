@@ -61,6 +61,9 @@ export function BrowserSettingsForm(context: WorkbenchSettingsContext) {
   const [credentialOrigin, setCredentialOrigin] = useState("");
   const [credentialUsername, setCredentialUsername] = useState("");
   const [credentialPassword, setCredentialPassword] = useState("");
+  const [clearStorage, setClearStorage] = useState(true);
+  const [clearCache, setClearCache] = useState(true);
+  const [clearCredentials, setClearCredentials] = useState(false);
   const [error, setError] = useState(false);
 
   useEffect(() => {
@@ -160,13 +163,15 @@ export function BrowserSettingsForm(context: WorkbenchSettingsContext) {
     if (!bridge?.clearProfileData || !profileId) return;
     try {
       await bridge.clearProfileData(profileId, {
-        storage: true,
-        cache: true,
-        credentials: true,
+        storage: clearStorage,
+        cache: clearCache,
+        credentials: clearCredentials,
       });
-      clearBrowserSessionHistory(sessionKey);
-      setCredentials([]);
-      setCookies([]);
+      if (clearStorage || clearCache) {
+        clearBrowserSessionHistory(sessionKey);
+        setCookies([]);
+      }
+      if (clearCredentials) setCredentials([]);
     } catch {
       setError(true);
     }
@@ -448,6 +453,35 @@ export function BrowserSettingsForm(context: WorkbenchSettingsContext) {
               ))
             )}
           </section>
+          <fieldset className="space-y-2 rounded border border-border/60 p-3">
+            <legend className="px-1 text-xs font-medium">
+              {m.workbench_browser_clear_scope_label()}
+            </legend>
+            <label className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={clearStorage}
+                onChange={(event) => setClearStorage(event.target.checked)}
+              />
+              {m.workbench_browser_clear_storage_label()}
+            </label>
+            <label className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={clearCache}
+                onChange={(event) => setClearCache(event.target.checked)}
+              />
+              {m.workbench_browser_clear_cache_label()}
+            </label>
+            <label className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={clearCredentials}
+                onChange={(event) => setClearCredentials(event.target.checked)}
+              />
+              {m.workbench_browser_clear_credentials_label()}
+            </label>
+          </fieldset>
           <button
             type="button"
             onClick={() => void clearProfileData()}
