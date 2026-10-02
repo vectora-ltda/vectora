@@ -273,6 +273,15 @@ describe("BrowserViewManager", () => {
     expect(deps.destroyView).toHaveBeenCalledOnce();
   });
 
+  it("isola o ownership do perfil entre remetentes", () => {
+    manager.createView("profile-owned", "tab", 10);
+    expect(() => manager.createView("profile-owned", "tab", 11)).toThrow(
+      "perfil não pertence ao remetente",
+    );
+    expect(manager.profileBelongsToOwner("profile-owned", 10)).toBe(true);
+    expect(manager.profileBelongsToOwner("profile-owned", 11)).toBe(false);
+  });
+
   it("remove a entrada mesmo quando Electron falha ao destruí-la", () => {
     const id = manager.createView();
     vi.mocked(deps.destroyView).mockImplementationOnce(() => {

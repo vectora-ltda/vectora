@@ -201,6 +201,7 @@ export function isNavigableUrl(
 
 export class BrowserViewManager {
   private readonly entries = new Map<number, Entry>();
+  private readonly profileOwners = new Map<string, number | null>();
   private nextId = 1;
 
   constructor(private readonly deps: BrowserViewManagerDeps) {}
@@ -215,6 +216,18 @@ export class BrowserViewManager {
     > = {},
   ): number {
     const normalizedProfileId = normalizeProfileId(profileId);
+    const knownOwner = this.profileOwners.get(normalizedProfileId);
+    if (
+      knownOwner !== undefined &&
+      knownOwner !== null &&
+      ownerId !== null &&
+      knownOwner !== ownerId
+    ) {
+      throw new Error("perfil não pertence ao remetente");
+    }
+    if (knownOwner === undefined) {
+      this.profileOwners.set(normalizedProfileId, ownerId);
+    }
     const hasOptions = Object.keys(options).length > 0;
     const view = hasOptions
       ? this.deps.createView(normalizedProfileId, kind, options)
@@ -272,13 +285,23 @@ export class BrowserViewManager {
   async clearData(
     profileId = "default",
     options?: BrowserDataClearOptions,
+    ownerId: number | null = null,
   ): Promise<void> {
-    const partition = `persist:browser-${normalizeProfileId(profileId)}`;
+    const normalizedProfileId = normalizeProfileId(profileId);
+    if (!this.isProfileOwner(normalizedProfileId, ownerId)) {
+      throw new Error("perfil não pertence ao remetente");
+    }
+    const partition = `persist:browser-${normalizedProfileId}`;
     if (options === undefined) {
       await this.deps.clearData?.(partition);
       return;
     }
     await this.deps.clearData?.(partition, options);
+  }
+
+  /** Verifica ownership antes de operar em dados sensíveis de um perfil. */
+  profileBelongsToOwner(profileId: string, ownerId: number | null): boolean {
+    return this.isProfileOwner(normalizeProfileId(profileId), ownerId);
   }
 
   destroyView(id: number, ownerId: number | null = null): void {
@@ -293,6 +316,7 @@ export class BrowserViewManager {
         entry.view.webContents.close?.();
       } finally {
         this.entries.delete(id);
+        this.releaseProfileOwner(entry.profileId);
       }
     }
   }
@@ -381,6 +405,23 @@ export class BrowserViewManager {
     return (
       entry.ownerId === null || ownerId === null || entry.ownerId === ownerId
     );
+  }
+
+  private isProfileOwner(profileId: string, ownerId: number | null): boolean {
+    const knownOwner = this.profileOwners.get(profileId);
+    return (
+      knownOwner === undefined ||
+      knownOwner === null ||
+      ownerId === null ||
+      knownOwner === ownerId
+    );
+  }
+
+  private releaseProfileOwner(profileId: string): void {
+    for (const entry of this.entries.values()) {
+      if (entry.profileId === profileId) return;
+    }
+    this.profileOwners.delete(profileId);
   }
 
   private wireEvents(
