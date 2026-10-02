@@ -6,6 +6,7 @@ import { m } from "@/lib/paraglide/messages";
 import type {
   WorkbenchSettingsContext,
   WorkbenchSettingsDescriptor,
+  ResolvedSurfaceMode,
 } from "@/lib/types/workbench-settings";
 
 interface WorkbenchSettingsContentProps {
@@ -28,6 +29,19 @@ function EmptyState({ children }: { children: string }) {
   );
 }
 
+/** Resolves a declared surface against runtime capabilities without hiding web fallbacks. */
+export function resolveWorkbenchSettingsSurfaceMode(
+  descriptor: WorkbenchSettingsDescriptor,
+  context: WorkbenchSettingsContext,
+): ResolvedSurfaceMode {
+  const declared = descriptor.surface[context.presentation];
+  if (declared !== "native-view") return declared;
+  const hasNativeBrowser =
+    typeof window !== "undefined" && Boolean(window.vectora?.browserView);
+  if (hasNativeBrowser) return declared;
+  return descriptor.id === "browser-settings" ? "form" : "unavailable";
+}
+
 /** Renderiza o conteúdo de um descriptor com as regras comuns de escopo. */
 export function WorkbenchSettingsContent({
   descriptor,
@@ -41,9 +55,20 @@ export function WorkbenchSettingsContent({
     return <EmptyState>{m.workbench_settings_missing_session()}</EmptyState>;
   }
 
+  const resolvedSurface = resolveWorkbenchSettingsSurfaceMode(
+    descriptor,
+    context,
+  );
+  if (resolvedSurface === "unavailable") {
+    return <EmptyState>{m.workbench_settings_unavailable()}</EmptyState>;
+  }
+
   const Component = descriptor.Component;
   return (
-    <div className="flex min-w-0 w-full flex-col gap-3 p-4">
+    <div
+      className="flex min-w-0 w-full flex-col gap-3 p-4"
+      data-surface-mode={resolvedSurface}
+    >
       <div className="flex min-w-0 flex-col gap-1">
         <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
           {SCOPE_LABELS[descriptor.scope]()}

@@ -4,7 +4,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { lazy, type ReactElement } from "react";
 import { WorkbenchDialog } from "@/components/workbench/workbench-dialog";
-import { WorkbenchSettingsContent } from "../workbench-settings-content";
+import {
+  WorkbenchSettingsContent,
+  resolveWorkbenchSettingsSurfaceMode,
+} from "../workbench-settings-content";
 import { WorkbenchSettingsPage } from "../workbench-settings-page";
 import { WORKBENCH_SETTINGS } from "../workbench-settings-registry";
 import type { WorkbenchSettingsDescriptor } from "@/lib/types/workbench-settings";
@@ -12,7 +15,10 @@ import type { WorkbenchId } from "@/lib/types/workbench-settings";
 import type { WorkbenchTab } from "@/lib/stores/workbench-store";
 import { WORKBENCH_TABS } from "@/lib/stores/workbench-store";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  Reflect.deleteProperty(window, "vectora");
+});
 
 function Icon() {
   return <span aria-hidden="true" />;
@@ -83,6 +89,25 @@ describe("workbench settings contract", () => {
       workbench: "native-view",
       settings: "link",
     });
+  });
+
+  it("resolve native surfaces to a form fallback or unavailable state", () => {
+    const native = descriptor({
+      id: "native-settings",
+      surface: { workbench: "native-view", settings: "form" },
+    });
+    expect(
+      resolveWorkbenchSettingsSurfaceMode(native, {
+        ...context,
+        presentation: "workbench",
+      }),
+    ).toBe("unavailable");
+    expect(
+      resolveWorkbenchSettingsSurfaceMode(
+        WORKBENCH_SETTINGS.find((item) => item.id === "browser-settings")!,
+        { ...context, presentation: "workbench" },
+      ),
+    ).toBe("form");
   });
 
   it("keeps settings in the same order as the navigation contract", () => {
