@@ -464,23 +464,6 @@ export function RagSettingsForm({
   );
 }
 
-/** Composição standalone (botão + painel expansível juntos). */
-export function RagSettingsPanel() {
-  const state = useRagSettings();
-  return (
-    <>
-      <RagSettingsButton open={state.open} onToggle={state.toggle} />
-      {state.open && (
-        <div
-          data-testid="rag-settings-panel"
-          className="mt-2 rounded-md border border-border/60 bg-background p-3"
-        >
-          <RagSettingsForm {...state} />
-        </div>
-      )}
-    </>
-  );
-}
 function ProviderSelect({
   value,
   onChange,
