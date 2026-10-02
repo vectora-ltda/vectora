@@ -106,7 +106,15 @@ describe("workbench settings contract", () => {
       </WorkbenchDialog>,
     );
 
-    expect(screen.getByRole("dialog")).toHaveClass("overflow-hidden");
+    expect(screen.getByRole("dialog")).toHaveClass(
+      "overflow-hidden",
+      "h-[min(85vh,52rem)]",
+      "w-[min(92vw,78rem)]",
+    );
+    expect(screen.getByTestId("workbench-dialog-body")).toHaveClass(
+      "min-h-0",
+      "overflow-y-auto",
+    );
     expect(screen.getByText("body")).toBeInTheDocument();
     expect(screen.getByText("Configure the terminal")).toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
