@@ -909,6 +909,7 @@
   "graph_search_clear": "Limpar",
   "graph_explain_node_button": "Explicar",
   "graph_communities_select_all": "Todas as comunidades",
+  "graph_communities_resize": "Redimensionar painel de comunidades",
   "connect_toggle_aria": "Ativar/desativar {platform}",
   "connect_toggle_error": "Erro ao alterar o estado da integração",
   "connect_slack_description": "Converse com o Vectora pelo Slack (Socket Mode)",

@@ -1,51 +1,27 @@
-// @vitest-environment jsdom
-/**
- * context-graph-settings-store: tipos de arquivo (default = todos) + modo,
- * persistidos. toggleFileType adiciona/remove; setMode troca o modo.
- */
-
-import { describe, it, expect, beforeEach } from "vitest";
-
+import { describe, expect, it, beforeEach } from "vitest";
 import {
+  CONTEXT_GRAPH_PANEL_MAX_WIDTH,
+  CONTEXT_GRAPH_PANEL_MIN_WIDTH,
   useContextGraphSettingsStore,
-  ALL_GRAPH_FILE_TYPES,
-} from "@/lib/stores/context-graph-settings-store";
-
-beforeEach(() => {
-  if (typeof localStorage !== "undefined") localStorage.clear();
-  useContextGraphSettingsStore.setState({
-    fileTypes: [...ALL_GRAPH_FILE_TYPES],
-    mode: "semantic",
-  });
-});
-
-const s = () => useContextGraphSettingsStore.getState();
+} from "../context-graph-settings-store";
 
 describe("context-graph-settings-store", () => {
-  it("default indexa todos os tipos e modo semantic", () => {
-    expect(s().fileTypes).toEqual(["code", "document", "paper"]);
-    expect(s().mode).toBe("semantic");
+  beforeEach(() => {
+    useContextGraphSettingsStore.setState({ communityPanelWidths: {} });
   });
 
-  it("toggleFileType remove um tipo marcado", () => {
-    s().toggleFileType("code");
-    expect(s().fileTypes).toEqual(["document", "paper"]);
-  });
+  it("clamps and persists the community panel width per workspace", () => {
+    const { setCommunityPanelWidth } = useContextGraphSettingsStore.getState();
 
-  it("toggleFileType re-adiciona um tipo desmarcado", () => {
-    s().toggleFileType("code");
-    s().toggleFileType("code");
-    expect(s().fileTypes).toContain("code");
-  });
+    setCommunityPanelWidth("workspace-a", 99);
+    setCommunityPanelWidth("workspace-b", 999);
 
-  it("permite restringir a só documents (caso Obsidian)", () => {
-    s().toggleFileType("code");
-    s().toggleFileType("paper");
-    expect(s().fileTypes).toEqual(["document"]);
-  });
-
-  it("setMode troca para ast", () => {
-    s().setMode("ast");
-    expect(s().mode).toBe("ast");
+    const state = useContextGraphSettingsStore.getState();
+    expect(state.communityPanelWidths["workspace-a"]).toBe(
+      CONTEXT_GRAPH_PANEL_MIN_WIDTH,
+    );
+    expect(state.communityPanelWidths["workspace-b"]).toBe(
+      CONTEXT_GRAPH_PANEL_MAX_WIDTH,
+    );
   });
 });
