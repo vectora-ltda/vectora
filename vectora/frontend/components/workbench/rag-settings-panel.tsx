@@ -8,13 +8,9 @@
  * (/rag/collections) com botão de apagar. Caso de uso paralelo ao Context Graph:
  * usar o RAG para código enquanto o grafo cuida dos markdowns.
  *
- * `useRagSettings` centraliza o estado; `RagSettingsButton` (gatilho inline,
- * ex.: ao lado da busca) e `RagSettingsSlidePanel` (conteúdo modal)
- * são exportados separados para o consumidor controlar onde cada um entra no
- * layout — o painel precisa ocupar a largura total da workbench numa linha
- * própria abaixo do gatilho, nunca dividir espaço com ele na mesma linha
- * flex (senão o conteúdo do formulário força a linha a estourar a largura).
- * `RagSettingsPanel` compõe os dois com o hook embutido, para uso standalone.
+ * `useRagSettings` centraliza o estado; `RagSettingsButton` é o gatilho
+ * inline ao lado da busca. O conteúdo é renderizado em um bloco expansível
+ * no mesmo contexto da workbench, sem diálogo aninhado.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -25,7 +21,6 @@ import {
   type GraphFileType,
 } from "@/lib/stores/context-graph-settings-store";
 import { useToastStore } from "@/lib/stores/toast-store";
-import { WorkbenchDialog } from "@/components/workbench/workbench-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { m } from "@/lib/paraglide/messages";
 
@@ -469,51 +464,23 @@ export function RagSettingsForm({
   );
 }
 
-export function RagSettingsSlidePanel(
-  props: Pick<
-    RagSettingsState,
-    | "open"
-    | "close"
-    | "settings"
-    | "collections"
-    | "patch"
-    | "loadCollections"
-    | "deleteCollection"
-  >,
-) {
-  const formProps = {
-    ...props,
-    settingsStatus: "ready" as const,
-    collectionsStatus: "ready" as const,
-    patching: false,
-  };
-  return (
-    <WorkbenchDialog
-      open={props.open}
-      onOpenChange={(open) => {
-        if (!open) props.close();
-      }}
-      title={m.rag_settings_title()}
-      description={m.rag_settings_title()}
-      testId="rag-settings-panel"
-    >
-      <RagSettingsForm {...formProps} />
-    </WorkbenchDialog>
-  );
-}
-
-/** Composição standalone (botão + painel juntos) — para uso fora de layouts
- * que precisem posicionar os dois em linhas separadas (ver `MemoryTab`). */
+/** Composição standalone (botão + painel expansível juntos). */
 export function RagSettingsPanel() {
   const state = useRagSettings();
   return (
     <>
       <RagSettingsButton open={state.open} onToggle={state.toggle} />
-      <RagSettingsSlidePanel {...state} />
+      {state.open && (
+        <div
+          data-testid="rag-settings-panel"
+          className="mt-2 rounded-md border border-border/60 bg-background p-3"
+        >
+          <RagSettingsForm {...state} />
+        </div>
+      )}
     </>
   );
 }
-
 function ProviderSelect({
   value,
   onChange,

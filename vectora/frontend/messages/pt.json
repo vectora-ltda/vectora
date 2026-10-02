@@ -991,6 +991,7 @@
   "workbench_browser_close_tab": "Fechar aba",
   "workbench_browser_tab_untitled": "Nova aba",
   "workbench_browser_settings_toggle": "Configurações do navegador",
+  "workbench_browser_settings_retry": "Tentar novamente",
   "workbench_browser_settings_title": "Configurações do navegador",
   "workbench_browser_settings_description": "Gerencie os dados salvos por este perfil do navegador.",
   "workbench_browser_settings_error": "Não foi possível abrir as configurações do navegador.",

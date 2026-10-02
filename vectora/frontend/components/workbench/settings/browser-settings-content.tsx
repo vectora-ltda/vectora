@@ -42,7 +42,7 @@ function NativeBrowserSettings({
           onClick={() => setRetryKey((value) => value + 1)}
         >
           <RefreshCw className="h-4 w-4" />
-          {m.workbench_browser_settings_toggle()}
+          {m.workbench_browser_settings_retry()}
         </button>
       </div>
     );
