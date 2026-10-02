@@ -36,6 +36,8 @@ def test_graph_result_defaults():
     assert result.node_count == 0
     assert result.edge_count == 0
     assert result.error is None
+    assert result.index_error is None
+    assert result.status == "completed"
     assert result.god_nodes == []
     assert result.suggested_questions == []
 
