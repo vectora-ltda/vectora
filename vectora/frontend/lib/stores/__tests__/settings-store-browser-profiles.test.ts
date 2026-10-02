@@ -53,4 +53,17 @@ describe("settings-store — Browser profile isolation", () => {
       },
     });
   });
+
+  it("preserves origin policies when a profile update omits them", () => {
+    const settings = useSettingsStore.getState();
+    settings.setBrowserProfileSettings("profile-a", {
+      originPermissions: { "https://a.example": "allow" },
+    });
+    settings.setBrowserProfileSettings("profile-a", { zoomPercent: 125 });
+
+    expect(
+      getBrowserProfileSettings(useSettingsStore.getState(), "profile-a")
+        .originPermissions,
+    ).toEqual({ "https://a.example": "allow" });
+  });
 });

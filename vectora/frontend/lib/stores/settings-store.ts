@@ -806,7 +806,7 @@ export const useSettingsStore = create<SettingsState>()(
                 ...changes,
                 originPermissions: {
                   ...current.originPermissions,
-                  ...(changes.originPermissions ?? {}),
+                  ...changes.originPermissions,
                 },
               },
             },
