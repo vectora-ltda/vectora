@@ -2,6 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { lazy, type ReactElement } from "react";
 import { WorkbenchDialog } from "@/components/workbench/workbench-dialog";
 import { WorkbenchSettingsContent } from "../workbench-settings-content";
 import { WorkbenchSettingsPage } from "../workbench-settings-page";
@@ -133,6 +134,37 @@ describe("workbench settings contract", () => {
       />,
     );
     expect(screen.getByText(/workspace/i)).toBeInTheDocument();
+  });
+
+  it("renders translated loading and error fallbacks", async () => {
+    const pending = lazy(
+      () => new Promise<{ default: () => ReactElement }>(() => undefined),
+    );
+    render(
+      <WorkbenchSettingsContent
+        descriptor={descriptor({ Component: pending })}
+        context={context}
+      />,
+    );
+    expect(screen.getByText(/loading/i)).toBeInTheDocument();
+
+    cleanup();
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    function Broken(): ReactElement {
+      throw new Error("settings failed");
+    }
+    render(
+      <WorkbenchSettingsContent
+        descriptor={descriptor({ Component: Broken })}
+        context={context}
+      />,
+    );
+    expect(
+      await screen.findByText(/could not load|não foi possível|no se pudo/i),
+    ).toBeInTheDocument();
+    errorSpy.mockRestore();
   });
 
   it("renders grouped settings as an accordion with stable anchors", () => {
