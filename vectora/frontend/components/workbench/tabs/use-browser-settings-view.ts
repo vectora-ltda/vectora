@@ -58,6 +58,7 @@ export function useBrowserSettingsView({
       // Clear the native id when the external surface closes.
       // oxlint-disable-next-line react/set-state-in-effect
       setViewId(null);
+      if (open && settingsOpen) closeRef.current?.();
       if (open && !settingsOpen && (!bridge || !profileId)) {
         setStatus("failed");
         setErrorMessage("Native browser settings are unavailable.");

@@ -4,12 +4,15 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useBrowserSettingsView } from "../use-browser-settings-view";
 
+let settingsOverlayOpen = false;
+
 vi.mock("@/lib/stores/settings-overlay-store", () => ({
   useSettingsOverlayStore: (selector: (state: { open: boolean }) => unknown) =>
-    selector({ open: false }),
+    selector({ open: settingsOverlayOpen }),
 }));
 
 afterEach(() => {
+  settingsOverlayOpen = false;
   vi.restoreAllMocks();
   Reflect.deleteProperty(window, "vectora");
 });
@@ -143,5 +146,57 @@ describe("useBrowserSettingsView", () => {
     await waitFor(() => expect(result.current.status).toBe("failed"));
     expect(result.current.errorMessage).toBe("blocked");
     expect(native.bridge.destroyView).toHaveBeenCalledWith(7);
+  });
+
+  it("closes and destroys the native view when global settings opens", async () => {
+    const native = installBridge();
+    const ref = containerRef();
+    const onClose = vi.fn();
+    const calls: string[] = [];
+    native.bridge.setVisible.mockImplementation(() => calls.push("hide"));
+    native.bridge.destroyView.mockImplementation(async () => {
+      calls.push("destroy");
+    });
+    const { rerender } = renderHook(
+      ({ settingsOpen }) => {
+        settingsOverlayOpen = settingsOpen;
+        return useBrowserSettingsView({
+          profileId: "profile-1",
+          open: true,
+          containerRef: ref,
+          onClose,
+        });
+      },
+      { initialProps: { settingsOpen: false } },
+    );
+    await waitFor(() => expect(native.bridge.createView).toHaveBeenCalled());
+    settingsOverlayOpen = true;
+    rerender({ settingsOpen: true });
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    const destroyIndex = calls.indexOf("destroy");
+    expect(destroyIndex).toBeGreaterThan(0);
+    expect(calls.slice(0, destroyIndex).every((call) => call === "hide")).toBe(
+      true,
+    );
+  });
+
+  it("fails and cleans up when native confirmation times out", async () => {
+    vi.useFakeTimers();
+    const native = installBridge();
+    const ref = containerRef();
+    const { result } = renderHook(() =>
+      useBrowserSettingsView({
+        profileId: "profile-1",
+        open: true,
+        containerRef: ref,
+      }),
+    );
+    await act(async () => Promise.resolve());
+    await act(async () => {
+      vi.advanceTimersByTime(8_000);
+    });
+    expect(result.current.status).toBe("failed");
+    expect(native.bridge.destroyView).toHaveBeenCalledWith(7);
+    vi.useRealTimers();
   });
 });
