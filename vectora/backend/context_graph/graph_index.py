@@ -21,6 +21,23 @@ _COLLECTION = "context_graph_nodes"
 _EMBED_BATCH = 64
 
 
+async def _list_table_names(db: Any) -> list[str]:
+    """Lista tabelas sem usar a API LanceDB depreciada ``table_names``."""
+    list_tables = getattr(db, "list_tables", None)
+    if list_tables is not None:
+        response = await list_tables()
+        tables = getattr(response, "tables", response)
+        if isinstance(tables, list):
+            names: list[str] = []
+            for table in tables:
+                if isinstance(table, str):
+                    names.append(table)
+                elif isinstance(table, dict) and isinstance(table.get("name"), str):
+                    names.append(table["name"])
+            return names
+    return list(await db.table_names())
+
+
 async def _get_db() -> Any:
     """Retorna conexão LanceDB (reutiliza o settings.lancedb_dir do Vectora)."""
     import lancedb  # type: ignore[import-not-found]
@@ -111,7 +128,7 @@ async def index_graph_nodes(
             return 0
 
         db = await _get_db()
-        existing = await db.table_names()
+        existing = await _list_table_names(db)
         if collection in existing:
             table = await db.open_table(collection)
             await table.add(rows)
@@ -155,7 +172,7 @@ async def search_graph_nodes(
             return []
 
         db = await _get_db()
-        existing = await db.table_names()
+        existing = await _list_table_names(db)
         if collection not in existing:
             return []
 
@@ -198,7 +215,7 @@ async def purge_graph_index(
     """
     try:
         db = await _get_db()
-        existing = await db.table_names()
+        existing = await _list_table_names(db)
         if collection not in existing:
             return
 
