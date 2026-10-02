@@ -1,7 +1,6 @@
 import type {
   WorkbenchSettingsDescriptor,
   WorkbenchId,
-  WorkbenchSettingsCapability,
 } from "@/lib/types/workbench-settings";
 import { createElement } from "react";
 import type { WorkbenchSettingsContext } from "@/lib/types/workbench-settings";
@@ -39,10 +38,6 @@ function section(
   return scope ? ({ id, title, scope } as const) : ({ id, title } as const);
 }
 
-function capability(id: string, status: WorkbenchSettingsCapability["status"]) {
-  return { id, status } as const;
-}
-
 export const contextGraphSettings: WorkbenchSettingsDescriptor = {
   id: "context-graph-settings",
   workbench: "context_graph",
@@ -51,7 +46,6 @@ export const contextGraphSettings: WorkbenchSettingsDescriptor = {
   icon: Settings2,
   scope: "user",
   sections: [section("indexing", () => m.graph_settings_title(), "user")],
-  capabilities: [capability("indexing", "available")],
   Component: ContextGraphSettingsForm,
   surface: { workbench: "form", settings: "form" },
 };
@@ -64,7 +58,6 @@ export const memorySettings: WorkbenchSettingsDescriptor = {
   icon: Settings2,
   scope: "instance",
   sections: [section("retrieval", () => m.rag_settings_title(), "instance")],
-  capabilities: [capability("retrieval", "available")],
   Component: MemorySettings,
   surface: { workbench: "form", settings: "form" },
 };
@@ -78,15 +71,6 @@ export const browserSettings: WorkbenchSettingsDescriptor = {
   scope: "session",
   sections: [
     section("profile", () => m.workbench_browser_settings_title(), "session"),
-  ],
-  capabilities: [
-    capability("profile-storage", "available"),
-    capability("permissions", "available"),
-    capability("downloads", "available"),
-    capability("password-manager-ui", "available"),
-    capability("cookies", "available"),
-    capability("history", "available"),
-    capability("popups", "available"),
   ],
   Component: BrowserSettingsContent,
   // Chromium does not ship Chrome's `chrome://settings` WebUI. The shared
@@ -105,10 +89,6 @@ export const terminalSettings: WorkbenchSettingsDescriptor = {
     section("display", () => m.workbench_terminal_display_title(), "user"),
     section("sandbox", () => m.terminal_title(), "workspace"),
   ],
-  capabilities: [
-    capability("sandbox", "available"),
-    capability("terminal-display", "available"),
-  ],
   Component: TerminalSettings,
   surface: { workbench: "form", settings: "form" },
 };
@@ -121,7 +101,6 @@ export const gitSettings: WorkbenchSettingsDescriptor = {
   icon: Settings2,
   scope: "user",
   sections: [section("git", () => m.settings_category_git(), "user")],
-  capabilities: [capability("hooks", "available")],
   Component: GitWorkbenchSettings,
   surface: { workbench: "form", settings: "form" },
 };
@@ -133,11 +112,6 @@ export const filesSettings: WorkbenchSettingsDescriptor = {
   icon: Settings2,
   scope: "user",
   sections: [section("editor", () => m.workbench_tab_files(), "user")],
-  capabilities: [
-    capability("monaco-editor", "available"),
-    capability("formatter-service", "available"),
-    capability("linter-service", "available"),
-  ],
   Component: FileSystemSettingsForm,
   surface: { workbench: "form", settings: "form" },
 };
@@ -149,7 +123,6 @@ export const planSettings: WorkbenchSettingsDescriptor = {
   icon: Settings2,
   scope: "user",
   sections: [section("plan", () => m.workbench_tab_plan(), "user")],
-  capabilities: [capability("plan-view", "available")],
   Component: PlanSettingsForm,
   surface: { workbench: "form", settings: "form" },
 };
@@ -161,11 +134,6 @@ export const tasksSettings: WorkbenchSettingsDescriptor = {
   icon: Settings2,
   scope: "user",
   sections: [section("tasks", () => m.workbench_tab_tasks(), "user")],
-  capabilities: [
-    capability("background-tasks", "available"),
-    capability("retry-policy", "available"),
-    capability("concurrency-limit", "available"),
-  ],
   Component: TasksSettingsForm,
   surface: { workbench: "form", settings: "form" },
 };
@@ -177,7 +145,6 @@ export const librarySettings: WorkbenchSettingsDescriptor = {
   icon: Settings2,
   scope: "user",
   sections: [section("catalogs", () => m.workbench_tab_library(), "user")],
-  capabilities: [capability("library-catalogs", "available")],
   Component: LibrarySettingsForm,
   surface: { workbench: "form", settings: "form" },
 };

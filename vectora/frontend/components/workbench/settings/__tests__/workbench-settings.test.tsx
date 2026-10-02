@@ -6,7 +6,6 @@ import { lazy, type ReactElement } from "react";
 import { WorkbenchDialog } from "@/components/workbench/workbench-dialog";
 import {
   WorkbenchSettingsContent,
-  resolveWorkbenchSettingsCapabilities,
   resolveWorkbenchSettingsSurfaceMode,
 } from "../workbench-settings-content";
 import { WorkbenchSettingsPage } from "../workbench-settings-page";
@@ -64,7 +63,6 @@ function descriptor(
     icon: Icon,
     scope: "user",
     sections: [{ id: "general", title: () => "General" }],
-    capabilities: [{ id: "general", status: "available" }],
     Component: () => <p>settings form</p>,
     surface: { workbench: "form", settings: "form" },
     ...overrides,
@@ -122,55 +120,16 @@ describe("workbench settings contract", () => {
     ).toBe("form");
   });
 
-  it("resolves every browser capability as unavailable on the web runtime", () => {
-    const browser = WORKBENCH_SETTINGS.find(
-      (item) => item.workbench === "browser",
-    )!;
-    expect(
-      resolveWorkbenchSettingsCapabilities(browser, false).every(
-        (capability) => capability.status === "unavailable",
-      ),
-    ).toBe(true);
-  });
-
-  it("keeps browser capabilities available on the desktop runtime", () => {
-    const browser = WORKBENCH_SETTINGS.find(
-      (item) => item.workbench === "browser",
-    )!;
-    expect(
-      resolveWorkbenchSettingsCapabilities(browser, true).every(
-        (capability) => capability.status === "available",
-      ),
-    ).toBe(true);
-  });
-
   it("keeps settings in the same order as the navigation contract", () => {
     expect(ALL_WORKBENCH_SETTINGS.map((item) => item.workbench)).toEqual(
       WORKBENCH_TABS,
     );
   });
 
-  it("does not advertise capabilities that have no implementation", () => {
-    expect(
-      WORKBENCH_SETTINGS.flatMap((item) => item.capabilities).every(
-        (capability) => capability.status === "available",
-      ),
-    ).toBe(true);
-  });
-
-  it("ships the formerly planned services as available capabilities", () => {
-    const capabilities = new Map(
-      ALL_WORKBENCH_SETTINGS.flatMap((item) =>
-        item.capabilities.map(
-          (itemCapability) =>
-            [itemCapability.id, itemCapability.status] as const,
-        ),
-      ),
-    );
-
-    expect(capabilities.get("password-manager-ui")).toBe("available");
-    expect(capabilities.get("formatter-service")).toBe("available");
-    expect(capabilities.get("linter-service")).toBe("available");
+  it("does not expose a capability panel or capability metadata", () => {
+    for (const item of ALL_WORKBENCH_SETTINGS) {
+      expect("capabilities" in item).toBe(false);
+    }
   });
 
   it("renders a responsive modal shell and closes through Radix Escape", () => {
