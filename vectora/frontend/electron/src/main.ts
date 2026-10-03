@@ -74,6 +74,11 @@ import {
   restoreUpdateBackup,
 } from "./update-backup.js";
 import { startUpdateDownload as startUpdateDownloadAfterBackup } from "./updater-download.js";
+import {
+  resolveRuntimeProfile,
+  runtimeHome as resolveRuntimeHome,
+  runtimeUserDataName,
+} from "./runtime-profile.js";
 
 const ELECTRON_RESTART_EXIT_CODE = 42;
 
@@ -115,6 +120,24 @@ interface UpdateStatus {
 // que não é o nome do produto. setName() força %APPDATA%\vectora\ sem
 // precisar renomear o pacote. Chamado antes de qualquer path ser resolvido.
 app.setName("vectora");
+
+// O Electron mantém o lock de instância e o perfil Chromium dentro de
+// `userData`. A versão instalada e o Electron de desenvolvimento precisam de
+// perfis distintos para poderem coexistir na mesma máquina. O backend recebe
+// o mesmo perfil por `VECTORA_RUNTIME_PROFILE`/`VECTORA_HOME`, isolando também
+// banco, socket, PID e armazenamento do NATS.
+const safeRuntimeProfile = resolveRuntimeProfile(process.env, app.isPackaged);
+app.setPath(
+  "userData",
+  path.join(app.getPath("appData"), runtimeUserDataName(safeRuntimeProfile)),
+);
+
+const runtimeHome = resolveRuntimeHome(
+  process.env,
+  safeRuntimeProfile,
+  os.homedir(),
+);
+if (!process.env.VECTORA_HOME) process.env.VECTORA_HOME = runtimeHome;
 
 let backend: ChildProcess | null = null;
 let backendPort: number | null = null;
@@ -235,7 +258,7 @@ const _MAX_LOG_LINES = 60;
 
 // Arquivo que persiste o PID do sidecar backend entre sessões. Permite matar
 // processo órfão deixado por crash do Electron sem disparar before-quit.
-const _BACKEND_PID_FILE = path.join(os.homedir(), ".vectora", "backend.pid");
+const _BACKEND_PID_FILE = path.join(runtimeHome, "backend.pid");
 
 async function killStaleBackend(): Promise<void> {
   try {
@@ -270,9 +293,10 @@ protocol.registerSchemesAsPrivileged([
  * - Windows: named pipe (\\.\pipe\vectora-<pid>) lido de stdout via VECTORA_IPC_PIPE
  * - Fallback Windows (sem pipe ainda pronto): TCP loopback
  */
+/** Build the IPC transport for the currently isolated runtime profile. */
 function backendTransport(): http.RequestOptions {
   if (process.platform !== "win32") {
-    return { socketPath: path.join(os.homedir(), ".vectora", "vectora.sock") };
+    return { socketPath: path.join(runtimeHome, "vectora.sock") };
   }
   if (backendPipePath) {
     return { socketPath: backendPipePath };
@@ -300,7 +324,7 @@ const _cookieStore = new Map<string, string>();
 // nenhuma, o login era perdido a cada restart do app. Grava um arquivo local
 // (criptografado via safeStorage — DPAPI no Windows/Keychain no macOS — quando
 // disponível) em vez de depender do cookie jar do Chromium.
-const _SESSION_STORE_FILE = path.join(os.homedir(), ".vectora", "session.dat");
+const _SESSION_STORE_FILE = path.join(runtimeHome, "session.dat");
 
 function persistCookieStore(): void {
   try {
@@ -438,6 +462,7 @@ function pingBackend(): Promise<boolean> {
 const _resourcesPath = (): string =>
   process.resourcesPath || path.join(__dirname, "..");
 
+/** Start or connect to the backend owned by this Electron profile. */
 async function startBackend(): Promise<void> {
   // Modo backend-primário em dev: quando o backend Python já é o processo
   // primário (`uv run vectora start` rodado direto, fora do Electron) e se
@@ -461,6 +486,8 @@ async function startBackend(): Promise<void> {
   );
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    VECTORA_RUNTIME_PROFILE: safeRuntimeProfile,
+    VECTORA_HOME: runtimeHome,
     VECTORA_PORT: String(backendPort),
     VECTORA_DESKTOP: "1",
     VECTORA_DESKTOP_BRIDGE_TOKEN: desktopBridgeToken,
@@ -469,8 +496,12 @@ async function startBackend(): Promise<void> {
   const exePath = backendPath(process.env, process.platform, _resourcesPath());
   backend = spawnBackendProcess(exePath, ["start"], env);
   if (backend.pid) {
+    const backendPid = backend.pid;
     fs.promises
-      .writeFile(_BACKEND_PID_FILE, String(backend.pid), "utf-8")
+      .mkdir(path.dirname(_BACKEND_PID_FILE), { recursive: true })
+      .then(() =>
+        fs.promises.writeFile(_BACKEND_PID_FILE, String(backendPid), "utf-8"),
+      )
       .catch(() => {});
   }
   const pipeParser = new IpcPipeParser();
