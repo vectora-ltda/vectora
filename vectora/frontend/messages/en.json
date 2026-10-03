@@ -1017,6 +1017,7 @@
   "workbench_settings_missing_session": "Open a session to edit this setting.",
   "workbench_settings_instance_warning": "This change affects every user of this instance.",
   "workbench_settings_loading": "Loading setting…",
+  "workbench_settings_unavailable": "This settings surface is unavailable in this environment.",
   "workbench_settings_error": "Could not load this setting.",
   "workbench_settings_page_aria": "Workbench settings",
   "workbench_settings_page_index": "On this page",

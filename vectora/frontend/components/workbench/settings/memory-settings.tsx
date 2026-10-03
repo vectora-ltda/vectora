@@ -7,5 +7,5 @@ import {
 
 export function MemorySettings() {
   const state = useRagSettings();
-  return <RagSettingsForm {...state} />;
+  return <RagSettingsForm {...state} showCollections={false} />;
 }

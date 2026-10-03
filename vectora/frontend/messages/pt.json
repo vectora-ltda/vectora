@@ -1017,6 +1017,7 @@
   "workbench_settings_missing_session": "Abra uma sessão para editar esta configuração.",
   "workbench_settings_instance_warning": "Esta alteração afeta todos os usuários desta instância.",
   "workbench_settings_loading": "Carregando configuração…",
+  "workbench_settings_unavailable": "Esta superfície de configuração não está disponível neste ambiente.",
   "workbench_settings_error": "Não foi possível carregar esta configuração.",
   "workbench_settings_page_aria": "Configurações das workbenches",
   "workbench_settings_page_index": "Nesta página",

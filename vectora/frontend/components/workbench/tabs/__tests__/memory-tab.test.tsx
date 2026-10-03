@@ -108,12 +108,16 @@ vi.mock("@/components/workbench/rag-settings-panel", () => ({
     close: vi.fn(),
     settings: {},
     collections: [],
+    collectionsStatus: "ready",
     patch: vi.fn(),
     loadCollections: vi.fn(),
     deleteCollection: vi.fn(),
   }),
   RagSettingsButton: () => <div data-testid="rag-settings-btn-stub" />,
   RagSettingsSlidePanel: () => <div data-testid="rag-settings-panel-stub" />,
+  RagCollectionsSection: () => (
+    <div data-testid="rag-collections-section-stub" />
+  ),
 }));
 
 beforeEach(() => {

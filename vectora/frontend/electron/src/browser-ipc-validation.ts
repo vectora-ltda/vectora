@@ -1,4 +1,9 @@
-import type { BrowserViewKind, ViewBounds } from "./browser-view-manager.js";
+import {
+  normalizeNativeSettingsPath,
+  NATIVE_SETTINGS_ROUTES,
+  type BrowserViewKind,
+  type ViewBounds,
+} from "./browser-view-manager.js";
 
 const PROFILE_ID = /^(?:default|session-[A-Za-z0-9_-]+)$/;
 const MAX_PROFILE_ID_LENGTH = 256;
@@ -15,7 +20,7 @@ export function isValidProfileId(value: unknown): value is string {
 export function isValidBrowserViewKind(
   value: unknown,
 ): value is BrowserViewKind {
-  return value === "tab";
+  return value === "tab" || value === "native-settings";
 }
 
 export function isValidViewId(value: unknown): value is number {
@@ -30,7 +35,10 @@ export function isValidViewBounds(value: unknown): value is ViewBounds {
   );
 }
 
-export function isValidBrowserUrl(value: unknown): value is string {
+export function isValidBrowserUrl(
+  value: unknown,
+  kind: BrowserViewKind = "tab",
+): value is string {
   if (
     typeof value !== "string" ||
     value.length === 0 ||
@@ -39,7 +47,14 @@ export function isValidBrowserUrl(value: unknown): value is string {
     return false;
   }
   try {
-    const url = new URL(value);
+    const url = new URL(value.trim());
+    if (kind === "native-settings") {
+      return (
+        url.protocol === "chrome:" &&
+        url.hostname.toLowerCase() === "settings" &&
+        NATIVE_SETTINGS_ROUTES.has(normalizeNativeSettingsPath(url.pathname))
+      );
+    }
     return url.protocol === "http:" || url.protocol === "https:";
   } catch {
     return false;

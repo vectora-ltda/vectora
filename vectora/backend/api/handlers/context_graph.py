@@ -257,6 +257,15 @@ async def _run_build(workspace_id: str, req: BuildRequest) -> None:
         )
         if result.error:
             _write_status(d, "error", error=result.error)
+        elif result.status == "degraded":
+            _write_status(
+                d,
+                "degraded",
+                node_count=result.node_count,
+                edge_count=result.edge_count,
+                error=result.index_error,
+                partial=True,
+            )
         else:
             _write_status(
                 d,

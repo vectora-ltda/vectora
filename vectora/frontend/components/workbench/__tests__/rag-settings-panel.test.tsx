@@ -11,9 +11,10 @@ import {
   cleanup,
   fireEvent,
   waitFor,
+  within,
 } from "@testing-library/react";
 
-import { RagSettingsPanel } from "../rag-settings-panel";
+import { RagCollectionsSection, RagSettingsPanel } from "../rag-settings-panel";
 
 const FETCH = vi.fn();
 
@@ -37,6 +38,30 @@ afterEach(() => {
 });
 
 describe("RagSettingsPanel", () => {
+  it("mantém a exclusão de coleções fora do formulário e exige confirmação", async () => {
+    const deleteCollection = vi.fn().mockResolvedValue(undefined);
+    render(
+      <RagCollectionsSection
+        collections={[{ name: "articles", count: 3 }]}
+        collectionsStatus="ready"
+        loadCollections={vi.fn().mockResolvedValue(undefined)}
+        deleteCollection={deleteCollection}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete collection" }));
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    expect(deleteCollection).not.toHaveBeenCalled();
+    const confirmButton = within(screen.getByRole("alertdialog"))
+      .getAllByRole("button")
+      .find((button) => button.textContent === "Delete collection");
+    expect(confirmButton).toBeDefined();
+    fireEvent.click(confirmButton!);
+    await waitFor(() =>
+      expect(deleteCollection).toHaveBeenCalledWith("articles"),
+    );
+  });
+
   it("o gear abre o painel e carrega settings + coleções", async () => {
     FETCH.mockImplementation((url: string) => {
       if (url.includes("/rag/settings"))

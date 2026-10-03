@@ -4,8 +4,9 @@ Indexa nós do grafo de contexto no LanceDB para busca semântica. Chamado pelo
 pipeline após to_json (Passo 9). Permite que graph_query use vector_search +
 expansão de vizinhança em vez de substring simples (GraphRAG completo).
 
-Fallback silencioso: se LanceDB ou embeddings não estiverem disponíveis,
-as funções retornam 0/[] sem quebrar o pipeline.
+O modo padrão continua defensivo para buscas opcionais. O pipeline de build
+usa o modo estrito para que uma falha de embeddings seja exibida como build
+degradado, em vez de ser reportada como sucesso completo.
 """
 
 from __future__ import annotations
@@ -18,6 +19,23 @@ logger = logging.getLogger(__name__)
 
 _COLLECTION = "context_graph_nodes"
 _EMBED_BATCH = 64
+
+
+async def _list_table_names(db: Any) -> list[str]:
+    """Lista tabelas sem usar a API LanceDB depreciada ``table_names``."""
+    list_tables = getattr(db, "list_tables", None)
+    if list_tables is not None:
+        response = await list_tables()
+        tables = getattr(response, "tables", response)
+        if isinstance(tables, list):
+            names: list[str] = []
+            for table in tables:
+                if isinstance(table, str):
+                    names.append(table)
+                elif isinstance(table, dict) and isinstance(table.get("name"), str):
+                    names.append(table["name"])
+            return names
+    return list(await db.table_names())
 
 
 async def _get_db() -> Any:
@@ -68,11 +86,12 @@ async def index_graph_nodes(
     graph_data: dict,
     *,
     collection: str = _COLLECTION,
+    strict: bool = False,
 ) -> int:
     """Indexa nós do grafo no LanceDB para busca semântica.
 
-    Retorna número de nós indexados. Retorna 0 silenciosamente se LanceDB ou
-    embeddings não estiverem disponíveis.
+    Retorna número de nós indexados. Com ``strict=True``, falhas de LanceDB ou
+    embeddings são propagadas para o pipeline marcar o build como degradado.
     """
     nodes: list[dict] = graph_data.get("nodes", [])
     if not nodes:
@@ -82,6 +101,10 @@ async def index_graph_nodes(
         texts = [_node_text(n) for n in nodes]
         vectors = await _embed_texts(texts)
         if not vectors or len(vectors) != len(nodes):
+            if strict:
+                raise RuntimeError(
+                    "embeddings indisponíveis ou quantidade de vetores inválida"
+                )
             return 0
 
         rows = [
@@ -105,7 +128,7 @@ async def index_graph_nodes(
             return 0
 
         db = await _get_db()
-        existing = await db.table_names()
+        existing = await _list_table_names(db)
         if collection in existing:
             table = await db.open_table(collection)
             await table.add(rows)
@@ -120,11 +143,15 @@ async def index_graph_nodes(
         )
         return len(rows)
 
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "context_graph: falha ao indexar nós no LanceDB",
             extra={"workspace_id": workspace_id},
         )
+        if strict:
+            raise RuntimeError(
+                "falha ao indexar nós do Context Graph no LanceDB"
+            ) from exc
         return 0
 
 
@@ -145,7 +172,7 @@ async def search_graph_nodes(
             return []
 
         db = await _get_db()
-        existing = await db.table_names()
+        existing = await _list_table_names(db)
         if collection not in existing:
             return []
 
@@ -188,7 +215,7 @@ async def purge_graph_index(
     """
     try:
         db = await _get_db()
-        existing = await db.table_names()
+        existing = await _list_table_names(db)
         if collection not in existing:
             return
 

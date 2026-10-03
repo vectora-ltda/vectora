@@ -19,6 +19,7 @@
  *   />
  */
 
+import type { ReactNode } from "react";
 import {
   Dialog,
   DialogContent,
@@ -39,6 +40,7 @@ interface ConfirmDialogProps {
   variant?: "default" | "destructive";
   onConfirm: () => void | Promise<void>;
   onCancel: () => void;
+  children?: ReactNode;
 }
 
 export function ConfirmDialog({
@@ -50,6 +52,7 @@ export function ConfirmDialog({
   variant = "default",
   onConfirm,
   onCancel,
+  children,
 }: ConfirmDialogProps) {
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onCancel()}>
@@ -57,6 +60,7 @@ export function ConfirmDialog({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {description && <DialogDescription>{description}</DialogDescription>}
+          {children}
         </DialogHeader>
         <DialogFooter>
           <Button variant="outline" onClick={onCancel}>

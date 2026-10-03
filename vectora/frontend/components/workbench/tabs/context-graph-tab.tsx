@@ -49,7 +49,7 @@ export function ContextGraphTab({
   const fileTypes = useContextGraphSettingsStore((s) => s.fileTypes);
   const graphMode = useContextGraphSettingsStore((s) => s.mode);
 
-  const isBuilt = status.status === "done";
+  const isBuilt = status.status === "done" || status.status === "degraded";
   const isRunning = status.status === "running" || status.status === "queued";
   const isPaused = status.status === "paused";
   const hasGraphData = (status.node_count ?? 0) > 0;
@@ -277,6 +277,14 @@ export function ContextGraphTab({
             e sem depender de iframe/link externo. */}
         {isBuilt && hasGraphData && (
           <div className="flex-1 min-h-0 flex flex-col">
+            {status.status === "degraded" && status.error && (
+              <p
+                data-testid="graph-degraded"
+                className="shrink-0 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300"
+              >
+                {status.error}
+              </p>
+            )}
             {/* Métricas — faixa compacta acima do grafo */}
             <div className="flex gap-4 text-xs text-muted-foreground px-3 py-1.5 border-b border-border/40 shrink-0">
               {status.node_count != null && (
