@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useTheme } from "next-themes";
 import { GraphCanvas, darkTheme, lightTheme } from "reagraph";
 import type { GraphEdge, GraphNode } from "reagraph";
 import { Loader2, Search, Waypoints, X } from "lucide-react";
@@ -12,6 +11,7 @@ import type {
   RawGraphLink,
   RawGraphNode,
 } from "@/lib/hooks/use-context-graph";
+import { useIsDark } from "@/lib/hooks/use-is-dark";
 import { m } from "@/lib/paraglide/messages";
 
 interface ContextGraphViewerProps {
@@ -58,7 +58,23 @@ export function ContextGraphViewer({
   onExplainNode,
   onAffectedNode,
 }: ContextGraphViewerProps) {
-  const { resolvedTheme } = useTheme();
+  // Use the Vectora settings store as the source of truth. `next-themes` can
+  // briefly lag behind ThemeSync, which made reagraph render its white
+  // default canvas while the surrounding workbench was already dark.
+  const isDark = useIsDark();
+  const graphTheme = useMemo(() => {
+    const baseTheme = isDark ? darkTheme : lightTheme;
+    return {
+      ...baseTheme,
+      // Reagraph owns the WebGL canvas and does not inherit the workbench
+      // background. Keep its clear color explicit so the graph cannot fall
+      // back to the browser's white canvas when the app is in dark mode.
+      canvas: {
+        ...baseTheme.canvas,
+        background: isDark ? "#1E2026" : "#ffffff",
+      },
+    };
+  }, [isDark]);
   const [data, setData] = useState<RawGraphData | null>(null);
   const [loading, setLoading] = useState(true);
   const [hiddenCommunities, setHiddenCommunities] = useState<Set<number>>(
@@ -226,8 +242,8 @@ export function ContextGraphViewer({
   }
 
   return (
-    <div className="flex-1 min-h-0 flex">
-      <div className="flex-1 min-h-0 relative">
+    <div className="flex-1 min-h-0 flex bg-background">
+      <div className="flex-1 min-h-0 relative bg-background">
         {/* Busca — filtra por label e amplia os nós correspondentes no canvas. */}
         <div className="absolute top-2 left-2 z-10 flex items-center gap-1.5 bg-card/90 backdrop-blur border border-border/60 rounded px-2 py-1">
           <Search className="h-3 w-3 text-muted-foreground shrink-0" />
@@ -296,7 +312,7 @@ export function ContextGraphViewer({
           <GraphCanvas
             nodes={nodes}
             edges={edges}
-            theme={resolvedTheme === "dark" ? darkTheme : lightTheme}
+            theme={graphTheme}
             clusterAttribute="cluster"
             layoutType="forceDirected2d"
             labelType="auto"

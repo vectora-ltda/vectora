@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type {
   WorkbenchSettingsContext,
   WorkbenchSettingsDescriptor,
@@ -31,14 +32,6 @@ export function WorkbenchSettingsPage({
   descriptors,
   context,
 }: WorkbenchSettingsPageProps) {
-  if (descriptors.length === 0) {
-    return (
-      <div className="flex min-h-32 items-center justify-center px-4 py-8 text-center text-sm text-muted-foreground">
-        {m.workbench_settings_empty()}
-      </div>
-    );
-  }
-
   const groups = descriptors.reduce<
     Map<WorkbenchId, WorkbenchSettingsDescriptor[]>
   >((result, descriptor) => {
@@ -50,64 +43,72 @@ export function WorkbenchSettingsPage({
   const orderedWorkbenches = WORKBENCH_TABS.filter((workbench) =>
     groups.has(workbench),
   );
+  const [openWorkbench, setOpenWorkbench] = useState<WorkbenchId | null>(
+    orderedWorkbenches[0] ?? null,
+  );
+
+  if (descriptors.length === 0) {
+    return (
+      <div className="flex min-h-32 items-center justify-center px-4 py-8 text-center text-sm text-muted-foreground">
+        {m.workbench_settings_empty()}
+      </div>
+    );
+  }
 
   return (
-    <div className="flex min-w-0 w-full flex-col gap-6 overflow-y-auto p-4">
-      <nav aria-label={m.workbench_settings_page_aria()} className="min-w-0">
-        <p className="mb-2 text-xs font-medium text-muted-foreground">
+    <div className="flex min-w-0 w-full flex-col gap-3 overflow-y-auto p-4">
+      <nav
+        aria-label={m.workbench_settings_page_index()}
+        className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border/60 pb-3 text-sm"
+      >
+        <span className="shrink-0 font-medium text-muted-foreground">
           {m.workbench_settings_page_index()}
-        </p>
-        <div className="flex min-w-0 flex-wrap gap-x-4 gap-y-1 text-sm">
-          {orderedWorkbenches.map((workbench) => (
-            <a
-              key={workbench}
-              href={`#workbench-settings-${workbench}`}
-              className="break-words text-primary hover:underline"
-            >
-              {WORKBENCH_LABELS[workbench]()}
-            </a>
-          ))}
-        </div>
+        </span>
+        {orderedWorkbenches.map((workbench) => (
+          <a
+            key={workbench}
+            href={`#workbench-settings-${workbench}`}
+            className="truncate text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            {WORKBENCH_LABELS[workbench]()}
+          </a>
+        ))}
       </nav>
       {orderedWorkbenches.map((workbench) => {
         const items = groups.get(workbench) ?? [];
         return (
-          <section
+          <details
             key={workbench}
             id={`workbench-settings-${workbench}`}
-            className="min-w-0 scroll-mt-4"
+            className="group min-w-0 scroll-mt-4 rounded-lg border border-border/60"
+            open={openWorkbench === workbench}
+            onToggle={(event) => {
+              setOpenWorkbench(event.currentTarget.open ? workbench : null);
+            }}
           >
-            <h2 className="mb-3 break-words text-base font-semibold">
-              {WORKBENCH_LABELS[workbench]()}
-            </h2>
-            <div className="flex min-w-0 flex-col gap-4">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-base font-semibold [&::-webkit-details-marker]:hidden">
+              <span className="break-words">
+                {WORKBENCH_LABELS[workbench]()}
+              </span>
+              <span
+                aria-hidden="true"
+                className="text-muted-foreground transition-transform group-open:rotate-180"
+              >
+                ⌄
+              </span>
+            </summary>
+            <div className="flex min-w-0 flex-col gap-4 border-t border-border/60 p-4">
               {items.map((descriptor) => {
                 return (
-                  <article
+                  <WorkbenchSettingsContent
                     key={descriptor.id}
-                    className="min-w-0 rounded-lg border border-border/60 p-4"
-                  >
-                    <header className="mb-3 min-w-0">
-                      <h3 className="break-words text-sm font-medium">
-                        {descriptor.title()}
-                      </h3>
-                      {descriptor.description?.() && (
-                        <p className="mt-1 break-words text-xs text-muted-foreground">
-                          {descriptor.description?.()}
-                        </p>
-                      )}
-                    </header>
-                    <div className="min-w-0">
-                      <WorkbenchSettingsContent
-                        descriptor={descriptor}
-                        context={{ ...context, presentation: "settings" }}
-                      />
-                    </div>
-                  </article>
+                    descriptor={descriptor}
+                    context={{ ...context, presentation: "settings" }}
+                  />
                 );
               })}
             </div>
-          </section>
+          </details>
         );
       })}
     </div>

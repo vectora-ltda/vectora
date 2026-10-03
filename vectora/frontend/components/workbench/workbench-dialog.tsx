@@ -45,6 +45,7 @@ export function WorkbenchDialog({
         </DialogHeader>
         <div
           ref={bodyRef}
+          data-testid="workbench-dialog-body"
           className={`min-h-0 flex-1 overflow-x-hidden ${
             bodyMode === "fill"
               ? "flex flex-col overflow-y-hidden"

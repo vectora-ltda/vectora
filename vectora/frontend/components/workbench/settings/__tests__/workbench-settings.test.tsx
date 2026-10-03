@@ -2,6 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { lazy, type ReactElement } from "react";
 import { WorkbenchDialog } from "@/components/workbench/workbench-dialog";
 import { WorkbenchSettingsContent } from "../workbench-settings-content";
 import { WorkbenchSettingsPage } from "../workbench-settings-page";
@@ -17,7 +18,15 @@ function Icon() {
   return <span aria-hidden="true" />;
 }
 
-const context = { threadId: "thread-1", workspaceId: "workspace-1" };
+function Broken(): ReactElement {
+  throw new Error("settings failed");
+}
+
+const context = {
+  threadId: "thread-1",
+  workspaceId: "workspace-1",
+  presentation: "settings" as const,
+};
 
 // Compile-time guard: descriptors can only target real workbench tabs.
 const WORKBENCH_ID_IS_TAB: Record<WorkbenchId, WorkbenchTab> = {
@@ -58,6 +67,15 @@ describe("workbench settings contract", () => {
   it("starts with a registry that has unique descriptor ids", () => {
     const ids = WORKBENCH_SETTINGS.map((item) => item.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("registers a reusable settings surface for every workbench", () => {
+    expect(WORKBENCH_SETTINGS).toHaveLength(WORKBENCH_TABS.length);
+    for (const item of WORKBENCH_SETTINGS) {
+      expect(item.Component).toBeDefined();
+      expect(item.surface).toEqual({ workbench: "form", settings: "form" });
+      expect(item.sections.length).toBeGreaterThan(0);
+    }
   });
 
   it("keeps settings in the same order as the navigation contract", () => {
@@ -102,7 +120,15 @@ describe("workbench settings contract", () => {
       </WorkbenchDialog>,
     );
 
-    expect(screen.getByRole("dialog")).toHaveClass("overflow-hidden");
+    expect(screen.getByRole("dialog")).toHaveClass(
+      "overflow-hidden",
+      "h-[min(85vh,52rem)]",
+      "w-[min(92vw,78rem)]",
+    );
+    expect(screen.getByTestId("workbench-dialog-body")).toHaveClass(
+      "min-h-0",
+      "overflow-y-auto",
+    );
     expect(screen.getByText("body")).toBeInTheDocument();
     expect(screen.getByText("Configure the terminal")).toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
@@ -123,7 +149,35 @@ describe("workbench settings contract", () => {
     expect(screen.getByText(/workspace/i)).toBeInTheDocument();
   });
 
-  it("renders grouped settings with stable anchors", () => {
+  it("renders translated loading and error fallbacks", async () => {
+    const pending = lazy(
+      () => new Promise<{ default: () => ReactElement }>(() => undefined),
+    );
+    render(
+      <WorkbenchSettingsContent
+        descriptor={descriptor({ Component: pending })}
+        context={context}
+      />,
+    );
+    expect(screen.getByText(/loading/i)).toBeInTheDocument();
+
+    cleanup();
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    render(
+      <WorkbenchSettingsContent
+        descriptor={descriptor({ Component: Broken })}
+        context={context}
+      />,
+    );
+    expect(
+      await screen.findByText(/could not load|não foi possível|no se pudo/i),
+    ).toBeInTheDocument();
+    errorSpy.mockRestore();
+  });
+
+  it("renders grouped settings as an accordion with stable anchors", () => {
     render(
       <WorkbenchSettingsPage
         descriptors={[
@@ -137,13 +191,31 @@ describe("workbench settings contract", () => {
         context={context}
       />,
     );
-    expect(screen.getByRole("link", { name: "Terminal" })).toHaveAttribute(
-      "href",
-      "#workbench-settings-terminal",
-    );
+    expect(
+      screen.getByText("Terminal", { selector: "summary span" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Git", { selector: "summary span" }),
+    ).toBeInTheDocument();
+    expect(
+      document.querySelector("details#workbench-settings-git"),
+    ).toHaveAttribute("open");
     expect(
       document.getElementById("workbench-settings-git"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Git settings")).toBeInTheDocument();
+    expect(screen.getAllByText("settings form")).toHaveLength(2);
+    expect(screen.getByRole("navigation")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Git" })).toHaveAttribute(
+      "href",
+      "#workbench-settings-git",
+    );
+  });
+
+  it("does not render contract capability metadata", () => {
+    render(
+      <WorkbenchSettingsContent descriptor={descriptor()} context={context} />,
+    );
+    expect(screen.queryByText("general")).not.toBeInTheDocument();
+    expect(screen.queryByText(/capabilit/i)).not.toBeInTheDocument();
   });
 });

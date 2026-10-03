@@ -931,7 +931,7 @@ function SessionPage() {
         showModeSwitch={!chatMode}
       />
     ),
-    [showToolCalls, chatMode, uiMode, isCompactSession],
+    [showToolCalls, chatMode],
   );
 
   // Cada modo escolhe explicitamente a coluna esquerda. Assistente e Kanban
