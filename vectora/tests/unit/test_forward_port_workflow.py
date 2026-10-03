@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import os
+import shutil
 from pathlib import Path
+
+import pytest
 
 WORKFLOW: Path = (
     Path(__file__).resolve().parents[2]
@@ -15,7 +20,7 @@ WORKFLOW: Path = (
 CONFIG: Path = WORKFLOW.parent.parent / "release-lines.json"
 
 
-def test_forward_port_workflow_promotes_only_release_into_master() -> None:
+def test_forward_port_workflow_promotes_stable_master_into_active_minor() -> None:
     """Protege a promoção unidirecional configurada, as tentativas e a branch confiável."""
     content = WORKFLOW.read_text(encoding="utf-8")
 
@@ -26,8 +31,10 @@ def test_forward_port_workflow_promotes_only_release_into_master() -> None:
     assert (
         "github.ref_name == steps.release-lines.outputs.maintenance_branch" in content
     )
-    assert 'git merge-base --is-ancestor "origin/$MAINTENANCE_BRANCH" HEAD' in content
-    assert 'git merge --no-edit "origin/$MAINTENANCE_BRANCH"' in content
+    assert 'git merge-base --is-ancestor "origin/$STABLE_BRANCH" HEAD' in content
+    assert 'git merge --no-edit "origin/$STABLE_BRANCH"' in content
+    assert "\\$STABLE_BRANCH" not in content
+    assert 'echo "maintenance_branch=$maintenance_branch"' in content
     assert 'git push origin "HEAD:$DEVELOPMENT_BRANCH"' in content
     assert "for attempt in 1 2 3" in content
     assert "pull-requests: write" in content
@@ -46,7 +53,7 @@ def test_forward_port_workflow_opens_isolated_conflict_pr() -> None:
 
     assert "git merge --abort || true" in content
     assert (
-        'conflict_branch="sync/release-promotion-${MAINTENANCE_BRANCH//\\//-}-to-${DEVELOPMENT_BRANCH//\\//-}"'
+        'conflict_branch="sync/release-promotion-${STABLE_BRANCH//\\//-}-to-${DEVELOPMENT_BRANCH//\\//-}"'
         in content
     )
     assert "force-with-lease" in content
@@ -122,13 +129,85 @@ def test_release_please_requires_candidates_and_uses_versioned_branches() -> Non
     assert "Rename generated Release Please branch by version" in content
     assert 'target="release-please-${major}.${minor}"' in content
     assert 'target="release-please-${version}"' in content
-    assert 'test("^release-please--branches--")' in content
+    assert "utils/select_release_pr.py" in content
+    assert '--phase generated <<< "$prs"' in content
+    assert '--phase versioned <<< "$prs"' in content
     assert (
         'git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"'
         in content
     )
     find_section = content.split("# Somente o branch exato", 1)[1]
     assert "release-please--branches--" not in find_section
+
+
+@pytest.mark.parametrize("development", ["release/0.3", "release/0.4"])
+async def test_sync_outputs_expand_stable_branch(
+    tmp_path: Path, development: str
+) -> None:
+    """Executa a emissão Bash real que habilita a sincronização de master."""
+    bash = (
+        Path("C:/Program Files/Git/bin/bash.exe")
+        if os.name == "nt"
+        else Path(shutil.which("bash") or "/bin/bash")
+    )
+    if not bash.is_file():
+        pytest.skip("Bash necessário para executar a etapa do workflow")
+    source = WORKFLOW.read_text(encoding="utf-8")
+    block = source.split("          {\n", 1)[1].split(
+        '          } >> "$GITHUB_OUTPUT"', 1
+    )[0]
+    script = "{\n" + block + '} >> "$GITHUB_OUTPUT"'
+    process = await asyncio.create_subprocess_exec(
+        str(bash),
+        "-euc",
+        script,
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "GITHUB_OUTPUT": "output.txt",
+            "development_branch": development,
+            "maintenance_branch": "master",
+            "development_milestone": development.removeprefix("release/"),
+        },
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await process.communicate()
+    assert process.returncode == 0, stderr.decode()
+    outputs = dict(
+        line.split("=", 1)
+        for line in (tmp_path / "output.txt").read_text(encoding="utf-8").splitlines()
+    )
+    assert outputs["enabled"] == "true"
+    assert outputs["maintenance_branch"] == "master"
+    assert outputs["development_branch"] == development
+
+
+def test_release_sources_are_utf8_without_mojibake() -> None:
+    """Impede nova corrupção de acentos nos arquivos alterados do fluxo."""
+    root = WORKFLOW.parents[2]
+    names = [
+        ".github/pull_request_template.md",
+        ".github/workflows/release-please.yml",
+        ".github/workflows/forward-port-release.yml",
+        "utils/rotate_release_lines.py",
+        "utils/prepare_release_line_config.py",
+        "utils/test_prepare_release_line_config.py",
+    ]
+    for name in names:
+        content = (root / name).read_bytes().decode("utf-8")
+        for broken in ("\ufffd", "\u00c3\u00a7", "\u00c3\u00a3", "\u00c3\u0192"):
+            assert broken not in content, name
+
+
+def test_release_mutations_are_serialized_and_leased() -> None:
+    """Protege as duas linhas que publicam em master contra gravações cruzadas."""
+    content = (WORKFLOW.parent / "release-please.yml").read_text(encoding="utf-8")
+    assert "group: release-please-${{ github.repository }}" in content
+    assert 'git push --force-with-lease="refs/heads/$target:$target_sha"' in content
+    assert 'git push --force-with-lease="refs/heads/$source:$source_sha"' in content
+    assert "skip-github-release: true" in content
+    assert '"${{ steps.release-line.outputs.maintenance_branch }}"' not in content
 
 
 def test_release_rotation_workflow_declares_release_entrypoint() -> None:
