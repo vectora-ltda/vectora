@@ -24,12 +24,8 @@ import {
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { XtermView } from "./xterm-view";
 import { m } from "@/lib/paraglide/messages";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { WorkbenchDialog } from "@/components/workbench/workbench-dialog";
+import type { WorkbenchSettingsContext } from "@/lib/types/workbench-settings";
 import { Button } from "@/components/ui/button";
 import { apiFsCreateFile } from "@/components/workbench/files/files-api";
 import { apiUpdateFile, fetchFile } from "@/lib/api/fs-files";
@@ -95,16 +91,18 @@ function useSandboxStatus(workspaceId: string | undefined): {
   return { status, refetch };
 }
 
-function SandboxConfigDialog({
+function SandboxSettingsForm({
   workspaceId,
   diagnostic,
   open,
+  inline = false,
   onOpenChange,
   onInitDone,
 }: {
   workspaceId: string;
   diagnostic: string | null;
   open: boolean;
+  inline?: boolean;
   onOpenChange: (open: boolean) => void;
   onInitDone: () => void;
 }) {
@@ -112,7 +110,7 @@ function SandboxConfigDialog({
   const [loadingFile, setLoadingFile] = useState(false);
   const [savingFile, setSavingFile] = useState(false);
   const [fileExists, setFileExists] = useState(false);
-  const [content, setContent] = useState(DEFAULT_SANDBOX_TOML);
+  const [fileContent, setContent] = useState(DEFAULT_SANDBOX_TOML);
   const [fileSha256, setFileSha256] = useState<string | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -189,7 +187,7 @@ function SandboxConfigDialog({
         const result = await apiUpdateFile(
           workspaceId,
           "vectora.toml",
-          content,
+          fileContent,
           fileSha256,
         );
         if (!result.ok) {
@@ -205,7 +203,7 @@ function SandboxConfigDialog({
         const created = await apiFsCreateFile(
           workspaceId,
           "vectora.toml",
-          content,
+          fileContent,
         );
         if (!created.ok) {
           setSaveError(created.message ?? m.terminal_sandbox_init_error());
@@ -224,98 +222,129 @@ function SandboxConfigDialog({
     }
   }
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>{m.terminal_sandbox_dialog_title()}</DialogTitle>
-        </DialogHeader>
-        <p className="text-sm text-muted-foreground">{message}</p>
-        {initError && <p className="text-xs text-destructive">{initError}</p>}
-        <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs">
-          <div className="space-y-1">
-            <p className="font-medium text-foreground">
-              {m.terminal_sandbox_editor_title()}
-            </p>
-            <p className="text-muted-foreground">
-              {fileExists
-                ? m.terminal_sandbox_editor_existing_hint()
-                : m.terminal_sandbox_editor_new_hint()}
-            </p>
-          </div>
-          <div className="flex shrink-0 gap-2">
-            {diagnostic === "no_vectora_toml" && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void handleInit()}
-                disabled={initializing || loadingFile}
-              >
-                {initializing ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  m.terminal_sandbox_init_button()
-                )}
-              </Button>
-            )}
+  const content = (
+    <div className="space-y-4 p-4">
+      <p className="text-sm text-muted-foreground">{message}</p>
+      {initError && <p className="text-xs text-destructive">{initError}</p>}
+      <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs">
+        <div className="space-y-1">
+          <p className="font-medium text-foreground">
+            {m.terminal_sandbox_editor_title()}
+          </p>
+          <p className="text-muted-foreground">
+            {fileExists
+              ? m.terminal_sandbox_editor_existing_hint()
+              : m.terminal_sandbox_editor_new_hint()}
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          {diagnostic === "no_vectora_toml" && (
             <Button
               size="sm"
               variant="outline"
-              onClick={() => {
-                setContent(DEFAULT_SANDBOX_TOML);
-                setSaveError(null);
-                setSaveHint(null);
-              }}
-              disabled={loadingFile}
+              onClick={() => void handleInit()}
+              disabled={initializing || loadingFile}
             >
-              <RefreshCcw className="h-3.5 w-3.5" />
-              {m.terminal_sandbox_editor_reset()}
-            </Button>
-          </div>
-        </div>
-        <div className="space-y-2">
-          {loadingFile ? (
-            <div className="flex min-h-[18rem] items-center justify-center rounded-md border border-border/60 bg-muted/20">
-              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            <textarea
-              className="min-h-[18rem] w-full resize-y rounded-md border border-border/60 bg-background p-3 font-mono text-xs outline-none focus:border-primary"
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              spellCheck={false}
-            />
-          )}
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="min-h-4 text-xs">
-              {saveError ? (
-                <p className="text-destructive">{saveError}</p>
-              ) : saveHint ? (
-                <p className="text-emerald-600 dark:text-emerald-400">
-                  {saveHint}
-                </p>
-              ) : (
-                <p className="text-muted-foreground">
-                  {m.terminal_sandbox_editor_autosync_hint()}
-                </p>
-              )}
-            </div>
-            <Button
-              size="sm"
-              onClick={() => void handleSave()}
-              disabled={loadingFile || savingFile}
-            >
-              {savingFile ? (
+              {initializing ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : null}
-              {fileExists
-                ? m.terminal_sandbox_editor_save()
-                : m.terminal_sandbox_editor_create()}
+              ) : (
+                m.terminal_sandbox_init_button()
+              )}
             </Button>
-          </div>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setContent(DEFAULT_SANDBOX_TOML);
+              setSaveError(null);
+              setSaveHint(null);
+            }}
+            disabled={loadingFile}
+          >
+            <RefreshCcw className="h-3.5 w-3.5" />
+            {m.terminal_sandbox_editor_reset()}
+          </Button>
         </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+      <div className="space-y-2">
+        {loadingFile ? (
+          <div className="flex min-h-[18rem] items-center justify-center rounded-md border border-border/60 bg-muted/20">
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <textarea
+            className="min-h-[18rem] w-full resize-y rounded-md border border-border/60 bg-background p-3 font-mono text-xs outline-none focus:border-primary"
+            value={fileContent}
+            onChange={(e) => setContent(e.target.value)}
+            spellCheck={false}
+          />
+        )}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="min-h-4 text-xs">
+            {saveError ? (
+              <p className="text-destructive">{saveError}</p>
+            ) : saveHint ? (
+              <p className="text-emerald-600 dark:text-emerald-400">
+                {saveHint}
+              </p>
+            ) : (
+              <p className="text-muted-foreground">
+                {m.terminal_sandbox_editor_autosync_hint()}
+              </p>
+            )}
+          </div>
+          <Button
+            size="sm"
+            onClick={() => void handleSave()}
+            disabled={loadingFile || savingFile}
+          >
+            {savingFile ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : null}
+            {fileExists
+              ? m.terminal_sandbox_editor_save()
+              : m.terminal_sandbox_editor_create()}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+  if (inline) return content;
+  return (
+    <WorkbenchDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={m.terminal_sandbox_dialog_title()}
+      description={m.terminal_sandbox_editor_autosync_hint()}
+      testId="terminal-settings-panel"
+    >
+      {content}
+    </WorkbenchDialog>
+  );
+}
+
+/** Entrada do contrato global de configurações para o sandbox do Terminal. */
+export function TerminalSettings({ workspaceId }: WorkbenchSettingsContext) {
+  const { status, refetch } = useSandboxStatus(workspaceId ?? undefined);
+
+  if (!workspaceId) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        {m.workbench_settings_missing_workspace()}
+      </p>
+    );
+  }
+
+  return (
+    <SandboxSettingsForm
+      workspaceId={workspaceId}
+      diagnostic={status?.diagnostic ?? null}
+      open
+      inline
+      onOpenChange={() => undefined}
+      onInitDone={refetch}
+    />
   );
 }
 
@@ -440,7 +469,7 @@ export function TerminalPanel({ threadId }: TerminalPanelProps) {
         </div>
       )}
       {workspace && (
-        <SandboxConfigDialog
+        <SandboxSettingsForm
           workspaceId={workspace.id}
           diagnostic={sandboxStatus?.diagnostic ?? null}
           open={sandboxDialogOpen}

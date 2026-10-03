@@ -3,7 +3,7 @@
  *
  * Cobre:
  * - Shell (terminais, painel, aba ativa, split, pins) — persistido.
- * - Slices voláteis Files/Diff/Plan — sobrevivem a remount, não a reload.
+ * - Slices voláteis Files/Git/Plan — sobrevivem a remount, não a reload.
  * - Invalidate por SSE (zera fetchedAt sem apagar conteúdo).
  * - Referências estáveis (EMPTY_*) — não causam infinite loop.
  *
@@ -27,7 +27,7 @@ function reset() {
     splitSize: 224,
     pinnedFiles: {},
     files: {},
-    diff: {},
+    git: {},
     plan: {},
     tasks: {},
   });
@@ -43,7 +43,7 @@ describe("WORKBENCH_TABS", () => {
   it("expõe as abas na ordem da UI", () => {
     expect(WORKBENCH_TABS).toEqual([
       "files",
-      "diff",
+      "git",
       "plan",
       "tasks",
       "browser",
@@ -268,57 +268,57 @@ describe("workbench-store: files slice", () => {
 // Diff slice
 // ---------------------------------------------------------------------------
 
-describe("workbench-store: diff slice", () => {
-  it("getDiff() devolve cache vazio estável", () => {
-    const a = useWorkbenchStore.getState().getDiff("ws");
-    const b = useWorkbenchStore.getState().getDiff("ws");
+describe("workbench-store: Git workbench cache", () => {
+  it("getGit() devolve cache vazio estável", () => {
+    const a = useWorkbenchStore.getState().getGit("ws");
+    const b = useWorkbenchStore.getState().getGit("ws");
     expect(a.summary).toBeNull();
     expect(a).toBe(b);
   });
 
-  it("setDiffSummary() popula resumo + timestamp", () => {
+  it("setGitSummary() popula resumo + timestamp", () => {
     const before = Date.now();
-    useWorkbenchStore.getState().setDiffSummary("ws", {
+    useWorkbenchStore.getState().setGitSummary("ws", {
       is_git_repo: true,
       total_additions: 5,
       total_deletions: 2,
       files: [],
     });
-    const cache = useWorkbenchStore.getState().getDiff("ws");
+    const cache = useWorkbenchStore.getState().getGit("ws");
     expect(cache.summary?.total_additions).toBe(5);
     expect(cache.summaryFetchedAt).toBeGreaterThanOrEqual(before);
   });
 
-  it("setDiffOpenFile() add/remove arquivo aberto sem duplicar", () => {
-    const { setDiffOpenFile } = useWorkbenchStore.getState();
-    setDiffOpenFile("ws", "x.md", true);
-    setDiffOpenFile("ws", "x.md", true); // idempotente
-    expect(useWorkbenchStore.getState().getDiff("ws").openFiles).toEqual([
+  it("setGitOpenFile() add/remove arquivo aberto sem duplicar", () => {
+    const { setGitOpenFile } = useWorkbenchStore.getState();
+    setGitOpenFile("ws", "x.md", true);
+    setGitOpenFile("ws", "x.md", true); // idempotente
+    expect(useWorkbenchStore.getState().getGit("ws").openFiles).toEqual([
       "x.md",
     ]);
-    setDiffOpenFile("ws", "x.md", false);
-    expect(useWorkbenchStore.getState().getDiff("ws").openFiles).toEqual([]);
+    setGitOpenFile("ws", "x.md", false);
+    expect(useWorkbenchStore.getState().getGit("ws").openFiles).toEqual([]);
   });
 
-  it("setDiffHunks() armazena hunks por path", () => {
+  it("setGitHunks() armazena hunks por path", () => {
     useWorkbenchStore
       .getState()
-      .setDiffHunks("ws", "x.md", [{ header: "@@", lines: ["+a"] }]);
+      .setGitHunks("ws", "x.md", [{ header: "@@", lines: ["+a"] }]);
     expect(
-      useWorkbenchStore.getState().getDiff("ws").hunksByFile["x.md"],
+      useWorkbenchStore.getState().getGit("ws").hunksByFile["x.md"],
     ).toHaveLength(1);
   });
 
-  it("invalidateDiff(wsId) zera timestamps sem apagar summary", () => {
-    const { setDiffSummary, invalidateDiff } = useWorkbenchStore.getState();
-    setDiffSummary("ws", {
+  it("invalidateGit(wsId) zera timestamps sem apagar summary", () => {
+    const { setGitSummary, invalidateGit } = useWorkbenchStore.getState();
+    setGitSummary("ws", {
       is_git_repo: true,
       total_additions: 0,
       total_deletions: 0,
       files: [],
     });
-    invalidateDiff("ws");
-    const cache = useWorkbenchStore.getState().getDiff("ws");
+    invalidateGit("ws");
+    const cache = useWorkbenchStore.getState().getGit("ws");
     expect(cache.summaryFetchedAt).toBe(0);
     expect(cache.fileFetchedAt).toEqual({});
   });
@@ -504,16 +504,16 @@ describe("workbench-store: pending", () => {
     useWorkbenchStore.getState().markPending("ws");
     expect(useWorkbenchStore.getState().pending["ws"]).toEqual({
       files: true,
-      diff: true,
+      git: true,
     });
   });
 
   it("clearPending(wsId, key) limpa só a categoria informada", () => {
     useWorkbenchStore.getState().markPending("ws");
-    useWorkbenchStore.getState().clearPending("ws", "diff");
+    useWorkbenchStore.getState().clearPending("ws", "git");
     expect(useWorkbenchStore.getState().pending["ws"]).toEqual({
       files: true,
-      diff: false,
+      git: false,
     });
   });
 
