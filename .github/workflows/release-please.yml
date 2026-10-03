@@ -1,9 +1,9 @@
 name: Release Please
 
-# Cada linha de release é calculada a partir do branch confiável. A PR de
-# release atualiza manifesto e changelog; a tag só é criada pelo pipeline do
-# app depois que a distribuição termina com sucesso. Essa tag dispara este
-# workflow para preparar a próxima versão.
+# Cada linha de release ÃƒÂ© calculada a partir do branch confiÃƒÂ¡vel. A PR de
+# release atualiza manifesto e changelog; a tag sÃƒÂ³ ÃƒÂ© criada pelo pipeline do
+# app depois que a distribuiÃƒÂ§ÃƒÂ£o termina com sucesso. Essa tag dispara este
+# workflow para preparar a prÃƒÂ³xima versÃƒÂ£o.
 
 on:
   push:
@@ -23,8 +23,8 @@ permissions:
 
 jobs:
   release-please:
-    # O push que mescla uma PR de release aguarda o build/distribuição do app.
-    # A tag criada por vectora.yml é o evento que libera esta automação.
+    # O push que mescla uma PR de release aguarda o build/distribuiÃƒÂ§ÃƒÂ£o do app.
+    # A tag criada por vectora.yml ÃƒÂ© o evento que libera esta automaÃƒÂ§ÃƒÂ£o.
     if: >-
       github.event_name == 'push' &&
       (startsWith(github.ref, 'refs/tags/v') ||
@@ -69,19 +69,25 @@ jobs:
             line_key=""
           fi
           if [[ -n "$line_key" ]]; then
+            if [[ "$line_key" == "development" ]]; then
+              release_target_branch="master"
+            else
+              release_target_branch="$maintenance_branch"
+            fi
             config_file="$(jq -er ".${line_key}.release_please_config" .github/release-lines.json)"
             manifest_file="$(jq -er ".${line_key}.release_please_manifest" .github/release-lines.json)"
             if [[ "$config_file" == /* || "$config_file" == *..* || "$manifest_file" == /* || "$manifest_file" == *..* ]]; then
-              echo "::error::Os caminhos do Release Please devem ser relativos e não podem subir diretórios." >&2
+              echo "::error::Os caminhos do Release Please devem ser relativos e nÃƒÂ£o podem subir diretÃƒÂ³rios." >&2
               exit 1
             fi
-            test -f "$config_file" || { echo "::error::Configuração ausente: $config_file" >&2; exit 1; }
+            test -f "$config_file" || { echo "::error::ConfiguraÃƒÂ§ÃƒÂ£o ausente: $config_file" >&2; exit 1; }
             test -f "$manifest_file" || { echo "::error::Manifesto ausente: $manifest_file" >&2; exit 1; }
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             config_file=""
             manifest_file=""
+            release_target_branch=""
           fi
           {
             echo "development_branch=$development_branch"
@@ -90,6 +96,7 @@ jobs:
             echo "maintenance_milestone=$maintenance_milestone"
             echo "config_file=$config_file"
             echo "manifest_file=$manifest_file"
+            echo "release_target_branch=$release_target_branch"
           } >> "$GITHUB_OUTPUT"
           if [[ "$(grep '^enabled=' "$GITHUB_OUTPUT" | tail -n 1)" == "enabled=false" ]]; then
             echo "Skipping release-please on unconfigured branch $TARGET_BRANCH."
@@ -102,6 +109,7 @@ jobs:
           TARGET_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
           DEVELOPMENT_MILESTONE: ${{ steps.release-line.outputs.development_milestone }}
           MAINTENANCE_MILESTONE: ${{ steps.release-line.outputs.maintenance_milestone }}
+          CANDIDATE_BASE_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
         shell: bash
         run: |
           set -euo pipefail
@@ -114,7 +122,7 @@ jobs:
           else
             latest_tag_epoch=0
           fi
-          prs="$(gh pr list --repo "$GITHUB_REPOSITORY" --base "$TARGET_BRANCH" --state merged --limit 100 --json milestone,labels,mergedAt)"
+          prs="$(gh pr list --repo "$GITHUB_REPOSITORY" --base "$CANDIDATE_BASE_BRANCH" --state merged --limit 100 --json milestone,labels,mergedAt)"
           has_candidates="$(jq -r --arg milestone "$RELEASE_MILESTONE" --argjson latest_tag_epoch "$latest_tag_epoch" '
             any(.[]; (.milestone.title? == $milestone) and (.mergedAt != null) and ((.mergedAt | fromdateiso8601) > $latest_tag_epoch) and (([.labels[].name] | index("autorelease: pending")) == null))
           ' <<< "$prs")"
@@ -127,8 +135,8 @@ jobs:
           config-file: ${{ steps.release-line.outputs.config_file }}
           manifest-file: ${{ steps.release-line.outputs.manifest_file }}
           target-branch: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
-          # O Release Please deve manter `autorelease: pending`: a validação
-          # do branch confiável e a exceção de milestone dependem desse label.
+          # O Release Please deve manter `autorelease: pending`: a validaÃƒÂ§ÃƒÂ£o
+          # do branch confiÃƒÂ¡vel e a exceÃƒÂ§ÃƒÂ£o de milestone dependem desse label.
 
       - name: Rename generated Release Please branch by version
         if: steps.release-line.outputs.enabled == 'true' && steps.release-candidates.outputs.has_candidates == 'true'
@@ -137,11 +145,12 @@ jobs:
           TARGET_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
           DEVELOPMENT_MILESTONE: ${{ steps.release-line.outputs.development_milestone }}
           MAINTENANCE_MILESTONE: ${{ steps.release-line.outputs.maintenance_milestone }}
+          RELEASE_TARGET_BRANCH: ${{ steps.release-line.outputs.release_target_branch }}
         shell: bash
         run: |
           set -euo pipefail
           if [[ "$TARGET_BRANCH" == "${{ steps.release-line.outputs.maintenance_branch }}" ]]; then RELEASE_MILESTONE="$MAINTENANCE_MILESTONE"; else RELEASE_MILESTONE="$DEVELOPMENT_MILESTONE"; fi
-          prs="$(gh pr list --repo "$GITHUB_REPOSITORY" --base "$TARGET_BRANCH" --state open --limit 100 --json number,headRefName,title,body,labels)"
+          prs="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --limit 100 --json number,headRefName,title,body,labels,baseRefName)"
           source="$(jq -r 'map(select((.headRefName | test("^release-please--branches--")) and ([.labels[].name] | index("autorelease: pending")))) | sort_by(.number) | last | .headRefName // empty' <<< "$prs")"
           if [[ -z "$source" ]]; then
             echo "No legacy Release Please branch needs renaming."
@@ -150,55 +159,58 @@ jobs:
           pr="$(jq -c --arg source "$source" 'map(select(.headRefName == $source)) | first' <<< "$prs")"
           version="$(jq -r 'try (.title | capture("release (?<version>[0-9]+\\.[0-9]+\\.[0-9]+)").version) catch ""' <<< "$pr")"
           if [[ -z "$version" ]]; then
-            echo "::error::Não foi possível obter a versão da PR automática." >&2
+            echo "::error::NÃƒÂ£o foi possÃƒÂ­vel obter a versÃƒÂ£o da PR automÃƒÂ¡tica." >&2
             exit 1
           fi
           IFS=. read -r major minor patch <<< "$version"
           if [[ "$patch" == "0" ]]; then target="release-please-${major}.${minor}"; else target="release-please-${version}"; fi
-          if [[ "$source" == "$target" ]]; then exit 0; fi
-          existing="$(gh pr list --repo "$GITHUB_REPOSITORY" --base "$TARGET_BRANCH" --head "$target" --state open --json number --jq '.[0].number // empty')"
+          if [[ "$source" == "$target" ]]; then
+            gh pr edit "$(jq -r .number <<< "$pr")" --repo "$GITHUB_REPOSITORY" --base "$RELEASE_TARGET_BRANCH"
+            exit 0
+          fi
+          existing="$(gh pr list --repo "$GITHUB_REPOSITORY" --base "$RELEASE_TARGET_BRANCH" --head "$target" --state open --json number --jq '.[0].number // empty')"
           if [[ -z "$existing" ]]; then
             git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
             git fetch origin "$source"
             git push origin "origin/$source:refs/heads/$target"
             body_file="$RUNNER_TEMP/release-please-body.md"
             jq -r '.body // ""' <<< "$pr" > "$body_file"
-            new_pr="$(gh pr create --repo "$GITHUB_REPOSITORY" --base "$TARGET_BRANCH" --head "$target" --title "$(jq -r .title <<< "$pr")" --body-file "$body_file")"
+            new_pr="$(gh pr create --repo "$GITHUB_REPOSITORY" --base "$RELEASE_TARGET_BRANCH" --head "$target" --title "$(jq -r .title <<< "$pr")" --body-file "$body_file")"
             gh pr edit "$new_pr" --repo "$GITHUB_REPOSITORY" --add-label "autorelease: pending" --milestone "$RELEASE_MILESTONE"
           fi
           old_number="$(jq -r .number <<< "$pr")"
-          gh pr close "$old_number" --repo "$GITHUB_REPOSITORY" --comment "Substituída pela branch versionada $target."
+          gh pr close "$old_number" --repo "$GITHUB_REPOSITORY" --comment "SubstituÃƒÂ­da pela branch versionada $target."
           git push origin --delete "$source"
 
       # Somente o branch exato gerado para este alvo pode receber o token de
-      # publicação. As validações evitam branches parecidos de colaboradores.
+      # publicaÃƒÂ§ÃƒÂ£o. As validaÃƒÂ§ÃƒÂµes evitam branches parecidos de colaboradores.
       - name: Find Release Please branch
         if: steps.release-line.outputs.enabled == 'true'
         id: release-branch
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           TARGET_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
+          RELEASE_TARGET_BRANCH: ${{ steps.release-line.outputs.release_target_branch }}
           REPOSITORY: ${{ github.repository }}
         shell: bash
         run: |
           prs="$(gh pr list \
             --repo "$GITHUB_REPOSITORY" \
-            --base "$TARGET_BRANCH" \
             --state open \
             --limit 100 \
-            --json number,headRefName,headRepository,labels,title)"
-          pr="$(jq -c --arg repository "$REPOSITORY" --arg target "$TARGET_BRANCH" \
+            --json number,headRefName,headRepository,labels,title,baseRefName)"
+          pr="$(jq -c --arg repository "$REPOSITORY" --arg target "$RELEASE_TARGET_BRANCH" \
             'map(select(
               (
                 (.headRefName | test("^release-please-[0-9]+\\.[0-9]+(?:\\.[1-9][0-9]*)?$"))
-              ) and
+              ) and .baseRefName == $target and
               .headRepository.nameWithOwner == $repository and
               ([.labels[].name] | index("autorelease: pending"))
             )) | sort_by(.number) | last // {}' <<<"$prs")"
           branch="$(jq -r '.headRefName // empty' <<<"$pr")"
           number="$(jq -r '.number // empty' <<<"$pr")"
           if [[ -z "$branch" ]]; then
-            echo "No trusted Release Please PR found for $TARGET_BRANCH."
+            echo "No trusted Release Please PR found for $RELEASE_TARGET_BRANCH."
             exit 0
           fi
           echo "branch=$branch" >> "$GITHUB_OUTPUT"

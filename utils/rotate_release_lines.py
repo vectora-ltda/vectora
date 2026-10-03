@@ -1,4 +1,4 @@
-"""Calcula e aplica a próxima rotação das linhas de release."""
+"""Calcula e aplica a prÃ³xima rotaÃ§Ã£o das linhas de release."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ SEMVER_TAG: re.Pattern[str] = re.compile(
 
 
 class Rotation(TypedDict):
-    """Metadados necessários para rotacionar as linhas de release ativas."""
+    """Metadados necessÃ¡rios para rotacionar as linhas de release ativas."""
 
     release_tag: str
     release_version: str
@@ -26,11 +26,12 @@ class Rotation(TypedDict):
     development_milestone: str
     previous_maintenance_branch: str
     previous_maintenance_milestone: str
+    previous_development_branch: str
     previous_development_milestone: str
 
 
 class OpenPullRequest(TypedDict):
-    """Metadados relevantes de uma pull request aberta durante a rotação."""
+    """Metadados relevantes de uma pull request aberta durante a rotaÃ§Ã£o."""
 
     number: int
     base_branch: str
@@ -38,7 +39,7 @@ class OpenPullRequest(TypedDict):
 
 
 class RotationOperation(TypedDict):
-    """Uma operação determinística executada pelo workflow de rotação do GitHub."""
+    """Uma operaÃ§Ã£o determinÃ­stica executada pelo workflow de rotaÃ§Ã£o do GitHub."""
 
     kind: Literal[
         "create_branch",
@@ -55,17 +56,12 @@ def build_rotation_plan(
     rotation: Rotation,
     pull_requests: list[OpenPullRequest],
 ) -> list[RotationOperation]:
-    """Monta as operações de branch, milestone, PR e configuração de uma rotação.
-
-    Manter essa fronteira de decisão pura torna o workflow que chama a API
-    testável sem contato com o GitHub. O workflow continua responsável por
-    aplicar cada operação e falhar quando uma chamada à API não puder ser concluída.
-    """
+    """Build operations to open the next minor from the stable master line."""
     plan: list[RotationOperation] = [
         {
             "kind": "create_branch",
             "pull_request": None,
-            "value": rotation["maintenance_branch"],
+            "value": rotation["development_branch"],
         },
         {
             "kind": "ensure_milestone",
@@ -79,36 +75,21 @@ def build_rotation_plan(
         },
     ]
     for pull_request in pull_requests:
-        maintenance_match = (
-            pull_request["base_branch"] == rotation["previous_maintenance_branch"]
-        )
-        development_match = (
-            pull_request["milestone"] == rotation["previous_development_milestone"]
-        )
-        if not maintenance_match and not development_match:
+        if pull_request["base_branch"] != rotation["previous_development_branch"]:
             continue
-        if maintenance_match:
-            plan.append(
-                {
-                    "kind": "update_base",
-                    "pull_request": pull_request["number"],
-                    "value": rotation["maintenance_branch"],
-                }
-            )
-        if maintenance_match and (
-            pull_request["milestone"] == rotation["previous_maintenance_milestone"]
-        ):
-            milestone = rotation["maintenance_milestone"]
-        elif development_match:
-            milestone = rotation["development_milestone"]
-        else:
-            milestone = None
-        if milestone is not None:
+        plan.append(
+            {
+                "kind": "update_base",
+                "pull_request": pull_request["number"],
+                "value": rotation["development_branch"],
+            }
+        )
+        if pull_request["milestone"] == rotation["previous_development_milestone"]:
             plan.append(
                 {
                     "kind": "update_milestone",
                     "pull_request": pull_request["number"],
-                    "value": milestone,
+                    "value": rotation["development_milestone"],
                 }
             )
     plan.append(
@@ -124,20 +105,18 @@ def build_rotation_plan(
 def rotation_for_release(
     tag: str, config: ReleaseLines, target_branch: str | None = None
 ) -> Rotation | None:
-    """Retorna as próximas linhas quando ``tag`` encerra a linha configurada de desenvolvimento."""
+    """Calculate the next minor branch after a minor is published on master."""
     match = SEMVER_TAG.fullmatch(tag)
     if match is None:
         return None
-    if target_branch != config.development.branch and not (
-        target_branch is not None
-        and re.fullmatch(r"[0-9a-fA-F]{7,64}", target_branch) is not None
+    if target_branch != config.maintenance.branch and not (
+        target_branch is not None and re.fullmatch(r"[0-9a-fA-F]{7,64}", target_branch)
     ):
         return None
-
     major = int(match.group("major"))
     minor = int(match.group("minor"))
     expected = f"{major}.{minor}"
-    release_version = f"{major}.{minor}.0"
+    release_version = f"{expected}.0"
     configured = config.development.milestone
     configured_match = re.fullmatch(r"(?P<major>\d+)\.(?P<minor>\d+)", configured)
     if configured_match is None:
@@ -148,34 +127,32 @@ def rotation_for_release(
     )
     if (major, minor) > configured_version:
         raise ValueError(
-            f"published release {expected} is newer than configured development "
-            f"milestone {configured}; merge the pending rotation before retrying"
+            f"published release {expected} is newer than configured development milestone {configured}; merge the pending rotation before retrying"
         )
     next_minor = minor + 1
-    next_development = f"{major}.{next_minor}"
-    next_maintenance = f"release/{expected}"
+    next_development = f"release/{major}.{next_minor}"
     already_rotated = (
-        configured == next_development
-        and config.maintenance.branch == next_maintenance
-        and config.maintenance.milestone == f"{expected}.x"
+        configured == f"{major}.{next_minor}"
+        and config.development.branch == next_development
     )
     if configured != expected and not already_rotated:
         return None
     return {
         "release_tag": tag,
         "release_version": release_version,
-        "maintenance_branch": next_maintenance,
+        "maintenance_branch": config.maintenance.branch,
         "maintenance_milestone": f"{expected}.x",
-        "development_branch": config.development.branch,
-        "development_milestone": next_development,
+        "development_branch": next_development,
+        "development_milestone": f"{major}.{next_minor}",
         "previous_maintenance_branch": config.maintenance.branch,
         "previous_maintenance_milestone": config.maintenance.milestone,
+        "previous_development_branch": config.development.branch,
         "previous_development_milestone": config.development.milestone,
     }
 
 
 def rotated_config(config: ReleaseLines, rotation: Rotation) -> ReleaseLines:
-    """Monta a próxima configuração sem alterar o mapeamento carregado."""
+    """Monta a prÃ³xima configuraÃ§Ã£o sem alterar o mapeamento carregado."""
     return ReleaseLines(
         development={
             "branch": rotation["development_branch"],
@@ -193,7 +170,7 @@ def rotated_config(config: ReleaseLines, rotation: Rotation) -> ReleaseLines:
 
 
 def write_rotated_config(path: Path, config: ReleaseLines, rotation: Rotation) -> None:
-    """Persiste a próxima configuração das linhas de release como JSON formatado."""
+    """Persiste a prÃ³xima configuraÃ§Ã£o das linhas de release como JSON formatado."""
     path.write_text(
         json.dumps(rotated_config(config, rotation).model_dump(), indent=2) + "\n",
         encoding="utf-8",
@@ -204,7 +181,7 @@ def _event_values(event_path: Path) -> tuple[str, str | None]:
     event = json.loads(event_path.read_text(encoding="utf-8"))
     release = event.get("release")
     if not isinstance(release, dict):
-        raise ValueError("release event is missing release metadata")
+        raise TypeError("release event is missing release metadata")
     tag = release.get("tag_name")
     target = release.get("target_commitish")
     if not isinstance(tag, str) or not tag:
@@ -213,7 +190,7 @@ def _event_values(event_path: Path) -> tuple[str, str | None]:
 
 
 def main() -> int:
-    """Imprime as saídas do GitHub Actions e opcionalmente atualiza o arquivo de configuração."""
+    """Imprime as saÃ­das do GitHub Actions e opcionalmente atualiza o arquivo de configuraÃ§Ã£o."""
     if len(sys.argv) not in (2, 4) or (len(sys.argv) == 4 and sys.argv[2] != "--write"):
         print(
             "usage: rotate_release_lines.py EVENT_JSON [--write CONFIG_PATH]",

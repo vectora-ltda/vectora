@@ -15,7 +15,7 @@ WORKFLOW: Path = (
 CONFIG: Path = WORKFLOW.parent.parent / "release-lines.json"
 
 
-def test_forward_port_workflow_promotes_only_release_into_master() -> None:
+def test_forward_port_workflow_promotes_stable_master_into_active_minor() -> None:
     """Protege a promoção unidirecional configurada, as tentativas e a branch confiável."""
     content = WORKFLOW.read_text(encoding="utf-8")
 
@@ -26,8 +26,8 @@ def test_forward_port_workflow_promotes_only_release_into_master() -> None:
     assert (
         "github.ref_name == steps.release-lines.outputs.maintenance_branch" in content
     )
-    assert 'git merge-base --is-ancestor "origin/$MAINTENANCE_BRANCH" HEAD' in content
-    assert 'git merge --no-edit "origin/$MAINTENANCE_BRANCH"' in content
+    assert 'git merge-base --is-ancestor "origin/$STABLE_BRANCH" HEAD' in content
+    assert 'git merge --no-edit "origin/$STABLE_BRANCH"' in content
     assert 'git push origin "HEAD:$DEVELOPMENT_BRANCH"' in content
     assert "for attempt in 1 2 3" in content
     assert "pull-requests: write" in content
@@ -46,7 +46,7 @@ def test_forward_port_workflow_opens_isolated_conflict_pr() -> None:
 
     assert "git merge --abort || true" in content
     assert (
-        'conflict_branch="sync/release-promotion-${MAINTENANCE_BRANCH//\\//-}-to-${DEVELOPMENT_BRANCH//\\//-}"'
+        'conflict_branch="sync/release-promotion-${STABLE_BRANCH//\\//-}-to-${DEVELOPMENT_BRANCH//\\//-}"'
         in content
     )
     assert "force-with-lease" in content
