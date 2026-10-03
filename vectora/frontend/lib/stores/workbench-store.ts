@@ -353,6 +353,8 @@ interface WorkbenchState {
   pending: Record<string, { files: boolean; git: boolean }>;
   markPending: (wsId: string) => void;
   clearPending: (wsId: string, key: "files" | "git") => void;
+
+  openBrowserSettings: (threadId: string) => void;
 }
 
 // Caches default usados pelos getters quando uma chave ainda não existe.
@@ -513,6 +515,15 @@ export const useWorkbenchStore = create<WorkbenchState>()(
               panelOpen: { ...s.panelOpen, [threadId]: true },
             };
           }),
+
+        openBrowserSettings: (threadId) =>
+          set((s) => ({
+            activeTabByThread: {
+              ...s.activeTabByThread,
+              [threadId]: "browser",
+            },
+            panelOpen: { ...s.panelOpen, [threadId]: true },
+          })),
 
         setSplitSize: (size) => set({ splitSize: size }),
         setViewerHeight: (height) => set({ viewerHeight: height }),

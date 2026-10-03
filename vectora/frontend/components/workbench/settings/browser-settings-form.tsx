@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToastStore } from "@/lib/stores/toast-store";
 import { resolveBrowserProfileId } from "@/lib/browser-profile";
 import { clearBrowserSessionHistory } from "@/lib/browser-session-store";
@@ -28,11 +27,6 @@ export function BrowserSettingsForm({
   workspaceId,
   browserProfileId,
 }: BrowserSettingsFormProps) {
-  const [clearProfileError, setClearProfileError] = useState(false);
-  const [confirmClear, setConfirmClear] = useState(false);
-  const [clearStorage, setClearStorage] = useState(true);
-  const [clearCache, setClearCache] = useState(true);
-  const [clearCredentials, setClearCredentials] = useState(false);
   const allowPopups = useSettingsStore((s) => s.browserAllowPopups);
   const zoomPercent = useSettingsStore((s) => s.browserZoomPercent);
   const setAllowPopups = useSettingsStore((s) => s.setBrowserAllowPopups);
@@ -321,13 +315,6 @@ export function BrowserSettingsForm({
               ))
             )}
           </div>
-          <button
-            type="button"
-            className="max-w-full rounded border border-destructive/40 px-2 py-1 text-left text-destructive hover:bg-destructive/10"
-            onClick={() => setConfirmClear(true)}
-          >
-            {m.workbench_browser_clear_profile_data()}
-          </button>
           <div className="space-y-2 rounded border border-border/60 p-2 text-foreground">
             <div>
               <p className="font-medium">
@@ -447,35 +434,6 @@ export function BrowserSettingsForm({
               </ul>
             )}
           </div>
-          <div className="space-y-2 rounded border border-border/60 p-2 text-foreground">
-            <p className="font-medium">
-              {m.workbench_browser_clear_scope_label()}
-            </p>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={clearStorage}
-                onChange={(event) => setClearStorage(event.target.checked)}
-              />
-              {m.workbench_browser_clear_storage_label()}
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={clearCache}
-                onChange={(event) => setClearCache(event.target.checked)}
-              />
-              {m.workbench_browser_clear_cache_label()}
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={clearCredentials}
-                onChange={(event) => setClearCredentials(event.target.checked)}
-              />
-              {m.workbench_browser_clear_credentials_label()}
-            </label>
-          </div>
           <button
             type="button"
             className="max-w-full rounded border border-border/60 px-2 py-1 text-left text-foreground hover:bg-muted/40"
@@ -483,38 +441,6 @@ export function BrowserSettingsForm({
           >
             {m.workbench_browser_clear_history()}
           </button>
-          <ConfirmDialog
-            open={confirmClear}
-            title={m.workbench_browser_clear_profile_data()}
-            description={m.workbench_browser_clear_profile_confirm()}
-            confirmLabel={m.workbench_browser_clear_profile_data()}
-            variant="destructive"
-            onCancel={() => setConfirmClear(false)}
-            onConfirm={async () => {
-              setConfirmClear(false);
-              setClearProfileError(false);
-              try {
-                await desktopBrowser.clearProfileData(profileId ?? undefined, {
-                  storage: clearStorage,
-                  cache: clearCache,
-                  credentials: clearCredentials,
-                });
-                clearBrowserSessionHistory(sessionKey);
-                if (clearCredentials) setCredentials([]);
-              } catch {
-                setClearProfileError(true);
-                return;
-              }
-              useToastStore
-                .getState()
-                .success(m.workbench_browser_clear_profile_success());
-            }}
-          />
-          {clearProfileError ? (
-            <p role="alert" className="text-destructive">
-              {m.workbench_browser_clear_profile_error()}
-            </p>
-          ) : null}
         </>
       ) : (
         <>

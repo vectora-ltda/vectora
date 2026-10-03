@@ -42,7 +42,56 @@ _GRAPH_DATA = {
     "edges": [],
 }
 
+
+@pytest.mark.asyncio
+async def test_strict_indexing_propagates_embedding_failure(monkeypatch):
+    async def fail(_texts: list[str]) -> list[list[float]]:
+        raise RuntimeError("Cohere billing blocked")
+
+    monkeypatch.setattr(
+        "backend.context_graph.graph_index._embed_texts",
+        fail,
+    )
+
+    with pytest.raises(RuntimeError, match="falha ao indexar"):
+        await index_graph_nodes(
+            "workspace-1",
+            {"nodes": [{"id": "node-1", "label": "Node"}]},
+            strict=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_non_strict_indexing_keeps_optional_search_defensive(monkeypatch):
+    async def fail(_texts: list[str]) -> list[list[float]]:
+        raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr(
+        "backend.context_graph.graph_index._embed_texts",
+        fail,
+    )
+
+    assert (
+        await index_graph_nodes(
+            "workspace-1",
+            {"nodes": [{"id": "node-1", "label": "Node"}]},
+        )
+        == 0
+    )
+
+
 _VEC3 = [[0.1] * 10, [0.2] * 10, [0.3] * 10]
+
+
+@pytest.mark.asyncio
+async def test_list_table_names_prefers_non_deprecated_lancedb_api():
+    from backend.context_graph.graph_index import _list_table_names
+
+    db = AsyncMock()
+    db.list_tables = AsyncMock(return_value=MagicMock(tables=["nodes", "edges"]))
+    db.table_names = AsyncMock(side_effect=AssertionError("deprecated API"))
+
+    assert await _list_table_names(db) == ["nodes", "edges"]
 
 
 def _mock_lancedb():
