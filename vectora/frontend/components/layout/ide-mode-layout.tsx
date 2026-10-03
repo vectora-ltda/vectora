@@ -11,7 +11,7 @@
  * este componente colapsa para mostrar só o painel ativo por vez, com uma
  * faixa de abas no topo para trocar entre eles — o mesmo padrão de "nav
  * strip + view única montada" que `WorkbenchNavBar`/`WorkbenchContent` já
- * usam para as sub-abas (Arquivos/Diff/Plano/Terminal/etc), aplicado aqui
+ * usam para as sub-abas (Arquivos/Git/Plano/Terminal/etc), aplicado aqui
  * ao nível dos três painéis de topo (Chat/Workbench/Editor).
  */
 
@@ -41,7 +41,7 @@ interface IdeModeLayoutProps {
   /** Header do app — vive na coluna central (navBar+workbenchContent+editor),
    * nunca em cima do `chat` (que no modo IDE é a coluna lateral direita). */
   header: ReactNode;
-  /** Faixa de ícones das sub-abas do workbench (Arquivos/Diff/Plano/etc). */
+  /** Faixa de ícones das sub-abas do workbench (Arquivos/Git/Plano/etc). */
   navBar: ReactNode;
   /** Conteúdo da sub-aba ativa do workbench, ou `null` quando o painel está fechado. */
   workbenchContent: ReactNode | null;

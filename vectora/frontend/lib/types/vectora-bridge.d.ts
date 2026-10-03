@@ -37,6 +37,7 @@ export type VectoraBrowserViewEvent =
   | { type: "faviconUpdated"; favicon: string }
   | { type: "loadingChanged"; isLoading: boolean }
   | { type: "escapePressed" }
+  | { type: "popupRequested"; url: string }
   | {
       type: "loadFailed";
       errorCode: number;
@@ -44,11 +45,21 @@ export type VectoraBrowserViewEvent =
       url: string;
     };
 export type VectoraBrowserViewKind = "tab";
+export interface VectoraBrowserDownloadEvent {
+  id: string;
+  profileId: string;
+  filename: string;
+  state: "progressing" | "completed" | "cancelled" | "interrupted";
+  receivedBytes: number;
+  totalBytes: number;
+}
 export interface VectoraBrowserViewOptions {
   profileId: string;
   kind: VectoraBrowserViewKind;
   allowPopups?: boolean;
   zoomPercent?: number;
+  permissionMode?: "allow" | "deny";
+  originPermissions?: Record<string, "allow" | "deny">;
 }
 
 export interface VectoraVscodeThemeFile {
@@ -107,6 +118,25 @@ export interface VectoraDesktopBridge {
    * própria) — presente só no desktop; sem isso, a aba Browser cai no
    * `<iframe>` de fallback (sujeito a X-Frame-Options). */
   browserView?: {
+    listCredentials?: (
+      profileId: string,
+    ) => Promise<VectoraBrowserCredential[]>;
+    saveCredential?: (input: {
+      profileId: string;
+      origin: string;
+      username: string;
+      password: string;
+    }) => Promise<VectoraBrowserCredential>;
+    deleteCredential?: (input: {
+      profileId: string;
+      id: string;
+    }) => Promise<void>;
+    listCookies?: (profileId: string) => Promise<VectoraBrowserCookie[]>;
+    removeCookie?: (input: {
+      profileId: string;
+      url: string;
+      name: string;
+    }) => Promise<void>;
     createView: (options: VectoraBrowserViewOptions) => Promise<number>;
     destroyView: (viewId: number) => void;
     navigate: (
@@ -120,9 +150,23 @@ export interface VectoraDesktopBridge {
     setBounds: (viewId: number, bounds: VectoraViewBounds) => void;
     setVisible: (viewId: number, visible: boolean) => void;
     setZoom?: (viewId: number, percent: number) => void;
-    clearProfileData: (profileId?: string) => Promise<void>;
+    setPolicy?: (
+      viewId: number,
+      policy: {
+        allowPopups?: boolean;
+        permissionMode?: "allow" | "deny";
+        originPermissions?: Record<string, "allow" | "deny">;
+      },
+    ) => void;
+    clearProfileData: (
+      profileId?: string,
+      options?: { storage: boolean; cache: boolean; credentials?: boolean },
+    ) => Promise<void>;
     onEvent: (
       handler: (viewId: number, event: VectoraBrowserViewEvent) => void,
+    ) => () => void;
+    onDownload?: (
+      handler: (event: VectoraBrowserDownloadEvent) => void,
     ) => () => void;
   };
   /** Instalação de temas do VS Code Marketplace — só existe no desktop
@@ -144,6 +188,23 @@ export interface VectoraDesktopBridge {
     setPercent: (percent: number) => void;
     get: () => Promise<number>;
   };
+}
+
+export interface VectoraBrowserCredential {
+  id: string;
+  origin: string;
+  username: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface VectoraBrowserCookie {
+  name: string;
+  domain: string;
+  path: string;
+  secure: boolean;
+  httpOnly: boolean;
+  expirationDate?: number;
 }
 
 export interface VectoraBackupPreview {

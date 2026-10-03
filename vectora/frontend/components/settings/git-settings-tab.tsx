@@ -2,22 +2,39 @@
 
 import { useSettingsStore } from "@/lib/stores/settings-store";
 import { m } from "@/lib/paraglide/messages";
+import { Input } from "@/components/ui/input";
 
-export function GitSettingsTab() {
+export function GitSettingsTab({
+  showHeading = true,
+}: {
+  showHeading?: boolean;
+}) {
   const hooks = useSettingsStore((s) => s.gitHooksEnabled);
   const signoff = useSettingsStore((s) => s.gitSignoffEnabled);
   const bypass = useSettingsStore((s) => s.gitBypassEnabled);
+  const autoFetch = useSettingsStore((s) => s.gitAutoFetchEnabled);
+  const autoFetchInterval = useSettingsStore(
+    (s) => s.gitAutoFetchIntervalSeconds,
+  );
   const setHooks = useSettingsStore((s) => s.setGitHooksEnabled);
   const setSignoff = useSettingsStore((s) => s.setGitSignoffEnabled);
   const setBypass = useSettingsStore((s) => s.setGitBypassEnabled);
+  const setAutoFetch = useSettingsStore((s) => s.setGitAutoFetchEnabled);
+  const setAutoFetchInterval = useSettingsStore(
+    (s) => s.setGitAutoFetchIntervalSeconds,
+  );
   return (
     <div className="space-y-5 max-w-xl">
-      <div>
-        <h2 className="text-base font-semibold">{m.settings_category_git()}</h2>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {m.settings_git_description()}
-        </p>
-      </div>
+      {showHeading ? (
+        <div>
+          <h2 className="text-base font-semibold">
+            {m.settings_category_git()}
+          </h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {m.settings_git_description()}
+          </p>
+        </div>
+      ) : null}
       <label className="flex items-start gap-3 rounded-md border border-border/60 p-3">
         <input
           type="checkbox"
@@ -32,6 +49,39 @@ export function GitSettingsTab() {
           <span className="block text-xs text-muted-foreground">
             {m.settings_git_hooks_description()}
           </span>
+        </span>
+      </label>
+      <label className="flex items-start gap-3 rounded-md border border-border/60 p-3">
+        <input
+          type="checkbox"
+          checked={autoFetch}
+          onChange={(e) => setAutoFetch(e.target.checked)}
+          className="mt-0.5"
+        />
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-medium">
+            {m.settings_git_auto_fetch()}
+          </span>
+          <span className="block text-xs text-muted-foreground">
+            {m.settings_git_auto_fetch_description()}
+          </span>
+          {autoFetch ? (
+            <span className="mt-2 flex items-center gap-2">
+              <Input
+                aria-label={m.settings_git_auto_fetch_interval()}
+                type="number"
+                min={30}
+                max={3600}
+                step={30}
+                value={autoFetchInterval}
+                onChange={(e) => setAutoFetchInterval(Number(e.target.value))}
+                className="w-24"
+              />
+              <span className="text-xs text-muted-foreground">
+                {m.settings_git_seconds()}
+              </span>
+            </span>
+          ) : null}
         </span>
       </label>
       <label className="flex items-start gap-3 rounded-md border border-border/60 p-3">

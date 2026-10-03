@@ -45,6 +45,7 @@ function makeFakeView(): ManagedView & {
       setWindowOpenHandler: vi.fn((handler) => {
         windowOpenHandler = handler;
       }),
+      setZoomLevel: vi.fn(),
     },
     setBounds: vi.fn(),
   };
@@ -136,6 +137,25 @@ describe("BrowserViewManager", () => {
     expect(view.getWindowOpenAction("https://example.com")).toEqual({
       action: "deny",
     });
+  });
+
+  it("converte popups autorizados em eventos para novas abas gerenciadas", () => {
+    manager.createView("profile-a", "tab", null, { allowPopups: true });
+    expect(views[0].getWindowOpenAction("https://example.com")).toEqual({
+      action: "deny",
+    });
+    expect(emitted).toContainEqual({
+      viewId: 1,
+      event: { type: "popupRequested", url: "https://example.com" },
+    });
+  });
+
+  it("aplica zoom normalizado na view existente", () => {
+    const id = manager.createView();
+    manager.setZoomPercent(id, 150);
+    expect(views[0].webContents.setZoomLevel).toHaveBeenCalledWith(
+      Math.log(1.5) / Math.log(1.2),
+    );
   });
 
   it("destroi a view via deps.destroyView; id inexistente não quebra", () => {

@@ -39,6 +39,7 @@ import {
 
 export {
   clearBrowserSessionCache,
+  clearBrowserSessionHistory,
   getBrowserProfileId,
 } from "@/lib/browser-session-store";
 
@@ -83,13 +84,25 @@ function genId(): string {
     : `tab-${Math.random().toString(36).slice(2)}`;
 }
 
-function normalizeUrl(raw: string): string {
+function normalizeUrl(
+  raw: string,
+  searchEngine: "duckduckgo" | "google" | "bing" = "duckduckgo",
+): string {
   const trimmed = raw.trim();
   if (!trimmed) return "";
   // Chromium internal pages belong to the native settings surface. They must
   // never be accepted by a normal browser tab navigation.
   if (/^chrome:\/\//i.test(trimmed)) return "";
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (/\s/.test(trimmed)) {
+    const encoded = encodeURIComponent(trimmed);
+    const searchUrls = {
+      duckduckgo: `https://duckduckgo.com/?q=${encoded}`,
+      google: `https://www.google.com/search?q=${encoded}`,
+      bing: `https://www.bing.com/search?q=${encoded}`,
+    } as const;
+    return searchUrls[searchEngine];
+  }
   return `https://${trimmed}`;
 }
 
@@ -138,6 +151,13 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const [browserSettingsOpen, setBrowserSettingsOpen] = useState(false);
   const allowPopups = useSettingsStore((s) => s.browserAllowPopups);
   const browserZoomPercent = useSettingsStore((s) => s.browserZoomPercent);
+  const browserPermissionMode = useSettingsStore(
+    (s) => s.browserPermissionMode,
+  );
+  const browserOriginPermissions = useSettingsStore(
+    (s) => s.browserOriginPermissions,
+  );
+  const browserSearchEngine = useSettingsStore((s) => s.browserSearchEngine);
 
   // Presente só no desktop Electron — quando ausente, cai no `<iframe>` de
   // fallback abaixo (sujeito a X-Frame-Options, único caminho possível fora
@@ -211,8 +231,20 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   useEffect(() => {
     if (desktopBrowser && activeTab?.viewId != null) {
       desktopBrowser.setZoom?.(activeTab.viewId, browserZoomPercent);
+      desktopBrowser.setPolicy?.(activeTab.viewId, {
+        allowPopups,
+        permissionMode: browserPermissionMode,
+        originPermissions: browserOriginPermissions,
+      });
     }
-  }, [desktopBrowser, activeTab?.viewId, browserZoomPercent]);
+  }, [
+    desktopBrowser,
+    activeTab?.viewId,
+    browserZoomPercent,
+    allowPopups,
+    browserPermissionMode,
+    browserOriginPermissions,
+  ]);
 
   useEffect(() => {
     if (previousSessionKeyRef.current === sessionKey) return;
@@ -255,6 +287,29 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     });
   }, [sessionKey, tabs, activeTabId, profileId]);
 
+  useEffect(() => {
+    const onClearHistory = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionKey?: string }>).detail;
+      if (detail?.sessionKey !== sessionKey) return;
+      setTabs((previous) =>
+        previous.map((tab) => ({
+          ...tab,
+          history: [],
+          historyIndex: -1,
+          iframeKey: tab.iframeKey + 1,
+          canGoBack: false,
+          canGoForward: false,
+        })),
+      );
+    };
+    window.addEventListener("vectora:browser-clear-history", onClearHistory);
+    return () =>
+      window.removeEventListener(
+        "vectora:browser-clear-history",
+        onClearHistory,
+      );
+  }, [sessionKey]);
+
   const [urlInput, setUrlInput] = useState("");
   const [editingUrl, setEditingUrl] = useState(false);
 
@@ -288,6 +343,18 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     : activeTab.historyIndex < activeTab.history.length - 1;
   const desktopLoading = activeTab.loading;
   const desktopLoadError = activeTab.loadError;
+  const activeOrigin = (() => {
+    try {
+      return currentUrl ? new URL(currentUrl).origin : "";
+    } catch {
+      return "";
+    }
+  })();
+  const webOriginPermission = activeOrigin
+    ? browserOriginPermissions[activeOrigin]
+    : undefined;
+  const webPermissionsAllowed =
+    (webOriginPermission ?? browserPermissionMode) === "allow";
 
   const updateTab = useCallback(
     (id: string, patch: Partial<TabState> | ((t: TabState) => TabState)) => {
@@ -306,7 +373,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
 
   const navigateInTab = useCallback(
     (tabId: string, raw: string) => {
-      const url = normalizeUrl(raw);
+      const url = normalizeUrl(raw, browserSearchEngine);
       if (!url) return;
       if (desktopBrowser) {
         updateTab(tabId, { desktopUrl: url });
@@ -333,7 +400,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         };
       });
     },
-    [desktopBrowser, updateTab],
+    [browserSearchEngine, desktopBrowser, updateTab],
   );
 
   const navigate = useCallback(
@@ -352,6 +419,8 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
           kind: "tab",
           allowPopups,
           zoomPercent: browserZoomPercent,
+          permissionMode: browserPermissionMode,
+          originPermissions: browserOriginPermissions,
         })
         .then((viewId) => {
           if (
@@ -388,6 +457,8 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       updateTab,
       allowPopups,
       browserZoomPercent,
+      browserPermissionMode,
+      browserOriginPermissions,
     ],
   );
 
@@ -398,9 +469,12 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       setActiveTabId(id);
       if (url) {
         if (desktopBrowser) {
-          pendingNavigateRef.current.set(id, normalizeUrl(url));
+          pendingNavigateRef.current.set(
+            id,
+            normalizeUrl(url, browserSearchEngine),
+          );
         } else {
-          const normalized = normalizeUrl(url);
+          const normalized = normalizeUrl(url, browserSearchEngine);
           setTabs((prev) =>
             prev.map((t) =>
               t.id === id
@@ -503,6 +577,8 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
           kind: "tab",
           allowPopups,
           zoomPercent: browserZoomPercent,
+          permissionMode: browserPermissionMode,
+          originPermissions: browserOriginPermissions,
         })
         .then((viewId) => {
           if (
@@ -578,13 +654,27 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   useEffect(() => {
     if (!desktopBrowser) return;
     return desktopBrowser.onEvent((eventViewId, event) => {
+      if (event.type === "popupRequested") {
+        if (event.url) addTab(event.url);
+        return;
+      }
       setTabs((prev) =>
         prev.map((t) => {
           if (t.viewId !== eventViewId) return t;
           if (event.type === "navigated") {
+            const normalized = normalizeUrl(
+              event.url ?? "",
+              browserSearchEngine,
+            );
+            const nextHistory =
+              normalized && t.history.at(-1) !== normalized
+                ? [...t.history, normalized].slice(-100)
+                : t.history;
             return {
               ...t,
               desktopUrl: event.url ?? t.desktopUrl,
+              history: nextHistory,
+              historyIndex: nextHistory.length - 1,
               canGoBack: event.canGoBack ?? t.canGoBack,
               canGoForward: event.canGoForward ?? t.canGoForward,
               loadError: null,
@@ -603,7 +693,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         }),
       );
     });
-  }, [desktopBrowser]);
+  }, [browserSearchEngine, desktopBrowser, addTab]);
 
   // Visibilidade: só a view da aba ATIVA fica visível — todas as outras
   // (abas em segundo plano) ficam escondidas, senão desenhariam por cima
@@ -1402,11 +1492,20 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
             src={currentUrl}
             className="flex-1 w-full border-0 bg-white"
             title={msg.workbench_browser_frame_title()}
-            sandbox={
-              isTrustedWorkspaceServer(currentUrl)
-                ? "allow-scripts allow-forms allow-modals allow-popups allow-same-origin"
-                : "allow-scripts allow-forms allow-modals allow-popups"
+            allow={
+              webPermissionsAllowed
+                ? "camera; microphone; geolocation; notifications"
+                : ""
             }
+            sandbox={[
+              "allow-scripts",
+              "allow-forms",
+              "allow-modals",
+              allowPopups ? "allow-popups" : null,
+              isTrustedWorkspaceServer(currentUrl) ? "allow-same-origin" : null,
+            ]
+              .filter((token): token is string => token !== null)
+              .join(" ")}
           />
         ) : (
           emptyBrowserState

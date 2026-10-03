@@ -54,6 +54,52 @@ export function WorkbenchSettingsContent({
           </p>
         )}
       </div>
+      {descriptor.sections.length > 1 && (
+        <nav
+          aria-label={m.workbench_settings_sections()}
+          className="flex flex-wrap gap-2"
+        >
+          {descriptor.sections.map((section) => (
+            <span
+              key={section.id}
+              className="rounded border border-border/60 px-2 py-1 text-[10px] text-muted-foreground"
+            >
+              {section.title()}
+              {section.scope ? ` · ${SCOPE_LABELS[section.scope]()}` : ""}
+            </span>
+          ))}
+        </nav>
+      )}
+      {descriptor.capabilities.length > 0 && (
+        <div className="rounded-md border border-border/60 bg-muted/10 px-3 py-2 text-xs">
+          <p className="font-medium text-foreground">
+            {m.workbench_settings_capabilities_title()}
+          </p>
+          <ul className="mt-1 space-y-1 text-muted-foreground">
+            {descriptor.capabilities.map((item) => (
+              <li
+                key={item.id}
+                className="flex items-center justify-between gap-3"
+              >
+                <span>{item.id}</span>
+                <span
+                  className={
+                    item.status === "available"
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-amber-600 dark:text-amber-400"
+                  }
+                >
+                  {item.status === "available"
+                    ? m.workbench_settings_capability_available()
+                    : item.status === "planned"
+                      ? m.workbench_settings_capability_planned()
+                      : m.workbench_settings_capability_unavailable()}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <ErrorBoundary fallbackMessage={m.workbench_settings_error()}>
         <Suspense
           fallback={<EmptyState>{m.workbench_settings_loading()}</EmptyState>}

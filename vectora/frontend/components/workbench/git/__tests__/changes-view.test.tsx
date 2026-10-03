@@ -244,7 +244,7 @@ describe("ChangesView", () => {
 
   it("mostra estado vazio (working tree limpo) quando summary.files está vazio", () => {
     render(<ChangesView workspaceId="ws1" summary={summary([])} />);
-    expect(screen.getByText("workbench_diff_clean")).toBeInTheDocument();
+    expect(screen.getByText("workbench_git_clean")).toBeInTheDocument();
   });
 
   it("agrupa arquivos staged, modificados e untracked corretamente", () => {
@@ -259,7 +259,7 @@ describe("ChangesView", () => {
     expect(screen.getByText("modified.ts")).toBeInTheDocument();
     expect(screen.getByText("new.ts")).toBeInTheDocument();
     expect(
-      screen.queryByText("workbench_diff_group_untracked"),
+      screen.queryByText("workbench_git_group_untracked"),
     ).not.toBeInTheDocument();
   });
 
@@ -271,7 +271,7 @@ describe("ChangesView", () => {
       />,
     );
     expect(
-      screen.queryByText("workbench_diff_group_untracked"),
+      screen.queryByText("workbench_git_group_untracked"),
     ).not.toBeInTheDocument();
   });
 
@@ -342,12 +342,12 @@ describe("ChangesView", () => {
       />,
     );
     const btn = screen
-      .getByText("workbench_diff_commit_button")
+      .getByText("workbench_git_commit_button")
       .closest("button")!;
     expect(btn).toBeDisabled();
 
     fireEvent.change(
-      screen.getByPlaceholderText("workbench_diff_commit_placeholder"),
+      screen.getByPlaceholderText("workbench_git_commit_placeholder"),
       { target: { value: "fix: bug" } },
     );
     expect(btn).not.toBeDisabled();
@@ -365,10 +365,10 @@ describe("ChangesView", () => {
     );
 
     const input = screen.getByPlaceholderText(
-      "workbench_diff_commit_placeholder",
+      "workbench_git_commit_placeholder",
     ) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "fix: bug" } });
-    fireEvent.click(screen.getByText("workbench_diff_commit_button"));
+    fireEvent.click(screen.getByText("workbench_git_commit_button"));
 
     await waitFor(() =>
       expect(spy).toHaveBeenCalledWith("ws1", "fix: bug", false, {
@@ -391,10 +391,10 @@ describe("ChangesView", () => {
     );
 
     const input = screen.getByPlaceholderText(
-      "workbench_diff_commit_placeholder",
+      "workbench_git_commit_placeholder",
     ) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "fix: bug" } });
-    fireEvent.click(screen.getByText("workbench_diff_commit_button"));
+    fireEvent.click(screen.getByText("workbench_git_commit_button"));
 
     await waitFor(() => expect(api.apiGitCommit).toHaveBeenCalled());
     expect(input.value).toBe("fix: bug");
@@ -412,14 +412,14 @@ describe("ChangesView", () => {
     );
 
     fireEvent.change(
-      screen.getByPlaceholderText("workbench_diff_commit_placeholder"),
+      screen.getByPlaceholderText("workbench_git_commit_placeholder"),
       { target: { value: "fix: bug" } },
     );
     fireEvent.change(
-      screen.getByPlaceholderText("workbench_diff_commit_body_placeholder"),
+      screen.getByPlaceholderText("workbench_git_commit_body_placeholder"),
       { target: { value: "detalhes" } },
     );
-    fireEvent.click(screen.getByText("workbench_diff_commit_button"));
+    fireEvent.click(screen.getByText("workbench_git_commit_button"));
 
     await waitFor(() =>
       expect(spy).toHaveBeenCalledWith("ws1", "fix: bug", false, {
@@ -439,11 +439,11 @@ describe("ChangesView", () => {
       />,
     );
     fireEvent.change(
-      screen.getByPlaceholderText("workbench_diff_commit_placeholder"),
+      screen.getByPlaceholderText("workbench_git_commit_placeholder"),
       { target: { value: "fix: bug" } },
     );
     fireEvent.click(screen.getByTestId("git-commit-amend"));
-    fireEvent.click(screen.getByText("workbench_diff_commit_button"));
+    fireEvent.click(screen.getByText("workbench_git_commit_button"));
     await waitFor(() =>
       expect(spy).toHaveBeenCalledWith("ws1", "fix: bug", true, {
         body: "",
@@ -463,10 +463,10 @@ describe("ChangesView", () => {
     );
 
     fireEvent.change(
-      screen.getByPlaceholderText("workbench_diff_commit_placeholder"),
+      screen.getByPlaceholderText("workbench_git_commit_placeholder"),
       { target: { value: "fix: bug" } },
     );
-    fireEvent.click(screen.getByText("workbench_diff_commit_button"));
+    fireEvent.click(screen.getByText("workbench_git_commit_button"));
 
     await waitFor(() =>
       expect(spy).toHaveBeenCalledWith("ws1", "fix: bug", false, {
