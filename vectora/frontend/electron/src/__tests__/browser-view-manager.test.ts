@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   BrowserViewManager,
   clearBrowserSessionData,
+  isNativeSettingsUrl,
   isNavigableUrl,
   type BrowserViewManagerDeps,
   type BrowserViewEvent,
@@ -58,8 +59,22 @@ describe("isNavigableUrl", () => {
   });
 
   it("rejeita páginas internas do Chromium", () => {
+    expect(isNativeSettingsUrl(new URL("chrome://settings"))).toBe(true);
+    expect(isNativeSettingsUrl(new URL("chrome://settings/passwords/"))).toBe(
+      true,
+    );
+    expect(isNativeSettingsUrl(new URL("chrome://settings/flags"))).toBe(false);
+    expect(isNativeSettingsUrl(new URL("chrome://settings/help"))).toBe(false);
     expect(isNavigableUrl("chrome://settings")).toBe(false);
     expect(isNavigableUrl("chrome://settings/passwords")).toBe(false);
+    expect(isNavigableUrl("chrome://settings", "native-settings")).toBe(true);
+    expect(
+      isNavigableUrl("chrome://settings/passwords", "native-settings"),
+    ).toBe(true);
+    expect(
+      isNavigableUrl("  CHROME://SETTINGS/Passwords///  ", "native-settings"),
+    ).toBe(true);
+    expect(isNavigableUrl("chrome://flags", "native-settings")).toBe(false);
     expect(isNavigableUrl("https://chrome//settings/")).toBe(true);
   });
 
@@ -68,6 +83,9 @@ describe("isNavigableUrl", () => {
     expect(isNavigableUrl("file:///etc/passwd")).toBe(false);
     expect(isNavigableUrl("javascript:alert(1)")).toBe(false);
     expect(isNavigableUrl("não é uma url")).toBe(false);
+    expect(isNavigableUrl(`https://example.com/${"x".repeat(8192)}`)).toBe(
+      false,
+    );
   });
 });
 
@@ -221,6 +239,35 @@ describe("BrowserViewManager", () => {
     expect(id).toBe(1);
   });
 
+  it("emite escapePressed somente para a view nativa de settings", () => {
+    const native = manager.createView("profile-a", "native-settings");
+    const tab = manager.createView("profile-a", "tab");
+    const nativeListener = views[0].handlers["before-input-event"];
+    const tabListener = views[1].handlers["before-input-event"];
+    const nativePreventDefault = vi.fn();
+    const tabPreventDefault = vi.fn();
+
+    nativeListener?.(
+      { preventDefault: nativePreventDefault },
+      { type: "keyDown", key: "Escape" },
+    );
+    tabListener?.(
+      { preventDefault: tabPreventDefault },
+      { type: "keyDown", key: "Escape" },
+    );
+
+    expect(nativePreventDefault).toHaveBeenCalledOnce();
+    expect(tabPreventDefault).not.toHaveBeenCalled();
+    expect(emitted).toContainEqual({
+      viewId: native,
+      event: { type: "escapePressed" },
+    });
+    expect(emitted).not.toContainEqual({
+      viewId: tab,
+      event: { type: "escapePressed" },
+    });
+  });
+
   it("navigate em view inexistente retorna erro em vez de lançar", () => {
     const result = manager.navigate(9999, "https://example.com");
     expect(result.ok).toBe(false);
@@ -236,6 +283,15 @@ describe("BrowserViewManager", () => {
     expect(deps.destroyView).not.toHaveBeenCalled();
     manager.destroyView(id, 10);
     expect(deps.destroyView).toHaveBeenCalledOnce();
+  });
+
+  it("isola o ownership do perfil entre remetentes", () => {
+    manager.createView("profile-owned", "tab", 10);
+    expect(() => manager.createView("profile-owned", "tab", 11)).toThrow(
+      "perfil não pertence ao remetente",
+    );
+    expect(manager.profileBelongsToOwner("profile-owned", 10)).toBe(true);
+    expect(manager.profileBelongsToOwner("profile-owned", 11)).toBe(false);
   });
 
   it("remove a entrada mesmo quando Electron falha ao destruí-la", () => {

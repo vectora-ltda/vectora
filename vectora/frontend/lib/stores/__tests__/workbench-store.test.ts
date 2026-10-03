@@ -47,6 +47,14 @@ describe("Workbench — última aba ao reabrir", () => {
   );
 });
 
+describe("Workbench — abertura das configurações do Browser", () => {
+  it("seleciona Browser e abre o painel", () => {
+    s().openBrowserSettings("t1");
+    expect(s().getActiveTab("t1")).toBe("browser");
+    expect(s().isOpen("t1")).toBe(true);
+  });
+});
+
 describe("togglePinned — cache otimista", () => {
   it("adiciona um pin", () => {
     s().togglePinned("t1", "a.py");

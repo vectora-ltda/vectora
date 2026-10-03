@@ -52,4 +52,46 @@ test.describe("settings das workbenches", () => {
     await expect(dialog).not.toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId("plus-menu-trigger")).toBeFocused();
   });
+
+  test("registra todas as workbenches na ordem do navegador", async ({
+    page,
+  }) => {
+    await openWorkbenchesSettings(page);
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible({ timeout: 15_000 });
+    const sections = dialog.locator('details[id^="workbench-settings-"]');
+    await expect(sections).toHaveCount(9);
+    expect(
+      await sections.evaluateAll((items) =>
+        items.map((item) => item.id.replace("workbench-settings-", "")),
+      ),
+    ).toEqual([
+      "files",
+      "git",
+      "plan",
+      "tasks",
+      "browser",
+      "storage",
+      "context_graph",
+      "library",
+      "terminal",
+    ]);
+  });
+
+  test("abre e fecha grupos sem produzir overflow horizontal", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 360, height: 900 });
+    await openWorkbenchesSettings(page);
+    const dialog = page.getByRole("dialog");
+    const sections = dialog.locator('details[id^="workbench-settings-"]');
+    for (const section of await sections.all()) {
+      await section.locator("summary").click();
+      const overflow = await dialog.evaluate((element) => ({
+        scrollWidth: element.scrollWidth,
+        clientWidth: element.clientWidth,
+      }));
+      expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
+    }
+  });
 });

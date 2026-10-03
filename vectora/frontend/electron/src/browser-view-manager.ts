@@ -71,7 +71,7 @@ export interface ManagedView {
   setBounds(bounds: ViewBounds): void;
 }
 
-export type BrowserViewKind = "tab";
+export type BrowserViewKind = "tab" | "native-settings";
 export interface BrowserViewOptions {
   profileId: string;
   kind: BrowserViewKind;
@@ -157,7 +157,39 @@ interface Entry {
   profileId: string;
 }
 
-const ALLOWED_SCHEMES = new Set(["http:", "https:"]);
+const ALLOWED_TAB_SCHEMES = new Set(["http:", "https:"]);
+const NATIVE_SETTINGS_HOST = "settings";
+const MAX_BROWSER_URL_LENGTH = 8192;
+
+/** Rotas WebUI verificadas para a versão embarcada do Chromium. */
+export const NATIVE_SETTINGS_ROUTES = new Set([
+  "/",
+  "/appearance",
+  "/clearbrowserdata",
+  "/downloads",
+  "/languages",
+  "/onstartup",
+  "/passwords",
+  "/privacy",
+  "/search",
+  "/security",
+  "/sitedata",
+]);
+
+/** Normalizes Chromium WebUI paths before applying the explicit allowlist. */
+export function normalizeNativeSettingsPath(pathname: string): string {
+  const normalized = pathname.trim().toLowerCase().replace(/\/+$/, "");
+  return normalized || "/";
+}
+
+/** Native Chromium settings are deliberately limited to the settings WebUI. */
+export function isNativeSettingsUrl(url: URL): boolean {
+  return (
+    url.protocol === "chrome:" &&
+    url.hostname.toLowerCase() === NATIVE_SETTINGS_HOST &&
+    NATIVE_SETTINGS_ROUTES.has(normalizeNativeSettingsPath(url.pathname))
+  );
+}
 function normalizeProfileId(profileId: string | undefined): string {
   const normalized = profileId?.trim();
   return normalized || "default";
@@ -167,8 +199,16 @@ export function isNavigableUrl(
   raw: string,
   kind: BrowserViewKind = "tab",
 ): boolean {
+  const normalizedRaw = raw.trim();
+  if (
+    normalizedRaw.length === 0 ||
+    normalizedRaw.length > MAX_BROWSER_URL_LENGTH
+  )
+    return false;
   try {
-    return ALLOWED_SCHEMES.has(new URL(raw).protocol);
+    const url = new URL(normalizedRaw);
+    if (kind === "native-settings") return isNativeSettingsUrl(url);
+    return ALLOWED_TAB_SCHEMES.has(url.protocol);
   } catch {
     return false;
   }
@@ -176,6 +216,7 @@ export function isNavigableUrl(
 
 export class BrowserViewManager {
   private readonly entries = new Map<number, Entry>();
+  private readonly profileOwners = new Map<string, number | null>();
   private nextId = 1;
 
   constructor(private readonly deps: BrowserViewManagerDeps) {}
@@ -190,6 +231,18 @@ export class BrowserViewManager {
     > = {},
   ): number {
     const normalizedProfileId = normalizeProfileId(profileId);
+    const knownOwner = this.profileOwners.get(normalizedProfileId);
+    if (
+      knownOwner !== undefined &&
+      knownOwner !== null &&
+      ownerId !== null &&
+      knownOwner !== ownerId
+    ) {
+      throw new Error("perfil não pertence ao remetente");
+    }
+    if (knownOwner === undefined) {
+      this.profileOwners.set(normalizedProfileId, ownerId);
+    }
     const hasOptions = Object.keys(options).length > 0;
     const view = hasOptions
       ? this.deps.createView(normalizedProfileId, kind, options)
@@ -257,13 +310,23 @@ export class BrowserViewManager {
   async clearData(
     profileId = "default",
     options?: BrowserDataClearOptions,
+    ownerId: number | null = null,
   ): Promise<void> {
-    const partition = `persist:browser-${normalizeProfileId(profileId)}`;
+    const normalizedProfileId = normalizeProfileId(profileId);
+    if (!this.isProfileOwner(normalizedProfileId, ownerId)) {
+      throw new Error("perfil não pertence ao remetente");
+    }
+    const partition = `persist:browser-${normalizedProfileId}`;
     if (options === undefined) {
       await this.deps.clearData?.(partition);
       return;
     }
     await this.deps.clearData?.(partition, options);
+  }
+
+  /** Verifica ownership antes de operar em dados sensíveis de um perfil. */
+  profileBelongsToOwner(profileId: string, ownerId: number | null): boolean {
+    return this.isProfileOwner(normalizeProfileId(profileId), ownerId);
   }
 
   destroyView(id: number, ownerId: number | null = null): void {
@@ -278,6 +341,7 @@ export class BrowserViewManager {
         entry.view.webContents.close?.();
       } finally {
         this.entries.delete(id);
+        this.releaseProfileOwner(entry.profileId);
       }
     }
   }
@@ -291,18 +355,21 @@ export class BrowserViewManager {
     if (!entry) return { ok: false, error: "view inexistente" };
     if (!this.owns(entry, ownerId))
       return { ok: false, error: "view não pertence ao remetente" };
-    if (!isNavigableUrl(url, entry.kind)) {
+    const normalizedUrl = url.trim();
+    if (!isNavigableUrl(normalizedUrl, entry.kind)) {
       return { ok: false, error: `esquema não permitido: ${url}` };
     }
-    void entry.view.webContents.loadURL(url).catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      this.deps.emit(id, {
-        type: "loadFailed",
-        errorCode: -2,
-        errorDescription: message,
-        url,
+    void entry.view.webContents
+      .loadURL(normalizedUrl)
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.deps.emit(id, {
+          type: "loadFailed",
+          errorCode: -2,
+          errorDescription: message,
+          url: normalizedUrl,
+        });
       });
-    });
     return { ok: true };
   }
 
@@ -368,6 +435,23 @@ export class BrowserViewManager {
     );
   }
 
+  private isProfileOwner(profileId: string, ownerId: number | null): boolean {
+    const knownOwner = this.profileOwners.get(profileId);
+    return (
+      knownOwner === undefined ||
+      knownOwner === null ||
+      ownerId === null ||
+      knownOwner === ownerId
+    );
+  }
+
+  private releaseProfileOwner(profileId: string): void {
+    for (const entry of this.entries.values()) {
+      if (entry.profileId === profileId) return;
+    }
+    this.profileOwners.delete(profileId);
+  }
+
   private wireEvents(
     id: number,
     view: ManagedView,
@@ -382,6 +466,16 @@ export class BrowserViewManager {
     };
     wc.on("will-navigate", cancelUnsafeNavigation);
     wc.on("will-redirect", cancelUnsafeNavigation);
+    wc.on("before-input-event", (event, input) => {
+      if (
+        kind === "native-settings" &&
+        input.type === "keyDown" &&
+        input.key === "Escape"
+      ) {
+        event.preventDefault();
+        this.deps.emit(id, { type: "escapePressed" });
+      }
+    });
     // Popups become managed tabs. Returning `deny` prevents Electron from
     // creating an unmanaged BrowserWindow while the renderer receives the URL
     // and creates a view with the same profile and navigation policies.

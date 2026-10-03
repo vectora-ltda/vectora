@@ -1250,7 +1250,7 @@ function registerIpc(): void {
     (event, viewId: number, url: string) => {
       if (!isTrustedBrowserSender(event))
         return { ok: false, error: "origem IPC inválida" };
-      if (!isValidViewId(viewId) || !isValidBrowserUrl(url)) {
+      if (!isValidViewId(viewId) || typeof url !== "string") {
         return { ok: false, error: "argumentos inválidos" };
       }
       return getBrowserViewManager().navigate(
@@ -1313,7 +1313,14 @@ function registerIpc(): void {
       ) {
         throw new Error("opções de limpeza inválidas");
       }
-      await getBrowserViewManager().clearData(profileId, options);
+      const ownerId = browserOwnerId(event);
+      if (
+        profileId !== undefined &&
+        !getBrowserViewManager().profileBelongsToOwner(profileId, ownerId)
+      ) {
+        throw new Error("perfil não pertence ao remetente");
+      }
+      await getBrowserViewManager().clearData(profileId, options, ownerId);
       if (options.credentials) {
         await writeBrowserCredentials(profileId ?? "default", []);
       }
@@ -1328,6 +1335,14 @@ function registerIpc(): void {
         !isValidProfileId(profileId)
       ) {
         throw new Error("perfil inválido");
+      }
+      if (
+        !getBrowserViewManager().profileBelongsToOwner(
+          profileId,
+          browserOwnerId(event),
+        )
+      ) {
+        throw new Error("perfil não pertence ao remetente");
       }
       return (await readBrowserCredentials(profileId)).map(publicCredential);
     },
@@ -1354,6 +1369,14 @@ function registerIpc(): void {
         password.length > 4096
       ) {
         throw new Error("credencial inválida");
+      }
+      if (
+        !getBrowserViewManager().profileBelongsToOwner(
+          profileId,
+          browserOwnerId(event),
+        )
+      ) {
+        throw new Error("perfil não pertence ao remetente");
       }
       const records = await readBrowserCredentials(profileId);
       const now = new Date().toISOString();
@@ -1391,6 +1414,14 @@ function registerIpc(): void {
         typeof id !== "string"
       )
         throw new Error("credencial inválida");
+      if (
+        !getBrowserViewManager().profileBelongsToOwner(
+          profileId,
+          browserOwnerId(event),
+        )
+      ) {
+        throw new Error("perfil não pertence ao remetente");
+      }
       const records = await readBrowserCredentials(profileId);
       await writeBrowserCredentials(
         profileId,
@@ -1407,6 +1438,14 @@ function registerIpc(): void {
         !isValidProfileId(profileId)
       ) {
         throw new Error("perfil inválido");
+      }
+      if (
+        !getBrowserViewManager().profileBelongsToOwner(
+          profileId,
+          browserOwnerId(event),
+        )
+      ) {
+        throw new Error("perfil não pertence ao remetente");
       }
       const cookies = await session
         .fromPartition(`persist:browser-${profileId}`)
@@ -1441,6 +1480,14 @@ function registerIpc(): void {
         name.length === 0
       ) {
         throw new Error("cookie inválido");
+      }
+      if (
+        !getBrowserViewManager().profileBelongsToOwner(
+          profileId,
+          browserOwnerId(event),
+        )
+      ) {
+        throw new Error("perfil não pertence ao remetente");
       }
       await session
         .fromPartition(`persist:browser-${profileId}`)
