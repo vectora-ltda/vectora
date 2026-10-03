@@ -77,6 +77,8 @@ export interface BrowserViewOptions {
   kind: BrowserViewKind;
   allowPopups?: boolean;
   zoomPercent?: number;
+  permissionMode?: "allow" | "deny";
+  originPermissions?: Record<string, "allow" | "deny">;
 }
 
 export type BrowserViewEvent =
@@ -89,8 +91,8 @@ export type BrowserViewEvent =
   | { type: "titleUpdated"; title: string }
   | { type: "faviconUpdated"; favicon: string }
   | { type: "loadingChanged"; isLoading: boolean }
-  | { type: "popupRequested"; url: string }
   | { type: "escapePressed" }
+  | { type: "popupRequested"; url: string }
   | {
       type: "loadFailed";
       errorCode: number;
@@ -102,20 +104,43 @@ export interface BrowserViewManagerDeps {
   createView(
     profileId?: string,
     kind?: BrowserViewKind,
-    options?: Pick<BrowserViewOptions, "allowPopups" | "zoomPercent">,
+    options?: Pick<
+      BrowserViewOptions,
+      "allowPopups" | "zoomPercent" | "permissionMode" | "originPermissions"
+    >,
   ): ManagedView;
   attach(view: ManagedView): void;
   destroyView(view: ManagedView): void;
   emit(viewId: number, event: BrowserViewEvent): void;
-  clearData?(partition: string): Promise<void>;
+  clearData?(
+    partition: string,
+    options?: BrowserDataClearOptions,
+  ): Promise<void>;
+  setPermissionMode?(
+    profileId: string,
+    mode: "allow" | "deny",
+    originPermissions?: Record<string, "allow" | "deny">,
+  ): void;
+}
+
+export interface BrowserDataClearOptions {
+  storage: boolean;
+  cache: boolean;
+  credentials?: boolean;
 }
 
 /** Clears persisted browser storage and HTTP cache for one profile. */
-export async function clearBrowserSessionData(session: {
-  clearStorageData: () => Promise<void>;
-  clearCache: () => Promise<void>;
-}): Promise<void> {
-  await Promise.all([session.clearStorageData(), session.clearCache()]);
+export async function clearBrowserSessionData(
+  session: {
+    clearStorageData: () => Promise<void>;
+    clearCache: () => Promise<void>;
+  },
+  options: BrowserDataClearOptions = { storage: true, cache: true },
+): Promise<void> {
+  const operations: Promise<void>[] = [];
+  if (options.storage) operations.push(session.clearStorageData());
+  if (options.cache) operations.push(session.clearCache());
+  await Promise.all(operations);
 }
 
 interface Entry {
@@ -125,6 +150,7 @@ interface Entry {
   kind: BrowserViewKind;
   ownerId: number | null;
   allowPopups: boolean;
+  profileId: string;
 }
 
 const ALLOWED_SCHEMES = new Set(["http:", "https:"]);
@@ -154,7 +180,10 @@ export class BrowserViewManager {
     profileId?: string,
     kind: BrowserViewKind = "tab",
     ownerId: number | null = null,
-    options: Pick<BrowserViewOptions, "allowPopups" | "zoomPercent"> = {},
+    options: Pick<
+      BrowserViewOptions,
+      "allowPopups" | "zoomPercent" | "permissionMode" | "originPermissions"
+    > = {},
   ): number {
     const normalizedProfileId = normalizeProfileId(profileId);
     const hasOptions = Object.keys(options).length > 0;
@@ -171,6 +200,7 @@ export class BrowserViewManager {
       kind,
       ownerId,
       allowPopups: options.allowPopups === true,
+      profileId: normalizedProfileId,
     });
     this.wireEvents(id, view, kind);
     this.deps.attach(view);
@@ -189,7 +219,7 @@ export class BrowserViewManager {
     entry.view.webContents.setZoomLevel?.(Math.log(factor) / Math.log(1.2));
   }
 
-  setAllowPopups(
+  setPopupPolicy(
     id: number,
     allowPopups: boolean,
     ownerId: number | null = null,
@@ -199,10 +229,27 @@ export class BrowserViewManager {
     entry.allowPopups = allowPopups;
   }
 
-  async clearData(profileId = "default"): Promise<void> {
-    await this.deps.clearData?.(
-      `persist:browser-${normalizeProfileId(profileId)}`,
-    );
+  setPermissionMode(
+    id: number,
+    mode: "allow" | "deny",
+    originPermissions: Record<string, "allow" | "deny"> | undefined = undefined,
+    ownerId: number | null = null,
+  ): void {
+    const entry = this.entries.get(id);
+    if (!entry || !this.owns(entry, ownerId)) return;
+    this.deps.setPermissionMode?.(entry.profileId, mode, originPermissions);
+  }
+
+  async clearData(
+    profileId = "default",
+    options?: BrowserDataClearOptions,
+  ): Promise<void> {
+    const partition = `persist:browser-${normalizeProfileId(profileId)}`;
+    if (options === undefined) {
+      await this.deps.clearData?.(partition);
+      return;
+    }
+    await this.deps.clearData?.(partition, options);
   }
 
   destroyView(id: number, ownerId: number | null = null): void {
@@ -321,12 +368,11 @@ export class BrowserViewManager {
     };
     wc.on("will-navigate", cancelUnsafeNavigation);
     wc.on("will-redirect", cancelUnsafeNavigation);
-    // Native child windows are never allowed: they bypass the manager's
-    // bounds, lifecycle and navigation guards. When enabled, forward the
-    // requested URL to the renderer so it can create another managed tab.
+    // Popups become managed tabs. Returning `deny` prevents Electron from
+    // creating an unmanaged BrowserWindow while the renderer receives the URL
+    // and creates a view with the same profile and navigation policies.
     wc.setWindowOpenHandler?.((details) => {
-      const entry = this.entries.get(id);
-      if (entry?.allowPopups && isNavigableUrl(details.url, kind)) {
+      if (this.entries.get(id)?.allowPopups) {
         this.deps.emit(id, { type: "popupRequested", url: details.url });
       }
       return { action: "deny" };

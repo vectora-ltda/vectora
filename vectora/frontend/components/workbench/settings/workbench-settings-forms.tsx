@@ -46,13 +46,61 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
   );
   return (
     <div className="space-y-4">
-      <Toggle
-        id="files-autosave"
-        label={m.workbench_files_autosave_label()}
-        help={m.workbench_files_autosave_help()}
-        checked={settings.editorAutoSave}
-        onChange={settings.setEditorAutoSave}
-      />
+      <div className="space-y-1">
+        <Label htmlFor="files-autosave-mode">
+          {m.workbench_files_autosave_label()}
+        </Label>
+        <p className="text-xs text-muted-foreground">
+          {m.workbench_files_autosave_help()}
+        </p>
+        <Select
+          value={settings.editorAutoSaveMode}
+          onValueChange={(value) =>
+            settings.setEditorAutoSaveMode(
+              value as "off" | "afterDelay" | "onFocusChange",
+            )
+          }
+        >
+          <SelectTrigger id="files-autosave-mode">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="off">
+              {m.workbench_files_autosave_off()}
+            </SelectItem>
+            <SelectItem value="afterDelay">
+              {m.workbench_files_autosave_after_delay()}
+            </SelectItem>
+            <SelectItem value="onFocusChange">
+              {m.workbench_files_autosave_on_focus_change()}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      {settings.editorAutoSaveMode === "afterDelay" && (
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <Label htmlFor="files-autosave-delay">
+              {m.workbench_files_autosave_delay_label()}
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              {m.workbench_files_autosave_delay_help()}
+            </p>
+          </div>
+          <Input
+            id="files-autosave-delay"
+            type="number"
+            min={200}
+            max={5000}
+            step={100}
+            value={settings.editorAutoSaveDelay}
+            onChange={(event) =>
+              settings.setEditorAutoSaveDelay(Number(event.target.value))
+            }
+            className="w-24"
+          />
+        </div>
+      )}
       <div className="flex items-center justify-between gap-3">
         <div>
           <Label htmlFor="files-font-size">
@@ -63,7 +111,6 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
           </p>
         </div>
         <Input
-          key={settings.monacoFontSize}
           id="files-font-size"
           type="number"
           min={10}
@@ -78,6 +125,27 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
           onKeyDown={(event) => {
             if (event.key === "Enter") event.currentTarget.blur();
           }}
+          className="w-24"
+        />
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <Label htmlFor="files-max-size">
+            {m.workbench_files_max_size_label()}
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            {m.workbench_files_max_size_help()}
+          </p>
+        </div>
+        <Input
+          id="files-max-size"
+          type="number"
+          min={1}
+          max={100}
+          value={settings.editorMaxFileSizeMb}
+          onChange={(event) =>
+            settings.setEditorMaxFileSizeMb(Number(event.target.value))
+          }
           className="w-24"
         />
       </div>
@@ -119,6 +187,133 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
         onChange={settings.setEditorFormatOnType}
       />
       <Toggle
+        id="files-formatter-service"
+        label={m.workbench_files_formatter_label()}
+        help={m.workbench_files_formatter_help()}
+        checked={settings.editorFormatterEnabled}
+        onChange={settings.setEditorFormatterEnabled}
+      />
+      <Toggle
+        id="files-format-on-save"
+        label={m.workbench_files_format_on_save_label()}
+        help={m.workbench_files_format_on_save_help()}
+        checked={settings.editorFormatOnSave}
+        onChange={settings.setEditorFormatOnSave}
+      />
+      <Toggle
+        id="files-linter-service"
+        label={m.workbench_files_linter_label()}
+        help={m.workbench_files_linter_help()}
+        checked={settings.editorLinterEnabled}
+        onChange={settings.setEditorLinterEnabled}
+      />
+      <Toggle
+        id="files-lint-on-type"
+        label={m.workbench_files_lint_on_type_label()}
+        help={m.workbench_files_lint_on_type_help()}
+        checked={settings.editorLintOnType}
+        onChange={settings.setEditorLintOnType}
+      />
+      <Toggle
+        id="files-lint-on-save"
+        label={m.workbench_files_lint_on_save_label()}
+        help={m.workbench_files_lint_on_save_help()}
+        checked={settings.editorLintOnSave}
+        onChange={settings.setEditorLintOnSave}
+      />
+      <Toggle
+        id="files-inline-suggestions"
+        label={m.workbench_files_inline_suggestions()}
+        help={m.workbench_files_inline_suggestions_help()}
+        checked={settings.editorInlineSuggestions}
+        onChange={settings.setEditorInlineSuggestions}
+      />
+      <Toggle
+        id="files-breadcrumbs"
+        label={m.workbench_files_breadcrumbs()}
+        help={m.workbench_files_breadcrumbs_help()}
+        checked={settings.editorBreadcrumbs}
+        onChange={settings.setEditorBreadcrumbs}
+      />
+      <Toggle
+        id="files-file-watcher"
+        label={m.workbench_files_file_watcher()}
+        help={m.workbench_files_file_watcher_help()}
+        checked={settings.editorFileWatcherEnabled}
+        onChange={settings.setEditorFileWatcherEnabled}
+      />
+      <Toggle
+        id="files-confirm-delete"
+        label={m.workbench_files_confirm_delete()}
+        help={m.workbench_files_confirm_delete_help()}
+        checked={settings.editorConfirmDelete}
+        onChange={settings.setEditorConfirmDelete}
+      />
+      <div className="space-y-1">
+        <Label htmlFor="files-editor-theme">
+          {m.workbench_files_editor_theme()}
+        </Label>
+        <Select
+          value={settings.editorTheme}
+          onValueChange={(value) =>
+            settings.setEditorTheme(value as "auto" | "light" | "dark")
+          }
+        >
+          <SelectTrigger id="files-editor-theme">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="auto">
+              {m.workbench_files_theme_auto()}
+            </SelectItem>
+            <SelectItem value="light">
+              {m.workbench_files_theme_light()}
+            </SelectItem>
+            <SelectItem value="dark">
+              {m.workbench_files_theme_dark()}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label htmlFor="files-encoding">{m.workbench_files_encoding()}</Label>
+          <Select
+            value={settings.editorEncoding}
+            onValueChange={(value) =>
+              settings.setEditorEncoding(value as "utf8" | "utf8bom")
+            }
+          >
+            <SelectTrigger id="files-encoding">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="utf8">{m.workbench_files_utf8()}</SelectItem>
+              <SelectItem value="utf8bom">
+                {m.workbench_files_utf8bom()}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="files-eol">{m.workbench_files_eol()}</Label>
+          <Select
+            value={settings.editorEndOfLine}
+            onValueChange={(value) =>
+              settings.setEditorEndOfLine(value as "lf" | "crlf")
+            }
+          >
+            <SelectTrigger id="files-eol">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="lf">{m.workbench_files_lf()}</SelectItem>
+              <SelectItem value="crlf">{m.workbench_files_crlf()}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <Toggle
         id="files-quick-suggestions"
         label={m.workbench_files_quick_suggestions_label()}
         help={m.workbench_files_quick_suggestions_help()}
@@ -126,11 +321,137 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
         onChange={settings.setEditorQuickSuggestions}
       />
       <Toggle
+        id="files-parameter-hints"
+        label={m.workbench_files_parameter_hints_label()}
+        help={m.workbench_files_parameter_hints_help()}
+        checked={settings.editorParameterHints}
+        onChange={settings.setEditorParameterHints}
+      />
+      <Toggle
+        id="files-font-ligatures"
+        label={m.workbench_files_font_ligatures_label()}
+        help={m.workbench_files_font_ligatures_help()}
+        checked={settings.editorFontLigatures}
+        onChange={settings.setEditorFontLigatures}
+      />
+      <Toggle
+        id="files-glyph-margin"
+        label={m.workbench_files_glyph_margin_label()}
+        help={m.workbench_files_glyph_margin_help()}
+        checked={settings.editorGlyphMargin}
+        onChange={settings.setEditorGlyphMargin}
+      />
+      <Toggle
         id="files-line-numbers"
         label={m.workbench_files_line_numbers_label()}
         help={m.workbench_files_line_numbers_help()}
         checked={settings.editorLineNumbers}
         onChange={settings.setEditorLineNumbers}
+      />
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <Label htmlFor="files-tab-size">
+            {m.workbench_files_tab_size_label()}
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            {m.workbench_files_tab_size_help()}
+          </p>
+        </div>
+        <Input
+          id="files-tab-size"
+          type="number"
+          min={1}
+          max={8}
+          value={settings.editorTabSize}
+          onChange={(event) =>
+            settings.setEditorTabSize(Number(event.target.value))
+          }
+          className="w-20"
+        />
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor="files-whitespace">
+          {m.workbench_files_whitespace_label()}
+        </Label>
+        <Select
+          value={settings.editorRenderWhitespace}
+          onValueChange={(value) =>
+            settings.setEditorRenderWhitespace(
+              value as "none" | "selection" | "all",
+            )
+          }
+        >
+          <SelectTrigger id="files-whitespace">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">
+              {m.workbench_files_whitespace_none()}
+            </SelectItem>
+            <SelectItem value="selection">
+              {m.workbench_files_whitespace_selection()}
+            </SelectItem>
+            <SelectItem value="all">
+              {m.workbench_files_whitespace_all()}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <Toggle
+        id="files-sticky-scroll"
+        label={m.workbench_files_sticky_scroll_label()}
+        help={m.workbench_files_sticky_scroll_help()}
+        checked={settings.editorStickyScroll}
+        onChange={settings.setEditorStickyScroll}
+      />
+      <Toggle
+        id="files-bracket-guides"
+        label={m.workbench_files_bracket_guides_label()}
+        help={m.workbench_files_bracket_guides_help()}
+        checked={settings.editorBracketPairGuides}
+        onChange={settings.setEditorBracketPairGuides}
+      />
+      <Toggle
+        id="files-insert-spaces"
+        label={m.workbench_files_insert_spaces_label()}
+        help={m.workbench_files_insert_spaces_help()}
+        checked={settings.editorInsertSpaces}
+        onChange={settings.setEditorInsertSpaces}
+      />
+      <div className="space-y-1">
+        <Label htmlFor="files-cursor-style">
+          {m.workbench_files_cursor_style_label()}
+        </Label>
+        <Select
+          value={settings.editorCursorStyle}
+          onValueChange={(value) =>
+            settings.setEditorCursorStyle(
+              value as "line" | "block" | "underline",
+            )
+          }
+        >
+          <SelectTrigger id="files-cursor-style">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="line">
+              {m.workbench_files_cursor_line()}
+            </SelectItem>
+            <SelectItem value="block">
+              {m.workbench_files_cursor_block()}
+            </SelectItem>
+            <SelectItem value="underline">
+              {m.workbench_files_cursor_underline()}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <Toggle
+        id="files-smooth-scrolling"
+        label={m.workbench_files_smooth_scrolling_label()}
+        help={m.workbench_files_smooth_scrolling_help()}
+        checked={settings.editorSmoothScrolling}
+        onChange={settings.setEditorSmoothScrolling}
       />
     </div>
   );
@@ -174,6 +495,24 @@ export function PlanSettingsForm(_context: WorkbenchSettingsContext) {
 
 export function TasksSettingsForm(_context: WorkbenchSettingsContext) {
   const settings = useSettingsStore();
+  const [retryDraft, setRetryDraft] = useState(() =>
+    String(settings.taskRetryCount),
+  );
+  const [concurrencyDraft, setConcurrencyDraft] = useState(() =>
+    String(settings.taskConcurrency),
+  );
+  const [backoffDraft, setBackoffDraft] = useState(() =>
+    String(settings.taskRetryBackoffMs),
+  );
+  const commitNumber = (
+    draft: string,
+    commit: (value: number) => void,
+    reset: () => void,
+  ) => {
+    const value = Number(draft);
+    if (Number.isFinite(value)) commit(value);
+    else reset();
+  };
   return (
     <div className="space-y-4">
       <Toggle
@@ -183,6 +522,77 @@ export function TasksSettingsForm(_context: WorkbenchSettingsContext) {
         checked={settings.taskNotifications}
         onChange={settings.setTaskNotifications}
       />
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <Label htmlFor="tasks-retry">{m.workbench_tasks_retry_label()}</Label>
+          <p className="text-xs text-muted-foreground">
+            {m.workbench_tasks_retry_help()}
+          </p>
+        </div>
+        <Input
+          id="tasks-retry"
+          type="number"
+          min={0}
+          max={5}
+          value={retryDraft}
+          onChange={(event) => setRetryDraft(event.target.value)}
+          onBlur={() =>
+            commitNumber(retryDraft, settings.setTaskRetryCount, () =>
+              setRetryDraft(String(settings.taskRetryCount)),
+            )
+          }
+          className="w-24"
+        />
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <Label htmlFor="tasks-concurrency">
+            {m.workbench_tasks_concurrency_label()}
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            {m.workbench_tasks_concurrency_help()}
+          </p>
+        </div>
+        <Input
+          id="tasks-concurrency"
+          type="number"
+          min={1}
+          max={8}
+          value={concurrencyDraft}
+          onChange={(event) => setConcurrencyDraft(event.target.value)}
+          onBlur={() =>
+            commitNumber(concurrencyDraft, settings.setTaskConcurrency, () =>
+              setConcurrencyDraft(String(settings.taskConcurrency)),
+            )
+          }
+          className="w-24"
+        />
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <Label htmlFor="tasks-backoff">
+            {m.workbench_tasks_backoff_label()}
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            {m.workbench_tasks_backoff_help()}
+          </p>
+        </div>
+        <Input
+          id="tasks-backoff"
+          type="number"
+          min={100}
+          max={30000}
+          step={100}
+          value={backoffDraft}
+          onChange={(event) => setBackoffDraft(event.target.value)}
+          onBlur={() =>
+            commitNumber(backoffDraft, settings.setTaskRetryBackoffMs, () =>
+              setBackoffDraft(String(settings.taskRetryBackoffMs)),
+            )
+          }
+          className="w-24"
+        />
+      </div>
     </div>
   );
 }

@@ -7,6 +7,8 @@ const setters = {
   hooks: vi.fn(),
   signoff: vi.fn(),
   bypass: vi.fn(),
+  autoFetch: vi.fn(),
+  autoFetchInterval: vi.fn(),
 };
 
 vi.mock("@/lib/paraglide/messages", () => ({
@@ -19,9 +21,13 @@ vi.mock("@/lib/stores/settings-store", () => ({
       gitHooksEnabled: false,
       gitSignoffEnabled: false,
       gitBypassEnabled: false,
+      gitAutoFetchEnabled: false,
+      gitAutoFetchIntervalSeconds: 300,
       setGitHooksEnabled: setters.hooks,
       setGitSignoffEnabled: setters.signoff,
       setGitBypassEnabled: setters.bypass,
+      setGitAutoFetchEnabled: setters.autoFetch,
+      setGitAutoFetchIntervalSeconds: setters.autoFetchInterval,
     }),
 }));
 
@@ -32,18 +38,20 @@ afterEach(() => {
 });
 
 describe("GitSettingsTab", () => {
-  it("renderiza as três preferências e persiste cada alteração", () => {
+  it("renderiza as preferências e persiste cada alteração", () => {
     render(<GitSettingsTab />);
     const checkboxes = screen.getAllByRole("checkbox");
-    expect(checkboxes).toHaveLength(3);
+    expect(checkboxes).toHaveLength(4);
 
     fireEvent.click(checkboxes[0]);
     fireEvent.click(checkboxes[1]);
     fireEvent.click(checkboxes[2]);
+    fireEvent.click(checkboxes[3]);
 
     expect(setters.hooks).toHaveBeenCalledWith(true);
     expect(setters.signoff).toHaveBeenCalledWith(true);
     expect(setters.bypass).toHaveBeenCalledWith(true);
+    expect(setters.autoFetch).toHaveBeenCalledWith(true);
     expect(screen.getByText("settings_git_bypass")).toBeTruthy();
   });
 });

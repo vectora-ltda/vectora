@@ -63,20 +63,20 @@ export function WorktreesModal({
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder={m.workbench_diff_worktree_name_placeholder()}
+            placeholder={m.workbench_git_worktree_name_placeholder()}
             className="flex-1 text-xs bg-background border border-border/60 rounded px-1.5 py-1 outline-none focus:border-primary min-w-0"
           />
           <input
             value={branch}
             onChange={(e) => setBranch(e.target.value)}
-            placeholder={m.workbench_diff_worktree_branch_placeholder()}
+            placeholder={m.workbench_git_worktree_branch_placeholder()}
             className="flex-1 text-xs font-mono bg-background border border-border/60 rounded px-1.5 py-1 outline-none focus:border-primary min-w-0"
           />
           <button
             onClick={() => void handleCreate()}
             className="text-[10px] px-2 py-1 rounded bg-primary/10 text-primary hover:bg-primary/20 shrink-0"
           >
-            {m.workbench_diff_worktree_create()}
+            {m.workbench_git_worktree_create()}
           </button>
         </div>
         <div className="max-h-72 overflow-y-auto -mx-1">
@@ -86,7 +86,7 @@ export function WorktreesModal({
             </div>
           ) : entries.length === 0 ? (
             <p className="text-xs text-muted-foreground text-center py-6">
-              {m.workbench_diff_worktree_empty()}
+              {m.workbench_git_worktree_empty()}
             </p>
           ) : (
             entries.map((w, i) => (

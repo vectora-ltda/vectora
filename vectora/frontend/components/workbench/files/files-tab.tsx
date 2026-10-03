@@ -110,6 +110,7 @@ export function FilesTab({ threadId, onAddToContext }: FilesTabProps) {
   const setViewerHeight = useWorkbenchStore((s) => s.setViewerHeight);
   const openWindow = useWindowsStore((s) => s.open);
   const uiMode = useSettingsStore((s) => s.uiMode);
+  const confirmDelete = useSettingsStore((s) => s.editorConfirmDelete);
 
   // aria-busy: verdadeiro enquanto a raiz ainda não chegou do servidor.
   const rootEntriesLoaded = useWorkbenchStore(
@@ -397,25 +398,37 @@ export function FilesTab({ threadId, onAddToContext }: FilesTabProps) {
     [wsId, historyPath],
   );
 
+  const deleteNow = useCallback(
+    async (path: string, permanent: boolean) => {
+      if (!wsId) return;
+      const ok = await apiFsDelete(wsId, path, permanent);
+      if (ok) {
+        invalidateFiles(wsId);
+        if (openPath === path) setOpenFile(wsId, null);
+      }
+    },
+    [wsId, invalidateFiles, openPath, setOpenFile],
+  );
+
   // Deletar arquivo/pasta com confirmação via ConfirmDialog (Radix — C.12).
   const handleDelete = useCallback(
     (path: string, name: string, permanent = false) => {
       if (!wsId) return;
+      if (!confirmDelete) {
+        void deleteNow(path, permanent);
+        return;
+      }
       setDeleteConfirm({ path, name, permanent });
     },
-    [wsId],
+    [confirmDelete, deleteNow, wsId],
   );
 
   const handleDeleteConfirmed = useCallback(async () => {
     if (!wsId || !deleteConfirm) return;
     const { path, permanent } = deleteConfirm;
     setDeleteConfirm(null);
-    const ok = await apiFsDelete(wsId, path, permanent);
-    if (ok) {
-      invalidateFiles(wsId);
-      if (openPath === path) setOpenFile(wsId, null);
-    }
-  }, [wsId, deleteConfirm, openPath, invalidateFiles, setOpenFile]);
+    await deleteNow(path, permanent);
+  }, [deleteConfirm, deleteNow, wsId]);
 
   // Mover por drag-and-drop: soltar um arquivo/pasta arrastado sobre outra
   // pasta (ou a raiz). `targetDir === ""` é a raiz do workspace. No-op

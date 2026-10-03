@@ -41,7 +41,7 @@ describe("WorktreesModal", () => {
 
     await waitFor(() => expect(spy).toHaveBeenCalledWith("ws1"));
     expect(
-      await screen.findByText("workbench_diff_worktree_empty"),
+      await screen.findByText("workbench_git_worktree_empty"),
     ).toBeInTheDocument();
   });
 
@@ -75,9 +75,9 @@ describe("WorktreesModal", () => {
     render(
       <WorktreesModal workspaceId="ws1" open={true} onOpenChange={() => {}} />,
     );
-    await screen.findByText("workbench_diff_worktree_empty");
+    await screen.findByText("workbench_git_worktree_empty");
 
-    fireEvent.click(screen.getByText("workbench_diff_worktree_create"));
+    fireEvent.click(screen.getByText("workbench_git_worktree_create"));
     expect(createSpy).not.toHaveBeenCalled();
   });
 
@@ -94,17 +94,17 @@ describe("WorktreesModal", () => {
     render(
       <WorktreesModal workspaceId="ws1" open={true} onOpenChange={() => {}} />,
     );
-    await screen.findByText("workbench_diff_worktree_empty");
+    await screen.findByText("workbench_git_worktree_empty");
 
     fireEvent.change(
-      screen.getByPlaceholderText("workbench_diff_worktree_name_placeholder"),
+      screen.getByPlaceholderText("workbench_git_worktree_name_placeholder"),
       { target: { value: "feat" } },
     );
     fireEvent.change(
-      screen.getByPlaceholderText("workbench_diff_worktree_branch_placeholder"),
+      screen.getByPlaceholderText("workbench_git_worktree_branch_placeholder"),
       { target: { value: "main" } },
     );
-    fireEvent.click(screen.getByText("workbench_diff_worktree_create"));
+    fireEvent.click(screen.getByText("workbench_git_worktree_create"));
 
     await waitFor(() =>
       expect(createSpy).toHaveBeenCalledWith("ws1", "feat", "main"),
@@ -121,13 +121,13 @@ describe("WorktreesModal", () => {
     render(
       <WorktreesModal workspaceId="ws1" open={true} onOpenChange={() => {}} />,
     );
-    await screen.findByText("workbench_diff_worktree_empty");
+    await screen.findByText("workbench_git_worktree_empty");
 
     fireEvent.change(
-      screen.getByPlaceholderText("workbench_diff_worktree_name_placeholder"),
+      screen.getByPlaceholderText("workbench_git_worktree_name_placeholder"),
       { target: { value: "feat" } },
     );
-    fireEvent.click(screen.getByText("workbench_diff_worktree_create"));
+    fireEvent.click(screen.getByText("workbench_git_worktree_create"));
 
     await waitFor(() =>
       expect(createSpy).toHaveBeenCalledWith("ws1", "feat", undefined),

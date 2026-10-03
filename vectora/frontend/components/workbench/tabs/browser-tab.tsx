@@ -218,7 +218,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     if (!desktopBrowser) return;
     for (const tab of tabsRef.current) {
       if (tab.viewId !== null) {
-        desktopBrowser.setAllowPopups?.(tab.viewId, allowPopups);
+        desktopBrowser.setPolicy?.(tab.viewId, { allowPopups });
       }
     }
   }, [desktopBrowser, allowPopups]);

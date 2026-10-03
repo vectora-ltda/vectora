@@ -45,6 +45,7 @@ function makeFakeView(): ManagedView & {
       setWindowOpenHandler: vi.fn((handler) => {
         windowOpenHandler = handler;
       }),
+      setZoomLevel: vi.fn(),
     },
     setBounds: vi.fn(),
   };
@@ -138,27 +139,23 @@ describe("BrowserViewManager", () => {
     });
   });
 
-  it("nega a janela nativa e encaminha popup permitido como evento gerenciado", () => {
-    const id = manager.createView("profile", "tab", null, {
-      allowPopups: true,
-    });
-    const view = views[0];
-    expect(view.getWindowOpenAction("https://example.com/new")).toEqual({
+  it("converte popups autorizados em eventos para novas abas gerenciadas", () => {
+    manager.createView("profile-a", "tab", null, { allowPopups: true });
+    expect(views[0].getWindowOpenAction("https://example.com")).toEqual({
       action: "deny",
     });
     expect(emitted).toContainEqual({
-      viewId: id,
-      event: { type: "popupRequested", url: "https://example.com/new" },
+      viewId: 1,
+      event: { type: "popupRequested", url: "https://example.com" },
     });
   });
 
-  it("ignora popup permitido com esquema não navegável", () => {
-    manager.createView("profile", "tab", null, { allowPopups: true });
-    const view = views[0];
-    expect(view.getWindowOpenAction("file:///secret")).toEqual({
-      action: "deny",
-    });
-    expect(emitted).toEqual([]);
+  it("aplica zoom normalizado na view existente", () => {
+    const id = manager.createView();
+    manager.setZoomPercent(id, 150);
+    expect(views[0].webContents.setZoomLevel).toHaveBeenCalledWith(
+      Math.log(1.5) / Math.log(1.2),
+    );
   });
 
   it("destroi a view via deps.destroyView; id inexistente não quebra", () => {

@@ -245,13 +245,13 @@ export function CompareView({
                   onClick={() => void resolve(path, "ours")}
                   className="text-[10px] px-2 py-0.5 rounded bg-git-information/10 text-git-information hover:bg-git-information/20"
                 >
-                  {m.workbench_diff_conflicts_ours()}
+                  {m.workbench_git_conflicts_ours()}
                 </button>
                 <button
                   onClick={() => void resolve(path, "theirs")}
                   className="text-[10px] px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 hover:bg-purple-500/20"
                 >
-                  {m.workbench_diff_conflicts_theirs()}
+                  {m.workbench_git_conflicts_theirs()}
                 </button>
               </div>
             </div>

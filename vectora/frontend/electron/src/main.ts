@@ -60,9 +60,11 @@ import {
   BrowserViewManager,
   clearBrowserSessionData,
   type BrowserViewKind,
+  type BrowserDataClearOptions,
   type ManagedView,
   type ViewBounds,
 } from "./browser-view-manager.js";
+import type { BrowserCookie, BrowserDownloadEvent } from "./preload.js";
 import {
   isValidBrowserUrl,
   isValidBrowserViewKind,
@@ -73,17 +75,6 @@ import {
 
 function browserOwnerId(event: unknown): number {
   return (event as { sender?: { id?: number } }).sender?.id ?? -1;
-}
-
-function isTrustedBrowserSender(event: unknown): boolean {
-  const candidate = event as {
-    sender?: unknown;
-    senderFrame?: { url?: string } | null;
-  };
-  return (
-    candidate.sender === mainWindow?.webContents &&
-    (candidate.senderFrame?.url ?? "").startsWith(`${APP_SCHEME}://`)
-  );
 }
 
 import { computeDefaultWindowSize } from "./window-size.js";
@@ -147,6 +138,12 @@ let tray: Tray | null = null;
 let pendingDeepLink: string | null = null;
 let updateReady = false;
 let browserViewManager: BrowserViewManager | null = null;
+const configuredBrowserDownloadSessions = new Set<Electron.Session>();
+const browserPermissionModes = new Map<string, "allow" | "deny">();
+const browserOriginPermissions = new Map<
+  string,
+  Map<string, "allow" | "deny">
+>();
 const desktopBridgeToken =
   process.env.VECTORA_DESKTOP_BRIDGE_TOKEN ?? randomUUID();
 let selectedBackupPath: string | null = null;
@@ -214,14 +211,72 @@ function getBrowserViewManager(): BrowserViewManager {
       _kind: BrowserViewKind = "tab",
       options = {},
     ) => {
+      const browserSession = session.fromPartition(
+        `persist:browser-${profileId}`,
+      );
+      if (!configuredBrowserDownloadSessions.has(browserSession)) {
+        configuredBrowserDownloadSessions.add(browserSession);
+        browserSession.on("will-download", (_event, item) => {
+          const id = randomUUID();
+          const safeName = path.basename(item.getFilename()) || "download";
+          item.setSavePath(path.join(app.getPath("downloads"), safeName));
+          const publish = (state: BrowserDownloadEvent["state"]) => {
+            mainWindow?.webContents.send("vectora:browser-download", {
+              id,
+              profileId,
+              filename: safeName,
+              state,
+              receivedBytes: item.getReceivedBytes(),
+              totalBytes: item.getTotalBytes(),
+            } satisfies BrowserDownloadEvent);
+          };
+          publish("progressing");
+          item.on("updated", () => {
+            const state = item.isPaused() ? "interrupted" : "progressing";
+            publish(state);
+          });
+          item.once("done", (_doneEvent, state) => {
+            publish(
+              state === "completed"
+                ? "completed"
+                : state === "cancelled"
+                  ? "cancelled"
+                  : "interrupted",
+            );
+          });
+        });
+      }
       const view = new WebContentsView({
         webPreferences: {
           contextIsolation: true,
           sandbox: true,
           nodeIntegration: false,
-          session: session.fromPartition(`persist:browser-${profileId}`),
+          session: browserSession,
         },
       });
+      const permissionMode = options.permissionMode ?? "deny";
+      browserPermissionModes.set(profileId, permissionMode);
+      browserSession.setPermissionRequestHandler?.(
+        (webContents, _permission, callback) => {
+          let origin = "";
+          try {
+            origin = new URL(webContents.getURL()).origin;
+          } catch {
+            origin = "";
+          }
+          const originMode = origin
+            ? browserOriginPermissions.get(profileId)?.get(origin)
+            : undefined;
+          callback(
+            (originMode ?? browserPermissionModes.get(profileId)) === "allow",
+          );
+        },
+      );
+      browserSession.setPermissionCheckHandler?.(
+        (_webContents, _permission, requestingOrigin) =>
+          (browserOriginPermissions.get(profileId)?.get(requestingOrigin) ??
+            browserPermissionModes.get(profileId)) === "allow",
+      );
       if (options.zoomPercent !== undefined) {
         const factor = Math.max(0.25, Math.min(5, options.zoomPercent / 100));
         view.webContents.setZoomLevel(Math.log(factor) / Math.log(1.2));
@@ -239,9 +294,25 @@ function getBrowserViewManager(): BrowserViewManager {
     emit: (viewId, event) => {
       mainWindow?.webContents.send("vectora:browser-view-event", viewId, event);
     },
-    clearData: async (partition) => {
+    clearData: async (
+      partition,
+      options: BrowserDataClearOptions = {
+        storage: true,
+        cache: true,
+        credentials: false,
+      },
+    ) => {
       const browserSession = session.fromPartition(partition);
-      await clearBrowserSessionData(browserSession);
+      await clearBrowserSessionData(browserSession, options);
+    },
+    setPermissionMode: (profileId, mode, originPermissions) => {
+      browserPermissionModes.set(profileId, mode);
+      if (originPermissions) {
+        browserOriginPermissions.set(
+          profileId,
+          new Map(Object.entries(originPermissions)),
+        );
+      }
     },
   });
   return browserViewManager;
@@ -334,6 +405,66 @@ const _cookieStore = new Map<string, string>();
 // (criptografado via safeStorage — DPAPI no Windows/Keychain no macOS — quando
 // disponível) em vez de depender do cookie jar do Chromium.
 const _SESSION_STORE_FILE = path.join(os.homedir(), ".vectora", "session.dat");
+
+interface BrowserCredentialRecord {
+  id: string;
+  origin: string;
+  username: string;
+  password: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function browserCredentialFile(profileId: string): string {
+  return path.join(
+    app.getPath("userData"),
+    "browser-credentials",
+    `${profileId}.dat`,
+  );
+}
+
+async function readBrowserCredentials(
+  profileId: string,
+): Promise<BrowserCredentialRecord[]> {
+  try {
+    const raw = await fs.promises.readFile(browserCredentialFile(profileId));
+    if (!safeStorage.isEncryptionAvailable()) return [];
+    const parsed = JSON.parse(safeStorage.decryptString(raw)) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is BrowserCredentialRecord => {
+          const value = item as Partial<BrowserCredentialRecord>;
+          return (
+            typeof value.id === "string" &&
+            typeof value.origin === "string" &&
+            typeof value.username === "string" &&
+            typeof value.password === "string"
+          );
+        })
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeBrowserCredentials(
+  profileId: string,
+  records: BrowserCredentialRecord[],
+): Promise<void> {
+  if (!safeStorage.isEncryptionAvailable())
+    throw new Error("armazenamento seguro indisponível");
+  const file = browserCredentialFile(profileId);
+  await fs.promises.mkdir(path.dirname(file), { recursive: true });
+  await fs.promises.writeFile(
+    file,
+    safeStorage.encryptString(JSON.stringify(records)),
+    { mode: 0o600 },
+  );
+}
+
+function publicCredential(record: BrowserCredentialRecord) {
+  const { password: _password, ...metadata } = record;
+  return metadata;
+}
 
 function persistCookieStore(): void {
   try {
@@ -1037,15 +1168,34 @@ function registerIpc(): void {
   // Browser real da aba Browser (ver getBrowserViewManager) — comandos
   // invoke/handle (resposta esperada) + eventos fire-and-forget, mesmo
   // padrão do restante deste arquivo.
+  const isTrustedBrowserSender = (event: unknown): boolean => {
+    const candidate = event as {
+      sender?: unknown;
+      senderFrame?: { url?: string } | null;
+    };
+    return (
+      candidate.sender === mainWindow?.webContents &&
+      (candidate.senderFrame?.url ?? "").startsWith(`${APP_SCHEME}://`)
+    );
+  };
   ipcMain.handle("vectora:browser-create-view", (event, options: unknown) => {
     if (!isTrustedBrowserSender(event)) throw new Error("origem IPC inválida");
     if (!options || typeof options !== "object")
       throw new Error("opções inválidas");
-    const { profileId, kind, allowPopups, zoomPercent } = options as Partial<{
+    const {
+      profileId,
+      kind,
+      allowPopups,
+      zoomPercent,
+      permissionMode,
+      originPermissions,
+    } = options as Partial<{
       profileId: string;
       kind: BrowserViewKind;
       allowPopups: boolean;
       zoomPercent: number;
+      permissionMode: "allow" | "deny";
+      originPermissions: Record<string, "allow" | "deny">;
     }>;
     if (typeof profileId !== "string" || !isValidProfileId(profileId)) {
       throw new Error("profileId inválido");
@@ -1053,6 +1203,30 @@ function registerIpc(): void {
     if (!isValidBrowserViewKind(kind)) throw new Error("kind inválido");
     if (allowPopups !== undefined && typeof allowPopups !== "boolean") {
       throw new Error("allowPopups inválido");
+    }
+    if (
+      permissionMode !== undefined &&
+      permissionMode !== "allow" &&
+      permissionMode !== "deny"
+    ) {
+      throw new Error("permissionMode inválido");
+    }
+    if (originPermissions !== undefined) {
+      if (!originPermissions || typeof originPermissions !== "object") {
+        throw new Error("originPermissions inválido");
+      }
+      for (const [origin, mode] of Object.entries(originPermissions)) {
+        if (
+          !/^https?:\/\/[^/]+$/.test(origin) ||
+          (mode !== "allow" && mode !== "deny")
+        ) {
+          throw new Error("originPermissions inválido");
+        }
+      }
+      browserOriginPermissions.set(
+        profileId,
+        new Map(Object.entries(originPermissions)),
+      );
     }
     if (
       zoomPercent !== undefined &&
@@ -1064,7 +1238,7 @@ function registerIpc(): void {
       profileId,
       kind,
       browserOwnerId(event),
-      { allowPopups, zoomPercent },
+      { allowPopups, zoomPercent, permissionMode, originPermissions },
     );
   });
   ipcMain.on("vectora:browser-destroy-view", (event, viewId: number) => {
@@ -1117,13 +1291,161 @@ function registerIpc(): void {
   );
   ipcMain.handle(
     "vectora:browser-clear-profile-data",
-    (event, profileId?: string) => {
+    async (
+      event,
+      profileId?: string,
+      options: BrowserDataClearOptions = {
+        storage: true,
+        cache: true,
+        credentials: false,
+      },
+    ) => {
       if (!isTrustedBrowserSender(event))
         throw new Error("origem IPC inválida");
       if (profileId !== undefined && !isValidProfileId(profileId)) {
         throw new Error("profileId inválido");
       }
-      return getBrowserViewManager().clearData(profileId);
+      if (
+        typeof options !== "object" ||
+        typeof options.storage !== "boolean" ||
+        typeof options.cache !== "boolean" ||
+        (options.credentials !== undefined &&
+          typeof options.credentials !== "boolean")
+      ) {
+        throw new Error("opções de limpeza inválidas");
+      }
+      await getBrowserViewManager().clearData(profileId, options);
+      if (options.credentials) {
+        await writeBrowserCredentials(profileId ?? "default", []);
+      }
+    },
+  );
+  ipcMain.handle(
+    "vectora:browser-list-credentials",
+    async (event, profileId: unknown) => {
+      if (
+        !isTrustedBrowserSender(event) ||
+        typeof profileId !== "string" ||
+        !isValidProfileId(profileId)
+      ) {
+        throw new Error("perfil inválido");
+      }
+      return (await readBrowserCredentials(profileId)).map(publicCredential);
+    },
+  );
+  ipcMain.handle(
+    "vectora:browser-save-credential",
+    async (event, input: unknown) => {
+      if (!isTrustedBrowserSender(event) || !input || typeof input !== "object")
+        throw new Error("credencial inválida");
+      const { profileId, origin, username, password } = input as Record<
+        string,
+        unknown
+      >;
+      if (
+        typeof profileId !== "string" ||
+        !isValidProfileId(profileId) ||
+        typeof origin !== "string" ||
+        !/^https?:\/\/[^/]+$/.test(origin) ||
+        typeof username !== "string" ||
+        username.length === 0 ||
+        username.length > 320 ||
+        typeof password !== "string" ||
+        password.length === 0 ||
+        password.length > 4096
+      ) {
+        throw new Error("credencial inválida");
+      }
+      const records = await readBrowserCredentials(profileId);
+      const now = new Date().toISOString();
+      const existing = records.find(
+        (record) => record.origin === origin && record.username === username,
+      );
+      const record: BrowserCredentialRecord = existing
+        ? { ...existing, password, updatedAt: now }
+        : {
+            id: randomUUID(),
+            origin,
+            username,
+            password,
+            createdAt: now,
+            updatedAt: now,
+          };
+      await writeBrowserCredentials(
+        profileId,
+        existing
+          ? records.map((item) => (item.id === record.id ? record : item))
+          : [...records, record],
+      );
+      return publicCredential(record);
+    },
+  );
+  ipcMain.handle(
+    "vectora:browser-delete-credential",
+    async (event, input: unknown) => {
+      if (!isTrustedBrowserSender(event) || !input || typeof input !== "object")
+        throw new Error("credencial inválida");
+      const { profileId, id } = input as Record<string, unknown>;
+      if (
+        typeof profileId !== "string" ||
+        !isValidProfileId(profileId) ||
+        typeof id !== "string"
+      )
+        throw new Error("credencial inválida");
+      const records = await readBrowserCredentials(profileId);
+      await writeBrowserCredentials(
+        profileId,
+        records.filter((record) => record.id !== id),
+      );
+    },
+  );
+  ipcMain.handle(
+    "vectora:browser-list-cookies",
+    async (event, profileId: unknown) => {
+      if (
+        !isTrustedBrowserSender(event) ||
+        typeof profileId !== "string" ||
+        !isValidProfileId(profileId)
+      ) {
+        throw new Error("perfil inválido");
+      }
+      const cookies = await session
+        .fromPartition(`persist:browser-${profileId}`)
+        .cookies.get({});
+      return cookies.map(
+        (cookie) =>
+          ({
+            name: cookie.name ?? "",
+            domain: cookie.domain ?? "",
+            path: cookie.path ?? "/",
+            secure: cookie.secure ?? false,
+            httpOnly: cookie.httpOnly ?? false,
+            ...(cookie.expirationDate
+              ? { expirationDate: cookie.expirationDate }
+              : {}),
+          }) satisfies BrowserCookie,
+      );
+    },
+  );
+  ipcMain.handle(
+    "vectora:browser-remove-cookie",
+    async (event, input: unknown) => {
+      if (!isTrustedBrowserSender(event) || !input || typeof input !== "object")
+        throw new Error("cookie inválido");
+      const { profileId, url, name } = input as Record<string, unknown>;
+      if (
+        typeof profileId !== "string" ||
+        !isValidProfileId(profileId) ||
+        typeof url !== "string" ||
+        !isValidBrowserUrl(url) ||
+        typeof name !== "string" ||
+        name.length === 0
+      ) {
+        throw new Error("cookie inválido");
+      }
+      await session
+        .fromPartition(`persist:browser-${profileId}`)
+        .cookies.remove(url, name);
     },
   );
   ipcMain.on(
@@ -1156,15 +1478,40 @@ function registerIpc(): void {
     },
   );
   ipcMain.on(
-    "vectora:browser-set-allow-popups",
-    (event, viewId: number, allowPopups: boolean) => {
+    "vectora:browser-set-policy",
+    (
+      event,
+      viewId: number,
+      policy: {
+        allowPopups?: boolean;
+        permissionMode?: "allow" | "deny";
+        originPermissions?: Record<string, "allow" | "deny">;
+      },
+    ) => {
       if (!isTrustedBrowserSender(event)) return;
-      if (!isValidViewId(viewId) || typeof allowPopups !== "boolean") return;
-      getBrowserViewManager().setAllowPopups(
-        viewId,
-        allowPopups,
-        browserOwnerId(event),
-      );
+      if (!isValidViewId(viewId) || !policy || typeof policy !== "object")
+        return;
+      if (policy.allowPopups !== undefined) {
+        if (typeof policy.allowPopups !== "boolean") return;
+        getBrowserViewManager().setPopupPolicy(
+          viewId,
+          policy.allowPopups,
+          browserOwnerId(event),
+        );
+      }
+      if (policy.permissionMode !== undefined) {
+        if (
+          policy.permissionMode !== "allow" &&
+          policy.permissionMode !== "deny"
+        )
+          return;
+        getBrowserViewManager().setPermissionMode(
+          viewId,
+          policy.permissionMode,
+          policy.originPermissions,
+          browserOwnerId(event),
+        );
+      }
     },
   );
 

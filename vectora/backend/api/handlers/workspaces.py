@@ -899,7 +899,7 @@ async def create_worktree(body: CreateWorktreeRequest) -> StatusResponse:
 # Workbench views — REST-style /workspaces/{id}/...
 # ---------------------------------------------------------------------------
 #
-# Endpoints específicos consumidos pelas abas Arquivos e Diff do Workbench.
+# Endpoints específicos consumidos pelas abas Arquivos e Git do Workbench.
 # Mantidos num router separado com prefixo /workspaces para conviver com o
 # router Connect-style acima sem colisão.
 
@@ -1396,7 +1396,7 @@ def _untracked_as_diff(content: str) -> list[DiffHunk]:
 
     Arquivos não rastreados pelo git não aparecem em ``git diff HEAD``.
     Esta função formata o conteúdo como se fosse um diff ``+`` completo,
-    permitindo que o diff-tab exiba o arquivo untracked como adição total.
+    permitindo que o Git workbench exiba o arquivo untracked como adição total.
     """
     if not content:
         return []
@@ -1543,7 +1543,7 @@ async def workspace_git_diff_file(
     workspace_id: str,
     path: Annotated[str, Query()],
 ) -> DiffFileResponse:
-    """Hunks unificados de um arquivo específico (lazy load do diff-tab)."""
+    """Hunks unificados de um arquivo específico (lazy load do Git workbench)."""
     from backend.workspace.workspace import workspace_registry
 
     ws = workspace_registry.get(workspace_id)

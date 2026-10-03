@@ -27,9 +27,10 @@ import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { useCIStore } from "@/lib/stores/ci-store";
 import { GitSkeleton } from "../tabs/git-skeleton";
 import {
+  apiSync,
   apiCreatePR,
   fetchBranches,
-  fetchDiff,
+  fetchGitDiff,
   fetchGitStatus,
   fetchGitOperation,
   fetchPullRequests,
@@ -46,6 +47,7 @@ import { WorktreesModal } from "./worktrees-modal";
 import { m } from "@/lib/paraglide/messages";
 import { WorkbenchSettingsSurface } from "@/components/workbench/settings/workbench-settings-surface";
 import { gitSettings } from "@/components/workbench/settings/workbench-settings-registry";
+import { useSettingsStore } from "@/lib/stores/settings-store";
 
 type GitView = "changes" | "history";
 
@@ -178,6 +180,10 @@ export function GitTab({
 }) {
   const workspace = useWorkspacesStore((s) => s.getActive());
   const wsId = workspace?.id ?? "";
+  const autoFetchEnabled = useSettingsStore((s) => s.gitAutoFetchEnabled);
+  const autoFetchIntervalSeconds = useSettingsStore(
+    (s) => s.gitAutoFetchIntervalSeconds,
+  );
   const lastCi = useCIStore((s) => s.lastRun);
 
   const summary = useWorkbenchStore((s) => s.getGit(wsId).summary);
@@ -201,7 +207,7 @@ export function GitTab({
   const [refreshKey, setRefreshKey] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  // Diff summary via SWR (mesmo padrão do antigo DiffTab).
+  // Git status via SWR (mesmo padrão da workbench Git).
   useEffect(() => {
     // fetchedAt dispara a limpeza do pending sempre que um novo fetch chega.
     if (wsId && fetchedAt) clearPending(wsId, "git");
@@ -213,7 +219,7 @@ export function GitTab({
     isStale: () => Date.now() - fetchedAt > WORKBENCH_STALE_MS,
     revalidate: async () => {
       if (!wsId) return;
-      const data = await fetchDiff(wsId);
+      const data = await fetchGitDiff(wsId);
       if (data) setGitSummary(wsId, data);
     },
     skip: !wsId,
@@ -283,6 +289,32 @@ export function GitTab({
     };
   }, [wsId, setGitOperation]);
 
+  // Busca remota opcional, limitada ao workspace ativo e serializada para não
+  // iniciar uma segunda operação enquanto a primeira ainda está pendente.
+  useEffect(() => {
+    if (!wsId || !autoFetchEnabled) return;
+    let cancelled = false;
+    let inFlight = false;
+    const fetchRemoteRefs = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        const result = await apiSync(wsId, "fetch");
+        if (!cancelled && result.status === "ok") invalidateGit(wsId);
+      } finally {
+        inFlight = false;
+      }
+    };
+    const timer = window.setInterval(
+      () => void fetchRemoteRefs(),
+      autoFetchIntervalSeconds * 1000,
+    );
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [autoFetchEnabled, autoFetchIntervalSeconds, invalidateGit, wsId]);
+
   const handleChanged = useCallback(() => {
     if (wsId) invalidateGit(wsId);
     setRefreshKey((k) => k + 1);
@@ -298,7 +330,7 @@ export function GitTab({
   if (!workspace) {
     return (
       <div className="h-full flex items-center justify-center text-xs text-muted-foreground p-4 text-center">
-        {m.workbench_diff_no_workspace()}
+        {m.workbench_git_no_workspace()}
       </div>
     );
   }
@@ -310,7 +342,7 @@ export function GitTab({
       <div className="h-full flex flex-col items-center justify-center gap-2 p-4 text-center">
         <GitBranch className="w-6 h-6 text-muted-foreground" />
         <p className="text-xs text-muted-foreground">
-          {m.workbench_diff_not_git()}
+          {m.workbench_git_not_git()}
         </p>
       </div>
     );
@@ -386,7 +418,7 @@ export function GitTab({
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
-          {m.workbench_diff_tab_changes()}
+          {m.workbench_git_tab_changes()}
         </button>
         <button
           onClick={() => {
