@@ -1200,8 +1200,8 @@ async function handleEvent(
         const tabs = event.tabs as string[];
         if (tabs.includes("files"))
           useWorkbenchStore.getState().invalidateFiles(ws.id);
-        if (tabs.includes("diff"))
-          useWorkbenchStore.getState().invalidateDiff(ws.id);
+        if (tabs.includes("git"))
+          useWorkbenchStore.getState().invalidateGit(ws.id);
         if (tabs.includes("plan") && threadId)
           useWorkbenchStore.getState().invalidatePlan(threadId);
         if (tabs.includes("tasks") || tabs.includes("files"))
@@ -1280,7 +1280,7 @@ function invalidateWorkbenchFor(
     const ws = useWorkspacesStore.getState().getActive();
     if (ws) {
       useWorkbenchStore.getState().invalidateFiles(ws.id);
-      useWorkbenchStore.getState().invalidateDiff(ws.id);
+      useWorkbenchStore.getState().invalidateGit(ws.id);
       // Sinaliza pendência para a aba que não está montada no momento.
       useWorkbenchStore.getState().markPending(ws.id);
     }

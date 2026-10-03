@@ -468,7 +468,7 @@ class WorkbenchInvalidateEvent(BaseModel):
     """Notifica o frontend para recarregar abas específicas do workbench.
 
     Emitido automaticamente ao fim de tool calls que modificam o workspace.
-    ``tabs`` lista quais abas devem ser revalidadas: ``"files"``, ``"diff"``,
+    ``tabs`` lista quais abas devem ser revalidadas: ``"files"``, ``"git"``,
     ``"plan"``, ``"background"``.
     """
 

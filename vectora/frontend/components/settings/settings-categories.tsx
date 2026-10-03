@@ -93,12 +93,14 @@ const ToolPolicyPanel = lazyWithRetry(
     })),
   "settings-tool-policy-tab",
 );
-const GitSettingsTab = lazyWithRetry(
+const WorkbenchesSettings = lazyWithRetry(
   () =>
-    import("./git-settings-tab").then((mod) => ({
-      default: mod.GitSettingsTab,
-    })),
-  "settings-git-tab",
+    import("../workbench/settings/workbenches-settings-category").then(
+      (mod) => ({
+        default: mod.WorkbenchesSettings,
+      }),
+    ),
+  "settings-workbenches",
 );
 const HitlAllowlistPanel = lazyWithRetry(
   () =>
@@ -281,10 +283,10 @@ export function buildSettingsCategoryGroups({
       Component: HitlAllowlistPanel,
     },
     {
-      id: "git",
+      id: "workbenches",
       group: "ambiente",
-      label: m.settings_category_git(),
-      Component: GitSettingsTab,
+      label: m.settings_category_workbenches(),
+      Component: WorkbenchesSettings,
     },
   ];
 
@@ -367,6 +369,7 @@ const CATEGORY_ALIASES: Partial<
   Record<SettingsCategoryId, SettingsCategoryId>
 > = {
   about: "billing",
+  git: "workbenches",
 };
 
 export function findCategory(

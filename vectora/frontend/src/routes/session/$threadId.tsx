@@ -76,6 +76,8 @@ import type { CanvasDocumentDescriptor } from "@/lib/stores/windows-store";
 import type { PlanItem } from "@/lib/stores/workbench-store";
 import type { EditedFile } from "@/lib/types";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
+import { useActiveWorkbenchContextStore } from "@/lib/stores/active-workbench-context-store";
+import { resolveBrowserProfileId } from "@/lib/browser-profile";
 import {
   listThreads,
   getHistory,
@@ -693,6 +695,33 @@ function SessionPage() {
 
   // Threads do workspace ativo (para o session switcher do IDE mode).
   const activeWorkspaceId = useWorkspacesStore((s) => s.active_id);
+  const workspaces = useWorkspacesStore((s) => s.workspaces);
+  const setActiveWorkbenchContext = useActiveWorkbenchContextStore(
+    (s) => s.setContext,
+  );
+  const clearActiveWorkbenchContext = useActiveWorkbenchContextStore(
+    (s) => s.clear,
+  );
+  const hydratedWorkspaceId = workspaces.some(
+    (workspace) => workspace.id === activeWorkspaceId,
+  )
+    ? activeWorkspaceId
+    : null;
+
+  useEffect(() => {
+    setActiveWorkbenchContext({
+      threadId,
+      workspaceId: hydratedWorkspaceId,
+      browserProfileId: resolveBrowserProfileId(threadId, hydratedWorkspaceId),
+    });
+    return clearActiveWorkbenchContext;
+  }, [
+    clearActiveWorkbenchContext,
+    hydratedWorkspaceId,
+    setActiveWorkbenchContext,
+    threadId,
+  ]);
+
   const visibleCanvasDocuments = useMemo(
     () =>
       canvasDocuments.filter((document) =>

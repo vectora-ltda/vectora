@@ -1185,7 +1185,7 @@ describe("useStreamHandler.processStream", () => {
 
     expect(useWorkbenchStore.getState().pending["ws-1"]).toEqual({
       files: true,
-      diff: true,
+      git: true,
     });
   });
 

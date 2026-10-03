@@ -1,10 +1,19 @@
 import type * as Monaco from "monaco-editor";
 
+export interface EditorPreferences {
+  minimap?: boolean;
+  wordWrap?: boolean;
+  formatOnType?: boolean;
+  quickSuggestions?: boolean;
+  lineNumbers?: boolean;
+}
+
 /** Opções visuais e de navegação inspiradas no CodeEdit do Godot. */
 export function godotEditorOptions(
   fontSize: number,
   fontFamily: string,
   readOnly: boolean,
+  preferences: EditorPreferences = {},
 ): Monaco.editor.IStandaloneEditorConstructionOptions {
   return {
     readOnly,
@@ -19,13 +28,13 @@ export function godotEditorOptions(
     // ajusta o zoom do código sem interferir na rolagem normal.
     mouseWheelZoom: true,
     minimap: {
-      enabled: !readOnly,
+      enabled: !readOnly && (preferences.minimap ?? true),
       showSlider: "always",
       renderCharacters: true,
       maxColumn: 80,
       scale: 1,
     },
-    lineNumbers: "on",
+    lineNumbers: preferences.lineNumbers === false ? "off" : "on",
     glyphMargin: true,
     folding: true,
     foldingHighlight: true,
@@ -48,7 +57,9 @@ export function godotEditorOptions(
     },
     overviewRulerBorder: false,
     automaticLayout: true,
+    formatOnType: preferences.formatOnType ?? true,
+    quickSuggestions: preferences.quickSuggestions ?? true,
     tabSize: 2,
-    wordWrap: "off",
+    wordWrap: preferences.wordWrap ? "on" : "off",
   };
 }

@@ -25,16 +25,22 @@ import { Input } from "@/components/ui/input";
 import { useChatInputStore } from "@/lib/stores/chat-input-store";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { useSettingsOverlayStore } from "@/lib/stores/settings-overlay-store";
+import { useSettingsStore } from "@/lib/stores/settings-store";
 import { m as msg } from "@/lib/paraglide/messages";
 import { BrowserDevtoolsPanel } from "./browser-devtools-panel";
-import { WorkbenchSlidePanel } from "@/components/workbench/workbench-slide-panel";
+import { WorkbenchSettingsSurface } from "@/components/workbench/settings/workbench-settings-surface";
+import { browserSettings } from "@/components/workbench/settings/workbench-settings-registry";
+import { resolveBrowserProfileId } from "@/lib/browser-profile";
 import {
   getBrowserSessionGeneration,
   getBrowserSession,
   setBrowserSession,
 } from "@/lib/browser-session-store";
 
-export { clearBrowserSessionCache } from "@/lib/browser-session-store";
+export {
+  clearBrowserSessionCache,
+  getBrowserProfileId,
+} from "@/lib/browser-session-store";
 
 interface LaunchConfig {
   name: string;
@@ -77,22 +83,12 @@ function genId(): string {
     : `tab-${Math.random().toString(36).slice(2)}`;
 }
 
-/** Derives a collision-free, partition-safe identifier from a session key. */
-export function getBrowserProfileId(sessionKey: string): string {
-  const bytes = new TextEncoder().encode(sessionKey);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  const encoded = btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-  return `session-${encoded}`;
-}
-
 function normalizeUrl(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return "";
-  if (/^chrome:\/\/settings(?:\/.*)?$/i.test(trimmed)) return trimmed;
+  // Chromium internal pages belong to the native settings surface. They must
+  // never be accepted by a normal browser tab navigation.
+  if (/^chrome:\/\//i.test(trimmed)) return "";
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   return `https://${trimmed}`;
 }
@@ -140,9 +136,8 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const sessionKey = `${wsId}:${threadId}`;
   const settingsOpen = useSettingsOverlayStore((s) => s.open);
   const [browserSettingsOpen, setBrowserSettingsOpen] = useState(false);
-  const [settingsViewId, setSettingsViewId] = useState<number | null>(null);
-  const settingsViewIdRef = useRef<number | null>(null);
-  const settingsRequestRef = useRef(0);
+  const allowPopups = useSettingsStore((s) => s.browserAllowPopups);
+  const browserZoomPercent = useSettingsStore((s) => s.browserZoomPercent);
 
   // Presente só no desktop Electron — quando ausente, cai no `<iframe>` de
   // fallback abaixo (sujeito a X-Frame-Options, único caminho possível fora
@@ -177,8 +172,6 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   // do console de stdout do dev server acima, que é sobre o processo, não
   // sobre a página que o agente navega via tools de browser.
   const [devtoolsOpen, setDevtoolsOpen] = useState(false);
-  const [clearProfileError, setClearProfileError] = useState(false);
-  const [settingsViewError, setSettingsViewError] = useState(false);
   const [sessionHydrationVersion, setSessionHydrationVersion] = useState(0);
 
   // Múltiplas abas — cada uma com seu próprio histórico (web) ou sua
@@ -201,7 +194,11 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   });
   const [profileId, setProfileId] = useState<string>(() => {
     const restored = getBrowserSession(sessionKey);
-    return restored?.profileId ?? getBrowserProfileId(sessionKey);
+    return (
+      restored?.profileId ??
+      resolveBrowserProfileId(threadId, wsId) ??
+      "default"
+    );
   });
   const hydratedSessionKeyRef = useRef<string | null>(sessionKey);
   const previousSessionKeyRef = useRef(sessionKey);
@@ -210,6 +207,12 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     tabsRef.current = tabs;
   }, [tabs]);
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
+
+  useEffect(() => {
+    if (desktopBrowser && activeTab?.viewId != null) {
+      desktopBrowser.setZoom?.(activeTab.viewId, browserZoomPercent);
+    }
+  }, [desktopBrowser, activeTab?.viewId, browserZoomPercent]);
 
   useEffect(() => {
     if (previousSessionKeyRef.current === sessionKey) return;
@@ -234,7 +237,11 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
 
     setTabs(nextTabs);
     setActiveTabId(nextActiveTabId);
-    setProfileId(restored?.profileId ?? getBrowserProfileId(sessionKey));
+    setProfileId(
+      restored?.profileId ??
+        resolveBrowserProfileId(threadId, wsId) ??
+        "default",
+    );
     hydratedSessionKeyRef.current = sessionKey;
     setSessionHydrationVersion((version) => version + 1);
   }, [sessionKey]);
@@ -256,37 +263,8 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const browserViewContainerRef = useRef<HTMLDivElement>(null);
 
   const toggleBrowserSettings = useCallback(() => {
-    if (browserSettingsOpen) {
-      settingsRequestRef.current += 1;
-      if (desktopBrowser && settingsViewIdRef.current !== null) {
-        desktopBrowser.setVisible(settingsViewIdRef.current, false);
-        desktopBrowser.destroyView(settingsViewIdRef.current);
-        settingsViewIdRef.current = null;
-        setSettingsViewId(null);
-      }
-      setBrowserSettingsOpen(false);
-      return;
-    }
-    setSettingsViewError(false);
-    setBrowserSettingsOpen(true);
-    if (!desktopBrowser) return;
-    const requestId = ++settingsRequestRef.current;
-    void desktopBrowser
-      .createView(profileId)
-      .then((viewId) => {
-        if (requestId !== settingsRequestRef.current) {
-          desktopBrowser.destroyView(viewId);
-          return;
-        }
-        settingsViewIdRef.current = viewId;
-        setSettingsViewId(viewId);
-        void desktopBrowser.navigate(viewId, "chrome://settings");
-      })
-      .catch(() => {
-        if (requestId !== settingsRequestRef.current) return;
-        setSettingsViewError(true);
-      });
-  }, [browserSettingsOpen, desktopBrowser, profileId]);
+    setBrowserSettingsOpen((open) => !open);
+  }, []);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -368,35 +346,49 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       if (!desktopBrowser) return;
       const sessionGeneration = getBrowserSessionGeneration(sessionKey);
       pendingViewCreatesRef.current.add(tabId);
-      void desktopBrowser.createView(profileId).then((viewId) => {
-        if (
-          !pendingViewCreatesRef.current.has(tabId) ||
-          getBrowserSessionGeneration(sessionKey) !== sessionGeneration
-        ) {
-          desktopBrowser.destroyView(viewId);
-          return;
-        }
-        pendingViewCreatesRef.current.delete(tabId);
-        if (!tabsRef.current.some((tab) => tab.id === tabId)) {
-          pendingNavigateRef.current.delete(tabId);
-          desktopBrowser.destroyView(viewId);
-          return;
-        }
-        const pending = pendingNavigateRef.current.get(tabId);
-        updateTab(tabId, {
-          viewId,
-          ...(pending ? { desktopUrl: pending } : {}),
-        });
-        if (pending) {
-          pendingNavigateRef.current.delete(tabId);
-          void desktopBrowser.navigate(viewId, pending).then((result) => {
-            if (!result.ok)
-              updateTab(tabId, { loadError: result.error ?? null });
+      void desktopBrowser
+        .createView({
+          profileId,
+          kind: "tab",
+          allowPopups,
+          zoomPercent: browserZoomPercent,
+        })
+        .then((viewId) => {
+          if (
+            !pendingViewCreatesRef.current.has(tabId) ||
+            getBrowserSessionGeneration(sessionKey) !== sessionGeneration
+          ) {
+            desktopBrowser.destroyView(viewId);
+            return;
+          }
+          pendingViewCreatesRef.current.delete(tabId);
+          if (!tabsRef.current.some((tab) => tab.id === tabId)) {
+            pendingNavigateRef.current.delete(tabId);
+            desktopBrowser.destroyView(viewId);
+            return;
+          }
+          const pending = pendingNavigateRef.current.get(tabId);
+          updateTab(tabId, {
+            viewId,
+            ...(pending ? { desktopUrl: pending } : {}),
           });
-        }
-      });
+          if (pending) {
+            pendingNavigateRef.current.delete(tabId);
+            void desktopBrowser.navigate(viewId, pending).then((result) => {
+              if (!result.ok)
+                updateTab(tabId, { loadError: result.error ?? null });
+            });
+          }
+        });
     },
-    [desktopBrowser, profileId, sessionKey, updateTab],
+    [
+      desktopBrowser,
+      profileId,
+      sessionKey,
+      updateTab,
+      allowPopups,
+      browserZoomPercent,
+    ],
   );
 
   const addTab = useCallback(
@@ -505,45 +497,52 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     )) {
       pendingViewCreatesRef.current.add(tab.id);
       const sessionGeneration = getBrowserSessionGeneration(sessionKey);
-      void desktopBrowser.createView(profileId).then((viewId) => {
-        if (
-          !pendingViewCreatesRef.current.has(tab.id) ||
-          getBrowserSessionGeneration(sessionKey) !== sessionGeneration
-        ) {
-          desktopBrowser.destroyView(viewId);
-          return;
-        }
-        pendingViewCreatesRef.current.delete(tab.id);
-        if (cancelled) {
-          desktopBrowser.destroyView(viewId);
-          return;
-        }
-        if (!tabsRef.current.some((candidate) => candidate.id === tab.id)) {
+      void desktopBrowser
+        .createView({
+          profileId,
+          kind: "tab",
+          allowPopups,
+          zoomPercent: browserZoomPercent,
+        })
+        .then((viewId) => {
+          if (
+            !pendingViewCreatesRef.current.has(tab.id) ||
+            getBrowserSessionGeneration(sessionKey) !== sessionGeneration
+          ) {
+            desktopBrowser.destroyView(viewId);
+            return;
+          }
+          pendingViewCreatesRef.current.delete(tab.id);
+          if (cancelled) {
+            desktopBrowser.destroyView(viewId);
+            return;
+          }
+          if (!tabsRef.current.some((candidate) => candidate.id === tab.id)) {
+            pendingNavigateRef.current.delete(tab.id);
+            desktopBrowser.destroyView(viewId);
+            return;
+          }
+          const pending = pendingNavigateRef.current.get(tab.id);
           pendingNavigateRef.current.delete(tab.id);
-          desktopBrowser.destroyView(viewId);
-          return;
-        }
-        const pending = pendingNavigateRef.current.get(tab.id);
-        pendingNavigateRef.current.delete(tab.id);
-        setTabs((prev) =>
-          prev.map((candidate) =>
-            candidate.id === tab.id
-              ? {
-                  ...candidate,
-                  viewId,
-                  ...(pending ? { desktopUrl: pending } : {}),
-                }
-              : candidate,
-          ),
-        );
-        const initialUrl = pending ?? tab.desktopUrl;
-        if (initialUrl) {
-          void desktopBrowser.navigate(viewId, initialUrl).then((result) => {
-            if (!result.ok)
-              updateTab(tab.id, { loadError: result.error ?? null });
-          });
-        }
-      });
+          setTabs((prev) =>
+            prev.map((candidate) =>
+              candidate.id === tab.id
+                ? {
+                    ...candidate,
+                    viewId,
+                    ...(pending ? { desktopUrl: pending } : {}),
+                  }
+                : candidate,
+            ),
+          );
+          const initialUrl = pending ?? tab.desktopUrl;
+          if (initialUrl) {
+            void desktopBrowser.navigate(viewId, initialUrl).then((result) => {
+              if (!result.ok)
+                updateTab(tab.id, { loadError: result.error ?? null });
+            });
+          }
+        });
     }
     return () => {
       cancelled = true;
@@ -686,52 +685,6 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     settingsOpen,
     visible,
   ]);
-
-  useEffect(() => {
-    if (!desktopBrowser || settingsViewId === null) return;
-
-    const shouldShow = browserSettingsOpen && visible && !settingsOpen;
-    const el = browserViewContainerRef.current;
-    if (!shouldShow || !el) {
-      desktopBrowser.setVisible(settingsViewId, false);
-      return;
-    }
-
-    const report = () => {
-      const rect = el.getBoundingClientRect();
-      desktopBrowser.setBounds(settingsViewId, {
-        x: Math.round(rect.left),
-        y: Math.round(rect.top),
-        width: Math.max(0, Math.round(rect.width)),
-        height: Math.max(0, Math.round(rect.height)),
-      });
-      desktopBrowser.setVisible(settingsViewId, true);
-    };
-    report();
-    const observer = new ResizeObserver(report);
-    observer.observe(el);
-    return () => {
-      observer.disconnect();
-      desktopBrowser.setVisible(settingsViewId, false);
-    };
-  }, [
-    browserSettingsOpen,
-    desktopBrowser,
-    settingsOpen,
-    settingsViewId,
-    visible,
-  ]);
-
-  useEffect(
-    () => () => {
-      settingsRequestRef.current += 1;
-      if (desktopBrowser && settingsViewIdRef.current !== null) {
-        desktopBrowser.destroyView(settingsViewIdRef.current);
-        settingsViewIdRef.current = null;
-      }
-    },
-    [desktopBrowser],
-  );
 
   const fetchLaunch = useCallback(
     async (isCurrent: () => boolean = () => true) => {
@@ -1342,50 +1295,19 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         </button>
       </div>
 
-      <WorkbenchSlidePanel
+      <WorkbenchSettingsSurface
+        descriptor={browserSettings}
+        context={{
+          threadId,
+          workspaceId: wsId || null,
+          browserProfileId: profileId,
+        }}
         open={browserSettingsOpen}
-        onClose={toggleBrowserSettings}
-        title={msg.workbench_browser_settings_title()}
+        onOpenChange={(open) => {
+          if (!open && browserSettingsOpen) toggleBrowserSettings();
+        }}
         testId="browser-settings-panel"
-      >
-        <div className="space-y-3 text-xs text-muted-foreground">
-          <p>{msg.workbench_browser_settings_description()}</p>
-          {desktopBrowser ? (
-            <>
-              <button
-                type="button"
-                className="rounded border border-destructive/40 px-2 py-1 text-destructive hover:bg-destructive/10"
-                onClick={() => {
-                  if (
-                    !window.confirm(
-                      msg.workbench_browser_clear_profile_confirm(),
-                    )
-                  )
-                    return;
-                  setClearProfileError(false);
-                  void desktopBrowser.clearProfileData(profileId).catch(() => {
-                    setClearProfileError(true);
-                  });
-                }}
-              >
-                {msg.workbench_browser_clear_profile_data()}
-              </button>
-              {clearProfileError ? (
-                <p role="alert" className="text-destructive">
-                  {msg.workbench_browser_clear_profile_error()}
-                </p>
-              ) : null}
-              {settingsViewError ? (
-                <p role="alert" className="text-destructive">
-                  {msg.workbench_browser_settings_error()}
-                </p>
-              ) : null}
-            </>
-          ) : (
-            <p>{msg.workbench_browser_settings_unavailable()}</p>
-          )}
-        </div>
-      </WorkbenchSlidePanel>
+      />
 
       {/* Barra de navegação — sempre ativa, não depende de nenhum servidor */}
       <div className="flex items-center gap-1 border-b border-border/60 bg-card/20 px-2 py-1">
