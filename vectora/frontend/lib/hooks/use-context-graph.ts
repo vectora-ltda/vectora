@@ -47,9 +47,18 @@ export interface RawGraphLink {
   [key: string]: unknown;
 }
 
+export interface RawGraphCommunity {
+  id: number;
+  key: string;
+  name: string;
+  count: number;
+  cohesion?: number;
+}
+
 export interface RawGraphData {
   nodes: RawGraphNode[];
   links: RawGraphLink[];
+  communities?: RawGraphCommunity[];
   hyperedges?: unknown[];
 }
 

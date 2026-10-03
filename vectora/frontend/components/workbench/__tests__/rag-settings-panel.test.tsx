@@ -14,7 +14,26 @@ import {
   within,
 } from "@testing-library/react";
 
-import { RagCollectionsSection, RagSettingsPanel } from "../rag-settings-panel";
+import {
+  RagCollectionsSection,
+  RagSettingsButton,
+  RagSettingsForm,
+  useRagSettings,
+} from "../rag-settings-panel";
+
+function TestRagSettingsPanel() {
+  const state = useRagSettings();
+  return (
+    <>
+      <RagSettingsButton open={state.open} onToggle={state.toggle} />
+      {state.open ? (
+        <div data-testid="rag-settings-panel">
+          <RagSettingsForm {...state} />
+        </div>
+      ) : null}
+    </>
+  );
+}
 
 const FETCH = vi.fn();
 
@@ -77,7 +96,7 @@ describe("RagSettingsPanel", () => {
       return jsonRes({});
     });
 
-    render(<RagSettingsPanel />);
+    render(<TestRagSettingsPanel />);
     expect(screen.queryByTestId("rag-settings-panel")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("rag-settings-btn"));
@@ -109,7 +128,7 @@ describe("RagSettingsPanel", () => {
       return jsonRes({});
     });
 
-    render(<RagSettingsPanel />);
+    render(<TestRagSettingsPanel />);
     fireEvent.click(screen.getByTestId("rag-settings-btn"));
     await waitFor(() =>
       expect(screen.getByTestId("rag-settings-panel")).toBeInTheDocument(),
@@ -162,7 +181,7 @@ describe("RagSettingsPanel", () => {
       return jsonRes({});
     });
 
-    render(<RagSettingsPanel />);
+    render(<TestRagSettingsPanel />);
     fireEvent.click(screen.getByTestId("rag-settings-btn"));
     await waitFor(() =>
       expect(screen.getByTestId("rag-settings-panel")).toBeInTheDocument(),
@@ -225,7 +244,7 @@ describe("RagSettingsPanel", () => {
       return jsonRes({});
     });
 
-    render(<RagSettingsPanel />);
+    render(<TestRagSettingsPanel />);
     fireEvent.click(screen.getByTestId("rag-settings-btn"));
     await waitFor(() =>
       expect(screen.getByTestId("rag-settings-panel")).toBeInTheDocument(),
@@ -265,7 +284,7 @@ describe("RagSettingsPanel", () => {
       return jsonRes({});
     });
 
-    render(<RagSettingsPanel />);
+    render(<TestRagSettingsPanel />);
     fireEvent.click(screen.getByTestId("rag-settings-btn"));
     await waitFor(() =>
       expect(screen.getByTestId("rag-settings-panel")).toBeInTheDocument(),
@@ -301,7 +320,7 @@ describe("RagSettingsPanel", () => {
       return jsonRes({});
     });
 
-    render(<RagSettingsPanel />);
+    render(<TestRagSettingsPanel />);
     fireEvent.click(screen.getByTestId("rag-settings-btn"));
     await waitFor(() =>
       expect(screen.getByTestId("rag-settings-panel")).toBeInTheDocument(),
@@ -329,7 +348,7 @@ describe("RagSettingsPanel", () => {
       return jsonRes({});
     });
 
-    render(<RagSettingsPanel />);
+    render(<TestRagSettingsPanel />);
     fireEvent.click(screen.getByTestId("rag-settings-btn"));
     await waitFor(() =>
       expect(screen.getByTestId("rag-settings-panel")).toBeInTheDocument(),

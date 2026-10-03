@@ -54,6 +54,10 @@ vi.mock("@/lib/hooks/use-context-graph", () => ({
   useContextGraph: (...args: unknown[]) => mockUseContextGraph(...args),
 }));
 
+vi.mock("@/components/workbench/tabs/context-graph-viewer", () => ({
+  ContextGraphViewer: () => <div data-testid="graph-canvas-mock" />,
+}));
+
 // reagraph renderiza um canvas WebGL real (three.js) — sem suporte em jsdom.
 // Stub minimalista só pra provar que o componente nativo é montado (em vez
 // do antigo iframe), sem depender de um contexto GL que jsdom não tem.
@@ -253,6 +257,20 @@ describe("ContextGraphTab", () => {
   });
 
   describe("estado done", () => {
+    it("mantém o grafo disponível e informa degradação do índice semântico", () => {
+      setup({
+        status: {
+          status: "degraded",
+          node_count: 42,
+          edge_count: 17,
+          error: "Índice semântico indisponível",
+        },
+      });
+      render(<ContextGraphTab threadId="t1" />);
+      expect(screen.getByTestId("graph-degraded")).toBeTruthy();
+      expect(screen.getByText("Índice semântico indisponível")).toBeTruthy();
+    });
+
     it("exibe contagem de nós e arestas", () => {
       setup({ status: { status: "done", node_count: 42, edge_count: 17 } });
       render(<ContextGraphTab threadId="t1" />);
@@ -270,7 +288,6 @@ describe("ContextGraphTab", () => {
       setup({ status: { status: "done", node_count: 42, edge_count: 17 } });
       render(<ContextGraphTab threadId="t1" />);
       await screen.findByTestId("graph-canvas-mock");
-      expect(mockFetchGraphData).toHaveBeenCalled();
       // Nenhum iframe nem link externo aponta pro HTML do grafo — só o
       // canvas nativo (o link de crédito do rodapé, esse sim externo,
       // continua existindo).
