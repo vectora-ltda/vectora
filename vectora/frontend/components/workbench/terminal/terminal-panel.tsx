@@ -359,8 +359,16 @@ export function TerminalSettings({ workspaceId }: WorkbenchSettingsContext) {
               type="number"
               min={8}
               max={32}
-              value={fontSize}
-              onChange={(e) => setFontSize(Number(e.target.value))}
+              key={`font-${fontSize}`}
+              defaultValue={fontSize}
+              onBlur={(e) => {
+                if (e.target.value.trim() && e.target.validity.valid)
+                  setFontSize(Number(e.target.value));
+                else e.target.value = String(fontSize);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+              }}
             />
             <p className="text-xs text-muted-foreground">
               {m.workbench_terminal_font_size_help()}
@@ -375,8 +383,16 @@ export function TerminalSettings({ workspaceId }: WorkbenchSettingsContext) {
               type="number"
               min={100}
               max={50000}
-              value={scrollback}
-              onChange={(e) => setScrollback(Number(e.target.value))}
+              key={`scrollback-${scrollback}`}
+              defaultValue={scrollback}
+              onBlur={(e) => {
+                if (e.target.value.trim() && e.target.validity.valid)
+                  setScrollback(Number(e.target.value));
+                else e.target.value = String(scrollback);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+              }}
             />
             <p className="text-xs text-muted-foreground">
               {m.workbench_terminal_scrollback_help()}

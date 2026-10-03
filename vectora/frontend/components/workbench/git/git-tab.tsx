@@ -300,7 +300,12 @@ export function GitTab({
       inFlight = true;
       try {
         const result = await apiSync(wsId, "fetch");
-        if (!cancelled && result.status === "ok") invalidateGit(wsId);
+        if (!cancelled && result.status === "ok") {
+          invalidateGit(wsId);
+          setRefreshKey((key) => key + 1);
+        }
+      } catch {
+        // Preserve the snapshot and retry on the next configured interval.
       } finally {
         inFlight = false;
       }

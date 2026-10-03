@@ -14,6 +14,7 @@ import { useSettingsStore } from "@/lib/stores/settings-store";
 import type { WorkbenchSettingsContext } from "@/lib/types/workbench-settings";
 import { m } from "@/lib/paraglide/messages";
 
+/** Render an accessible preference toggle with its explanation. */
 function Toggle({
   id,
   label,
@@ -38,6 +39,7 @@ function Toggle({
   );
 }
 
+/** Edit persisted Monaco, formatting, lint and file preferences. */
 export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
   const settings = useSettingsStore();
   return (
@@ -447,6 +449,7 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
   );
 }
 
+/** Configure plan display and ordering preferences. */
 export function PlanSettingsForm(_context: WorkbenchSettingsContext) {
   const settings = useSettingsStore();
   return (
@@ -483,6 +486,7 @@ export function PlanSettingsForm(_context: WorkbenchSettingsContext) {
   );
 }
 
+/** Configure notifications, bounded retries and task concurrency. */
 export function TasksSettingsForm(_context: WorkbenchSettingsContext) {
   const settings = useSettingsStore();
   return (
@@ -560,6 +564,7 @@ export function TasksSettingsForm(_context: WorkbenchSettingsContext) {
   );
 }
 
+/** Configure library ordering and visibility preferences. */
 export function LibrarySettingsForm(_context: WorkbenchSettingsContext) {
   const settings = useSettingsStore();
   return (
