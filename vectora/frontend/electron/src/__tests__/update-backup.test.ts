@@ -1,10 +1,18 @@
-import { mkdtemp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  truncate,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   createRotatingUpdateBackup,
+  listUpdateBackups,
   restoreUpdateBackup,
   withFileLockRetry,
 } from "../update-backup.js";
@@ -69,6 +77,59 @@ describe("update backups", () => {
       ({ listUpdateBackups }) => listUpdateBackups(backups),
     );
     expect(entries).toHaveLength(5);
+  });
+
+  it("retains complete and partial snapshots under independent limits", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "vectora-update-"));
+    const userData = path.join(root, "user-data");
+    const backups = path.join(root, "backups");
+    await mkdir(userData, { recursive: true });
+    await writeFile(path.join(userData, "settings.json"), "complete");
+
+    const complete = [];
+    for (let index = 0; index < 2; index += 1) {
+      complete.push(
+        await createRotatingUpdateBackup(userData, backups, `0.1.${index}`),
+      );
+    }
+
+    const oversized = path.join(userData, "locked-cache.bin");
+    await writeFile(oversized, "");
+    await truncate(oversized, 256 * 1024 * 1024 + 1);
+    for (let index = 0; index < 3; index += 1) {
+      await createRotatingUpdateBackup(userData, backups, `0.2.${index}`, 2, 1);
+    }
+
+    for (const entry of complete) {
+      await expect(
+        readFile(path.join(entry.path, "manifest.json")),
+      ).resolves.toBeDefined();
+    }
+    const entries = await listUpdateBackups(backups);
+    expect(entries.filter((entry) => !entry.skipped)).toHaveLength(2);
+    expect(entries.filter((entry) => entry.skipped)).toHaveLength(1);
+  });
+
+  it("ignores parseable but incompatible manifests during retention", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "vectora-update-"));
+    const userData = path.join(root, "user-data");
+    const backups = path.join(root, "backups");
+    await mkdir(userData, { recursive: true });
+    await mkdir(path.join(backups, "invalid"), { recursive: true });
+    await writeFile(path.join(userData, "settings.json"), "safe");
+    await writeFile(
+      path.join(backups, "invalid", "manifest.json"),
+      JSON.stringify({}),
+    );
+
+    for (let index = 0; index < 2; index += 1) {
+      await createRotatingUpdateBackup(userData, backups, `0.3.${index}`, 1);
+    }
+
+    await expect(
+      readFile(path.join(backups, "invalid", "manifest.json")),
+    ).resolves.toBeDefined();
+    expect(await listUpdateBackups(backups)).toHaveLength(1);
   });
 
   it("rejects a renderer-supplied backup outside the root", async () => {
@@ -206,6 +267,45 @@ describe("update backups", () => {
     await expect(
       readFile(path.join(userData, "settings.json"), "utf8"),
     ).resolves.toBe("safe");
+  });
+
+  it("recusa restaurar um snapshot parcial", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "vectora-update-"));
+    const userData = path.join(root, "user-data");
+    const backups = path.join(root, "backups");
+    await mkdir(userData, { recursive: true });
+    await writeFile(path.join(userData, "settings.json"), "safe");
+    const entry = await createRotatingUpdateBackup(userData, backups, "0.1.0");
+    const manifestPath = path.join(entry.path, "manifest.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
+      skipped?: string[];
+    };
+    manifest.skipped = ["locked.db"];
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+    await expect(restoreUpdateBackup(entry, userData, backups)).rejects.toThrow(
+      "Backup parcial não pode ser restaurado",
+    );
+    await expect(
+      readFile(path.join(userData, "settings.json"), "utf8"),
+    ).resolves.toBe("safe");
+  });
+
+  it("marca arquivos acima do limite como omitidos", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "vectora-update-"));
+    const userData = path.join(root, "user-data");
+    const backups = path.join(root, "backups");
+    await mkdir(userData, { recursive: true });
+    const oversized = path.join(userData, "large-cache.bin");
+    await writeFile(oversized, "");
+    await truncate(oversized, 256 * 1024 * 1024 + 1);
+
+    const entry = await createRotatingUpdateBackup(userData, backups, "0.1.0");
+
+    expect(entry.skipped).toEqual(["large-cache.bin"]);
+    await expect(restoreUpdateBackup(entry, userData, backups)).rejects.toThrow(
+      "Backup parcial não pode ser restaurado",
+    );
   });
 
   it("serializa restaurações concorrentes sem deixar estado intermediário", async () => {

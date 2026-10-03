@@ -778,6 +778,30 @@ async function isAutoUpdateEnabled(): Promise<boolean> {
   return prefs?.autoUpdateEnabled !== false;
 }
 
+/** Resolve changelog notes from the packaged manifest, using the authenticated backend as fallback. */
+async function fetchPackagedChangelog(
+  fallback: string,
+  expectedVersion: string,
+): Promise<string> {
+  const packaged = fallback.trim();
+  if (packaged) return packaged;
+  try {
+    const payload = await fetchBackendJson<{
+      notes?: string;
+      version?: string;
+    }>(
+      backendTransport(),
+      "/api/updates/changelog",
+      _cookieStore.size > 0 ? { cookie: buildCookieHeader(_cookieStore) } : {},
+    );
+    if (payload?.version !== expectedVersion) return "";
+    return payload.notes?.trim() || "";
+  } catch (error) {
+    console.warn("[updater] não foi possível carregar o changelog", error);
+    return fallback;
+  }
+}
+
 /**
  * Registra os listeners do `electron-updater` e propaga o estado pro
  * renderer via `vectora:update-status` (consumido em `UpdateBanner`,
@@ -786,13 +810,14 @@ async function isAutoUpdateEnabled(): Promise<boolean> {
  * (`vectora:check-for-update`, ver `registerIpc()`) também precisa desses
  * listeners pra a UI mostrar o resultado.
  */
+/** Register updater events and expose their merged status to the renderer. */
 function setupAutoUpdater(): void {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
   let latestStatus: UpdateStatus = { state: "not-available" };
 
-  const broadcast = (status: UpdateStatus) => {
+  const broadcast = (status: Partial<UpdateStatus>) => {
     latestStatus = { ...latestStatus, ...status };
     mainWindow?.webContents.send("vectora:update-status", latestStatus);
   };
@@ -818,6 +843,13 @@ function setupAutoUpdater(): void {
       );
     });
     broadcast({ state: "available", message: info.version, changelog: notes });
+    void fetchPackagedChangelog(notes, info.version).then((changelog) => {
+      if (changelog && changelog !== notes) {
+        // Atualiza somente as notas. Preserva `downloading`/`downloaded` caso
+        // a resposta do backend chegue depois do progresso do download.
+        broadcast({ changelog });
+      }
+    });
     void startUpdateDownload().catch((error: unknown) => {
       broadcast({
         state: "error",
