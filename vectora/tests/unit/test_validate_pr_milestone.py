@@ -144,6 +144,16 @@ def test_master_feature_pr_is_accepted() -> None:
     )
 
 
+def test_stacked_feature_pr_is_accepted_without_release_milestone() -> None:
+    """Aceita PRs empilhadas apenas dentro do namespace controlado de stack."""
+    assert (
+        validator.validate_pull_request(
+            _event(base="stack/base-contracts", milestone=None)
+        )
+        == []
+    )
+
+
 def test_master_pr_rejects_maintenance_milestone() -> None:
     """Rejeita milestone de manutenção em uma PR de desenvolvimento."""
     errors = validator.validate_pull_request(
