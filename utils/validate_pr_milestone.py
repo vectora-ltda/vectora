@@ -95,6 +95,7 @@ _RELEASE_PLEASE_MINOR_BRANCH = re.compile(
 _RELEASE_PLEASE_PATCH_BRANCH = re.compile(
     r"^release-please-(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>[1-9]\d*)$"
 )
+_STACK_BASE = re.compile(r"^stack/[a-z0-9][a-z0-9-]*$")
 
 
 class ReleaseLine(BaseModel):
@@ -197,6 +198,8 @@ def validate_pull_request(event: EventPayload) -> list[str]:
     errors: list[str] = []
     base = pull_request.base.ref if pull_request.base else ""
     if _is_release_please_pr(parsed_event, pull_request):
+        return []
+    if _STACK_BASE.fullmatch(base):
         return []
     line = _line_for_base(base)
     if line is None:
