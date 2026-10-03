@@ -1820,5 +1820,6 @@
   "workbench_browser_cookies_title": "Cookies",
   "workbench_browser_cookies_help": "Cookies salvos por este perfil do navegador.",
   "workbench_browser_cookies_empty": "Nenhum cookie salvo.",
+  "workbench_browser_cookies_remove_error": "Não foi possível remover o cookie.",
   "workbench_browser_cookies_remove": "Remover"
 }

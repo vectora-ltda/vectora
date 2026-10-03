@@ -31,6 +31,7 @@ import { BrowserDevtoolsPanel } from "./browser-devtools-panel";
 import { WorkbenchSettingsSurface } from "@/components/workbench/settings/workbench-settings-surface";
 import { browserSettings } from "@/components/workbench/settings/workbench-settings-registry";
 import { resolveBrowserProfileId } from "@/lib/browser-profile";
+import { browserFramePermissions } from "@/lib/browser-frame-policy";
 import {
   getBrowserSessionGeneration,
   getBrowserSession,
@@ -490,7 +491,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       }
       return id;
     },
-    [desktopBrowser, createDesktopView],
+    [desktopBrowser, createDesktopView, browserSearchEngine],
   );
 
   const closeTab = useCallback(
@@ -1488,15 +1489,11 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         ) : currentUrl ? (
           <iframe
             ref={iframeRef}
-            key={`${activeTab.id}-${activeTab.iframeKey}`}
+            key={`${activeTab.id}-${activeTab.iframeKey}-${webPermissionsAllowed}-${allowPopups}`}
             src={currentUrl}
             className="flex-1 w-full border-0 bg-white"
             title={msg.workbench_browser_frame_title()}
-            allow={
-              webPermissionsAllowed
-                ? "camera; microphone; geolocation; notifications"
-                : ""
-            }
+            allow={browserFramePermissions(webPermissionsAllowed)}
             sandbox={[
               "allow-scripts",
               "allow-forms",

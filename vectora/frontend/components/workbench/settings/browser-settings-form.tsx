@@ -57,7 +57,7 @@ export function BrowserSettingsForm({
   const [credentialUsername, setCredentialUsername] = useState("");
   const [credentialPassword, setCredentialPassword] = useState("");
   const [cookies, setCookies] = useState<
-    Array<{ name: string; domain: string; path: string }>
+    Array<{ name: string; domain: string; path: string; secure: boolean }>
   >([]);
   const [downloads, setDownloads] = useState<
     Array<{
@@ -305,14 +305,21 @@ export function BrowserSettingsForm({
                     type="button"
                     className="text-destructive"
                     onClick={async () => {
-                      await desktopBrowser?.removeCookie?.({
-                        profileId: profileId ?? "",
-                        url: `https://${cookie.domain.replace(/^\./, "")}${cookie.path}`,
-                        name: cookie.name,
-                      });
-                      setCookies((current) =>
-                        current.filter((item) => item !== cookie),
-                      );
+                      try {
+                        if (!desktopBrowser?.removeCookie || !profileId) return;
+                        await desktopBrowser?.removeCookie?.({
+                          profileId: profileId ?? "",
+                          url: `${cookie.secure ? "https" : "http"}://${cookie.domain.replace(/^\./, "")}${cookie.path}`,
+                          name: cookie.name,
+                        });
+                        setCookies((current) =>
+                          current.filter((item) => item !== cookie),
+                        );
+                      } catch {
+                        useToastStore
+                          .getState()
+                          .error(m.workbench_browser_cookies_remove_error());
+                      }
                     }}
                   >
                     {m.workbench_browser_cookies_remove()}

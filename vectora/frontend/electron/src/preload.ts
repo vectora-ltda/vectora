@@ -135,7 +135,11 @@ export interface VectoraDesktopBridge {
     setZoom: (viewId: number, percent: number) => void;
     setPolicy: (
       viewId: number,
-      policy: { allowPopups?: boolean; permissionMode?: "allow" | "deny" },
+      policy: {
+        allowPopups?: boolean;
+        permissionMode?: "allow" | "deny";
+        originPermissions?: Record<string, "allow" | "deny">;
+      },
     ) => void;
     clearProfileData: (
       profileId?: string,

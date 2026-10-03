@@ -475,7 +475,11 @@ async def manual_transition(
 
 
 async def claim_task(
-    task_id: str, run_id: str, *, ttl_s: int = _DEFAULT_CLAIM_TTL_S
+    task_id: str,
+    run_id: str,
+    *,
+    ttl_s: int = _DEFAULT_CLAIM_TTL_S,
+    occurrence: tuple[str | None] | None = None,
 ) -> bool:
     """Reivindica a task para `run_id`. `False` quando outro já pegou.
 
@@ -499,8 +503,28 @@ async def claim_task(
          WHERE id = ?
            AND status IN ('ready', 'scheduled')
            AND claim_lock IS NULL
+           AND (? = 0 OR next_run_at IS ?)
         """,
-        (run_id, expira, task_id),
+        (
+            run_id,
+            expira,
+            task_id,
+            int(occurrence is not None),
+            occurrence[0] if occurrence else None,
+        ),
+    )
+    await db.commit()
+    return cur.rowcount > 0
+
+
+async def release_task_for_retry(task_id: str, run_id: str) -> bool:
+    """Release only our live failed claim without advancing the scheduled occurrence."""
+    db = await _get_db()
+    cur = await db.execute(
+        "UPDATE vectora_background_tasks SET status = 'ready', claim_lock = NULL, "
+        "claim_expires_at = NULL, updated_at = datetime('now') "
+        "WHERE id = ? AND status = 'running' AND claim_lock = ? AND claim_expires_at > ?",
+        (task_id, run_id, _agora().isoformat()),
     )
     await db.commit()
     return cur.rowcount > 0

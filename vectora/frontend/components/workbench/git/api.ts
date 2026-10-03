@@ -6,10 +6,12 @@
 
 import type { DiffHunk, DiffSummary } from "@/lib/stores/workbench-store";
 
+/** Build a workspace-scoped endpoint with an encoded identifier. */
 function base(workspaceId: string): string {
   return `/workspaces/${encodeURIComponent(workspaceId)}`;
 }
 
+/** Post an operation payload; transport errors remain visible to the caller. */
 async function postJson(
   url: string,
   body: unknown,
@@ -50,6 +52,7 @@ export interface GitOperation {
   finished_at: number | null;
 }
 
+/** Read the current operation snapshot, or null for an unsuccessful response. */
 export async function fetchGitOperation(
   workspaceId: string,
 ): Promise<GitOperation | null> {
@@ -59,6 +62,7 @@ export async function fetchGitOperation(
   return data.operation ?? null;
 }
 
+/** Read bounded operation history for the active repository. */
 export async function fetchGitOperationHistory(
   workspaceId: string,
   limit = 50,
@@ -74,6 +78,7 @@ export interface GitCommitSuggestion {
   description: string;
 }
 
+/** Read the proposed commit title and description without committing. */
 export async function fetchGitCommitSuggestion(
   workspaceId: string,
 ): Promise<GitCommitSuggestion | null> {
@@ -82,6 +87,7 @@ export async function fetchGitCommitSuggestion(
   return (await res.json()) as GitCommitSuggestion;
 }
 
+/** Read branch, cleanliness and ahead/behind counters for the toolbar. */
 export async function fetchGitStatus(
   workspaceId: string,
 ): Promise<GitStatus | null> {
@@ -96,6 +102,7 @@ export interface GitBranches {
   remotes: string[];
 }
 
+/** Read local and remote branch names for the active workspace. */
 export async function fetchBranches(
   workspaceId: string,
 ): Promise<GitBranches | null> {
@@ -104,6 +111,7 @@ export async function fetchBranches(
   return res.json() as Promise<GitBranches>;
 }
 
+/** Checkout a reference, optionally creating the requested branch. */
 export function apiCheckout(
   workspaceId: string,
   ref: string,
@@ -114,6 +122,7 @@ export function apiCheckout(
 
 // ── Sync (fetch / pull / push) ───────────────────────────────────────────────
 
+/** Request fetch, pull or push; callers handle rejected network requests. */
 export function apiSync(
   workspaceId: string,
   action: "fetch" | "pull" | "push",
@@ -130,6 +139,7 @@ export interface MergeResult {
   conflicts: string[];
 }
 
+/** Merge the selected branch and retain the backend conflict details. */
 export async function apiMerge(
   workspaceId: string,
   branch: string,
@@ -164,6 +174,7 @@ export interface CompareResult {
   truncated: boolean;
 }
 
+/** Compare two references without changing the working tree. */
 export async function apiCompare(
   workspaceId: string,
   baseRef: string,
@@ -175,6 +186,7 @@ export async function apiCompare(
   return res.json() as Promise<CompareResult>;
 }
 
+/** Read diff hunks for one file between two selected references. */
 export async function apiCompareFile(
   workspaceId: string,
   baseRef: string,
@@ -190,6 +202,7 @@ export async function apiCompareFile(
 
 // ── Diff do working tree (aba Mudanças) ─────────────────────────────────────
 
+/** Read the working-tree summary used by the Changes view. */
 export async function fetchGitDiff(
   workspaceId: string,
 ): Promise<DiffSummary | null> {
@@ -198,6 +211,7 @@ export async function fetchGitDiff(
   return res.json();
 }
 
+/** Read working-tree diff hunks for one encoded file path. */
 export async function fetchGitDiffFile(
   workspaceId: string,
   path: string,
@@ -209,6 +223,7 @@ export async function fetchGitDiffFile(
   return data.hunks ?? [];
 }
 
+/** Stage, unstage or discard the explicitly selected file. */
 export function apiGitFileAction(
   workspaceId: string,
   action: "stage" | "unstage" | "discard",
@@ -217,6 +232,7 @@ export function apiGitFileAction(
   return postJson(`${base(workspaceId)}/git/${action}`, { path });
 }
 
+/** Append the selected file or directory to workspace ignore rules. */
 export function apiGitignoreAppend(
   workspaceId: string,
   path: string,
@@ -228,6 +244,7 @@ export function apiGitignoreAppend(
   });
 }
 
+/** Submit the commit message and explicit hook, amend and signoff preferences. */
 export async function apiGitCommit(
   workspaceId: string,
   message: string,
@@ -251,6 +268,7 @@ export async function apiGitCommit(
   });
 }
 
+/** Squash from the selected base using the supplied commit message. */
 export function apiSquash(
   workspaceId: string,
   baseRef: string,
@@ -264,6 +282,7 @@ export function apiSquash(
   });
 }
 
+/** Request the exact commit ordering selected by the user. */
 export function apiReorder(
   workspaceId: string,
   commits: string[],
@@ -271,6 +290,7 @@ export function apiReorder(
   return postJson(`${base(workspaceId)}/git/reorder`, { commits });
 }
 
+/** Apply a commit, optionally leaving its changes uncommitted. */
 export function apiCherryPick(
   workspaceId: string,
   sha: string,
@@ -294,6 +314,7 @@ export interface GitLogCommit {
   refs: string[];
 }
 
+/** Read a page of 50 commits with the backend continuation flag. */
 export async function fetchGitLog(
   workspaceId: string,
   offset = 0,
@@ -308,6 +329,7 @@ export async function fetchGitLog(
   return res.json();
 }
 
+/** Read the textual diff of a selected commit. */
 export async function fetchGitCommitDiff(
   workspaceId: string,
   sha: string,
@@ -319,6 +341,7 @@ export async function fetchGitCommitDiff(
   return (data.diff as string) ?? "";
 }
 
+/** Apply a reverse patch without automatically creating a commit. */
 export function apiRevert(
   workspaceId: string,
   sha: string,
@@ -333,6 +356,7 @@ export interface StashEntry {
   label: string;
 }
 
+/** Perform the selected stash operation and return the resulting entries. */
 export async function apiStash(
   workspaceId: string,
   action: "list" | "push" | "pop" | "apply" | "drop",
@@ -350,6 +374,7 @@ export async function apiStash(
 
 // ── Conflitos ───────────────────────────────────────────────────────────────
 
+/** Read unresolved paths, returning an empty list on an unsuccessful response. */
 export async function apiListConflicts(workspaceId: string): Promise<string[]> {
   const res = await fetch(`${base(workspaceId)}/git/conflicts`);
   if (!res.ok) return [];
@@ -357,6 +382,7 @@ export async function apiListConflicts(workspaceId: string): Promise<string[]> {
   return ((data.files as { path: string }[]) ?? []).map((f) => f.path);
 }
 
+/** Resolve one path using the explicitly selected side. */
 export function apiResolveConflict(
   workspaceId: string,
   path: string,
@@ -376,6 +402,7 @@ export interface WorktreeEntry {
   head?: string;
 }
 
+/** List linked worktrees of the active repository. */
 export async function fetchWorktrees(
   workspaceId: string,
 ): Promise<WorktreeEntry[]> {
@@ -385,6 +412,7 @@ export async function fetchWorktrees(
   return (data.worktrees as WorktreeEntry[]) ?? [];
 }
 
+/** Create the requested worktree and report HTTP success. */
 export async function apiCreateWorktree(
   workspaceId: string,
   name: string,
@@ -409,6 +437,7 @@ export interface PullRequest {
   base: string;
 }
 
+/** Read pull requests and whether the GitHub integration is available. */
 export async function fetchPullRequests(
   workspaceId: string,
 ): Promise<{ available: boolean; prs: PullRequest[] }> {
@@ -418,6 +447,7 @@ export async function fetchPullRequests(
   return { available: data.available ?? false, prs: data.prs ?? [] };
 }
 
+/** Create a pull request from the supplied title, body and base branch. */
 export function apiCreatePR(
   workspaceId: string,
   title: string,
