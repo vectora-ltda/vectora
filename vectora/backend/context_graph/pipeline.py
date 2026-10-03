@@ -358,7 +358,14 @@ async def build_workspace_graph(
         # ── Passo 8: exportar grafo + manifesto ───────────────────────────────
         _progress(8, "Exportando...", _files_total)
         try:
-            await asyncio.to_thread(to_json, graph, communities, str(graph_json))
+            await asyncio.to_thread(
+                to_json,
+                graph,
+                communities,
+                str(graph_json),
+                community_labels=community_labels,
+                community_cohesion=cohesion,
+            )
         except Exception:
             logger.exception(
                 "context_graph: falha ao exportar graph.json",
@@ -366,7 +373,13 @@ async def build_workspace_graph(
             )
 
         try:
-            await asyncio.to_thread(to_html, graph, communities, str(graph_html))
+            await asyncio.to_thread(
+                to_html,
+                graph,
+                communities,
+                str(graph_html),
+                community_labels=community_labels,
+            )
         except Exception:
             logger.exception(
                 "context_graph: falha ao exportar graph.html",

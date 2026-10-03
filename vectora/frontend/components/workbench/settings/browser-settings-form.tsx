@@ -1,289 +1,407 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useToastStore } from "@/lib/stores/toast-store";
-import { resolveBrowserProfileId } from "@/lib/browser-profile";
+import {
+  getBrowserProfileSettings,
+  useSettingsStore,
+} from "@/lib/stores/settings-store";
 import { clearBrowserSessionHistory } from "@/lib/browser-session-store";
-import { useSettingsStore } from "@/lib/stores/settings-store";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { m } from "@/lib/paraglide/messages";
+import type {
+  VectoraBrowserCookie,
+  VectoraBrowserCredential,
+  VectoraBrowserDownloadEvent,
+} from "@/lib/types/vectora-bridge";
 import type { WorkbenchSettingsContext } from "@/lib/types/workbench-settings";
-import {
-  getBrowserCapabilityMatrix,
-  getBrowserRuntime,
-} from "@/lib/browser-capability-matrix";
 
-interface BrowserSettingsFormProps extends WorkbenchSettingsContext {}
+function Toggle({
+  id,
+  label,
+  help,
+  checked,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  help: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <label htmlFor={id} className="flex items-start justify-between gap-3">
+      <span className="min-w-0">
+        <span className="block font-medium">{label}</span>
+        <span className="block text-xs text-muted-foreground">{help}</span>
+      </span>
+      <input
+        id={id}
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="mt-1 accent-[var(--color-primary)]"
+      />
+    </label>
+  );
+}
 
-/** Configurações persistentes do perfil do Browser, reutilizadas no modal e no Settings. */
-export function BrowserSettingsForm({
-  threadId,
-  workspaceId,
-  browserProfileId,
-}: BrowserSettingsFormProps) {
-  const allowPopups = useSettingsStore((s) => s.browserAllowPopups);
-  const zoomPercent = useSettingsStore((s) => s.browserZoomPercent);
-  const setAllowPopups = useSettingsStore((s) => s.setBrowserAllowPopups);
-  const setZoomPercent = useSettingsStore((s) => s.setBrowserZoomPercent);
-  const searchEngine = useSettingsStore((s) => s.browserSearchEngine);
-  const setSearchEngine = useSettingsStore((s) => s.setBrowserSearchEngine);
-  const permissionMode = useSettingsStore((s) => s.browserPermissionMode);
-  const setPermissionMode = useSettingsStore((s) => s.setBrowserPermissionMode);
-  const originPermissions = useSettingsStore((s) => s.browserOriginPermissions);
-  const setOriginPermission = useSettingsStore(
-    (s) => s.setBrowserOriginPermission,
+/** Vectora-owned Browser settings; it never depends on Chrome's WebUI. */
+export function BrowserSettingsForm(context: WorkbenchSettingsContext) {
+  const settings = useSettingsStore();
+  const bridge =
+    typeof window !== "undefined" ? window.vectora?.browserView : undefined;
+  const profileId = context.browserProfileId ?? null;
+  const profileSettings = getBrowserProfileSettings(settings, profileId);
+  const sessionKey = `${context.workspaceId ?? ""}:${context.threadId ?? ""}`;
+  const [credentials, setCredentials] = useState<VectoraBrowserCredential[]>(
+    [],
   );
-  const removeOriginPermission = useSettingsStore(
-    (s) => s.removeBrowserOriginPermission,
-  );
-  const [originInput, setOriginInput] = useState("");
-  const [originMode, setOriginMode] = useState<"allow" | "deny">("deny");
-  const [credentials, setCredentials] = useState<
-    Array<{ id: string; origin: string; username: string; updatedAt: string }>
-  >([]);
+  const [cookies, setCookies] = useState<VectoraBrowserCookie[]>([]);
+  const [downloads, setDownloads] = useState<VectoraBrowserDownloadEvent[]>([]);
+  const [origin, setOrigin] = useState("");
   const [credentialOrigin, setCredentialOrigin] = useState("");
   const [credentialUsername, setCredentialUsername] = useState("");
   const [credentialPassword, setCredentialPassword] = useState("");
-  const [cookies, setCookies] = useState<
-    Array<{ name: string; domain: string; path: string }>
-  >([]);
-  const [downloads, setDownloads] = useState<
-    Array<{
-      id: string;
-      filename: string;
-      state: "progressing" | "completed" | "cancelled" | "interrupted";
-      receivedBytes: number;
-      totalBytes: number;
-    }>
-  >([]);
-  const desktopBrowser =
-    typeof window !== "undefined" ? window.vectora?.browserView : undefined;
-  const browserRuntime = getBrowserRuntime(Boolean(desktopBrowser));
-  const nativeProfileAvailable = getBrowserCapabilityMatrix(
-    browserRuntime,
-  ).some(
-    (capability) =>
-      capability.id === "profile-storage" && capability.status === "available",
-  );
-  const profileId =
-    browserProfileId ?? resolveBrowserProfileId(threadId, workspaceId);
-  const sessionKey = `${workspaceId ?? ""}:${threadId ?? ""}`;
+  const [clearStorage, setClearStorage] = useState(true);
+  const [clearCache, setClearCache] = useState(true);
+  const [clearCredentials, setClearCredentials] = useState(false);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
-    if (!desktopBrowser?.onDownload) return;
-    return desktopBrowser.onDownload((event) => {
-      if (event.profileId !== profileId) return;
-      setDownloads((current) => {
-        const next = current.filter((download) => download.id !== event.id);
-        return [{ ...event }, ...next].slice(0, 10);
+    if (!bridge || !profileId) return;
+    let cancelled = false;
+    void Promise.all([
+      bridge.listCredentials?.(profileId) ?? Promise.resolve([]),
+      bridge.listCookies?.(profileId) ?? Promise.resolve([]),
+    ])
+      .then(([nextCredentials, nextCookies]) => {
+        if (cancelled) return;
+        setCredentials(nextCredentials);
+        setCookies(nextCookies);
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
       });
+    const unsubscribe = bridge.onDownload?.((download) => {
+      if (download.profileId !== profileId) return;
+      setDownloads((current) =>
+        [...current.filter((item) => item.id !== download.id), download].slice(
+          -20,
+        ),
+      );
     });
-  }, [desktopBrowser, profileId]);
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, [bridge, profileId]);
 
-  useEffect(() => {
-    if (!desktopBrowser?.listCookies || !profileId) return;
-    void desktopBrowser
-      .listCookies(profileId)
-      .then(setCookies)
-      .catch(() => setCookies([]));
-  }, [desktopBrowser, profileId]);
+  const addOriginPermission = () => {
+    const normalized = origin.trim().replace(/\/$/, "");
+    if (!/^https?:\/\/[^/]+$/i.test(normalized)) return;
+    if (profileId) {
+      settings.setBrowserProfileSettings(profileId, {
+        originPermissions: { [normalized]: "allow" },
+      });
+    } else {
+      settings.setBrowserOriginPermission(normalized, "allow");
+    }
+    setOrigin("");
+  };
 
-  useEffect(() => {
-    if (!desktopBrowser?.listCredentials || !profileId) return;
-    void desktopBrowser
-      .listCredentials(profileId)
-      .then(setCredentials)
-      .catch(() => setCredentials([]));
-  }, [desktopBrowser, profileId]);
+  const saveCredential = async () => {
+    if (!bridge?.saveCredential || !profileId) return;
+    try {
+      const saved = await bridge.saveCredential({
+        profileId,
+        origin: credentialOrigin.trim().replace(/\/$/, ""),
+        username: credentialUsername,
+        password: credentialPassword,
+      });
+      setCredentials((current) => [
+        ...current.filter((item) => item.id !== saved.id),
+        saved,
+      ]);
+      setCredentialPassword("");
+    } catch {
+      setError(true);
+    }
+  };
+
+  const removeCredential = async (id: string) => {
+    if (!bridge?.deleteCredential || !profileId) return;
+    try {
+      await bridge.deleteCredential({ profileId, id });
+      setCredentials((current) => current.filter((item) => item.id !== id));
+    } catch {
+      setError(true);
+    }
+  };
+
+  const removeCookie = async (cookie: VectoraBrowserCookie) => {
+    if (!bridge?.removeCookie || !profileId) return;
+    const domain = cookie.domain.replace(/^\./, "");
+    try {
+      await bridge.removeCookie({
+        profileId,
+        url: `http${cookie.secure ? "s" : ""}://${domain}${cookie.path}`,
+        name: cookie.name,
+      });
+      setCookies((current) =>
+        current.filter(
+          (item) =>
+            item.name !== cookie.name ||
+            item.domain !== cookie.domain ||
+            item.path !== cookie.path,
+        ),
+      );
+    } catch {
+      setError(true);
+    }
+  };
+
+  const clearProfileData = async () => {
+    if (!bridge?.clearProfileData || !profileId) return;
+    try {
+      await bridge.clearProfileData(profileId, {
+        storage: clearStorage,
+        cache: clearCache,
+        credentials: clearCredentials,
+      });
+      if (clearStorage || clearCache) {
+        clearBrowserSessionHistory(sessionKey);
+        setCookies([]);
+      }
+      if (clearCredentials) setCredentials([]);
+    } catch {
+      setError(true);
+    }
+  };
 
   return (
-    <div
-      className="min-w-0 space-y-3 p-4 text-xs text-muted-foreground"
-      data-browser-runtime={browserRuntime}
-    >
-      <p>{m.workbench_browser_settings_description()}</p>
-      {desktopBrowser && nativeProfileAvailable ? (
-        <>
-          <p>{m.workbench_browser_settings_local_notice()}</p>
-          <label className="flex items-start gap-2 rounded border border-border/60 p-2 text-foreground">
-            <input
-              type="checkbox"
-              checked={allowPopups}
-              onChange={(event) => setAllowPopups(event.target.checked)}
-            />
-            <span>
-              <span className="block font-medium">
-                {m.workbench_browser_popups_label()}
-              </span>
-              <span className="block text-muted-foreground">
-                {m.workbench_browser_popups_help()}
-              </span>
+    <div className="flex min-w-0 flex-col gap-5 text-sm">
+      <p className="text-xs text-muted-foreground">
+        {m.workbench_browser_settings_local_notice()}
+      </p>
+      {!bridge && (
+        <p className="rounded border border-border/60 p-3 text-xs text-muted-foreground">
+          {m.workbench_browser_web_runtime_notice()}
+        </p>
+      )}
+      <section className="space-y-3">
+        <Toggle
+          id="browser-allow-popups"
+          label={m.workbench_browser_popups_label()}
+          help={m.workbench_browser_popups_help()}
+          checked={profileSettings.allowPopups}
+          onChange={(value) =>
+            profileId
+              ? settings.setBrowserProfileSettings(profileId, {
+                  allowPopups: value,
+                })
+              : settings.setBrowserAllowPopups(value)
+          }
+        />
+        <label className="flex items-center justify-between gap-3">
+          <span>
+            <span className="block font-medium">
+              {m.workbench_browser_zoom_label()}
             </span>
-          </label>
-          <div className="flex items-center justify-between gap-3 rounded border border-border/60 p-2 text-foreground">
-            <span>
-              <span className="block font-medium">
-                {m.workbench_browser_search_engine_label()}
-              </span>
-              <span className="block text-muted-foreground">
-                {m.workbench_browser_search_engine_help()}
-              </span>
+            <span className="block text-xs text-muted-foreground">
+              {m.workbench_browser_zoom_help()}
             </span>
-            <Select
-              value={searchEngine}
-              onValueChange={(value) =>
-                setSearchEngine(value as "duckduckgo" | "google" | "bing")
-              }
-            >
-              <SelectTrigger className="w-36">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="duckduckgo">
-                  {m.workbench_browser_search_engine_duckduckgo()}
-                </SelectItem>
-                <SelectItem value="google">
-                  {m.workbench_browser_search_engine_google()}
-                </SelectItem>
-                <SelectItem value="bing">
-                  {m.workbench_browser_search_engine_bing()}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <label className="flex items-center justify-between gap-3 rounded border border-border/60 p-2 text-foreground">
-            <span>
-              <span className="block font-medium">
-                {m.workbench_browser_zoom_label()}
-              </span>
-              <span className="block text-muted-foreground">
-                {m.workbench_browser_zoom_help()}
-              </span>
+          </span>
+          <input
+            aria-label={m.workbench_browser_zoom_label()}
+            type="number"
+            min={25}
+            max={500}
+            step={10}
+            value={profileSettings.zoomPercent}
+            onChange={(event) =>
+              profileId
+                ? settings.setBrowserProfileSettings(profileId, {
+                    zoomPercent: Number(event.target.value),
+                  })
+                : settings.setBrowserZoomPercent(Number(event.target.value))
+            }
+            className="w-20 rounded border border-border/60 bg-background px-2 py-1"
+          />
+        </label>
+        <label className="flex items-center justify-between gap-3">
+          <span>
+            <span className="block font-medium">
+              {m.workbench_browser_search_engine_label()}
             </span>
-            <input
-              className="w-20 rounded border border-border/60 bg-background px-2 py-1 text-right"
-              type="number"
-              min={25}
-              max={500}
-              step={5}
-              value={zoomPercent}
-              onChange={(event) => setZoomPercent(Number(event.target.value))}
-            />
-          </label>
-          <div className="flex items-center justify-between gap-3 rounded border border-border/60 p-2 text-foreground">
-            <span>
-              <span className="block font-medium">
-                {m.workbench_browser_permissions_label()}
-              </span>
-              <span className="block text-muted-foreground">
-                {m.workbench_browser_permissions_help()}
-              </span>
+            <span className="block text-xs text-muted-foreground">
+              {m.workbench_browser_search_engine_help()}
             </span>
-            <Select
-              value={permissionMode}
-              onValueChange={(value) =>
-                setPermissionMode(value as "allow" | "deny")
-              }
-            >
-              <SelectTrigger className="w-28">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="allow">
-                  {m.workbench_browser_permissions_allow()}
-                </SelectItem>
-                <SelectItem value="deny">
-                  {m.workbench_browser_permissions_deny()}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2 rounded border border-border/60 p-2 text-foreground">
-            <div>
-              <p className="font-medium">
-                {m.workbench_browser_origin_permissions_label()}
-              </p>
-              <p className="text-muted-foreground">
-                {m.workbench_browser_origin_permissions_help()}
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <input
-                className="min-w-0 flex-1 rounded border border-border/60 bg-background px-2 py-1"
-                placeholder={m.workbench_browser_origin_permissions_placeholder()}
-                value={originInput}
-                onChange={(event) => setOriginInput(event.target.value)}
-              />
-              <Select
-                value={originMode}
-                onValueChange={(value) =>
-                  setOriginMode(value as "allow" | "deny")
-                }
-              >
-                <SelectTrigger className="w-24">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="allow">
-                    {m.workbench_browser_permissions_allow()}
-                  </SelectItem>
-                  <SelectItem value="deny">
-                    {m.workbench_browser_permissions_deny()}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
+          </span>
+          <select
+            aria-label={m.workbench_browser_search_engine_label()}
+            value={profileSettings.searchEngine}
+            onChange={(event) =>
+              profileId
+                ? settings.setBrowserProfileSettings(profileId, {
+                    searchEngine: event.target.value as
+                      "duckduckgo" | "google" | "bing",
+                  })
+                : settings.setBrowserSearchEngine(
+                    event.target.value as "duckduckgo" | "google" | "bing",
+                  )
+            }
+            className="rounded border border-border/60 bg-background px-2 py-1"
+          >
+            <option value="duckduckgo">
+              {m.workbench_browser_search_engine_duckduckgo()}
+            </option>
+            <option value="google">
+              {m.workbench_browser_search_engine_google()}
+            </option>
+            <option value="bing">
+              {m.workbench_browser_search_engine_bing()}
+            </option>
+          </select>
+        </label>
+      </section>
+      <section className="space-y-2">
+        <h3 className="font-medium">
+          {m.workbench_browser_permissions_label()}
+        </h3>
+        <p className="text-xs text-muted-foreground">
+          {m.workbench_browser_permissions_help()}
+        </p>
+        <select
+          aria-label={m.workbench_browser_permissions_label()}
+          value={profileSettings.permissionMode}
+          onChange={(event) =>
+            profileId
+              ? settings.setBrowserProfileSettings(profileId, {
+                  permissionMode: event.target.value as "allow" | "deny",
+                })
+              : settings.setBrowserPermissionMode(
+                  event.target.value as "allow" | "deny",
+                )
+          }
+          className="rounded border border-border/60 bg-background px-2 py-1"
+        >
+          <option value="deny">{m.workbench_browser_permissions_deny()}</option>
+          <option value="allow">
+            {m.workbench_browser_permissions_allow()}
+          </option>
+        </select>
+        <p className="text-xs font-medium">
+          {m.workbench_browser_origin_permissions_label()}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {m.workbench_browser_origin_permissions_help()}
+        </p>
+        <div className="flex min-w-0 gap-2">
+          <input
+            value={origin}
+            onChange={(event) => setOrigin(event.target.value)}
+            placeholder={m.workbench_browser_origin_permissions_placeholder()}
+            className="min-w-0 flex-1 rounded border border-border/60 bg-background px-2 py-1"
+          />
+          <button
+            type="button"
+            onClick={addOriginPermission}
+            className="rounded border border-border/60 px-2 py-1 hover:bg-muted/40"
+          >
+            {m.workbench_browser_origin_permissions_add()}
+          </button>
+        </div>
+        {Object.entries(profileSettings.originPermissions).map(
+          ([site, mode]) => (
+            <div key={site} className="flex items-center justify-between gap-2">
+              <span className="truncate text-xs">{site}</span>
+              <span className="text-xs text-muted-foreground">{mode}</span>
               <button
                 type="button"
-                className="rounded border border-border/60 px-2 py-1"
                 onClick={() => {
-                  try {
-                    const url = new URL(originInput.trim());
-                    if (url.protocol !== "http:" && url.protocol !== "https:")
-                      return;
-                    setOriginPermission(url.origin, originMode);
-                    setOriginInput("");
-                  } catch {
-                    /* invalid origin stays in the field */
+                  if (!profileId) {
+                    settings.removeBrowserOriginPermission(site);
+                    return;
                   }
+                  const originPermissions = {
+                    ...profileSettings.originPermissions,
+                  };
+                  delete originPermissions[site];
+                  settings.setBrowserProfileSettings(profileId, {
+                    originPermissions,
+                  });
                 }}
+                className="text-xs text-muted-foreground hover:text-foreground"
               >
-                {m.workbench_browser_origin_permissions_add()}
+                {m.workbench_browser_password_remove()}
               </button>
             </div>
-            {Object.entries(originPermissions).map(([origin, mode]) => (
+          ),
+        )}
+      </section>
+      {bridge && profileId && (
+        <>
+          <section className="space-y-2">
+            <h3 className="font-medium">
+              {m.workbench_browser_password_manager_title()}
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              {m.workbench_browser_password_manager_help()}
+            </p>
+            <div className="grid min-w-0 gap-2 sm:grid-cols-3">
+              <input
+                value={credentialOrigin}
+                onChange={(event) => setCredentialOrigin(event.target.value)}
+                placeholder={m.workbench_browser_password_origin()}
+                className="min-w-0 rounded border border-border/60 bg-background px-2 py-1"
+              />
+              <input
+                value={credentialUsername}
+                onChange={(event) => setCredentialUsername(event.target.value)}
+                placeholder={m.workbench_browser_password_username()}
+                className="min-w-0 rounded border border-border/60 bg-background px-2 py-1"
+              />
+              <input
+                type="password"
+                value={credentialPassword}
+                onChange={(event) => setCredentialPassword(event.target.value)}
+                placeholder={m.workbench_browser_password_secret()}
+                className="min-w-0 rounded border border-border/60 bg-background px-2 py-1"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => void saveCredential()}
+              className="rounded border border-border/60 px-2 py-1 hover:bg-muted/40"
+            >
+              {m.workbench_browser_password_save()}
+            </button>
+            {credentials.map((credential) => (
               <div
-                key={origin}
+                key={credential.id}
                 className="flex items-center justify-between gap-2 text-xs"
               >
-                <span className="truncate">{origin}</span>
-                <span>
-                  {mode === "allow"
-                    ? m.workbench_browser_permissions_allow()
-                    : m.workbench_browser_permissions_deny()}
+                <span className="min-w-0 truncate">
+                  {credential.origin} · {credential.username}
                 </span>
                 <button
                   type="button"
-                  className="text-destructive"
-                  onClick={() => removeOriginPermission(origin)}
+                  onClick={() => void removeCredential(credential.id)}
+                  className="text-muted-foreground hover:text-foreground"
                 >
-                  ×
+                  {m.workbench_browser_password_remove()}
                 </button>
               </div>
             ))}
-          </div>
-          <div className="space-y-2 rounded border border-border/60 p-2 text-foreground">
-            <p className="font-medium">{m.workbench_browser_cookies_title()}</p>
-            <p className="text-muted-foreground">
+          </section>
+          <section className="space-y-2">
+            <h3 className="font-medium">
+              {m.workbench_browser_cookies_title()}
+            </h3>
+            <p className="text-xs text-muted-foreground">
               {m.workbench_browser_cookies_help()}
             </p>
             {cookies.length === 0 ? (
-              <p className="text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 {m.workbench_browser_cookies_empty()}
               </p>
             ) : (
@@ -293,217 +411,97 @@ export function BrowserSettingsForm({
                   className="flex items-center justify-between gap-2 text-xs"
                 >
                   <span className="min-w-0 truncate">
-                    {cookie.domain} · {cookie.name}
+                    {cookie.name} · {cookie.domain}
                   </span>
                   <button
                     type="button"
-                    className="text-destructive"
-                    onClick={async () => {
-                      await desktopBrowser?.removeCookie?.({
-                        profileId: profileId ?? "",
-                        url: `https://${cookie.domain.replace(/^\./, "")}${cookie.path}`,
-                        name: cookie.name,
-                      });
-                      setCookies((current) =>
-                        current.filter((item) => item !== cookie),
-                      );
-                    }}
+                    onClick={() => void removeCookie(cookie)}
+                    className="text-muted-foreground hover:text-foreground"
                   >
                     {m.workbench_browser_cookies_remove()}
                   </button>
                 </div>
               ))
             )}
-          </div>
-          <div className="space-y-2 rounded border border-border/60 p-2 text-foreground">
-            <div>
-              <p className="font-medium">
-                {m.workbench_browser_password_manager_title()}
-              </p>
-              <p className="text-muted-foreground">
-                {m.workbench_browser_password_manager_help()}
-              </p>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-3">
-              <input
-                className="rounded border border-border/60 bg-background px-2 py-1"
-                placeholder={m.workbench_browser_password_origin()}
-                value={credentialOrigin}
-                onChange={(event) => setCredentialOrigin(event.target.value)}
-              />
-              <input
-                className="rounded border border-border/60 bg-background px-2 py-1"
-                placeholder={m.workbench_browser_password_username()}
-                value={credentialUsername}
-                onChange={(event) => setCredentialUsername(event.target.value)}
-              />
-              <input
-                className="rounded border border-border/60 bg-background px-2 py-1"
-                type="password"
-                placeholder={m.workbench_browser_password_secret()}
-                value={credentialPassword}
-                onChange={(event) => setCredentialPassword(event.target.value)}
-              />
-            </div>
-            <button
-              type="button"
-              className="rounded border border-border/60 px-2 py-1"
-              onClick={async () => {
-                if (!desktopBrowser?.saveCredential || !profileId) return;
-                try {
-                  const saved = await desktopBrowser.saveCredential({
-                    profileId,
-                    origin: new URL(credentialOrigin).origin,
-                    username: credentialUsername,
-                    password: credentialPassword,
-                  });
-                  setCredentials((current) => [
-                    saved,
-                    ...current.filter((item) => item.id !== saved.id),
-                  ]);
-                  setCredentialPassword("");
-                } catch {
-                  useToastStore
-                    .getState()
-                    .error(m.workbench_browser_password_save_error());
-                }
-              }}
-            >
-              {m.workbench_browser_password_save()}
-            </button>
-            {credentials.map((credential) => (
-              <div
-                key={credential.id}
-                className="flex items-center justify-between gap-2 text-xs"
-              >
-                <span className="truncate">
-                  {credential.origin} · {credential.username}
-                </span>
-                <button
-                  type="button"
-                  className="text-destructive"
-                  onClick={async () => {
-                    await desktopBrowser?.deleteCredential?.({
-                      profileId: profileId ?? "",
-                      id: credential.id,
-                    });
-                    setCredentials((current) =>
-                      current.filter((item) => item.id !== credential.id),
-                    );
-                  }}
-                >
-                  {m.workbench_browser_password_remove()}
-                </button>
-              </div>
-            ))}
-          </div>
-          <div className="space-y-2 rounded border border-border/60 p-2 text-foreground">
-            <div>
-              <p className="font-medium">
-                {m.workbench_browser_downloads_label()}
-              </p>
-              <p className="text-muted-foreground">
-                {m.workbench_browser_downloads_help()}
-              </p>
-            </div>
+          </section>
+          <section className="space-y-2">
+            <h3 className="font-medium">
+              {m.workbench_browser_downloads_label()}
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              {m.workbench_browser_downloads_help()}
+            </p>
             {downloads.length === 0 ? (
-              <p className="text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 {m.workbench_browser_downloads_empty()}
               </p>
             ) : (
-              <ul className="space-y-1">
-                {downloads.map((download) => (
-                  <li
-                    key={download.id}
-                    className="flex items-center justify-between gap-2"
-                  >
-                    <span className="min-w-0 truncate">
-                      {download.filename}
-                    </span>
-                    <span className="shrink-0 text-muted-foreground">
-                      {download.state === "progressing"
-                        ? download.totalBytes > 0
-                          ? `${Math.round((download.receivedBytes / download.totalBytes) * 100)}%`
-                          : m.workbench_browser_downloads_in_progress()
-                        : download.state === "completed"
-                          ? m.workbench_browser_downloads_completed()
-                          : m.workbench_browser_downloads_failed()}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              downloads.map((download) => (
+                <div
+                  key={download.id}
+                  className="flex justify-between gap-2 text-xs"
+                >
+                  <span className="min-w-0 truncate">{download.filename}</span>
+                  <span className="text-muted-foreground">
+                    {download.state === "progressing"
+                      ? m.workbench_browser_downloads_in_progress()
+                      : download.state === "completed"
+                        ? m.workbench_browser_downloads_completed()
+                        : m.workbench_browser_downloads_failed()}
+                  </span>
+                </div>
+              ))
             )}
-          </div>
+          </section>
+          <fieldset className="space-y-2 rounded border border-border/60 p-3">
+            <legend className="px-1 text-xs font-medium">
+              {m.workbench_browser_clear_scope_label()}
+            </legend>
+            <label className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={clearStorage}
+                onChange={(event) => setClearStorage(event.target.checked)}
+              />
+              {m.workbench_browser_clear_storage_label()}
+            </label>
+            <label className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={clearCache}
+                onChange={(event) => setClearCache(event.target.checked)}
+              />
+              {m.workbench_browser_clear_cache_label()}
+            </label>
+            <label className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={clearCredentials}
+                onChange={(event) => setClearCredentials(event.target.checked)}
+              />
+              {m.workbench_browser_clear_credentials_label()}
+            </label>
+          </fieldset>
           <button
             type="button"
-            className="max-w-full rounded border border-border/60 px-2 py-1 text-left text-foreground hover:bg-muted/40"
+            onClick={() => void clearProfileData()}
+            className="self-start rounded border border-destructive/60 px-2 py-1 text-destructive hover:bg-destructive/10"
+          >
+            {m.workbench_browser_clear_profile_data()}
+          </button>
+          <button
+            type="button"
             onClick={() => clearBrowserSessionHistory(sessionKey)}
+            className="self-start rounded border border-border/60 px-2 py-1 hover:bg-muted/40"
           >
             {m.workbench_browser_clear_history()}
           </button>
         </>
-      ) : (
-        <>
-          <p>{m.workbench_browser_settings_unavailable()}</p>
-          <p className="rounded border border-amber-500/40 bg-amber-500/5 p-2 text-amber-700 dark:text-amber-300">
-            {m.workbench_browser_web_runtime_notice()}
-          </p>
-          <label className="flex items-start gap-2 rounded border border-border/60 p-2 text-foreground">
-            <input
-              type="checkbox"
-              checked={allowPopups}
-              onChange={(event) => setAllowPopups(event.target.checked)}
-            />
-            <span>
-              <span className="block font-medium">
-                {m.workbench_browser_popups_label()}
-              </span>
-              <span className="block text-muted-foreground">
-                {m.workbench_browser_popups_help()}
-              </span>
-            </span>
-          </label>
-          <div className="flex items-center justify-between gap-3 rounded border border-border/60 p-2 text-foreground">
-            <span className="font-medium">
-              {m.workbench_browser_search_engine_label()}
-            </span>
-            <Select
-              value={searchEngine}
-              onValueChange={(value) =>
-                setSearchEngine(value as "duckduckgo" | "google" | "bing")
-              }
-            >
-              <SelectTrigger className="w-36">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="duckduckgo">
-                  {m.workbench_browser_search_engine_duckduckgo()}
-                </SelectItem>
-                <SelectItem value="google">
-                  {m.workbench_browser_search_engine_google()}
-                </SelectItem>
-                <SelectItem value="bing">
-                  {m.workbench_browser_search_engine_bing()}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <label className="flex items-center justify-between gap-3 rounded border border-border/60 p-2 text-foreground">
-            <span className="font-medium">
-              {m.workbench_browser_zoom_label()}
-            </span>
-            <input
-              className="w-20 rounded border border-border/60 bg-background px-2 py-1 text-right"
-              type="number"
-              min={25}
-              max={500}
-              step={5}
-              value={zoomPercent}
-              onChange={(event) => setZoomPercent(Number(event.target.value))}
-            />
-          </label>
-        </>
+      )}
+      {error && (
+        <p role="alert" className="text-xs text-destructive">
+          {m.workbench_browser_settings_error()}
+        </p>
       )}
     </div>
   );
