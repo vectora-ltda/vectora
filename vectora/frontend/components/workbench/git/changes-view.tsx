@@ -39,7 +39,6 @@ import { HunkView, statusTone } from "./shared";
 import { useContextMenu, type ContextMenuItem } from "./git-context-menu";
 import { m } from "@/lib/paraglide/messages";
 import { useToastStore } from "@/lib/stores/toast-store";
-import { useSettingsOverlayStore } from "@/lib/stores/settings-overlay-store";
 import { useSettingsStore } from "@/lib/stores/settings-store";
 
 function FileRow({
@@ -54,22 +53,22 @@ function FileRow({
   selected: boolean;
 }) {
   const open = useWorkbenchStore((s) =>
-    s.getDiff(workspaceId).openFiles.includes(file.path),
+    s.getGit(workspaceId).openFiles.includes(file.path),
   );
   const hunks = useWorkbenchStore(
-    (s) => s.getDiff(workspaceId).hunksByFile[file.path],
+    (s) => s.getGit(workspaceId).hunksByFile[file.path],
   );
   const fetchedAt = useWorkbenchStore(
-    (s) => s.getDiff(workspaceId).fileFetchedAt[file.path] ?? 0,
+    (s) => s.getGit(workspaceId).fileFetchedAt[file.path] ?? 0,
   );
-  const setDiffOpenFile = useWorkbenchStore((s) => s.setDiffOpenFile);
+  const setGitOpenFile = useWorkbenchStore((s) => s.setGitOpenFile);
   const toggleSelection = useWorkbenchStore((s) => s.toggleGitFileSelection);
-  const setDiffHunks = useWorkbenchStore((s) => s.setDiffHunks);
+  const setGitHunks = useWorkbenchStore((s) => s.setGitHunks);
 
   const revalidate = useCallback(async () => {
     const h = await fetchDiffFile(workspaceId, file.path);
-    if (h) setDiffHunks(workspaceId, file.path, h);
-  }, [workspaceId, file.path, setDiffHunks]);
+    if (h) setGitHunks(workspaceId, file.path, h);
+  }, [workspaceId, file.path, setGitHunks]);
 
   useWorkbenchSWR({
     key: `diff:${workspaceId}:${file.path}`,
@@ -94,7 +93,7 @@ function FileRow({
             className="ml-3 accent-primary"
           />
           <button
-            onClick={() => setDiffOpenFile(workspaceId, file.path, !open)}
+            onClick={() => setGitOpenFile(workspaceId, file.path, !open)}
             className="grid min-w-0 flex-1 grid-cols-[auto_auto_minmax(0,1fr)_2rem_2rem] items-center gap-0 py-2 pl-2 pr-0 text-left text-xs"
           >
             {open ? (
@@ -161,11 +160,13 @@ function DiffGroup({
 export function ChangesView({
   workspaceId,
   summary,
+  onOpenSettings,
 }: {
   workspaceId: string;
   summary: DiffSummary;
+  onOpenSettings?: () => void;
 }) {
-  const invalidateDiff = useWorkbenchStore((s) => s.invalidateDiff);
+  const invalidateGit = useWorkbenchStore((s) => s.invalidateGit);
   const setGitFileSelection = useWorkbenchStore((s) => s.setGitFileSelection);
   const gitOps = useWorkbenchStore(
     (s) =>
@@ -180,7 +181,6 @@ export function ChangesView({
   const showError = useCallback((message: string) => {
     useToastStore.getState().error("Git", { description: message });
   }, []);
-  const openGitSettings = useSettingsOverlayStore((s) => s.openCategory);
   const gitHooksEnabled = useSettingsStore((s) => s.gitHooksEnabled);
   const gitSignoffEnabled = useSettingsStore((s) => s.gitSignoffEnabled);
   const gitBypassEnabled = useSettingsStore((s) => s.gitBypassEnabled);
@@ -198,8 +198,8 @@ export function ChangesView({
   const suggestionRequest = useRef(0);
 
   const handleRefresh = useCallback(() => {
-    invalidateDiff(workspaceId);
-  }, [workspaceId, invalidateDiff]);
+    invalidateGit(workspaceId);
+  }, [workspaceId, invalidateGit]);
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, file: DiffFile) => {
@@ -607,7 +607,7 @@ export function ChangesView({
               type="button"
               title={m.workbench_git_settings()}
               aria-label={m.workbench_git_settings()}
-              onClick={() => openGitSettings("git")}
+              onClick={() => onOpenSettings?.()}
               className="rounded p-1 hover:bg-muted/50"
             >
               <Settings2 className="h-3.5 w-3.5" />

@@ -145,6 +145,11 @@ export interface SettingsState {
   monacoFontSize: number;
   /** Salva arquivos do editor automaticamente após uma pausa na edição. */
   editorAutoSave: boolean;
+  editorMinimap: boolean;
+  editorWordWrap: boolean;
+  editorFormatOnType: boolean;
+  editorQuickSuggestions: boolean;
+  editorLineNumbers: boolean;
   /** Família tipográfica do código no Monaco (Godot usa JetBrains Mono). */
   editorFontFamily: FontFamily;
   /** Família monoespaçada usada por terminais, diffs e blocos de código. */
@@ -157,6 +162,24 @@ export interface SettingsState {
   gitSignoffEnabled: boolean;
   /** Permite solicitar bypass de proteções Git no Workbench. */
   gitBypassEnabled: boolean;
+  /** Expande automaticamente itens de planos recém-abertos. */
+  planAutoExpand: boolean;
+  /** Ordem usada para listar itens do plano. */
+  planSort: "created" | "title";
+  /** Exibe notificações para tarefas em segundo plano. */
+  taskNotifications: boolean;
+  /** Número de tentativas automáticas de tarefas que falham. */
+  taskRetryCount: number;
+  /** Limite de execuções concorrentes de tarefas. */
+  taskConcurrency: number;
+  /** Exibe skills na Library. */
+  libraryShowSkills: boolean;
+  /** Exibe servidores MCP na Library. */
+  libraryShowMcp: boolean;
+  /** Permite que páginas abram pop-ups em novas janelas do Browser. */
+  browserAllowPopups: boolean;
+  /** Zoom das views Chromium do Browser, em percentual. */
+  browserZoomPercent: number;
 
   // Ações
   setShowToolCalls: (v: boolean) => void;
@@ -186,12 +209,26 @@ export interface SettingsState {
   setFontScaleMarkdown: (v: number) => void;
   setMonacoFontSize: (v: number) => void;
   setEditorAutoSave: (v: boolean) => void;
+  setEditorMinimap: (v: boolean) => void;
+  setEditorWordWrap: (v: boolean) => void;
+  setEditorFormatOnType: (v: boolean) => void;
+  setEditorQuickSuggestions: (v: boolean) => void;
+  setEditorLineNumbers: (v: boolean) => void;
   setEditorFontFamily: (v: FontFamily) => void;
   setMonoFontFamily: (v: FontFamily) => void;
   setUiFontFamily: (v: FontFamily) => void;
   setGitHooksEnabled: (v: boolean) => void;
   setGitSignoffEnabled: (v: boolean) => void;
   setGitBypassEnabled: (v: boolean) => void;
+  setPlanAutoExpand: (v: boolean) => void;
+  setPlanSort: (v: "created" | "title") => void;
+  setTaskNotifications: (v: boolean) => void;
+  setTaskRetryCount: (v: number) => void;
+  setTaskConcurrency: (v: number) => void;
+  setLibraryShowSkills: (v: boolean) => void;
+  setLibraryShowMcp: (v: boolean) => void;
+  setBrowserAllowPopups: (v: boolean) => void;
+  setBrowserZoomPercent: (v: number) => void;
   resetSettings: () => void;
 }
 
@@ -366,12 +403,26 @@ const DEFAULTS = {
   fontScaleMarkdown: FONT_SCALE_BASE_PX,
   monacoFontSize: 13,
   editorAutoSave: false,
+  editorMinimap: true,
+  editorWordWrap: false,
+  editorFormatOnType: true,
+  editorQuickSuggestions: true,
+  editorLineNumbers: true,
   editorFontFamily: '"JetBrains Mono", ui-monospace, monospace',
   monoFontFamily: '"JetBrains Mono", ui-monospace, monospace',
   uiFontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
   gitHooksEnabled: false,
   gitSignoffEnabled: false,
   gitBypassEnabled: false,
+  planAutoExpand: true,
+  planSort: "created" as "created" | "title",
+  taskNotifications: true,
+  taskRetryCount: 0,
+  taskConcurrency: 2,
+  libraryShowSkills: true,
+  libraryShowMcp: true,
+  browserAllowPopups: false,
+  browserZoomPercent: 100,
 };
 
 // ---------------------------------------------------------------------------
@@ -518,12 +569,29 @@ export const useSettingsStore = create<SettingsState>()(
         set({ fontScaleMarkdown: clampFontScale(v) }),
       setMonacoFontSize: (v) => set({ monacoFontSize: clampMonacoFontSize(v) }),
       setEditorAutoSave: (v) => set({ editorAutoSave: v }),
+      setEditorMinimap: (v) => set({ editorMinimap: v }),
+      setEditorWordWrap: (v) => set({ editorWordWrap: v }),
+      setEditorFormatOnType: (v) => set({ editorFormatOnType: v }),
+      setEditorQuickSuggestions: (v) => set({ editorQuickSuggestions: v }),
+      setEditorLineNumbers: (v) => set({ editorLineNumbers: v }),
       setEditorFontFamily: (v) => set({ editorFontFamily: v }),
       setMonoFontFamily: (v) => set({ monoFontFamily: v }),
       setUiFontFamily: (v) => set({ uiFontFamily: v }),
       setGitHooksEnabled: (v) => set({ gitHooksEnabled: v }),
       setGitSignoffEnabled: (v) => set({ gitSignoffEnabled: v }),
       setGitBypassEnabled: (v) => set({ gitBypassEnabled: v }),
+      setPlanAutoExpand: (v) => set({ planAutoExpand: v }),
+      setPlanSort: (v) => set({ planSort: v }),
+      setTaskNotifications: (v) => set({ taskNotifications: v }),
+      setTaskRetryCount: (v) =>
+        set({ taskRetryCount: Math.max(0, Math.min(5, Math.round(v))) }),
+      setTaskConcurrency: (v) =>
+        set({ taskConcurrency: Math.max(1, Math.min(8, Math.round(v))) }),
+      setLibraryShowSkills: (v) => set({ libraryShowSkills: v }),
+      setLibraryShowMcp: (v) => set({ libraryShowMcp: v }),
+      setBrowserAllowPopups: (v) => set({ browserAllowPopups: v }),
+      setBrowserZoomPercent: (v) =>
+        set({ browserZoomPercent: Math.max(25, Math.min(500, Math.round(v))) }),
       resetSettings: () =>
         set({
           ...DEFAULTS,
@@ -598,12 +666,26 @@ export const useSettingsStore = create<SettingsState>()(
         fontScaleMarkdown: state.fontScaleMarkdown,
         monacoFontSize: state.monacoFontSize,
         editorAutoSave: state.editorAutoSave,
+        editorMinimap: state.editorMinimap,
+        editorWordWrap: state.editorWordWrap,
+        editorFormatOnType: state.editorFormatOnType,
+        editorQuickSuggestions: state.editorQuickSuggestions,
+        editorLineNumbers: state.editorLineNumbers,
         editorFontFamily: state.editorFontFamily,
         monoFontFamily: state.monoFontFamily,
         uiFontFamily: state.uiFontFamily,
         gitHooksEnabled: state.gitHooksEnabled,
         gitSignoffEnabled: state.gitSignoffEnabled,
         gitBypassEnabled: state.gitBypassEnabled,
+        planAutoExpand: state.planAutoExpand,
+        planSort: state.planSort,
+        taskNotifications: state.taskNotifications,
+        taskRetryCount: state.taskRetryCount,
+        taskConcurrency: state.taskConcurrency,
+        libraryShowSkills: state.libraryShowSkills,
+        libraryShowMcp: state.libraryShowMcp,
+        browserAllowPopups: state.browserAllowPopups,
+        browserZoomPercent: state.browserZoomPercent,
       }),
     },
   ),

@@ -51,12 +51,12 @@ vi.mock("@/lib/stores/ci-store", () => ({
 
 let mockSummary: DiffSummary | null = null;
 const mockWorkbench = {
-  getDiff: (_id: string) => ({
+  getGit: (_id: string) => ({
     summary: mockSummary,
     summaryFetchedAt: Date.now(),
   }),
-  setDiffSummary: vi.fn(),
-  invalidateDiff: vi.fn(),
+  setGitSummary: vi.fn(),
+  invalidateGit: vi.fn(),
   clearPending: vi.fn(),
   setGitOperation: vi.fn(),
 };
@@ -73,8 +73,8 @@ vi.mock("@/lib/hooks/use-delayed-loading", () => ({
   useDelayedLoading: () => false,
 }));
 
-vi.mock("../tabs/diff-skeleton", () => ({
-  DiffSkeleton: () => <div>skeleton</div>,
+vi.mock("../tabs/git-skeleton", () => ({
+  GitSkeleton: () => <div>skeleton</div>,
 }));
 vi.mock("../git-toolbar", () => ({
   GitToolbar: ({ onCompare }: { onCompare: () => void }) => (

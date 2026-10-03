@@ -377,30 +377,30 @@ async def test_git_compare_com_file_path_devolve_hunks_do_arquivo(real_repo_ws):
 # ---------------------------------------------------------------------------
 
 
-def test_git_stage_tem_invalidates_diff():
+def test_git_stage_tem_invalidates_git():
     meta = _tool_extras("git_stage")
-    assert "diff" in meta.invalidates
+    assert "git" in meta.invalidates
 
 
-def test_git_unstage_tem_invalidates_diff():
+def test_git_unstage_tem_invalidates_git():
     meta = _tool_extras("git_unstage")
-    assert "diff" in meta.invalidates
+    assert "git" in meta.invalidates
 
 
-def test_git_commit_tem_invalidates_diff():
+def test_git_commit_tem_invalidates_git():
     meta = _tool_extras("git_commit")
-    assert "diff" in meta.invalidates
+    assert "git" in meta.invalidates
 
 
-def test_git_checkout_tem_invalidates_files_e_diff():
+def test_git_checkout_tem_invalidates_files_e_git():
     meta = _tool_extras("git_checkout")
-    assert "diff" in meta.invalidates
+    assert "git" in meta.invalidates
     assert "files" in meta.invalidates
 
 
-def test_git_pull_tem_invalidates_files_e_diff():
+def test_git_pull_tem_invalidates_files_e_git():
     meta = _tool_extras("git_pull")
-    assert "diff" in meta.invalidates
+    assert "git" in meta.invalidates
     assert "files" in meta.invalidates
 
 

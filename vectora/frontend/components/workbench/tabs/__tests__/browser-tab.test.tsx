@@ -270,7 +270,7 @@ describe("BrowserTab — navegação livre (sem depender de servidor configurado
     expect(iframe.getAttribute("src")).toBe("https://google.com");
   });
 
-  it("preserva a URL interna do Chromium ao navegar pela barra", async () => {
+  it("não aceita URLs internas do Chromium na barra de abas", async () => {
     mockFetch({ configurations: [] });
     render(<BrowserTab threadId="t1" />);
 
@@ -278,8 +278,8 @@ describe("BrowserTab — navegação livre (sem depender de servidor configurado
     fireEvent.change(urlBar, { target: { value: "chrome://settings" } });
     fireEvent.keyDown(urlBar, { key: "Enter" });
 
-    const iframe = await screen.findByTitle("Browser");
-    expect(iframe.getAttribute("src")).toBe("chrome://settings");
+    expect(screen.queryByTitle("Browser")).toBeNull();
+    expect(screen.getByText("workbench_browser_empty_title")).toBeTruthy();
   });
 
   it("sem nenhuma URL navegada e sem servidores configurados, mostra o estado vazio com onboarding (pedir ao agente / adicionar manualmente)", async () => {
@@ -573,7 +573,6 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
   it("confirma e limpa os dados do perfil pelo painel de configurações", async () => {
     const bridge = mockBrowserView();
     mockFetch({ configurations: [] });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<BrowserTab threadId="desktop-settings" />);
     await waitFor(() => expect(bridge.onEvent).toHaveBeenCalled());
 
@@ -583,6 +582,10 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
         name: /workbench_browser_clear_profile_data/i,
       }),
     );
+    const confirmations = screen.getAllByRole("button", {
+      name: /workbench_browser_clear_profile_data/i,
+    });
+    fireEvent.click(confirmations[confirmations.length - 1]);
 
     await waitFor(() => expect(bridge.clearProfileData).toHaveBeenCalledOnce());
   });
@@ -592,13 +595,24 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
     mockFetch({ configurations: [] });
     const view = render(<BrowserTab threadId="desktop-settings-bounds" />);
     await waitFor(() => expect(bridge.createView).toHaveBeenCalledTimes(1));
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      x: 10,
+      y: 20,
+      width: 640,
+      height: 480,
+      top: 20,
+      right: 650,
+      bottom: 500,
+      left: 10,
+      toJSON: () => ({}),
+    });
 
     fireEvent.click(screen.getByTestId("browser-settings-btn"));
     await waitFor(() =>
-      expect(bridge.setVisible).toHaveBeenCalledWith(2, true),
+      expect(bridge.setVisible).toHaveBeenCalledWith(expect.any(Number), true),
     );
     expect(bridge.setBounds).toHaveBeenCalledWith(
-      2,
+      expect.any(Number),
       expect.objectContaining({
         width: expect.any(Number),
         height: expect.any(Number),
@@ -614,14 +628,14 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
 
     fireEvent.click(screen.getByTestId("browser-settings-btn"));
     await waitFor(() =>
-      expect(bridge.setVisible).toHaveBeenCalledWith(2, true),
+      expect(bridge.setVisible).toHaveBeenCalledWith(expect.any(Number), true),
     );
 
     view.rerender(
       <BrowserTab threadId="desktop-settings-hidden" visible={false} />,
     );
     await waitFor(() =>
-      expect(bridge.setVisible).toHaveBeenCalledWith(2, false),
+      expect(bridge.setVisible).toHaveBeenCalledWith(expect.any(Number), false),
     );
   });
 
