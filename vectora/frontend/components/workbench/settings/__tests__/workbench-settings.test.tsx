@@ -308,4 +308,42 @@ describe("workbench settings contract", () => {
     expect(screen.queryByText("general")).not.toBeInTheDocument();
     expect(screen.queryByText(/capabilit/i)).not.toBeInTheDocument();
   });
+
+  it("passes the active context to the global workbench settings page", async () => {
+    const pageSpy = vi.fn();
+    vi.doMock("../workbench-settings-page", () => ({
+      WorkbenchSettingsPage: (props: unknown) => {
+        pageSpy(props);
+        return <div data-testid="workbench-settings-page" />;
+      },
+    }));
+    vi.doMock("../workbench-settings-registry", () => ({
+      ALL_WORKBENCH_SETTINGS: [{ id: "browser-settings" }],
+    }));
+    vi.doMock("@/lib/stores/active-workbench-context-store", () => ({
+      useActiveWorkbenchContextStore: (selector: (state: unknown) => unknown) =>
+        selector({
+          threadId: "thread-1",
+          workspaceId: "workspace-1",
+          browserProfileId: "session-profile",
+        }),
+    }));
+
+    const { WorkbenchesSettings } =
+      await import("@/components/settings/workbenches-settings");
+    render(<WorkbenchesSettings />);
+    expect(pageSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        descriptors: [{ id: "browser-settings" }],
+        context: {
+          threadId: "thread-1",
+          workspaceId: "workspace-1",
+          browserProfileId: "session-profile",
+        },
+      }),
+    );
+    vi.doUnmock("../workbench-settings-page");
+    vi.doUnmock("../workbench-settings-registry");
+    vi.doUnmock("@/lib/stores/active-workbench-context-store");
+  });
 });
