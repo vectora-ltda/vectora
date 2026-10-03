@@ -17,23 +17,24 @@ aba HTTP e uma aba HTTPS. Registre a versão do Electron e o sistema operacional
 - [ ] confirmar que as duas sessões recebem `profileId` diferentes;
 - [ ] abrir `Settings > Workbenches` sem sessão ativa;
 - [ ] confirmar o estado vazio para opções que exigem sessão;
-- [ ] abrir a categoria Browser no runtime web e confirmar o fallback Vectora.
+- [ ] abrir a categoria Browser no runtime web e confirmar o estado de indisponibilidade.
 
-## Superfície nativa
+## Superfície de configurações
 
-Valide a view nativa no Browser Workbench, mantendo o foco e a sessão observados
-durante cada passo.
+A superfície oficial de configurações é o formulário Vectora compartilhado. O
+adapter `WebContentsView` permanece isolado para runtimes que realmente
+forneçam uma página interna compatível; Electron puro não deve ser tratado como
+se trouxesse a aplicação `chrome://settings` do Chrome.
 
-- [ ] abrir a superfície nativa no perfil A;
-- [ ] confirmar que a rota inicial é `chrome://settings`;
-- [ ] testar somente as rotas permitidas pelo registry Electron;
-- [ ] confirmar rejeição de `chrome://settings/flags`, `help` e outras rotas não listadas;
-- [ ] redimensionar o painel e confirmar que a view acompanha o container;
-- [ ] recolher a workbench e confirmar que a view fica invisível;
-- [ ] pressionar Escape com foco dentro da view e confirmar fechamento;
-- [ ] fechar a superfície e confirmar hide antes de destroy;
-- [ ] abrir Settings global e confirmar que nenhuma view nativa permanece visível;
-- [ ] reabrir a aba e confirmar restauração da URL e do histórico.
+- [ ] abrir as configurações pelo Browser Workbench no perfil A;
+- [ ] abrir as mesmas configurações em `Settings > Workbenches`;
+- [ ] confirmar que ambas as entradas renderizam o mesmo formulário;
+- [ ] confirmar que o estado da abertura não é salvo no `windows-store`;
+- [ ] redimensionar o modal e confirmar rolagem interna sem overflow horizontal;
+- [ ] pressionar Escape e confirmar fechamento com retorno do foco;
+- [ ] abrir Settings global e confirmar que nenhum adapter nativo permanece visível;
+- [ ] quando o adapter nativo estiver habilitado pelo runtime, confirmar hide antes de destroy;
+- [ ] quando o runtime não suportar a página interna, confirmar o fallback explícito para o formulário Vectora.
 
 ## Isolamento e limpeza
 
@@ -53,5 +54,5 @@ que as ações destrutivas informam exatamente o que será removido.
 ## Critério de aprovação
 
 A checklist só pode ser aprovada quando todos os itens aplicáveis passarem, a
-versão do Electron estiver registrada e qualquer rota que falhar for removida da
-allowlist ou receber fallback explícito.
+versão do Electron estiver registrada e qualquer rota interna sem suporte tiver
+fallback explícito para a superfície Vectora.

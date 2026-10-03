@@ -20,7 +20,10 @@ vi.mock("@/lib/paraglide/messages", () => ({
   ),
 }));
 
-import { buildSettingsCategoryGroups } from "../settings-categories";
+import {
+  buildSettingsCategoryGroups,
+  findCategory,
+} from "../settings-categories";
 
 function adminCategoryIds(isFree: boolean) {
   const groups = buildSettingsCategoryGroups({
@@ -33,6 +36,27 @@ function adminCategoryIds(isFree: boolean) {
 }
 
 describe("buildSettingsCategoryGroups — Administração achatada (5 categorias, não 1)", () => {
+  it("registra Workbenches no grupo de ambiente", () => {
+    const groups = buildSettingsCategoryGroups({
+      connectEnabled: false,
+      isAdmin: false,
+      isFree: false,
+    });
+    const environment = groups.find((group) => group.id === "ambiente");
+    expect(environment?.categories.map((category) => category.id)).toContain(
+      "workbenches",
+    );
+  });
+
+  it("resolve o alias legado Git para a categoria Workbenches", () => {
+    const groups = buildSettingsCategoryGroups({
+      connectEnabled: false,
+      isAdmin: false,
+      isFree: false,
+    });
+    expect(findCategory(groups, "git")?.id).toBe("workbenches");
+  });
+
   it("usuário admin com licença Pro vê as 5 categorias, cada uma no rail", () => {
     const ids = adminCategoryIds(false);
     expect(ids).toEqual([

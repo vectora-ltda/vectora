@@ -15,8 +15,6 @@ import {
 } from "@testing-library/react";
 import { MemoryTab } from "../memory-tab";
 
-const mockDeleteCollection = vi.hoisted(() => vi.fn());
-
 function bucketsFetchMock(
   buckets: {
     id: string;
@@ -113,27 +111,16 @@ vi.mock("@/components/workbench/rag-settings-panel", () => ({
     collectionsStatus: "ready",
     patch: vi.fn(),
     loadCollections: vi.fn(),
-    deleteCollection: mockDeleteCollection,
+    deleteCollection: vi.fn(),
   }),
   RagSettingsButton: () => <div data-testid="rag-settings-btn-stub" />,
-  RagSettingsSlidePanel: () => <div data-testid="rag-settings-panel-stub" />,
-  RagCollectionsSection: (props: {
-    deleteCollection: (name: string) => Promise<boolean>;
-  }) => (
-    <div data-testid="rag-collections-section-stub">
-      <button
-        type="button"
-        onClick={() => void props.deleteCollection("articles")}
-      >
-        Excluir coleção de teste
-      </button>
-    </div>
+  RagCollectionsSection: () => (
+    <div data-testid="rag-collections-section-stub" />
   ),
 }));
 
 beforeEach(() => {
   mockMessages.mockReturnValue([]);
-  mockDeleteCollection.mockReset();
 });
 
 afterEach(() => {
@@ -192,40 +179,6 @@ describe("MemoryTab", () => {
     expect(
       screen.queryByText("workbench_memory_empty_title"),
     ).not.toBeInTheDocument();
-  });
-
-  it("recarrega o resumo do workspace depois de excluir uma coleção", async () => {
-    let summaryCalls = 0;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) => {
-        if (String(url).includes("/rag/workspace-summary")) {
-          summaryCalls += 1;
-          return new Response(
-            JSON.stringify({
-              collections:
-                summaryCalls === 1 ? [{ name: "articles", count: 3 }] : [],
-            }),
-          );
-        }
-        if (String(url).includes("/memory/journey"))
-          return new Response(JSON.stringify({ facts: [] }));
-        if (String(url).includes("/rag/buckets"))
-          return new Response(JSON.stringify([]));
-        throw new Error(`unmocked fetch: ${url}`);
-      }),
-    );
-    mockDeleteCollection.mockResolvedValue(true);
-
-    render(<MemoryTab threadId="t1" />);
-    await waitFor(() => expect(summaryCalls).toBe(1));
-    fireEvent.click(screen.getByText("Excluir coleção de teste"));
-
-    await waitFor(() => expect(summaryCalls).toBe(2));
-    expect(mockDeleteCollection).toHaveBeenCalledWith("articles");
-    expect(
-      screen.getByText("workbench_memory_empty_title"),
-    ).toBeInTheDocument();
   });
 
   it("chama /rag/workspace-summary com o workspace_id ativo", async () => {

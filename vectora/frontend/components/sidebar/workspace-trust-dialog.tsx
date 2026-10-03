@@ -58,7 +58,7 @@ import { useIngestPreview } from "@/lib/hooks/use-ingest-preview";
 import { useRagJobsStore } from "@/lib/stores/rag-jobs-store";
 import {
   RagSettingsButton,
-  RagSettingsSlidePanel,
+  RagSettingsForm,
   useRagSettings,
 } from "@/components/workbench/rag-settings-panel";
 import { m } from "@/lib/paraglide/messages";
@@ -451,16 +451,13 @@ export function WorkspaceTrustDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {mode === "ingest" && (
-          <RagSettingsSlidePanel
-            open={ragSettings.open}
-            close={ragSettings.close}
-            settings={ragSettings.settings}
-            collections={ragSettings.collections}
-            patch={ragSettings.patch}
-            loadCollections={ragSettings.loadCollections}
-            deleteCollection={ragSettings.deleteCollection}
-          />
+        {mode === "ingest" && ragSettings.open && (
+          <div
+            data-testid="rag-settings-panel"
+            className="rounded-md border border-border/60 bg-background p-3"
+          >
+            <RagSettingsForm {...ragSettings} showCollections={false} />
+          </div>
         )}
 
         {mode === "ingest" && ingestJobId ? (

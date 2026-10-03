@@ -513,6 +513,7 @@ def to_json(
     force: bool = False,
     built_at_commit: str | None = None,
     community_labels: dict[int, str] | None = None,
+    community_cohesion: dict[int, float] | None = None,
 ) -> bool:
     # Safety check: refuse to silently shrink an existing graph
     existing_path = Path(output_path)
@@ -541,6 +542,13 @@ def to_json(
             pass  # unreadable existing file — proceed with write
 
     node_community = _node_community_map(communities)
+    community_keys = {
+        int(cid): "community-"
+        + hashlib.sha256(
+            "\0".join(sorted(str(member) for member in members)).encode("utf-8")
+        ).hexdigest()[:12]
+        for cid, members in communities.items()
+    }
     _labels: dict[int, str] = {int(k): v for k, v in (community_labels or {}).items()}
     try:
         data = json_graph.node_link_data(G, edges="links")
@@ -551,6 +559,8 @@ def to_json(
         node["community"] = cid
         if cid is not None and _labels:
             node["community_name"] = _labels.get(cid, f"Community {cid}")
+        if cid is not None:
+            node["community_key"] = community_keys.get(cid, f"community-{cid}")
         node["norm_label"] = _strip_diacritics(node.get("label", "")).lower()
     for link in data["links"]:
         if "confidence_score" not in link:
@@ -566,6 +576,20 @@ def to_json(
             link["source"] = true_src
             link["target"] = true_tgt
     data["hyperedges"] = getattr(G, "graph", {}).get("hyperedges", [])
+    data["communities"] = [
+        {
+            "id": cid,
+            "key": community_keys.get(cid, f"community-{cid}"),
+            "name": _labels.get(cid, f"Community {cid}"),
+            "count": len(members),
+            **(
+                {"cohesion": community_cohesion[cid]}
+                if community_cohesion and cid in community_cohesion
+                else {}
+            ),
+        }
+        for cid, members in sorted(communities.items())
+    ]
     commit = built_at_commit if built_at_commit is not None else _git_head()
     if commit:
         data["built_at_commit"] = commit
@@ -768,6 +792,13 @@ def to_html(
         )
 
     node_community = _node_community_map(communities)
+    community_keys = {
+        int(cid): "community-"
+        + hashlib.sha256(
+            "\0".join(sorted(str(member) for member in members)).encode("utf-8")
+        ).hexdigest()[:12]
+        for cid, members in communities.items()
+    }
     degree = dict(G.degree())
     max_deg = max(degree.values(), default=1) or 1
     max_mc = (max(member_counts.values(), default=1) or 1) if member_counts else 1
@@ -800,6 +831,7 @@ def to_html(
                 "font": {"size": font_size, "color": "#ffffff"},
                 "title": _html.escape(label),
                 "community": cid,
+                "community_key": community_keys.get(cid, f"community-{cid}"),
                 "community_name": sanitize_label(
                     (community_labels or {}).get(cid, f"Community {cid}")
                 ),

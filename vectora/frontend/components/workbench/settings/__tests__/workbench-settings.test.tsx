@@ -6,11 +6,16 @@ import { lazy, type ReactElement } from "react";
 import { WorkbenchDialog } from "@/components/workbench/workbench-dialog";
 import {
   WorkbenchSettingsContent,
-  resolveWorkbenchSettingsCapabilities,
+  getWorkbenchSettingsScopeKey,
   resolveWorkbenchSettingsSurfaceMode,
 } from "../workbench-settings-content";
 import { WorkbenchSettingsPage } from "../workbench-settings-page";
-import { WORKBENCH_SETTINGS } from "../workbench-settings-registry";
+import {
+  ALL_WORKBENCH_SETTINGS,
+  contextGraphSettings,
+  gitSettings,
+  WORKBENCH_SETTINGS,
+} from "../workbench-settings-registry";
 import type { WorkbenchSettingsDescriptor } from "@/lib/types/workbench-settings";
 import type { WorkbenchId } from "@/lib/types/workbench-settings";
 import type { WorkbenchTab } from "@/lib/stores/workbench-store";
@@ -59,7 +64,6 @@ function descriptor(
     icon: Icon,
     scope: "user",
     sections: [{ id: "general", title: () => "General" }],
-    capabilities: [{ id: "general", status: "available" }],
     Component: () => <p>settings form</p>,
     surface: { workbench: "form", settings: "form" },
     ...overrides,
@@ -76,9 +80,15 @@ describe("workbench settings contract", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  it("registers every workbench in the canonical navigation order", () => {
+    expect(WORKBENCH_SETTINGS.map((item) => item.workbench)).toEqual([
+      ...WORKBENCH_TABS,
+    ]);
+  });
+
   it("registers a reusable settings surface for every workbench", () => {
-    expect(WORKBENCH_SETTINGS).toHaveLength(WORKBENCH_TABS.length);
-    for (const item of WORKBENCH_SETTINGS) {
+    expect(ALL_WORKBENCH_SETTINGS).toHaveLength(WORKBENCH_TABS.length);
+    for (const item of ALL_WORKBENCH_SETTINGS) {
       expect(item.Component).toBeDefined();
       expect(item.surface.workbench).toBeDefined();
       expect(item.surface.settings).toBeDefined();
@@ -87,12 +97,28 @@ describe("workbench settings contract", () => {
     expect(
       WORKBENCH_SETTINGS.find((item) => item.workbench === "browser")?.surface,
     ).toEqual({
-      workbench: "native-view",
-      settings: "link",
+      workbench: "form",
+      settings: "form",
     });
   });
 
-  it("resolve native surfaces to a form fallback or unavailable state", () => {
+  it("keeps owner scopes explicit for session, instance, and workspace data", () => {
+    expect(
+      WORKBENCH_SETTINGS.find((item) => item.workbench === "browser")?.scope,
+    ).toBe("session");
+    expect(
+      WORKBENCH_SETTINGS.find((item) => item.workbench === "storage")?.scope,
+    ).toBe("instance");
+    expect(
+      WORKBENCH_SETTINGS.find((item) => item.workbench === "terminal")
+        ?.sections,
+    ).toEqual([
+      expect.objectContaining({ id: "display", scope: "user" }),
+      expect.objectContaining({ id: "sandbox", scope: "workspace" }),
+    ]);
+  });
+
+  it("resolves native surfaces to unavailable and Vectora Browser to a form", () => {
     const native = descriptor({
       id: "native-settings",
       surface: { workbench: "native-view", settings: "form" },
@@ -111,55 +137,16 @@ describe("workbench settings contract", () => {
     ).toBe("form");
   });
 
-  it("resolves every browser capability as unavailable on the web runtime", () => {
-    const browser = WORKBENCH_SETTINGS.find(
-      (item) => item.workbench === "browser",
-    )!;
-    expect(
-      resolveWorkbenchSettingsCapabilities(browser, false).every(
-        (capability) => capability.status === "unavailable",
-      ),
-    ).toBe(true);
-  });
-
-  it("keeps browser capabilities available on the desktop runtime", () => {
-    const browser = WORKBENCH_SETTINGS.find(
-      (item) => item.workbench === "browser",
-    )!;
-    expect(
-      resolveWorkbenchSettingsCapabilities(browser, true).every(
-        (capability) => capability.status === "available",
-      ),
-    ).toBe(true);
-  });
-
   it("keeps settings in the same order as the navigation contract", () => {
-    expect(WORKBENCH_SETTINGS.map((item) => item.workbench)).toEqual(
+    expect(ALL_WORKBENCH_SETTINGS.map((item) => item.workbench)).toEqual(
       WORKBENCH_TABS,
     );
   });
 
-  it("does not advertise capabilities that have no implementation", () => {
-    expect(
-      WORKBENCH_SETTINGS.flatMap((item) => item.capabilities).every(
-        (capability) => capability.status === "available",
-      ),
-    ).toBe(true);
-  });
-
-  it("ships the formerly planned services as available capabilities", () => {
-    const capabilities = new Map(
-      WORKBENCH_SETTINGS.flatMap((item) =>
-        item.capabilities.map(
-          (itemCapability) =>
-            [itemCapability.id, itemCapability.status] as const,
-        ),
-      ),
-    );
-
-    expect(capabilities.get("password-manager-ui")).toBe("available");
-    expect(capabilities.get("formatter-service")).toBe("available");
-    expect(capabilities.get("linter-service")).toBe("available");
+  it("does not expose a capability panel or capability metadata", () => {
+    for (const item of ALL_WORKBENCH_SETTINGS) {
+      expect("capabilities" in item).toBe(false);
+    }
   });
 
   it("renders a responsive modal shell and closes through Radix Escape", () => {
@@ -202,6 +189,40 @@ describe("workbench settings contract", () => {
       />,
     );
     expect(screen.getByText(/workspace/i)).toBeInTheDocument();
+  });
+
+  it("resolves isolated owner keys for user, workspace, session, and instance", () => {
+    expect(getWorkbenchSettingsScopeKey("user", context)).toBe("user");
+    expect(getWorkbenchSettingsScopeKey("instance", context)).toBe("instance");
+    expect(getWorkbenchSettingsScopeKey("workspace", context)).toBe(
+      "workspace-1",
+    );
+    expect(getWorkbenchSettingsScopeKey("session", context)).toBe(
+      "workspace-1:thread-1",
+    );
+    expect(
+      getWorkbenchSettingsScopeKey("session", {
+        threadId: null,
+        workspaceId: "workspace-1",
+      }),
+    ).toBeNull();
+  });
+
+  it("publishes the resolved scope on the shared host", () => {
+    render(
+      <WorkbenchSettingsContent
+        descriptor={descriptor({ scope: "session" })}
+        context={context}
+      />,
+    );
+    expect(screen.getByTestId("workbench-settings-content")).toHaveAttribute(
+      "data-settings-scope",
+      "session",
+    );
+    expect(screen.getByTestId("workbench-settings-content")).toHaveAttribute(
+      "data-settings-scope-key",
+      "workspace-1:thread-1",
+    );
   });
 
   it("renders translated loading and error fallbacks", async () => {
@@ -266,11 +287,63 @@ describe("workbench settings contract", () => {
     );
   });
 
+  it("renders the real Git and Context Graph forms through the shared page", () => {
+    render(
+      <WorkbenchSettingsPage
+        descriptors={[contextGraphSettings, gitSettings]}
+        context={context}
+      />,
+    );
+
+    expect(screen.getByText(/file types/i)).toBeInTheDocument();
+    expect(screen.getByText(/run hooks before commit/i)).toBeInTheDocument();
+    expect(screen.getByRole("navigation")).toHaveTextContent("Context Graph");
+    expect(screen.getByRole("navigation")).toHaveTextContent("Git");
+  });
+
   it("does not render contract capability metadata", () => {
     render(
       <WorkbenchSettingsContent descriptor={descriptor()} context={context} />,
     );
     expect(screen.queryByText("general")).not.toBeInTheDocument();
     expect(screen.queryByText(/capabilit/i)).not.toBeInTheDocument();
+  });
+
+  it("passes the active context to the global workbench settings page", async () => {
+    const pageSpy = vi.fn();
+    vi.doMock("../workbench-settings-page", () => ({
+      WorkbenchSettingsPage: (props: unknown) => {
+        pageSpy(props);
+        return <div data-testid="workbench-settings-page" />;
+      },
+    }));
+    vi.doMock("../workbench-settings-registry", () => ({
+      ALL_WORKBENCH_SETTINGS: [{ id: "browser-settings" }],
+    }));
+    vi.doMock("@/lib/stores/active-workbench-context-store", () => ({
+      useActiveWorkbenchContextStore: (selector: (state: unknown) => unknown) =>
+        selector({
+          threadId: "thread-1",
+          workspaceId: "workspace-1",
+          browserProfileId: "session-profile",
+        }),
+    }));
+
+    const { WorkbenchesSettings } =
+      await import("@/components/settings/workbenches-settings");
+    render(<WorkbenchesSettings />);
+    expect(pageSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        descriptors: [{ id: "browser-settings" }],
+        context: {
+          threadId: "thread-1",
+          workspaceId: "workspace-1",
+          browserProfileId: "session-profile",
+        },
+      }),
+    );
+    vi.doUnmock("../workbench-settings-page");
+    vi.doUnmock("../workbench-settings-registry");
+    vi.doUnmock("@/lib/stores/active-workbench-context-store");
   });
 });

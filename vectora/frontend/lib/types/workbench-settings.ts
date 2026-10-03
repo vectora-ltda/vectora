@@ -21,9 +21,6 @@ export type WorkbenchSettingsPresentation = "workbench" | "settings";
 export type WorkbenchSettingsSurfaceMode = "form" | "native-view" | "link";
 export type ResolvedSurfaceMode = WorkbenchSettingsSurfaceMode | "unavailable";
 
-export type WorkbenchSettingsCapabilityStatus =
-  "available" | "unavailable" | "planned";
-
 export interface WorkbenchSettingsSection {
   id: string;
   title: () => string;
@@ -31,15 +28,11 @@ export interface WorkbenchSettingsSection {
   scope?: WorkbenchSettingsScope;
 }
 
-export interface WorkbenchSettingsCapability {
-  id: string;
-  status: WorkbenchSettingsCapabilityStatus;
-  description?: () => string;
-}
-
 export interface WorkbenchSettingsContext {
   threadId: string | null;
   workspaceId: string | null;
+  /** Chave estável do dono da configuração resolvida pelo host. */
+  scopeKey?: string;
   /** Perfil Chromium resolvido para a sessão da Browser Workbench. */
   browserProfileId?: string | null;
   presentation: WorkbenchSettingsPresentation;
@@ -58,7 +51,6 @@ export interface WorkbenchSettingsDescriptor {
   icon: ComponentType<{ className?: string }>;
   scope: WorkbenchSettingsScope;
   sections: readonly WorkbenchSettingsSection[];
-  capabilities: readonly WorkbenchSettingsCapability[];
   Component: ComponentType<WorkbenchSettingsContext>;
   surface: Record<WorkbenchSettingsPresentation, WorkbenchSettingsSurfaceMode>;
 }
