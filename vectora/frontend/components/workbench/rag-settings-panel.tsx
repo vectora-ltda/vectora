@@ -109,7 +109,8 @@ export function useRagSettings() {
   useEffect(() => {
     if (!open) return;
     let alive = true;
-    // Synchronize the loading indicator with this external settings request.
+    // This effect starts the remote load when the panel opens; the loading
+    // state is intentionally synchronized before the request begins.
     // oxlint-disable-next-line react/set-state-in-effect
     setSettingsStatus("loading");
     void (async () => {

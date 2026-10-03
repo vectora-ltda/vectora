@@ -1746,7 +1746,7 @@
   "workbench_plan_sort_title": "Título",
   "workbench_tasks_notifications_label": "Notificações de tarefas",
   "workbench_tasks_notifications_help": "Mostra uma notificação quando uma tarefa em segundo plano termina.",
-  "workbench_tasks_advanced_planned_help": "As políticas de tentativas e concorrência serão habilitadas quando o scheduler expuser essas configurações do workspace.",
+  "workbench_tasks_advanced_planned_help": "As políticas de tentativas e concorrência são aplicadas às execuções em segundo plano.",
   "workbench_tasks_retry_label": "Tentativas de repetição",
   "workbench_tasks_retry_help": "Repetições automáticas para tarefas que falharem.",
   "workbench_tasks_backoff_label": "Intervalo entre tentativas",
