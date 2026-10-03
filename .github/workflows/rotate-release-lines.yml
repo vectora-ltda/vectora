@@ -2,7 +2,7 @@ name: Rotate release lines
 
 # Um release publicado de desenvolvimento avança as duas linhas ativas. O
 # Release Please atualiza a configuração dentro da própria PR de release; este
-# workflow apenas cria a branch de manutenção e os milestones após a publicação.
+# workflow cria a próxima minor e atualiza as PRs pendentes após a publicação.
 on:
   release:
     types: [published]
@@ -46,11 +46,11 @@ jobs:
         if: steps.rotation.outputs.rotate != 'true'
         run: echo "O release publicado não corresponde à linha configurada de desenvolvimento; nenhuma rotação será feita."
 
-      - name: Create the next maintenance branch and milestones
+      - name: Create the next development branch and milestones
         if: steps.rotation.outputs.rotate == 'true'
         uses: actions/github-script@v8
         env:
-          MAINTENANCE_BRANCH: ${{ steps.rotation.outputs.maintenance_branch }}
+          STABLE_BRANCH: ${{ steps.rotation.outputs.maintenance_branch }}
           MAINTENANCE_MILESTONE: ${{ steps.rotation.outputs.maintenance_milestone }}
           DEVELOPMENT_MILESTONE: ${{ steps.rotation.outputs.development_milestone }}
           DEVELOPMENT_BRANCH: ${{ steps.rotation.outputs.development_branch }}
@@ -58,17 +58,20 @@ jobs:
           PREVIOUS_MAINTENANCE_BRANCH: ${{ steps.rotation.outputs.previous_maintenance_branch }}
           PREVIOUS_MAINTENANCE_MILESTONE: ${{ steps.rotation.outputs.previous_maintenance_milestone }}
           PREVIOUS_DEVELOPMENT_MILESTONE: ${{ steps.rotation.outputs.previous_development_milestone }}
+          PREVIOUS_DEVELOPMENT_BRANCH: ${{ steps.rotation.outputs.previous_development_branch }}
           RELEASE_TAG: ${{ steps.rotation.outputs.release_tag }}
         with:
           github-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           script: |
             const {
-              MAINTENANCE_BRANCH,
+              STABLE_BRANCH,
+              DEVELOPMENT_BRANCH,
               MAINTENANCE_MILESTONE,
               DEVELOPMENT_MILESTONE,
               PREVIOUS_MAINTENANCE_BRANCH,
               PREVIOUS_MAINTENANCE_MILESTONE,
               PREVIOUS_DEVELOPMENT_MILESTONE,
+              PREVIOUS_DEVELOPMENT_BRANCH,
               RELEASE_TAG,
             } = process.env;
             const { owner, repo } = context.repo;
@@ -97,7 +100,7 @@ jobs:
             const developmentRef = await github.rest.git.getRef({
               owner,
               repo,
-              ref: `heads/${process.env.DEVELOPMENT_BRANCH}`,
+              ref: `heads/${process.env.STABLE_BRANCH}`,
             });
             const ancestry = await github.rest.repos.compareCommits({
               owner,
@@ -107,7 +110,7 @@ jobs:
             });
             if (!["ahead", "identical"].includes(ancestry.data.status)) {
               core.setFailed(
-                `A tag ${RELEASE_TAG} não pertence à linha de desenvolvimento ${process.env.DEVELOPMENT_BRANCH}.`,
+                `A tag ${RELEASE_TAG} não pertence à linha estável ${STABLE_BRANCH}.`,
               );
               return;
             }
@@ -116,7 +119,7 @@ jobs:
               const existing = await github.rest.git.getRef({
                 owner,
                 repo,
-                ref: `heads/${MAINTENANCE_BRANCH}`,
+                ref: `heads/${DEVELOPMENT_BRANCH}`,
               });
               const comparison = await github.rest.repos.compareCommits({
                 owner,
@@ -126,20 +129,20 @@ jobs:
               });
               if (!["ahead", "identical"].includes(comparison.data.status)) {
                 core.setFailed(
-                  `A branch ${MAINTENANCE_BRANCH} existente não contém o commit publicado ${RELEASE_TAG}.`,
+                  `A branch ${DEVELOPMENT_BRANCH} existente não contém o commit publicado ${RELEASE_TAG}.`,
                 );
                 return;
               }
-              core.info(`A branch de manutenção ${MAINTENANCE_BRANCH} já existe.`);
+              core.info(`A branch de desenvolvimento ${DEVELOPMENT_BRANCH} ja existe.`);
             } catch (error) {
               if (error.status !== 404) throw error;
               await github.rest.git.createRef({
                 owner,
                 repo,
-                ref: `refs/heads/${MAINTENANCE_BRANCH}`,
-                sha: releaseSha,
+                ref: `refs/heads/${DEVELOPMENT_BRANCH}`,
+                sha: developmentRef.data.object.sha,
               });
-              core.info(`Branch de manutenção ${MAINTENANCE_BRANCH} criada em ${RELEASE_TAG}.`);
+              core.info(`Branch de desenvolvimento ${DEVELOPMENT_BRANCH} criada em ${RELEASE_TAG}.`);
             }
 
             const openMilestones = await github.paginate(
@@ -169,9 +172,22 @@ jobs:
             };
             const maintenance = await ensureMilestone(
               MAINTENANCE_MILESTONE,
-              `Linha de manutenção ${MAINTENANCE_BRANCH}`,
+              `Linha estavel ${STABLE_BRANCH}`,
             );
             const development = await ensureMilestone(
               DEVELOPMENT_MILESTONE,
               "Próxima linha de release de desenvolvimento",
             );
+            const pending = await github.paginate(github.rest.pulls.list, {
+              owner, repo, state: "open", base: PREVIOUS_DEVELOPMENT_BRANCH, per_page: 100,
+            });
+            for (const pr of pending) {
+              await github.rest.pulls.update({
+                owner, repo, pull_number: pr.number, base: DEVELOPMENT_BRANCH,
+              });
+              if (pr.milestone?.title === PREVIOUS_DEVELOPMENT_MILESTONE) {
+                await github.rest.issues.update({
+                  owner, repo, issue_number: pr.number, milestone: development.number,
+                });
+              }
+            }

@@ -220,7 +220,7 @@ def test_maintenance_rejects_minor() -> None:
 def test_release_please_pr_is_exempt_with_controlled_source_and_label() -> None:
     """Isenta a branch versionada de desenvolvimento com origem confiável."""
     event = _event(
-        base=DEVELOPMENT_BRANCH,
+        base=MAINTENANCE_BRANCH,
         milestone=None,
         head="release-please-0.3",
         labels=["autorelease: pending"],
@@ -231,7 +231,7 @@ def test_release_please_pr_is_exempt_with_controlled_source_and_label() -> None:
 def test_release_please_pr_from_another_repo_is_rejected() -> None:
     """Rejeita uma branch de release criada a partir de outro repositório."""
     event = _event(
-        base=DEVELOPMENT_BRANCH,
+        base=MAINTENANCE_BRANCH,
         milestone=None,
         head="release-please-0.3",
         labels=["autorelease: pending"],
@@ -244,7 +244,7 @@ def test_release_please_pr_from_another_repo_is_rejected() -> None:
 def test_release_please_pr_without_pending_label_is_rejected() -> None:
     """Exige o label controlado para isentar uma PR automática de release."""
     event = _event(
-        base=DEVELOPMENT_BRANCH,
+        base=MAINTENANCE_BRANCH,
         milestone=None,
         head="release-please-0.3",
     )
@@ -255,7 +255,7 @@ def test_release_please_pr_without_pending_label_is_rejected() -> None:
 def test_release_please_lookalike_branch_is_rejected() -> None:
     """Rejeita branches que apenas se parecem com o formato automático."""
     event = _event(
-        base=DEVELOPMENT_BRANCH,
+        base=MAINTENANCE_BRANCH,
         milestone=None,
         head="release-please-0.3-lookalike",
         labels=["autorelease: pending"],
@@ -264,10 +264,10 @@ def test_release_please_lookalike_branch_is_rejected() -> None:
     assert errors and "milestone" in errors[0]
 
 
-def test_release_please_branch_retargeted_to_maintenance_is_rejected() -> None:
-    """Rejeita uma branch minor automática redirecionada à manutenção."""
+def test_release_please_minor_targeting_development_is_rejected() -> None:
+    """Rejeita a minor quando ela ainda aponta para a branch de desenvolvimento."""
     event = _event(
-        base=MAINTENANCE_BRANCH,
+        base=DEVELOPMENT_BRANCH,
         milestone=None,
         head="release-please-0.3",
         labels=["autorelease: pending"],
