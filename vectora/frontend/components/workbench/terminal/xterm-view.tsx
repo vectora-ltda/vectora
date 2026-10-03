@@ -35,6 +35,9 @@ interface XtermViewProps {
   threadId: string;
   workspaceId: string;
   onClosed?: () => void;
+  fontSize?: number;
+  scrollback?: number;
+  cursorBlink?: boolean;
 }
 
 export function XtermView({
@@ -42,6 +45,9 @@ export function XtermView({
   threadId,
   workspaceId,
   onClosed,
+  cursorBlink = true,
+  fontSize = 13,
+  scrollback = 5000,
 }: XtermViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<any | null>(null);
@@ -80,10 +86,10 @@ export function XtermView({
           getComputedStyle(document.documentElement).getPropertyValue(
             "--font-family-mono",
           ) || '"JetBrains Mono", ui-monospace, monospace',
-        fontSize: 13,
-        cursorBlink: true,
+        fontSize,
+        cursorBlink,
         theme: readXtermTheme(),
-        scrollback: 5000,
+        scrollback,
         convertEol: true,
       });
       const fit = new FitAddon();

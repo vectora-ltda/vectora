@@ -14,13 +14,13 @@ import {
   apiMerge,
   apiCompare,
   apiCompareFile,
-  fetchDiff,
-  fetchDiffFile,
+  fetchGitDiff,
+  fetchGitDiffFile,
   apiGitFileAction,
   apiGitignoreAppend,
   apiGitCommit,
   fetchGitLog,
-  fetchCommitDiff,
+  fetchGitCommitDiff,
   apiRevert,
   apiStash,
   apiListConflicts,
@@ -203,17 +203,17 @@ describe("api — compare", () => {
 });
 
 describe("api — diff / commit", () => {
-  it("fetchDiff e fetchDiffFile retornam null em falha", async () => {
+  it("fetchGitDiff e fetchGitDiffFile retornam null em falha", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({}, false));
-    expect(await fetchDiff("ws1")).toBeNull();
+    expect(await fetchGitDiff("ws1")).toBeNull();
 
     fetchMock.mockResolvedValueOnce(jsonResponse({}, false));
-    expect(await fetchDiffFile("ws1", "a.ts")).toBeNull();
+    expect(await fetchGitDiffFile("ws1", "a.ts")).toBeNull();
   });
 
-  it("fetchDiffFile retorna [] quando hunks está ausente no payload", async () => {
+  it("fetchGitDiffFile retorna [] quando hunks está ausente no payload", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({}));
-    expect(await fetchDiffFile("ws1", "a.ts")).toEqual([]);
+    expect(await fetchGitDiffFile("ws1", "a.ts")).toEqual([]);
   });
 
   it("apiGitFileAction posta path para a ação (stage/unstage/discard)", async () => {
@@ -270,12 +270,12 @@ describe("api — histórico", () => {
     );
   });
 
-  it("fetchCommitDiff retorna string vazia em falha e o diff em sucesso", async () => {
+  it("fetchGitCommitDiff retorna string vazia em falha e o diff em sucesso", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({}, false));
-    expect(await fetchCommitDiff("ws1", "abc")).toBe("");
+    expect(await fetchGitCommitDiff("ws1", "abc")).toBe("");
 
     fetchMock.mockResolvedValueOnce(jsonResponse({ diff: "@@ -1 +1 @@" }));
-    expect(await fetchCommitDiff("ws1", "abc")).toBe("@@ -1 +1 @@");
+    expect(await fetchGitCommitDiff("ws1", "abc")).toBe("@@ -1 +1 @@");
   });
 
   it("apiRevert envia sha e no_commit=true", async () => {

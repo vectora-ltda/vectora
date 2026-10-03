@@ -42,6 +42,8 @@ function descriptor(
     description: () => "Configure the terminal",
     icon: Icon,
     scope: "user",
+    sections: [{ id: "general", title: () => "General" }],
+    capabilities: [{ id: "general", status: "available" }],
     Component: () => <p>settings form</p>,
     surface: { workbench: "form", settings: "form" },
     ...overrides,
@@ -62,6 +64,29 @@ describe("workbench settings contract", () => {
     expect(WORKBENCH_SETTINGS.map((item) => item.workbench)).toEqual(
       WORKBENCH_TABS,
     );
+  });
+
+  it("does not advertise capabilities that have no implementation", () => {
+    expect(
+      WORKBENCH_SETTINGS.flatMap((item) => item.capabilities).every(
+        (capability) => capability.status === "available",
+      ),
+    ).toBe(true);
+  });
+
+  it("ships the formerly planned services as available capabilities", () => {
+    const capabilities = new Map(
+      WORKBENCH_SETTINGS.flatMap((item) =>
+        item.capabilities.map(
+          (itemCapability) =>
+            [itemCapability.id, itemCapability.status] as const,
+        ),
+      ),
+    );
+
+    expect(capabilities.get("password-manager-ui")).toBe("available");
+    expect(capabilities.get("formatter-service")).toBe("available");
+    expect(capabilities.get("linter-service")).toBe("available");
   });
 
   it("renders a responsive modal shell and closes through Radix Escape", () => {

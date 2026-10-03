@@ -103,7 +103,7 @@ export function HunkView({ hunk, path }: { hunk: DiffHunk; path?: string }) {
             </div>
             {line.no_trailing_newline && (
               <div className="px-3 py-0.5 text-[10px] italic text-muted-foreground">
-                {m.workbench_diff_no_trailing_newline()}
+                {m.workbench_git_no_trailing_newline()}
               </div>
             )}
           </div>

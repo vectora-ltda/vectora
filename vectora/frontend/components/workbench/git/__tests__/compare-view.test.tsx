@@ -192,11 +192,11 @@ describe("CompareView", () => {
 
     fireEvent.click(await screen.findByText(/workbench_git_merge_into/));
     expect(
-      await screen.findByText("workbench_diff_conflicts_ours"),
+      await screen.findByText("workbench_git_conflicts_ours"),
     ).toBeInTheDocument();
     expect(screen.getByText("a.ts")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("workbench_diff_conflicts_ours"));
+    fireEvent.click(screen.getByText("workbench_git_conflicts_ours"));
     await waitFor(() =>
       expect(resolveSpy).toHaveBeenCalledWith("ws1", "a.ts", "ours"),
     );

@@ -64,7 +64,7 @@ export function StashModal({
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder={m.workbench_diff_stash_name_placeholder()}
+            placeholder={m.workbench_git_stash_name_placeholder()}
             className="flex-1 text-xs bg-background border border-border/60 rounded px-1.5 py-1 outline-none focus:border-primary min-w-0"
             onKeyDown={(e) => {
               if (e.key === "Enter") {
@@ -78,7 +78,7 @@ export function StashModal({
               void act("push", { name: name || undefined });
               setName("");
             }}
-            title={m.workbench_diff_stash_push()}
+            title={m.workbench_git_stash_push()}
             className="p-1 rounded hover:bg-muted/40 text-muted-foreground hover:text-foreground"
           >
             <Plus className="w-4 h-4" />
@@ -91,7 +91,7 @@ export function StashModal({
             </div>
           ) : entries.length === 0 ? (
             <p className="text-xs text-muted-foreground text-center py-6">
-              {m.workbench_diff_stash_empty()}
+              {m.workbench_git_stash_empty()}
             </p>
           ) : (
             entries.map((e) => (
@@ -105,11 +105,11 @@ export function StashModal({
                   onClick={() => void act("pop")}
                   className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary hover:bg-primary/20"
                 >
-                  {m.workbench_diff_stash_pop()}
+                  {m.workbench_git_stash_pop()}
                 </button>
                 <button
                   onClick={() => void act("drop", { index: e.index })}
-                  title={m.workbench_diff_stash_drop()}
+                  title={m.workbench_git_stash_drop()}
                   className="p-0.5 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
                 >
                   <Trash2 className="w-3 h-3" />

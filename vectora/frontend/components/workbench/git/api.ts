@@ -190,7 +190,7 @@ export async function apiCompareFile(
 
 // ── Diff do working tree (aba Mudanças) ─────────────────────────────────────
 
-export async function fetchDiff(
+export async function fetchGitDiff(
   workspaceId: string,
 ): Promise<DiffSummary | null> {
   const res = await fetch(`${base(workspaceId)}/git/diff`);
@@ -198,7 +198,7 @@ export async function fetchDiff(
   return res.json();
 }
 
-export async function fetchDiffFile(
+export async function fetchGitDiffFile(
   workspaceId: string,
   path: string,
 ): Promise<DiffHunk[] | null> {
@@ -308,7 +308,7 @@ export async function fetchGitLog(
   return res.json();
 }
 
-export async function fetchCommitDiff(
+export async function fetchGitCommitDiff(
   workspaceId: string,
   sha: string,
 ): Promise<string> {

@@ -2166,6 +2166,36 @@ async def _set_next_run(task_id: str, next_run: str | None) -> None:
             await conn.close()
 
 
+def _task_frontend_int(task: BackgroundTask, key: str, default: int) -> int:
+    """Read one validated task preference without coupling the scheduler to HTTP."""
+    try:
+        from backend.workspace.runtime_settings import runtime_settings
+
+        value = runtime_settings.get_frontend_prefs(task.user_id).get(key, default)
+        return (
+            int(value)
+            if isinstance(value, int) and not isinstance(value, bool)
+            else default
+        )
+    except Exception:
+        logger.warning("background_tasks: failed to read %s", key, exc_info=True)
+        return default
+
+
+async def _run_scheduled_task(task: BackgroundTask) -> str | None:
+    """Run a scheduled task with the user's retry policy and exponential backoff."""
+    retries = max(0, min(5, _task_frontend_int(task, "taskRetryCount", 0)))
+    backoff_ms = max(
+        100, min(30_000, _task_frontend_int(task, "taskRetryBackoffMs", 1000))
+    )
+    for attempt in range(retries + 1):
+        result = await run_task(task, task.trigger_type)
+        if result is not None or attempt == retries:
+            return result
+        await asyncio.sleep((backoff_ms * (2**attempt)) / 1000)
+    return None
+
+
 class BackgroundScheduler:
     """Loop asyncio que dispara tasks 'interval' vencidas (tick de 60s)."""
 
@@ -2227,7 +2257,18 @@ class BackgroundScheduler:
             logger.warning("background_tasks: tick do kanban falhou", exc_info=True)
 
         now = datetime.now(UTC)
-        for task in await _list_due_interval_tasks():
+        due_tasks = await _list_due_interval_tasks()
+        semaphores: dict[str, asyncio.Semaphore] = {}
+
+        async def dispatch(task: BackgroundTask) -> None:
+            concurrency = max(1, min(8, _task_frontend_int(task, "taskConcurrency", 2)))
+            semaphore = semaphores.setdefault(
+                task.user_id, asyncio.Semaphore(concurrency)
+            )
+            async with semaphore:
+                await _dispatch_one(task)
+
+        async def _dispatch_one(task: BackgroundTask) -> None:
             if task.trigger_type == "interval" and _is_stale(task.next_run_at, now):
                 logger.info(
                     "background_tasks: pulando disparo atrasado de %s "
@@ -2238,10 +2279,12 @@ class BackgroundScheduler:
                 await _set_next_run(
                     task.id, _next_run(task.trigger_config.get("cron_expr"))
                 )
-                continue
-            await run_task(task, task.trigger_type)
+                return
+            await _run_scheduled_task(task)
             if task.trigger_type == "once":
                 await update_task(task.id, enabled=False)
+
+        await asyncio.gather(*(dispatch(task) for task in due_tasks))
 
 
 _scheduler: BackgroundScheduler | None = None

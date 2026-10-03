@@ -85,6 +85,9 @@ _ALLOWED_FRONTEND_PREF_KEYS = frozenset(
         "weeklyInsightEnabled",
         "weeklyInsightWeeks",
         "weeklyInsightDismissedWindow",
+        "taskRetryCount",
+        "taskConcurrency",
+        "taskRetryBackoffMs",
     }
 )
 
@@ -520,6 +523,21 @@ class RuntimeSettings:
             allowed["weeklyInsightDismissedWindow"], str
         ):
             allowed.pop("weeklyInsightDismissedWindow")
+        for key in ("taskRetryCount", "taskConcurrency", "taskRetryBackoffMs"):
+            value = allowed.get(key)
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int)
+            ):
+                allowed.pop(key)
+        retry_count = allowed.get("taskRetryCount")
+        if isinstance(retry_count, int) and not isinstance(retry_count, bool):
+            allowed["taskRetryCount"] = max(0, min(5, retry_count))
+        concurrency = allowed.get("taskConcurrency")
+        if isinstance(concurrency, int) and not isinstance(concurrency, bool):
+            allowed["taskConcurrency"] = max(1, min(8, concurrency))
+        backoff_ms = allowed.get("taskRetryBackoffMs")
+        if isinstance(backoff_ms, int) and not isinstance(backoff_ms, bool):
+            allowed["taskRetryBackoffMs"] = max(100, min(30_000, backoff_ms))
         with self._lock:
             all_prefs_raw = self._data.get("frontend_prefs", {})
             all_prefs: dict[str, object] = (
