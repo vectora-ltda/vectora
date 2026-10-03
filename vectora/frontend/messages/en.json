@@ -1820,5 +1820,6 @@
   "workbench_browser_cookies_title": "Cookies",
   "workbench_browser_cookies_help": "Cookies stored by this browser profile.",
   "workbench_browser_cookies_empty": "No cookies stored.",
+  "workbench_browser_cookies_remove_error": "Could not remove the cookie.",
   "workbench_browser_cookies_remove": "Remove"
 }

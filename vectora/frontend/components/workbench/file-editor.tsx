@@ -23,7 +23,11 @@ import { getMediaKind, FileViewer } from "@/components/workbench/file-viewer";
 import { m } from "@/lib/paraglide/messages";
 import { useMonacoTheme } from "@/lib/monaco/use-monaco-theme";
 import { godotEditorOptions } from "@/lib/monaco/editor-options";
-import { formatEditorText, lintEditorText } from "@/lib/editor-services";
+import {
+  formatEditorText,
+  lintEditorText,
+  normalizeEditorText,
+} from "@/lib/editor-services";
 import {
   editorBuffers,
   editorKey,
@@ -130,6 +134,8 @@ export function FileEditor({
     fetchFile(workspaceId, path)
       .then((data) => {
         if (cancelled || requestEpoch !== requestEpochRef.current) return;
+        if (data?.content !== undefined)
+          data = { ...data, content: normalizeEditorText(data.content) };
         setFile(data);
         setValue(data?.content ?? "");
         shaRef.current = data?.sha256 ?? null;
@@ -152,15 +158,21 @@ export function FileEditor({
 
   useEffect(() => {
     if (!editorFileWatcherEnabled || media || editorReadOnly || dirty) return;
+    let cancelled = false;
     const timer = window.setInterval(() => {
       void fetchFile(workspaceId, path).then((latest) => {
-        if (!latest || latest.sha256 === shaRef.current || dirty) return;
+        if (cancelled || !latest || latest.sha256 === shaRef.current) return;
+        if (latest.content !== undefined)
+          latest = { ...latest, content: normalizeEditorText(latest.content) };
         setFile(latest);
         setValue(latest.content ?? "");
         shaRef.current = latest.sha256 ?? null;
       });
     }, 3000);
-    return () => window.clearInterval(timer);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, [
     dirty,
     editorFileWatcherEnabled,
@@ -185,13 +197,14 @@ export function FileEditor({
         return;
       }
     }
-    contentToSave = contentToSave.replace(/\r\n|\r|\n/g, "\n");
+    const normalizedContent = normalizeEditorText(contentToSave);
+    contentToSave = normalizedContent;
     if (editorEndOfLine === "crlf")
       contentToSave = contentToSave.replace(/\n/g, "\r\n");
     if (editorEncoding === "utf8bom" && !contentToSave.startsWith("\ufeff")) {
       contentToSave = `\ufeff${contentToSave}`;
     }
-    if (contentToSave !== value) setValue(contentToSave);
+    if (normalizedContent !== value) setValue(normalizedContent);
     setSaving(true);
     const result = await apiUpdateFile(
       workspaceId,
@@ -202,10 +215,12 @@ export function FileEditor({
     setSaving(false);
     if (result.ok) {
       shaRef.current = result.sha256;
-      setFile((prev) => (prev ? { ...prev, content: contentToSave } : prev));
+      setFile((prev) =>
+        prev ? { ...prev, content: normalizedContent } : prev,
+      );
       editorBuffers.set(key, {
-        file: { ...file, content: contentToSave },
-        value: contentToSave,
+        file: { ...file, content: normalizedContent },
+        value: normalizedContent,
         sha256: result.sha256,
       });
       return;

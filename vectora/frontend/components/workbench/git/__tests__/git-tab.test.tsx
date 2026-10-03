@@ -17,6 +17,7 @@ import {
 import { GitTab } from "../git-tab";
 import * as api from "../api";
 import type { DiffSummary } from "@/lib/stores/workbench-store";
+import { useSettingsStore } from "@/lib/stores/settings-store";
 
 vi.mock("@/lib/paraglide/messages", () => ({
   m: new Proxy(
@@ -114,6 +115,7 @@ afterEach(() => {
   mockActiveWorkspace = { id: "ws1" };
   mockLastCi = null;
   mockSummary = null;
+  useSettingsStore.setState({ gitAutoFetchEnabled: false });
 });
 
 beforeEach(() => {
@@ -138,6 +140,30 @@ function repoSummary(files: DiffSummary["files"] = []): DiffSummary {
 }
 
 describe("GitTab", () => {
+  it("recovers from failed auto-fetch and refreshes status after success", async () => {
+    useSettingsStore.setState({
+      gitAutoFetchEnabled: true,
+      gitAutoFetchIntervalSeconds: 60,
+    });
+    vi.useFakeTimers();
+    vi.spyOn(api, "apiSync")
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue({ status: "ok", message: "" });
+    mockSummary = repoSummary();
+    render(<GitTab threadId="t1" />);
+    await act(async () => {});
+    const count = vi.mocked(api.fetchGitStatus).mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60000);
+    });
+    expect(api.apiSync).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60000);
+    });
+    expect(api.apiSync).toHaveBeenCalledTimes(2);
+    expect(api.fetchGitStatus).toHaveBeenCalledTimes(count + 1);
+    expect(api.fetchBranches).toHaveBeenCalledTimes(count + 1);
+  });
   it("não inicia polling concorrente e mantém a resposta pendente até concluir", async () => {
     vi.useFakeTimers();
     let resolveFirst!: (
@@ -167,7 +193,7 @@ describe("GitTab", () => {
     mockSummary = repoSummary();
 
     render(<GitTab threadId="t1" />);
-    await Promise.resolve();
+    await act(async () => {});
     expect(fetchOperation).toHaveBeenCalledTimes(1);
 
     await act(async () => {

@@ -186,6 +186,29 @@ async function renderView(props?: Partial<Parameters<typeof XtermView>[0]>) {
 }
 
 describe("XtermView", () => {
+  it("applies preferences and resizes without replacing the terminal or socket", async () => {
+    const { rerender, term, ws } = await renderView();
+    ws.open();
+    rerender(
+      <XtermView
+        terminalId="term-1"
+        threadId="thread-1"
+        workspaceId="ws-1"
+        fontSize={24}
+        scrollback={9000}
+        cursorBlink={false}
+      />,
+    );
+    expect(term.options).toMatchObject({
+      fontSize: 24,
+      scrollback: 9000,
+      cursorBlink: false,
+    });
+    expect(term.disposed).toBe(false);
+    expect(ws.readyState).toBe(FakeWebSocket.OPEN);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(FakeFitAddon.instances[0].fitCalls).toBeGreaterThan(1);
+  });
   it("monta o Terminal e conecta ao WebSocket com terminal_id/thread_id/workspace_id/token na URL", async () => {
     const { ws } = await renderView();
     expect(ws.url).toContain("terminal_id=term-1");

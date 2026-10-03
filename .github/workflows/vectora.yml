@@ -112,7 +112,9 @@ jobs:
         run: pnpm typecheck
       - name: Unit tests (vitest)
         working-directory: vectora/frontend
-        run: pnpm test
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          pnpm test
 
   # ── 3. Build Verification (backend compile + frontend SPA) ──────────────
   build_verification:

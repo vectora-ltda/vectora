@@ -83,7 +83,8 @@ vi.mock("../xterm-view", () => ({
   ),
 }));
 
-import { TerminalPanel } from "../terminal-panel";
+import { TerminalPanel, TerminalSettings } from "../terminal-panel";
+import { useSettingsStore } from "@/lib/stores/settings-store";
 
 let sandboxStatusResponse: { enabled: boolean } | null = { enabled: false };
 
@@ -132,6 +133,33 @@ async function flush(): Promise<void> {
 }
 
 describe("TerminalPanel", () => {
+  it("allows empty intermediate numbers and commits only valid values on blur", async () => {
+    useSettingsStore.setState({
+      terminalFontSize: 13,
+      terminalScrollback: 5000,
+    });
+    render(
+      <TerminalSettings
+        threadId={null}
+        workspaceId={null}
+        presentation="settings"
+      />,
+    );
+    const font = screen.getByLabelText("workbench_terminal_font_size_label");
+    fireEvent.change(font, { target: { value: "" } });
+    expect(useSettingsStore.getState().terminalFontSize).toBe(13);
+    fireEvent.change(font, { target: { value: "24" } });
+    fireEvent.blur(font);
+    expect(useSettingsStore.getState().terminalFontSize).toBe(24);
+    const scroll = screen.getByLabelText("workbench_terminal_scrollback_label");
+    fireEvent.change(scroll, { target: { value: "" } });
+    fireEvent.blur(scroll);
+    expect((scroll as HTMLInputElement).value).toBe("5000");
+    fireEvent.change(scroll, { target: { value: "9000" } });
+    fireEvent.blur(scroll);
+    expect(useSettingsStore.getState().terminalScrollback).toBe(9000);
+    await flush();
+  });
   it("sem workspace ativo: mostra mensagem de nenhum workspace", async () => {
     mockWorkspace = null;
     render(<TerminalPanel threadId="t1" />);

@@ -25,10 +25,12 @@ const browserSessions = new Map<string, PersistedBrowserSession>();
 const browserSessionGenerations = new Map<string, number>();
 const STORAGE_PREFIX = "vectora-browser-session:";
 
+/** Namespace persisted state by workspace and thread. */
 function storageKey(sessionKey: string): string {
   return `${STORAGE_PREFIX}${sessionKey}`;
 }
 
+/** Restore tab history without reusing process-local native view identifiers. */
 function readPersistedSession(
   sessionKey: string,
 ): PersistedBrowserSession | undefined {
@@ -69,12 +71,14 @@ export function getBrowserProfileId(sessionKey: string): string {
   return `session-${encoded}`;
 }
 
+/** Resolve the native lifecycle bridge without accessing window during SSR. */
 function getBrowserViewBridge(): BrowserViewBridge | undefined {
   return typeof window !== "undefined"
     ? window.vectora?.browserView
     : undefined;
 }
 
+/** Prefer the live cache, hydrating from local storage only when needed. */
 export function getBrowserSession(
   sessionKey: string,
 ): PersistedBrowserSession | undefined {
@@ -85,6 +89,7 @@ export function getBrowserSession(
   return persisted;
 }
 
+/** Persist tab state while retaining the in-memory copy if storage fails. */
 export function setBrowserSession(
   sessionKey: string,
   session: PersistedBrowserSession,
@@ -127,6 +132,7 @@ export function clearBrowserSessionHistory(sessionKey: string): void {
   }
 }
 
+/** Read the disposal generation used to reject stale asynchronous view creation. */
 export function getBrowserSessionGeneration(sessionKey: string): number {
   return browserSessionGenerations.get(sessionKey) ?? 0;
 }
