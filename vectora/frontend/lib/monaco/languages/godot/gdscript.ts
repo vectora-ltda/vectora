@@ -55,7 +55,7 @@ export const gdscriptLanguage: EngineLanguageContribution = {
             cases: {
               "^%.*": t.nodeReference,
               "^&.*": t.stringName,
-              "^\^.*": t.stringNodePath,
+              "^^.*": t.stringNodePath,
             },
           },
         ],
@@ -86,7 +86,7 @@ export const gdscriptLanguage: EngineLanguageContribution = {
         [/'''|"""/, { token: t.string, next: "@tripleString" }],
         [/['"]/, { token: t.string, next: "@string" }],
         [/[{}()[\]]/, t.bracket],
-        [/[+\-*\/%=<>!&|^~?:]+/, t.operator],
+        [/[+*/%=<>!&|^~?:-]+/, t.operator],
         [/[,.;]/, t.delimiter],
       ],
       string: [

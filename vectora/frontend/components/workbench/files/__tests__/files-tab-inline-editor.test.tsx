@@ -110,6 +110,17 @@ const mockWorkbench = {
 
 vi.mock("@/lib/stores/workbench-store", () => ({
   WORKBENCH_STALE_MS: 30000,
+  WORKBENCH_TABS: [
+    "files",
+    "diff",
+    "plan",
+    "tasks",
+    "browser",
+    "storage",
+    "context_graph",
+    "library",
+    "terminal",
+  ],
   useWorkbenchStore: (sel: (s: typeof mockWorkbench) => unknown) =>
     sel(mockWorkbench),
 }));
