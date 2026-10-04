@@ -46,7 +46,7 @@ jobs:
           # O token dedicado continua preferido, mas o GITHUB_TOKEN com
           # permissões explícitas evita que a atribuição dependa de um secret
           # ausente em PRs comuns.
-          github-token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          github-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           script: |
             const fs = require("fs");
             const config = JSON.parse(
