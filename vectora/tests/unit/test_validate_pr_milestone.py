@@ -12,7 +12,7 @@ import pytest
 
 
 class RepositoryPayload(TypedDict):
-    full_name: NotRequired[str]
+    full_name: NotRequired[str | None]
 
 
 class HeadPayload(TypedDict):
@@ -86,7 +86,7 @@ def _event(
     milestone: str | None,
     head: str = "feature/example",
     labels: list[str] | None = None,
-    head_repo: str = "vectora-ltda/vectora",
+    head_repo: str | None = "vectora-ltda/vectora",
     title: str = "fix: routine maintenance",
 ) -> PullRequestEvent:
     """Monta um evento mínimo de pull request para os testes do validador."""
@@ -152,6 +152,18 @@ def test_stacked_feature_pr_is_accepted_without_release_milestone() -> None:
         )
         == []
     )
+
+
+@pytest.mark.parametrize("head_repo", ["fork/vectora", None])
+def test_stacked_fork_pr_does_not_bypass_release_milestone(
+    head_repo: str | None,
+) -> None:
+    """Somente PRs do próprio repositório podem usar a isenção de stack."""
+    errors = validator.validate_pull_request(
+        _event(base="stack/base-contracts", milestone=None, head_repo=head_repo)
+    )
+    assert errors
+    assert "base declarada" in errors[0]
 
 
 def test_master_pr_rejects_maintenance_milestone() -> None:
@@ -220,7 +232,7 @@ def test_maintenance_rejects_minor() -> None:
 def test_release_please_pr_is_exempt_with_controlled_source_and_label() -> None:
     """Isenta a branch versionada de desenvolvimento com origem confiável."""
     event = _event(
-        base=DEVELOPMENT_BRANCH,
+        base=MAINTENANCE_BRANCH,
         milestone=None,
         head="release-please-0.3",
         labels=["autorelease: pending"],
@@ -231,7 +243,7 @@ def test_release_please_pr_is_exempt_with_controlled_source_and_label() -> None:
 def test_release_please_pr_from_another_repo_is_rejected() -> None:
     """Rejeita uma branch de release criada a partir de outro repositório."""
     event = _event(
-        base=DEVELOPMENT_BRANCH,
+        base=MAINTENANCE_BRANCH,
         milestone=None,
         head="release-please-0.3",
         labels=["autorelease: pending"],
@@ -244,7 +256,7 @@ def test_release_please_pr_from_another_repo_is_rejected() -> None:
 def test_release_please_pr_without_pending_label_is_rejected() -> None:
     """Exige o label controlado para isentar uma PR automática de release."""
     event = _event(
-        base=DEVELOPMENT_BRANCH,
+        base=MAINTENANCE_BRANCH,
         milestone=None,
         head="release-please-0.3",
     )
@@ -255,7 +267,7 @@ def test_release_please_pr_without_pending_label_is_rejected() -> None:
 def test_release_please_lookalike_branch_is_rejected() -> None:
     """Rejeita branches que apenas se parecem com o formato automático."""
     event = _event(
-        base=DEVELOPMENT_BRANCH,
+        base=MAINTENANCE_BRANCH,
         milestone=None,
         head="release-please-0.3-lookalike",
         labels=["autorelease: pending"],
@@ -264,10 +276,10 @@ def test_release_please_lookalike_branch_is_rejected() -> None:
     assert errors and "milestone" in errors[0]
 
 
-def test_release_please_branch_retargeted_to_maintenance_is_rejected() -> None:
-    """Rejeita uma branch minor automática redirecionada à manutenção."""
+def test_release_please_minor_targeting_development_is_rejected() -> None:
+    """Rejeita a minor quando ela ainda aponta para a branch de desenvolvimento."""
     event = _event(
-        base=MAINTENANCE_BRANCH,
+        base=DEVELOPMENT_BRANCH,
         milestone=None,
         head="release-please-0.3",
         labels=["autorelease: pending"],

@@ -171,9 +171,16 @@ def _is_release_please_pr(
     if line is None:
         return False
 
-    if line is _release_lines().development:
-        match = _RELEASE_PLEASE_MINOR_BRANCH.fullmatch(head_ref)
-        return bool(match and f"{match['major']}.{match['minor']}" == line.milestone)
+    config = _release_lines()
+    match = _RELEASE_PLEASE_MINOR_BRANCH.fullmatch(head_ref)
+    if match:
+        return bool(
+            base == config.maintenance.branch
+            and f"{match['major']}.{match['minor']}" == config.development.milestone
+        )
+
+    if line is not config.maintenance:
+        return False
 
     match = _RELEASE_PLEASE_PATCH_BRANCH.fullmatch(head_ref)
     return bool(match and f"{match['major']}.{match['minor']}.x" == line.milestone)
@@ -200,7 +207,11 @@ def validate_pull_request(event: EventPayload) -> list[str]:
     if _is_release_please_pr(parsed_event, pull_request):
         return []
     if _STACK_BASE.fullmatch(base):
-        return []
+        head = pull_request.head
+        head_repo = head.repo.full_name if head and head.repo else None
+        repository = parsed_event.repository
+        if repository and head_repo == repository.full_name:
+            return []
     line = _line_for_base(base)
     if line is None:
         configured_bases = ", ".join(
