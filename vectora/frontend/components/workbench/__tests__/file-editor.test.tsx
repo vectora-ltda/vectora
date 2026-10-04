@@ -135,6 +135,38 @@ describe("FileEditor", () => {
     expect((editor as HTMLTextAreaElement).value).toBe("unsaved");
   });
 
+  it("does not apply a watcher response after an edit is reverted", async () => {
+    mockSettings.editorFileWatcherEnabled = true;
+    fetchFile.mockResolvedValueOnce({
+      content: "original",
+      sha256: "one",
+      kind: "text",
+    });
+    render(<FileEditor workspaceId="watch-revert" path="file.ts" />);
+    const editor = await screen.findByTestId("monaco-editor");
+    vi.useFakeTimers();
+    fireEvent.change(editor, { target: { value: "temporary" } });
+    fireEvent.change(editor, { target: { value: "original" } });
+    let resolve!: (value: unknown) => void;
+    fetchFile.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolve = r;
+        }),
+    );
+    await act(async () => {
+      vi.advanceTimersByTime(3000);
+    });
+
+    fireEvent.change(editor, { target: { value: "new local edit" } });
+    fireEvent.change(editor, { target: { value: "original" } });
+    await act(async () => {
+      resolve({ content: "external", sha256: "two", kind: "text" });
+    });
+
+    expect((editor as HTMLTextAreaElement).value).toBe("original");
+  });
+
   it("serializes BOM and CRLF only in the save payload", async () => {
     mockSettings.editorEncoding = "utf8bom";
     mockSettings.editorEndOfLine = "crlf";
