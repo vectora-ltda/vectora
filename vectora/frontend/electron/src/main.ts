@@ -59,6 +59,7 @@ import {
 import {
   BrowserViewManager,
   clearBrowserSessionData,
+  resolveBrowserPermissionMode,
   type BrowserViewKind,
   type BrowserDataClearOptions,
   type ManagedView,
@@ -250,8 +251,11 @@ function getBrowserViewManager(): BrowserViewManager {
           session: browserSession,
         },
       });
-      const permissionMode = options.permissionMode ?? "deny";
-      browserPermissionModes.set(profileId, permissionMode);
+      const permissionMode = resolveBrowserPermissionMode(
+        browserPermissionModes,
+        profileId,
+        options.permissionMode,
+      );
       browserSession.setPermissionRequestHandler?.(
         (webContents, _permission, callback) => {
           let origin = "";

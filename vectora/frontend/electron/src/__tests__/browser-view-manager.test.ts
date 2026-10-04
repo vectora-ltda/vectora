@@ -4,10 +4,36 @@ import {
   clearBrowserSessionData,
   isNativeSettingsUrl,
   isNavigableUrl,
+  resolveBrowserPermissionMode,
   type BrowserViewManagerDeps,
   type BrowserViewEvent,
   type ManagedView,
 } from "../browser-view-manager.js";
+
+describe("resolveBrowserPermissionMode", () => {
+  it("preserva o modo existente quando uma view não informa override", () => {
+    const modes = new Map<string, "allow" | "deny">([["profile-a", "allow"]]);
+
+    expect(resolveBrowserPermissionMode(modes, "profile-a")).toBe("allow");
+    expect(modes.get("profile-a")).toBe("allow");
+  });
+
+  it("inicializa deny quando não existe configuração para o perfil", () => {
+    const modes = new Map<string, "allow" | "deny">();
+
+    expect(resolveBrowserPermissionMode(modes, "profile-a")).toBe("deny");
+    expect(modes.get("profile-a")).toBe("deny");
+  });
+
+  it("persiste o override informado para o perfil", () => {
+    const modes = new Map<string, "allow" | "deny">([["profile-a", "deny"]]);
+
+    expect(resolveBrowserPermissionMode(modes, "profile-a", "allow")).toBe(
+      "allow",
+    );
+    expect(modes.get("profile-a")).toBe("allow");
+  });
+});
 
 function makeFakeView(): ManagedView & {
   handlers: Record<string, (...args: unknown[]) => void>;

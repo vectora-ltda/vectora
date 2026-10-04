@@ -72,6 +72,21 @@ export interface ManagedView {
 }
 
 export type BrowserViewKind = "tab" | "native-settings";
+export type BrowserPermissionMode = "allow" | "deny";
+
+/** Keeps a profile's existing permission mode when a view has no override. */
+export function resolveBrowserPermissionMode(
+  modes: Map<string, BrowserPermissionMode>,
+  profileId: string,
+  requestedMode?: BrowserPermissionMode,
+): BrowserPermissionMode {
+  const currentMode = modes.get(profileId);
+  const resolvedMode = requestedMode ?? currentMode ?? "deny";
+  if (requestedMode !== undefined || currentMode === undefined) {
+    modes.set(profileId, resolvedMode);
+  }
+  return resolvedMode;
+}
 export interface BrowserViewOptions {
   profileId: string;
   kind: BrowserViewKind;
