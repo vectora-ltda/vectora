@@ -1014,6 +1014,7 @@ class RunAttempt(BaseModel):
 
     final: bool = True
     retryable: bool = False
+    started: bool = False
 
 
 async def _record_attempt_failure(
@@ -1081,6 +1082,9 @@ async def run_task(
 
     if not claimed:
         return None
+
+    if _attempt is not None:
+        _attempt.started = True
 
     run_thread_id = f"bg-{task.id}-{run_id}"
     await _insert_run(run_id, task, run_thread_id, trigger_source)
@@ -2206,7 +2210,9 @@ def _task_frontend_int(task: BackgroundTask, key: str, default: int) -> int:
         return default
 
 
-async def _run_scheduled_task(task: BackgroundTask) -> str | None:
+async def _run_scheduled_task(
+    task: BackgroundTask, *, execution: RunAttempt | None = None
+) -> str | None:
     """Run a scheduled task with the user's retry policy and exponential backoff."""
     retries = max(0, min(5, _task_frontend_int(task, "taskRetryCount", 0)))
     backoff_ms = max(
@@ -2215,6 +2221,8 @@ async def _run_scheduled_task(task: BackgroundTask) -> str | None:
     for attempt in range(retries + 1):
         outcome = RunAttempt(final=attempt == retries)
         result = await run_task(task, task.trigger_type, _attempt=outcome)
+        if execution is not None:
+            execution.started = execution.started or outcome.started
         if result is not None or not outcome.retryable or attempt == retries:
             return result
         await asyncio.sleep((backoff_ms * (2**attempt)) / 1000)
@@ -2305,8 +2313,9 @@ class BackgroundScheduler:
                     task.id, _next_run(task.trigger_config.get("cron_expr"))
                 )
                 return
-            await _run_scheduled_task(task)
-            if task.trigger_type == "once":
+            execution = RunAttempt(final=True)
+            await _run_scheduled_task(task, execution=execution)
+            if task.trigger_type == "once" and execution.started:
                 await update_task(task.id, enabled=False)
 
         await asyncio.gather(*(dispatch(task) for task in due_tasks))

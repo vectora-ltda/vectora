@@ -301,6 +301,12 @@ function getBrowserViewManager(): BrowserViewManager {
         );
       }
     },
+    setOriginPermissions: (profileId, originPermissions) => {
+      browserOriginPermissions.set(
+        profileId,
+        new Map(Object.entries(originPermissions)),
+      );
+    },
   });
   return browserViewManager;
 }
@@ -1429,6 +1435,12 @@ function registerIpc(): void {
         getBrowserViewManager().setPermissionMode(
           viewId,
           policy.permissionMode,
+          policy.originPermissions,
+          browserOwnerId(event),
+        );
+      } else if (policy.originPermissions !== undefined) {
+        getBrowserViewManager().setOriginPermissions(
+          viewId,
           policy.originPermissions,
           browserOwnerId(event),
         );

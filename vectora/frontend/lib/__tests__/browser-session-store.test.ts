@@ -63,4 +63,15 @@ describe("browser-session-store", () => {
     expect(restored?.tabs[0].viewId).toBeNull();
     expect(restored?.tabs[0].canGoBack).toBe(false);
   });
+
+  it("descarta sessões persistidas com abas malformadas", () => {
+    window.localStorage.setItem(
+      "vectora-browser-session:workspace:thread",
+      JSON.stringify({
+        ...SESSION,
+        tabs: [{ ...SESSION.tabs[0], history: null }],
+      }),
+    );
+    expect(getBrowserSession(SESSION_KEY)).toBeUndefined();
+  });
 });

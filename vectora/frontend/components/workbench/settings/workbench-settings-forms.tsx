@@ -13,6 +13,48 @@ import { Switch } from "@/components/ui/switch";
 import { useSettingsStore } from "@/lib/stores/settings-store";
 import type { WorkbenchSettingsContext } from "@/lib/types/workbench-settings";
 import { m } from "@/lib/paraglide/messages";
+import { useEffect, useState } from "react";
+
+function DraftNumberInput({
+  id,
+  value,
+  onCommit,
+  min,
+  max,
+  step,
+  className,
+}: {
+  id: string;
+  value: number;
+  onCommit: (value: number) => void;
+  min: number;
+  max: number;
+  step?: number;
+  className: string;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  return (
+    <Input
+      id={id}
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => {
+        const parsed = Number(draft);
+        if (!Number.isFinite(parsed)) {
+          setDraft(String(value));
+          return;
+        }
+        onCommit(parsed);
+      }}
+      className={className}
+    />
+  );
+}
 
 /** Render an accessible preference toggle with its explanation. */
 function Toggle({
@@ -85,16 +127,13 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
               {m.workbench_files_autosave_delay_help()}
             </p>
           </div>
-          <Input
+          <DraftNumberInput
             id="files-autosave-delay"
-            type="number"
+            value={settings.editorAutoSaveDelay}
+            onCommit={settings.setEditorAutoSaveDelay}
             min={200}
             max={5000}
             step={100}
-            value={settings.editorAutoSaveDelay}
-            onChange={(event) =>
-              settings.setEditorAutoSaveDelay(Number(event.target.value))
-            }
             className="w-24"
           />
         </div>
@@ -129,15 +168,12 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
             {m.workbench_files_max_size_help()}
           </p>
         </div>
-        <Input
+        <DraftNumberInput
           id="files-max-size"
-          type="number"
+          value={settings.editorMaxFileSizeMb}
+          onCommit={settings.setEditorMaxFileSizeMb}
           min={1}
           max={100}
-          value={settings.editorMaxFileSizeMb}
-          onChange={(event) =>
-            settings.setEditorMaxFileSizeMb(Number(event.target.value))
-          }
           className="w-24"
         />
       </div>
@@ -349,15 +385,12 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
             {m.workbench_files_tab_size_help()}
           </p>
         </div>
-        <Input
+        <DraftNumberInput
           id="files-tab-size"
-          type="number"
+          value={settings.editorTabSize}
+          onCommit={settings.setEditorTabSize}
           min={1}
           max={8}
-          value={settings.editorTabSize}
-          onChange={(event) =>
-            settings.setEditorTabSize(Number(event.target.value))
-          }
           className="w-20"
         />
       </div>
@@ -547,16 +580,13 @@ export function TasksSettingsForm(_context: WorkbenchSettingsContext) {
             {m.workbench_tasks_backoff_help()}
           </p>
         </div>
-        <Input
+        <DraftNumberInput
           id="tasks-backoff"
-          type="number"
+          value={settings.taskRetryBackoffMs}
+          onCommit={settings.setTaskRetryBackoffMs}
           min={100}
           max={30000}
           step={100}
-          value={settings.taskRetryBackoffMs}
-          onChange={(event) =>
-            settings.setTaskRetryBackoffMs(Number(event.target.value))
-          }
           className="w-24"
         />
       </div>
