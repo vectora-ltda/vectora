@@ -184,19 +184,37 @@ jobs:
             const stranded = await github.paginate(github.rest.pulls.list, {
               owner, repo, state: "open", base: DEVELOPMENT_BRANCH, per_page: 100,
             });
+            const migrationErrors = [];
             for (const pr of pending) {
-              await github.rest.pulls.update({
-                owner, repo, pull_number: pr.number, base: DEVELOPMENT_BRANCH,
-              });
-              if (pr.milestone?.title === PREVIOUS_DEVELOPMENT_MILESTONE) {
-                await github.rest.issues.update({
-                  owner, repo, issue_number: pr.number, milestone: development.number,
+              try {
+                await github.rest.pulls.update({
+                  owner, repo, pull_number: pr.number, base: DEVELOPMENT_BRANCH,
                 });
+                if (pr.milestone?.title === PREVIOUS_DEVELOPMENT_MILESTONE) {
+                  await github.rest.issues.update({
+                    owner, repo, issue_number: pr.number, milestone: development.number,
+                  });
+                }
+              } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                core.error(`Falha ao migrar PR #${pr.number}: ${message}`);
+                migrationErrors.push(`#${pr.number}: ${message}`);
               }
             }
             for (const pr of stranded) {
               if (pr.milestone?.title !== PREVIOUS_DEVELOPMENT_MILESTONE) continue;
-              await github.rest.issues.update({
-                owner, repo, issue_number: pr.number, milestone: development.number,
-              });
+              try {
+                await github.rest.issues.update({
+                  owner, repo, issue_number: pr.number, milestone: development.number,
+                });
+              } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                core.error(`Falha ao atualizar milestone da PR #${pr.number}: ${message}`);
+                migrationErrors.push(`#${pr.number}: ${message}`);
+              }
+            }
+            if (migrationErrors.length > 0) {
+              throw new Error(
+                `Falha ao migrar ${migrationErrors.length} PR(s): ${migrationErrors.join("; ")}`,
+              );
             }

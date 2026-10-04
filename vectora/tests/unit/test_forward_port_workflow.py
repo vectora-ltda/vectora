@@ -232,6 +232,25 @@ def test_rotation_reconciles_prs_already_moved_to_new_minor() -> None:
     assert "pulls.update" not in stranded_loop
 
 
+def test_rotation_continues_after_individual_pr_migration_failure() -> None:
+    """Uma falha isolada não deve impedir a migração das PRs seguintes."""
+    content = (WORKFLOW.parent / "rotate-release-lines.yml").read_text(encoding="utf-8")
+    pending_loop = content.split("for (const pr of pending)", 1)[1].split(
+        "for (const pr of stranded)", 1
+    )[0]
+    stranded_loop = content.split("for (const pr of stranded)", 1)[1].split(
+        "if (migrationErrors.length", 1
+    )[0]
+
+    assert "try {" in pending_loop
+    assert "catch (error)" in pending_loop
+    assert "migrationErrors.push" in pending_loop
+    assert "try {" in stranded_loop
+    assert "catch (error)" in stranded_loop
+    assert "migrationErrors.push" in stranded_loop
+    assert 'migrationErrors.join("; ")' in content
+
+
 def test_release_sources_are_utf8_without_mojibake() -> None:
     """Impede nova corrupção de acentos nos arquivos alterados do fluxo."""
     root = WORKFLOW.parents[2]
