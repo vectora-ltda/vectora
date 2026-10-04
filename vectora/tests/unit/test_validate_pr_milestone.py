@@ -134,6 +134,22 @@ def test_main_uses_milestone_assigned_during_workflow(
     assert validator.main() == 0
 
 
+def test_main_preserves_event_milestone_when_workflow_output_is_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Não apaga a milestone correta quando o step de atribuição é pulado."""
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(_event(base=MAINTENANCE_BRANCH, milestone=MAINTENANCE_MILESTONE)),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
+    monkeypatch.setenv("CURRENT_RELEASE_MILESTONE", "")
+    monkeypatch.setenv("CURRENT_PR_BASE", "")
+
+    assert validator.main() == 0
+
+
 def test_master_feature_pr_is_accepted() -> None:
     """Aceita uma feature na base de desenvolvimento com sua milestone."""
     assert (
