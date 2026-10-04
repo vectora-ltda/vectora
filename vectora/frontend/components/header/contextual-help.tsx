@@ -6,7 +6,7 @@
  * Renderiza um DropdownMenu com dicas rápidas baseadas no contexto:
  *   - Sem workspace → como adicionar uma pasta
  *   - Com workspace sem git → sugestão de git init
- *   - Com workspace git → dicas do workbench (diff, log, stash)
+ *   - Com workspace git → dicas do workbench (Git, log, stash)
  *   - Sempre: slash commands, subagentes, @-menções, terminal compartilhado,
  *     modo Plan, busca RAG, e link pros atalhos de teclado
  */

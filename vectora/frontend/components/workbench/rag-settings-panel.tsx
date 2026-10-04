@@ -109,6 +109,8 @@ export function useRagSettings() {
   useEffect(() => {
     if (!open) return;
     let alive = true;
+    // Synchronize the loading indicator with this external settings request.
+    // oxlint-disable-next-line react/set-state-in-effect
     setSettingsStatus("loading");
     void (async () => {
       try {

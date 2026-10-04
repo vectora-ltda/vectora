@@ -26,6 +26,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from croniter import croniter
+from pydantic import BaseModel
 
 from backend.engine.conversation_loop import (
     LoopConfig,
@@ -1008,10 +1009,32 @@ async def _heartbeat_watchdog(task_id: str, run_id: str) -> None:
             )
 
 
+class RunAttempt(BaseModel):
+    """Explicit retry eligibility; a missing result alone never authorizes replay."""
+
+    final: bool = True
+    retryable: bool = False
+    started: bool = False
+
+
+async def _record_attempt_failure(
+    task: BackgroundTask, run_id: str, reason: str, attempt: RunAttempt | None
+) -> None:
+    """Retry only a failed execution whose claim is still owned by this worker."""
+    from backend.scheduling.kanban import block_task, release_task_for_retry
+
+    if attempt is not None and not attempt.final:
+        attempt.retryable = await release_task_for_retry(task.id, run_id)
+    else:
+        await block_task(task.id, "transient", reason[:500], authorized_run_id=run_id)
+
+
 async def run_task(
     task: BackgroundTask,
     trigger_source: str,
     payload: dict[str, Any] | None = None,
+    *,
+    _attempt: RunAttempt | None = None,
 ) -> str | None:
     """Executa o agente para a tarefa. Cria uma thread visível e grava a run.
 
@@ -1038,22 +1061,32 @@ async def run_task(
 
     # Claim atômico via CAS: pega a task só se ainda estiver `ready` e sem
     # claim — evita duas execuções concorrentes da mesma task (tick do
-    # scheduler cruzando com um disparo manual, por exemplo). Como o Kanban
-    # é camada acessória, um erro aqui não pode impedir a run de rodar —
-    # só a corrida real (claim_task devolvendo `False`) barra.
+    # scheduler cruzando com um disparo manual, por exemplo). Falhas na
+    # aquisição não autorizam executar sem exclusividade.
     try:
         from backend.scheduling.kanban import claim_task
 
-        if not await claim_task(task.id, run_id):
+        claimed = (
+            await claim_task(task.id, run_id, occurrence=(task.next_run_at,))
+            if _attempt is not None
+            else await claim_task(task.id, run_id)
+        )
+        if not claimed:
             logger.info(
                 "background_tasks: %s já está com claim tomado — pulando run",
                 task.id,
             )
-            return None
     except Exception:
         logger.warning("background_tasks: claim_task falhou", exc_info=True)
+        claimed = False
 
-    run_thread_id = f"bg-{task.id}-{int(datetime.now(UTC).timestamp())}"
+    if not claimed:
+        return None
+
+    if _attempt is not None:
+        _attempt.started = True
+
+    run_thread_id = f"bg-{task.id}-{run_id}"
     await _insert_run(run_id, task, run_thread_id, trigger_source)
     _emit_run_event("started", task, run_id, run_thread_id)
 
@@ -1068,6 +1101,7 @@ async def run_task(
     # não mexida) e não tem relação com este watchdog.
     _watchdog_task = asyncio.create_task(_heartbeat_watchdog(task.id, run_id))
 
+    committed = False
     try:
         from backend.services import agent_factory
         from backend.tools.subagent_delegate import SubagentDeps
@@ -1256,6 +1290,7 @@ async def run_task(
             pending = await session_store.get_pending_approval(run_thread_id)
             desc = _describe_pending_approval(pending)
             await _mark_run_awaiting(run_id, desc)
+            committed = True
             await _touch_last_run(task.id)
             _emit_run_event("needs_approval", task, run_id, run_thread_id, desc)
             return run_thread_id
@@ -1267,13 +1302,8 @@ async def run_task(
             await _touch_last_run(task.id)
             _emit_run_event("error", task, run_id, run_thread_id, goal_outcome.reason)
             with contextlib.suppress(Exception):
-                from backend.scheduling.kanban import block_task
-
-                await block_task(
-                    task.id,
-                    "transient",
-                    goal_outcome.reason[:500],
-                    authorized_run_id=run_id,
+                await _record_attempt_failure(
+                    task, run_id, goal_outcome.reason, _attempt
                 )
             return None
 
@@ -1284,6 +1314,7 @@ async def run_task(
         )
         if not await _finish_run_and_mark_kanban(run_id, task, summary):
             raise RuntimeError("a run perdeu o claim antes da conclusão")
+        committed = True
 
         # Custo real da run, gravado só agora que se sabe o resultado. O
         # motor nativo ainda não expõe `usage_metadata` pro caller do loop
@@ -1319,26 +1350,23 @@ async def run_task(
         await report_to_parent_session(task, run_thread_id, summary)
         return run_thread_id
     except Exception as exc:
-        logger.exception(
-            "background_tasks: run falhou",
-            extra={"task_id": task.id, "trigger": trigger_source},
-        )
-        with contextlib.suppress(Exception):
-            await _finish_run(run_id, "error", str(exc))
-        _emit_run_event("error", task, run_id, run_thread_id, str(exc))
-        with contextlib.suppress(Exception):
-            from backend.scheduling.kanban import block_task
-
-            # "transient" (não "capability"): é uma falha da própria run,
-            # não do orçamento — a taxonomia distingue os dois motivos pro
-            # card mostrar o certo.
-            await block_task(
-                task.id,
-                "transient",
-                str(exc)[:500],
-                authorized_run_id=run_id,
+        if committed:
+            logger.exception(
+                "background_tasks: post-completion bookkeeping failed",
+                extra={"task_id": task.id, "run_id": run_id},
             )
-        return None
+        else:
+            logger.exception(
+                "background_tasks: run falhou",
+                extra={"task_id": task.id, "trigger": trigger_source},
+            )
+            with contextlib.suppress(Exception):
+                await _finish_run(run_id, "error", str(exc))
+            _emit_run_event("error", task, run_id, run_thread_id, str(exc))
+            with contextlib.suppress(Exception):
+                await _record_attempt_failure(task, run_id, str(exc), _attempt)
+        return run_thread_id if committed else None
+
     finally:
         _watchdog_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -2166,6 +2194,41 @@ async def _set_next_run(task_id: str, next_run: str | None) -> None:
             await conn.close()
 
 
+def _task_frontend_int(task: BackgroundTask, key: str, default: int) -> int:
+    """Read one validated task preference without coupling the scheduler to HTTP."""
+    try:
+        from backend.workspace.runtime_settings import runtime_settings
+
+        value = runtime_settings.get_frontend_prefs(task.user_id).get(key, default)
+        return (
+            int(value)
+            if isinstance(value, int) and not isinstance(value, bool)
+            else default
+        )
+    except Exception:
+        logger.warning("background_tasks: failed to read %s", key, exc_info=True)
+        return default
+
+
+async def _run_scheduled_task(
+    task: BackgroundTask, *, execution: RunAttempt | None = None
+) -> str | None:
+    """Run a scheduled task with the user's retry policy and exponential backoff."""
+    retries = max(0, min(5, _task_frontend_int(task, "taskRetryCount", 0)))
+    backoff_ms = max(
+        100, min(30_000, _task_frontend_int(task, "taskRetryBackoffMs", 1000))
+    )
+    for attempt in range(retries + 1):
+        outcome = RunAttempt(final=attempt == retries)
+        result = await run_task(task, task.trigger_type, _attempt=outcome)
+        if execution is not None:
+            execution.started = execution.started or outcome.started
+        if result is not None or not outcome.retryable or attempt == retries:
+            return result
+        await asyncio.sleep((backoff_ms * (2**attempt)) / 1000)
+    return None
+
+
 class BackgroundScheduler:
     """Loop asyncio que dispara tasks 'interval' vencidas (tick de 60s)."""
 
@@ -2227,7 +2290,18 @@ class BackgroundScheduler:
             logger.warning("background_tasks: tick do kanban falhou", exc_info=True)
 
         now = datetime.now(UTC)
-        for task in await _list_due_interval_tasks():
+        due_tasks = await _list_due_interval_tasks()
+        semaphores: dict[str, asyncio.Semaphore] = {}
+
+        async def dispatch(task: BackgroundTask) -> None:
+            concurrency = max(1, min(8, _task_frontend_int(task, "taskConcurrency", 2)))
+            semaphore = semaphores.setdefault(
+                task.user_id, asyncio.Semaphore(concurrency)
+            )
+            async with semaphore:
+                await _dispatch_one(task)
+
+        async def _dispatch_one(task: BackgroundTask) -> None:
             if task.trigger_type == "interval" and _is_stale(task.next_run_at, now):
                 logger.info(
                     "background_tasks: pulando disparo atrasado de %s "
@@ -2238,10 +2312,13 @@ class BackgroundScheduler:
                 await _set_next_run(
                     task.id, _next_run(task.trigger_config.get("cron_expr"))
                 )
-                continue
-            await run_task(task, task.trigger_type)
-            if task.trigger_type == "once":
+                return
+            execution = RunAttempt(final=True)
+            await _run_scheduled_task(task, execution=execution)
+            if task.trigger_type == "once" and execution.started:
                 await update_task(task.id, enabled=False)
+
+        await asyncio.gather(*(dispatch(task) for task in due_tasks))
 
 
 _scheduler: BackgroundScheduler | None = None

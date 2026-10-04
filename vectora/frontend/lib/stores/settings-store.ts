@@ -42,6 +42,7 @@ export type UiMode = "assistant" | "ide" | "kanban";
  * caminho de arquivo; isso permite usar fontes instaladas no sistema sem
  * empacotar fontes proprietárias no Vectora. */
 export type FontFamily = string;
+export type EditorAutoSaveMode = "off" | "afterDelay" | "onFocusChange";
 
 /** Presets de UI Scale exibidos no seletor — percentuais, não pixels; 100 =
  *  tamanho base (`FONT_SCALE_BASE_PX`). */
@@ -145,11 +146,44 @@ export interface SettingsState {
   monacoFontSize: number;
   /** Salva arquivos do editor automaticamente após uma pausa na edição. */
   editorAutoSave: boolean;
+  /** Estratégia de salvamento automático do editor. */
+  editorAutoSaveMode: EditorAutoSaveMode;
+  /** Intervalo de silêncio antes do salvamento automático, em milissegundos. */
+  editorAutoSaveDelay: number;
   editorMinimap: boolean;
   editorWordWrap: boolean;
   editorFormatOnType: boolean;
+  /** Formata o conteúdo com o serviço local antes de salvar. */
+  editorFormatterEnabled: boolean;
+  /** Executa o formatter local automaticamente durante o salvamento. */
+  editorFormatOnSave: boolean;
+  /** Executa diagnósticos locais do arquivo aberto. */
+  editorLinterEnabled: boolean;
+  /** Executa diagnósticos enquanto o conteúdo é editado. */
+  editorLintOnType: boolean;
+  /** Valida o conteúdo antes de persistir o arquivo. */
+  editorLintOnSave: boolean;
+  editorInlineSuggestions: boolean;
+  editorBreadcrumbs: boolean;
+  editorConfirmDelete: boolean;
+  editorFileWatcherEnabled: boolean;
+  editorEndOfLine: "lf" | "crlf";
+  editorEncoding: "utf8" | "utf8bom";
+  editorTheme: "auto" | "light" | "dark";
   editorQuickSuggestions: boolean;
   editorLineNumbers: boolean;
+  editorTabSize: number;
+  editorRenderWhitespace: "none" | "selection" | "all";
+  editorStickyScroll: boolean;
+  editorSmoothScrolling: boolean;
+  editorFontLigatures: boolean;
+  editorGlyphMargin: boolean;
+  editorBracketPairGuides: boolean;
+  editorInsertSpaces: boolean;
+  editorParameterHints: boolean;
+  editorCursorStyle: "line" | "block" | "underline";
+  /** Limite preventivo para abrir arquivos grandes no editor Monaco. */
+  editorMaxFileSizeMb: number;
   /** Família tipográfica do código no Monaco (Godot usa JetBrains Mono). */
   editorFontFamily: FontFamily;
   /** Família monoespaçada usada por terminais, diffs e blocos de código. */
@@ -162,6 +196,9 @@ export interface SettingsState {
   gitSignoffEnabled: boolean;
   /** Permite solicitar bypass de proteções Git no Workbench. */
   gitBypassEnabled: boolean;
+  /** Atualiza referências remotas automaticamente enquanto o Git está aberto. */
+  gitAutoFetchEnabled: boolean;
+  gitAutoFetchIntervalSeconds: number;
   /** Expande automaticamente itens de planos recém-abertos. */
   planAutoExpand: boolean;
   /** Ordem usada para listar itens do plano. */
@@ -172,6 +209,8 @@ export interface SettingsState {
   taskRetryCount: number;
   /** Limite de execuções concorrentes de tarefas. */
   taskConcurrency: number;
+  /** Atraso inicial entre tentativas automáticas, em milissegundos. */
+  taskRetryBackoffMs: number;
   /** Exibe skills na Library. */
   libraryShowSkills: boolean;
   /** Exibe servidores MCP na Library. */
@@ -180,6 +219,16 @@ export interface SettingsState {
   browserAllowPopups: boolean;
   /** Zoom das views Chromium do Browser, em percentual. */
   browserZoomPercent: number;
+  /** Política padrão de permissões de origem no Browser. */
+  browserPermissionMode: "allow" | "deny";
+  browserOriginPermissions: Record<string, "allow" | "deny">;
+  browserSearchEngine: "duckduckgo" | "google" | "bing";
+  /** Tamanho da fonte do terminal em pixels. */
+  terminalFontSize: number;
+  /** Número de linhas mantidas no scrollback do terminal. */
+  terminalScrollback: number;
+  /** Pisca o cursor do terminal. */
+  terminalCursorBlink: boolean;
 
   // Ações
   setShowToolCalls: (v: boolean) => void;
@@ -209,26 +258,61 @@ export interface SettingsState {
   setFontScaleMarkdown: (v: number) => void;
   setMonacoFontSize: (v: number) => void;
   setEditorAutoSave: (v: boolean) => void;
+  setEditorAutoSaveMode: (v: EditorAutoSaveMode) => void;
+  setEditorAutoSaveDelay: (v: number) => void;
   setEditorMinimap: (v: boolean) => void;
   setEditorWordWrap: (v: boolean) => void;
   setEditorFormatOnType: (v: boolean) => void;
+  setEditorFormatterEnabled: (v: boolean) => void;
+  setEditorFormatOnSave: (v: boolean) => void;
+  setEditorLinterEnabled: (v: boolean) => void;
+  setEditorLintOnType: (v: boolean) => void;
+  setEditorLintOnSave: (v: boolean) => void;
+  setEditorInlineSuggestions: (v: boolean) => void;
+  setEditorBreadcrumbs: (v: boolean) => void;
+  setEditorConfirmDelete: (v: boolean) => void;
+  setEditorFileWatcherEnabled: (v: boolean) => void;
+  setEditorEndOfLine: (v: "lf" | "crlf") => void;
+  setEditorEncoding: (v: "utf8" | "utf8bom") => void;
+  setEditorTheme: (v: "auto" | "light" | "dark") => void;
   setEditorQuickSuggestions: (v: boolean) => void;
   setEditorLineNumbers: (v: boolean) => void;
+  setEditorTabSize: (v: number) => void;
+  setEditorRenderWhitespace: (v: "none" | "selection" | "all") => void;
+  setEditorStickyScroll: (v: boolean) => void;
+  setEditorSmoothScrolling: (v: boolean) => void;
+  setEditorFontLigatures: (v: boolean) => void;
+  setEditorGlyphMargin: (v: boolean) => void;
+  setEditorBracketPairGuides: (v: boolean) => void;
+  setEditorInsertSpaces: (v: boolean) => void;
+  setEditorParameterHints: (v: boolean) => void;
+  setEditorCursorStyle: (v: "line" | "block" | "underline") => void;
+  setEditorMaxFileSizeMb: (v: number) => void;
   setEditorFontFamily: (v: FontFamily) => void;
   setMonoFontFamily: (v: FontFamily) => void;
   setUiFontFamily: (v: FontFamily) => void;
   setGitHooksEnabled: (v: boolean) => void;
   setGitSignoffEnabled: (v: boolean) => void;
   setGitBypassEnabled: (v: boolean) => void;
+  setGitAutoFetchEnabled: (v: boolean) => void;
+  setGitAutoFetchIntervalSeconds: (v: number) => void;
   setPlanAutoExpand: (v: boolean) => void;
   setPlanSort: (v: "created" | "title") => void;
   setTaskNotifications: (v: boolean) => void;
   setTaskRetryCount: (v: number) => void;
   setTaskConcurrency: (v: number) => void;
+  setTaskRetryBackoffMs: (v: number) => void;
   setLibraryShowSkills: (v: boolean) => void;
   setLibraryShowMcp: (v: boolean) => void;
   setBrowserAllowPopups: (v: boolean) => void;
   setBrowserZoomPercent: (v: number) => void;
+  setBrowserPermissionMode: (v: "allow" | "deny") => void;
+  setBrowserSearchEngine: (v: "duckduckgo" | "google" | "bing") => void;
+  setBrowserOriginPermission: (origin: string, mode: "allow" | "deny") => void;
+  removeBrowserOriginPermission: (origin: string) => void;
+  setTerminalFontSize: (v: number) => void;
+  setTerminalScrollback: (v: number) => void;
+  setTerminalCursorBlink: (v: boolean) => void;
   resetSettings: () => void;
 }
 
@@ -403,26 +487,60 @@ const DEFAULTS = {
   fontScaleMarkdown: FONT_SCALE_BASE_PX,
   monacoFontSize: 13,
   editorAutoSave: false,
+  editorAutoSaveMode: "off" as EditorAutoSaveMode,
+  editorAutoSaveDelay: 800,
   editorMinimap: true,
   editorWordWrap: false,
   editorFormatOnType: true,
+  editorFormatterEnabled: true,
+  editorFormatOnSave: true,
+  editorLinterEnabled: true,
+  editorLintOnType: true,
+  editorLintOnSave: true,
+  editorInlineSuggestions: true,
+  editorBreadcrumbs: true,
+  editorConfirmDelete: true,
+  editorFileWatcherEnabled: true,
+  editorEndOfLine: "lf" as "lf" | "crlf",
+  editorEncoding: "utf8" as "utf8" | "utf8bom",
+  editorTheme: "auto" as "auto" | "light" | "dark",
   editorQuickSuggestions: true,
   editorLineNumbers: true,
+  editorTabSize: 2,
+  editorRenderWhitespace: "selection" as "none" | "selection" | "all",
+  editorStickyScroll: false,
+  editorSmoothScrolling: true,
+  editorFontLigatures: false,
+  editorGlyphMargin: true,
+  editorBracketPairGuides: true,
+  editorInsertSpaces: true,
+  editorParameterHints: true,
+  editorCursorStyle: "line" as "line" | "block" | "underline",
+  editorMaxFileSizeMb: 10,
   editorFontFamily: '"JetBrains Mono", ui-monospace, monospace',
   monoFontFamily: '"JetBrains Mono", ui-monospace, monospace',
   uiFontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
   gitHooksEnabled: false,
   gitSignoffEnabled: false,
   gitBypassEnabled: false,
+  gitAutoFetchEnabled: false,
+  gitAutoFetchIntervalSeconds: 300,
   planAutoExpand: true,
   planSort: "created" as "created" | "title",
   taskNotifications: true,
   taskRetryCount: 0,
   taskConcurrency: 2,
+  taskRetryBackoffMs: 1000,
   libraryShowSkills: true,
   libraryShowMcp: true,
   browserAllowPopups: false,
   browserZoomPercent: 100,
+  browserPermissionMode: "deny" as "allow" | "deny",
+  browserOriginPermissions: {},
+  browserSearchEngine: "duckduckgo" as "duckduckgo" | "google" | "bing",
+  terminalFontSize: 13,
+  terminalScrollback: 5000,
+  terminalCursorBlink: true,
 };
 
 // ---------------------------------------------------------------------------
@@ -568,30 +686,106 @@ export const useSettingsStore = create<SettingsState>()(
       setFontScaleMarkdown: (v) =>
         set({ fontScaleMarkdown: clampFontScale(v) }),
       setMonacoFontSize: (v) => set({ monacoFontSize: clampMonacoFontSize(v) }),
-      setEditorAutoSave: (v) => set({ editorAutoSave: v }),
+      setEditorAutoSave: (v) =>
+        set({
+          editorAutoSave: v,
+          editorAutoSaveMode: v ? "afterDelay" : "off",
+        }),
+      setEditorAutoSaveMode: (v) =>
+        set({ editorAutoSaveMode: v, editorAutoSave: v !== "off" }),
+      setEditorAutoSaveDelay: (v) =>
+        set({
+          editorAutoSaveDelay: Math.max(200, Math.min(5000, Math.round(v))),
+        }),
       setEditorMinimap: (v) => set({ editorMinimap: v }),
       setEditorWordWrap: (v) => set({ editorWordWrap: v }),
       setEditorFormatOnType: (v) => set({ editorFormatOnType: v }),
+      setEditorFormatterEnabled: (v) => set({ editorFormatterEnabled: v }),
+      setEditorFormatOnSave: (v) => set({ editorFormatOnSave: v }),
+      setEditorLinterEnabled: (v) => set({ editorLinterEnabled: v }),
+      setEditorLintOnType: (v) => set({ editorLintOnType: v }),
+      setEditorLintOnSave: (v) => set({ editorLintOnSave: v }),
+      setEditorInlineSuggestions: (v) => set({ editorInlineSuggestions: v }),
+      setEditorBreadcrumbs: (v) => set({ editorBreadcrumbs: v }),
+      setEditorConfirmDelete: (v) => set({ editorConfirmDelete: v }),
+      setEditorFileWatcherEnabled: (v) => set({ editorFileWatcherEnabled: v }),
+      setEditorEndOfLine: (v) => set({ editorEndOfLine: v }),
+      setEditorEncoding: (v) => set({ editorEncoding: v }),
+      setEditorTheme: (v) => set({ editorTheme: v }),
       setEditorQuickSuggestions: (v) => set({ editorQuickSuggestions: v }),
       setEditorLineNumbers: (v) => set({ editorLineNumbers: v }),
+      setEditorTabSize: (v) =>
+        set({ editorTabSize: Math.max(1, Math.min(8, Math.round(v))) }),
+      setEditorRenderWhitespace: (v) => set({ editorRenderWhitespace: v }),
+      setEditorStickyScroll: (v) => set({ editorStickyScroll: v }),
+      setEditorSmoothScrolling: (v) => set({ editorSmoothScrolling: v }),
+      setEditorFontLigatures: (v) => set({ editorFontLigatures: v }),
+      setEditorGlyphMargin: (v) => set({ editorGlyphMargin: v }),
+      setEditorBracketPairGuides: (v) => set({ editorBracketPairGuides: v }),
+      setEditorInsertSpaces: (v) => set({ editorInsertSpaces: v }),
+      setEditorParameterHints: (v) => set({ editorParameterHints: v }),
+      setEditorCursorStyle: (v) => set({ editorCursorStyle: v }),
+      setEditorMaxFileSizeMb: (v) =>
+        set({ editorMaxFileSizeMb: Math.max(1, Math.min(100, Math.round(v))) }),
       setEditorFontFamily: (v) => set({ editorFontFamily: v }),
       setMonoFontFamily: (v) => set({ monoFontFamily: v }),
       setUiFontFamily: (v) => set({ uiFontFamily: v }),
       setGitHooksEnabled: (v) => set({ gitHooksEnabled: v }),
       setGitSignoffEnabled: (v) => set({ gitSignoffEnabled: v }),
       setGitBypassEnabled: (v) => set({ gitBypassEnabled: v }),
+      setGitAutoFetchEnabled: (v) => set({ gitAutoFetchEnabled: v }),
+      setGitAutoFetchIntervalSeconds: (v) =>
+        set({
+          gitAutoFetchIntervalSeconds: Math.max(
+            30,
+            Math.min(3600, Math.round(v)),
+          ),
+        }),
       setPlanAutoExpand: (v) => set({ planAutoExpand: v }),
       setPlanSort: (v) => set({ planSort: v }),
       setTaskNotifications: (v) => set({ taskNotifications: v }),
-      setTaskRetryCount: (v) =>
-        set({ taskRetryCount: Math.max(0, Math.min(5, Math.round(v))) }),
-      setTaskConcurrency: (v) =>
-        set({ taskConcurrency: Math.max(1, Math.min(8, Math.round(v))) }),
+      setTaskRetryCount: (v) => {
+        const value = Math.max(0, Math.min(5, Math.round(v)));
+        set({ taskRetryCount: value });
+        void pushPrefs({ taskRetryCount: value });
+      },
+      setTaskConcurrency: (v) => {
+        const value = Math.max(1, Math.min(8, Math.round(v)));
+        set({ taskConcurrency: value });
+        void pushPrefs({ taskConcurrency: value });
+      },
+      setTaskRetryBackoffMs: (v) => {
+        const value = Math.max(100, Math.min(30_000, Math.round(v)));
+        set({ taskRetryBackoffMs: value });
+        void pushPrefs({ taskRetryBackoffMs: value });
+      },
       setLibraryShowSkills: (v) => set({ libraryShowSkills: v }),
       setLibraryShowMcp: (v) => set({ libraryShowMcp: v }),
       setBrowserAllowPopups: (v) => set({ browserAllowPopups: v }),
       setBrowserZoomPercent: (v) =>
         set({ browserZoomPercent: Math.max(25, Math.min(500, Math.round(v))) }),
+      setBrowserPermissionMode: (v) => set({ browserPermissionMode: v }),
+      setBrowserSearchEngine: (v) => set({ browserSearchEngine: v }),
+      setBrowserOriginPermission: (origin, mode) =>
+        set((state) => ({
+          browserOriginPermissions: {
+            ...state.browserOriginPermissions,
+            [origin]: mode,
+          },
+        })),
+      removeBrowserOriginPermission: (origin) =>
+        set((state) => {
+          const next = { ...state.browserOriginPermissions };
+          delete next[origin];
+          return { browserOriginPermissions: next };
+        }),
+      setTerminalFontSize: (v) =>
+        set({ terminalFontSize: Math.max(8, Math.min(32, Math.round(v))) }),
+      setTerminalScrollback: (v) =>
+        set({
+          terminalScrollback: Math.max(100, Math.min(50_000, Math.round(v))),
+        }),
+      setTerminalCursorBlink: (v) => set({ terminalCursorBlink: v }),
       resetSettings: () =>
         set({
           ...DEFAULTS,
@@ -601,7 +795,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: getStorageKey(), // Chave default; re-hidratada ao chamar loadUserSettings()
-      version: 6, // v6: adiciona fontes configuráveis por superfície
+      version: 8, // v8: adiciona auto-fetch e intervalo do Git
       // v4: clampa sidebarWidth/chatSidebarWidth pros limites atuais mesmo fora do default legado exato (teto do chat caiu de 800→480)
       migrate: (persistedState) => {
         const s = persistedState as Record<string, unknown>;
@@ -631,6 +825,12 @@ export const useSettingsStore = create<SettingsState>()(
           else if (s.themePreset === "godot-light")
             s.themePreset = "default-light";
           s.installedThemes = migrateInstalledThemes(s.installedThemes);
+          if (s.editorAutoSaveMode === undefined) {
+            s.editorAutoSaveMode =
+              s.editorAutoSave === true ? "afterDelay" : "off";
+          }
+          if (typeof s.editorAutoSaveDelay !== "number")
+            s.editorAutoSaveDelay = 800;
         }
         return s;
       },
@@ -666,26 +866,60 @@ export const useSettingsStore = create<SettingsState>()(
         fontScaleMarkdown: state.fontScaleMarkdown,
         monacoFontSize: state.monacoFontSize,
         editorAutoSave: state.editorAutoSave,
+        editorAutoSaveMode: state.editorAutoSaveMode,
+        editorAutoSaveDelay: state.editorAutoSaveDelay,
         editorMinimap: state.editorMinimap,
         editorWordWrap: state.editorWordWrap,
         editorFormatOnType: state.editorFormatOnType,
+        editorFormatterEnabled: state.editorFormatterEnabled,
+        editorFormatOnSave: state.editorFormatOnSave,
+        editorLinterEnabled: state.editorLinterEnabled,
+        editorLintOnType: state.editorLintOnType,
+        editorLintOnSave: state.editorLintOnSave,
+        editorInlineSuggestions: state.editorInlineSuggestions,
+        editorBreadcrumbs: state.editorBreadcrumbs,
+        editorConfirmDelete: state.editorConfirmDelete,
+        editorFileWatcherEnabled: state.editorFileWatcherEnabled,
+        editorEndOfLine: state.editorEndOfLine,
+        editorEncoding: state.editorEncoding,
+        editorTheme: state.editorTheme,
         editorQuickSuggestions: state.editorQuickSuggestions,
         editorLineNumbers: state.editorLineNumbers,
+        editorTabSize: state.editorTabSize,
+        editorRenderWhitespace: state.editorRenderWhitespace,
+        editorStickyScroll: state.editorStickyScroll,
+        editorSmoothScrolling: state.editorSmoothScrolling,
+        editorFontLigatures: state.editorFontLigatures,
+        editorGlyphMargin: state.editorGlyphMargin,
+        editorBracketPairGuides: state.editorBracketPairGuides,
+        editorInsertSpaces: state.editorInsertSpaces,
+        editorParameterHints: state.editorParameterHints,
+        editorCursorStyle: state.editorCursorStyle,
+        editorMaxFileSizeMb: state.editorMaxFileSizeMb,
         editorFontFamily: state.editorFontFamily,
         monoFontFamily: state.monoFontFamily,
         uiFontFamily: state.uiFontFamily,
         gitHooksEnabled: state.gitHooksEnabled,
         gitSignoffEnabled: state.gitSignoffEnabled,
         gitBypassEnabled: state.gitBypassEnabled,
+        gitAutoFetchEnabled: state.gitAutoFetchEnabled,
+        gitAutoFetchIntervalSeconds: state.gitAutoFetchIntervalSeconds,
         planAutoExpand: state.planAutoExpand,
         planSort: state.planSort,
         taskNotifications: state.taskNotifications,
         taskRetryCount: state.taskRetryCount,
         taskConcurrency: state.taskConcurrency,
+        taskRetryBackoffMs: state.taskRetryBackoffMs,
         libraryShowSkills: state.libraryShowSkills,
         libraryShowMcp: state.libraryShowMcp,
         browserAllowPopups: state.browserAllowPopups,
         browserZoomPercent: state.browserZoomPercent,
+        browserPermissionMode: state.browserPermissionMode,
+        browserOriginPermissions: state.browserOriginPermissions,
+        browserSearchEngine: state.browserSearchEngine,
+        terminalFontSize: state.terminalFontSize,
+        terminalScrollback: state.terminalScrollback,
+        terminalCursorBlink: state.terminalCursorBlink,
       }),
     },
   ),

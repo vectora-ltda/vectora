@@ -7,6 +7,8 @@
  */
 
 import { useEffect, useRef } from "react";
+import type { Terminal } from "@xterm/xterm";
+import type { FitAddon } from "@xterm/addon-fit";
 
 import { VECTORA_API_URL } from "@/lib/constants/api";
 import { m } from "@/lib/paraglide/messages";
@@ -35,6 +37,9 @@ interface XtermViewProps {
   threadId: string;
   workspaceId: string;
   onClosed?: () => void;
+  fontSize?: number;
+  scrollback?: number;
+  cursorBlink?: boolean;
 }
 
 export function XtermView({
@@ -42,13 +47,33 @@ export function XtermView({
   threadId,
   workspaceId,
   onClosed,
+  cursorBlink = true,
+  fontSize = 13,
+  scrollback = 5000,
 }: XtermViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const termRef = useRef<any | null>(null);
+  const termRef = useRef<Terminal | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const fitRef = useRef<any | null>(null);
+  const fitRef = useRef<FitAddon | null>(null);
   const resizeObsRef = useRef<ResizeObserver | null>(null);
   const themeObsRef = useRef<MutationObserver | null>(null);
+  const preferences = useRef({ fontSize, scrollback, cursorBlink });
+  useEffect(() => {
+    preferences.current = { fontSize, scrollback, cursorBlink };
+    const term = termRef.current;
+    if (!term) return;
+    Object.assign(term.options, preferences.current);
+    try {
+      fitRef.current?.fit();
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }),
+        );
+      }
+    } catch {
+      // ResizeObserver retries when the container becomes visible.
+    }
+  }, [fontSize, scrollback, cursorBlink]);
 
   // O callback e o tradutor mudam de identidade a cada render do pai; mantê-los
   // fora das dependências do efeito evita reconectar (e derrubar) o WebSocket a
@@ -80,10 +105,8 @@ export function XtermView({
           getComputedStyle(document.documentElement).getPropertyValue(
             "--font-family-mono",
           ) || '"JetBrains Mono", ui-monospace, monospace',
-        fontSize: 13,
-        cursorBlink: true,
+        ...preferences.current,
         theme: readXtermTheme(),
-        scrollback: 5000,
         convertEol: true,
       });
       const fit = new FitAddon();
