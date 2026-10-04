@@ -263,7 +263,10 @@ def main() -> int:
     current_milestone = os.environ.get("CURRENT_RELEASE_MILESTONE")
     current_base = os.environ.get("CURRENT_PR_BASE")
     if payload.pull_request is not None:
-        if current_milestone is not None:
+        # GitHub Actions expande outputs ausentes para uma string vazia. Nesse
+        # caso, preserve a milestone recebida no evento em vez de substituí-la
+        # por um valor vazio.
+        if current_milestone:
             payload.pull_request.milestone = MilestonePayload(title=current_milestone)
         if current_base:
             payload.pull_request.base = BasePayload(ref=current_base)
