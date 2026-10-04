@@ -12,7 +12,7 @@ import pytest
 
 
 class RepositoryPayload(TypedDict):
-    full_name: NotRequired[str]
+    full_name: NotRequired[str | None]
 
 
 class HeadPayload(TypedDict):
@@ -86,7 +86,7 @@ def _event(
     milestone: str | None,
     head: str = "feature/example",
     labels: list[str] | None = None,
-    head_repo: str = "vectora-ltda/vectora",
+    head_repo: str | None = "vectora-ltda/vectora",
     title: str = "fix: routine maintenance",
 ) -> PullRequestEvent:
     """Monta um evento mínimo de pull request para os testes do validador."""
@@ -152,6 +152,18 @@ def test_stacked_feature_pr_is_accepted_without_release_milestone() -> None:
         )
         == []
     )
+
+
+@pytest.mark.parametrize("head_repo", ["fork/vectora", None])
+def test_stacked_fork_pr_does_not_bypass_release_milestone(
+    head_repo: str | None,
+) -> None:
+    """Somente PRs do próprio repositório podem usar a isenção de stack."""
+    errors = validator.validate_pull_request(
+        _event(base="stack/base-contracts", milestone=None, head_repo=head_repo)
+    )
+    assert errors
+    assert "base declarada" in errors[0]
 
 
 def test_master_pr_rejects_maintenance_milestone() -> None:

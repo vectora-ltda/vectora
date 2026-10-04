@@ -181,6 +181,9 @@ jobs:
             const pending = await github.paginate(github.rest.pulls.list, {
               owner, repo, state: "open", base: PREVIOUS_DEVELOPMENT_BRANCH, per_page: 100,
             });
+            const stranded = await github.paginate(github.rest.pulls.list, {
+              owner, repo, state: "open", base: DEVELOPMENT_BRANCH, per_page: 100,
+            });
             for (const pr of pending) {
               await github.rest.pulls.update({
                 owner, repo, pull_number: pr.number, base: DEVELOPMENT_BRANCH,
@@ -190,4 +193,10 @@ jobs:
                   owner, repo, issue_number: pr.number, milestone: development.number,
                 });
               }
+            }
+            for (const pr of stranded) {
+              if (pr.milestone?.title !== PREVIOUS_DEVELOPMENT_MILESTONE) continue;
+              await github.rest.issues.update({
+                owner, repo, issue_number: pr.number, milestone: development.number,
+              });
             }

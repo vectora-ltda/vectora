@@ -207,7 +207,11 @@ def validate_pull_request(event: EventPayload) -> list[str]:
     if _is_release_please_pr(parsed_event, pull_request):
         return []
     if _STACK_BASE.fullmatch(base):
-        return []
+        head = pull_request.head
+        head_repo = head.repo.full_name if head and head.repo else None
+        repository = parsed_event.repository
+        if repository and head_repo == repository.full_name:
+            return []
     line = _line_for_base(base)
     if line is None:
         configured_bases = ", ".join(

@@ -144,7 +144,7 @@ def test_release_please_requires_candidates_and_uses_versioned_branches() -> Non
 async def test_sync_outputs_expand_stable_branch(
     tmp_path: Path, development: str
 ) -> None:
-    """Executa a emissão Bash real que habilita a sincronização de master."""
+    """Executa o jq real do workflow contra uma configuração temporária."""
     bash = (
         Path("C:/Program Files/Git/bin/bash.exe")
         if os.name == "nt"
@@ -152,11 +152,48 @@ async def test_sync_outputs_expand_stable_branch(
     )
     if not bash.is_file():
         pytest.skip("Bash necessário para executar a etapa do workflow")
+    jq = shutil.which("jq")
+    if jq is None:
+        pytest.skip("jq necessário para executar a etapa do workflow")
+
+    config = json.loads(CONFIG.read_text(encoding="utf-8"))
+    config["development"]["branch"] = development
+    config["development"]["milestone"] = development.removeprefix("release/")
+    config_path = tmp_path / ".github" / "release-lines.json"
+    config_path.parent.mkdir()
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
     source = WORKFLOW.read_text(encoding="utf-8")
-    block = source.split("          {\n", 1)[1].split(
-        '          } >> "$GITHUB_OUTPUT"', 1
+    validation = source.split("          jq -e '\n", 1)[1].split(
+        "\n          ' .github/release-lines.json >/dev/null", 1
     )[0]
-    script = "{\n" + block + '} >> "$GITHUB_OUTPUT"'
+    variables = {
+        "development_branch": "development_branch",
+        "maintenance_branch": "maintenance_branch",
+        "development_milestone": "development_milestone",
+    }
+    selectors: dict[str, str] = {}
+    for variable, output in variables.items():
+        line = next(
+            line
+            for line in source.splitlines()
+            if line.strip().startswith(f'{variable}="$(jq -er ')
+        )
+        selectors[output] = line.split("jq -er '", 1)[1].split("'", 1)[0]
+    output_lines = [
+        'echo "enabled=true"',
+        *(
+            f'echo "{name}=$(jq -er \'{selector}\' "$CONFIG_FILE")"'
+            for name, selector in selectors.items()
+        ),
+    ]
+    script = (
+        "set -euo pipefail\n"
+        f"jq -e '{validation}' \"$CONFIG_FILE\" >/dev/null\n"
+        + "{\n"
+        + "\n".join(output_lines)
+        + '\n} >> "$GITHUB_OUTPUT"'
+    )
     process = await asyncio.create_subprocess_exec(
         str(bash),
         "-euc",
@@ -165,9 +202,7 @@ async def test_sync_outputs_expand_stable_branch(
         env={
             **os.environ,
             "GITHUB_OUTPUT": "output.txt",
-            "development_branch": development,
-            "maintenance_branch": "master",
-            "development_milestone": development.removeprefix("release/"),
+            "CONFIG_FILE": str(config_path),
         },
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -179,8 +214,22 @@ async def test_sync_outputs_expand_stable_branch(
         for line in (tmp_path / "output.txt").read_text(encoding="utf-8").splitlines()
     )
     assert outputs["enabled"] == "true"
-    assert outputs["maintenance_branch"] == "master"
-    assert outputs["development_branch"] == development
+    assert outputs["maintenance_branch"] == config["maintenance"]["branch"]
+    assert outputs["development_branch"] == config["development"]["branch"]
+    assert outputs["development_milestone"] == config["development"]["milestone"]
+
+
+def test_rotation_reconciles_prs_already_moved_to_new_minor() -> None:
+    """Recupera PRs com base migrada e milestone antiga após falha parcial."""
+    content = (WORKFLOW.parent / "rotate-release-lines.yml").read_text(encoding="utf-8")
+    stranded_query = content.split("const stranded =", 1)[1].split(
+        "for (const pr of stranded)", 1
+    )[0]
+    stranded_loop = content.split("for (const pr of stranded)", 1)[1]
+    assert "base: DEVELOPMENT_BRANCH" in stranded_query
+    assert "pr.milestone?.title !== PREVIOUS_DEVELOPMENT_MILESTONE" in stranded_loop
+    assert "issues.update" in stranded_loop
+    assert "pulls.update" not in stranded_loop
 
 
 def test_release_sources_are_utf8_without_mojibake() -> None:
