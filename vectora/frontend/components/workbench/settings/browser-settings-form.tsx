@@ -414,13 +414,19 @@ export function BrowserSettingsForm({
                   type="button"
                   className="text-destructive"
                   onClick={async () => {
-                    await desktopBrowser?.deleteCredential?.({
-                      profileId: profileId ?? "",
-                      id: credential.id,
-                    });
-                    setCredentials((current) =>
-                      current.filter((item) => item.id !== credential.id),
-                    );
+                    try {
+                      await desktopBrowser?.deleteCredential?.({
+                        profileId: profileId ?? "",
+                        id: credential.id,
+                      });
+                      setCredentials((current) =>
+                        current.filter((item) => item.id !== credential.id),
+                      );
+                    } catch {
+                      useToastStore
+                        .getState()
+                        .error(m.workbench_browser_password_remove_error());
+                    }
                   }}
                 >
                   {m.workbench_browser_password_remove()}

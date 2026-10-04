@@ -2970,3 +2970,24 @@ async def test_retry_stops_on_rejected_claim_or_changed_occurrence(
     assert await kanban.release_task_for_retry(task.id, "other")
     assert not await kanban.claim_task(task.id, "new", occurrence=("different",))
     assert await kanban.claim_task(task.id, "new", occurrence=(task.next_run_at,))
+
+
+async def test_rejected_claim_does_not_mark_once_task_as_started(
+    db: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A competing claim must leave a one-shot task eligible for a later tick."""
+    from backend.scheduling import kanban
+
+    task = await bg.create_task(
+        session_id="once-claim",
+        user_id="u1",
+        kind="routine",
+        name="once",
+        instruction="i",
+        trigger_type="once",
+        next_run_at=None,
+    )
+    assert await kanban.claim_task(task.id, "other")
+    execution = bg.RunAttempt()
+    assert await bg._run_scheduled_task(task, execution=execution) is None
+    assert execution.started is False
