@@ -95,6 +95,8 @@ export function FileEditor({
   const [saving, setSaving] = useState(false);
   const shaRef = useRef<string | null>(null);
   const requestEpochRef = useRef(0);
+  const localEditRevisionRef = useRef(0);
+  const localEditsPendingRef = useRef(false);
   const saveRef = useRef<() => Promise<void>>(async () => undefined);
   const autoSaveModeRef = useRef(autoSaveMode);
   const key = editorKey(workspaceId, path);
@@ -165,10 +167,20 @@ export function FileEditor({
     if (!editorFileWatcherEnabled || media || editorReadOnly || dirty) return;
     let cancelled = false;
     const timer = window.setInterval(() => {
+      if (localEditsPendingRef.current) return;
+      const editRevision = localEditRevisionRef.current;
       void fetchFile(workspaceId, path).then((latest) => {
-        if (cancelled || !latest || latest.sha256 === shaRef.current) return;
+        if (
+          cancelled ||
+          localEditsPendingRef.current ||
+          editRevision !== localEditRevisionRef.current ||
+          !latest ||
+          latest.sha256 === shaRef.current
+        )
+          return;
         if (latest.content !== undefined)
           latest = { ...latest, content: normalizeEditorText(latest.content) };
+        localEditsPendingRef.current = false;
         setFile(latest);
         setValue(latest.content ?? "");
         shaRef.current = latest.sha256 ?? null;
@@ -219,6 +231,7 @@ export function FileEditor({
     );
     setSaving(false);
     if (result.ok) {
+      localEditsPendingRef.current = false;
       shaRef.current = result.sha256;
       setFile((prev) =>
         prev ? { ...prev, content: normalizedContent } : prev,
@@ -378,7 +391,13 @@ export function FileEditor({
           value={value}
           language={language}
           theme={monacoTheme}
-          onChange={(v) => setValue(v ?? "")}
+          onChange={(v) => {
+            const nextValue = v ?? "";
+            localEditRevisionRef.current += 1;
+            localEditsPendingRef.current =
+              file?.content !== undefined && nextValue !== file.content;
+            setValue(nextValue);
+          }}
           onMount={handleMount}
           options={godotEditorOptions(
             monacoFontSize,
