@@ -17,7 +17,7 @@
  * `RagSettingsPanel` compõe os dois com o hook embutido, para uso standalone.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Search, Settings2, Trash2, RefreshCw } from "lucide-react";
 
 import {
@@ -90,22 +90,27 @@ export function useRagSettings() {
     "idle" | "loading" | "ready" | "error"
   >("idle");
   const [patching, setPatching] = useState(false);
+  const collectionsRequest = useRef(0);
 
   const loadCollections = useCallback(async () => {
+    const requestId = ++collectionsRequest.current;
     // The hook owns this fetch lifecycle; this state update mirrors the request.
     // oxlint-disable-next-line react/set-state-in-effect
     setCollectionsStatus("loading");
     try {
       const res = await fetch("/rag/collections");
+      if (requestId !== collectionsRequest.current) return;
       if (!res.ok) {
         setCollectionsStatus("error");
         return;
       }
       const data = (await res.json()) as { collections?: Collection[] };
+      if (requestId !== collectionsRequest.current) return;
       setCollections(Array.isArray(data.collections) ? data.collections : []);
       setCollectionsStatus("ready");
     } catch {
-      setCollectionsStatus("error");
+      if (requestId === collectionsRequest.current)
+        setCollectionsStatus("error");
     }
   }, []);
 
@@ -175,13 +180,19 @@ export function useRagSettings() {
         method: "DELETE",
       });
       if (res.ok) {
+        // Invalida GETs iniciados antes da exclusão para que uma resposta
+        // atrasada não restaure a coleção removida.
+        collectionsRequest.current += 1;
         setCollections((c) => c.filter((x) => x.name !== name));
+        setCollectionsStatus("ready");
+        return true;
       } else {
         useToastStore.getState().error(m.rag_collection_delete());
       }
     } catch {
       useToastStore.getState().error(m.rag_collection_delete());
     }
+    return false;
   }, []);
 
   return {
@@ -233,6 +244,9 @@ export function RagCollectionsSection({
   "collections" | "collectionsStatus" | "loadCollections" | "deleteCollection"
 >) {
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [deletingCollection, setDeletingCollection] = useState<string | null>(
+    null,
+  );
   return (
     <section className="border-t border-border/60 pt-2">
       <div className="flex items-center justify-between">
@@ -241,6 +255,7 @@ export function RagCollectionsSection({
         </p>
         <button
           type="button"
+          data-testid="rag-collections-refresh"
           onClick={() => void loadCollections()}
           aria-label={m.workbench_files_refresh()}
           className="text-muted-foreground hover:text-foreground"
@@ -278,6 +293,7 @@ export function RagCollectionsSection({
               <button
                 type="button"
                 onClick={() => setPendingDelete(collection.name)}
+                disabled={deletingCollection === collection.name}
                 aria-label={m.rag_collection_delete()}
                 title={m.rag_collection_delete()}
                 className="shrink-0 text-muted-foreground hover:text-destructive"
@@ -298,7 +314,13 @@ export function RagCollectionsSection({
         onConfirm={async () => {
           const name = pendingDelete;
           setPendingDelete(null);
-          if (name) await deleteCollection(name);
+          if (!name) return;
+          setDeletingCollection(name);
+          try {
+            await deleteCollection(name);
+          } finally {
+            setDeletingCollection(null);
+          }
         }}
       />
     </section>

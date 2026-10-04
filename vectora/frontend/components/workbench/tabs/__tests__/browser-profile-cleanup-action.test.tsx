@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { BrowserProfileCleanupAction } from "../browser-profile-cleanup-action";
 
+const mockToastError = vi.hoisted(() => vi.fn());
+
 vi.mock("@/lib/paraglide/messages", () => ({
   m: new Proxy(
     {},
@@ -10,6 +12,12 @@ vi.mock("@/lib/paraglide/messages", () => ({
       get: (_target, property) => () => String(property),
     },
   ),
+}));
+
+vi.mock("@/lib/stores/toast-store", () => ({
+  useToastStore: {
+    getState: () => ({ success: vi.fn(), error: mockToastError }),
+  },
 }));
 
 describe("BrowserProfileCleanupAction", () => {
@@ -42,6 +50,7 @@ describe("BrowserProfileCleanupAction", () => {
   });
 
   it("mantém erro acessível quando a bridge rejeita a limpeza", async () => {
+    mockToastError.mockClear();
     const clearProfileData = vi.fn().mockRejectedValue(new Error("failed"));
     render(
       <BrowserProfileCleanupAction
@@ -60,6 +69,11 @@ describe("BrowserProfileCleanupAction", () => {
         .at(-1)!,
     );
 
-    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeTruthy();
+      expect(mockToastError).toHaveBeenCalledWith(
+        "workbench_browser_clear_profile_error",
+      );
+    });
   });
 });

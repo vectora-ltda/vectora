@@ -4,6 +4,10 @@ Esta lista valida o comportamento que não pode ser comprovado por jsdom ou pelo
 fakes do Electron. Ela deve ser executada em cada sistema operacional suportado
 antes de declarar o contrato de settings concluído.
 
+A validação manual por sistema operacional ainda está pendente. Até ela ser
+registrada, falhas ao abrir as configurações nativas exibem o formulário local
+do Vectora como alternativa.
+
 ## Preparação
 
 Use um workspace de teste com duas sessões, dois perfis Browser e pelo menos uma

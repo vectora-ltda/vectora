@@ -44,7 +44,9 @@ _GRAPH_DATA = {
 
 
 @pytest.mark.asyncio
-async def test_strict_indexing_propagates_embedding_failure(monkeypatch):
+async def test_strict_indexing_propagates_embedding_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     async def fail(_texts: list[str]) -> list[list[float]]:
         raise RuntimeError("Cohere billing blocked")
 
@@ -62,7 +64,9 @@ async def test_strict_indexing_propagates_embedding_failure(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_non_strict_indexing_keeps_optional_search_defensive(monkeypatch):
+async def test_non_strict_indexing_keeps_optional_search_defensive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     async def fail(_texts: list[str]) -> list[list[float]]:
         raise RuntimeError("provider unavailable")
 
@@ -84,14 +88,32 @@ _VEC3 = [[0.1] * 10, [0.2] * 10, [0.3] * 10]
 
 
 @pytest.mark.asyncio
-async def test_list_table_names_prefers_non_deprecated_lancedb_api():
+async def test_list_table_names_prefers_non_deprecated_lancedb_api() -> None:
     from backend.context_graph.graph_index import _list_table_names
 
     db = AsyncMock()
-    db.list_tables = AsyncMock(return_value=MagicMock(tables=["nodes", "edges"]))
+    db.list_tables = AsyncMock(
+        return_value=MagicMock(tables=["nodes", "edges"], page_token=None)
+    )
     db.table_names = AsyncMock(side_effect=AssertionError("deprecated API"))
 
     assert await _list_table_names(db) == ["nodes", "edges"]
+
+
+@pytest.mark.asyncio
+async def test_list_table_names_follows_every_page() -> None:
+    from backend.context_graph.graph_index import _list_table_names
+
+    db = AsyncMock()
+    db.list_tables = AsyncMock(
+        side_effect=[
+            MagicMock(tables=["first"], page_token="next"),
+            MagicMock(tables=["second"], page_token=None),
+        ]
+    )
+
+    assert await _list_table_names(db) == ["first", "second"]
+    assert db.list_tables.await_args_list[1].kwargs["page_token"] == "next"
 
 
 def _mock_lancedb():
@@ -477,6 +499,19 @@ class TestPurgeGraphIndex:
     async def test_purge_exception_does_not_raise(self) -> None:
         with patch(_GETDB, side_effect=Exception("boom")):
             await purge_graph_index("ws-1")
+
+    @pytest.mark.asyncio
+    async def test_strict_purge_propagates_delete_failure(self) -> None:
+        db = _mock_lancedb()
+        table = AsyncMock()
+        table.delete.side_effect = RuntimeError("delete failed")
+        db.table_names = AsyncMock(return_value=["context_graph_nodes"])
+        db.open_table = AsyncMock(return_value=table)
+        with (
+            patch(_GETDB, new_callable=AsyncMock, return_value=db),
+            pytest.raises(RuntimeError, match="falha ao purgar"),
+        ):
+            await purge_graph_index("ws-1", strict=True)
 
     @pytest.mark.asyncio
     async def test_purge_custom_collection_absent_is_noop(self) -> None:

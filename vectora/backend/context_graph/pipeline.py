@@ -364,6 +364,7 @@ async def build_workspace_graph(
                 "context_graph: falha ao exportar graph.json",
                 extra={"workspace_id": workspace_id},
             )
+            raise
 
         try:
             await asyncio.to_thread(to_html, graph, communities, str(graph_html))
@@ -394,7 +395,7 @@ async def build_workspace_graph(
 
             graph_data = json.loads(graph_json.read_text(encoding="utf-8"))
             if not update:
-                await purge_graph_index(workspace_id)
+                await purge_graph_index(workspace_id, strict=True)
             await index_graph_nodes(workspace_id, graph_data, strict=True)
         except Exception as exc:
             result.status = "degraded"

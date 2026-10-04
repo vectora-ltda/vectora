@@ -178,6 +178,69 @@ async def test_build_workspace_graph_no_files(tmp_path):
     assert result.node_count == 0
 
 
+@pytest.mark.asyncio
+async def test_graph_json_export_failure_is_a_build_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sem graph.json não há artefato estrutural que possa ser servido."""
+    import networkx as nx
+
+    import backend.context_graph.analyze as analyze_mod
+    import backend.context_graph.build as build_mod
+    import backend.context_graph.cluster as cluster_mod
+    import backend.context_graph.detect as detect_mod
+    import backend.context_graph.export as export_mod
+    import backend.context_graph.pipeline as pipeline_mod
+    import backend.context_graph.report as report_mod
+
+    ws_mock = MagicMock()
+    ws_mock.cwd = str(tmp_path)
+    registry = MagicMock()
+    registry.get.return_value = ws_mock
+    graph = nx.Graph()
+    graph.add_node("node-1")
+    monkeypatch.setattr(
+        detect_mod,
+        "detect",
+        lambda _path: {"files": {"code": [str(tmp_path / "main.py")]}},
+    )
+    monkeypatch.setattr(
+        pipeline_mod,
+        "_run_ast_extraction",
+        lambda *_args: {"nodes": [], "edges": [], "hyperedges": []},
+    )
+    monkeypatch.setattr(build_mod, "build", lambda *_args, **_kwargs: graph)
+    monkeypatch.setattr(cluster_mod, "cluster", lambda _graph: {})
+    monkeypatch.setattr(cluster_mod, "score_all", lambda _graph, _communities: {})
+    monkeypatch.setattr(
+        cluster_mod,
+        "label_communities_by_hub",
+        lambda _graph, _communities: {},
+    )
+    monkeypatch.setattr(analyze_mod, "god_nodes", lambda _graph: [])
+    monkeypatch.setattr(
+        analyze_mod, "surprising_connections", lambda _graph, _communities: []
+    )
+    monkeypatch.setattr(
+        analyze_mod,
+        "suggest_questions",
+        lambda _graph, _communities, _labels: [],
+    )
+    monkeypatch.setattr(report_mod, "generate", lambda *_args: "report")
+
+    def fail_export(*_args: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(export_mod, "to_json", fail_export)
+
+    with patch("backend.workspace.workspace.workspace_registry", registry):
+        result = await pipeline_mod.build_workspace_graph("ws-1", mode="ast")
+
+    assert result.error is not None
+    assert "pipeline" in result.error.lower()
+    assert result.index_error is None
+
+
 # ---------------------------------------------------------------------------
 # Checkpoint do AST — resume de build pausado por quota (Parte C)
 # ---------------------------------------------------------------------------

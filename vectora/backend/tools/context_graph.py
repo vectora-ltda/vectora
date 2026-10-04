@@ -63,7 +63,11 @@ async def build_knowledge_graph(
         if result.error:
             return f"Erro no build do grafo: {result.error}"
         if result.index_error:
-            return f"Build do grafo concluído com degradação: {result.index_error}"
+            return (
+                f"Build do grafo concluído com degradação: {result.node_count} nós, "
+                f"{result.edge_count} arestas. {result.index_error} "
+                f"Relatório em: {result.report_path}"
+            )
 
         lines = [
             f"Grafo construído: {result.node_count} nós, {result.edge_count} arestas."
@@ -109,7 +113,8 @@ async def graph_update(ctx: ToolContext, model: str = "") -> str:
             return f"Erro na atualização do grafo: {result.error}"
         if result.index_error:
             return (
-                f"Atualização do grafo concluída com degradação: {result.index_error}"
+                f"Atualização do grafo concluída com degradação: {result.node_count} nós, "
+                f"{result.edge_count} arestas. {result.index_error}"
             )
 
         lines = [

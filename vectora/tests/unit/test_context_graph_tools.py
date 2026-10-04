@@ -197,6 +197,7 @@ async def test_build_knowledge_graph_success(tmp_path):
     ws, _ = _make_ws(tmp_path)
     result_mock = MagicMock()
     result_mock.error = None
+    result_mock.index_error = None
     result_mock.node_count = 10
     result_mock.edge_count = 15
     result_mock.god_nodes = ["AuthService"]
@@ -213,6 +214,31 @@ async def test_build_knowledge_graph_success(tmp_path):
         result = await build_knowledge_graph(_ctx("ws1"), model="", mode="semantic")
     assert "10" in result
     assert "15" in result
+
+
+@pytest.mark.asyncio
+async def test_build_knowledge_graph_degraded_keeps_counts_and_report(tmp_path):
+    from backend.tools.context_graph import build_knowledge_graph
+
+    ws, _ = _make_ws(tmp_path)
+    result_mock = MagicMock()
+    result_mock.error = None
+    result_mock.index_error = "índice indisponível"
+    result_mock.node_count = 10
+    result_mock.edge_count = 15
+    result_mock.report_path = tmp_path / "report.md"
+    with (
+        _patch_registry(ws),
+        patch(
+            "backend.context_graph.pipeline.build_workspace_graph",
+            new_callable=AsyncMock,
+            return_value=result_mock,
+        ),
+    ):
+        result = await build_knowledge_graph(_ctx("ws1"))
+    assert "10 nós" in result
+    assert "15 arestas" in result
+    assert str(result_mock.report_path) in result
 
 
 # ---------------------------------------------------------------------------
@@ -252,6 +278,7 @@ async def test_graph_update_calls_pipeline_with_update_true(tmp_path):
     ws, _ = _make_ws(tmp_path)
     result_mock = MagicMock()
     result_mock.error = None
+    result_mock.index_error = None
     result_mock.node_count = 5
     result_mock.edge_count = 8
     result_mock.god_nodes = []
@@ -269,6 +296,29 @@ async def test_graph_update_calls_pipeline_with_update_true(tmp_path):
     mock_build.assert_called_once()
     assert mock_build.call_args.kwargs.get("update") is True
     assert "5" in result or "atualizado" in result.lower()
+
+
+@pytest.mark.asyncio
+async def test_graph_update_degraded_keeps_graph_counts(tmp_path):
+    from backend.tools.context_graph import graph_update
+
+    ws, _ = _make_ws(tmp_path)
+    result_mock = MagicMock()
+    result_mock.error = None
+    result_mock.index_error = "índice indisponível"
+    result_mock.node_count = 5
+    result_mock.edge_count = 8
+    with (
+        _patch_registry(ws),
+        patch(
+            "backend.context_graph.pipeline.build_workspace_graph",
+            new_callable=AsyncMock,
+            return_value=result_mock,
+        ),
+    ):
+        result = await graph_update(_ctx("ws1"))
+    assert "5 nós" in result
+    assert "8 arestas" in result
 
 
 # ---------------------------------------------------------------------------
@@ -438,6 +488,7 @@ async def test_build_shows_god_nodes(tmp_path):
     ws, _ = _make_ws(tmp_path)
     rm = MagicMock()
     rm.error = None
+    rm.index_error = None
     rm.node_count = 3
     rm.edge_count = 2
     rm.god_nodes = ["GodA", "GodB"]
@@ -462,6 +513,7 @@ async def test_build_ast_mode_passed_to_pipeline(tmp_path):
     ws, _ = _make_ws(tmp_path)
     rm = MagicMock()
     rm.error = None
+    rm.index_error = None
     rm.node_count = 1
     rm.edge_count = 0
     rm.god_nodes = []

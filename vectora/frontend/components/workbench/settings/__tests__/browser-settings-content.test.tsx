@@ -181,6 +181,9 @@ describe("BrowserSettingsContent", () => {
     expect(
       await screen.findByText("Could not open browser settings."),
     ).toBeTruthy();
+    expect(
+      screen.getByTestId("browser-settings-form-fallback"),
+    ).toBeInTheDocument();
     expect(native.bridge.destroyView).toHaveBeenCalledWith(42);
     unmount();
   });

@@ -27,6 +27,14 @@ function jsonRes(body: unknown, ok = true) {
   );
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 beforeEach(() => {
   FETCH.mockReset();
   vi.stubGlobal("fetch", FETCH);
@@ -60,6 +68,101 @@ describe("RagSettingsPanel", () => {
     await waitFor(() =>
       expect(deleteCollection).toHaveBeenCalledWith("articles"),
     );
+  });
+
+  it("ignora uma listagem antiga que termina depois de atualizar e excluir", async () => {
+    const firstLoad = deferred<Response>();
+    const refresh = deferred<Response>();
+    const deleteRequest = deferred<Response>();
+    let listCalls = 0;
+    FETCH.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/rag/collections") && init?.method === "DELETE")
+        return deleteRequest.promise;
+      if (url.includes("/rag/collections")) {
+        listCalls += 1;
+        return listCalls === 1 ? firstLoad.promise : refresh.promise;
+      }
+      return jsonRes({});
+    });
+
+    render(<RagSettingsPanel />);
+    fireEvent.click(screen.getByTestId("rag-settings-btn"));
+    firstLoad.resolve(
+      await jsonRes({ collections: [{ name: "articles", count: 3 }] }),
+    );
+    expect(await screen.findByText("articles")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("rag-collections-refresh"));
+    fireEvent.click(screen.getByRole("button", { name: "Delete collection" }));
+    fireEvent.click(
+      within(screen.getByRole("alertdialog"))
+        .getAllByRole("button")
+        .find((button) => button.textContent === "Delete collection")!,
+    );
+    deleteRequest.resolve(await jsonRes({ ok: true }));
+    await waitFor(() => expect(screen.queryByText("articles")).toBeNull());
+
+    refresh.resolve(
+      await jsonRes({ collections: [{ name: "articles", count: 3 }] }),
+    );
+    await waitFor(() => expect(screen.queryByText("articles")).toBeNull());
+  });
+
+  it("desabilita exclusão duplicada enquanto a requisição está pendente", async () => {
+    const deleteRequest = deferred<Response>();
+    let deleteCalls = 0;
+    FETCH.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/rag/settings")) return jsonRes({});
+      if (url.includes("/rag/collections") && init?.method === "DELETE") {
+        deleteCalls += 1;
+        return deleteRequest.promise;
+      }
+      if (url.includes("/rag/collections"))
+        return jsonRes({ collections: [{ name: "articles", count: 3 }] });
+      return jsonRes({});
+    });
+
+    render(<RagSettingsPanel />);
+    fireEvent.click(screen.getByTestId("rag-settings-btn"));
+    const deleteButton = await screen.findByRole("button", {
+      name: "Delete collection",
+    });
+    fireEvent.click(deleteButton);
+    fireEvent.click(
+      within(screen.getByRole("alertdialog"))
+        .getAllByRole("button")
+        .find((button) => button.textContent === "Delete collection")!,
+    );
+
+    expect(deleteButton).toBeDisabled();
+    expect(deleteCalls).toBe(1);
+    deleteRequest.resolve(await jsonRes({ ok: true }));
+    await waitFor(() => expect(screen.queryByText("articles")).toBeNull());
+  });
+
+  it("ignora uma resposta de carregamento anterior à última atualização", async () => {
+    const firstLoad = deferred<Response>();
+    let listCalls = 0;
+    FETCH.mockImplementation((url: string) => {
+      if (url.includes("/rag/collections")) {
+        listCalls += 1;
+        return listCalls === 1
+          ? firstLoad.promise
+          : jsonRes({ collections: [{ name: "newer", count: 1 }] });
+      }
+      return jsonRes({});
+    });
+
+    render(<RagSettingsPanel />);
+    fireEvent.click(screen.getByTestId("rag-settings-btn"));
+    fireEvent.click(screen.getByTestId("rag-collections-refresh"));
+    expect(await screen.findByText("newer")).toBeInTheDocument();
+    firstLoad.resolve(
+      await jsonRes({ collections: [{ name: "stale", count: 1 }] }),
+    );
+
+    await waitFor(() => expect(screen.queryByText("stale")).toBeNull());
+    expect(screen.getByText("newer")).toBeInTheDocument();
   });
 
   it("o gear abre o painel e carrega settings + coleções", async () => {

@@ -11,21 +11,16 @@ import { BrowserSettingsForm } from "./browser-settings-form";
 import { useBrowserSettingsView } from "../tabs/use-browser-settings-view";
 
 interface NativeBrowserSettingsProps {
-  profileId: string;
-  open: boolean;
-  onRequestClose?: () => void;
+  context: WorkbenchSettingsContext;
 }
 
-function NativeBrowserSettings({
-  profileId,
-  open,
-  onRequestClose,
-}: NativeBrowserSettingsProps) {
+function NativeBrowserSettings({ context }: NativeBrowserSettingsProps) {
+  const { browserProfileId: profileId, open, onRequestClose } = context;
   const containerRef = useRef<HTMLDivElement>(null);
   const [retryKey, setRetryKey] = useState(0);
   const { status } = useBrowserSettingsView({
     profileId,
-    open,
+    open: open ?? false,
     containerRef,
     onClose: onRequestClose,
     retryKey,
@@ -33,10 +28,14 @@ function NativeBrowserSettings({
 
   if (status === "failed") {
     return (
-      <div className="flex h-full min-h-32 flex-col items-center justify-center gap-3 p-4 text-center">
+      <div
+        data-testid="browser-settings-form-fallback"
+        className="flex h-full min-h-32 flex-col gap-3 overflow-auto p-4"
+      >
         <p className="text-sm text-muted-foreground">
           {m.workbench_browser_settings_error()}
         </p>
+        <BrowserSettingsForm {...context} />
         <button
           type="button"
           className="inline-flex items-center gap-2 rounded border border-border/60 px-3 py-2 text-sm hover:bg-muted/40"
@@ -96,11 +95,5 @@ export function BrowserSettingsContent(context: WorkbenchSettingsContext) {
     return <BrowserSettingsForm {...context} />;
   }
 
-  return (
-    <NativeBrowserSettings
-      profileId={context.browserProfileId}
-      open={context.open ?? false}
-      onRequestClose={context.onRequestClose}
-    />
-  );
+  return <NativeBrowserSettings context={context} />;
 }

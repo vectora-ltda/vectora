@@ -13,7 +13,10 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from lancedb.db import AsyncConnection
 
 logger = logging.getLogger(__name__)
 
@@ -21,24 +24,29 @@ _COLLECTION = "context_graph_nodes"
 _EMBED_BATCH = 64
 
 
-async def _list_table_names(db: Any) -> list[str]:
+async def _list_table_names(db: AsyncConnection) -> list[str]:
     """Lista tabelas sem usar a API LanceDB depreciada ``table_names``."""
     list_tables = getattr(db, "list_tables", None)
-    if list_tables is not None:
-        response = await list_tables()
-        tables = getattr(response, "tables", response)
-        if isinstance(tables, list):
-            names: list[str] = []
-            for table in tables:
-                if isinstance(table, str):
-                    names.append(table)
-                elif isinstance(table, dict) and isinstance(table.get("name"), str):
-                    names.append(table["name"])
+    if list_tables is None:
+        return list(await db.table_names())
+    page_token: str | None = None
+    names: list[str] = []
+    seen_tokens: set[str] = set()
+    while True:
+        response = await db.list_tables(page_token=page_token)
+        if not isinstance(response.tables, list):
+            # Compatibilidade com conexões antigas e doubles de testes.
+            return list(await db.table_names())
+        names.extend(response.tables)
+        page_token = response.page_token
+        if page_token is None:
             return names
-    return list(await db.table_names())
+        if page_token in seen_tokens:
+            raise RuntimeError("LanceDB repetiu o token de paginação de tabelas")
+        seen_tokens.add(page_token)
 
 
-async def _get_db() -> Any:
+async def _get_db() -> AsyncConnection:
     """Retorna conexão LanceDB (reutiliza o settings.lancedb_dir do Vectora)."""
     import lancedb  # type: ignore[import-not-found]
 
@@ -208,6 +216,8 @@ async def search_graph_nodes(
 async def purge_graph_index(
     workspace_id: str,
     collection: str = _COLLECTION,
+    *,
+    strict: bool = False,
 ) -> None:
     """Remove todos os nós do workspace do índice vetorial.
 
@@ -235,8 +245,10 @@ async def purge_graph_index(
             workspace_id,
             extra={"workspace_id": workspace_id},
         )
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "context_graph: falha ao purgar índice",
             extra={"workspace_id": workspace_id},
         )
+        if strict:
+            raise RuntimeError("falha ao purgar índice do Context Graph") from exc

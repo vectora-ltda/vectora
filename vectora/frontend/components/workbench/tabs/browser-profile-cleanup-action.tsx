@@ -61,6 +61,9 @@ export function BrowserProfileCleanupAction({
               .success(m.workbench_browser_clear_profile_success());
           } catch {
             setError(true);
+            useToastStore
+              .getState()
+              .error(m.workbench_browser_clear_profile_error());
           }
         }}
       >
