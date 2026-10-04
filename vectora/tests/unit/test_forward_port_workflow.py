@@ -190,9 +190,7 @@ async def test_sync_outputs_expand_stable_branch(
     script = (
         "set -euo pipefail\n"
         f"jq -e '{validation}' \"$CONFIG_FILE\" >/dev/null\n"
-        + "{\n"
-        + "\n".join(output_lines)
-        + '\n} >> "$GITHUB_OUTPUT"'
+        "{\n" + "\n".join(output_lines) + '\n} >> "$GITHUB_OUTPUT"'
     )
     process = await asyncio.create_subprocess_exec(
         str(bash),
