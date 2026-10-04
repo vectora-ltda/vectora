@@ -34,6 +34,18 @@ describe("update backups", () => {
     expect(attempts).toBe(3);
   });
 
+  it("propaga erros permanentes de permissão sem classificá-los como bloqueio", async () => {
+    const permissionError = Object.assign(new Error("permission denied"), {
+      code: "EACCES",
+    });
+    const operation = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValue(permissionError);
+
+    await expect(withFileLockRetry(operation)).rejects.toBe(permissionError);
+    expect(operation).toHaveBeenCalledOnce();
+  });
+
   it("continues downloading when the optional backup rejects", async () => {
     const downloadUpdate = vi.fn<() => Promise<void>>().mockResolvedValue();
     const warn = vi.fn();
