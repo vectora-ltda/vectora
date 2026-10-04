@@ -121,6 +121,10 @@ export interface BrowserViewManagerDeps {
     mode: "allow" | "deny",
     originPermissions?: Record<string, "allow" | "deny">,
   ): void;
+  setOriginPermissions?(
+    profileId: string,
+    originPermissions: Record<string, "allow" | "deny">,
+  ): void;
 }
 
 export interface BrowserDataClearOptions {
@@ -238,6 +242,16 @@ export class BrowserViewManager {
     const entry = this.entries.get(id);
     if (!entry || !this.owns(entry, ownerId)) return;
     this.deps.setPermissionMode?.(entry.profileId, mode, originPermissions);
+  }
+
+  setOriginPermissions(
+    id: number,
+    originPermissions: Record<string, "allow" | "deny">,
+    ownerId: number | null = null,
+  ): void {
+    const entry = this.entries.get(id);
+    if (!entry || !this.owns(entry, ownerId)) return;
+    this.deps.setOriginPermissions?.(entry.profileId, originPermissions);
   }
 
   async clearData(

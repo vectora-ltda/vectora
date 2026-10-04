@@ -113,6 +113,15 @@ describe("BrowserViewManager", () => {
     expect(deps.clearData).toHaveBeenCalledWith("persist:browser-profile-a");
   });
 
+  it("atualiza permissões por origem sem alterar o modo global", () => {
+    deps.setOriginPermissions = vi.fn();
+    const id = manager.createView("profile-a");
+    manager.setOriginPermissions(id, { "https://example.com": "allow" });
+    expect(deps.setOriginPermissions).toHaveBeenCalledWith("profile-a", {
+      "https://example.com": "allow",
+    });
+  });
+
   it("limpa armazenamento e cache da sessão do perfil", async () => {
     const clearStorageData = vi.fn(async () => undefined);
     const clearCache = vi.fn(async () => undefined);

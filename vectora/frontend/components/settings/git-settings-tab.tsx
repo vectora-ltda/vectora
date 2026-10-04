@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useSettingsStore } from "@/lib/stores/settings-store";
 import { m } from "@/lib/paraglide/messages";
 import { Input } from "@/components/ui/input";
@@ -23,6 +24,12 @@ export function GitSettingsTab({
   const setAutoFetchInterval = useSettingsStore(
     (s) => s.setGitAutoFetchIntervalSeconds,
   );
+  const [autoFetchIntervalDraft, setAutoFetchIntervalDraft] = useState(
+    String(autoFetchInterval),
+  );
+  useEffect(() => {
+    setAutoFetchIntervalDraft(String(autoFetchInterval));
+  }, [autoFetchInterval]);
   return (
     <div className="space-y-5 max-w-xl">
       {showHeading ? (
@@ -73,8 +80,16 @@ export function GitSettingsTab({
                 min={30}
                 max={3600}
                 step={30}
-                value={autoFetchInterval}
-                onChange={(e) => setAutoFetchInterval(Number(e.target.value))}
+                value={autoFetchIntervalDraft}
+                onChange={(e) => setAutoFetchIntervalDraft(e.target.value)}
+                onBlur={() => {
+                  const draft = autoFetchIntervalDraft.trim();
+                  if (draft === "" || !Number.isFinite(Number(draft))) {
+                    setAutoFetchIntervalDraft(String(autoFetchInterval));
+                    return;
+                  }
+                  setAutoFetchInterval(Number(draft));
+                }}
                 className="w-24"
               />
               <span className="text-xs text-muted-foreground">

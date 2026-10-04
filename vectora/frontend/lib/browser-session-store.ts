@@ -39,7 +39,30 @@ function readPersistedSession(
     const raw = window.localStorage.getItem(storageKey(sessionKey));
     if (!raw) return undefined;
     const parsed = JSON.parse(raw) as Partial<PersistedBrowserSession>;
-    if (!Array.isArray(parsed.tabs) || typeof parsed.activeTabId !== "string") {
+    if (
+      !Array.isArray(parsed.tabs) ||
+      parsed.tabs.length === 0 ||
+      typeof parsed.activeTabId !== "string" ||
+      parsed.tabs.some(
+        (tab) =>
+          !tab ||
+          typeof tab !== "object" ||
+          typeof tab.id !== "string" ||
+          typeof tab.title !== "string" ||
+          !Array.isArray(tab.history) ||
+          tab.history.some((entry) => typeof entry !== "string") ||
+          typeof tab.historyIndex !== "number" ||
+          !Number.isInteger(tab.historyIndex) ||
+          tab.historyIndex < -1 ||
+          tab.historyIndex >= tab.history.length ||
+          typeof tab.iframeKey !== "number" ||
+          !Number.isInteger(tab.iframeKey) ||
+          (tab.viewId !== null && typeof tab.viewId !== "number") ||
+          typeof tab.desktopUrl !== "string" ||
+          typeof tab.canGoBack !== "boolean" ||
+          typeof tab.canGoForward !== "boolean",
+      )
+    ) {
       return undefined;
     }
     // Native WebContentsView ids belong to the current Electron process. They

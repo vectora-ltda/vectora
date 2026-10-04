@@ -112,6 +112,11 @@ export function FileEditor({
   const exceedsSizeLimit =
     file?.size !== undefined && file.size > editorMaxFileSizeMb * 1024 * 1024;
   const editorReadOnly = readOnly || exceedsSizeLimit;
+  const editorCommandStateRef = useRef({
+    editorFormatterEnabled,
+    editorReadOnly,
+    path,
+  });
 
   useEffect(() => {
     if (media) return;
@@ -252,7 +257,12 @@ export function FileEditor({
   useEffect(() => {
     saveRef.current = handleSave;
     autoSaveModeRef.current = autoSaveMode;
-  }, [autoSaveMode, handleSave]);
+    editorCommandStateRef.current = {
+      editorFormatterEnabled,
+      editorReadOnly,
+      path,
+    };
+  }, [autoSaveMode, editorFormatterEnabled, editorReadOnly, handleSave, path]);
 
   const handleSaveAs = useCallback(
     async (targetPath: string) => {
@@ -319,8 +329,9 @@ export function FileEditor({
       editor.addCommand(
         monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF,
         () => {
-          if (!editorFormatterEnabled || editorReadOnly) return;
-          const next = formatEditorText(path, editor.getValue());
+          const state = editorCommandStateRef.current;
+          if (!state.editorFormatterEnabled || state.editorReadOnly) return;
+          const next = formatEditorText(state.path, editor.getValue());
           if (next !== editor.getValue()) editor.setValue(next);
         },
       );
