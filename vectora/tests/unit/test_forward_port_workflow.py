@@ -303,6 +303,7 @@ def test_release_rotation_verifies_tag_ancestry() -> None:
     assert "github.rest.repos.compareCommits" in content
     assert "base: releaseSha" in content
     assert "head: developmentRef.data.object.sha" in content
+    assert '"ahead", "identical"' in content
 
 
 def test_release_workflows_use_native_github_token() -> None:
@@ -312,7 +313,6 @@ def test_release_workflows_use_native_github_token() -> None:
     for workflow in workflows:
         content = workflow.read_text(encoding="utf-8")
         assert "secrets.RELEASE_PLEASE_TOKEN" not in content, workflow
-    assert '"ahead", "identical"' in content
 
 
 def test_release_workflows_pin_github_script_to_node_24() -> None:
