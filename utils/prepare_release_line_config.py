@@ -1,4 +1,4 @@
-"""Atualiza as linhas de release no prÃ³prio branch gerado pelo Release Please."""
+"""Atualiza as linhas de release no próprio branch gerado pelo Release Please."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ MINOR_ZERO = re.compile(r"^(?P<major>\d+)\.(?P<minor>\d+)\.0$")
 
 
 def current_release_version(changelog: str) -> str | None:
-    """Retorna a versÃ£o da primeira seÃ§Ã£o gerada no changelog."""
+    """Retorna a versão da primeira seção gerada no changelog."""
     match = RELEASE_HEADING.search(changelog)
     return match.group("version") if match else None
 
@@ -25,7 +25,7 @@ def update_release_line_files(
     maintenance_manifest_path: Path,
     target_branch: str,
 ) -> bool:
-    """Atualiza a configuraÃ§Ã£o quando o PR representa uma nova minor."""
+    """Atualiza a configuração quando o PR representa uma nova minor."""
     version = current_release_version(changelog_path.read_text(encoding="utf-8"))
     if version is None:
         return False
@@ -68,7 +68,7 @@ def update_release_line_files(
 
 
 def main() -> int:
-    """Executa a atualizaÃ§Ã£o com argumentos prÃ³prios do workflow."""
+    """Executa a atualização com argumentos próprios do workflow."""
     if len(sys.argv) != 5:
         print(
             "usage: prepare_release_line_config.py CHANGELOG LINES MANIFEST TARGET_BRANCH",

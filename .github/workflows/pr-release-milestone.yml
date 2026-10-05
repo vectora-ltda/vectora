@@ -25,7 +25,7 @@ concurrency:
 permissions:
   contents: read
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 jobs:
   release-milestone:
@@ -40,10 +40,12 @@ jobs:
       - name: Assign release milestone from base branch
         id: assign-milestone
         if: >-
-          github.event.action == 'opened' &&
           github.event.pull_request.milestone == null
         uses: actions/github-script@v8
         with:
+          # O token dedicado continua preferido, mas o GITHUB_TOKEN com
+          # permissões explícitas evita que a atribuição dependa de um secret
+          # ausente em PRs comuns.
           github-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           script: |
             const fs = require("fs");

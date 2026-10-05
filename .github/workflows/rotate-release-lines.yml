@@ -2,7 +2,7 @@ name: Rotate release lines
 
 # Um release publicado de desenvolvimento avança as duas linhas ativas. O
 # Release Please atualiza a configuração dentro da própria PR de release; este
-# workflow apenas cria a branch de manutenção e os milestones após a publicação.
+# workflow cria a próxima minor e atualiza as PRs pendentes após a publicação.
 on:
   release:
     types: [published]
@@ -58,6 +58,7 @@ jobs:
           PREVIOUS_MAINTENANCE_BRANCH: ${{ steps.rotation.outputs.previous_maintenance_branch }}
           PREVIOUS_MAINTENANCE_MILESTONE: ${{ steps.rotation.outputs.previous_maintenance_milestone }}
           PREVIOUS_DEVELOPMENT_MILESTONE: ${{ steps.rotation.outputs.previous_development_milestone }}
+          PREVIOUS_DEVELOPMENT_BRANCH: ${{ steps.rotation.outputs.previous_development_branch }}
           RELEASE_TAG: ${{ steps.rotation.outputs.release_tag }}
         with:
           github-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
@@ -70,6 +71,7 @@ jobs:
               PREVIOUS_MAINTENANCE_BRANCH,
               PREVIOUS_MAINTENANCE_MILESTONE,
               PREVIOUS_DEVELOPMENT_MILESTONE,
+              PREVIOUS_DEVELOPMENT_BRANCH,
               RELEASE_TAG,
             } = process.env;
             const { owner, repo } = context.repo;
@@ -108,7 +110,7 @@ jobs:
             });
             if (!["ahead", "identical"].includes(ancestry.data.status)) {
               core.setFailed(
-                `A tag ${RELEASE_TAG} não pertence à linha stable ${process.env.STABLE_BRANCH}.`,
+                `A tag ${RELEASE_TAG} não pertence à linha estável ${STABLE_BRANCH}.`,
               );
               return;
             }
@@ -138,7 +140,7 @@ jobs:
                 owner,
                 repo,
                 ref: `refs/heads/${DEVELOPMENT_BRANCH}`,
-                sha: releaseSha,
+                sha: developmentRef.data.object.sha,
               });
               core.info(`Branch de desenvolvimento ${DEVELOPMENT_BRANCH} criada em ${RELEASE_TAG}.`);
             }
@@ -176,3 +178,43 @@ jobs:
               DEVELOPMENT_MILESTONE,
               "Próxima linha de release de desenvolvimento",
             );
+            const pending = await github.paginate(github.rest.pulls.list, {
+              owner, repo, state: "open", base: PREVIOUS_DEVELOPMENT_BRANCH, per_page: 100,
+            });
+            const stranded = await github.paginate(github.rest.pulls.list, {
+              owner, repo, state: "open", base: DEVELOPMENT_BRANCH, per_page: 100,
+            });
+            const migrationErrors = [];
+            for (const pr of pending) {
+              try {
+                await github.rest.pulls.update({
+                  owner, repo, pull_number: pr.number, base: DEVELOPMENT_BRANCH,
+                });
+                if (pr.milestone?.title === PREVIOUS_DEVELOPMENT_MILESTONE) {
+                  await github.rest.issues.update({
+                    owner, repo, issue_number: pr.number, milestone: development.number,
+                  });
+                }
+              } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                core.error(`Falha ao migrar PR #${pr.number}: ${message}`);
+                migrationErrors.push(`#${pr.number}: ${message}`);
+              }
+            }
+            for (const pr of stranded) {
+              if (pr.milestone?.title !== PREVIOUS_DEVELOPMENT_MILESTONE) continue;
+              try {
+                await github.rest.issues.update({
+                  owner, repo, issue_number: pr.number, milestone: development.number,
+                });
+              } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                core.error(`Falha ao atualizar milestone da PR #${pr.number}: ${message}`);
+                migrationErrors.push(`#${pr.number}: ${message}`);
+              }
+            }
+            if (migrationErrors.length > 0) {
+              throw new Error(
+                `Falha ao migrar ${migrationErrors.length} PR(s): ${migrationErrors.join("; ")}`,
+              );
+            }

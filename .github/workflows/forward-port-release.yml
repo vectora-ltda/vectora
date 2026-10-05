@@ -1,8 +1,8 @@
 name: Sync stable fixes to active minor
 
-# MantÃ©m a linha de desenvolvimento atualizada com a linha estÃ¡vel. O sentido
-# Ã© intencionalmente unidirecional: correÃ§Ãµes entram primeiro em master e sÃ£o
-# entÃ£o sincronizadas para release/x.y.
+# Mantém a linha de desenvolvimento atualizada com a linha estável. O sentido
+# é intencionalmente unidirecional: correções entram primeiro em master e são
+# então sincronizadas para release/x.y.
 on:
   push:
     branches:
@@ -49,14 +49,14 @@ jobs:
           development_branch="$(jq -er '.development.branch' .github/release-lines.json)"
           maintenance_branch="$(jq -er '.maintenance.branch' .github/release-lines.json)"
           development_milestone="$(jq -er '.development.milestone' .github/release-lines.json)"
-          if [[ -z "$development_branch" || -z "\$STABLE_BRANCH" || -z "$development_milestone" ]]; then
+          if [[ -z "$development_branch" || -z "$maintenance_branch" || -z "$development_milestone" ]]; then
             echo "::error::Invalid release-line configuration." >&2
             exit 1
           fi
           {
             echo "enabled=true"
             echo "development_branch=$development_branch"
-            echo "maintenance_branch=\$STABLE_BRANCH"
+            echo "maintenance_branch=$maintenance_branch"
             echo "development_milestone=$development_milestone"
           } >> "$GITHUB_OUTPUT"
       - name: Synchronize master into active minor
@@ -91,7 +91,7 @@ jobs:
               git merge --abort || true
               conflict_branch="sync/release-promotion-${STABLE_BRANCH//\//-}-to-${DEVELOPMENT_BRANCH//\//-}"
               if [[ -z "$GH_TOKEN" ]]; then
-                  echo "::error::RELEASE_PLEASE_TOKEN Ã© necessÃ¡rio para abrir uma PR de resoluÃ§Ã£o de conflitos." >&2
+                  echo "::error::RELEASE_PLEASE_TOKEN é necessário para abrir uma PR de resolução de conflitos." >&2
                 exit 1
               fi
               existing_pr="$(gh pr list \

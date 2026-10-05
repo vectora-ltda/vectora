@@ -287,11 +287,11 @@ export function registerGodotLanguage(
         [/[A-Za-z_]\w*(?=\s*\()/, "function"],
         [/[A-Za-z_]\w*/, "identifier"],
         [/\d+/, "number"],
-        [/['\"]/, { token: "string", next: "@string" }],
+        [/['"]/, { token: "string", next: "@string" }],
       ],
       string: [
-        [/[^'\"]+/, "string"],
-        [/['\"]/, { token: "string", next: "@pop" }],
+        [/[^'"]+/, "string"],
+        [/['"]/, { token: "string", next: "@pop" }],
       ],
     },
   });
