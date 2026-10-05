@@ -12,6 +12,8 @@ import {
   MANIFEST_ARCHES,
   RETENTION_COUNT,
   computeRetention,
+  releaseVersionFromKey,
+  sortReleaseVersions,
   r2ClientConfig,
   buildArchManifest,
   resolveInstaller,
@@ -224,6 +226,34 @@ describe("computeRetention", () => {
 
   it("RETENTION_COUNT default é 3", () => {
     expect(RETENTION_COUNT).toBe(3);
+  });
+});
+
+describe("release object discovery", () => {
+  it("extrai versões apenas de objetos do canal", () => {
+    expect(
+      releaseVersionFromKey(
+        "latest",
+        "latest/win/x64/0.1.22/Vectora-0.1.22-win-x64.exe",
+      ),
+    ).toBe("0.1.22");
+    expect(
+      releaseVersionFromKey("latest", "latest/win/x64/0.1.22/latest.yml"),
+    ).toBe("0.1.22");
+    expect(
+      releaseVersionFromKey(
+        "latest",
+        "maintenance/win/x64/0.1.22/Vectora-0.1.22-win-x64.exe",
+      ),
+    ).toBeNull();
+  });
+
+  it("ordena versões numericamente e remove duplicatas", () => {
+    expect(sortReleaseVersions(["0.2.0", "0.1.12", "0.1.9", "0.2.0"])).toEqual([
+      "0.1.9",
+      "0.1.12",
+      "0.2.0",
+    ]);
   });
 });
 

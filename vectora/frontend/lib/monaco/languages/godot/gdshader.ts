@@ -54,7 +54,7 @@ export const gdshaderLanguage: EngineLanguageContribution = {
         [/\d+(?:\.\d+)?/, t.number],
         [/"[^"\n]*"/, t.string],
         [/[{}()[\]]/, t.bracket],
-        [/[+\-*\/%=<>!&|^~?:]+/, t.operator],
+        [/[+\-*/%=<>!&|^~?:]+/, t.operator],
         [/[;,.,]/, t.delimiter],
       ],
       comment: [
