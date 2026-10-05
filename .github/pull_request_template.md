@@ -4,10 +4,10 @@ Descreva o comportamento alterado e o motivo da mudanÃ§a nesta PR.
 
 Escolha uma base e uma milestone antes de solicitar revisÃ£o:
 
-- `release/0.3` + milestone `0.3`: desenvolvimento da prÃ³xima minor.
-- `master` + milestone `0.2.x` exata: manutenÃ§Ã£o da sÃ©rie `0.3`.
+- `release/0.3` + milestone `0.3`: desenvolvimento da próxima minor.
+- `master` + milestone `0.2.x`: manutenção da série `0.2`.
 
-O CI exige exatamente uma milestone compatÃ­vel com a base. PRs de sincronizaÃ§Ã£o entre `master` e `release/0.3` devem explicar a referÃªncia de origem e usar a milestone correspondente Ã  branch de destino.
+O CI exige exatamente uma milestone compatível com a base. PRs de sincronização entre `master` e `release/0.3` devem explicar a referência de origem e usar a milestone correspondente à branch de destino.
 
 ## Checklist
 

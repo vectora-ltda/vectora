@@ -391,3 +391,5 @@ env.gha
 /pr-agent
 !.vectora/
 !.vectora/skills.lock.json
+/.audit-home
+vectora/audit-rg.txt

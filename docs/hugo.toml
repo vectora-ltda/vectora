@@ -131,7 +131,7 @@ disableKinds = ["taxonomy", "term"]
     displayTitle = true
     displayLogo = true
     [params.navbar.logo]
-      path = "img/vectora-logo.svg"
+      path = "img/vectora-logo-alt.svg"
       link = "/"
 
   [params.page]
@@ -157,7 +157,7 @@ disableKinds = ["taxonomy", "term"]
     name = 'Vectora'
 
   [params.opengraph]
-    image = '/img/vectora-logo.svg'
+    image = '/img/vectora-logo-alt.svg'
     locale = 'en'
 
   [params.seo]

@@ -14,12 +14,13 @@ on:
       - "v*"
 
 concurrency:
-  group: release-please-${{ github.ref_name }}
+  group: release-please-${{ github.repository }}
   cancel-in-progress: false
 
 permissions:
   contents: write
   pull-requests: write
+  issues: write
 
 jobs:
   release-please:
@@ -37,6 +38,7 @@ jobs:
         with:
           ref: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
           token: ${{ github.token }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Select configured release line
         id: release-line
@@ -61,16 +63,19 @@ jobs:
           maintenance_branch="$(jq -er '.maintenance.branch' .github/release-lines.json)"
           development_milestone="$(jq -er '.development.milestone' .github/release-lines.json)"
           maintenance_milestone="$(jq -er '.maintenance.milestone' .github/release-lines.json)"
+          release_milestone=""
           if [[ "$TARGET_BRANCH" == "$development_branch" ]]; then
             line_key="development"
+            release_milestone="$development_milestone"
           elif [[ "$TARGET_BRANCH" == "$maintenance_branch" ]]; then
             line_key="maintenance"
+            release_milestone="$maintenance_milestone"
           else
             line_key=""
           fi
           if [[ -n "$line_key" ]]; then
             if [[ "$line_key" == "development" ]]; then
-              release_target_branch="master"
+              release_target_branch="$maintenance_branch"
             else
               release_target_branch="$maintenance_branch"
             fi
@@ -97,6 +102,7 @@ jobs:
             echo "config_file=$config_file"
             echo "manifest_file=$manifest_file"
             echo "release_target_branch=$release_target_branch"
+            echo "release_milestone=$release_milestone"
           } >> "$GITHUB_OUTPUT"
           if [[ "$(grep '^enabled=' "$GITHUB_OUTPUT" | tail -n 1)" == "enabled=false" ]]; then
             echo "Skipping release-please on unconfigured branch $TARGET_BRANCH."
@@ -105,15 +111,15 @@ jobs:
         id: release-candidates
         if: steps.release-line.outputs.enabled == 'true'
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           TARGET_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
           DEVELOPMENT_MILESTONE: ${{ steps.release-line.outputs.development_milestone }}
           MAINTENANCE_MILESTONE: ${{ steps.release-line.outputs.maintenance_milestone }}
+          RELEASE_MILESTONE: ${{ steps.release-line.outputs.release_milestone }}
           CANDIDATE_BASE_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$TARGET_BRANCH" == "${{ steps.release-line.outputs.maintenance_branch }}" ]]; then RELEASE_MILESTONE="$MAINTENANCE_MILESTONE"; else RELEASE_MILESTONE="$DEVELOPMENT_MILESTONE"; fi
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git fetch --tags --force origin
           latest_tag="$(git tag --merged "origin/$TARGET_BRANCH" --list 'v*' --sort=-version:refname | head -n 1)"
@@ -127,86 +133,53 @@ jobs:
             any(.[]; (.milestone.title? == $milestone) and (.mergedAt != null) and ((.mergedAt | fromdateiso8601) > $latest_tag_epoch) and (([.labels[].name] | index("autorelease: pending")) == null))
           ' <<< "$prs")"
           echo "has_candidates=$has_candidates" >> "$GITHUB_OUTPUT"
-      - uses: googleapis/release-please-action@v5
-        if: steps.release-line.outputs.enabled == 'true' && steps.release-candidates.outputs.has_candidates == 'true'
-        id: release
+      - uses: ./.github/actions/setup-uv
+        if: steps.release-line.outputs.enabled == 'true'
         with:
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          config-file: ${{ steps.release-line.outputs.config_file }}
-          manifest-file: ${{ steps.release-line.outputs.manifest_file }}
-          target-branch: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
-          # O Release Please deve manter `autorelease: pending`: a validaÃƒÂ§ÃƒÂ£o
-          # do branch confiÃƒÂ¡vel e a exceÃƒÂ§ÃƒÂ£o de milestone dependem desse label.
+          python-version: "3.13"
+          all-extras: "false"
+          working-directory: vectora
 
-      - name: Rename generated Release Please branch by version
-        if: steps.release-line.outputs.enabled == 'true' && steps.release-candidates.outputs.has_candidates == 'true'
+      - name: Find canonical release branch PR
+        if: steps.release-line.outputs.enabled == 'true'
+        id: canonical-release
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           TARGET_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
-          DEVELOPMENT_MILESTONE: ${{ steps.release-line.outputs.development_milestone }}
-          MAINTENANCE_MILESTONE: ${{ steps.release-line.outputs.maintenance_milestone }}
           RELEASE_TARGET_BRANCH: ${{ steps.release-line.outputs.release_target_branch }}
+          RELEASE_MILESTONE: ${{ steps.release-line.outputs.release_milestone }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$TARGET_BRANCH" == "${{ steps.release-line.outputs.maintenance_branch }}" ]]; then RELEASE_MILESTONE="$MAINTENANCE_MILESTONE"; else RELEASE_MILESTONE="$DEVELOPMENT_MILESTONE"; fi
-          prs="$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --limit 100 --json number,headRefName,title,body,labels,baseRefName)"
-          source="$(jq -r 'map(select((.headRefName | test("^release-please--branches--")) and ([.labels[].name] | index("autorelease: pending")))) | sort_by(.number) | last | .headRefName // empty' <<< "$prs")"
-          if [[ -z "$source" ]]; then
-            echo "No legacy Release Please branch needs renaming."
-            exit 0
-          fi
-          pr="$(jq -c --arg source "$source" 'map(select(.headRefName == $source)) | first' <<< "$prs")"
-          version="$(jq -r 'try (.title | capture("release (?<version>[0-9]+\\.[0-9]+\\.[0-9]+)").version) catch ""' <<< "$pr")"
-          if [[ -z "$version" ]]; then
-            echo "::error::NÃƒÂ£o foi possÃƒÂ­vel obter a versÃƒÂ£o da PR automÃƒÂ¡tica." >&2
-            exit 1
-          fi
-          IFS=. read -r major minor patch <<< "$version"
-          if [[ "$patch" == "0" ]]; then target="release-please-${major}.${minor}"; else target="release-please-${version}"; fi
-          if [[ "$source" == "$target" ]]; then
-            gh pr edit "$(jq -r .number <<< "$pr")" --repo "$GITHUB_REPOSITORY" --base "$RELEASE_TARGET_BRANCH"
-            exit 0
-          fi
-          existing="$(gh pr list --repo "$GITHUB_REPOSITORY" --base "$RELEASE_TARGET_BRANCH" --head "$target" --state open --json number --jq '.[0].number // empty')"
-          if [[ -z "$existing" ]]; then
-            git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-            git fetch origin "$source"
-            git push origin "origin/$source:refs/heads/$target"
-            body_file="$RUNNER_TEMP/release-please-body.md"
-            jq -r '.body // ""' <<< "$pr" > "$body_file"
-            new_pr="$(gh pr create --repo "$GITHUB_REPOSITORY" --base "$RELEASE_TARGET_BRANCH" --head "$target" --title "$(jq -r .title <<< "$pr")" --body-file "$body_file")"
-            gh pr edit "$new_pr" --repo "$GITHUB_REPOSITORY" --add-label "autorelease: pending" --milestone "$RELEASE_MILESTONE"
-          fi
-          old_number="$(jq -r .number <<< "$pr")"
-          gh pr close "$old_number" --repo "$GITHUB_REPOSITORY" --comment "SubstituÃƒÂ­da pela branch versionada $target."
-          git push origin --delete "$source"
+          prs="$(gh pr list --repo "$GITHUB_REPOSITORY" --base "$RELEASE_TARGET_BRANCH" --head "$TARGET_BRANCH" --state open --limit 20 --json number,headRefName,headRefOid,headRepository,title,body,labels,baseRefName)"
+          selected="$(uv run --project vectora python utils/select_release_pr.py \
+            --repository "$GITHUB_REPOSITORY" --source "$TARGET_BRANCH" \
+            --target "$RELEASE_TARGET_BRANCH" --milestone "$RELEASE_MILESTONE" \
+            <<< "$prs")"
+          echo "number=$(jq -r '.number // empty' <<< "$selected")" >> "$GITHUB_OUTPUT"
 
-      # Somente o branch exato gerado para este alvo pode receber o token de
-      # publicaÃƒÂ§ÃƒÂ£o. As validaÃƒÂ§ÃƒÂµes evitam branches parecidos de colaboradores.
-      - name: Find Release Please branch
-        if: steps.release-line.outputs.enabled == 'true'
+      # Somente a branch canônica da linha pode receber o token de publicação.
+      - name: Find canonical release branch
+        if: steps.release-line.outputs.enabled == 'true' && steps.release-candidates.outputs.has_candidates == 'true'
         id: release-branch
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           TARGET_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
           RELEASE_TARGET_BRANCH: ${{ steps.release-line.outputs.release_target_branch }}
           REPOSITORY: ${{ github.repository }}
+          RELEASE_MILESTONE: ${{ steps.release-line.outputs.release_milestone }}
         shell: bash
         run: |
+          set -euo pipefail
           prs="$(gh pr list \
             --repo "$GITHUB_REPOSITORY" \
             --state open \
             --limit 100 \
-            --json number,headRefName,headRepository,labels,title,baseRefName)"
-          pr="$(jq -c --arg repository "$REPOSITORY" --arg target "$RELEASE_TARGET_BRANCH" \
-            'map(select(
-              (
-                (.headRefName | test("^release-please-[0-9]+\\.[0-9]+(?:\\.[1-9][0-9]*)?$"))
-              ) and .baseRefName == $target and
-              .headRepository.nameWithOwner == $repository and
-              ([.labels[].name] | index("autorelease: pending"))
-            )) | sort_by(.number) | last // {}' <<<"$prs")"
+            --json number,headRefName,headRefOid,headRepository,labels,title,baseRefName)"
+          pr="$(uv run --project vectora python utils/select_release_pr.py \
+            --repository "$REPOSITORY" --source "$TARGET_BRANCH" \
+            --target "$RELEASE_TARGET_BRANCH" --milestone "$RELEASE_MILESTONE" \
+            <<< "$prs")"
           branch="$(jq -r '.headRefName // empty' <<<"$pr")"
           number="$(jq -r '.number // empty' <<<"$pr")"
           if [[ -z "$branch" ]]; then
@@ -249,7 +222,7 @@ jobs:
       - name: Prepare current release section for PR body
         if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.release-branch.outputs.number }}
         shell: bash
         run: |
@@ -259,36 +232,11 @@ jobs:
           gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
             --body-file "$RUNNER_TEMP/release-pr-body.md"
 
-      # Release Please can persist an oversized generated body in a secondary
-      # `--release-notes` branch. The versioned release PR is the source of
-      # truth, so remove that implementation detail after its body is prepared.
-      - name: Remove generated release-notes branch
-        if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          TARGET_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          encoded_target="${TARGET_BRANCH//\//%2F}"
-          release_prefix="release-please"
-          branch_segment="--branches--"
-          component_segment="--components--vectora--release-notes"
-          prefix="${release_prefix}${branch_segment}${encoded_target}${component_segment}"
-          refs="$(gh api --paginate \
-            "/repos/$GITHUB_REPOSITORY/git/matching-refs/heads/$prefix" \
-            --jq '.[].ref' || true)"
-          while IFS= read -r ref; do
-            [[ -z "$ref" ]] && continue
-            echo "Removing obsolete Release Please notes ref $ref"
-            gh api --method DELETE "/repos/$GITHUB_REPOSITORY/git/refs/${ref#refs/}"
-          done <<< "$refs"
-
       - name: Commit normalized changelog
         if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
         env:
           RELEASE_BRANCH: ${{ steps.release-branch.outputs.branch }}
-          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           if git diff --quiet -- vectora/CHANGELOG.md .github/release-lines.json .release-please-manifest.maintenance.json; then
@@ -299,5 +247,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add vectora/CHANGELOG.md .github/release-lines.json .release-please-manifest.maintenance.json
           git commit -m "chore: align release lines for generated release"
-          git remote set-url origin "https://x-access-token:${RELEASE_PLEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push origin "HEAD:$RELEASE_BRANCH"

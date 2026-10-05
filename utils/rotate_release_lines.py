@@ -134,6 +134,7 @@ def rotation_for_release(
     already_rotated = (
         configured == f"{major}.{next_minor}"
         and config.development.branch == next_development
+        and config.maintenance.milestone == f"{expected}.x"
     )
     if configured != expected and not already_rotated:
         return None
@@ -146,8 +147,8 @@ def rotation_for_release(
         "development_milestone": f"{major}.{next_minor}",
         "previous_maintenance_branch": config.maintenance.branch,
         "previous_maintenance_milestone": config.maintenance.milestone,
-        "previous_development_branch": config.development.branch,
-        "previous_development_milestone": config.development.milestone,
+        "previous_development_branch": f"release/{expected}",
+        "previous_development_milestone": expected,
     }
 
 
@@ -178,10 +179,13 @@ def write_rotated_config(path: Path, config: ReleaseLines, rotation: Rotation) -
 
 
 def _event_values(event_path: Path) -> tuple[str, str | None]:
+    """Valida o envelope antes de acessar os metadados da release."""
     event = json.loads(event_path.read_text(encoding="utf-8"))
+    if not isinstance(event, dict):
+        raise ValueError("release event must be an object")  # noqa: TRY004
     release = event.get("release")
     if not isinstance(release, dict):
-        raise TypeError("release event is missing release metadata")
+        raise ValueError("release event is missing release metadata")  # noqa: TRY004
     tag = release.get("tag_name")
     target = release.get("target_commitish")
     if not isinstance(tag, str) or not tag:
