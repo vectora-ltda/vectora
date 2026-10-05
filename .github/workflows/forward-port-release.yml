@@ -1,8 +1,8 @@
-name: Sync release fixes to master
+name: Sync stable fixes to active minor
 
-# Mantém a linha de manutenção isolada da linha de desenvolvimento e promove
-# diretamente as correções para a linha configurada de desenvolvimento. O
-# sentido é intencionalmente unidirecional.
+# Mantém a linha de desenvolvimento atualizada com a linha estável. O sentido
+# é intencionalmente unidirecional: correções entram primeiro em master e são
+# então sincronizadas para release/x.y.
 on:
   push:
     branches:
@@ -18,11 +18,11 @@ permissions:
   pull-requests: write
 
 jobs:
-  sync-master:
-    name: Promote maintenance fixes
+  sync-development:
+    name: Synchronize active minor
     runs-on: ubuntu-24.04
     steps:
-      - name: Merge maintenance fixes into master
+      - name: Merge stable fixes into active minor
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.repository.default_branch }}
@@ -59,39 +59,38 @@ jobs:
             echo "maintenance_branch=$maintenance_branch"
             echo "development_milestone=$development_milestone"
           } >> "$GITHUB_OUTPUT"
-      - name: Apply release branch to master
+      - name: Synchronize master into active minor
         if: steps.release-lines.outputs.enabled == 'true' && github.ref_name == steps.release-lines.outputs.maintenance_branch
         env:
-          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          MAINTENANCE_BRANCH: ${{ steps.release-lines.outputs.maintenance_branch }}
+          GH_TOKEN: ${{ github.token }}
+          STABLE_BRANCH: ${{ steps.release-lines.outputs.maintenance_branch }}
           DEVELOPMENT_BRANCH: ${{ steps.release-lines.outputs.development_branch }}
           DEVELOPMENT_MILESTONE: ${{ steps.release-lines.outputs.development_milestone }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "$RELEASE_PLEASE_TOKEN" ]]; then
-            echo "::error::RELEASE_PLEASE_TOKEN is required to trigger downstream workflows." >&2
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "::error::GH_TOKEN is required to trigger downstream workflows." >&2
             exit 1
           fi
-          git remote set-url origin "https://x-access-token:${RELEASE_PLEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           for attempt in 1 2 3; do
-            git fetch origin "$DEVELOPMENT_BRANCH" "$MAINTENANCE_BRANCH"
+            git fetch origin "$DEVELOPMENT_BRANCH" "$STABLE_BRANCH"
             git switch --force-create sync-release-promotion "origin/$DEVELOPMENT_BRANCH"
             base_sha="$(git rev-parse "origin/$DEVELOPMENT_BRANCH")"
 
-            if git merge-base --is-ancestor "origin/$MAINTENANCE_BRANCH" HEAD; then
-              echo "$DEVELOPMENT_BRANCH already contains $MAINTENANCE_BRANCH."
+            if git merge-base --is-ancestor "origin/$STABLE_BRANCH" HEAD; then
+              echo "$DEVELOPMENT_BRANCH already contains $STABLE_BRANCH."
               exit 0
             fi
 
-            if ! git merge --no-edit "origin/$MAINTENANCE_BRANCH"; then
+            if ! git merge --no-edit "origin/$STABLE_BRANCH"; then
               git merge --abort || true
-              conflict_branch="sync/release-promotion-${MAINTENANCE_BRANCH//\//-}-to-${DEVELOPMENT_BRANCH//\//-}"
+              conflict_branch="sync/release-promotion-${STABLE_BRANCH//\//-}-to-${DEVELOPMENT_BRANCH//\//-}"
               if [[ -z "$GH_TOKEN" ]]; then
-                  echo "::error::RELEASE_PLEASE_TOKEN é necessário para abrir uma PR de resolução de conflitos." >&2
+                  echo "::error::GH_TOKEN é necessário para abrir uma PR de resolução de conflitos." >&2
                 exit 1
               fi
               existing_pr="$(gh pr list \
@@ -105,7 +104,7 @@ jobs:
                 echo "Conflict-resolution PR #$existing_pr is already open; preserving resolver commits."
               else
                 remote_conflict_sha="$(git ls-remote --heads origin "$conflict_branch" | awk '{print $1}')"
-                git switch --force-create "$conflict_branch" "origin/$MAINTENANCE_BRANCH"
+                git switch --force-create "$conflict_branch" "origin/$STABLE_BRANCH"
                 if [[ -n "$remote_conflict_sha" ]]; then
                   git push --force-with-lease="refs/heads/$conflict_branch:$remote_conflict_sha" origin "HEAD:$conflict_branch"
                 else
@@ -116,10 +115,10 @@ jobs:
                   --base "$DEVELOPMENT_BRANCH" \
                   --head "$conflict_branch" \
                   --title "chore: resolve release promotion conflicts" \
-                  --body "The automatic promotion from the maintenance line to the development line found merge conflicts. Resolve them in this PR, then merge it to forward the maintenance fixes." \
+                  --body "The automatic promotion from the stable line to the active minor line found merge conflicts. Resolve them in this PR, then merge it to forward the maintenance fixes." \
                   --label "chore"
               fi
-              echo "$MAINTENANCE_BRANCH cannot be merged into $DEVELOPMENT_BRANCH without conflicts; opened a resolution PR."
+              echo " $STABLE_BRANCH cannot be merged into $DEVELOPMENT_BRANCH without conflicts; opened a resolution PR."
               exit 1
             fi
 
