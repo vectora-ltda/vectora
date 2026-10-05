@@ -43,12 +43,19 @@ def update_release_line_files(
         return False
 
     next_minor = int(match.group("minor")) + 1
+    next_development = f"release/{match.group('major')}.{next_minor}"
     config = ReleaseLines(
         development=config.development.model_copy(
-            update={"milestone": f"{match.group('major')}.{next_minor}"}
+            update={
+                "branch": next_development,
+                "milestone": f"{match.group('major')}.{next_minor}",
+            }
         ),
         maintenance=config.maintenance.model_copy(
-            update={"branch": f"release/{expected}", "milestone": f"{expected}.x"}
+            update={
+                "branch": "master",
+                "milestone": f"{match.group('major')}.{match.group('minor')}.x",
+            }
         ),
     )
     lines_path.write_text(
