@@ -62,19 +62,18 @@ jobs:
       - name: Synchronize master into active minor
         if: steps.release-lines.outputs.enabled == 'true' && github.ref_name == steps.release-lines.outputs.maintenance_branch
         env:
-          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           STABLE_BRANCH: ${{ steps.release-lines.outputs.maintenance_branch }}
           DEVELOPMENT_BRANCH: ${{ steps.release-lines.outputs.development_branch }}
           DEVELOPMENT_MILESTONE: ${{ steps.release-lines.outputs.development_milestone }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "$RELEASE_PLEASE_TOKEN" ]]; then
-            echo "::error::RELEASE_PLEASE_TOKEN is required to trigger downstream workflows." >&2
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "::error::GH_TOKEN is required to trigger downstream workflows." >&2
             exit 1
           fi
-          git remote set-url origin "https://x-access-token:${RELEASE_PLEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           for attempt in 1 2 3; do
@@ -91,7 +90,7 @@ jobs:
               git merge --abort || true
               conflict_branch="sync/release-promotion-${STABLE_BRANCH//\//-}-to-${DEVELOPMENT_BRANCH//\//-}"
               if [[ -z "$GH_TOKEN" ]]; then
-                  echo "::error::RELEASE_PLEASE_TOKEN é necessário para abrir uma PR de resolução de conflitos." >&2
+                  echo "::error::GH_TOKEN é necessário para abrir uma PR de resolução de conflitos." >&2
                 exit 1
               fi
               existing_pr="$(gh pr list \

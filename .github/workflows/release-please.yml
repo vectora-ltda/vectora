@@ -111,7 +111,7 @@ jobs:
         id: release-candidates
         if: steps.release-line.outputs.enabled == 'true'
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           TARGET_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
           DEVELOPMENT_MILESTONE: ${{ steps.release-line.outputs.development_milestone }}
           MAINTENANCE_MILESTONE: ${{ steps.release-line.outputs.maintenance_milestone }}
@@ -137,7 +137,7 @@ jobs:
         if: steps.release-line.outputs.enabled == 'true' && steps.release-candidates.outputs.has_candidates == 'true'
         id: release
         with:
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          token: ${{ github.token }}
           config-file: ${{ steps.release-line.outputs.config_file }}
           manifest-file: ${{ steps.release-line.outputs.manifest_file }}
           target-branch: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
@@ -155,7 +155,7 @@ jobs:
       - name: Rename generated Release Please branch by version
         if: steps.release-line.outputs.enabled == 'true' && steps.release-candidates.outputs.has_candidates == 'true'
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           TARGET_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
           DEVELOPMENT_MILESTONE: ${{ steps.release-line.outputs.development_milestone }}
           MAINTENANCE_MILESTONE: ${{ steps.release-line.outputs.maintenance_milestone }}
@@ -222,7 +222,7 @@ jobs:
         if: steps.release-line.outputs.enabled == 'true'
         id: release-branch
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           TARGET_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
           RELEASE_TARGET_BRANCH: ${{ steps.release-line.outputs.release_target_branch }}
           REPOSITORY: ${{ github.repository }}
@@ -281,7 +281,7 @@ jobs:
       - name: Prepare current release section for PR body
         if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.release-branch.outputs.number }}
         shell: bash
         run: |
@@ -297,7 +297,7 @@ jobs:
       - name: Remove generated release-notes branch
         if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           TARGET_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
         shell: bash
         run: |
@@ -320,7 +320,7 @@ jobs:
         if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
         env:
           RELEASE_BRANCH: ${{ steps.release-branch.outputs.branch }}
-          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           if git diff --quiet -- vectora/CHANGELOG.md .github/release-lines.json .release-please-manifest.maintenance.json; then
@@ -331,5 +331,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add vectora/CHANGELOG.md .github/release-lines.json .release-please-manifest.maintenance.json
           git commit -m "chore: align release lines for generated release"
-          git remote set-url origin "https://x-access-token:${RELEASE_PLEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push origin "HEAD:$RELEASE_BRANCH"
