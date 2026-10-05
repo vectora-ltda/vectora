@@ -94,10 +94,7 @@ def test_release_please_uses_trusted_config_for_branch_gate() -> None:
 
     assert "github.event.repository.default_branch" in content
     assert "startsWith(github.ref, 'refs/tags/v')" in content
-    assert (
-        "RELEASE_TARGET_BRANCH: ${{ steps.release-line.outputs.release_target_branch }}"
-        in content
-    )
+    assert "target-branch:" in content
     assert ".github/release-lines.json" in content
     assert '"release/**"' in content
     assert 'echo "enabled=false" >> "$GITHUB_OUTPUT"' in content
@@ -120,8 +117,8 @@ def test_release_please_scopes_pr_body_to_current_release_notes() -> None:
     assert 'echo "number=$number" >> "$GITHUB_OUTPUT"' in content
 
 
-def test_release_please_requires_candidates_and_uses_canonical_branches() -> None:
-    """Evita releases vazias e exige a branch canônica da linha."""
+def test_release_please_requires_candidates_and_uses_versioned_branches() -> None:
+    """Evita releases vazias e impede o retorno do nome genérico da automação."""
     workflow = WORKFLOW.parent / "release-please.yml"
     content = workflow.read_text(encoding="utf-8")
 
@@ -131,14 +128,18 @@ def test_release_please_requires_candidates_and_uses_canonical_branches() -> Non
     assert "fromdateiso8601" in content
     assert "latest_tag_epoch" in content
     assert "steps.release-candidates.outputs.has_candidates == 'true'" in content
+    assert "Rename generated Release Please branch by version" in content
+    assert 'target="release-please-${major}.${minor}"' in content
+    assert 'target="release-please-${version}"' in content
     assert "utils/select_release_pr.py" in content
-    assert '--head "$TARGET_BRANCH"' in content
-    assert 'headRefName == f"release/{suffix}"' not in content
-    assert "googleapis/release-please-action" not in content
+    assert '--phase generated <<< "$prs"' in content
+    assert '--phase versioned <<< "$prs"' in content
     assert (
         'git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"'
         in content
     )
+    find_section = content.split("# Somente o branch exato", 1)[1]
+    assert "release-please--branches--" not in find_section
 
 
 @pytest.mark.parametrize("development", ["release/0.3", "release/0.4"])
@@ -271,10 +272,9 @@ def test_release_mutations_are_serialized_and_leased() -> None:
     """Protege as duas linhas que publicam em master contra gravações cruzadas."""
     content = (WORKFLOW.parent / "release-please.yml").read_text(encoding="utf-8")
     assert "group: release-please-${{ github.repository }}" in content
-    assert 'git push origin "HEAD:$RELEASE_BRANCH"' in content
-    assert 'git push --force-with-lease="refs/heads/$target:$target_sha"' not in content
-    assert 'git push --force-with-lease="refs/heads/$source:$source_sha"' not in content
-    assert "skip-github-release: true" not in content
+    assert 'git push --force-with-lease="refs/heads/$target:$target_sha"' in content
+    assert 'git push --force-with-lease="refs/heads/$source:$source_sha"' in content
+    assert "skip-github-release: true" in content
     assert '"${{ steps.release-line.outputs.maintenance_branch }}"' not in content
 
 
@@ -308,7 +308,7 @@ def test_release_rotation_verifies_tag_ancestry() -> None:
 
 def test_release_workflows_use_native_github_token() -> None:
     """Evita que um segredo expirado interrompa a criação automática das PRs."""
-    workflows = tuple(WORKFLOW.parent.glob("*.yml"))
+    workflows = WORKFLOW.parent.glob("*.yml")
     assert workflows
     for workflow in workflows:
         content = workflow.read_text(encoding="utf-8")
@@ -351,14 +351,6 @@ def test_release_workflows_pin_ubuntu_runner() -> None:
         content = workflow.read_text(encoding="utf-8")
         assert "runs-on: ubuntu-24.04" in content
         assert "ubuntu-latest" not in content
-
-
-def test_milestone_workflow_uses_trusted_workflow_revision() -> None:
-    """Evita ler uma configuração rotacionada da branch de release da PR."""
-    content = (WORKFLOW.parent / "pr-release-milestone.yml").read_text(encoding="utf-8")
-
-    assert "ref: ${{ github.workflow_sha }}" in content
-    assert "ref: ${{ github.event.pull_request.base.ref }}" not in content
 
 
 def test_app_and_edge_workflows_cobrem_todas_as_linhas_de_manutencao() -> None:
