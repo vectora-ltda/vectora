@@ -1,5 +1,28 @@
 # Changelog
 
+As notas abaixo documentam a versão 0.3.0 e preservam o histórico anterior do projeto.
+
+## [0.3.0](https://github.com/vectora-ltda/vectora/compare/v0.2.1...v0.3.0) (2026-10-05)
+
+Esta seção reúne as alterações da linha 0.3 identificadas por milestone e já integradas à base de release.
+
+### Alterações aprovadas e integradas
+
+- Corrige a política de bases empilhadas e permite validação controlada de PRs sobre branches `stack/*` ([#315](https://github.com/vectora-ltda/vectora/pull/315)).
+- Promove e sincroniza a linha de manutenção `release/0.2` com a base estável ([#306](https://github.com/vectora-ltda/vectora/pull/306), [#297](https://github.com/vectora-ltda/vectora/pull/297), [#296](https://github.com/vectora-ltda/vectora/pull/296)).
+- Estabiliza a seleção de branches versionadas do Release Please e evita releases vazias ([#299](https://github.com/vectora-ltda/vectora/pull/299)).
+- Remove objetos de release não rastreados do armazenamento R2 ([#294](https://github.com/vectora-ltda/vectora/pull/294)).
+- Corrige a leitura da versão de release a partir da raiz do repositório ([#292](https://github.com/vectora-ltda/vectora/pull/292)).
+- Publica a versão 0.2.0 como marco anterior da linha de release ([#283](https://github.com/vectora-ltda/vectora/pull/283)).
+
+As PRs abertas com aprovação registrada na milestone 0.3 permanecem candidatas à integração posterior e não são declaradas como código já publicado nesta versão.
+
+- Instalador desktop completo para a matriz de plataformas ([#295](https://github.com/vectora-ltda/vectora/pull/295), aprovada e ainda aberta).
+
+### Features
+
+A implementação detalhada permanece registrada nas seções históricas abaixo.
+
 Este changelog registra as capacidades identificadas na implementação atual do Vectora. O conteúdo é um ponto de partida histórico anterior à versão 0.2.0 e não atribui cada recurso a uma versão específica.
 
 ## Capacidades anteriores à 0.2.0
