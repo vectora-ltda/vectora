@@ -61,7 +61,7 @@ def test_forward_port_workflow_opens_isolated_conflict_pr() -> None:
     assert 'git push origin "HEAD:$conflict_branch"' in content
     assert '--head "$conflict_branch"' in content
     assert '--milestone "$DEVELOPMENT_MILESTONE"' not in content
-    assert "RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}" in content
+    assert "GH_TOKEN: ${{ github.token }}" in content
 
 
 def test_pr_milestone_workflow_assigns_milestone_from_base() -> None:
@@ -99,7 +99,7 @@ def test_release_please_uses_trusted_config_for_branch_gate() -> None:
     assert '"release/**"' in content
     assert 'echo "enabled=false" >> "$GITHUB_OUTPUT"' in content
     assert "enabled=false" in content
-    assert "RELEASE_PLEASE_TOKEN" in content
+    assert "secrets.RELEASE_PLEASE_TOKEN" not in content
     assert "config_file" in content
     assert "manifest_file" in content
     assert "map(select(\\" not in content
@@ -288,8 +288,8 @@ def test_release_rotation_workflow_declares_release_entrypoint() -> None:
     assert "utils/rotate_release_lines.py" in content
     assert "github.rest.git.createRef" in content
     assert "issues.createMilestone" in content
-    assert "RELEASE_PLEASE_TOKEN" in content
-    assert "github-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}" in content
+    assert "secrets.RELEASE_PLEASE_TOKEN" not in content
+    assert "github-token: ${{ github.token }}" in content
     assert "compareCommits" in content
     assert "gh pr create" not in content
 
@@ -304,6 +304,15 @@ def test_release_rotation_verifies_tag_ancestry() -> None:
     assert "base: releaseSha" in content
     assert "head: developmentRef.data.object.sha" in content
     assert '"ahead", "identical"' in content
+
+
+def test_release_workflows_use_native_github_token() -> None:
+    """Evita que um segredo expirado interrompa a criação automática das PRs."""
+    workflows = WORKFLOW.parent.glob("*.yml")
+    assert workflows
+    for workflow in workflows:
+        content = workflow.read_text(encoding="utf-8")
+        assert "secrets.RELEASE_PLEASE_TOKEN" not in content, workflow
 
 
 def test_release_workflows_pin_github_script_to_node_24() -> None:
