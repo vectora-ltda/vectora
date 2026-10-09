@@ -38,7 +38,7 @@ import { autoUpdater } from "electron-updater";
 import * as http from "http";
 import * as os from "os";
 import * as path from "path";
-import { randomUUID } from "crypto";
+import { randomInt, randomUUID } from "crypto";
 import { Readable } from "stream";
 // tree-kill ships its own types — no @types/tree-kill needed.
 import treeKill = require("tree-kill");
@@ -76,8 +76,12 @@ import {
 import { startUpdateDownload as startUpdateDownloadAfterBackup } from "./updater-download.js";
 
 // O backend conecta ao mesmo Chromium do Electron via CDP. O endpoint fica
-// restrito ao loopback e é herdado pelo processo backend supervisionado.
-const electronCdpPort = process.env.VECTORA_ELECTRON_CDP_PORT ?? "9223";
+// restrito ao loopback e é herdado pelo processo backend supervisionado. Em
+// produção o processo usa uma porta efêmera para evitar que outro processo
+// local consiga assumir o CDP apenas conhecendo uma porta fixa; o backend
+// recebe o valor pelo ambiente junto com o token da ponte desktop.
+const electronCdpPort =
+  process.env.VECTORA_ELECTRON_CDP_PORT ?? String(randomInt(10000, 60000));
 process.env.VECTORA_ELECTRON_CDP_PORT = electronCdpPort;
 app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
 app.commandLine.appendSwitch("remote-debugging-port", electronCdpPort);
