@@ -15,8 +15,8 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-_READINESS_ATTEMPTS = 240
 _READINESS_INTERVAL_SECONDS = 0.5
+_READINESS_TIMEOUT_SECONDS = 120.0
 _process: asyncio.subprocess.Process | None = None
 _lifecycle_lock = asyncio.Lock()
 _process_spec: tuple[str, str, str, int] | None = None
@@ -244,7 +244,15 @@ async def start_llamacpp(
         try:
             async with httpx.AsyncClient(timeout=1.0) as client:
                 health_ready = False
-                for _ in range(_READINESS_ATTEMPTS):
+                deadline = time.monotonic() + float(
+                    os.getenv(
+                        "VECTORA_LLAMACPP_READINESS_TIMEOUT_S",
+                        str(_READINESS_TIMEOUT_SECONDS),
+                    )
+                )
+                while time.monotonic() < deadline:
+                    if _process is None or _process.returncode is not None:
+                        break
                     try:
                         if not health_ready:
                             health = await client.get(_health_url(host, port))
@@ -260,7 +268,9 @@ async def start_llamacpp(
                                 return _process
                     except httpx.HTTPError:
                         pass
-                    await asyncio.sleep(_READINESS_INTERVAL_SECONDS)
+                    remaining = deadline - time.monotonic()
+                    if remaining > 0:
+                        await asyncio.sleep(min(_READINESS_INTERVAL_SECONDS, remaining))
         except BaseException:
             await _stop_process()
             raise

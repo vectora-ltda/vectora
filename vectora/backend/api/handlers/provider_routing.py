@@ -1758,7 +1758,10 @@ async def list_llamacpp_releases() -> dict[str, list[dict[str, object]]]:
             os_tokens
             and any(token in lowered for token in os_tokens)
             and any(token in lowered for token in arch_tokens)
-            and not any(token in lowered for token in ("cuda", "vulkan", "rocm"))
+            and not any(
+                token in lowered
+                for token in ("cuda", "vulkan", "rocm", "hip", "sycl", "opencl")
+            )
         )
         return {
             "name": name,
