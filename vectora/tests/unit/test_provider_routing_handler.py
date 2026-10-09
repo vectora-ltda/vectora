@@ -359,6 +359,7 @@ class TestLlamaCppAndHuggingFace:
             response = client.get("/provider-routing/huggingface/models/org/model-GGUF")
 
         assert response.status_code == 200
+        assert response.json()["publisher"] == "org"
         assert response.json()["architecture"] == "transformers"
         assert response.json()["quantization"] == "q4_k_m"
         assert response.json()["context_length"] == 8192

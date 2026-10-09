@@ -1324,6 +1324,7 @@ async def search_huggingface_models(
         "models": [
             {
                 "id": str(item.get("id", "")),
+                "publisher": str(item.get("id", "")).split("/", 1)[0],
                 "pipeline_tag": str(item.get("pipeline_tag", "")),
                 "provider": provider,
                 "downloads": str(item.get("downloads", 0)),
@@ -1467,6 +1468,7 @@ async def get_huggingface_model_metadata(repo_id: str) -> dict[str, object]:
     ]
     return {
         "id": data.get("id", repo_id),
+        "publisher": str(data.get("id", repo_id)).split("/", 1)[0],
         "revision": str(data.get("sha") or "main"),
         "license": (data.get("cardData") or {}).get("license"),
         "downloads": data.get("downloads", 0),

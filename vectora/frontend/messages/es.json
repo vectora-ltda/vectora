@@ -1006,6 +1006,7 @@
   "provider_routing_hf_mmproj_none": "Sin archivo mmproj",
   "provider_routing_hf_model_file": "Archivo GGUF principal",
   "provider_routing_hf_model_metadata": "{format} · {architecture} · {quantization} · contexto {context} · {compatibility}",
+  "provider_routing_hf_origin": "Origen: Hugging Face · publicador {publisher}",
   "provider_routing_hf_parallel": "Secuencias paralelas",
   "provider_routing_hf_query_placeholder": "Buscar modelo",
   "provider_routing_hf_review": "Licencia: {license} · Descargas: {downloads}",

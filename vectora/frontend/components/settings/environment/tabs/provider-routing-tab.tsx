@@ -61,6 +61,7 @@ interface NineRouterModelInfo {
 
 interface LlamaCppModelInfo {
   id: string;
+  publisher?: string;
   name: string;
   format?: string;
   compatibility?: string;
@@ -78,6 +79,7 @@ interface HuggingFaceFileInfo {
 
 interface HuggingFaceMetadata {
   id: string;
+  publisher?: string;
   revision?: string;
   license?: string | null;
   downloads?: number;
@@ -693,6 +695,11 @@ function HuggingFaceCatalogSection() {
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">{model.id}</p>
                 <p className="text-xs text-muted-foreground">
+                  {m.provider_routing_hf_origin({
+                    publisher: model.publisher || model.id.split("/")[0] || "?",
+                  })}
+                </p>
+                <p className="text-xs text-muted-foreground">
                   {m.provider_routing_hf_model_metadata({
                     format: model.format || "GGUF",
                     compatibility:
@@ -727,6 +734,12 @@ function HuggingFaceCatalogSection() {
         <div className="space-y-3 rounded-lg border bg-muted/20 p-4 text-sm">
           <div>
             <p className="font-medium">{metadata.id}</p>
+            <p className="text-xs text-muted-foreground">
+              {m.provider_routing_hf_origin({
+                publisher:
+                  metadata.publisher || metadata.id.split("/")[0] || "?",
+              })}
+            </p>
             <p className="text-xs text-muted-foreground">
               {m.provider_routing_hf_review({
                 license: metadata.license ?? "desconhecida",
