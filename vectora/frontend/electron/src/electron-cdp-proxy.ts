@@ -44,8 +44,41 @@ export async function startElectronCdpProxy(
         headers: withoutAuth(incoming.headers),
       },
       (response) => {
-        outgoing.writeHead(response.statusCode ?? 502, response.headers);
-        response.pipe(outgoing);
+        const discovery =
+          incoming.url === "/json/version" || incoming.url === "/json/list";
+        if (!discovery) {
+          outgoing.writeHead(response.statusCode ?? 502, response.headers);
+          response.pipe(outgoing);
+          return;
+        }
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer) => chunks.push(chunk));
+        response.on("end", () => {
+          try {
+            const payload = JSON.parse(
+              Buffer.concat(chunks).toString("utf8"),
+            ) as Record<string, unknown> | Array<Record<string, unknown>>;
+            const rewrite = (entry: Record<string, unknown>): void => {
+              if (typeof entry.webSocketDebuggerUrl === "string") {
+                entry.webSocketDebuggerUrl = entry.webSocketDebuggerUrl.replace(
+                  `127.0.0.1:${targetPort}`,
+                  `127.0.0.1:${listenPort}`,
+                );
+              }
+            };
+            if (Array.isArray(payload)) payload.forEach(rewrite);
+            else rewrite(payload);
+            const body = Buffer.from(JSON.stringify(payload));
+            outgoing.writeHead(response.statusCode ?? 200, {
+              "content-type": "application/json",
+              "content-length": body.length,
+            });
+            outgoing.end(body);
+          } catch {
+            outgoing.writeHead(502);
+            outgoing.end();
+          }
+        });
       },
     );
     upstream.on("error", () => {

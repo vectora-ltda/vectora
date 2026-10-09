@@ -10,7 +10,9 @@ _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 def electron_cdp_endpoint() -> str:
     """Resolve e valida o endpoint CDP local, incluindo porta e IPv6."""
-    endpoint = os.environ.get("VECTORA_ELECTRON_CDP_URL", "").strip()
+    endpoint = ""
+    if not os.environ.get("VECTORA_ELECTRON_CDP_AUTH_TOKEN", "").strip():
+        endpoint = os.environ.get("VECTORA_ELECTRON_CDP_URL", "").strip()
     if not endpoint:
         port = os.environ.get(
             "VECTORA_ELECTRON_CDP_PROXY_PORT",
