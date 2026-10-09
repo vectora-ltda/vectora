@@ -53,6 +53,9 @@ describe("Electron DMR operation lifecycle", () => {
     const initial = await operations.prepare("hf.co/Qwen/Qwen3-0.6B");
     expect(["queued", "running"]).toContain(initial.status);
     expect(operations.getOperation(initial.id)?.status).not.toBe("completed");
+    expect(operations.listOperations()).toEqual([
+      expect.objectContaining({ id: initial.id, status: initial.status }),
+    ]);
 
     resolvePull?.();
     await waitFor(

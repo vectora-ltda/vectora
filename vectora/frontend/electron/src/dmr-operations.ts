@@ -383,6 +383,10 @@ export class DmrOperations {
     return operation ? { ...operation } : undefined;
   }
 
+  listOperations(): DmrOperation[] {
+    return [...this.operations.values()].map((operation) => ({ ...operation }));
+  }
+
   cancel(id: string): boolean {
     const operation = this.operations.get(id);
     if (

@@ -197,6 +197,7 @@ export interface VectoraDesktopBridge {
       confirmed: boolean,
     ) => Promise<VectoraDmrOperation>;
     getOperation: (id: string) => Promise<VectoraDmrOperation | null>;
+    listOperations: () => Promise<VectoraDmrOperation[]>;
     cancel: (id: string) => Promise<boolean>;
   };
 }

@@ -343,7 +343,10 @@ async function fetchDmrModelJob(jobId: string): Promise<DmrJob> {
 }
 
 async function fetchDmrModelJobs(): Promise<DmrJob[]> {
-  if (window.vectora?.dmr) return [];
+  const bridge = window.vectora?.dmr;
+  if (bridge) {
+    return (await bridge.listOperations()).map(dmrOperationToJob);
+  }
   const response = await fetch("/provider-routing/dmr/models/jobs");
   if (!response.ok) throw new Error(`Erro ${response.status}`);
   const payload = (await response.json()) as { jobs?: DmrJob[] };

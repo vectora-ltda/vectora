@@ -1138,6 +1138,10 @@ function registerIpc(): void {
     assertTrustedRenderer(event);
     return getDmrOperations().getOperation(id) ?? null;
   });
+  ipcMain.handle("vectora:dmr-operations", (event) => {
+    assertTrustedRenderer(event);
+    return getDmrOperations().listOperations();
+  });
   ipcMain.handle("vectora:dmr-cancel", (event, id: string) => {
     assertTrustedRenderer(event);
     return getDmrOperations().cancel(id);

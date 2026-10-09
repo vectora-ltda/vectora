@@ -259,6 +259,7 @@ const bridge: VectoraDesktopBridge = {
     remove: (reference, confirmed) =>
       ipcRenderer.invoke("vectora:dmr-remove", reference, confirmed),
     getOperation: (id) => ipcRenderer.invoke("vectora:dmr-operation", id),
+    listOperations: () => ipcRenderer.invoke("vectora:dmr-operations"),
     cancel: (id) => ipcRenderer.invoke("vectora:dmr-cancel", id),
   },
 };
