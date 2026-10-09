@@ -35,6 +35,41 @@ def test_normalize_base_url_rejects_non_http() -> None:
 
 
 @pytest.mark.asyncio
+async def test_docker_host_info_reports_runtime_and_gpu_capabilities(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Process:
+        returncode = 0
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return (
+                (
+                    b'{"OSType":"linux","Architecture":"aarch64",'
+                    b'"ServerVersion":"29.0","NCPU":8,"MemTotal":1234,'
+                    b'"Runtimes":{"io.containerd.runc.v2":{},"nvidia":{}},'
+                    b'"Warnings":["example"]}'
+                ),
+                b"",
+            )
+
+        async def wait(self) -> None:
+            return None
+
+    async def create(*args: str, **kwargs: object) -> Process:
+        assert args == ("docker", "info", "--format", "{{json .}}")
+        assert kwargs.get("shell") is None
+        return Process()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create)
+    info = await dmr.docker_host_info()
+
+    assert info["architecture"] == "aarch64"
+    assert info["cpus"] == 8
+    assert info["gpu_backends"] == ["nvidia"]
+    assert info["warnings"] == ["example"]
+
+
+@pytest.mark.asyncio
 async def test_probe_prefers_openai_contract() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/engines/v1/models":
@@ -82,6 +117,17 @@ async def test_provider_status_probes_default_endpoint_without_saved_config(
     async def fake_probe(*args: object, **kwargs: object) -> dmr.DmrProbe:
         return dmr.DmrProbe(True, "openai", ("hf.co/Qwen/Qwen3-0.6B",))
 
+    async def fake_host_info() -> dict[str, object]:
+        return {
+            "os": "linux",
+            "architecture": "aarch64",
+            "cpus": 8,
+            "memory_bytes": 1234,
+            "runtimes": ["nvidia"],
+            "gpu_backends": ["nvidia"],
+            "warnings": [],
+        }
+
     monkeypatch.setattr(settings, "dmr_base_url", None)
     monkeypatch.setattr(
         "backend.services.docker_model_runner.docker_model_available",
@@ -90,6 +136,10 @@ async def test_provider_status_probes_default_endpoint_without_saved_config(
     monkeypatch.setattr(
         "backend.services.docker_model_runner.probe_dmr",
         fake_probe,
+    )
+    monkeypatch.setattr(
+        "backend.services.docker_model_runner.docker_host_info",
+        fake_host_info,
     )
 
     status = await provider_routing.get_dmr_status()
@@ -100,6 +150,10 @@ async def test_provider_status_probes_default_endpoint_without_saved_config(
     assert status["models"] == ["hf.co/Qwen/Qwen3-0.6B"]
     assert status["state"] == "ready"
     assert status["architecture"]
+    assert status["backend"] == "nvidia"
+    capabilities = status["capabilities"]
+    assert isinstance(capabilities, dict)
+    assert capabilities["cpus"] == 8
 
 
 @pytest.mark.asyncio

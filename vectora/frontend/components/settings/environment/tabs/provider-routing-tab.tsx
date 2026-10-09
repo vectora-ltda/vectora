@@ -128,6 +128,13 @@ interface DmrStatus {
   platform: string;
   architecture: string;
   backend: string | null;
+  capabilities: {
+    cpus: number | null;
+    memory_bytes: number | null;
+    runtimes: string[];
+    gpu_backends: string[];
+    warnings: string[];
+  };
 }
 
 interface DmrJob {
@@ -500,6 +507,10 @@ function DmrSection() {
                 ? m.provider_routing_dmr_missing_plugin()
                 : m.provider_routing_dmr_missing_cli()}
           {` · ${status.platform}/${status.architecture}`}
+          {status.backend ? ` · ${status.backend}` : ""}
+          {status.capabilities.gpu_backends.length
+            ? ` · GPU: ${status.capabilities.gpu_backends.join(", ")}`
+            : ""}
           {status.models.length ? ` · ${status.models.join(", ")}` : ""}
           {status.managed_models.length
             ? ` · ${status.managed_models.join(", ")}`

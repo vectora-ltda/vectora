@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_DMR_BASE_URL: Final[str] = "http://127.0.0.1:12434"
 MAX_OUTPUT_BYTES: Final[int] = 64 * 1024
 COMMAND_TIMEOUT_SECONDS: Final[float] = 120.0
+INFO_TIMEOUT_SECONDS: Final[float] = 10.0
 MODEL_REFERENCE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/@:+-]{0,255}$")
 
 
@@ -212,6 +213,68 @@ async def run_docker_model(
             text.strip() or f"docker model saiu com {process.returncode}"
         )
     return text
+
+
+async def docker_host_info() -> dict[str, object]:
+    """Obtém capacidades do host Docker sem executar shell arbitrário."""
+    process = await asyncio.create_subprocess_exec(
+        "docker",
+        "info",
+        "--format",
+        "{{json .}}",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            process.communicate(), INFO_TIMEOUT_SECONDS
+        )
+    except asyncio.CancelledError:
+        process.kill()
+        await process.wait()
+        raise
+    except TimeoutError as exc:
+        process.kill()
+        await process.wait()
+        raise RuntimeError("docker info excedeu o timeout") from exc
+    if process.returncode:
+        detail = (stderr or stdout).decode("utf-8", errors="replace").strip()
+        raise RuntimeError(detail or "docker info indisponível")
+    try:
+        payload = json.loads(stdout.decode("utf-8", errors="replace"))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("docker info retornou JSON inválido") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("docker info retornou formato incompatível")
+    runtimes = payload.get("Runtimes")
+    runtime_names = (
+        sorted(str(name) for name in runtimes if isinstance(name, str))
+        if isinstance(runtimes, dict)
+        else []
+    )
+    warnings = payload.get("Warnings")
+    warning_values = (
+        [str(item) for item in warnings if isinstance(item, str)]
+        if isinstance(warnings, list)
+        else []
+    )
+    gpu_backends = [
+        runtime
+        for runtime in runtime_names
+        if runtime.lower() in {"nvidia", "rocm", "amd", "vulkan"}
+    ]
+    return {
+        "os": str(payload.get("OSType") or "") or None,
+        "architecture": str(payload.get("Architecture") or "") or None,
+        "server_version": str(payload.get("ServerVersion") or "") or None,
+        "cpus": payload.get("NCPU") if isinstance(payload.get("NCPU"), int) else None,
+        "memory_bytes": payload.get("MemTotal")
+        if isinstance(payload.get("MemTotal"), int)
+        else None,
+        "runtimes": runtime_names,
+        "gpu_backends": gpu_backends,
+        "warnings": warning_values[-10:],
+    }
 
 
 async def probe_dmr(

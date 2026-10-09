@@ -887,11 +887,16 @@ async def get_dmr_status() -> dict[str, object]:
     """Detecta Docker Model Runner e o contrato HTTP disponível no host local."""
     from backend.services.docker_model_runner import (
         DEFAULT_DMR_BASE_URL,
+        docker_host_info,
         docker_model_available,
         probe_dmr,
     )
 
     cli_available, cli_detail = await docker_model_available()
+    try:
+        host_info = await docker_host_info()
+    except (OSError, RuntimeError, ValueError):
+        host_info = {}
     base_url = settings.dmr_base_url or DEFAULT_DMR_BASE_URL
     probe = await probe_dmr(base_url)
     try:
@@ -918,14 +923,30 @@ async def get_dmr_status() -> dict[str, object]:
         )
     else:
         state = "stopped"
+    runtimes = host_info.get("runtimes")
+    gpu_backends = host_info.get("gpu_backends")
+    backend = (
+        str(gpu_backends[0])
+        if isinstance(gpu_backends, list) and gpu_backends
+        else None
+    )
     return {
         "configured": bool(settings.dmr_base_url),
         "base_url": base_url,
         "model": settings.dmr_model or "",
         "state": state,
-        "platform": platform.system().lower(),
-        "architecture": platform.machine().lower(),
-        "backend": None,
+        "platform": str(host_info.get("os") or platform.system()).lower(),
+        "architecture": str(
+            host_info.get("architecture") or platform.machine()
+        ).lower(),
+        "backend": backend,
+        "capabilities": {
+            "cpus": host_info.get("cpus"),
+            "memory_bytes": host_info.get("memory_bytes"),
+            "runtimes": runtimes if isinstance(runtimes, list) else [],
+            "gpu_backends": gpu_backends if isinstance(gpu_backends, list) else [],
+            "warnings": host_info.get("warnings", []),
+        },
         "cli_available": cli_available,
         "cli_detail": cli_detail,
         "reachable": probe.reachable if probe else False,
