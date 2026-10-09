@@ -63,8 +63,11 @@ jobs:
       - name: Build llama.cpp server
         env:
           LLAMA_CPP_DIR: ${{ runner.temp }}/llama.cpp
+          LLAMA_CPP_COMMIT: 79e2e74eb11022c1ba2e438df7f0ca2d4c10f8b6
         run: |
-          git clone --depth 1 https://github.com/ggml-org/llama.cpp.git "$LLAMA_CPP_DIR"
+          git clone --filter=blob:none --no-checkout https://github.com/ggml-org/llama.cpp.git "$LLAMA_CPP_DIR"
+          git -C "$LLAMA_CPP_DIR" fetch --depth 1 origin "$LLAMA_CPP_COMMIT"
+          git -C "$LLAMA_CPP_DIR" checkout --detach "$LLAMA_CPP_COMMIT"
           cmake -S "$LLAMA_CPP_DIR" -B "$LLAMA_CPP_DIR/build" \
             -DGGML_NATIVE=OFF -DCMAKE_BUILD_TYPE=Release
           cmake --build "$LLAMA_CPP_DIR/build" --config Release \
@@ -73,12 +76,12 @@ jobs:
           echo "LLAMA_SERVER=$LLAMA_CPP_DIR/build/bin/llama-server" >> "$GITHUB_ENV"
       - name: Download pinned small SmolLM2 model
         env:
-          MODEL_URL: https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF/resolve/main/SmolLM2-135M-Instruct-Q4_K_M.gguf?download=true
+          MODEL_URL: https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF/resolve/09816acd5d99df7be770d85ea30822623dab342c/SmolLM2-135M-Instruct-Q4_K_M.gguf?download=true
           MODEL_PATH: ${{ runner.temp }}/smollm2-135m-instruct-q4_k_m.gguf
+          MODEL_SHA256: 2e8040ceae7815abe0dcb3540b9995eaa1fa0d2ca9e797d0a635ae4433c68c2d
         run: |
           curl --fail --location --retry 3 --retry-delay 2 --output "$MODEL_PATH" "$MODEL_URL"
-          # O tamanho esperado vem do artefato público e evita aceitar uma
-          # resposta HTML/erro como se fosse um modelo válido.
+          echo "$MODEL_SHA256  $MODEL_PATH" | sha256sum --check --status
           test "$(stat --format=%s "$MODEL_PATH")" -eq 105454432
           echo "MODEL_PATH=$MODEL_PATH" >> "$GITHUB_ENV"
       - name: Start llama.cpp and wait for readiness

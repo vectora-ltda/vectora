@@ -71,6 +71,9 @@ async def _gh_run(
                 env["GH_TOKEN"] = native_ci_token
                 env["GITHUB_TOKEN"] = native_ci_token
         except Exception:
+            if native_ci_token:
+                env["GH_TOKEN"] = native_ci_token
+                env["GITHUB_TOKEN"] = native_ci_token
             logger.debug(
                 "gh: não foi possível carregar o token do usuário", exc_info=True
             )

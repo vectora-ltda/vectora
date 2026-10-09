@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_DMR_BASE_URL: Final[str] = "http://127.0.0.1:12434"
 MAX_OUTPUT_BYTES: Final[int] = 64 * 1024
+MAX_PERSISTED_JOBS: Final[int] = 50
 COMMAND_TIMEOUT_SECONDS: Final[float] = 120.0
 INFO_TIMEOUT_SECONDS: Final[float] = 10.0
 MODEL_REFERENCE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/@:+-]{0,255}$")
@@ -152,6 +153,13 @@ def _job_from_record(record: object) -> DmrJob | None:
 
 async def _persist_jobs() -> None:
     """Grava jobs de forma atômica para permitir recuperação após restart."""
+    terminal_ids = [
+        job_id
+        for job_id, job in _jobs.items()
+        if job.status not in {"queued", "running"}
+    ]
+    for job_id in terminal_ids[:-MAX_PERSISTED_JOBS]:
+        _jobs.pop(job_id, None)
     payload = {"jobs": [_job_record(job) for job in _jobs.values()]}
     path = _jobs_store_path()
 

@@ -25,11 +25,12 @@ from backend.tools.web import fetch_url, web_search
 pytestmark = [
     pytest.mark.live,
     pytest.mark.asyncio,
-    pytest.mark.skipif(
-        not settings.tavily_api_key,
-        reason="TAVILY_API_KEY não configurado em ~/.vectora/.env",
-    ),
 ]
+
+_requires_tavily = pytest.mark.skipif(
+    not settings.tavily_api_key,
+    reason="TAVILY_API_KEY não configurado em ~/.vectora/.env",
+)
 
 
 def _results(raw: str) -> list[dict]:
@@ -43,6 +44,7 @@ def _results(raw: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+@_requires_tavily
 async def test_web_search_query_generica_real():
     raw = await web_search(query="FastAPI framework")
     results = _results(raw)
@@ -53,6 +55,7 @@ async def test_web_search_query_generica_real():
         assert r.get("content") is not None
 
 
+@_requires_tavily
 async def test_web_search_query_local_com_time_range_real():
     raw = await web_search(
         query="clima em São Paulo hoje", topic="general", time_range="day"
@@ -61,6 +64,7 @@ async def test_web_search_query_local_com_time_range_real():
     assert len(results) > 0
 
 
+@_requires_tavily
 async def test_web_search_query_tecnica_especifica_real():
     raw = await web_search(query="Python asyncio event loop internals")
     results = _results(raw)
@@ -68,12 +72,14 @@ async def test_web_search_query_tecnica_especifica_real():
     assert any("content" in r and r["content"] for r in results)
 
 
+@_requires_tavily
 async def test_web_search_topic_finance_real():
     raw = await web_search(query="Nvidia stock price", topic="finance")
     results = _results(raw)
     assert len(results) > 0
 
 
+@_requires_tavily
 async def test_web_search_com_include_domains_real():
     raw = await web_search(query="python asyncio", include_domains=["github.com"])
     results = _results(raw)
@@ -83,6 +89,7 @@ async def test_web_search_com_include_domains_real():
         assert "github.com" in r.get("url", "")
 
 
+@_requires_tavily
 async def test_web_search_com_exclude_domains_real():
     raw = await web_search(
         query="python asyncio tutorial", exclude_domains=["github.com"]
@@ -107,6 +114,7 @@ async def test_web_search_query_vazia_borda():
 # ---------------------------------------------------------------------------
 
 
+@_requires_tavily
 async def test_fetch_url_pagina_real() -> None:
     content = await fetch_url(url="https://fastapi.tiangolo.com/")
     assert isinstance(content, str)

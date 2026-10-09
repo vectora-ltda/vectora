@@ -386,8 +386,11 @@ async def fetch_url(url: str, ctx: ToolContext | None = None) -> str:
     # keeps the public route usable in headless CI and when no provider key is
     # configured.  The helper still applies the SSRF guard, size limit and
     # optional integration token.
-    github_hosts = {"github.com", "www.github.com", "api.github.com"}
-    if (urlparse(url).hostname or "").lower() in github_hosts:
+    host = (urlparse(url).hostname or "").lower()
+    github_hosts = {"github.com", "www.github.com"}
+    if host == "api.github.com" or (
+        host in github_hosts and not settings.tavily_api_key
+    ):
         try:
             return await _fetch_via_http(url, ctx)
         except Exception:

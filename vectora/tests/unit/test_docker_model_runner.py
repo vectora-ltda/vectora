@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import os
 from contextlib import suppress
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import httpx
@@ -307,7 +308,7 @@ async def test_model_job_fails_when_readiness_inference_fails(
 
 @pytest.mark.asyncio
 async def test_model_jobs_are_recovered_as_interrupted_after_restart(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from backend.settings import settings
 
@@ -333,6 +334,45 @@ async def test_model_jobs_are_recovered_as_interrupted_after_restart(
 
     persisted = (tmp_path / "docker-model-runner-jobs.json").read_text(encoding="utf-8")
     assert '"status":"interrupted"' in persisted
+
+
+@pytest.mark.asyncio
+async def test_persist_jobs_keeps_active_and_only_recent_terminal_jobs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from backend.settings import settings
+
+    monkeypatch.setattr(settings, "vectora_home", tmp_path)
+    dmr._jobs.clear()
+    dmr._job_tasks.clear()
+    dmr._jobs_loaded = False
+    for index in range(dmr.MAX_PERSISTED_JOBS + 5):
+        job = dmr.DmrJob(
+            id=f"{index:032x}",
+            operation="prepare",
+            reference=f"hf.co/model-{index}",
+            context_size=None,
+            progress=100,
+            phase="completed",
+            status="completed",
+        )
+        dmr._jobs[job.id] = job
+    active = dmr.DmrJob(
+        id="f" * 32,
+        operation="start",
+        reference="hf.co/active",
+        context_size=None,
+        progress=50,
+        phase="starting",
+        status="running",
+    )
+    dmr._jobs[active.id] = active
+
+    await dmr._persist_jobs()
+
+    assert active.id in dmr._jobs
+    terminal = [job for job in dmr._jobs.values() if job.status == "completed"]
+    assert len(terminal) == dmr.MAX_PERSISTED_JOBS
 
 
 @pytest.mark.asyncio
