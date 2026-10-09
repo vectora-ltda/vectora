@@ -142,6 +142,17 @@ interface DmrJob {
   operation: "prepare" | "start";
   reference: string;
   context_size?: number | null;
+  progress: number;
+  phase:
+    | "queued"
+    | "pulling"
+    | "configuring"
+    | "starting"
+    | "checking"
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | "interrupted";
   status:
     "queued" | "running" | "completed" | "failed" | "cancelled" | "interrupted";
   output?: string;
@@ -545,7 +556,9 @@ function DmrSection() {
       )}
       {job && (job.status === "queued" || job.status === "running") && (
         <p className="text-xs text-muted-foreground">
-          {m.provider_routing_dmr_job_running({ status: job.status })}
+          {m.provider_routing_dmr_job_running({
+            status: `${job.phase} · ${job.progress}%`,
+          })}
         </p>
       )}
       {job?.status === "cancelled" && (

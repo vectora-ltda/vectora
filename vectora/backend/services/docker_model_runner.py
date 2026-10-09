@@ -47,6 +47,18 @@ class DmrJob:
     operation: Literal["prepare", "start"]
     reference: str
     context_size: int | None
+    progress: int
+    phase: Literal[
+        "queued",
+        "pulling",
+        "configuring",
+        "starting",
+        "checking",
+        "completed",
+        "failed",
+        "cancelled",
+        "interrupted",
+    ]
     status: Literal[
         "queued",
         "running",
@@ -80,6 +92,8 @@ def _job_record(job: DmrJob) -> dict[str, object]:
         "operation": job.operation,
         "reference": job.reference,
         "context_size": job.context_size,
+        "progress": job.progress,
+        "phase": job.phase,
         "status": job.status,
         "output": job.output[-MAX_OUTPUT_BYTES:],
         "error": job.error,
@@ -94,13 +108,29 @@ def _job_from_record(record: object) -> DmrJob | None:
     operation = record.get("operation")
     reference = record.get("reference")
     context_size = record.get("context_size")
+    progress = record.get("progress", 0)
+    phase = record.get("phase")
     status = record.get("status")
+    valid_phases = {
+        "queued",
+        "pulling",
+        "configuring",
+        "starting",
+        "checking",
+        "completed",
+        "failed",
+        "cancelled",
+        "interrupted",
+    }
     if (
         not isinstance(job_id, str)
         or not re.fullmatch(r"[0-9a-f]{32}", job_id)
         or operation not in {"prepare", "start"}
         or not isinstance(reference, str)
         or (context_size is not None and not isinstance(context_size, int))
+        or not isinstance(progress, int)
+        or not 0 <= progress <= 100
+        or (phase is not None and phase not in valid_phases)
         or status
         not in {"queued", "running", "completed", "failed", "cancelled", "interrupted"}
     ):
@@ -111,6 +141,8 @@ def _job_from_record(record: object) -> DmrJob | None:
         operation=operation,
         reference=reference,
         context_size=context_size,
+        progress=progress,
+        phase=phase or status,
         status=status,
         output=str(record.get("output") or "")[-MAX_OUTPUT_BYTES:],
         error=(str(record["error"])[:2000] if record.get("error") else None),
@@ -136,6 +168,27 @@ async def _persist_jobs() -> None:
         await asyncio.to_thread(write)
 
 
+async def _set_job_progress(
+    job: DmrJob,
+    phase: Literal[
+        "queued",
+        "pulling",
+        "configuring",
+        "starting",
+        "checking",
+        "completed",
+        "failed",
+        "cancelled",
+        "interrupted",
+    ],
+    progress: int,
+) -> None:
+    """Atualiza fase e percentual de forma persistente para polling e recovery."""
+    job.phase = phase
+    job.progress = max(0, min(100, progress))
+    await _persist_jobs()
+
+
 async def restore_model_jobs() -> None:
     """Restaura jobs e marca operações sem processo como interrompidas."""
     global _jobs_loaded
@@ -159,6 +212,7 @@ async def restore_model_jobs() -> None:
                     continue
                 if job.status in {"queued", "running"}:
                     job.status = "interrupted"
+                    job.phase = "interrupted"
                     job.error = "operação interrompida pelo reinício do backend"
                     changed = True
                 _jobs[job.id] = job
@@ -449,7 +503,7 @@ async def _assert_model_ready(reference: str) -> DmrProbe:
 async def _run_job(job: DmrJob) -> None:
     """Executa um job e converte cancelamento em estado consultável."""
     job.status = "running"
-    await _persist_jobs()
+    await _set_job_progress(job, "pulling", 10)
     started = False
 
     async def stop_started_model() -> None:
@@ -466,6 +520,9 @@ async def _run_job(job: DmrJob) -> None:
 
     try:
         job.output = await prepare_model(job.reference)
+        await _set_job_progress(
+            job, "configuring" if job.context_size else "starting", 45
+        )
         if job.operation == "start":
             job.output = (
                 job.output + "\n" + await run_model(job.reference, job.context_size)
@@ -478,6 +535,7 @@ async def _run_job(job: DmrJob) -> None:
             )[-MAX_OUTPUT_BYTES:]
         if job.operation == "start":
             started = True
+            await _set_job_progress(job, "checking", 80)
             probe = await _assert_model_ready(job.reference)
             job.metadata = {
                 "contract": probe.contract,
@@ -491,15 +549,17 @@ async def _run_job(job: DmrJob) -> None:
         except (OSError, RuntimeError, ValueError):
             job.metadata = {}
         job.status = "completed"
+        await _set_job_progress(job, "completed", 100)
     except asyncio.CancelledError:
         await stop_started_model()
         job.status = "cancelled"
         job.error = "operação cancelada"
-        await _persist_jobs()
+        await _set_job_progress(job, "cancelled", job.progress)
     except (OSError, RuntimeError, ValueError) as exc:
         await stop_started_model()
         job.status = "failed"
         job.error = str(exc)[:2000]
+        await _set_job_progress(job, "failed", job.progress)
     finally:
         await _persist_jobs()
         _job_tasks.pop(job.id, None)
@@ -527,6 +587,8 @@ async def create_model_job(
         operation=operation,
         reference=value,
         context_size=context,
+        progress=0,
+        phase="queued",
         status="queued",
     )
     _jobs[job.id] = job
@@ -555,6 +617,8 @@ async def retry_model_job(job_id: str) -> DmrJob | None:
     if job.status != "interrupted":
         return job
     job.status = "queued"
+    job.phase = "queued"
+    job.progress = 0
     job.error = None
     job.output = ""
     await _persist_jobs()
@@ -574,6 +638,7 @@ async def cancel_model_job(job_id: str) -> DmrJob | None:
         await asyncio.gather(task, return_exceptions=True)
     elif job.status in {"queued", "running"}:
         job.status = "interrupted"
+        job.phase = "interrupted"
         job.error = "operação sem processo executor"
         await _persist_jobs()
     return job
