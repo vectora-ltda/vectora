@@ -1449,6 +1449,29 @@ class TestLlamaCppConfiguration:
         assert status["external"] is True
 
     @pytest.mark.asyncio
+    async def test_runtime_status_marks_persisted_unknown_process(
+        self, tmp_path, monkeypatch
+    ):
+        from backend.api.handlers.provider_routing import llamacpp_runtime_status
+        from backend.settings import settings
+
+        root = tmp_path / "tools" / "llama.cpp"
+        root.mkdir(parents=True)
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        monkeypatch.setattr(
+            "backend.services.llamacpp_sidecar.llamacpp_status",
+            lambda: {
+                "running": False,
+                "persisted_pid": 9876,
+                "stale_state": False,
+            },
+        )
+
+        status = await llamacpp_runtime_status()
+
+        assert status["state"] == "unknown-process"
+
+    @pytest.mark.asyncio
     async def test_runtime_removal_rejects_active_sidecar(self, monkeypatch):
         monkeypatch.setattr(
             "backend.services.llamacpp_sidecar.llamacpp_status",

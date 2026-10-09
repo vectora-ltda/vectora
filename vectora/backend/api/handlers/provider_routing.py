@@ -2020,6 +2020,16 @@ async def llamacpp_runtime_status() -> dict[str, object]:
             bool(settings.llamacpp_base_url)
             and os.getenv("LLAMACPP_MODE", "external") != "managed"
         )
+        persisted_pid = sidecar.get("persisted_pid")
+        state = (
+            "stale"
+            if sidecar.get("stale_state")
+            else "unknown-process"
+            if isinstance(persisted_pid, int)
+            else "external"
+            if external
+            else "absent"
+        )
         return {
             "installed": False,
             "path": None,
@@ -2027,7 +2037,7 @@ async def llamacpp_runtime_status() -> dict[str, object]:
             "runtimes": [],
             "active_runtime": None,
             "free_bytes": None,
-            "state": "external" if external else "absent",
+            "state": state,
             "managed": not external,
             "external": external,
             "stale_state": bool(sidecar.get("stale_state")),
@@ -2059,6 +2069,8 @@ async def llamacpp_runtime_status() -> dict[str, object]:
         state = "stale"
     elif sidecar.get("running"):
         state = "managed-running"
+    elif isinstance(sidecar.get("persisted_pid"), int):
+        state = "unknown-process"
     elif active and any(
         isinstance(item, dict) and item.get("id") == active for item in runtimes
     ):
