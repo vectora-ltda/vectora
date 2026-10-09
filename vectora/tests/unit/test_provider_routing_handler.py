@@ -19,6 +19,7 @@ import os
 import zipfile
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -434,6 +435,44 @@ class TestLlamaCppAndHuggingFace:
             provider_mod._download_cancel_events.pop(key, None)
         assert result == {"ok": True, "status": "cancelled"}
         assert not partial.exists()
+
+    @pytest.mark.asyncio
+    async def test_huggingface_download_rejects_duplicate_active_transfer(
+        self, tmp_path, monkeypatch
+    ):
+        from fastapi import HTTPException
+        from starlette.requests import Request
+
+        from backend.api.handlers import provider_routing as provider_mod
+        from backend.api.handlers.provider_routing import (
+            HuggingFaceDownloadRequest,
+            download_huggingface_model,
+        )
+        from backend.settings import settings
+
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        key = "org/model/weights.gguf"
+        provider_mod._download_cancel_events[key] = asyncio.Event()
+
+        class DisconnectedRequest:
+            async def is_disconnected(self) -> bool:
+                return False
+
+        try:
+            with pytest.raises(HTTPException) as error:
+                await download_huggingface_model(
+                    HuggingFaceDownloadRequest(
+                        repo_id="org/model",
+                        revision="main",
+                        filename="weights.gguf",
+                    ),
+                    cast(Request, DisconnectedRequest()),
+                    None,
+                )
+        finally:
+            provider_mod._download_cancel_events.pop(key, None)
+
+        assert error.value.status_code == 409
 
     @pytest.mark.asyncio
     async def test_huggingface_install_writes_manifest_for_selected_files(

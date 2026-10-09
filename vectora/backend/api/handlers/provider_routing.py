@@ -1438,122 +1438,133 @@ async def download_huggingface_model(
     # mesmo quando a revisão foi omitida ou mudou entre tentativas.
     download_key = f"{repo_id}/{filename}"
     lock = await _download_lock(download_key)
-    async with lock:
-        cancel_event = asyncio.Event()
-        _download_cancel_events[download_key] = cancel_event
-        _download_progress[download_key] = {
-            "downloaded": 0,
-            "total": None,
-            "status": "starting",
-        }
-        current_task = asyncio.current_task()
-        if current_task is not None:
-
-            def _clear_cancel_event(_task: asyncio.Task[object]) -> None:
-                if _download_cancel_events.get(download_key) is cancel_event:
-                    _download_cancel_events.pop(download_key, None)
-
-            current_task.add_done_callback(_clear_cancel_event)
-        if body.resume and await asyncio.to_thread(partial.exists):
-            offset = (await asyncio.to_thread(partial.stat)).st_size
-        else:
-            offset = 0
-        url = f"https://huggingface.co/{repo_id}/resolve/{revision}/{filename}"
-        digest = hashlib.sha256()
-        downloaded = offset
-        try:
-            async with httpx.AsyncClient(timeout=1800, follow_redirects=True) as client:
-                headers = {"Range": f"bytes={offset}-"} if offset else {}
-                async with client.stream("GET", url, headers=headers) as response:
-                    _validate_redirect_host(
-                        response,
-                        allowed=frozenset({"huggingface.co"}),
-                        suffixes=_HUGGINGFACE_DOWNLOAD_SUFFIXES,
-                    )
-                    if offset and response.status_code == 200:
-                        offset = 0
-                    elif offset and response.status_code != 206:
-                        raise ValueError("retomada rejeitada pelo servidor")
-                    downloaded = offset
-                    response.raise_for_status()
-                    length = response.headers.get("content-length")
-                    total = (
-                        offset + int(length) if length and length.isdigit() else None
-                    )
-                    _download_progress[download_key] = {
-                        "downloaded": offset,
-                        "total": total,
-                        "status": "downloading",
-                    }
-                    await _ensure_download_capacity(
-                        destination_root,
-                        (offset + int(length)) if length and length.isdigit() else None,
-                    )
-                    if offset:
-                        content_range = response.headers.get("content-range", "")
-                        match = re.fullmatch(
-                            r"bytes (\d+)-(\d+)/(\d+|\*)", content_range
+    # Registre o evento antes de esperar pelo lock: o DELETE precisa conseguir
+    # cancelar uma transferência que ainda esteja aguardando a seção crítica.
+    cancel_event = asyncio.Event()
+    previous_event = _download_cancel_events.get(download_key)
+    if previous_event is not None:
+        raise HTTPException(status_code=409, detail="download já está em execução")
+    _download_cancel_events[download_key] = cancel_event
+    try:
+        async with lock:
+            _download_progress[download_key] = {
+                "downloaded": 0,
+                "total": None,
+                "status": "starting",
+            }
+            offset = (
+                (await asyncio.to_thread(partial.stat)).st_size
+                if body.resume and await asyncio.to_thread(partial.exists)
+                else 0
+            )
+            url = f"https://huggingface.co/{repo_id}/resolve/{revision}/{filename}"
+            digest = hashlib.sha256()
+            downloaded = offset
+            try:
+                async with httpx.AsyncClient(
+                    timeout=1800, follow_redirects=True
+                ) as client:
+                    headers = {"Range": f"bytes={offset}-"} if offset else {}
+                    async with client.stream("GET", url, headers=headers) as response:
+                        _validate_redirect_host(
+                            response,
+                            allowed=frozenset({"huggingface.co"}),
+                            suffixes=_HUGGINGFACE_DOWNLOAD_SUFFIXES,
                         )
-                        if not match or int(match.group(1)) != offset:
-                            raise ValueError("Content-Range inválido")
-                    if offset:
+                        if offset and response.status_code == 200:
+                            offset = 0
+                        elif offset and response.status_code != 206:
+                            raise ValueError("retomada rejeitada pelo servidor")
+                        downloaded = offset
+                        response.raise_for_status()
+                        length = response.headers.get("content-length")
+                        total = (
+                            offset + int(length)
+                            if length and length.isdigit()
+                            else None
+                        )
+                        _download_progress[download_key] = {
+                            "downloaded": offset,
+                            "total": total,
+                            "status": "downloading",
+                        }
+                        await _ensure_download_capacity(
+                            destination_root,
+                            (offset + int(length))
+                            if length and length.isdigit()
+                            else None,
+                        )
+                        if offset:
+                            content_range = response.headers.get("content-range", "")
+                            match = re.fullmatch(
+                                r"bytes (\d+)-(\d+)/(\d+|\*)", content_range
+                            )
+                            if not match or int(match.group(1)) != offset:
+                                raise ValueError("Content-Range inválido")
 
-                        def _hash_existing() -> None:
-                            with partial.open("rb") as existing:
-                                while chunk := existing.read(1024 * 1024):
-                                    digest.update(chunk)
+                            def _hash_existing() -> None:
+                                with partial.open("rb") as existing:
+                                    while chunk := existing.read(1024 * 1024):
+                                        digest.update(chunk)
 
-                        await asyncio.to_thread(_hash_existing)
-                    with partial.open("ab" if offset else "wb") as output:
-                        async for chunk in response.aiter_bytes(1024 * 1024):
-                            if cancel_event.is_set():
-                                raise asyncio.CancelledError
-                            if await request.is_disconnected():
-                                raise asyncio.CancelledError
-                            downloaded += len(chunk)
-                            if downloaded > _MAX_DOWNLOAD_BYTES:
-                                raise HTTPException(
-                                    status_code=413,
-                                    detail="arquivo excede o limite permitido",
+                            await asyncio.to_thread(_hash_existing)
+                        with partial.open("ab" if offset else "wb") as output:
+                            async for chunk in response.aiter_bytes(1024 * 1024):
+                                if cancel_event.is_set():
+                                    raise asyncio.CancelledError
+                                if await request.is_disconnected():
+                                    raise asyncio.CancelledError
+                                downloaded += len(chunk)
+                                if downloaded > _MAX_DOWNLOAD_BYTES:
+                                    raise HTTPException(
+                                        status_code=413,
+                                        detail="arquivo excede o limite permitido",
+                                    )
+                                digest.update(chunk)
+                                await asyncio.to_thread(output.write, chunk)
+                                _download_progress[download_key]["downloaded"] = (
+                                    downloaded
                                 )
-                            digest.update(chunk)
-                            await asyncio.to_thread(output.write, chunk)
-                            _download_progress[download_key]["downloaded"] = downloaded
-            if await request.is_disconnected():
-                raise asyncio.CancelledError
-            await asyncio.to_thread(partial.replace, destination)
-            _download_progress[download_key]["status"] = "completed"
-        except asyncio.CancelledError:
-            _download_progress[download_key]["status"] = "cancelled"
-            await asyncio.to_thread(partial.unlink, missing_ok=True)
-            raise
-        except HTTPException:
-            _download_progress[download_key]["status"] = "failed"
-            raise
-        except httpx.TransportError as exc:
-            # Um erro de transporte é retomável; preserve o .part para que a
-            # próxima tentativa não recomece um arquivo GGUF de dezenas de GB.
-            _download_progress[download_key]["status"] = "interrupted"
-            raise HTTPException(
-                status_code=502, detail="falha no download da Hugging Face"
-            ) from exc
-        except Exception as exc:
-            _download_progress[download_key]["status"] = "failed"
-            await asyncio.to_thread(partial.unlink, missing_ok=True)
-            await asyncio.to_thread(destination.unlink, missing_ok=True)
-            raise HTTPException(
-                status_code=502, detail="falha no download da Hugging Face"
-            ) from exc
-        actual = digest.hexdigest()
-        if body.sha256 and actual.lower() != body.sha256.lower():
-            await asyncio.to_thread(destination.unlink, missing_ok=True)
-            raise HTTPException(status_code=422, detail="checksum sha256 incompatível")
-        return {
-            "status": "downloaded",
-            "path": str(destination),
-            "files": [],
-            "sha256": actual,
-        }
+                if cancel_event.is_set() or await request.is_disconnected():
+                    raise asyncio.CancelledError
+                await asyncio.to_thread(partial.replace, destination)
+                _download_progress[download_key]["status"] = "completed"
+            except asyncio.CancelledError:
+                _download_progress[download_key]["status"] = "cancelled"
+                await asyncio.to_thread(partial.unlink, missing_ok=True)
+                raise
+            except HTTPException:
+                _download_progress[download_key]["status"] = "failed"
+                raise
+            except httpx.TransportError as exc:
+                # Um erro de transporte é retomável; preserve o .part para que a
+                # próxima tentativa não recomece um arquivo GGUF de dezenas de GB.
+                _download_progress[download_key]["status"] = "interrupted"
+                raise HTTPException(
+                    status_code=502, detail="falha no download da Hugging Face"
+                ) from exc
+            except Exception as exc:
+                _download_progress[download_key]["status"] = "failed"
+                await asyncio.to_thread(partial.unlink, missing_ok=True)
+                await asyncio.to_thread(destination.unlink, missing_ok=True)
+                raise HTTPException(
+                    status_code=502, detail="falha no download da Hugging Face"
+                ) from exc
+            actual = digest.hexdigest()
+            if body.sha256 and actual.lower() != body.sha256.lower():
+                await asyncio.to_thread(destination.unlink, missing_ok=True)
+                raise HTTPException(
+                    status_code=422, detail="checksum sha256 incompatível"
+                )
+            return {
+                "status": "downloaded",
+                "path": str(destination),
+                "files": [],
+                "sha256": actual,
+            }
+    finally:
+        if _download_cancel_events.get(download_key) is cancel_event:
+            _download_cancel_events.pop(download_key, None)
 
 
 @router.get("/huggingface/download/progress")
