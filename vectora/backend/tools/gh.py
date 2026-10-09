@@ -50,6 +50,14 @@ async def _gh_run(
     if user_id:
         # Nunca permita que uma credencial global seja usada em nome de outro
         # usuário. O contexto autenticado deve ser explícito ou anônimo.
+        # Em GitHub Actions, porém, GH_TOKEN é a credencial nativa do job e
+        # não representa outro usuário Vectora. Preserve-a para que o gh CLI
+        # consiga operar no mesmo contrato autenticado dos demais caminhos.
+        native_ci_token = (
+            env.get("GH_TOKEN", "").strip() if env.get("CI") == "true" else ""
+        )
+        if not native_ci_token and env.get("CI") == "true":
+            native_ci_token = env.get("GITHUB_TOKEN", "").strip()
         env.pop("GH_TOKEN", None)
         env.pop("GITHUB_TOKEN", None)
         try:
@@ -59,6 +67,9 @@ async def _gh_run(
             if token:
                 env["GH_TOKEN"] = token
                 env["GITHUB_TOKEN"] = token
+            elif native_ci_token:
+                env["GH_TOKEN"] = native_ci_token
+                env["GITHUB_TOKEN"] = native_ci_token
         except Exception:
             logger.debug(
                 "gh: não foi possível carregar o token do usuário", exc_info=True
