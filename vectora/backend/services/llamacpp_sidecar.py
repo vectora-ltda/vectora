@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import json
 import logging
 import os
+import re
 import time
 from pathlib import Path
 
@@ -15,6 +17,11 @@ logger = logging.getLogger(__name__)
 _process: asyncio.subprocess.Process | None = None
 _lifecycle_lock = asyncio.Lock()
 _process_spec: tuple[str, str, str, int] | None = None
+_process_options: (
+    tuple[str | None, str | None, int | None, int | None, int | None, int | None, bool]
+    | None
+) = None
+_process_started_at: float | None = None
 
 
 def _state_path() -> Path:
@@ -22,7 +29,31 @@ def _state_path() -> Path:
     return root / "llamacpp-sidecar.json"
 
 
-async def _write_state(process: asyncio.subprocess.Process) -> None:
+def _process_creation_time(pid: int) -> float | None:
+    """Obtém a criação do processo quando o sistema a expõe via procfs."""
+    stat_path = Path(f"/proc/{pid}/stat")
+    boot_path = Path("/proc/stat")
+    if not stat_path.is_file() or not boot_path.is_file():
+        return None
+    try:
+        fields = stat_path.read_text(encoding="utf-8").split()
+        start_ticks = int(fields[21])
+        boot_time = next(
+            float(line.split()[1])
+            for line in boot_path.read_text(encoding="utf-8").splitlines()
+            if line.startswith("btime ")
+        )
+        clock_ticks = ctypes.CDLL(None).sysconf(2)
+        if clock_ticks <= 0:
+            return None
+        return boot_time + start_ticks / clock_ticks
+    except (OSError, IndexError, StopIteration, ValueError):
+        return None
+
+
+async def _write_state(
+    process: asyncio.subprocess.Process, started_at: float | None = None
+) -> None:
     path = _state_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -31,7 +62,14 @@ async def _write_state(process: asyncio.subprocess.Process) -> None:
         "model": _process_spec[1] if _process_spec else None,
         "host": _process_spec[2] if _process_spec else None,
         "port": _process_spec[3] if _process_spec else None,
-        "started_at": time.time(),
+        "alias": _process_options[0] if _process_options else None,
+        "mmproj": _process_options[1] if _process_options else None,
+        "ctx_size": _process_options[2] if _process_options else None,
+        "n_gpu_layers": _process_options[3] if _process_options else None,
+        "threads": _process_options[4] if _process_options else None,
+        "parallel": _process_options[5] if _process_options else None,
+        "jinja": _process_options[6] if _process_options else False,
+        "started_at": started_at if started_at is not None else time.time(),
     }
     temporary = path.with_suffix(".tmp")
     await asyncio.to_thread(
@@ -48,6 +86,12 @@ def _readiness_url(host: str, port: int) -> str:
     """Monta a URL de readiness preservando a sintaxe de hosts IPv6."""
     url_host = f"[{host}]" if ":" in host else host
     return f"http://{url_host}:{port}/v1/models"
+
+
+def _health_url(host: str, port: int) -> str:
+    """Monta a URL de saúde usada antes de consultar o catálogo OpenAI."""
+    url_host = f"[{host}]" if ":" in host else host
+    return f"http://{url_host}:{port}/health"
 
 
 def llamacpp_status() -> dict[str, int | bool | str | None]:
@@ -68,6 +112,15 @@ def llamacpp_status() -> dict[str, int | bool | str | None]:
             os.kill(persisted_pid, 0)
         except OSError:
             stale = True
+        persisted_started = persisted.get("started_at") if persisted else None
+        actual_started = _process_creation_time(persisted_pid)
+        if (
+            not stale
+            and isinstance(persisted_started, (int, float))
+            and actual_started is not None
+            and abs(actual_started - float(persisted_started)) > 2
+        ):
+            stale = True
     return {
         "running": running,
         "pid": process.pid if running and process else None,
@@ -86,10 +139,41 @@ async def start_llamacpp(
     *,
     host: str = "127.0.0.1",
     port: int = 8080,
+    alias: str | None = None,
+    mmproj: str | Path | None = None,
+    ctx_size: int | None = None,
+    n_gpu_layers: int | None = None,
+    threads: int | None = None,
+    parallel: int | None = None,
+    jinja: bool = False,
 ) -> asyncio.subprocess.Process:
     """Start llama-server with a local model and wait for its OpenAI endpoint."""
-    global _process, _process_spec
+    global _process, _process_spec, _process_options, _process_started_at
     async with _lifecycle_lock:
+        if alias is not None and not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._:-]{0,99}", alias
+        ):
+            raise ValueError("alias inválido")
+        if ctx_size is not None and not 1 <= ctx_size <= 1_000_000:
+            raise ValueError("ctx_size inválido")
+        if n_gpu_layers is not None and not -1 <= n_gpu_layers <= 1000:
+            raise ValueError("n_gpu_layers inválido")
+        if threads is not None and not 1 <= threads <= 1024:
+            raise ValueError("threads inválido")
+        if parallel is not None and not 1 <= parallel <= 256:
+            raise ValueError("parallel inválido")
+        mmproj_path = Path(mmproj).expanduser().resolve() if mmproj else None
+        if mmproj_path is not None and not mmproj_path.is_file():
+            raise FileNotFoundError("mmproj não encontrado")
+        options = (
+            alias,
+            str(mmproj_path) if mmproj_path else None,
+            ctx_size,
+            n_gpu_layers,
+            threads,
+            parallel,
+            jinja,
+        )
         if _process is not None and _process.returncode is None:
             requested = (
                 str(Path(executable).expanduser().resolve()),
@@ -97,7 +181,7 @@ async def start_llamacpp(
                 host,
                 port,
             )
-            if _process_spec != requested:
+            if _process_spec != requested or _process_options != options:
                 raise RuntimeError("já existe um sidecar com outra configuração")
             return _process
         executable_path = Path(executable).expanduser().resolve()
@@ -107,7 +191,9 @@ async def start_llamacpp(
         if host not in {"127.0.0.1", "localhost", "::1"}:
             raise ValueError("o sidecar deve escutar apenas no loopback")
         _process_spec = (str(executable_path), str(model_path), host, port)
-        _process = await asyncio.create_subprocess_exec(
+        _process_options = options
+        _process_started_at = time.time()
+        command = [
             str(executable_path),
             "-m",
             str(model_path),
@@ -115,17 +201,39 @@ async def start_llamacpp(
             host,
             "--port",
             str(port),
+        ]
+        if alias:
+            command.extend(["--alias", alias])
+        if mmproj_path:
+            command.extend(["--mmproj", str(mmproj_path)])
+        if ctx_size is not None:
+            command.extend(["--ctx-size", str(ctx_size)])
+        if n_gpu_layers is not None:
+            command.extend(["--n-gpu-layers", str(n_gpu_layers)])
+        if threads is not None:
+            command.extend(["--threads", str(threads)])
+        if parallel is not None:
+            command.extend(["--parallel", str(parallel)])
+        if jinja:
+            command.append("--jinja")
+        _process = await asyncio.create_subprocess_exec(
+            *command,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.STDOUT,
         )
         try:
             async with httpx.AsyncClient(timeout=1.0) as client:
+                health_ready = False
                 for _ in range(30):
                     try:
-                        response = await client.get(_readiness_url(host, port))
-                        if response.is_success:
-                            await _write_state(_process)
-                            return _process
+                        if not health_ready:
+                            health = await client.get(_health_url(host, port))
+                            health_ready = health.is_success
+                        if health_ready:
+                            response = await client.get(_readiness_url(host, port))
+                            if response.is_success:
+                                await _write_state(_process, _process_started_at)
+                                return _process
                     except httpx.HTTPError:
                         pass
                     await asyncio.sleep(0.25)
@@ -144,9 +252,11 @@ async def stop_llamacpp() -> None:
 
 async def _stop_process() -> None:
     """Encerra o único processo cujo handle pertence a este módulo."""
-    global _process, _process_spec
+    global _process, _process_spec, _process_options, _process_started_at
     process, _process = _process, None
     _process_spec = None
+    _process_options = None
+    _process_started_at = None
     await _clear_state()
     if process is None or process.returncode is not None:
         return

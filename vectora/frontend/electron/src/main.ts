@@ -358,6 +358,11 @@ async function forwardToBackend(request: Request): Promise<Response> {
     if (!_HOP_BY_HOP.has(key.toLowerCase())) headers[key] = value;
   });
 
+  // Operações que executam binários ou gravam pesos são aceitas pelo backend
+  // apenas quando vieram do processo Electron que abriu a sessão local.
+  // O renderer nunca precisa conhecer esse segredo efêmero.
+  headers["x-vectora-desktop-bridge"] = desktopBridgeToken;
+
   // Injeta cookies do store in-memory no header Cookie. Necessário porque
   // Chromium não inclui automaticamente cookies de session.defaultSession
   // nas requests interceptadas por protocol.handle para schemes customizados.

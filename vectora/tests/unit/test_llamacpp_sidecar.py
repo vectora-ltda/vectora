@@ -6,6 +6,7 @@ from typing import cast
 import pytest
 
 from backend.services.llamacpp_sidecar import (
+    _health_url,
     _readiness_url,
     llamacpp_status,
     start_llamacpp,
@@ -21,6 +22,11 @@ def test_llamacpp_status_is_stopped_by_default() -> None:
 def test_readiness_url_brackets_ipv6_hosts() -> None:
     assert _readiness_url("::1", 8080) == "http://[::1]:8080/v1/models"
     assert _readiness_url("127.0.0.1", 8080) == "http://127.0.0.1:8080/v1/models"
+
+
+def test_health_url_brackets_ipv6_hosts() -> None:
+    assert _health_url("::1", 8080) == "http://[::1]:8080/health"
+    assert _health_url("127.0.0.1", 8080) == "http://127.0.0.1:8080/health"
 
 
 @pytest.mark.asyncio

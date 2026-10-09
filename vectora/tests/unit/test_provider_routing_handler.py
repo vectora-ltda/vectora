@@ -13,6 +13,8 @@ Valida:
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import zipfile
 from collections.abc import Callable, Iterator
@@ -213,6 +215,16 @@ class TestOllamaDiscovery:
 
 
 class TestOllamaRegisteredModels:
+    def test_registered_model_mutation_requires_authentication(
+        self, client, monkeypatch
+    ):
+        monkeypatch.setenv("VECTORA_AUTH_REQUIRED", "true")
+        response = client.post(
+            "/provider-routing/ollama/registered", json={"tag": "unauthorized"}
+        )
+        assert response.status_code == 401
+        monkeypatch.setenv("VECTORA_AUTH_REQUIRED", "false")
+
     def test_register_list_and_delete(self, client):
         create = client.post(
             "/provider-routing/ollama/registered", json={"tag": "qwen3:8b"}
@@ -323,6 +335,42 @@ class TestLlamaCppAndHuggingFace:
         response = client.get("/provider-routing/huggingface/models/not-a-repo")
         assert response.status_code == 400
 
+    def test_huggingface_metadata_exposes_compatibility_fields(self, client):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {
+            "id": "org/model-GGUF",
+            "sha": "abc123",
+            "library_name": "transformers",
+            "cardData": {"license": "apache-2.0", "context_length": 8192},
+            "tags": ["gguf", "q4_k_m"],
+            "siblings": [],
+        }
+        with patch("httpx.AsyncClient") as mock_httpx:
+            mock_ctx = AsyncMock()
+            mock_ctx.__aenter__ = AsyncMock(return_value=mock_ctx)
+            mock_ctx.__aexit__ = AsyncMock(return_value=False)
+            mock_ctx.get = AsyncMock(return_value=mock_response)
+            mock_httpx.return_value = mock_ctx
+
+            response = client.get("/provider-routing/huggingface/models/org/model-GGUF")
+
+        assert response.status_code == 200
+        assert response.json()["architecture"] == "transformers"
+        assert response.json()["quantization"] == "q4_k_m"
+        assert response.json()["context_length"] == 8192
+
+    def test_local_executor_requires_desktop_bridge_token(self, monkeypatch):
+        from fastapi import HTTPException
+
+        from backend.api.handlers.provider_routing import _require_desktop_bridge
+
+        monkeypatch.setenv("VECTORA_AUTH_REQUIRED", "false")
+        monkeypatch.setenv("VECTORA_DESKTOP_BRIDGE_TOKEN", "bridge-token")
+        with pytest.raises(HTTPException) as error:
+            _require_desktop_bridge(None)
+        assert error.value.status_code == 403
+
     def test_huggingface_download_rejects_path_traversal(self, client):
         response = client.post(
             "/provider-routing/huggingface/download",
@@ -348,6 +396,155 @@ class TestLlamaCppAndHuggingFace:
             params={"repo_id": "org/model", "filename": "../model.gguf"},
         )
         assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_huggingface_cancel_waits_for_download_lock_before_removing_partial(
+        self, tmp_path, monkeypatch
+    ):
+        from backend.api.handlers import provider_routing as provider_mod
+        from backend.api.handlers.provider_routing import cancel_huggingface_download
+        from backend.settings import settings
+
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        partial = (
+            tmp_path / "models" / "huggingface" / "org" / "model" / "weights.gguf.part"
+        )
+        partial.parent.mkdir(parents=True)
+        partial.write_bytes(b"partial")
+        key = "org/model/revision-1/weights.gguf"
+        lock = await provider_mod._download_lock(key)
+        await lock.acquire()
+        event = asyncio.Event()
+        provider_mod._download_cancel_events[key] = event
+        try:
+            result_task = asyncio.create_task(
+                cancel_huggingface_download(
+                    "org/model", "weights.gguf", None, revision="revision-1"
+                )
+            )
+            await asyncio.sleep(0)
+            assert event.is_set()
+            assert not result_task.done()
+            lock.release()
+            result = await result_task
+        finally:
+            if lock.locked():
+                lock.release()
+            provider_mod._download_cancel_events.pop(key, None)
+        assert result == {"ok": True, "status": "cancelled"}
+        assert not partial.exists()
+
+    @pytest.mark.asyncio
+    async def test_huggingface_install_writes_manifest_for_selected_files(
+        self, tmp_path, monkeypatch
+    ):
+        from backend.api.handlers.provider_routing import (
+            HuggingFaceInstallRequest,
+            install_huggingface_model,
+        )
+        from backend.settings import settings
+
+        root = tmp_path / "models" / "huggingface" / "org" / "model"
+        root.mkdir(parents=True)
+        (root / "model.Q4_K_M.gguf").write_bytes(b"weights")
+        (root / "mmproj-f16.gguf").write_bytes(b"projector")
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+
+        result = await install_huggingface_model(
+            HuggingFaceInstallRequest(
+                repo_id="org/model",
+                revision="abc123",
+                filename="model.Q4_K_M.gguf",
+                mmproj_filename="mmproj-f16.gguf",
+                alias="local-model",
+                parameters={"ctx_size": 4096},
+            ),
+            None,
+        )
+
+        assert result["status"] == "installed"
+        manifest = result["manifest"]
+        assert isinstance(manifest, dict)
+        assert manifest["revision"] == "abc123"
+        assert manifest["alias"] == "local-model"
+        assert [item["role"] for item in manifest["files"]] == [
+            "model",
+            "mmproj",
+        ]
+        assert (root / "model-manifest.json").is_file()
+
+    @pytest.mark.asyncio
+    async def test_huggingface_start_uses_active_managed_runtime(
+        self, tmp_path, monkeypatch
+    ):
+        from backend.api.handlers.provider_routing import (
+            HuggingFaceStartRequest,
+            start_installed_huggingface_model,
+        )
+        from backend.settings import settings
+
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        model_root = tmp_path / "models" / "huggingface" / "org" / "model"
+        model_root.mkdir(parents=True)
+        model_path = model_root / "weights.gguf"
+        model_path.write_bytes(b"weights")
+        runtime_root = tmp_path / "tools" / "llama.cpp"
+        runtime_dir = runtime_root / "versions" / "0123456789abcdef"
+        runtime_dir.mkdir(parents=True)
+        executable = runtime_dir / "llama-server"
+        executable.write_bytes(b"server")
+        (runtime_root / "active-runtime").write_text(
+            "0123456789abcdef", encoding="utf-8"
+        )
+        (runtime_root / "runtime-manifest.json").write_text(
+            json.dumps(
+                {
+                    "runtimes": [
+                        {
+                            "id": "0123456789abcdef",
+                            "directory": str(runtime_dir),
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        (model_root / "model-manifest.json").write_text(
+            json.dumps({"files": [{"filename": "weights.gguf", "role": "model"}]}),
+            encoding="utf-8",
+        )
+        started: dict[str, object] = {}
+
+        async def fake_start(executable_arg, model_arg, **options):
+            started.update(
+                executable=str(executable_arg),
+                model=str(model_arg),
+                **options,
+            )
+
+        monkeypatch.setattr(
+            "backend.services.llamacpp_sidecar.start_llamacpp", fake_start
+        )
+        result = await start_installed_huggingface_model(
+            HuggingFaceStartRequest(repo_id="org/model"), None
+        )
+
+        assert result["running"] is True
+        assert started == {
+            "executable": str(executable),
+            "model": str(model_path),
+            "host": "127.0.0.1",
+            "port": 8080,
+            "alias": None,
+            "mmproj": None,
+            "ctx_size": None,
+            "n_gpu_layers": None,
+            "threads": None,
+            "parallel": None,
+            "jinja": False,
+        }
+        assert result["confirmed"] is True
+        assert result["model_tag"] == "weights.gguf"
 
     def test_llamacpp_install_rejects_non_official_url(self, client):
         response = client.post(
@@ -1102,6 +1299,31 @@ class TestNineRouterRegisteredModels:
 
 
 class TestLlamaCppConfiguration:
+    def test_managed_mode_requires_ready_sidecar(self, client, monkeypatch):
+        monkeypatch.delenv("LLAMACPP_MODE", raising=False)
+        monkeypatch.setattr(
+            "backend.services.llamacpp_sidecar.llamacpp_status",
+            lambda: {"running": False},
+        )
+        response = client.post(
+            "/provider-routing/llamacpp/mode", json={"mode": "managed"}
+        )
+        assert response.status_code == 409
+
+    def test_external_mode_is_persisted_without_copying_credentials(
+        self, client, clean_llamacpp_config, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "backend.api.handlers.provider_routing._env_file",
+            lambda: tmp_path / ".env",
+        )
+        response = client.post(
+            "/provider-routing/llamacpp/mode", json={"mode": "external"}
+        )
+        assert response.status_code == 200
+        assert response.json()["mode"] == "external"
+        assert "LLAMACPP_MODE=external" in (tmp_path / ".env").read_text()
+
     def test_config_syncs_model_environment(self, client, clean_llamacpp_config):
         response = client.post(
             "/provider-routing/llamacpp/config",
@@ -1197,6 +1419,52 @@ class TestLlamaCppConfiguration:
         result = await remove_llamacpp_runtime_version("fedcba9876543210", None)
         assert result == {"ok": True}
         assert not version.exists()
+
+    @pytest.mark.asyncio
+    async def test_runtime_cleanup_retains_active_and_newest_inactive_versions(
+        self, tmp_path, monkeypatch
+    ):
+        from backend.api.handlers.provider_routing import (
+            LlamaCppRetentionRequest,
+            cleanup_llamacpp_runtime_versions,
+        )
+        from backend.settings import settings
+
+        root = tmp_path / "tools" / "llama.cpp"
+        versions = root / "versions"
+        versions.mkdir(parents=True)
+        active = "0123456789abcdef"
+        newest = "fedcba9876543210"
+        oldest = "0011223344556677"
+        (root / "active-runtime").write_text(active, encoding="utf-8")
+        for runtime_id in (active, newest, oldest):
+            (versions / runtime_id).mkdir()
+        (root / "runtime-manifest.json").write_text(
+            json.dumps(
+                {
+                    "runtimes": [
+                        {"id": active, "installed_at": "2026-01-01T00:00:00+00:00"},
+                        {"id": newest, "installed_at": "2026-02-01T00:00:00+00:00"},
+                        {"id": oldest, "installed_at": "2026-01-01T00:00:00+00:00"},
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        monkeypatch.setattr(
+            "backend.services.llamacpp_sidecar.llamacpp_status",
+            lambda: {"running": False},
+        )
+
+        result = await cleanup_llamacpp_runtime_versions(
+            LlamaCppRetentionRequest(keep=1), None
+        )
+
+        assert result["removed"] == [oldest]
+        assert (versions / active).exists()
+        assert (versions / newest).exists()
+        assert not (versions / oldest).exists()
 
     @pytest.mark.asyncio
     async def test_runtime_validation_requires_llama_server(self):
