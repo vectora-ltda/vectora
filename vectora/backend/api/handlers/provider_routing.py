@@ -873,14 +873,18 @@ async def get_llamacpp_sidecar_status() -> dict[str, int | bool | str | None]:
 @router.get("/dmr/status")
 async def get_dmr_status() -> dict[str, object]:
     """Detecta Docker Model Runner e o contrato HTTP disponível no host local."""
-    from backend.services.docker_model_runner import docker_model_available, probe_dmr
+    from backend.services.docker_model_runner import (
+        DEFAULT_DMR_BASE_URL,
+        docker_model_available,
+        probe_dmr,
+    )
 
     cli_available, cli_detail = await docker_model_available()
-    base_url = settings.dmr_base_url
-    probe = await probe_dmr(base_url) if base_url else None
+    base_url = settings.dmr_base_url or DEFAULT_DMR_BASE_URL
+    probe = await probe_dmr(base_url)
     return {
-        "configured": bool(base_url),
-        "base_url": base_url or "http://127.0.0.1:12434",
+        "configured": bool(settings.dmr_base_url),
+        "base_url": base_url,
         "model": settings.dmr_model or "",
         "cli_available": cli_available,
         "cli_detail": cli_detail,
@@ -954,6 +958,9 @@ async def prepare_dmr_model(
     except (OSError, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     object.__setattr__(settings, "dmr_model", reference)
+    env_file = _env_file()
+    _set_env_key(env_file, "DMR_MODEL", reference)
+    os.environ["DMR_MODEL"] = reference
     return {"status": "prepared", "reference": reference, "output": output[-2000:]}
 
 
@@ -1002,6 +1009,9 @@ async def remove_dmr_model(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     if settings.dmr_model == value:
         object.__setattr__(settings, "dmr_model", None)
+        env_file = _env_file()
+        _remove_env_key(env_file, "DMR_MODEL")
+        os.environ.pop("DMR_MODEL", None)
     return {"status": "removed", "reference": value, "output": output[-2000:]}
 
 
