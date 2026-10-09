@@ -498,6 +498,11 @@ class TestLlamaCppAndHuggingFace:
                 mmproj_filename="mmproj-f16.gguf",
                 alias="local-model",
                 parameters={"ctx_size": 4096},
+                license="apache-2.0",
+                architecture="llama",
+                quantization="Q4_K_M",
+                context_length=8192,
+                compatibility="provável",
             ),
             None,
         )
@@ -507,6 +512,12 @@ class TestLlamaCppAndHuggingFace:
         assert isinstance(manifest, dict)
         assert manifest["revision"] == "abc123"
         assert manifest["alias"] == "local-model"
+        assert manifest["publisher"] == "org"
+        assert manifest["license"] == "apache-2.0"
+        assert manifest["architecture"] == "llama"
+        assert manifest["quantization"] == "Q4_K_M"
+        assert manifest["context_length"] == 8192
+        assert manifest["compatibility"] == "provável"
         assert [item["role"] for item in manifest["files"]] == [
             "model",
             "mmproj",

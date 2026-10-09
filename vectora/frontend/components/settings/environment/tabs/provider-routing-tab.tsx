@@ -405,6 +405,11 @@ async function installHuggingFaceModel(input: {
   mmprojFilename?: string;
   alias: string;
   provider: "ollama" | "llamacpp";
+  license?: string | null;
+  architecture?: string;
+  quantization?: string;
+  contextLength?: number | string | null;
+  compatibility?: string;
 }): Promise<void> {
   const response = await fetch("/provider-routing/huggingface/install", {
     method: "POST",
@@ -416,6 +421,11 @@ async function installHuggingFaceModel(input: {
       mmproj_filename: input.mmprojFilename,
       alias: input.alias,
       provider: input.provider,
+      license: input.license,
+      architecture: input.architecture,
+      quantization: input.quantization,
+      context_length: input.contextLength,
+      compatibility: input.compatibility,
     }),
   });
   if (!response.ok) throw new Error(`Erro ${response.status}`);
@@ -601,6 +611,11 @@ function HuggingFaceCatalogSection() {
         mmprojFilename: selectedMmproj || undefined,
         alias: alias.trim(),
         provider,
+        license: metadata.license,
+        architecture: metadata.architecture,
+        quantization: metadata.quantization,
+        contextLength: metadata.context_length,
+        compatibility: metadata.compatibility,
       });
       setDownloaded(alias.trim());
       setDownloadPercent(100);

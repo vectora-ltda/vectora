@@ -59,7 +59,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal, ParamSpec, TypeVar
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.api.handlers.admin import require_admin
 from backend.settings import CapabilityState, settings
@@ -246,7 +246,12 @@ class HuggingFaceInstallRequest(BaseModel):
     mmproj_filename: str | None = None
     alias: str | None = None
     provider: Literal["ollama", "llamacpp"] = "llamacpp"
-    parameters: dict[str, str | int | float | bool | None] = {}
+    parameters: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
+    license: str | None = None
+    architecture: str | None = None
+    quantization: str | None = None
+    context_length: int | str | None = None
+    compatibility: str | None = None
 
 
 class HuggingFaceStartRequest(BaseModel):
@@ -1722,8 +1727,14 @@ async def install_huggingface_model(
         )
     manifest = {
         "repo_id": repo_id,
+        "publisher": repo_id.split("/", 1)[0],
         "revision": revision,
         "alias": body.alias.strip() if body.alias else filename,
+        "license": body.license,
+        "architecture": body.architecture,
+        "quantization": body.quantization,
+        "context_length": body.context_length,
+        "compatibility": body.compatibility or "não verificada",
         "parameters": body.parameters,
         "files": files,
         "created_at": datetime.now(UTC).isoformat(),
