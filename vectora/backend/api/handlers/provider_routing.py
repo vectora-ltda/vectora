@@ -934,15 +934,19 @@ async def get_dmr_status() -> dict[str, object]:
         manifest = await _read_json_file_async(_dmr_manifest_path())
     except (FileNotFoundError, json.JSONDecodeError):
         manifest = {}
-    managed_models = (
-        [
+    raw_models = manifest.get("models", []) if isinstance(manifest, dict) else []
+    if isinstance(raw_models, dict):
+        managed_models = [
+            str(reference) for reference in raw_models if isinstance(reference, str)
+        ]
+    elif isinstance(raw_models, list):
+        managed_models = [
             str(item["reference"])
-            for item in manifest.get("models", [])
+            for item in raw_models
             if isinstance(item, dict) and isinstance(item.get("reference"), str)
         ]
-        if isinstance(manifest, dict)
-        else []
-    )
+    else:
+        managed_models = []
     cli_detail_lower = (cli_detail or "").lower()
     if probe.reachable:
         state = "ready"
@@ -985,6 +989,45 @@ async def get_dmr_status() -> dict[str, object]:
         "models": list(probe.models) if probe else [],
         "managed_models": managed_models,
         "detail": probe.detail if probe else "endpoint ainda não configurado",
+    }
+
+
+@router.get("/dmr/http-status", dependencies=[DesktopBridge])
+async def get_dmr_http_status() -> dict[str, object]:
+    """Sonda somente o endpoint HTTP do DMR, sem executar comandos Docker.
+
+    A UI Electron usa este contrato junto da detecção feita pela bridge nativa;
+    assim o backend não precisa possuir nem iniciar o CLI Docker para atualizar
+    o estado do provider.
+    """
+    from backend.services.docker_model_runner import DEFAULT_DMR_BASE_URL, probe_dmr
+
+    base_url = settings.dmr_base_url or DEFAULT_DMR_BASE_URL
+    probe = await probe_dmr(base_url)
+    try:
+        manifest = await _read_json_file_async(_dmr_manifest_path())
+    except (FileNotFoundError, json.JSONDecodeError):
+        manifest = {}
+    raw_models = manifest.get("models", []) if isinstance(manifest, dict) else []
+    if isinstance(raw_models, dict):
+        managed_models = [str(reference) for reference in raw_models]
+    elif isinstance(raw_models, list):
+        managed_models = [
+            str(item["reference"])
+            for item in raw_models
+            if isinstance(item, dict) and isinstance(item.get("reference"), str)
+        ]
+    else:
+        managed_models = []
+    return {
+        "configured": bool(settings.dmr_base_url),
+        "base_url": base_url,
+        "model": settings.dmr_model or "",
+        "reachable": probe.reachable,
+        "contract": probe.contract,
+        "models": list(probe.models),
+        "managed_models": managed_models,
+        "detail": probe.detail,
     }
 
 

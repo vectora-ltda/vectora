@@ -160,6 +160,32 @@ async def test_provider_status_probes_default_endpoint_without_saved_config(
 
 
 @pytest.mark.asyncio
+async def test_provider_http_status_does_not_require_docker_cli(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.api.handlers import provider_routing
+    from backend.settings import settings
+
+    async def fake_probe(*args: object, **kwargs: object) -> dmr.DmrProbe:
+        return dmr.DmrProbe(True, "openai", ("hf.co/Qwen/Qwen3-0.6B",))
+
+    monkeypatch.setattr(settings, "dmr_base_url", None)
+    monkeypatch.setattr(settings, "dmr_model", None)
+    monkeypatch.setattr("backend.services.docker_model_runner.probe_dmr", fake_probe)
+    monkeypatch.setattr(
+        provider_routing,
+        "_read_json_file_async",
+        AsyncMock(return_value={"version": 1, "models": {}}),
+    )
+
+    status = await provider_routing.get_dmr_http_status()
+
+    assert status["reachable"] is True
+    assert status["contract"] == "openai"
+    assert status["models"] == ["hf.co/Qwen/Qwen3-0.6B"]
+
+
+@pytest.mark.asyncio
 async def test_provider_status_distinguishes_missing_model_runner_plugin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

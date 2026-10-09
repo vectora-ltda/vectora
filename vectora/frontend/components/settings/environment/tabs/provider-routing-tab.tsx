@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { m } from "@/lib/paraglide/messages";
+import type { VectoraDmrOperation } from "@/lib/types/vectora-bridge";
 
 interface OllamaModelInfo {
   name: string;
@@ -216,6 +217,48 @@ async function fetchLlamaCppRuntimeStatus(): Promise<LlamaCppRuntimeStatus> {
 }
 
 async function fetchDmrStatus(): Promise<DmrStatus> {
+  const bridge = window.vectora?.dmr;
+  if (bridge) {
+    const [detection, httpStatus, manifest] = await Promise.all([
+      bridge.detect(),
+      fetch("/provider-routing/dmr/http-status").then(async (response) => {
+        if (!response.ok) throw new Error(`Erro ${response.status}`);
+        return (await response.json()) as Partial<DmrStatus>;
+      }),
+      bridge.list(),
+    ]);
+    const state =
+      detection.status === "ready"
+        ? httpStatus.reachable
+          ? "ready"
+          : "stopped"
+        : detection.status === "plugin_unavailable"
+          ? "plugin_unavailable"
+          : "docker_unavailable";
+    const models = Object.keys(manifest.models);
+    return {
+      configured: httpStatus.configured ?? false,
+      base_url: httpStatus.base_url ?? "http://127.0.0.1:12434",
+      model: httpStatus.model ?? models[0] ?? "",
+      cli_available: detection.docker && detection.plugin,
+      reachable: httpStatus.reachable ?? false,
+      contract: httpStatus.contract ?? null,
+      models: httpStatus.models ?? models,
+      managed_models: httpStatus.managed_models ?? models,
+      detail: detection.detail ?? httpStatus.detail,
+      state,
+      platform: window.vectora?.platform ?? "unknown",
+      architecture: "unknown",
+      backend: Object.values(manifest.models)[0]?.engine ?? null,
+      capabilities: {
+        cpus: null,
+        memory_bytes: null,
+        runtimes: [],
+        gpu_backends: [],
+        warnings: [],
+      },
+    };
+  }
   const response = await fetch("/provider-routing/dmr/status");
   if (!response.ok) throw new Error(`Erro ${response.status}`);
   return (await response.json()) as DmrStatus;
@@ -246,15 +289,23 @@ async function prepareDmrModel(reference: string): Promise<DmrStatus> {
 
 async function createDmrModelJob(
   reference: string,
-  operation: "prepare" | "start" = "start",
+  operationKind: "prepare" | "start" = "start",
   contextSize?: number,
 ): Promise<DmrJob> {
+  const bridge = window.vectora?.dmr;
+  if (bridge) {
+    const operation =
+      operationKind === "prepare"
+        ? await bridge.prepare(reference)
+        : await bridge.start(reference, contextSize);
+    return dmrOperationToJob(operation);
+  }
   const response = await fetch("/provider-routing/dmr/models/jobs", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       reference,
-      operation,
+      operation: operationKind,
       ...(contextSize === undefined ? {} : { context_size: contextSize }),
     }),
   });
@@ -262,7 +313,30 @@ async function createDmrModelJob(
   return (await response.json()) as DmrJob;
 }
 
+function dmrOperationToJob(operation: VectoraDmrOperation): DmrJob {
+  const phase: DmrJob["phase"] =
+    operation.phase === "stopping" || operation.phase === "removing"
+      ? "checking"
+      : operation.phase;
+  return {
+    id: operation.id,
+    operation: operation.operation === "prepare" ? "prepare" : "start",
+    reference: operation.reference,
+    progress: operation.progress,
+    phase,
+    status: operation.status,
+    output: operation.output,
+    error: operation.error,
+  };
+}
+
 async function fetchDmrModelJob(jobId: string): Promise<DmrJob> {
+  const bridge = window.vectora?.dmr;
+  if (bridge) {
+    const operation = await bridge.getOperation(jobId);
+    if (!operation) throw new Error("operação DMR não encontrada");
+    return dmrOperationToJob(operation);
+  }
   const response = await fetch(`/provider-routing/dmr/models/jobs/${jobId}`);
   if (!response.ok) throw new Error(`Erro ${response.status}`);
   return (await response.json()) as DmrJob;
@@ -287,6 +361,13 @@ async function retryDmrModelJob(jobId: string): Promise<DmrJob> {
 }
 
 async function cancelDmrModelJob(jobId: string): Promise<DmrJob> {
+  const bridge = window.vectora?.dmr;
+  if (bridge) {
+    await bridge.cancel(jobId);
+    const operation = await bridge.getOperation(jobId);
+    if (!operation) throw new Error("operação DMR não encontrada");
+    return dmrOperationToJob(operation);
+  }
   const response = await fetch(`/provider-routing/dmr/models/jobs/${jobId}`, {
     method: "DELETE",
   });
@@ -295,6 +376,11 @@ async function cancelDmrModelJob(jobId: string): Promise<DmrJob> {
 }
 
 async function stopDmrModel(reference: string): Promise<DmrStatus> {
+  const bridge = window.vectora?.dmr;
+  if (bridge) {
+    await bridge.stop(reference);
+    return fetchDmrStatus();
+  }
   const response = await fetch("/provider-routing/dmr/models/stop", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -305,6 +391,11 @@ async function stopDmrModel(reference: string): Promise<DmrStatus> {
 }
 
 async function removeDmrModel(reference: string): Promise<DmrStatus> {
+  const bridge = window.vectora?.dmr;
+  if (bridge) {
+    await bridge.remove(reference, true);
+    return fetchDmrStatus();
+  }
   const response = await fetch(
     `/provider-routing/dmr/models/${encodeURIComponent(reference)}?confirm=true`,
     { method: "DELETE" },
