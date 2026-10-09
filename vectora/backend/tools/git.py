@@ -43,15 +43,15 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_workspace(workspace_id: str | None, ctx: ToolContext) -> Any:
-    """Resolve workspace → Workspace (mesmo padrão de workspace.py)."""
+    """Resolve a workspace while binding explicit legacy IDs to the caller."""
     from backend.workspace.workspace import workspace_registry
 
     wid = workspace_id or ctx.workspace_id or None
     if wid:
-        ws = workspace_registry.get(wid)
+        ws = workspace_registry.claim_if_unowned(wid, ctx.user_id)
         if ws is not None:
             owner_id = getattr(ws, "owner_id", None)
-            if owner_id is None or owner_id == ctx.user_id:
+            if owner_id == ctx.user_id:
                 return ws
             return None
         return None
