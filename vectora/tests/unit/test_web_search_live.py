@@ -113,6 +113,14 @@ async def test_fetch_url_pagina_real():
     assert not content.startswith("Error:")
 
 
+async def test_fetch_url_github_publico_real():
+    """A URL pública do GitHub deve ser legível mesmo sem depender do Tavily."""
+    content = await fetch_url(url="https://github.com/vectora-ltda/vectora/issues/317")
+    assert content.strip()
+    assert not content.startswith("Error:")
+    assert "vectora" in content.lower()
+
+
 async def test_fetch_url_url_invalida_sem_lancar():
     # Borda: URL sem esquema não bate rede nenhuma — validação local, mas
     # ainda cobre o contrato "nunca lança, sempre devolve string de erro".

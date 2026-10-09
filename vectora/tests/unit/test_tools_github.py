@@ -26,13 +26,42 @@ def _mock_httpx(response: MagicMock):
 
 class TestGithubFetchPrDiff:
     @pytest.mark.asyncio
-    async def test_sem_token_retorna_erro(self, monkeypatch):
+    async def test_repositorio_publico_funciona_sem_token(self, monkeypatch):
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-        result = json.loads(
-            await github_fetch_pr_diff(owner="vectora", repo="vectora", pr_number=1)
+        mock_response = MagicMock(status_code=200, text="diff público")
+        client = _mock_httpx(mock_response)
+        with patch("httpx.AsyncClient", return_value=client):
+            result = json.loads(
+                await github_fetch_pr_diff(owner="vectora", repo="vectora", pr_number=1)
+            )
+        assert result == {"status": "ok", "diff": "diff público"}
+        assert "Authorization" not in client.get.call_args.kwargs["headers"]
+
+    @pytest.mark.asyncio
+    async def test_token_do_usuario_tem_precedencia(self, monkeypatch):
+        monkeypatch.setenv("GITHUB_TOKEN", "token-global")
+        mock_response = MagicMock(status_code=200, text="diff autenticado")
+        client = _mock_httpx(mock_response)
+        with (
+            patch("httpx.AsyncClient", return_value=client),
+            patch(
+                "backend.rbac.auth.get_env_overrides",
+                new=AsyncMock(return_value={"GITHUB_TOKEN": "token-do-usuario"}),
+            ),
+        ):
+            result = json.loads(
+                await github_fetch_pr_diff(
+                    owner="vectora",
+                    repo="vectora",
+                    pr_number=1,
+                    ctx=MagicMock(user_id="user-1"),
+                )
+            )
+        assert result["status"] == "ok"
+        assert (
+            client.get.call_args.kwargs["headers"]["Authorization"]
+            == "Bearer token-do-usuario"
         )
-        assert result["status"] == "error"
-        assert "GITHUB_TOKEN" in result["error"]
 
     @pytest.mark.asyncio
     async def test_sucesso_devolve_diff(self, monkeypatch):

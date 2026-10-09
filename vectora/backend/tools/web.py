@@ -17,8 +17,12 @@ import json
 import logging
 import time
 from typing import Any, Literal
+from urllib.parse import urljoin, urlparse
+
+import httpx
 
 from backend.settings import settings
+from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
 
 logger = logging.getLogger(__name__)
@@ -138,6 +142,55 @@ async def _fetch_via_fallback(url: str) -> str:
             "Error: TAVILY_API_KEY not configured and the Chromium fallback "
             "failed. Set TAVILY_API_KEY or run `playwright install chromium`."
         )
+
+
+async def _fetch_via_http(url: str, ctx: ToolContext | None = None) -> str:
+    """Busca uma URL diretamente quando o backend de extração falha."""
+    from backend.browser.ssrf_guard import is_url_ssrf_safe
+    from backend.services.prompt_injection import detect_injection, envelope_untrusted
+
+    headers = {
+        "User-Agent": "Vectora/1.0",
+        "Accept": "text/html,application/json,text/plain",
+    }
+    host = (urlparse(url).hostname or "").lower()
+    if host in {"github.com", "www.github.com", "api.github.com"} and ctx is not None:
+        try:
+            from backend.tools.github import _github_token
+
+            token = await _github_token(ctx)
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+        except Exception:
+            logger.debug("fetch_url: token GitHub indisponível", exc_info=True)
+
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+        response = await client.get(url, headers=headers)
+        if 300 <= response.status_code < 400:
+            location = response.headers.get("location")
+            if not location:
+                response.raise_for_status()
+            redirected = urljoin(url, location)
+            if not is_url_ssrf_safe(redirected):
+                raise ValueError("redirect recusado pelo SSRF guard")
+            response = await client.get(redirected, headers=headers)
+        response.raise_for_status()
+
+    content = response.text[:2_000_000]
+    if (pattern := detect_injection(content)) is not None:
+        logger.warning(
+            "fetch_url: padrão de prompt injection detectado (log-only)",
+            extra={"url": url, "pattern": pattern},
+        )
+    logger.info(
+        "fetch_url direct HTTP completed",
+        extra={
+            "url": url,
+            "content_length": len(content),
+            "status": response.status_code,
+        },
+    )
+    return envelope_untrusted(content, source=url)
 
 
 @vtool(
@@ -278,7 +331,7 @@ async def web_search(
         icon="link",
     )
 )
-async def fetch_url(url: str) -> str:
+async def fetch_url(url: str, ctx: ToolContext | None = None) -> str:
     """Busca e extrai conteúdo de texto de uma URL específica usando Tavily.
 
     Args:
@@ -314,7 +367,17 @@ async def fetch_url(url: str) -> str:
 
     try:
         client = _get_extract_tool()
-        results = await _invoke_backend(client, {"url": url})
+        try:
+            results = await _invoke_backend(client, {"url": url})
+        except AttributeError:
+            logger.warning(
+                "backend de busca não suporta extração; usando HTTP direto",
+                extra={
+                    "url": url,
+                    "backend": getattr(client, "name", type(client).__name__),
+                },
+            )
+            return await _fetch_via_http(url, ctx)
         if not results:
             logger.warning("fetch_url returned no content", extra={"url": url})
             if _tracer:
@@ -370,7 +433,10 @@ async def fetch_url(url: str) -> str:
             return await _fetch_via_fallback(url)
         if "no extracted results" in err.lower():
             return f"No content found at {url}"
-        return "Error occurred fetching URL. Please check logs."
+        return (
+            "Error occurred fetching URL. The configured extraction backend "
+            "failed; check its configuration or retry."
+        )
 
 
 @vtool(

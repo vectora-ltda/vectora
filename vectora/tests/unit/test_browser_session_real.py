@@ -85,6 +85,19 @@ async def test_get_browser_page_sobe_chromium_real_e_navega():
     assert page_again is page
 
 
+async def test_browser_navega_github_publico_real_sem_login():
+    """Chromium deve acessar a issue pública sem cookies do GitHub."""
+    page = await browser_session.get_browser_page("ws-github-public")
+    response = await page.goto(
+        "https://github.com/vectora-ltda/vectora/issues/317",
+        wait_until="domcontentloaded",
+        timeout=30_000,
+    )
+    assert response is not None
+    assert response.status == 200
+    assert "vectora" in (await page.title()).lower()
+
+
 @pytest.mark.asyncio
 async def test_close_browser_session_encerra_processo_real_e_recria_ao_reabrir():
     first_page = await browser_session.get_browser_page("ws-real-2")

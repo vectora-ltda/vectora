@@ -1346,17 +1346,21 @@ function SessionPage() {
                         : undefined,
                   },
                   center: { label: "Chat" },
-                  right: assistantWorkbenchVisible
-                    ? {
-                        kind: "workbench",
-                        label: m.layout_workbench_column(),
-                        visibility: "visible",
-                        width: splitSize + WORKBENCH_RAIL_WIDTH,
-                        minWidth:
-                          WORKBENCH_CONTENT_MIN_WIDTH + WORKBENCH_RAIL_WIDTH,
-                        maxWidth:
-                          WORKBENCH_CONTENT_MAX_WIDTH + WORKBENCH_RAIL_WIDTH,
-                        resize: {
+                  right: {
+                    kind: "workbench",
+                    label: m.layout_workbench_column(),
+                    visibility: "visible",
+                    width: workbenchOpen
+                      ? splitSize + WORKBENCH_RAIL_WIDTH
+                      : WORKBENCH_RAIL_WIDTH,
+                    minWidth: workbenchOpen
+                      ? WORKBENCH_CONTENT_MIN_WIDTH + WORKBENCH_RAIL_WIDTH
+                      : WORKBENCH_RAIL_WIDTH,
+                    maxWidth: workbenchOpen
+                      ? WORKBENCH_CONTENT_MAX_WIDTH + WORKBENCH_RAIL_WIDTH
+                      : WORKBENCH_RAIL_WIDTH,
+                    resize: workbenchOpen
+                      ? {
                           ariaLabel: m.resize_workbench(),
                           value: splitSize,
                           min: WORKBENCH_CONTENT_MIN_WIDTH,
@@ -1366,15 +1370,9 @@ function SessionPage() {
                           onPointerMove: onWorkbenchResizeMove,
                           onPointerUp: onWorkbenchResizeUp,
                           onPointerCancel: onWorkbenchResizeUp,
-                        },
-                      }
-                    : {
-                        kind: "workbench",
-                        label: m.layout_workbench_column(),
-                        visibility: "collapsed",
-                        onExpand: openWorkbench,
-                        expandLabel: m.layout_open_workbench(),
-                      },
+                        }
+                      : undefined,
+                  },
                 }}
               />
 
