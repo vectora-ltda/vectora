@@ -839,8 +839,8 @@ async def clear_llamacpp_config(
     return await get_llamacpp_status()
 
 
-@router.post("/llamacpp/mode")
-@router.post("/llama-cpp/mode", include_in_schema=False)
+@router.post("/llamacpp/mode", dependencies=[DesktopBridge])
+@router.post("/llama-cpp/mode", include_in_schema=False, dependencies=[DesktopBridge])
 async def set_llamacpp_mode(
     body: LlamaCppModeRequest,
     _: ProviderAdmin,
@@ -966,12 +966,24 @@ async def prepare_dmr_model(
 
 @router.post("/dmr/models/start", dependencies=[DesktopBridge])
 async def start_dmr_model(body: DmrModelRequest, _: ProviderAdmin) -> dict[str, object]:
-    """Prepara o modelo e só o registra depois de readiness HTTP."""
+    """Prepara, pré-carrega e valida o modelo antes de registrá-lo."""
     await prepare_dmr_model(body, None)
+    from backend.services.docker_model_runner import run_model, validate_model_reference
+
+    try:
+        reference = validate_model_reference(body.reference)
+        output = await run_model(reference)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     status = await get_dmr_status()
     if not status["reachable"]:
         raise HTTPException(status_code=503, detail="DMR não está pronto")
-    return {"status": "ready", "reference": body.reference, **status}
+    return {
+        "status": "ready",
+        "reference": reference,
+        "output": output[-2000:],
+        **status,
+    }
 
 
 @router.post("/dmr/models/stop", dependencies=[DesktopBridge])

@@ -140,6 +140,13 @@ async def prepare_model(reference: str) -> str:
     return await run_docker_model("pull", validate_model_reference(reference))
 
 
+async def run_model(reference: str) -> str:
+    """Pré-carrega um modelo no runner sem abrir um chat interativo."""
+    return await run_docker_model(
+        "run", "--detach", validate_model_reference(reference)
+    )
+
+
 async def stop_model(reference: str) -> str:
     """Solicita parada ao plugin, quando suportada pela versão instalada."""
     return await run_docker_model("stop", validate_model_reference(reference))
