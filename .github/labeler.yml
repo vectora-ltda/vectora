@@ -1,4 +1,3 @@
-appendOnly: true
 # Labels aplicadas com base no padrão Conventional Commits
 # https://www.conventionalcommits.org/en/v1.0.0/ e nos paths tocados pelo PR.
 # Usadas pelo changelog automático (release-please) pra categorizar cada
