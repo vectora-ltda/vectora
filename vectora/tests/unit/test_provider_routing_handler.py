@@ -466,7 +466,7 @@ class TestLlamaCppAndHuggingFace:
                         revision="main",
                         filename="weights.gguf",
                     ),
-                    cast(Request, DisconnectedRequest()),
+                    cast("Request", DisconnectedRequest()),
                     None,
                 )
         finally:
