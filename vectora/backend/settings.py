@@ -65,6 +65,7 @@ class Settings(BaseSettings):
         "cohere",
         "openrouter",
         "nine_router",
+        "llamacpp",
     ] = "google-genai"
     """Active LLM provider (auto-detected from API keys if not set)."""
 
@@ -114,6 +115,11 @@ class Settings(BaseSettings):
     nine_router_base_url: str | None = None
     nine_router_api_key: str | None = None
     nine_router_default_model: str | None = None
+
+    # llama.cpp (servidor local OpenAI-compatible)
+    llamacpp_base_url: str = "http://127.0.0.1:8080/v1"
+    llamacpp_api_key: str | None = None
+    llamacpp_model: str | None = None
 
     # Cohere Chat (command-* series)
     # Nota: cohere_api_key (seção EMBEDDINGS abaixo) é reutilizado para ChatCohere.
@@ -758,6 +764,7 @@ class Settings(BaseSettings):
                     "cohere": "COHERE_CHAT_MODEL",
                     "openrouter": "OPENROUTER_MODEL",
                     "nine_router": "NINE_ROUTER_MODEL",
+                    "llamacpp": "LLAMACPP_MODEL",
                 }
                 if _env_var := _model_env_map.get(_provider):
                     os.environ.setdefault(_env_var, _model)
@@ -945,6 +952,7 @@ class Settings(BaseSettings):
             "cohere": self.cohere_chat_model,
             "openrouter": self.openrouter_model,
             "nine_router": self.nine_router_default_model or "",
+            "llamacpp": self.llamacpp_model or "",
         }
         return model_map.get(self.llm_provider, self.google_model)
 
@@ -962,6 +970,7 @@ class Settings(BaseSettings):
             "cohere": self.cohere_api_key,
             "openrouter": self.openrouter_api_key,
             "nine_router": self.nine_router_api_key,
+            "llamacpp": self.llamacpp_api_key,
         }
         return key_map.get(self.llm_provider)
 
@@ -988,6 +997,8 @@ class Settings(BaseSettings):
             providers.append("nine_router")
         if getattr(self, "ollama_base_url", ""):
             providers.append("ollama")
+        if getattr(self, "llamacpp_base_url", ""):
+            providers.append("llamacpp")
         return providers
 
     def get_cohere_api_key(self) -> str | None:
@@ -1065,6 +1076,8 @@ class Settings(BaseSettings):
             self.openrouter_model = model
         elif provider == "nine_router":
             self.nine_router_default_model = model
+        elif provider == "llamacpp":
+            self.llamacpp_model = model
 
         logger.info(f"Model updated: {provider}={model}")
 
@@ -1317,6 +1330,7 @@ PROVIDER_API_KEY_ENV: dict[str, str | None] = {
     "cohere": "COHERE_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
     "nine_router": "NINE_ROUTER_API_KEY",
+    "llamacpp": "LLAMACPP_API_KEY",
     "tavily": "TAVILY_API_KEY",
 }
 
@@ -1329,6 +1343,7 @@ PROVIDER_MODEL_ENV: dict[str, str] = {
     "cohere": "COHERE_CHAT_MODEL",
     "openrouter": "OPENROUTER_MODEL",
     "nine_router": "NINE_ROUTER_MODEL",
+    "llamacpp": "LLAMACPP_MODEL",
 }
 
 # Nome amigável para exibição no TUI / setup wizard.

@@ -59,6 +59,11 @@ interface NineRouterModelInfo {
   name: string;
 }
 
+interface LlamaCppModelInfo {
+  id: string;
+  name: string;
+}
+
 async function discoverModels(): Promise<{
   reachable: boolean;
   models: OllamaModelInfo[];
@@ -66,6 +71,91 @@ async function discoverModels(): Promise<{
   const res = await fetch("/provider-routing/ollama/models");
   if (!res.ok) throw new Error(`Erro ${res.status}`);
   return res.json();
+}
+
+async function discoverLlamaCppModels(): Promise<{
+  reachable: boolean;
+  models: LlamaCppModelInfo[];
+}> {
+  const res = await fetch("/provider-routing/llamacpp/models");
+  if (!res.ok) throw new Error(`Erro ${res.status}`);
+  return res.json();
+}
+
+async function searchHuggingFaceModels(
+  query: string,
+  provider: "ollama" | "llamacpp" = "llamacpp",
+): Promise<LlamaCppModelInfo[]> {
+  const res = await fetch(
+    `/provider-routing/huggingface/models?q=${encodeURIComponent(query)}&provider=${provider}`,
+  );
+  if (!res.ok) throw new Error(`Erro ${res.status}`);
+  const data = (await res.json()) as { models?: LlamaCppModelInfo[] };
+  return data.models ?? [];
+}
+
+function HuggingFaceCatalogSection() {
+  const [provider, setProvider] = useState<"ollama" | "llamacpp">("llamacpp");
+  const [query, setQuery] = useState("llama");
+  const [models, setModels] = useState<LlamaCppModelInfo[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function search() {
+    setLoading(true);
+    setError(null);
+    try {
+      setModels(await searchHuggingFaceModels(query, provider));
+    } catch {
+      setError("Erro ao consultar a Hugging Face");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3 rounded-lg border p-4">
+      <div>
+        <h3 className="font-medium">{m.provider_routing_hf_title()}</h3>
+        <p className="text-xs text-muted-foreground">
+          {m.provider_routing_hf_subtitle()}
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Input
+          aria-label={m.provider_routing_hf_query_placeholder()}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder={m.provider_routing_hf_query_placeholder()}
+          className="min-w-48 flex-1"
+        />
+        <select
+          aria-label={m.provider_routing_hf_runtime_label()}
+          className="rounded-md border bg-background px-3 text-sm"
+          value={provider}
+          onChange={(event) =>
+            setProvider(event.target.value as "ollama" | "llamacpp")
+          }
+        >
+          <option value="llamacpp">
+            {m.provider_routing_llamacpp_title()}
+          </option>
+          <option value="ollama">{m.provider_routing_ollama_title()}</option>
+        </select>
+        <Button type="button" onClick={() => void search()} disabled={loading}>
+          <Search className="mr-2 size-4" /> {m.provider_routing_hf_search()}
+        </Button>
+      </div>
+      {models.length > 0 && (
+        <div className="space-y-1 text-sm">
+          {models.map((model) => (
+            <div key={model.id}>{model.id}</div>
+          ))}
+        </div>
+      )}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  );
 }
 
 type Gateway = "ollama" | "openrouter" | "nine-router";
@@ -1050,12 +1140,150 @@ function MediaModelsSection() {
   );
 }
 
+function LlamaCppSection() {
+  const [baseUrl, setBaseUrl] = useState("http://127.0.0.1:8080/v1");
+  const [apiKey, setApiKey] = useState("");
+  const [model, setModel] = useState("");
+  const [models, setModels] = useState<LlamaCppModelInfo[]>([]);
+  const [hfModels, setHfModels] = useState<LlamaCppModelInfo[]>([]);
+  const [query, setQuery] = useState("llama.cpp");
+  const [reachable, setReachable] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    void fetch("/provider-routing/llamacpp/status")
+      .then((response) => response.json())
+      .then((data: { base_url?: string; model?: string }) => {
+        setBaseUrl(data.base_url ?? "http://127.0.0.1:8080/v1");
+        setModel(data.model ?? "");
+      })
+      .catch(() => undefined);
+  }, []);
+
+  async function saveConfig() {
+    setError("");
+    try {
+      const response = await fetch("/provider-routing/llamacpp/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ base_url: baseUrl, api_key: apiKey, model }),
+      });
+      if (!response.ok) throw new Error(String(response.status));
+      setApiKey("");
+    } catch {
+      setError("Erro ao salvar a configuração do llama.cpp");
+    }
+  }
+
+  async function discover() {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await discoverLlamaCppModels();
+      setReachable(result.reachable);
+      setModels(result.models);
+    } catch {
+      setError("Erro ao consultar o llama.cpp");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function search() {
+    setLoading(true);
+    setError("");
+    try {
+      setHfModels(await searchHuggingFaceModels(query));
+    } catch {
+      setError("Erro ao consultar a Hugging Face");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3 rounded-lg border p-4">
+      <div>
+        <h3 className="font-medium">{m.provider_routing_llamacpp_title()}</h3>
+        <p className="text-xs text-muted-foreground">
+          {m.provider_routing_llamacpp_subtitle()}
+        </p>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Input
+          aria-label={m.provider_routing_llamacpp_endpoint()}
+          value={baseUrl}
+          onChange={(event) => setBaseUrl(event.target.value)}
+          placeholder={m.provider_routing_llamacpp_endpoint_placeholder()}
+        />
+        <Input
+          aria-label={m.provider_routing_llamacpp_model()}
+          value={model}
+          onChange={(event) => setModel(event.target.value)}
+          placeholder={m.provider_routing_llamacpp_model_placeholder()}
+        />
+        <Input
+          aria-label={m.provider_routing_llamacpp_key()}
+          type="password"
+          value={apiKey}
+          onChange={(event) => setApiKey(event.target.value)}
+          placeholder={m.provider_routing_llamacpp_key_placeholder()}
+        />
+        <Button
+          type="button"
+          onClick={() => void saveConfig()}
+          disabled={loading}
+        >
+          {m.provider_routing_llamacpp_save()}
+        </Button>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => void discover()}
+          disabled={loading}
+        >
+          <RefreshCw className="mr-2 size-4" />{" "}
+          {m.provider_routing_llamacpp_detect()}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => void search()}
+          disabled={loading}
+        >
+          <Search className="mr-2 size-4" /> {m.provider_routing_llamacpp_hf()}
+        </Button>
+      </div>
+      {reachable !== null && (
+        <p className="text-xs text-muted-foreground">
+          {reachable
+            ? m.provider_routing_llamacpp_found({ n: models.length })
+            : m.provider_routing_llamacpp_unreachable()}
+        </p>
+      )}
+      {hfModels.length > 0 && (
+        <div className="space-y-1 text-sm">
+          {hfModels.map((model) => (
+            <div key={model.id}>{model.id}</div>
+          ))}
+        </div>
+      )}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  );
+}
+
 export function ProviderRoutingTab() {
   return (
     <div className="space-y-4">
       <OllamaSection />
+      <HuggingFaceCatalogSection />
       <OpenRouterSection />
       <NineRouterSection />
+      <LlamaCppSection />
       <MediaModelsSection />
     </div>
   );

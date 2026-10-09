@@ -36,6 +36,7 @@ _PROVIDER_SPEC: dict[str, str] = {
     "ollama": "OLLAMA_MODEL",
     "openrouter": "OPENROUTER_MODEL",
     "nine_router": "NINE_ROUTER_MODEL",
+    "llamacpp": "LLAMACPP_MODEL",
 }
 
 
@@ -72,7 +73,7 @@ def load_native_llm(model_id: str = "") -> ChatClient:
         if env_var is None:
             msg = (
                 f"LLM_PROVIDER desconhecido: {provider!r}. Suportados: "
-                "google_genai, openai, anthropic, cohere, ollama, openrouter"
+                "google_genai, openai, anthropic, cohere, ollama, openrouter, nine_router, llamacpp"
             )
             raise ValueError(msg)
         active = (
