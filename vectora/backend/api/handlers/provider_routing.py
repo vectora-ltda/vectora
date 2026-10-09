@@ -882,7 +882,7 @@ async def get_llamacpp_sidecar_status() -> dict[str, int | bool | str | None]:
     return llamacpp_status()
 
 
-@router.get("/dmr/status")
+@router.get("/dmr/status", dependencies=[DesktopBridge])
 async def get_dmr_status() -> dict[str, object]:
     """Detecta Docker Model Runner e o contrato HTTP disponível no host local."""
     from backend.services.docker_model_runner import (
@@ -966,13 +966,13 @@ async def set_dmr_config(body: DmrConfigRequest, _: ProviderAdmin) -> dict[str, 
     return await get_dmr_status()
 
 
-@router.post("/dmr/test")
+@router.post("/dmr/test", dependencies=[DesktopBridge])
 async def test_dmr_connection() -> dict[str, object]:
     """Executa a detecção de CLI e o probe HTTP sem alterar estado."""
     return await get_dmr_status()
 
 
-@router.get("/dmr/models")
+@router.get("/dmr/models", dependencies=[DesktopBridge])
 async def list_dmr_models() -> dict[str, object]:
     """Lista modelos descobertos pelo contrato que o DMR anunciou."""
     status = await get_dmr_status()
