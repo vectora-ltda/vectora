@@ -43,6 +43,15 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+      - name: Install Docker when the runner does not provide it
+        run: |
+          if ! command -v docker >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --yes --no-install-recommends docker.io
+          fi
+          if command -v systemctl >/dev/null 2>&1; then
+            sudo systemctl start docker || true
+          fi
       - name: Install build dependencies
         run: |
           sudo apt-get update
