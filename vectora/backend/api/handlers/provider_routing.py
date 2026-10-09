@@ -1103,7 +1103,7 @@ async def start_installed_huggingface_model(
         if isinstance(runtime_manifest, dict)
         else []
     )
-    runtime_entry = next(
+    active_runtime_entry = next(
         (
             item
             for item in runtimes
@@ -1111,14 +1111,21 @@ async def start_installed_huggingface_model(
         ),
         None,
     )
-    if not isinstance(runtime_entry, dict) or not isinstance(
-        runtime_entry.get("directory"), str
+    if not isinstance(active_runtime_entry, dict) or not isinstance(
+        active_runtime_entry.get("directory"), str
     ):
         raise HTTPException(status_code=409, detail="runtime ativo inválido")
-    runtime_dir = Path(runtime_entry["directory"]).expanduser().resolve()
     runtime_root_resolved = (runtime_root / "versions").resolve()
-    if runtime_root_resolved not in runtime_dir.parents:
-        raise HTTPException(status_code=422, detail="runtime fora da raiz gerenciada")
+    runtime_candidates = [active_runtime_entry]
+    runtime_candidates.extend(
+        item
+        for item in sorted(
+            (item for item in runtimes if isinstance(item, dict)),
+            key=lambda item: str(item.get("installed_at", "")),
+            reverse=True,
+        )
+        if item is not active_runtime_entry and item.get("id") != active_id
+    )
     mmproj_entry = next(
         (
             item
@@ -1135,34 +1142,62 @@ async def start_installed_huggingface_model(
         ):
             raise HTTPException(status_code=409, detail="mmproj indisponível")
         mmproj_path = candidate
-    executable = next(
-        (
-            path
-            for path in (await asyncio.to_thread(lambda: list(runtime_dir.rglob("*"))))
-            if path.name.lower() in {"llama-server", "llama-server.exe"}
-        ),
-        None,
-    )
-    if executable is None or not await asyncio.to_thread(executable.is_file):
-        raise HTTPException(status_code=409, detail="llama-server não encontrado")
-    try:
-        await start_llamacpp(
-            executable,
-            model_path,
-            host=body.host,
-            port=body.port,
-            alias=body.alias,
-            mmproj=mmproj_path,
-            ctx_size=body.ctx_size,
-            n_gpu_layers=body.n_gpu_layers,
-            threads=body.threads,
-            parallel=body.parallel,
-            jinja=body.jinja,
+    started_runtime_id = active_id
+    last_runtime_error: RuntimeError | None = None
+    executable: Path | None = None
+    for candidate in runtime_candidates:
+        candidate_id = candidate.get("id")
+        candidate_directory = candidate.get("directory")
+        if not isinstance(candidate_id, str) or not isinstance(
+            candidate_directory, str
+        ):
+            continue
+        runtime_dir = Path(candidate_directory).expanduser().resolve()
+        if runtime_root_resolved not in runtime_dir.parents:
+            continue
+        candidate_executable = next(
+            (
+                path
+                for path in await asyncio.to_thread(
+                    lambda path=runtime_dir: list(path.rglob("*"))
+                )
+                if path.name.lower() in {"llama-server", "llama-server.exe"}
+            ),
+            None,
         )
-    except (FileNotFoundError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        if candidate_executable is None or not await asyncio.to_thread(
+            candidate_executable.is_file
+        ):
+            continue
+        try:
+            await start_llamacpp(
+                candidate_executable,
+                model_path,
+                host=body.host,
+                port=body.port,
+                alias=body.alias,
+                mmproj=mmproj_path,
+                ctx_size=body.ctx_size,
+                n_gpu_layers=body.n_gpu_layers,
+                threads=body.threads,
+                parallel=body.parallel,
+                jinja=body.jinja,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            last_runtime_error = exc
+            continue
+        started_runtime_id = candidate_id
+        executable = candidate_executable
+        break
+    if executable is None:
+        detail = "llama-server não ficou pronto em nenhum runtime instalado"
+        if last_runtime_error is not None:
+            detail = str(last_runtime_error)
+        raise HTTPException(status_code=502, detail=detail) from last_runtime_error
+    if started_runtime_id != active_id:
+        await _write_text_atomic(active_path, started_runtime_id)
     tag = body.alias or str(manifest.get("alias") or model_entry["filename"])
     parameters: dict[str, str | int | float | bool | None] = {
         "alias": body.alias,
@@ -1183,7 +1218,7 @@ async def start_installed_huggingface_model(
             ConfirmLlamaCppModelRequest(
                 tag=tag,
                 model_path=str(model_path),
-                runtime_id=active_id,
+                runtime_id=started_runtime_id,
                 parameters=parameters,
             ),
             None,
