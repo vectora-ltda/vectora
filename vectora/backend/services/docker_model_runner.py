@@ -144,6 +144,46 @@ async def probe_dmr(
     return DmrProbe(False, None, (), "Docker Model Runner indisponível")
 
 
+async def probe_dmr_inference(
+    base_url: str | None,
+    contract: str,
+    model: str,
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> bool:
+    """Confirma uma inferência mínima antes de declarar o DMR pronto."""
+    base = normalize_base_url(base_url)
+    if not model.strip() or contract not in {"openai", "ollama"}:
+        return False
+    async with httpx.AsyncClient(
+        timeout=30, follow_redirects=False, transport=transport
+    ) as client:
+        try:
+            if contract == "openai":
+                response = await client.post(
+                    f"{base}/engines/v1/chat/completions",
+                    json={
+                        "model": model,
+                        "messages": [{"role": "user", "content": "ping"}],
+                        "max_tokens": 1,
+                    },
+                )
+            else:
+                response = await client.post(
+                    f"{base}/api/chat",
+                    json={
+                        "model": model,
+                        "messages": [{"role": "user", "content": "ping"}],
+                        "stream": False,
+                        "options": {"num_predict": 1},
+                    },
+                )
+            return response.is_success
+        except (httpx.HTTPError, ValueError):
+            logger.debug("dmr: inferência de readiness falhou", exc_info=True)
+            return False
+
+
 async def docker_model_available() -> tuple[bool, str | None]:
     """Verifica Docker e o plugin sem considerar um endpoint HTTP como prova."""
     try:

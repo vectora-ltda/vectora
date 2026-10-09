@@ -52,6 +52,24 @@ async def test_probe_prefers_openai_contract() -> None:
 
 
 @pytest.mark.asyncio
+async def test_probe_dmr_inference_supports_openai_and_ollama_contracts() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/chat/completions"):
+            return httpx.Response(200, json={"choices": [{"message": {}}]})
+        if request.url.path == "/api/chat":
+            return httpx.Response(200, json={"message": {"content": "pong"}})
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    assert await dmr.probe_dmr_inference(
+        None, "openai", "hf.co/Qwen/Qwen3-0.6B", transport=transport
+    )
+    assert await dmr.probe_dmr_inference(
+        None, "ollama", "hf.co/Qwen/Qwen3-0.6B", transport=transport
+    )
+
+
+@pytest.mark.asyncio
 async def test_provider_status_probes_default_endpoint_without_saved_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -1082,7 +1082,11 @@ async def prepare_dmr_model(
 async def start_dmr_model(body: DmrModelRequest, _: ProviderAdmin) -> dict[str, object]:
     """Prepara, pré-carrega e valida o modelo antes de registrá-lo."""
     await prepare_dmr_model(body, None)
-    from backend.services.docker_model_runner import run_model, validate_model_reference
+    from backend.services.docker_model_runner import (
+        probe_dmr_inference,
+        run_model,
+        validate_model_reference,
+    )
 
     try:
         reference = validate_model_reference(body.reference)
@@ -1092,6 +1096,16 @@ async def start_dmr_model(body: DmrModelRequest, _: ProviderAdmin) -> dict[str, 
     status = await get_dmr_status()
     if not status["reachable"]:
         raise HTTPException(status_code=503, detail="DMR não está pronto")
+    models = status.get("models")
+    model_name = reference
+    if isinstance(models, list) and models:
+        model_name = str(models[0])
+    contract = str(status.get("contract") or "")
+    if not await probe_dmr_inference(str(status["base_url"]), contract, model_name):
+        raise HTTPException(
+            status_code=503,
+            detail="DMR respondeu ao catálogo, mas não concluiu uma inferência",
+        )
     if not settings.dmr_base_url:
         base_url = str(status["base_url"])
         object.__setattr__(settings, "dmr_base_url", base_url)
