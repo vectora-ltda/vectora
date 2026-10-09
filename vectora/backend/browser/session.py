@@ -66,6 +66,12 @@ def _electron_cdp_endpoint() -> str:
     return electron_cdp_endpoint()
 
 
+def _electron_cdp_headers() -> dict[str, str]:
+    from backend.browser.cdp import electron_cdp_headers
+
+    return electron_cdp_headers()
+
+
 def _register_page_listeners(tab: TabState) -> None:
     """Popula os ring buffers de console/network ao vivo — cada listener é
     defensivo (nunca deixa uma falha de parsing derrubar o evento seguinte).
@@ -157,7 +163,9 @@ async def get_browser_page(workspace_id: str, tab_id: str | None = None) -> Any:
     endpoint = _electron_cdp_endpoint()
     playwright = await async_playwright().start()
     try:
-        browser = await playwright.chromium.connect_over_cdp(endpoint)
+        browser = await playwright.chromium.connect_over_cdp(
+            endpoint, headers=_electron_cdp_headers()
+        )
         contexts = browser.contexts
         if not contexts:
             raise RuntimeError("Chromium do Electron não expôs nenhum contexto CDP")

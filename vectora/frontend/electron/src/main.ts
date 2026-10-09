@@ -76,6 +76,7 @@ import {
 import { startUpdateDownload as startUpdateDownloadAfterBackup } from "./updater-download.js";
 import { DockerCliExecutor } from "./docker-cli-executor.js";
 import { DmrOperations } from "./dmr-operations.js";
+import { startElectronCdpProxy } from "./electron-cdp-proxy.js";
 
 // O backend conecta ao mesmo Chromium do Electron via CDP. O endpoint fica
 // restrito ao loopback e é herdado pelo processo backend supervisionado. Em
@@ -85,8 +86,24 @@ import { DmrOperations } from "./dmr-operations.js";
 const electronCdpPort =
   process.env.VECTORA_ELECTRON_CDP_PORT ?? String(randomInt(10000, 60000));
 process.env.VECTORA_ELECTRON_CDP_PORT = electronCdpPort;
+const electronCdpProxyPort =
+  process.env.VECTORA_ELECTRON_CDP_PROXY_PORT ??
+  String(randomInt(60001, 65000));
+const electronCdpAuthToken =
+  process.env.VECTORA_ELECTRON_CDP_AUTH_TOKEN ?? randomUUID();
+process.env.VECTORA_ELECTRON_CDP_PROXY_PORT = electronCdpProxyPort;
+process.env.VECTORA_ELECTRON_CDP_AUTH_TOKEN = electronCdpAuthToken;
 app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
 app.commandLine.appendSwitch("remote-debugging-port", electronCdpPort);
+
+let electronCdpProxy: import("node:http").Server | null = null;
+void app.whenReady().then(async () => {
+  electronCdpProxy = await startElectronCdpProxy(
+    Number(electronCdpPort),
+    Number(electronCdpProxyPort),
+    electronCdpAuthToken,
+  );
+});
 
 const ELECTRON_RESTART_EXIT_CODE = 42;
 
@@ -1228,6 +1245,8 @@ app.on("window-all-closed", () => {
 app.on("before-quit", () => {
   (app as unknown as { isQuitting: boolean }).isQuitting = true;
   dmrOperations?.dispose();
+  electronCdpProxy?.close();
+  electronCdpProxy = null;
   if (backend?.pid) {
     const pid = backend.pid;
     backend = null;

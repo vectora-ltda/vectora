@@ -34,14 +34,16 @@ def _get_browser() -> Any:
     if _browser is None:
         from playwright.sync_api import sync_playwright
 
-        from backend.browser.cdp import electron_cdp_endpoint
+        from backend.browser.cdp import electron_cdp_endpoint, electron_cdp_headers
 
         started_playwright: Any = None
         try:
             endpoint = electron_cdp_endpoint()
             started_playwright = sync_playwright().start()
             _playwright = started_playwright
-            _browser = _playwright.chromium.connect_over_cdp(endpoint)
+            _browser = _playwright.chromium.connect_over_cdp(
+                endpoint, headers=electron_cdp_headers()
+            )
             if not _browser.contexts:
                 raise RuntimeError("Chromium do Electron não expôs contexto CDP")
         except Exception:
