@@ -11,7 +11,7 @@ Em Configurações, informe a URL OpenAI-compatible, normalmente `http://127.0.0
 
 ## Docker Model Runner
 
-Quando o Docker Model Runner está habilitado, o Vectora usa o endpoint local `http://127.0.0.1:12434` e o contrato OpenAI em `/engines/v1`. A tela de Provider Routing verifica o Docker CLI, testa a conexão e prepara o modelo escolhido; o modelo pode ser informado como `hf.co/Qwen/Qwen3-0.6B`. Essas operações rodam no dispositivo local, com argumentos estruturados e limites de tempo, sem enviar o Docker socket para um serviço hospedado. O endpoint também pode ser usado por clientes compatíveis com OpenAI, incluindo o Open WebUI.
+Quando o Docker Model Runner está habilitado, o Vectora usa o endpoint local `http://127.0.0.1:12434` e o contrato OpenAI em `/engines/v1`. A tela de Provider Routing verifica o Docker CLI, testa a conexão e prepara o modelo escolhido; o modelo pode ser informado como `hf.co/Qwen/Qwen3-0.6B`. Essas operações rodam no dispositivo local, com argumentos estruturados e limites de tempo, sem enviar o Docker socket para um serviço hospedado. O endpoint também pode ser usado por clientes compatíveis com OpenAI, incluindo o Open WebUI. Docker Desktop com Model Runner habilitado é necessário para esse provider; sem o DMR, ele aparece como indisponível.
 
 ## Runtime gerenciado
 
@@ -23,4 +23,4 @@ O catálogo apresenta metadados e uma classificação conservadora de compatibil
 
 ## Privacidade e limites
 
-Chaves não são exibidas em respostas. O sidecar gerenciado usa loopback e seu encerramento não interfere em servidores externos. JEV, Clef e Decision Models não fazem parte desta integração. Docker Desktop com Model Runner habilitado é necessário; sem ele, o runtime local aparece como indisponível.
+Chaves não são exibidas em respostas. O sidecar gerenciado usa loopback e seu encerramento não interfere em servidores externos. JEV, Clef e Decision Models não fazem parte desta integração.

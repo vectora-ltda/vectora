@@ -57,10 +57,11 @@ async def get_configured_providers() -> dict:
     # O DMR anuncia modelos por HTTP e não usa o registry SQLite da Vectora.
     # Incluí-los aqui mantém o seletor coerente com o catálogo local.
     if "dmr" in configured_providers:
-        from backend.api.handlers.provider_routing import list_dmr_models
+        from backend.services.docker_model_runner import probe_dmr
 
-        dmr = await list_dmr_models()
-        dmr_models = dmr.get("models", [])
+        probe = await probe_dmr(settings.dmr_base_url)
+        dmr = {"reachable": probe.reachable, "models": list(probe.models)}
+        dmr_models = dmr["models"]
         for tag in dmr_models if isinstance(dmr_models, list) else []:
             if isinstance(tag, str) and tag:
                 model_id = f"dmr:{tag}"

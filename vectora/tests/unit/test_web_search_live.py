@@ -19,6 +19,7 @@ import json
 import pytest
 
 from backend.settings import settings
+from backend.tools import web as web_tools
 from backend.tools.web import fetch_url, web_search
 
 pytestmark = [
@@ -113,8 +114,15 @@ async def test_fetch_url_pagina_real() -> None:
     assert not content.startswith("Error:")
 
 
-async def test_fetch_url_github_publico_real() -> None:
-    """A URL pública do GitHub deve ser legível mesmo sem depender do Tavily."""
+async def test_fetch_url_github_publico_real(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A URL pública do GitHub deve usar o fallback HTTP."""
+
+    async def raise_attribute_error(*args: object, **kwargs: object) -> object:
+        raise AttributeError("extração indisponível")
+
+    monkeypatch.setattr(web_tools, "_invoke_backend", raise_attribute_error)
     content = await fetch_url(url="https://github.com/vectora-ltda/vectora/issues/317")
     assert content.strip()
     assert not content.startswith("Error:")

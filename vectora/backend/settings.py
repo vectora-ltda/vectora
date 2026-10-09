@@ -1076,6 +1076,7 @@ class Settings(BaseSettings):
             "openrouter",
             "nine_router",
             "llamacpp",
+            "dmr",
         ]:
             raise ValueError(f"Unknown LLM provider: {provider}")
 
