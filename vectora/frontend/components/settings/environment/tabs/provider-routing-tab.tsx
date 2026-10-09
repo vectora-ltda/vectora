@@ -694,6 +694,13 @@ function HuggingFaceCatalogSection() {
     return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
   }
 
+  function selectedFileHash(): string {
+    return (
+      metadata?.files?.find((item) => item.rfilename === selectedFile)
+        ?.sha256 || m.provider_routing_hf_metadata_unknown()
+    );
+  }
+
   async function search() {
     setLoading(true);
     setError(null);
@@ -908,6 +915,7 @@ function HuggingFaceCatalogSection() {
               {m.provider_routing_hf_file_details({
                 revision: metadata.revision ?? "main",
                 size: selectedFileSize(),
+                sha256: selectedFileHash(),
               })}
             </p>
             <p className="text-xs text-muted-foreground">

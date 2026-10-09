@@ -1004,7 +1004,7 @@
   "provider_routing_hf_download_error": "Model installation failed",
   "provider_routing_hf_download_progress": "Installing model: {percent}%",
   "provider_routing_hf_downloaded": "Model installed: {path}",
-  "provider_routing_hf_file_details": "Revision {revision} · selected file {size}",
+  "provider_routing_hf_file_details": "Revision {revision} · selected file {size} · SHA-256 {sha256}",
   "provider_routing_hf_gpu_layers": "GPU layers",
   "provider_routing_hf_install": "Install model",
   "provider_routing_hf_jinja": "Enable Jinja templates",
