@@ -343,6 +343,7 @@ async function fetchDmrModelJob(jobId: string): Promise<DmrJob> {
 }
 
 async function fetchDmrModelJobs(): Promise<DmrJob[]> {
+  if (window.vectora?.dmr) return [];
   const response = await fetch("/provider-routing/dmr/models/jobs");
   if (!response.ok) throw new Error(`Erro ${response.status}`);
   const payload = (await response.json()) as { jobs?: DmrJob[] };
@@ -378,7 +379,7 @@ async function cancelDmrModelJob(jobId: string): Promise<DmrJob> {
 async function stopDmrModel(reference: string): Promise<DmrStatus> {
   const bridge = window.vectora?.dmr;
   if (bridge) {
-    await bridge.stop(reference);
+    await waitForDmrOperation(bridge.stop(reference));
     return fetchDmrStatus();
   }
   const response = await fetch("/provider-routing/dmr/models/stop", {
@@ -393,7 +394,7 @@ async function stopDmrModel(reference: string): Promise<DmrStatus> {
 async function removeDmrModel(reference: string): Promise<DmrStatus> {
   const bridge = window.vectora?.dmr;
   if (bridge) {
-    await bridge.remove(reference, true);
+    await waitForDmrOperation(bridge.remove(reference, true));
     return fetchDmrStatus();
   }
   const response = await fetch(
@@ -402,6 +403,23 @@ async function removeDmrModel(reference: string): Promise<DmrStatus> {
   );
   if (!response.ok) throw new Error(`Erro ${response.status}`);
   return fetchDmrStatus();
+}
+
+async function waitForDmrOperation(
+  operationPromise: Promise<VectoraDmrOperation>,
+): Promise<void> {
+  const bridge = window.vectora?.dmr;
+  if (!bridge) return;
+  let operation = await operationPromise;
+  while (operation.status === "queued" || operation.status === "running") {
+    await new Promise((resolve) => window.setTimeout(resolve, 250));
+    const next = await bridge.getOperation(operation.id);
+    if (!next) throw new Error("operação DMR não encontrada");
+    operation = next;
+  }
+  if (operation.status !== "completed") {
+    throw new Error(operation.error ?? "operação DMR falhou");
+  }
 }
 
 function DmrSection() {
