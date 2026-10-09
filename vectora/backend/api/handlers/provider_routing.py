@@ -42,9 +42,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import os
 import re
+import shutil
 import tarfile
 import time
 import uuid
@@ -54,14 +56,28 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from backend.api.handlers.admin import require_admin
 from backend.settings import CapabilityState, settings
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/provider-routing", tags=["provider-routing"])
+
+
+def _require_provider_admin(request: Request) -> None:
+    """Autoriza mutações de configuração e runtime do provider."""
+    if os.getenv("VECTORA_AUTH_REQUIRED", "true").lower() in {"false", "0", "no"}:
+        return
+    user = getattr(request.state, "user", None)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Não autenticado")
+    require_admin(user)
+
+
+ProviderAdmin = Annotated[None, Depends(_require_provider_admin)]
 
 
 async def _get_http_client() -> AsyncIterator[Any]:
@@ -84,6 +100,9 @@ async def _get_http_client() -> AsyncIterator[Any]:
 _DISCOVERY_TIMEOUT_S = 2.5
 _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 _OPENROUTER_CATALOG_TTL_S = 3600
+_download_locks: dict[str, asyncio.Lock] = {}
+_download_locks_guard = asyncio.Lock()
+_MAX_DOWNLOAD_BYTES = 100 * 1024**3
 
 
 class OllamaModelInfo(BaseModel):
@@ -126,11 +145,16 @@ class HuggingFaceDownloadRequest(BaseModel):
     filename: str
     revision: str = "main"
     sha256: str | None = None
+    resume: bool = True
 
 
 class LlamaCppInstallRequest(BaseModel):
     asset_url: str
     sha256: str | None = None
+
+
+class LlamaCppRollbackRequest(BaseModel):
+    runtime_id: str
 
 
 class LlamaCppRuntimeRequest(BaseModel):
@@ -142,6 +166,39 @@ class LlamaCppSidecarRequest(BaseModel):
     model: str
     host: str = "127.0.0.1"
     port: int = 8080
+
+
+def _llamacpp_runtime_root() -> Path:
+    return (settings.vectora_home / "tools" / "llama.cpp").resolve()
+
+
+def _llamacpp_manifest_path() -> Path:
+    return _llamacpp_runtime_root() / "runtime-manifest.json"
+
+
+async def _validate_runtime_executable(files: list[str]) -> str:
+    """Valida o binário oficial antes de publicar uma versão como ativa."""
+    candidates = [
+        Path(path)
+        for path in files
+        if Path(path).name.lower() in {"llama-server", "llama-server.exe"}
+    ]
+    if not candidates:
+        raise ValueError("release não contém llama-server")
+    executable = candidates[0]
+    try:
+        process = await asyncio.create_subprocess_exec(
+            str(executable),
+            "--version",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=15)
+    except (OSError, TimeoutError) as exc:
+        raise ValueError("llama-server não pôde ser executado") from exc
+    if process.returncode != 0:
+        raise ValueError("llama-server rejeitou a verificação de versão")
+    return (stdout or stderr).decode(errors="replace").strip()[:500]
 
 
 def _extract_llamacpp_archive(archive: Path, destination_root: Path) -> list[str]:
@@ -197,6 +254,23 @@ class RegisterModelRequest(BaseModel):
     tag: str
 
 
+class ConfirmLlamaCppModelRequest(BaseModel):
+    tag: str
+    model_path: str
+    runtime_id: str
+    parameters: dict[str, str | int | float | bool | None] = {}
+
+
+class LlamaCppModelConfirmation(BaseModel):
+    tag: str
+    model_path: str
+    model_sha256: str
+    runtime_id: str
+    parameters: dict[str, str | int | float | bool | None]
+    evidence_sha256: str
+    confirmed_at: str
+
+
 async def _get_db() -> Any:
     """Reusa a conexão SQLite do handler de threads (mesmo arquivo
     ~/.vectora/checkpoints.db) em vez de abrir outra."""
@@ -216,6 +290,29 @@ async def _ensure_registry_table(db: Any, table: str) -> None:
             created_at TEXT NOT NULL
         )
     """)
+    await db.commit()
+
+
+async def _ensure_llamacpp_confirmation_table(db: Any) -> None:
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS llamacpp_model_confirmations (
+            tag TEXT PRIMARY KEY,
+            model_path TEXT NOT NULL,
+            model_sha256 TEXT NOT NULL,
+            runtime_id TEXT NOT NULL,
+            parameters TEXT NOT NULL,
+            evidence_sha256 TEXT NOT NULL,
+            confirmed_at TEXT NOT NULL
+        )
+        """
+    )
+    await db.commit()
+
+
+async def _clear_llamacpp_confirmations(db: Any) -> None:
+    await _ensure_llamacpp_confirmation_table(db)
+    await db.execute("DELETE FROM llamacpp_model_confirmations")
     await db.commit()
 
 
@@ -390,15 +487,143 @@ async def get_registered_llamacpp_models() -> list[RegisteredModel]:
 
 @router.post("/llamacpp/registered")
 @router.post("/llama-cpp/registered", include_in_schema=False)
-async def register_llamacpp_model(body: RegisterModelRequest) -> RegisteredModel:
+async def register_llamacpp_model(
+    body: RegisterModelRequest,
+    _: ProviderAdmin,
+) -> RegisteredModel:
     return await _register("llamacpp_registered_models", body.tag)
 
 
 @router.delete("/llamacpp/registered/{model_id}")
 @router.delete("/llama-cpp/registered/{model_id}", include_in_schema=False)
-async def unregister_llamacpp_model(model_id: str) -> dict[str, bool]:
+async def unregister_llamacpp_model(
+    model_id: str,
+    _: ProviderAdmin,
+) -> dict[str, bool]:
     await _unregister("llamacpp_registered_models", model_id)
     return {"ok": True}
+
+
+@router.post("/llamacpp/models/confirm")
+@router.post("/llama-cpp/models/confirm", include_in_schema=False)
+async def confirm_llamacpp_model(
+    body: ConfirmLlamaCppModelRequest,
+    _: ProviderAdmin,
+) -> LlamaCppModelConfirmation:
+    """Registra compatibilidade somente após verificar o arquivo local."""
+    if not body.tag.strip() or not re.fullmatch(r"[0-9a-f]{16}", body.runtime_id):
+        raise HTTPException(status_code=400, detail="evidência do modelo inválida")
+    model_path = Path(body.model_path).expanduser().resolve()
+    models_root = (settings.vectora_home / "models").resolve()
+    if models_root not in model_path.parents or not model_path.is_file():
+        raise HTTPException(
+            status_code=400, detail="modelo fora do armazenamento gerenciado"
+        )
+    runtime_manifest = _llamacpp_manifest_path()
+    try:
+        manifest = json.loads(runtime_manifest.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        raise HTTPException(
+            status_code=409, detail="runtime não possui manifesto"
+        ) from exc
+    if not any(
+        isinstance(item, dict) and item.get("id") == body.runtime_id
+        for item in manifest.get("runtimes", [])
+    ):
+        raise HTTPException(status_code=409, detail="runtime não está instalado")
+    digest = hashlib.sha256()
+    with model_path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    model_sha256 = digest.hexdigest()
+    serialized = json.dumps(body.parameters, sort_keys=True, separators=(",", ":"))
+    evidence_sha256 = hashlib.sha256(
+        f"{model_sha256}:{body.runtime_id}:{serialized}".encode()
+    ).hexdigest()
+    confirmed_at = datetime.now(UTC).isoformat()
+    db = await _get_db()
+    await _ensure_llamacpp_confirmation_table(db)
+    await db.execute(
+        """
+        INSERT INTO llamacpp_model_confirmations
+          (tag, model_path, model_sha256, runtime_id, parameters, evidence_sha256, confirmed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(tag) DO UPDATE SET
+          model_path=excluded.model_path, model_sha256=excluded.model_sha256,
+          runtime_id=excluded.runtime_id, parameters=excluded.parameters,
+          evidence_sha256=excluded.evidence_sha256, confirmed_at=excluded.confirmed_at
+        """,
+        (
+            body.tag.strip(),
+            str(model_path),
+            model_sha256,
+            body.runtime_id,
+            serialized,
+            evidence_sha256,
+            confirmed_at,
+        ),
+    )
+    await db.commit()
+    return LlamaCppModelConfirmation(
+        tag=body.tag.strip(),
+        model_path=str(model_path),
+        model_sha256=model_sha256,
+        runtime_id=body.runtime_id,
+        parameters=body.parameters,
+        evidence_sha256=evidence_sha256,
+        confirmed_at=confirmed_at,
+    )
+
+
+@router.get("/llamacpp/models/confirmations")
+@router.get("/llama-cpp/models/confirmations", include_in_schema=False)
+async def list_llamacpp_model_confirmations() -> list[LlamaCppModelConfirmation]:
+    db = await _get_db()
+    await _ensure_llamacpp_confirmation_table(db)
+    async with db.execute(
+        "SELECT tag, model_path, model_sha256, runtime_id, parameters, evidence_sha256, confirmed_at "
+        "FROM llamacpp_model_confirmations ORDER BY confirmed_at"
+    ) as cur:
+        rows = await cur.fetchall()
+    try:
+        manifest = json.loads(_llamacpp_manifest_path().read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        manifest = {"runtimes": []}
+    runtime_ids = {
+        item.get("id")
+        for item in manifest.get("runtimes", [])
+        if isinstance(item, dict)
+    }
+    valid: list[LlamaCppModelConfirmation] = []
+    for row in rows:
+        model_path = Path(row[1])
+        if not model_path.is_file() or row[3] not in runtime_ids:
+            await db.execute(
+                "DELETE FROM llamacpp_model_confirmations WHERE tag = ?", (row[0],)
+            )
+            continue
+        digest = hashlib.sha256()
+        with model_path.open("rb") as source:
+            while chunk := source.read(1024 * 1024):
+                digest.update(chunk)
+        if digest.hexdigest() != row[2]:
+            await db.execute(
+                "DELETE FROM llamacpp_model_confirmations WHERE tag = ?", (row[0],)
+            )
+            continue
+        valid.append(
+            LlamaCppModelConfirmation(
+                tag=row[0],
+                model_path=row[1],
+                model_sha256=row[2],
+                runtime_id=row[3],
+                parameters=json.loads(row[4]),
+                evidence_sha256=row[5],
+                confirmed_at=row[6],
+            )
+        )
+    await db.commit()
+    return valid
 
 
 @router.get("/llamacpp/status")
@@ -415,7 +640,10 @@ async def get_llamacpp_status() -> LlamaCppStatus:
 
 @router.post("/llamacpp/config")
 @router.post("/llama-cpp/config", include_in_schema=False)
-async def set_llamacpp_config(body: LlamaCppConfigRequest) -> LlamaCppStatus:
+async def set_llamacpp_config(
+    body: LlamaCppConfigRequest,
+    _: ProviderAdmin,
+) -> LlamaCppStatus:
     from urllib.parse import urlparse
 
     base_url = body.base_url.strip().rstrip("/")
@@ -426,10 +654,15 @@ async def set_llamacpp_config(body: LlamaCppConfigRequest) -> LlamaCppStatus:
         raise HTTPException(status_code=400, detail="configuração excede o limite")
     object.__setattr__(settings, "llamacpp_base_url", base_url)
     object.__setattr__(settings, "llamacpp_api_key", body.api_key.strip() or None)
-    object.__setattr__(settings, "llamacpp_model", body.model.strip() or None)
+    model = body.model.strip()
+    object.__setattr__(settings, "llamacpp_model", model or None)
     env_file = _env_file()
     _set_env_key(env_file, "LLAMACPP_BASE_URL", base_url)
-    _set_env_key(env_file, "LLAMACPP_MODEL", body.model.strip())
+    _set_env_key(env_file, "LLAMACPP_MODEL", model)
+    if model:
+        os.environ["LLAMACPP_MODEL"] = model
+    else:
+        os.environ.pop("LLAMACPP_MODEL", None)
     if body.api_key.strip():
         _set_env_key(env_file, "LLAMACPP_API_KEY", body.api_key.strip())
     else:
@@ -439,7 +672,9 @@ async def set_llamacpp_config(body: LlamaCppConfigRequest) -> LlamaCppStatus:
 
 @router.delete("/llamacpp/config")
 @router.delete("/llama-cpp/config", include_in_schema=False)
-async def clear_llamacpp_config() -> LlamaCppStatus:
+async def clear_llamacpp_config(
+    _: ProviderAdmin,
+) -> LlamaCppStatus:
     env_file = _env_file()
     for key in ("LLAMACPP_BASE_URL", "LLAMACPP_MODEL", "LLAMACPP_API_KEY"):
         _remove_env_key(env_file, key)
@@ -452,7 +687,7 @@ async def clear_llamacpp_config() -> LlamaCppStatus:
 
 @router.get("/llamacpp/sidecar/status")
 @router.get("/llama-cpp/sidecar/status", include_in_schema=False)
-async def get_llamacpp_sidecar_status() -> dict[str, int | bool | None]:
+async def get_llamacpp_sidecar_status() -> dict[str, int | bool | str | None]:
     """Expõe apenas o estado do processo gerenciado pelo Vectora."""
     from backend.services.llamacpp_sidecar import llamacpp_status
 
@@ -463,7 +698,8 @@ async def get_llamacpp_sidecar_status() -> dict[str, int | bool | None]:
 @router.post("/llama-cpp/sidecar/start", include_in_schema=False)
 async def start_llamacpp_sidecar(
     body: LlamaCppSidecarRequest,
-) -> dict[str, int | bool | None]:
+    _: ProviderAdmin,
+) -> dict[str, int | bool | str | None]:
     """Inicia llama-server local sem assumir ownership de servidores externos."""
     from backend.services.llamacpp_sidecar import start_llamacpp
 
@@ -484,7 +720,9 @@ async def start_llamacpp_sidecar(
 
 @router.post("/llamacpp/sidecar/stop")
 @router.post("/llama-cpp/sidecar/stop", include_in_schema=False)
-async def stop_llamacpp_sidecar() -> dict[str, int | bool | None]:
+async def stop_llamacpp_sidecar(
+    _: ProviderAdmin,
+) -> dict[str, int | bool | str | None]:
     """Encerra somente o processo iniciado pela rota de start."""
     from backend.services.llamacpp_sidecar import stop_llamacpp
 
@@ -546,9 +784,36 @@ async def search_huggingface_models(
 
 def _validate_hf_path(value: str, *, field: str) -> str:
     value = value.strip()
-    if not value or len(value) > 300 or ".." in value or "\\" in value:
+    if (
+        not value
+        or len(value) > 300
+        or ".." in value
+        or "\\" in value
+        or value.startswith(("/", "~"))
+        or re.match(r"^[A-Za-z]:", value)
+        or any(part in {"", "."} for part in value.split("/"))
+    ):
         raise HTTPException(status_code=400, detail=f"{field} inválido")
     return value
+
+
+async def _download_lock(key: str) -> asyncio.Lock:
+    """Retorna o lock por artefato, evitando downloads concorrentes iguais."""
+    async with _download_locks_guard:
+        return _download_locks.setdefault(key, asyncio.Lock())
+
+
+async def _ensure_download_capacity(path: Path, expected: int | None) -> None:
+    """Rejeita artefatos acima do limite ou sem espaço suficiente."""
+    if expected is not None and expected > _MAX_DOWNLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="arquivo excede o limite permitido")
+    if expected is None:
+        return
+    usage = await asyncio.to_thread(shutil.disk_usage, path)
+    if usage.free < expected:
+        raise HTTPException(
+            status_code=507, detail="espaço insuficiente no dispositivo"
+        )
 
 
 @router.get("/huggingface/models/{repo_id:path}")
@@ -603,6 +868,8 @@ async def get_huggingface_model_metadata(repo_id: str) -> dict[str, object]:
 @router.post("/huggingface/download")
 async def download_huggingface_model(
     body: HuggingFaceDownloadRequest,
+    request: Request,
+    _: ProviderAdmin,
 ) -> dict[str, object]:
     """Baixa um arquivo diretamente da Hugging Face para o armazenamento local."""
     import httpx
@@ -621,38 +888,95 @@ async def download_huggingface_model(
             status_code=400, detail="arquivo fora do diretório permitido"
         )
     destination.parent.mkdir(parents=True, exist_ok=True)
-    url = f"https://huggingface.co/{repo_id}/resolve/{revision}/{filename}"
-    digest = hashlib.sha256()
-    try:
-        async with httpx.AsyncClient(timeout=1800, follow_redirects=True) as client:
-            async with client.stream("GET", url) as response:
-                response.raise_for_status()
-                with destination.open("wb") as output:
-                    async for chunk in response.aiter_bytes(1024 * 1024):
-                        digest.update(chunk)
-                        await asyncio.to_thread(output.write, chunk)
-    except Exception as exc:
-        destination.unlink(missing_ok=True)
+    partial = destination.with_name(destination.name + ".part")
+    lock = await _download_lock(f"{repo_id}/{revision}/{filename}")
+    async with lock:
+        offset = partial.stat().st_size if body.resume and partial.exists() else 0
+        url = f"https://huggingface.co/{repo_id}/resolve/{revision}/{filename}"
+        digest = hashlib.sha256()
+        downloaded = offset
+        try:
+            async with httpx.AsyncClient(timeout=1800, follow_redirects=True) as client:
+                headers = {"Range": f"bytes={offset}-"} if offset else {}
+                async with client.stream("GET", url, headers=headers) as response:
+                    if offset and response.status_code == 200:
+                        offset = 0
+                    elif offset and response.status_code != 206:
+                        raise ValueError("retomada rejeitada pelo servidor")
+                    response.raise_for_status()
+                    length = response.headers.get("content-length")
+                    await _ensure_download_capacity(
+                        destination_root,
+                        (offset + int(length)) if length and length.isdigit() else None,
+                    )
+                    if offset:
+                        content_range = response.headers.get("content-range", "")
+                        match = re.fullmatch(
+                            r"bytes (\d+)-(\d+)/(\d+|\*)", content_range
+                        )
+                        if not match or int(match.group(1)) != offset:
+                            raise ValueError("Content-Range inválido")
+                    if offset:
+                        with partial.open("rb") as existing:
+                            while chunk := existing.read(1024 * 1024):
+                                digest.update(chunk)
+                    with partial.open("ab" if offset else "wb") as output:
+                        async for chunk in response.aiter_bytes(1024 * 1024):
+                            if await request.is_disconnected():
+                                raise asyncio.CancelledError
+                            downloaded += len(chunk)
+                            if downloaded > _MAX_DOWNLOAD_BYTES:
+                                raise HTTPException(
+                                    status_code=413,
+                                    detail="arquivo excede o limite permitido",
+                                )
+                            digest.update(chunk)
+                            await asyncio.to_thread(output.write, chunk)
+            if await request.is_disconnected():
+                raise asyncio.CancelledError
+            partial.replace(destination)
+        except asyncio.CancelledError:
+            partial.unlink(missing_ok=True)
+            raise
+        except HTTPException:
+            raise
+        except Exception as exc:
+            partial.unlink(missing_ok=True)
+            destination.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=502, detail="falha no download da Hugging Face"
+            ) from exc
+        actual = digest.hexdigest()
+        if body.sha256 and actual.lower() != body.sha256.lower():
+            destination.unlink(missing_ok=True)
+            raise HTTPException(status_code=422, detail="checksum sha256 incompatível")
+        return {
+            "status": "downloaded",
+            "path": str(destination),
+            "files": [],
+            "sha256": actual,
+        }
+
+
+@router.delete("/huggingface/download")
+async def cancel_huggingface_download(
+    repo_id: str,
+    filename: str,
+    _: ProviderAdmin,
+) -> dict[str, bool]:
+    """Cancela um download removendo apenas o arquivo parcial."""
+    repo_id = _validate_hf_path(repo_id, field="repo_id")
+    filename = _validate_hf_path(filename, field="filename")
+    if repo_id.count("/") != 1:
+        raise HTTPException(status_code=400, detail="repo_id deve ser owner/model")
+    root = (settings.vectora_home / "models" / "huggingface" / repo_id).resolve()
+    partial = (root / (filename + ".part")).resolve()
+    if root not in partial.parents:
         raise HTTPException(
-            status_code=502, detail="falha no download da Hugging Face"
-        ) from exc
-    actual = digest.hexdigest()
-    if body.sha256 and actual.lower() != body.sha256.lower():
-        destination.unlink(missing_ok=True)
-        raise HTTPException(status_code=422, detail="checksum sha256 incompatível")
-    try:
-        files = _extract_llamacpp_archive(destination, destination_root)
-    except (OSError, ValueError, zipfile.BadZipFile, tarfile.TarError) as exc:
-        destination.unlink(missing_ok=True)
-        raise HTTPException(
-            status_code=422, detail="arquivo do runtime inválido"
-        ) from exc
-    return {
-        "status": "installed" if files else "downloaded",
-        "path": str(destination),
-        "files": files,
-        "sha256": actual,
-    }
+            status_code=400, detail="arquivo fora do diretório permitido"
+        )
+    partial.unlink(missing_ok=True)
+    return {"ok": True}
 
 
 @router.get("/llamacpp/releases")
@@ -698,7 +1022,10 @@ async def list_llamacpp_releases() -> dict[str, list[dict[str, object]]]:
 
 @router.post("/llamacpp/install")
 @router.post("/llama-cpp/install", include_in_schema=False)
-async def install_llamacpp_runtime(body: LlamaCppInstallRequest) -> dict[str, object]:
+async def install_llamacpp_runtime(
+    body: LlamaCppInstallRequest,
+    _: ProviderAdmin,
+) -> dict[str, object]:
     """Baixa um artefato de release oficial para o armazenamento do usuário."""
     from urllib.parse import urlparse
 
@@ -716,18 +1043,34 @@ async def install_llamacpp_runtime(body: LlamaCppInstallRequest) -> dict[str, ob
     filename = Path(parsed.path).name
     if not filename or filename in {".", ".."} or len(filename) > 200:
         raise HTTPException(status_code=400, detail="nome do artefato inválido")
-    destination_root = (settings.vectora_home / "tools" / "llama.cpp").resolve()
-    destination_root.mkdir(parents=True, exist_ok=True)
-    destination = (destination_root / filename).resolve()
+    destination_root = _llamacpp_runtime_root()
+    staging_root = destination_root / ".staging"
+    staging_root.mkdir(parents=True, exist_ok=True)
+    destination = (staging_root / filename).resolve()
     digest = hashlib.sha256()
+    downloaded = 0
     try:
         async with httpx.AsyncClient(timeout=1800, follow_redirects=True) as client:
             async with client.stream("GET", body.asset_url) as response:
                 response.raise_for_status()
+                length = response.headers.get("content-length")
+                await _ensure_download_capacity(
+                    destination_root,
+                    int(length) if length and length.isdigit() else None,
+                )
                 with destination.open("wb") as output:
                     async for chunk in response.aiter_bytes(1024 * 1024):
+                        downloaded += len(chunk)
+                        if downloaded > _MAX_DOWNLOAD_BYTES:
+                            raise HTTPException(
+                                status_code=413,
+                                detail="arquivo excede o limite permitido",
+                            )
                         digest.update(chunk)
                         await asyncio.to_thread(output.write, chunk)
+    except HTTPException:
+        destination.unlink(missing_ok=True)
+        raise
     except Exception as exc:
         destination.unlink(missing_ok=True)
         raise HTTPException(
@@ -737,23 +1080,201 @@ async def install_llamacpp_runtime(body: LlamaCppInstallRequest) -> dict[str, ob
     if body.sha256 and actual.lower() != body.sha256.lower():
         destination.unlink(missing_ok=True)
         raise HTTPException(status_code=422, detail="checksum sha256 incompatível")
-    return {"status": "downloaded", "path": str(destination), "sha256": actual}
+    version_root: Path | None = None
+    try:
+        runtime_id = actual[:16]
+        version_root = (destination_root / "versions" / runtime_id).resolve()
+        version_root.mkdir(parents=True, exist_ok=True)
+        files = _extract_llamacpp_archive(destination, version_root)
+        runtime_version = await _validate_runtime_executable(files)
+        archive_path = version_root / filename
+        await asyncio.to_thread(destination.replace, archive_path)
+    except (OSError, ValueError, zipfile.BadZipFile, tarfile.TarError) as exc:
+        destination.unlink(missing_ok=True)
+        if version_root is not None:
+            import shutil
+
+            await asyncio.to_thread(shutil.rmtree, version_root, ignore_errors=True)
+        raise HTTPException(
+            status_code=422, detail="arquivo do runtime inválido"
+        ) from exc
+    manifest_path = _llamacpp_manifest_path()
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        manifest = {"runtimes": []}
+    runtimes = [item for item in manifest.get("runtimes", []) if isinstance(item, dict)]
+    runtimes = [item for item in runtimes if item.get("id") != runtime_id]
+    runtimes.append(
+        {
+            "id": runtime_id,
+            "asset": filename,
+            "source": body.asset_url,
+            "sha256": actual,
+            "files": files,
+            "directory": str(version_root),
+            "version": runtime_version,
+            "installed_at": datetime.now(UTC).isoformat(),
+        }
+    )
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps({"runtimes": runtimes}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (destination_root / "active-runtime").write_text(runtime_id, encoding="utf-8")
+    return {
+        "status": "installed" if files else "downloaded",
+        "path": str(version_root),
+        "files": files,
+        "sha256": actual,
+    }
 
 
 @router.get("/llamacpp/runtime/status")
 @router.get("/llama-cpp/runtime/status", include_in_schema=False)
 async def llamacpp_runtime_status() -> dict[str, object]:
     """Informa runtimes locais sem inspecionar ou remover pesos."""
-    root = (settings.vectora_home / "tools" / "llama.cpp").resolve()
+    root = _llamacpp_runtime_root()
     if not root.is_dir():
-        return {"installed": False, "path": None, "files": []}
+        return {"installed": False, "path": None, "files": [], "runtimes": []}
     files = [str(path) for path in root.rglob("*") if path.is_file()]
-    return {"installed": bool(files), "path": str(root), "files": files}
+    manifest_path = _llamacpp_manifest_path()
+    try:
+        runtimes = json.loads(manifest_path.read_text(encoding="utf-8")).get(
+            "runtimes", []
+        )
+    except (FileNotFoundError, json.JSONDecodeError):
+        runtimes = []
+    active_path = root / "active-runtime"
+    try:
+        active = active_path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        active = None
+    return {
+        "installed": bool(files),
+        "path": str(root),
+        "files": files,
+        "runtimes": runtimes,
+        "active_runtime": active,
+    }
+
+
+@router.post("/llamacpp/runtime/update")
+@router.post("/llama-cpp/runtime/update", include_in_schema=False)
+async def update_llamacpp_runtime(
+    body: LlamaCppInstallRequest,
+    _: ProviderAdmin,
+) -> dict[str, object]:
+    """Instala uma nova versão sem remover modelos ou versões registradas."""
+    from backend.services.llamacpp_sidecar import llamacpp_status
+
+    if llamacpp_status()["running"]:
+        raise HTTPException(
+            status_code=409,
+            detail="pare o sidecar antes de atualizar o runtime",
+        )
+    return await install_llamacpp_runtime(body, None)
+
+
+@router.post("/llamacpp/runtime/rollback")
+@router.post("/llama-cpp/runtime/rollback", include_in_schema=False)
+async def rollback_llamacpp_runtime(
+    body: LlamaCppRollbackRequest,
+    _: ProviderAdmin,
+) -> dict[str, object]:
+    """Ativa uma versão já instalada sem apagar a versão atual."""
+    from backend.services.llamacpp_sidecar import llamacpp_status
+
+    if llamacpp_status()["running"]:
+        raise HTTPException(
+            status_code=409,
+            detail="pare o sidecar antes de reverter o runtime",
+        )
+    if not re.fullmatch(r"[0-9a-f]{16}", body.runtime_id):
+        raise HTTPException(status_code=400, detail="runtime inválido")
+    root = _llamacpp_runtime_root()
+    runtime_dir = (root / "versions" / body.runtime_id).resolve()
+    versions_root = (root / "versions").resolve()
+    if versions_root not in runtime_dir.parents or not runtime_dir.is_dir():
+        raise HTTPException(status_code=404, detail="runtime não encontrado")
+    manifest_path = _llamacpp_manifest_path()
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=404, detail="manifesto não encontrado") from exc
+    runtimes = manifest.get("runtimes", [])
+    if not any(
+        isinstance(item, dict) and item.get("id") == body.runtime_id
+        for item in runtimes
+    ):
+        raise HTTPException(status_code=404, detail="runtime não registrado")
+    (root / "active-runtime").write_text(body.runtime_id, encoding="utf-8")
+    return {"ok": True, "active_runtime": body.runtime_id}
+
+
+@router.delete("/llamacpp/runtime/{runtime_id}")
+@router.delete("/llama-cpp/runtime/{runtime_id}", include_in_schema=False)
+async def remove_llamacpp_runtime_version(
+    runtime_id: str,
+    _: ProviderAdmin,
+) -> dict[str, bool]:
+    """Remove uma versão inativa sem afetar outras versões ou modelos."""
+    import shutil
+
+    from backend.services.llamacpp_sidecar import llamacpp_status
+
+    if llamacpp_status()["running"]:
+        raise HTTPException(status_code=409, detail="pare o sidecar antes de remover")
+    if not re.fullmatch(r"[0-9a-f]{16}", runtime_id):
+        raise HTTPException(status_code=400, detail="runtime inválido")
+    root = _llamacpp_runtime_root()
+    active = (
+        (root / "active-runtime").read_text(encoding="utf-8").strip()
+        if (root / "active-runtime").is_file()
+        else None
+    )
+    if active == runtime_id:
+        raise HTTPException(status_code=409, detail="não remova o runtime ativo")
+    version_dir = (root / "versions" / runtime_id).resolve()
+    versions_root = (root / "versions").resolve()
+    if versions_root not in version_dir.parents or not version_dir.is_dir():
+        raise HTTPException(status_code=404, detail="runtime não encontrado")
+    manifest_path = _llamacpp_manifest_path()
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=404, detail="manifesto não encontrado") from exc
+    runtimes = manifest.get("runtimes", [])
+    if not any(
+        isinstance(item, dict) and item.get("id") == runtime_id for item in runtimes
+    ):
+        raise HTTPException(status_code=404, detail="runtime não registrado")
+    await asyncio.to_thread(shutil.rmtree, version_dir)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "runtimes": [
+                    item
+                    for item in runtimes
+                    if isinstance(item, dict) and item.get("id") != runtime_id
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return {"ok": True}
 
 
 @router.post("/llamacpp/runtime/test")
 @router.post("/llama-cpp/runtime/test", include_in_schema=False)
-async def test_llamacpp_runtime(body: LlamaCppRuntimeRequest) -> dict[str, object]:
+async def check_llamacpp_runtime(
+    body: LlamaCppRuntimeRequest,
+    _: ProviderAdmin,
+) -> dict[str, object]:
     """Executa apenas ``--version`` no binário indicado pelo usuário."""
     executable = Path(body.path).expanduser().resolve()
     if not executable.is_file() or executable.name.lower() not in {
@@ -781,13 +1302,24 @@ async def test_llamacpp_runtime(body: LlamaCppRuntimeRequest) -> dict[str, objec
 
 @router.delete("/llamacpp/runtime")
 @router.delete("/llama-cpp/runtime", include_in_schema=False)
-async def remove_llamacpp_runtime() -> dict[str, bool]:
+async def remove_llamacpp_runtime(
+    _: ProviderAdmin,
+) -> dict[str, bool]:
     """Remove somente o runtime gerenciado; modelos ficam intactos."""
     import shutil
 
-    root = (settings.vectora_home / "tools" / "llama.cpp").resolve()
+    from backend.services.llamacpp_sidecar import llamacpp_status
+
+    if llamacpp_status()["running"]:
+        raise HTTPException(
+            status_code=409,
+            detail="pare o sidecar antes de remover o runtime",
+        )
+
+    root = _llamacpp_runtime_root()
     if root.exists():
         await asyncio.to_thread(shutil.rmtree, root)
+    await _clear_llamacpp_confirmations(await _get_db())
     return {"ok": True}
 
 

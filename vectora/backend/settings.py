@@ -1060,6 +1060,7 @@ class Settings(BaseSettings):
             "cohere",
             "openrouter",
             "nine_router",
+            "llamacpp",
         ]:
             raise ValueError(f"Unknown LLM provider: {provider}")
 

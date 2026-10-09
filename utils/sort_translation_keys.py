@@ -48,7 +48,8 @@ def main() -> int:
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     paths = tuple(args.paths) or DEFAULT_FILES
-    return 0 if all(check_file(path, write=args.write) for path in paths) else 1
+    results = [check_file(path, write=args.write) for path in paths]
+    return 0 if all(results) else 1
 
 
 if __name__ == "__main__":

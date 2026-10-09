@@ -59,6 +59,12 @@ def test_settings_set_model_updates_nine_router_default():
     assert s.nine_router_default_model == "cx/gpt-5.6-luna"
 
 
+def test_settings_set_model_updates_llamacpp_model():
+    s = Settings()
+    s.set_model("llamacpp", "local-model")
+    assert s.llamacpp_model == "local-model"
+
+
 def test_settings_vectora_app_secret_vem_do_defaults_env(monkeypatch):
     """Fixo por produto (backend/defaults.env) — não é auto-gerado por
     instalação, precisa bater com o mesmo valor configurado no Worker via

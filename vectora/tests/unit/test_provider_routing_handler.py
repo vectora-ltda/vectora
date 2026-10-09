@@ -23,7 +23,12 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.api.handlers.provider_routing import _extract_llamacpp_archive
+from backend.api.handlers.provider_routing import (
+    LlamaCppRollbackRequest,
+    _extract_llamacpp_archive,
+    llamacpp_runtime_status,
+    remove_llamacpp_runtime,
+)
 
 
 @pytest.fixture(scope="module")
@@ -133,6 +138,34 @@ def clean_nine_router_config():
         os.environ.pop("NINE_ROUTER_API_KEY", None)
     object.__setattr__(settings, "nine_router_base_url", orig_setting_url)
     object.__setattr__(settings, "nine_router_api_key", orig_setting_key)
+
+
+@pytest.fixture
+def clean_llamacpp_config():
+    """Isola as configurações e variáveis de ambiente do llama.cpp."""
+    from backend.settings import settings
+
+    keys = ("LLAMACPP_BASE_URL", "LLAMACPP_MODEL", "LLAMACPP_API_KEY")
+    original_env = {key: os.environ.get(key) for key in keys}
+    original = (
+        settings.llamacpp_base_url,
+        settings.llamacpp_model,
+        settings.llamacpp_api_key,
+    )
+    for key in keys:
+        os.environ.pop(key, None)
+    object.__setattr__(settings, "llamacpp_base_url", None)
+    object.__setattr__(settings, "llamacpp_model", None)
+    object.__setattr__(settings, "llamacpp_api_key", None)
+    yield
+    for key, value in original_env.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+    object.__setattr__(settings, "llamacpp_base_url", original[0])
+    object.__setattr__(settings, "llamacpp_model", original[1])
+    object.__setattr__(settings, "llamacpp_api_key", original[2])
 
 
 class TestOllamaDiscovery:
@@ -297,6 +330,25 @@ class TestLlamaCppAndHuggingFace:
         )
         assert response.status_code == 400
 
+    @pytest.mark.parametrize(
+        "filename", ["/tmp/model.gguf", "C:/model.gguf", "./model.gguf"]
+    )
+    def test_huggingface_download_rejects_absolute_or_ambiguous_paths(
+        self, client, filename
+    ):
+        response = client.post(
+            "/provider-routing/huggingface/download",
+            json={"repo_id": "org/model", "filename": filename},
+        )
+        assert response.status_code == 400
+
+    def test_huggingface_download_cancel_rejects_path_traversal(self, client):
+        response = client.delete(
+            "/provider-routing/huggingface/download",
+            params={"repo_id": "org/model", "filename": "../model.gguf"},
+        )
+        assert response.status_code == 400
+
     def test_llamacpp_install_rejects_non_official_url(self, client):
         response = client.post(
             "/provider-routing/llamacpp/install",
@@ -318,6 +370,17 @@ class TestLlamaCppAndHuggingFace:
         response = client.post(
             "/provider-routing/llamacpp/runtime/test",
             json={"path": "C:/tmp/not-llama.exe"},
+        )
+        assert response.status_code == 400
+
+    def test_llamacpp_model_confirmation_rejects_unmanaged_path(self, client):
+        response = client.post(
+            "/provider-routing/llamacpp/models/confirm",
+            json={
+                "tag": "local-model",
+                "model_path": "C:/outside/model.gguf",
+                "runtime_id": "0123456789abcdef",
+            },
         )
         assert response.status_code == 400
 
@@ -1036,3 +1099,108 @@ class TestNineRouterRegisteredModels:
             "/provider-routing/nine-router/registered", json={"tag": "dup/nine-model"}
         )
         assert resp.status_code == 409
+
+
+class TestLlamaCppConfiguration:
+    def test_config_syncs_model_environment(self, client, clean_llamacpp_config):
+        response = client.post(
+            "/provider-routing/llamacpp/config",
+            json={
+                "base_url": "http://127.0.0.1:8080/v1",
+                "api_key": "",
+                "model": "  local-model  ",
+            },
+        )
+        assert response.status_code == 200
+        assert os.environ["LLAMACPP_MODEL"] == "local-model"
+
+        cleared = client.post(
+            "/provider-routing/llamacpp/config",
+            json={
+                "base_url": "http://127.0.0.1:8080/v1",
+                "api_key": "",
+                "model": "",
+            },
+        )
+        assert cleared.status_code == 200
+        assert "LLAMACPP_MODEL" not in os.environ
+
+    @pytest.mark.asyncio
+    async def test_runtime_status_reads_installed_manifest(self, tmp_path, monkeypatch):
+        from backend.settings import settings
+
+        root = tmp_path / "tools" / "llama.cpp"
+        root.mkdir(parents=True)
+        (root / "runtime-manifest.json").write_text(
+            '{"runtimes": [{"asset": "llama-server.zip", "sha256": "abc"}]}',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+
+        status = await llamacpp_runtime_status()
+
+        assert status["installed"] is True
+        assert status["runtimes"] == [{"asset": "llama-server.zip", "sha256": "abc"}]
+
+    @pytest.mark.asyncio
+    async def test_runtime_removal_rejects_active_sidecar(self, monkeypatch):
+        monkeypatch.setattr(
+            "backend.services.llamacpp_sidecar.llamacpp_status",
+            lambda: {"running": True, "pid": 123},
+        )
+
+        with pytest.raises(Exception, match="pare o sidecar"):
+            await remove_llamacpp_runtime(None)
+
+    @pytest.mark.asyncio
+    async def test_runtime_rollback_activates_registered_version(
+        self, tmp_path, monkeypatch
+    ):
+        from backend.api.handlers.provider_routing import rollback_llamacpp_runtime
+        from backend.settings import settings
+
+        root = tmp_path / "tools" / "llama.cpp"
+        version = root / "versions" / "0123456789abcdef"
+        version.mkdir(parents=True)
+        (root / "runtime-manifest.json").write_text(
+            '{"runtimes": [{"id": "0123456789abcdef", "directory": "ignored"}]}',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        result = await rollback_llamacpp_runtime(
+            LlamaCppRollbackRequest(runtime_id="0123456789abcdef"), None
+        )
+        assert result == {"ok": True, "active_runtime": "0123456789abcdef"}
+        assert (root / "active-runtime").read_text(
+            encoding="utf-8"
+        ) == "0123456789abcdef"
+
+    @pytest.mark.asyncio
+    async def test_runtime_version_removal_keeps_active_version(
+        self, tmp_path, monkeypatch
+    ):
+        from backend.api.handlers.provider_routing import (
+            remove_llamacpp_runtime_version,
+        )
+        from backend.settings import settings
+
+        root = tmp_path / "tools" / "llama.cpp"
+        version = root / "versions" / "fedcba9876543210"
+        version.mkdir(parents=True)
+        (version / "llama-server").write_bytes(b"runtime")
+        (root / "active-runtime").write_text("0123456789abcdef", encoding="utf-8")
+        (root / "runtime-manifest.json").write_text(
+            '{"runtimes": [{"id": "0123456789abcdef"}, {"id": "fedcba9876543210"}]}',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        result = await remove_llamacpp_runtime_version("fedcba9876543210", None)
+        assert result == {"ok": True}
+        assert not version.exists()
+
+    @pytest.mark.asyncio
+    async def test_runtime_validation_requires_llama_server(self):
+        from backend.api.handlers.provider_routing import _validate_runtime_executable
+
+        with pytest.raises(ValueError, match="não contém llama-server"):
+            await _validate_runtime_executable(["/tmp/other-binary"])
