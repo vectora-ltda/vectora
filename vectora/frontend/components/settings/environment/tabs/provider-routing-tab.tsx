@@ -18,7 +18,7 @@
  */
 
 import { Loader2, Plus, RefreshCw, Search, Server, Trash2 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -70,6 +70,19 @@ interface LlamaCppReleaseAsset {
   size: number;
 }
 
+interface LlamaCppRuntimeStatus {
+  installed: boolean;
+  path: string | null;
+  files: string[];
+  active_runtime?: string | null;
+  runtimes: Array<{
+    id?: string;
+    asset: string;
+    sha256: string;
+    installed_at?: string;
+  }>;
+}
+
 async function discoverModels(): Promise<{
   reachable: boolean;
   models: OllamaModelInfo[];
@@ -117,6 +130,28 @@ async function installLlamaCppRuntime(assetUrl: string): Promise<void> {
   if (!res.ok) throw new Error(`Erro ${res.status}`);
 }
 
+async function fetchLlamaCppRuntimeStatus(): Promise<LlamaCppRuntimeStatus> {
+  const res = await fetch("/provider-routing/llamacpp/runtime/status");
+  if (!res.ok) throw new Error(`Erro ${res.status}`);
+  return res.json() as Promise<LlamaCppRuntimeStatus>;
+}
+
+async function removeLlamaCppRuntime(): Promise<void> {
+  const res = await fetch("/provider-routing/llamacpp/runtime", {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(`Erro ${res.status}`);
+}
+
+async function rollbackLlamaCppRuntime(runtimeId: string): Promise<void> {
+  const res = await fetch("/provider-routing/llamacpp/runtime/rollback", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ runtime_id: runtimeId }),
+  });
+  if (!res.ok) throw new Error(`Erro ${res.status}`);
+}
+
 async function searchHuggingFaceModels(
   query: string,
   provider: "ollama" | "llamacpp" = "llamacpp",
@@ -129,9 +164,13 @@ async function searchHuggingFaceModels(
   return data.models ?? [];
 }
 
-async function downloadHuggingFaceModel(repoId: string): Promise<string> {
+async function downloadHuggingFaceModel(
+  repoId: string,
+  signal?: AbortSignal,
+): Promise<string> {
   const metadataResponse = await fetch(
     `/provider-routing/huggingface/models/${repoId}`,
+    { signal },
   );
   if (!metadataResponse.ok) throw new Error(`Erro ${metadataResponse.status}`);
   const metadata = (await metadataResponse.json()) as {
@@ -143,6 +182,7 @@ async function downloadHuggingFaceModel(repoId: string): Promise<string> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ repo_id: repoId, filename: file.rfilename }),
+    signal,
   });
   if (!response.ok) throw new Error(`Erro ${response.status}`);
   const result = (await response.json()) as { path: string };
@@ -157,6 +197,7 @@ function HuggingFaceCatalogSection() {
   const [downloading, setDownloading] = useState<string | null>(null);
   const [downloaded, setDownloaded] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const downloadController = useRef<AbortController | null>(null);
 
   async function search() {
     setLoading(true);
@@ -217,20 +258,42 @@ function HuggingFaceCatalogSection() {
                 size="sm"
                 disabled={downloading !== null}
                 onClick={() => {
+                  const controller = new AbortController();
+                  downloadController.current = controller;
                   setDownloading(model.id);
                   setError(null);
-                  void downloadHuggingFaceModel(model.id)
+                  void downloadHuggingFaceModel(model.id, controller.signal)
                     .then((path) => setDownloaded(path))
-                    .catch(() =>
-                      setError(m.provider_routing_hf_download_error()),
-                    )
-                    .finally(() => setDownloading(null));
+                    .catch((downloadError: unknown) => {
+                      if (
+                        !(downloadError instanceof DOMException) ||
+                        downloadError.name !== "AbortError"
+                      ) {
+                        setError(m.provider_routing_hf_download_error());
+                      }
+                    })
+                    .finally(() => {
+                      if (downloadController.current === controller) {
+                        downloadController.current = null;
+                      }
+                      setDownloading(null);
+                    });
                 }}
               >
                 {downloading === model.id
                   ? m.provider_routing_hf_downloading()
                   : m.provider_routing_hf_download()}
               </Button>
+              {downloading === model.id && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => downloadController.current?.abort()}
+                >
+                  {m.provider_routing_hf_cancel()}
+                </Button>
+              )}
             </div>
           ))}
         </div>
@@ -1238,6 +1301,14 @@ function LlamaCppSection() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [releases, setReleases] = useState<LlamaCppReleaseAsset[]>([]);
+  const [runtime, setRuntime] = useState<LlamaCppRuntimeStatus | null>(null);
+  const [runtimeBusy, setRuntimeBusy] = useState(false);
+
+  useEffect(() => {
+    void fetchLlamaCppRuntimeStatus()
+      .then(setRuntime)
+      .catch(() => setRuntime(null));
+  }, []);
   const [installing, setInstalling] = useState(false);
 
   useEffect(() => {
@@ -1313,15 +1384,60 @@ function LlamaCppSection() {
     try {
       const assets = await fetchLlamaCppReleases();
       setReleases(assets);
-      const preferred = assets.find((asset) => /win|windows/i.test(asset.name));
+      const nav = navigator as Navigator & {
+        userAgentData?: { platform?: string; architecture?: string };
+      };
+      const platform =
+        `${nav.userAgent} ${nav.userAgentData?.platform ?? ""}`.toLowerCase();
+      const architecture = (
+        nav.userAgentData?.architecture ?? nav.userAgent
+      ).toLowerCase();
+      const isWindows = platform.includes("windows");
+      const isMac =
+        platform.includes("mac os") || platform.includes("macintosh");
+      const isLinux = platform.includes("linux");
+      const isArm = /arm64|aarch64|arm/.test(architecture);
+      const platformPattern = isWindows
+        ? /win|windows/i
+        : isMac
+          ? /mac|darwin|osx/i
+          : isLinux
+            ? /linux/i
+            : null;
+      const architecturePattern = isArm
+        ? /arm64|aarch64/i
+        : /x64|amd64|x86_64/i;
+      const preferred = platformPattern
+        ? assets.find(
+            (asset) =>
+              platformPattern.test(asset.name) &&
+              architecturePattern.test(asset.name) &&
+              !/cuda|vulkan|rocm/i.test(asset.name),
+          )
+        : undefined;
       if (!preferred) throw new Error("Nenhum runtime compatível encontrado");
       setInstalling(true);
       await installLlamaCppRuntime(preferred.url);
+      setRuntime(await fetchLlamaCppRuntimeStatus());
     } catch {
       setError("Erro ao instalar o runtime oficial do llama.cpp");
     } finally {
       setInstalling(false);
       setLoading(false);
+    }
+  }
+
+  async function removeRuntime() {
+    if (!window.confirm("Remover o runtime gerenciado do llama.cpp?")) return;
+    setRuntimeBusy(true);
+    setError("");
+    try {
+      await removeLlamaCppRuntime();
+      setRuntime(await fetchLlamaCppRuntimeStatus());
+    } catch {
+      setError("Não foi possível remover o runtime. Pare o sidecar antes.");
+    } finally {
+      setRuntimeBusy(false);
     }
   }
 
@@ -1396,6 +1512,54 @@ function LlamaCppSection() {
           <Search className="mr-2 size-4" /> {m.provider_routing_llamacpp_hf()}
         </Button>
       </div>
+      {runtime && (
+        <div className="rounded-md border p-3 text-xs text-muted-foreground">
+          <p>
+            {m.provider_routing_llamacpp_title()}:{" "}
+            {runtime.installed
+              ? m.provider_routing_llamacpp_runtime_installed()
+              : m.provider_routing_llamacpp_runtime_remove()}
+            {runtime.runtimes.length > 0 &&
+              ` (${runtime.runtimes.map((item) => item.asset).join(", ")})`}
+          </p>
+          {runtime.runtimes
+            .filter((item) => item.id && item.id !== runtime.active_runtime)
+            .map((item) => (
+              <Button
+                key={item.id}
+                type="button"
+                variant="ghost"
+                className="mt-2 mr-2 px-0"
+                disabled={runtimeBusy || loading || installing}
+                onClick={() => {
+                  if (!item.id) return;
+                  setRuntimeBusy(true);
+                  void rollbackLlamaCppRuntime(item.id)
+                    .then(async () =>
+                      setRuntime(await fetchLlamaCppRuntimeStatus()),
+                    )
+                    .catch(() =>
+                      setError("Não foi possível reverter o runtime."),
+                    )
+                    .finally(() => setRuntimeBusy(false));
+                }}
+              >
+                {m.provider_routing_llamacpp_runtime_rollback()} ({item.asset})
+              </Button>
+            ))}
+          {runtime.installed && (
+            <Button
+              type="button"
+              variant="ghost"
+              className="mt-2 px-0"
+              disabled={runtimeBusy || loading || installing}
+              onClick={() => void removeRuntime()}
+            >
+              {m.provider_routing_llamacpp_runtime_remove()}
+            </Button>
+          )}
+        </div>
+      )}
       {reachable !== null && (
         <p className="text-xs text-muted-foreground">
           {reachable
