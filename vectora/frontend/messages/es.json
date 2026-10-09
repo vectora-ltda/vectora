@@ -979,6 +979,7 @@
   "provider_routing_dmr_endpoint": "Endpoint de Docker Model Runner",
   "provider_routing_dmr_endpoint_placeholder": "http://127.0.0.1:12434",
   "provider_routing_dmr_job_cancelled": "Operación DMR cancelada",
+  "provider_routing_dmr_job_interrupted": "Operación DMR interrumpida; reanúdala para continuar de forma segura",
   "provider_routing_dmr_job_running": "Operación DMR en curso ({status})",
   "provider_routing_dmr_missing_cli": "Docker Model Runner no está disponible en este dispositivo.",
   "provider_routing_dmr_missing_plugin": "Docker está instalado, pero el plugin Model Runner no está disponible",

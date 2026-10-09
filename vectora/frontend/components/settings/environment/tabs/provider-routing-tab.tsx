@@ -134,7 +134,8 @@ interface DmrJob {
   id: string;
   operation: "prepare" | "start";
   reference: string;
-  status: "queued" | "running" | "completed" | "failed" | "cancelled";
+  status:
+    "queued" | "running" | "completed" | "failed" | "cancelled" | "interrupted";
   output?: string;
   error?: string | null;
 }
@@ -243,6 +244,24 @@ async function fetchDmrModelJob(jobId: string): Promise<DmrJob> {
   return (await response.json()) as DmrJob;
 }
 
+async function fetchDmrModelJobs(): Promise<DmrJob[]> {
+  const response = await fetch("/provider-routing/dmr/models/jobs");
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  const payload = (await response.json()) as { jobs?: DmrJob[] };
+  return payload.jobs ?? [];
+}
+
+async function retryDmrModelJob(jobId: string): Promise<DmrJob> {
+  const response = await fetch(
+    `/provider-routing/dmr/models/jobs/${jobId}/retry`,
+    {
+      method: "POST",
+    },
+  );
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  return (await response.json()) as DmrJob;
+}
+
 async function cancelDmrModelJob(jobId: string): Promise<DmrJob> {
   const response = await fetch(`/provider-routing/dmr/models/jobs/${jobId}`, {
     method: "DELETE",
@@ -284,6 +303,14 @@ function DmrSection() {
       setStatus(next);
       setBaseUrl(next.base_url);
       setModel(next.model);
+      const jobs = await fetchDmrModelJobs();
+      const active = jobs.find(
+        (candidate) =>
+          candidate.status === "queued" ||
+          candidate.status === "running" ||
+          candidate.status === "interrupted",
+      );
+      setJob(active ?? null);
     } catch {
       setError("Não foi possível consultar o Docker Model Runner.");
     }
@@ -334,6 +361,29 @@ function DmrSection() {
       setJob(await cancelDmrModelJob(job.id));
     } catch {
       setError("Não foi possível cancelar a operação do Docker Model Runner.");
+    }
+  }
+
+  async function retryPrepare() {
+    if (!job || job.status !== "interrupted") return;
+    setBusy(true);
+    setError("");
+    try {
+      let current = await retryDmrModelJob(job.id);
+      setJob(current);
+      while (current.status === "queued" || current.status === "running") {
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+        current = await fetchDmrModelJob(current.id);
+        setJob(current);
+      }
+      if (current.status !== "completed") {
+        throw new Error(current.error ?? "operação DMR falhou");
+      }
+      setStatus(await fetchDmrStatus());
+    } catch {
+      setError("Não foi possível retomar a operação do Docker Model Runner.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -406,6 +456,14 @@ function DmrSection() {
           >
             {m.provider_routing_dmr_cancel()}
           </Button>
+        ) : job?.status === "interrupted" ? (
+          <Button
+            type="button"
+            disabled={busy}
+            onClick={() => void retryPrepare()}
+          >
+            {m.provider_routing_dmr_prepare()}
+          </Button>
         ) : (
           <Button
             type="button"
@@ -456,6 +514,11 @@ function DmrSection() {
       {job?.status === "cancelled" && (
         <p className="text-xs text-muted-foreground">
           {m.provider_routing_dmr_job_cancelled()}
+        </p>
+      )}
+      {job?.status === "interrupted" && (
+        <p className="text-xs text-muted-foreground">
+          {m.provider_routing_dmr_job_interrupted()}
         </p>
       )}
       {error && <p className="text-xs text-destructive">{error}</p>}

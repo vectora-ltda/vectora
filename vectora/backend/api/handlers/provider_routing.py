@@ -1005,10 +1005,11 @@ async def create_dmr_model_job(
 @router.get("/dmr/models/jobs/{job_id}", dependencies=[DesktopBridge])
 async def get_dmr_model_job(job_id: str, _: ProviderAdmin) -> dict[str, object]:
     """Consulta o estado de um job sem expor saída ilimitada do Docker."""
-    from backend.services.docker_model_runner import get_model_job
+    from backend.services.docker_model_runner import get_model_job, restore_model_jobs
 
     if not re.fullmatch(r"[0-9a-f]{32}", job_id):
         raise HTTPException(status_code=400, detail="identificador de job inválido")
+    await restore_model_jobs()
     job = get_model_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job não encontrado")
@@ -1040,6 +1041,48 @@ async def get_dmr_model_job(job_id: str, _: ProviderAdmin) -> dict[str, object]:
         "output": job.output[-2000:],
         "error": job.error,
         "metadata": job.metadata,
+    }
+
+
+@router.get("/dmr/models/jobs", dependencies=[DesktopBridge])
+async def list_dmr_model_jobs(_: ProviderAdmin) -> dict[str, object]:
+    """Lista operações persistidas para que a interface recupere interrupções."""
+    from backend.services.docker_model_runner import list_model_jobs
+
+    jobs = await list_model_jobs()
+    return {
+        "jobs": [
+            {
+                "id": job.id,
+                "operation": job.operation,
+                "reference": job.reference,
+                "status": job.status,
+                "output": job.output[-2000:],
+                "error": job.error,
+                "metadata": job.metadata,
+            }
+            for job in jobs
+        ]
+    }
+
+
+@router.post("/dmr/models/jobs/{job_id}/retry", dependencies=[DesktopBridge])
+async def retry_dmr_model_job(job_id: str, _: ProviderAdmin) -> dict[str, object]:
+    """Retoma explicitamente um job que foi interrompido por reinício."""
+    from backend.services.docker_model_runner import retry_model_job
+
+    if not re.fullmatch(r"[0-9a-f]{32}", job_id):
+        raise HTTPException(status_code=400, detail="identificador de job inválido")
+    job = await retry_model_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job não encontrado")
+    return {
+        "id": job.id,
+        "operation": job.operation,
+        "reference": job.reference,
+        "status": job.status,
+        "output": job.output[-2000:],
+        "error": job.error,
     }
 
 

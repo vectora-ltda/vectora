@@ -183,10 +183,10 @@ async def test_model_job_reports_completion_and_keeps_output(
 
     monkeypatch.setattr(dmr, "run_docker_model", fake_run)
     job = await dmr.create_model_job("hf.co/Qwen/Qwen3-0.6B", "start")
-    for _ in range(20):
+    for _ in range(100):
         if job.status not in {"queued", "running"}:
             break
-        await asyncio.sleep(0)
+        await asyncio.sleep(0.01)
     assert job.status == "completed"
     assert job.output == "ok\nok"
     assert calls == [
@@ -194,6 +194,36 @@ async def test_model_job_reports_completion_and_keeps_output(
         ("run", "--detach", "hf.co/Qwen/Qwen3-0.6B"),
         ("inspect", "hf.co/Qwen/Qwen3-0.6B"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_model_jobs_are_recovered_as_interrupted_after_restart(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from backend.settings import settings
+
+    monkeypatch.setattr(settings, "vectora_home", tmp_path)
+    dmr._jobs.clear()
+    dmr._job_tasks.clear()
+    dmr._jobs_loaded = False
+    job_id = "a" * 32
+    (tmp_path / "docker-model-runner-jobs.json").write_text(
+        '{"jobs":[{"id":"'
+        + job_id
+        + '","operation":"start","reference":"hf.co/Qwen/Qwen3-0.6B",'
+        '"status":"running","output":"pulling","metadata":{}}]}',
+        encoding="utf-8",
+    )
+
+    await dmr.restore_model_jobs()
+
+    job = dmr.get_model_job(job_id)
+    assert job is not None
+    assert job.status == "interrupted"
+    assert "reinício" in (job.error or "")
+
+    persisted = (tmp_path / "docker-model-runner-jobs.json").read_text(encoding="utf-8")
+    assert '"status":"interrupted"' in persisted
 
 
 @pytest.mark.asyncio
