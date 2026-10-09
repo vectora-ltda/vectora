@@ -672,7 +672,7 @@ async def file_move(from_path: str, to_path: str, ctx: ToolContext) -> str:
         root, _ = _workspace_root(ctx)
         await asyncio.to_thread(_assert_no_symlink_components, source, root)
         await asyncio.to_thread(_assert_no_symlink_components, target, root)
-        await asyncio.to_thread(target.parent.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(_mkdir_confined, target.parent, root)
         await asyncio.to_thread(_assert_no_symlink_components, target.parent, root)
         await asyncio.to_thread(_move_confined, source, target, root)
         return f"[OK] Movido: {from_path} -> {to_path}"
