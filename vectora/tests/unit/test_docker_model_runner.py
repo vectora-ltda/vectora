@@ -174,6 +174,7 @@ async def test_model_job_reports_completion_and_keeps_output(
     assert calls == [
         ("pull", "hf.co/Qwen/Qwen3-0.6B"),
         ("run", "--detach", "hf.co/Qwen/Qwen3-0.6B"),
+        ("inspect", "hf.co/Qwen/Qwen3-0.6B"),
     ]
 
 

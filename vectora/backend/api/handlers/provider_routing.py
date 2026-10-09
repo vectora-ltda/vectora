@@ -317,6 +317,11 @@ def _llamacpp_manifest_path() -> Path:
     return _llamacpp_runtime_root() / "runtime-manifest.json"
 
 
+def _dmr_manifest_path() -> Path:
+    """Manifesto local de modelos preparados explicitamente pela Vectora."""
+    return (settings.vectora_home / "docker-model-runner-manifest.json").resolve()
+
+
 async def _validate_runtime_executable(files: list[str]) -> str:
     """Valida o binário oficial antes de publicar uma versão como ativa."""
     candidates = [
@@ -889,6 +894,19 @@ async def get_dmr_status() -> dict[str, object]:
     cli_available, cli_detail = await docker_model_available()
     base_url = settings.dmr_base_url or DEFAULT_DMR_BASE_URL
     probe = await probe_dmr(base_url)
+    try:
+        manifest = await _read_json_file_async(_dmr_manifest_path())
+    except (FileNotFoundError, json.JSONDecodeError):
+        manifest = {}
+    managed_models = (
+        [
+            str(item["reference"])
+            for item in manifest.get("models", [])
+            if isinstance(item, dict) and isinstance(item.get("reference"), str)
+        ]
+        if isinstance(manifest, dict)
+        else []
+    )
     cli_detail_lower = (cli_detail or "").lower()
     if probe.reachable:
         state = "ready"
@@ -913,6 +931,7 @@ async def get_dmr_status() -> dict[str, object]:
         "reachable": probe.reachable if probe else False,
         "contract": probe.contract if probe else None,
         "models": list(probe.models) if probe else [],
+        "managed_models": managed_models,
         "detail": probe.detail if probe else "endpoint ainda não configurado",
     }
 
@@ -993,6 +1012,26 @@ async def get_dmr_model_job(job_id: str, _: ProviderAdmin) -> dict[str, object]:
     job = get_model_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job não encontrado")
+    if job.status == "completed":
+        try:
+            manifest = await _read_json_file_async(_dmr_manifest_path())
+        except (FileNotFoundError, json.JSONDecodeError):
+            manifest = {"models": []}
+        if not isinstance(manifest, dict):
+            manifest = {"models": []}
+        models = [item for item in manifest.get("models", []) if isinstance(item, dict)]
+        entry = {
+            "reference": job.reference,
+            "source": "docker-model-runner",
+            "owned_by_vectora": True,
+            "prepared_at": datetime.now(UTC).isoformat(),
+            "platform": platform.system().lower(),
+            "architecture": platform.machine().lower(),
+            **job.metadata,
+        }
+        models = [item for item in models if item.get("reference") != job.reference]
+        models.append(entry)
+        await _write_json_atomic(_dmr_manifest_path(), {"models": models})
     return {
         "id": job.id,
         "operation": job.operation,
@@ -1000,6 +1039,7 @@ async def get_dmr_model_job(job_id: str, _: ProviderAdmin) -> dict[str, object]:
         "status": job.status,
         "output": job.output[-2000:],
         "error": job.error,
+        "metadata": job.metadata,
     }
 
 
@@ -1104,6 +1144,21 @@ async def remove_dmr_model(
         env_file = _env_file()
         _remove_env_key(env_file, "DMR_MODEL")
         os.environ.pop("DMR_MODEL", None)
+    try:
+        manifest = await _read_json_file_async(_dmr_manifest_path())
+    except (FileNotFoundError, json.JSONDecodeError):
+        manifest = {}
+    if isinstance(manifest, dict) and isinstance(manifest.get("models"), list):
+        await _write_json_atomic(
+            _dmr_manifest_path(),
+            {
+                "models": [
+                    item
+                    for item in manifest["models"]
+                    if not (isinstance(item, dict) and item.get("reference") == value)
+                ]
+            },
+        )
     return {"status": "removed", "reference": value, "output": output[-2000:]}
 
 

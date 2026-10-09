@@ -13,7 +13,7 @@ import json
 import logging
 import re
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Final, Literal
 from urllib.parse import urlparse
 
@@ -47,6 +47,7 @@ class DmrJob:
     status: Literal["queued", "running", "completed", "failed", "cancelled"]
     output: str = ""
     error: str | None = None
+    metadata: dict[str, object] = field(default_factory=dict)
 
 
 _jobs: dict[str, DmrJob] = {}
@@ -174,6 +175,24 @@ async def remove_model(reference: str) -> str:
     return await run_docker_model("rm", validate_model_reference(reference))
 
 
+async def inspect_model(reference: str) -> dict[str, object]:
+    """Lê metadados fornecidos pelo Docker sem confiar em texto do usuário."""
+    output = await run_docker_model("inspect", validate_model_reference(reference))
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError:
+        return {"raw": output[-2000:]}
+    if isinstance(payload, list) and payload and isinstance(payload[0], dict):
+        payload = payload[0]
+    if not isinstance(payload, dict):
+        return {}
+    return {
+        key: payload[key]
+        for key in ("name", "id", "digest", "size", "license", "engine", "backend")
+        if key in payload and isinstance(payload[key], (str, int, float, bool))
+    }
+
+
 async def _run_job(job: DmrJob) -> None:
     """Executa um job e converte cancelamento em estado consultável."""
     job.status = "running"
@@ -183,6 +202,10 @@ async def _run_job(job: DmrJob) -> None:
             job.output = (job.output + "\n" + await run_model(job.reference))[
                 -MAX_OUTPUT_BYTES:
             ]
+        try:
+            job.metadata = await inspect_model(job.reference)
+        except (OSError, RuntimeError, ValueError):
+            job.metadata = {}
         job.status = "completed"
     except asyncio.CancelledError:
         job.status = "cancelled"

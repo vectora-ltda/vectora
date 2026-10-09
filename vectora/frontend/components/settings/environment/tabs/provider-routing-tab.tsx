@@ -122,6 +122,7 @@ interface DmrStatus {
   reachable: boolean;
   contract: string | null;
   models: string[];
+  managed_models: string[];
   detail?: string | null;
   state: "docker_unavailable" | "plugin_unavailable" | "stopped" | "ready";
   platform: string;
@@ -442,6 +443,9 @@ function DmrSection() {
                 : m.provider_routing_dmr_missing_cli()}
           {` · ${status.platform}/${status.architecture}`}
           {status.models.length ? ` · ${status.models.join(", ")}` : ""}
+          {status.managed_models.length
+            ? ` · ${status.managed_models.join(", ")}`
+            : ""}
         </p>
       )}
       {job && (job.status === "queued" || job.status === "running") && (
