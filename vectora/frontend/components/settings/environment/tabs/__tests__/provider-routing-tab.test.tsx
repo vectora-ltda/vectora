@@ -422,9 +422,11 @@ describe("ProviderRoutingTab - Hugging Face", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /instalar modelo/i }),
     );
-    fireEvent.click(
-      await screen.findByRole("button", { name: /instalar modelo/i }),
-    );
+    await screen.findByDisplayValue("hf.co/Qwen/Qwen3-0.6B");
+    const installButtons = await screen.findAllByRole("button", {
+      name: /instalar modelo/i,
+    });
+    fireEvent.click(installButtons.at(-1)!);
     await waitFor(() => {
       expect(
         (
