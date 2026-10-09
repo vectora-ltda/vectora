@@ -64,6 +64,8 @@ type MutableOperation = {
   -readonly [K in keyof DmrOperation]: DmrOperation[K];
 };
 
+const MAX_TERMINAL_OPERATIONS = 50;
+
 function errorText(result: DockerCommandResult): string {
   return (result.stderr || result.stdout || "Docker Model Runner falhou").slice(
     0,
@@ -132,6 +134,7 @@ export class DmrOperations {
     operation: MutableOperation["operation"],
     reference: string,
   ): MutableOperation {
+    this.pruneOperations();
     const item: MutableOperation = {
       id: randomUUID(),
       operation,
@@ -142,6 +145,21 @@ export class DmrOperations {
     };
     this.operations.set(item.id, item);
     return item;
+  }
+
+  private pruneOperations(): void {
+    const terminal = [...this.operations.values()]
+      .filter(
+        (operation) =>
+          operation.status === "completed" ||
+          operation.status === "failed" ||
+          operation.status === "cancelled",
+      )
+      .sort((left, right) => left.id.localeCompare(right.id));
+    const excess = terminal.length - MAX_TERMINAL_OPERATIONS;
+    for (const operation of excess > 0 ? terminal.slice(0, excess) : []) {
+      this.operations.delete(operation.id);
+    }
   }
 
   private async execute(
@@ -384,6 +402,7 @@ export class DmrOperations {
   }
 
   listOperations(): DmrOperation[] {
+    this.pruneOperations();
     return [...this.operations.values()].map((operation) => ({ ...operation }));
   }
 

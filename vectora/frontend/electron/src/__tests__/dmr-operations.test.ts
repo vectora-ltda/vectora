@@ -133,4 +133,46 @@ describe("Electron DMR operation lifecycle", () => {
     expect(executor.execute).not.toHaveBeenCalled();
     await rm(directory, { recursive: true, force: true });
   });
+
+  it("retains active operations while pruning old terminal operations", async () => {
+    let releaseActive: (() => void) | undefined;
+    const activePull = new Promise<void>((resolve) => {
+      releaseActive = resolve;
+    });
+    const executor = {
+      execute: vi.fn(async (_operation: string, reference?: string) => {
+        if (reference === "hf.co/active") await activePull;
+        return {
+          operationId: "operation",
+          code: 0,
+          signal: null,
+          stdout: "ok",
+          stderr: "",
+        };
+      }),
+      cancel: vi.fn(() => false),
+      dispose: vi.fn(),
+    };
+    executors.push(executor);
+    const directory = await mkdtemp(join(tmpdir(), "vectora-dmr-"));
+    const operations = new DmrOperations(
+      executor as unknown as DockerCliExecutor,
+      directory,
+    );
+
+    const active = await operations.prepare("hf.co/active");
+    await waitFor(
+      () => operations.getOperation(active.id)?.status === "running",
+    );
+    for (let index = 0; index < 51; index += 1) {
+      const operation = await operations.prepare(`hf.co/model-${index}`);
+      await waitFor(
+        () => operations.getOperation(operation.id)?.status === "completed",
+      );
+    }
+    expect(operations.getOperation(active.id)).toBeDefined();
+    expect(operations.listOperations()).toHaveLength(51);
+    releaseActive?.();
+    await rm(directory, { recursive: true, force: true });
+  });
 });
