@@ -1663,6 +1663,52 @@ async def _ensure_download_capacity(path: Path, expected: int | None) -> None:
         )
 
 
+async def _huggingface_file_metadata(
+    repo_id: str, revision: str, filename: str
+) -> tuple[str | None, int | None]:
+    """Obtém checksum e tamanho publicados para a revisão selecionada.
+
+    O frontend pode exibir e reenviar esses dados, mas a integridade do arquivo
+    precisa ser decidida pelo backend a partir da API da Hugging Face.
+    """
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(
+                f"https://huggingface.co/api/models/{repo_id}",
+                params={"revision": revision, "blobs": "true"},
+            )
+            response.raise_for_status()
+            data = response.json()
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            raise HTTPException(
+                status_code=404, detail="modelo não encontrado"
+            ) from exc
+        raise HTTPException(
+            status_code=502, detail="metadados da Hugging Face indisponíveis"
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail="metadados da Hugging Face indisponíveis"
+        ) from exc
+
+    for item in data.get("siblings", []) if isinstance(data, dict) else []:
+        if not isinstance(item, dict) or item.get("rfilename") != filename:
+            continue
+        lfs = item.get("lfs")
+        sha256 = lfs.get("sha256") if isinstance(lfs, dict) else None
+        size = lfs.get("size") if isinstance(lfs, dict) else item.get("size")
+        return (
+            sha256.lower()
+            if isinstance(sha256, str) and re.fullmatch(r"[0-9a-f]{64}", sha256.lower())
+            else None,
+            size if isinstance(size, int) and size >= 0 else None,
+        )
+    return None, None
+
+
 @router.get("/huggingface/models/{repo_id:path}")
 async def get_huggingface_model_metadata(repo_id: str) -> dict[str, object]:
     """Retorna metadados do repositório sem encaminhar pesos ao backend."""
@@ -1673,7 +1719,10 @@ async def get_huggingface_model_metadata(repo_id: str) -> dict[str, object]:
         raise HTTPException(status_code=400, detail="repo_id deve ser owner/model")
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.get(f"https://huggingface.co/api/models/{repo_id}")
+            response = await client.get(
+                f"https://huggingface.co/api/models/{repo_id}",
+                params={"blobs": "true"},
+            )
             response.raise_for_status()
             data = response.json()
     except httpx.HTTPStatusError as exc:
@@ -1766,6 +1815,12 @@ async def download_huggingface_model(
     previous_event = _download_cancel_events.get(download_key)
     if previous_event is not None:
         raise HTTPException(status_code=409, detail="download já está em execução")
+    published_sha256, published_size = await _huggingface_file_metadata(
+        repo_id, revision, filename
+    )
+    if body.sha256 and published_sha256 and body.sha256.lower() != published_sha256:
+        raise HTTPException(status_code=422, detail="checksum publicado incompatível")
+    expected_sha256 = published_sha256 or (body.sha256.lower() if body.sha256 else None)
     _download_cancel_events[download_key] = cancel_event
     try:
         async with lock:
@@ -1787,7 +1842,7 @@ async def download_huggingface_model(
                 or metadata.get("repo_id") != repo_id
                 or metadata.get("filename") != filename
                 or metadata.get("revision") != revision
-                or metadata.get("sha256") != body.sha256
+                or metadata.get("sha256") != expected_sha256
             ):
                 await asyncio.to_thread(partial.unlink, missing_ok=True)
                 await asyncio.to_thread(partial_metadata.unlink, missing_ok=True)
@@ -1797,7 +1852,7 @@ async def download_huggingface_model(
                     "repo_id": repo_id,
                     "filename": filename,
                     "revision": revision,
-                    "sha256": body.sha256,
+                    "sha256": expected_sha256,
                 },
             )
             offset = (
@@ -1838,9 +1893,12 @@ async def download_huggingface_model(
                         }
                         await _ensure_download_capacity(
                             destination_root,
-                            (offset + int(length))
-                            if length and length.isdigit()
-                            else None,
+                            published_size
+                            or (
+                                (offset + int(length))
+                                if length and length.isdigit()
+                                else None
+                            ),
                         )
                         if offset:
                             content_range = response.headers.get("content-range", "")
@@ -1849,6 +1907,12 @@ async def download_huggingface_model(
                             )
                             if not match or int(match.group(1)) != offset:
                                 raise ValueError("Content-Range inválido")
+                            if (
+                                published_size
+                                and match.group(3) != "*"
+                                and int(match.group(3)) != published_size
+                            ):
+                                raise ValueError("tamanho publicado incompatível")
 
                             def _hash_existing() -> None:
                                 with partial.open("rb") as existing:
@@ -1913,7 +1977,7 @@ async def download_huggingface_model(
                     status_code=502, detail="falha no download da Hugging Face"
                 ) from exc
             actual = digest.hexdigest()
-            if body.sha256 and actual.lower() != body.sha256.lower():
+            if expected_sha256 and actual.lower() != expected_sha256:
                 await asyncio.to_thread(destination.unlink, missing_ok=True)
                 await asyncio.to_thread(source_metadata.unlink, missing_ok=True)
                 await asyncio.to_thread(partial_metadata.unlink, missing_ok=True)

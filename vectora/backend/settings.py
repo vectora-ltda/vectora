@@ -1037,25 +1037,12 @@ class Settings(BaseSettings):
         return self.cohere_api_key or os.getenv("COHERE_API_KEY")
 
     def get_available_providers(self) -> list[str]:
-        """Get list of providers with API keys configured.
+        """Return every configured chat provider, including local runtimes.
 
-        Returns:
-            List of available provider names
+        Keep this legacy accessor aligned with ``configured_llm_providers`` so
+        callers do not silently omit 9Router, llama.cpp or Docker Model Runner.
         """
-        available = []
-        if self.anthropic_api_key:
-            available.append("anthropic")
-        if self.openai_api_key:
-            available.append("openai")
-        if self.google_api_key:
-            available.append("google-genai")
-        if self.ollama_base_url:
-            available.append("ollama")
-        if self.cohere_api_key:
-            available.append("cohere")
-        if self.openrouter_api_key:
-            available.append("openrouter")
-        return available
+        return self.configured_llm_providers()
 
     def set_model(self, provider: str, model: str) -> None:
         """Update model for a specific provider.

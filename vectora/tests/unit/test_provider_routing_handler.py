@@ -363,10 +363,48 @@ class TestLlamaCppAndHuggingFace:
             response = client.get("/provider-routing/huggingface/models/org/model-GGUF")
 
         assert response.status_code == 200
+        assert mock_ctx.get.await_args is not None
+        assert mock_ctx.get.await_args.kwargs["params"] == {"blobs": "true"}
         assert response.json()["publisher"] == "org"
         assert response.json()["architecture"] == "transformers"
         assert response.json()["quantization"] == "q4_k_m"
         assert response.json()["context_length"] == 8192
+
+    @pytest.mark.asyncio
+    async def test_huggingface_file_metadata_requests_revision_and_published_digest(
+        self,
+    ):
+        from backend.api.handlers.provider_routing import _huggingface_file_metadata
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {
+            "siblings": [
+                {
+                    "rfilename": "weights.gguf",
+                    "size": 123,
+                    "lfs": {"sha256": "a" * 64, "size": 123},
+                }
+            ]
+        }
+        with patch("httpx.AsyncClient") as mock_httpx:
+            mock_ctx = AsyncMock()
+            mock_ctx.__aenter__ = AsyncMock(return_value=mock_ctx)
+            mock_ctx.__aexit__ = AsyncMock(return_value=False)
+            mock_ctx.get = AsyncMock(return_value=mock_response)
+            mock_httpx.return_value = mock_ctx
+
+            digest, size = await _huggingface_file_metadata(
+                "org/model", "revision-1", "weights.gguf"
+            )
+
+        assert digest == "a" * 64
+        assert size == 123
+        assert mock_ctx.get.await_args is not None
+        assert mock_ctx.get.await_args.kwargs["params"] == {
+            "revision": "revision-1",
+            "blobs": "true",
+        }
 
     def test_local_executor_requires_desktop_bridge_token(self, monkeypatch):
         from fastapi import HTTPException
