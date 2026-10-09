@@ -58,7 +58,9 @@ def trusted_ws(
 
 
 class TestFileRead:
-    async def test_reads_existing_file(self, tmp_path, trusted_ws):
+    async def test_reads_existing_file(
+        self, tmp_path: Path, trusted_ws: dict[str, dict[str, str]]
+    ) -> None:
         from backend.tools.fs import file_read
 
         f = tmp_path / "hello.txt"
@@ -66,7 +68,9 @@ class TestFileRead:
         result = await file_read(file_path=str(f), ctx=ctx_from_config(trusted_ws))
         assert result == "conteudo do arquivo"
 
-    async def test_file_not_found(self, tmp_path, trusted_ws):
+    async def test_file_not_found(
+        self, tmp_path: Path, trusted_ws: dict[str, dict[str, str]]
+    ) -> None:
         from backend.tools.fs import file_read
 
         result = await file_read(
@@ -74,7 +78,9 @@ class TestFileRead:
         )
         assert "not found" in result.lower() or "error" in result.lower()
 
-    async def test_blocked_path(self, tmp_path, trusted_ws):
+    async def test_blocked_path(
+        self, tmp_path: Path, trusted_ws: dict[str, dict[str, str]]
+    ) -> None:
         from backend.tools.fs import file_read
 
         outside = tmp_path.parent / "fora_do_workspace.txt"
@@ -84,8 +90,10 @@ class TestFileRead:
         assert "fora do workspace" in result.lower() or "error" in result.lower()
 
     async def test_blocked_credencial_sensivel_mesmo_dentro_do_workspace(
-        self, tmp_path, trusted_ws
-    ):
+        self,
+        tmp_path: Path,
+        trusted_ws: dict[str, dict[str, str]],
+    ) -> None:
         """Chave SSH versionada por engano dentro do workspace confiável
         continua bloqueada — segunda camada de defesa independente do
         sandbox nativo estar ativo."""

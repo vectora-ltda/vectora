@@ -12,19 +12,19 @@ from backend.nodes.tools import (
 )
 
 
-def test_fs_tools_not_empty():
+def test_fs_tools_not_empty() -> None:
     assert len(FS_TOOLS) > 0
 
 
-def test_memory_tools_not_empty():
+def test_memory_tools_not_empty() -> None:
     assert len(MEMORY_TOOLS) > 0
 
 
-def test_search_tools_not_empty():
+def test_search_tools_not_empty() -> None:
     assert len(SEARCH_TOOLS) > 0
 
 
-def test_all_tools_is_union():
+def test_all_tools_is_union() -> None:
     assert len(ALL_TOOLS) >= len(SEARCH_TOOLS)
     assert len(ALL_TOOLS) >= len(FS_TOOLS)
     assert len(ALL_TOOLS) >= len(MEMORY_TOOLS)
@@ -39,35 +39,35 @@ def test_native_views_espelham_all_tools():
     assert {spec.name for spec in ALL_TOOL_SPECS} == ALL_TOOL_NAMES
 
 
-def test_tools_have_names():
+def test_tools_have_names() -> None:
     for tool in ALL_TOOLS:
         assert hasattr(tool, "name")
         assert isinstance(tool.name, str)
         assert len(tool.name) > 0
 
 
-def test_search_tools_include_web_search():
+def test_search_tools_include_web_search() -> None:
     names = [t.name for t in SEARCH_TOOLS]
     assert "web_search" in names
 
 
-def test_fs_tools_include_file_read():
+def test_fs_tools_include_file_read() -> None:
     names = [t.name for t in FS_TOOLS]
     assert "file_read" in names
 
 
-def test_memory_tools_include_save_memory():
+def test_memory_tools_include_save_memory() -> None:
     names = [t.name for t in MEMORY_TOOLS]
     assert "save_memory" in names
 
 
-def test_manage_retriever_registered():
+def test_manage_retriever_registered() -> None:
     # A tool de gestão do RAG deve estar disponível aos agentes.
     names = [t.name for t in ALL_TOOLS]
     assert "manage_retriever" in names
 
 
-def test_workspace_tools_registered():
+def test_workspace_tools_registered() -> None:
     # Ferramentas de workspace expostas aos agentes.
     names = [t.name for t in ALL_TOOLS]
     assert "workspace_describe" in names
@@ -75,13 +75,13 @@ def test_workspace_tools_registered():
     assert "bucket_summary" in names
 
 
-def test_search_memory_registered():
+def test_search_memory_registered() -> None:
     # Busca semântica em memórias deve estar disponível aos agentes.
     names = [t.name for t in ALL_TOOLS]
     assert "search_memory" in names
 
 
-def test_all_tools_count():
+def test_all_tools_count() -> None:
     # Guarda contra perda acidental de registro de ferramentas — atualize ao
     # adicionar/remover tool em backend/nodes/tools.py.
     #
@@ -91,7 +91,7 @@ def test_all_tools_count():
     assert len(ALL_TOOLS) == 187, f"tools registradas: {nomes}"
 
 
-def test_all_tools_sem_nome_duplicado():
+def test_all_tools_sem_nome_duplicado() -> None:
     # Erro/borda: nome repetido faz a segunda registrar por cima da primeira
     # no bind_tools — a tool some sem a contagem mudar.
     from collections import Counter
@@ -101,7 +101,7 @@ def test_all_tools_sem_nome_duplicado():
     assert not repetidos, f"tools com nome duplicado: {repetidos}"
 
 
-def test_media_tools_registered():
+def test_media_tools_registered() -> None:
     # Geração de imagem/voz pelo provider ativo — sem elas o agente não tem
     # como atender "gere uma imagem" nem "leia isso em voz alta".
     names = [t.name for t in ALL_TOOLS]
@@ -109,7 +109,7 @@ def test_media_tools_registered():
     assert "text_to_speech" in names
 
 
-def test_background_task_tools_registered():
+def test_background_task_tools_registered() -> None:
     # O orquestrador lista/consulta E intervém em tasks/runs em background.
     names = {t.name for t in ALL_TOOLS}
     for expected in (
@@ -122,7 +122,7 @@ def test_background_task_tools_registered():
         assert expected in names, f"Tool de background ausente: {expected}"
 
 
-def test_browser_tools_registered():
+def test_browser_tools_registered() -> None:
     # Automação de browser sobre o preview do workspace (Playwright).
     names = {t.name for t in ALL_TOOLS}
     for expected in (
@@ -180,7 +180,7 @@ def test_native_tools_registered() -> None:
         assert expected in names, f"Native tool ausente: {expected}"
 
 
-def test_native_tools_registered_in_chat_mode():
+def test_native_tools_registered_in_chat_mode() -> None:
     from backend.nodes.tools import CHAT_TOOLS
 
     names = {t.name for t in CHAT_TOOLS}
@@ -188,7 +188,7 @@ def test_native_tools_registered_in_chat_mode():
     assert "hash_text" in names
 
 
-def test_graph_tools_registered():
+def test_graph_tools_registered() -> None:
     # Context graph tools devem estar disponíveis aos agentes.
     names = [t.name for t in ALL_TOOLS]
     for expected in (
