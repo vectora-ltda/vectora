@@ -118,7 +118,7 @@ class Settings(BaseSettings):
     nine_router_default_model: str | None = None
 
     # llama.cpp (servidor local OpenAI-compatible)
-    llamacpp_base_url: str = "http://127.0.0.1:8080/v1"
+    llamacpp_base_url: str | None = None
     llamacpp_api_key: str | None = None
     llamacpp_model: str | None = None
 

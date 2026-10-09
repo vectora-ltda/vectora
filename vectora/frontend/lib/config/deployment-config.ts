@@ -1,18 +1,4 @@
-/**
- * Vectora Chat — Model Configuration
- *
- * Modelos suportados pelo Vectora Agent:
- *   google-genai  → gemini-3.5-flash, gemini-3.1-pro-preview, gemini-3-flash-preview,
- *                   gemini-3.1-flash-lite, gemini-2.5-flash, gemini-2.5-pro
- *   openai        → gpt-5.5, gpt-5.5-pro, gpt-5.4, gpt-5.4-pro, gpt-5.4-mini,
- *                   gpt-5.4-nano, gpt-5, gpt-5-mini, gpt-5-nano, gpt-4.1, o3, o4-mini
- *   anthropic     → claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5
- *   cohere        → command-a-03-2025, command-r-plus-08-2024,
- *                   command-r-08-2024, command-r7b-12-2024
- *
- * O campo `id` é o valor enviado no campo `model` da ChatConfig para o backend.
- * O backend lê provider:model e inicializa o LLM correto via `load_llm()`.
- */
+/** Registro dos modelos disponíveis e dos provedores aceitos pelo seletor. */
 
 // =============================================================================
 // Config Storage
@@ -38,7 +24,9 @@ export interface ModelConfig {
     | "anthropic"
     | "cohere"
     | "ollama"
-    | "openrouter";
+    | "openrouter"
+    | "nine_router"
+    | "llamacpp";
   description?: string;
 }
 
@@ -161,7 +149,7 @@ export const MODELS = {
     provider: "openai",
     description: "Raciocínio eficiente (OpenAI)",
   },
-  // ── Anthropic Claude 4 ────────────────────────────────────────────────────
+  // ── Modelos Anthropic ─────────────────────────────────────────────────────
   "claude-opus-4-7": {
     id: "anthropic:claude-opus-4-7",
     name: "Claude Opus 4.7",
@@ -277,7 +265,7 @@ const DEPLOYMENT: DeploymentConfig = {
     "gpt-4.1",
     "o3",
     "o4-mini",
-    // Anthropic Claude 4
+    // Modelos Anthropic
     "claude-opus-4-7",
     "claude-sonnet-4-6",
     "claude-haiku-4-5",
@@ -331,6 +319,9 @@ export function getModelDisplayName(modelId: string): string {
   if (modelId.startsWith("ollama:")) return modelId.slice("ollama:".length);
   if (modelId.startsWith("openrouter:"))
     return modelId.slice("openrouter:".length);
+  if (modelId.startsWith("nine_router:"))
+    return modelId.slice("nine_router:".length);
+  if (modelId.startsWith("llamacpp:")) return modelId.slice("llamacpp:".length);
   return modelId;
 }
 
@@ -339,6 +330,8 @@ export function getModelProvider(modelId: string): ModelConfig["provider"] {
   if (model) return model.provider;
   if (modelId.startsWith("ollama:")) return "ollama";
   if (modelId.startsWith("openrouter:")) return "openrouter";
+  if (modelId.startsWith("nine_router:")) return "nine_router";
+  if (modelId.startsWith("llamacpp:")) return "llamacpp";
   return "google-genai";
 }
 

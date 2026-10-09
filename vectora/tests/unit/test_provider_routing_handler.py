@@ -14,6 +14,7 @@ Valida:
 from __future__ import annotations
 
 import os
+import zipfile
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -21,6 +22,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+
+from backend.api.handlers.provider_routing import _extract_llamacpp_archive
 
 
 @pytest.fixture(scope="module")
@@ -207,6 +210,31 @@ class TestOllamaRegisteredModels:
 
 
 class TestLlamaCppAndHuggingFace:
+    def test_llamacpp_status_uses_suggested_endpoint_without_configuring_provider(
+        self, client
+    ):
+        from backend.settings import settings
+
+        object.__setattr__(settings, "llamacpp_base_url", None)
+        response = client.get("/provider-routing/llamacpp/status")
+        assert response.status_code == 200
+        assert response.json()["configured"] is False
+        assert response.json()["base_url"] == "http://127.0.0.1:8080/v1"
+
+    def test_llamacpp_connection_test_reports_empty_catalog(self, client):
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {"data": []}
+        with patch("httpx.AsyncClient") as mock_httpx:
+            context = AsyncMock()
+            context.__aenter__ = AsyncMock(return_value=context)
+            context.__aexit__ = AsyncMock(return_value=False)
+            context.get = AsyncMock(return_value=response)
+            mock_httpx.return_value = context
+            result = client.post("/provider-routing/llamacpp/test")
+        assert result.status_code == 200
+        assert result.json() == {"status": "empty", "models": [], "detail": None}
+
     def test_llamacpp_discovery_uses_openai_models_endpoint(self, client):
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
@@ -285,6 +313,29 @@ class TestLlamaCppAndHuggingFace:
             },
         )
         assert response.status_code == 400
+
+    def test_llamacpp_runtime_test_rejects_unknown_binary(self, client):
+        response = client.post(
+            "/provider-routing/llamacpp/runtime/test",
+            json={"path": "C:/tmp/not-llama.exe"},
+        )
+        assert response.status_code == 400
+
+    def test_llamacpp_archive_extraction_rejects_traversal(self, tmp_path):
+        archive = tmp_path / "runtime.zip"
+        with zipfile.ZipFile(archive, "w") as bundle:
+            bundle.writestr("../escape.exe", b"bad")
+        with pytest.raises(ValueError):
+            _extract_llamacpp_archive(archive, tmp_path / "runtime")
+
+    def test_llamacpp_archive_extraction_returns_files(self, tmp_path):
+        archive = tmp_path / "runtime.zip"
+        destination = tmp_path / "runtime"
+        with zipfile.ZipFile(archive, "w") as bundle:
+            bundle.writestr("bin/llama-server.exe", b"binary")
+        files = _extract_llamacpp_archive(archive, destination)
+        assert (destination / "bin" / "llama-server.exe").read_bytes() == b"binary"
+        assert files == [str(destination / "bin" / "llama-server.exe")]
 
 
 class TestOpenRouterKey:

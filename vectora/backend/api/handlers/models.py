@@ -22,6 +22,7 @@ async def get_configured_providers() -> dict:
     """Providers de LLM com credencial configurada + modelos dinâmicos."""
     from backend.api.handlers.chat import _model_supports_vision
     from backend.api.handlers.provider_routing import (
+        list_registered_llamacpp_models,
         list_registered_nine_router_models,
         list_registered_ollama_models,
         list_registered_openrouter_models,
@@ -39,6 +40,7 @@ async def get_configured_providers() -> dict:
         ("ollama", await list_registered_ollama_models()),
         ("openrouter", await list_registered_openrouter_models()),
         ("nine_router", await list_registered_nine_router_models()),
+        ("llamacpp", await list_registered_llamacpp_models()),
     ):
         for model in models:
             model_id = f"{provider}:{model.tag}"

@@ -64,6 +64,12 @@ interface LlamaCppModelInfo {
   name: string;
 }
 
+interface LlamaCppReleaseAsset {
+  name: string;
+  url: string;
+  size: number;
+}
+
 async function discoverModels(): Promise<{
   reachable: boolean;
   models: OllamaModelInfo[];
@@ -82,6 +88,35 @@ async function discoverLlamaCppModels(): Promise<{
   return res.json();
 }
 
+async function testLlamaCppConnection(): Promise<{
+  status: string;
+  models?: LlamaCppModelInfo[];
+}> {
+  const res = await fetch("/provider-routing/llamacpp/test", {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`Erro ${res.status}`);
+  return res.json();
+}
+
+async function fetchLlamaCppReleases(): Promise<LlamaCppReleaseAsset[]> {
+  const res = await fetch("/provider-routing/llamacpp/releases");
+  if (!res.ok) throw new Error(`Erro ${res.status}`);
+  const data = (await res.json()) as {
+    releases?: Array<{ assets?: LlamaCppReleaseAsset[] }>;
+  };
+  return data.releases?.flatMap((release) => release.assets ?? []) ?? [];
+}
+
+async function installLlamaCppRuntime(assetUrl: string): Promise<void> {
+  const res = await fetch("/provider-routing/llamacpp/install", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ asset_url: assetUrl }),
+  });
+  if (!res.ok) throw new Error(`Erro ${res.status}`);
+}
+
 async function searchHuggingFaceModels(
   query: string,
   provider: "ollama" | "llamacpp" = "llamacpp",
@@ -94,11 +129,33 @@ async function searchHuggingFaceModels(
   return data.models ?? [];
 }
 
+async function downloadHuggingFaceModel(repoId: string): Promise<string> {
+  const metadataResponse = await fetch(
+    `/provider-routing/huggingface/models/${repoId}`,
+  );
+  if (!metadataResponse.ok) throw new Error(`Erro ${metadataResponse.status}`);
+  const metadata = (await metadataResponse.json()) as {
+    files?: Array<{ rfilename: string; format?: string }>;
+  };
+  const file = metadata.files?.find((item) => item.format === "GGUF");
+  if (!file) throw new Error("Nenhum arquivo GGUF encontrado");
+  const response = await fetch("/provider-routing/huggingface/download", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ repo_id: repoId, filename: file.rfilename }),
+  });
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  const result = (await response.json()) as { path: string };
+  return result.path;
+}
+
 function HuggingFaceCatalogSection() {
   const [provider, setProvider] = useState<"ollama" | "llamacpp">("llamacpp");
   const [query, setQuery] = useState("llama");
   const [models, setModels] = useState<LlamaCppModelInfo[]>([]);
   const [loading, setLoading] = useState(false);
+  const [downloading, setDownloading] = useState<string | null>(null);
+  const [downloaded, setDownloaded] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function search() {
@@ -149,16 +206,46 @@ function HuggingFaceCatalogSection() {
       {models.length > 0 && (
         <div className="space-y-1 text-sm">
           {models.map((model) => (
-            <div key={model.id}>{model.id}</div>
+            <div
+              key={model.id}
+              className="flex items-center justify-between gap-2"
+            >
+              <span className="truncate">{model.id}</span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={downloading !== null}
+                onClick={() => {
+                  setDownloading(model.id);
+                  setError(null);
+                  void downloadHuggingFaceModel(model.id)
+                    .then((path) => setDownloaded(path))
+                    .catch(() =>
+                      setError(m.provider_routing_hf_download_error()),
+                    )
+                    .finally(() => setDownloading(null));
+                }}
+              >
+                {downloading === model.id
+                  ? m.provider_routing_hf_downloading()
+                  : m.provider_routing_hf_download()}
+              </Button>
+            </div>
           ))}
         </div>
+      )}
+      {downloaded && (
+        <p className="text-xs text-muted-foreground">
+          {m.provider_routing_hf_downloaded({ path: downloaded })}
+        </p>
       )}
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );
 }
 
-type Gateway = "ollama" | "openrouter" | "nine-router";
+type Gateway = "ollama" | "openrouter" | "nine-router" | "llamacpp";
 
 async function fetchRegistered(gateway: Gateway): Promise<RegisteredModel[]> {
   const res = await fetch(`/provider-routing/${gateway}/registered`);
@@ -1150,6 +1237,8 @@ function LlamaCppSection() {
   const [reachable, setReachable] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [releases, setReleases] = useState<LlamaCppReleaseAsset[]>([]);
+  const [installing, setInstalling] = useState(false);
 
   useEffect(() => {
     void fetch("/provider-routing/llamacpp/status")
@@ -1190,6 +1279,22 @@ function LlamaCppSection() {
     }
   }
 
+  async function testConnection() {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await testLlamaCppConnection();
+      setReachable(result.status === "ok" || result.status === "empty");
+      if (result.models) setModels(result.models);
+      if (result.status !== "ok") setError(`Status: ${result.status}`);
+    } catch {
+      setReachable(false);
+      setError("Erro ao testar o llama.cpp");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function search() {
     setLoading(true);
     setError("");
@@ -1198,6 +1303,24 @@ function LlamaCppSection() {
     } catch {
       setError("Erro ao consultar a Hugging Face");
     } finally {
+      setLoading(false);
+    }
+  }
+
+  async function installRuntime() {
+    setLoading(true);
+    setError("");
+    try {
+      const assets = await fetchLlamaCppReleases();
+      setReleases(assets);
+      const preferred = assets.find((asset) => /win|windows/i.test(asset.name));
+      if (!preferred) throw new Error("Nenhum runtime compatível encontrado");
+      setInstalling(true);
+      await installLlamaCppRuntime(preferred.url);
+    } catch {
+      setError("Erro ao instalar o runtime oficial do llama.cpp");
+    } finally {
+      setInstalling(false);
       setLoading(false);
     }
   }
@@ -1242,11 +1365,27 @@ function LlamaCppSection() {
         <Button
           type="button"
           variant="outline"
+          onClick={() => void installRuntime()}
+          disabled={loading || installing}
+        >
+          {m.provider_routing_llamacpp_install()}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
           onClick={() => void discover()}
           disabled={loading}
         >
           <RefreshCw className="mr-2 size-4" />{" "}
           {m.provider_routing_llamacpp_detect()}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => void testConnection()}
+          disabled={loading}
+        >
+          {m.provider_routing_llamacpp_test()}
         </Button>
         <Button
           type="button"
@@ -1266,12 +1405,17 @@ function LlamaCppSection() {
       )}
       {hfModels.length > 0 && (
         <div className="space-y-1 text-sm">
-          {hfModels.map((model) => (
-            <div key={model.id}>{model.id}</div>
+          {hfModels.map((item) => (
+            <div key={item.id}>{item.id}</div>
           ))}
         </div>
       )}
       {error && <p className="text-xs text-destructive">{error}</p>}
+      {releases.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {m.provider_routing_llamacpp_release_count({ n: releases.length })}
+        </p>
+      )}
     </div>
   );
 }

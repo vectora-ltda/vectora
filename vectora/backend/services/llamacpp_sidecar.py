@@ -12,6 +12,13 @@ logger = logging.getLogger(__name__)
 _process: asyncio.subprocess.Process | None = None
 
 
+def llamacpp_status() -> dict[str, int | bool | None]:
+    """Retorna somente o estado do processo iniciado por este módulo."""
+    process = _process
+    running = process is not None and process.returncode is None
+    return {"running": running, "pid": process.pid if running and process else None}
+
+
 async def start_llamacpp(
     executable: str | Path,
     model: str | Path,

@@ -141,6 +141,8 @@ const PROVIDER_ICONS: Record<
   cohere: CohereIcon,
   ollama: OllamaIcon,
   openrouter: OpenRouterIcon,
+  nine_router: OpenRouterIcon,
+  llamacpp: OllamaIcon,
 };
 
 /** Ícone do provedor para um dado provider — usado no seletor de modelo. */
