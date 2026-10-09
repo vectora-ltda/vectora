@@ -144,7 +144,7 @@ class TestFetchUrlSsrfGuard:
         assert "ok" in result
         assert result.startswith('<untrusted_content source="https://example.com">')
 
-    async def test_backend_sem_extract_usa_http_direto(self):
+    async def test_backend_sem_extract_usa_http_direto(self) -> None:
         """Um SearchBackend só com `.search` não pode parecer repo privado."""
         backend = MagicMock(name="tavily")
         with (

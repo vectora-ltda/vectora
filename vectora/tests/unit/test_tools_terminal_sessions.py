@@ -12,8 +12,10 @@ import pytest
 from backend.services.pty_registry import pty_registry
 from backend.tools.context import ToolContext
 from backend.tools.terminal_sessions import (
+    attach_terminal,
     close_terminal,
     list_terminals,
+    open_terminal,
     read_terminal,
     write_terminal,
 )
@@ -33,6 +35,10 @@ def _fake_session(
         user_id=user_id,
         consume_rate_limit=lambda: None,
         is_alive=lambda: alive,
+        write_input=lambda _data, _request_id: {
+            "status": "accepted",
+            "terminal_id": terminal_id,
+        },
     )
 
 
@@ -45,7 +51,30 @@ def _clean_registry():
 
 class TestListTerminals:
     @pytest.mark.asyncio
-    async def test_lista_terminais_da_thread(self) -> None:
+    async def test_open_registra_pty_do_agente_para_a_workbench(
+        self, monkeypatch
+    ) -> None:
+        workspace = SimpleNamespace(cwd="C:/workspace", trusted=True)
+        monkeypatch.setattr(
+            "backend.workspace.workspace.workspace_registry.get",
+            lambda _workspace_id: workspace,
+        )
+        monkeypatch.setattr(
+            "backend.tools.terminal_sessions.PtySession.create",
+            lambda **kwargs: _fake_session(
+                kwargs["terminal_id"], kwargs["thread_id"], kwargs["workspace_id"]
+            ),
+        )
+        result = await open_terminal(
+            ctx=ToolContext(thread_id="thr-agent", workspace_id="ws-1")
+        )
+        data = json.loads(result)
+        assert data["status"] == "opened"
+        assert data["shared"] is True
+        assert pty_registry.get(data["terminal_id"]) is not None
+
+    @pytest.mark.asyncio
+    async def test_lista_terminais_do_usuario_no_workspace(self) -> None:
         pty_registry.add(_fake_session("t1", "thr-1", "ws-1"))
         pty_registry.add(_fake_session("t2", "thr-2", "ws-1"))
 
@@ -53,7 +82,53 @@ class TestListTerminals:
             ctx=ToolContext(thread_id="thr-1", workspace_id="ws-1")
         )
         data = json.loads(result)
-        assert [t["terminal_id"] for t in data["terminals"]] == ["t1"]
+        assert [t["terminal_id"] for t in data["terminals"]] == ["t1", "t2"]
+
+    @pytest.mark.asyncio
+    async def test_attach_vincula_terminal_de_outra_thread(self) -> None:
+        pty_registry.add(_fake_session("t1", "thr-ui", "ws-1"))
+        result = await attach_terminal(
+            "t1", ctx=ToolContext(thread_id="thr-agent", workspace_id="ws-1")
+        )
+        assert json.loads(result) == {"status": "attached", "terminal_id": "t1"}
+        session = pty_registry.get("t1")
+        assert session is not None
+        assert session.thread_id == "thr-agent"
+
+    @pytest.mark.asyncio
+    async def test_attach_rejeita_usuario_ou_workspace_diferente(self) -> None:
+        pty_registry.add(_fake_session("t1", "thr-ui", "ws-1", user_id="owner"))
+        result = await attach_terminal(
+            "t1",
+            ctx=ToolContext(
+                user_id="other", thread_id="thr-agent", workspace_id="ws-1"
+            ),
+        )
+        assert json.loads(result)["status"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_write_sem_request_id_gera_idempotency_key(self) -> None:
+        class Session:
+            terminal_id = "t1"
+            user_id = "local"
+            thread_id = "thr-1"
+            workspace_id = "ws-1"
+
+            def consume_rate_limit(self):
+                return None
+
+            def write_input(self, data, request_id):
+                assert data == b"gh pr view 319\n"
+                assert request_id.startswith("agent-write-")
+                return {"status": "accepted", "terminal_id": self.terminal_id}
+
+        pty_registry.add(Session())  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        result = await write_terminal(
+            "t1",
+            "gh pr view 319\n",
+            ctx=ToolContext(thread_id="thr-1", workspace_id="ws-1"),
+        )
+        assert json.loads(result)["status"] == "accepted"
 
     @pytest.mark.asyncio
     async def test_sem_contexto_nao_lista_sessoes(self) -> None:
@@ -169,7 +244,7 @@ class TestInteractiveTerminalTools:
         assert json.loads(await list_terminals(ctx=ctx))["terminals"] == []
 
     @pytest.mark.asyncio
-    async def test_escrita_exige_request_id_e_isolamento(self) -> None:
+    async def test_escrita_gera_request_id_e_mantem_isolamento(self) -> None:
         pty_registry.add(_fake_session("t1", "thr-1", "ws-1"))
         assert (
             json.loads(
@@ -179,8 +254,8 @@ class TestInteractiveTerminalTools:
                     "",
                     ctx=ToolContext(thread_id="thr-1", workspace_id="ws-1"),
                 )
-            )["code"]
-            == "request_id_required"
+            )["status"]
+            == "accepted"
         )
         assert (
             json.loads(

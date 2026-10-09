@@ -136,6 +136,10 @@ register_tool_group(
             "file_read",
             "file_edit",
             "file_write",
+            "file_create_dir",
+            "file_delete",
+            "file_move",
+            "file_search",
             "grep",
             "list_dir",
             "create_artifact",
@@ -146,8 +150,18 @@ register_tool_group(
 register_tool_group(
     ToolGroupSpec(
         name="terminal_only",
-        description="Execução de comandos de shell.",
-        tool_names=["terminal"],
+        description=(
+            "Execução de comandos de shell e controle explícito das sessões "
+            "PTY abertas na Workbench de Terminal."
+        ),
+        tool_names=[
+            "terminal",
+            "list_terminals",
+            "attach_terminal",
+            "read_terminal",
+            "write_terminal",
+            "close_terminal",
+        ],
     )
 )
 
@@ -155,7 +169,6 @@ register_tool_group(
     ToolGroupSpec(
         name="fs",
         description="Filesystem completo: leitura, escrita, terminal e artifacts.",
-        tool_names=["list_terminals", "close_terminal"],
         includes=["fs_write", "terminal_only"],
     )
 )
@@ -164,7 +177,15 @@ register_tool_group(
     ToolGroupSpec(
         name="git_readonly",
         description="Inspeção de git, sem mutar histórico/working tree.",
-        tool_names=["git_status", "git_log", "git_diff", "git_branch"],
+        tool_names=[
+            "git_status",
+            "git_operation",
+            "git_operations",
+            "git_commit_suggestion",
+            "git_log",
+            "git_diff",
+            "git_branch",
+        ],
     )
 )
 
@@ -200,6 +221,8 @@ register_tool_group(
             "gh_issue_create",
             "gh_issue_view",
             "gh_issue_comment",
+            "github_fetch_pr_diff",
+            "github_post_pr_comment",
         ],
         includes=["git_readonly"],
     )

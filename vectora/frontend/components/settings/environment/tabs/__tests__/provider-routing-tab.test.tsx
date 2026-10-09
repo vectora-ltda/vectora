@@ -59,6 +59,7 @@ function mockFetch(
     llamacppRuntimeRemoveOk: boolean;
     hfModels?: object[];
     hfMetadata?: object;
+    dmrJob?: { id: string; status: string; error?: string | null };
   }>,
 ) {
   global.fetch = vi
@@ -188,16 +189,6 @@ function mockFetch(
           }),
         } as Response);
       }
-      if (url === "/provider-routing/llamacpp/status") {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            configured: false,
-            base_url: "http://127.0.0.1:8080/v1",
-            model: "",
-          }),
-        } as Response);
-      }
       if (url === "/provider-routing/nine-router/config" && method === "POST") {
         const ok = handlers.nineRouterConfigSaveOk ?? true;
         return Promise.resolve({
@@ -293,6 +284,24 @@ function mockFetch(
             handlers.hfMetadata ?? { id: "owner/model", files: [] },
         } as Response);
       }
+      if (url === "/provider-routing/dmr/models/jobs" && method === "POST") {
+        return Promise.resolve({
+          ok: true,
+          json: async () =>
+            handlers.dmrJob ?? { id: "a".repeat(32), status: "completed" },
+        } as Response);
+      }
+      if (
+        typeof url === "string" &&
+        url.startsWith("/provider-routing/dmr/models/jobs/") &&
+        !url.endsWith("/retry")
+      ) {
+        return Promise.resolve({
+          ok: true,
+          json: async () =>
+            handlers.dmrJob ?? { id: "a".repeat(32), status: "completed" },
+        } as Response);
+      }
       if (url === "/provider-routing/llamacpp/runtime/status") {
         return Promise.resolve({
           ok: true,
@@ -335,7 +344,7 @@ describe("ProviderRoutingTab - Hugging Face", () => {
     overwriteGetLocale(() => "pt");
   });
 
-  it("oferece uma �nica a��o de instala��o para cada modelo", async () => {
+  it("oferece uma única ação de instalação para cada modelo", async () => {
     mockFetch({
       registered: [],
       hfModels: [
@@ -343,7 +352,7 @@ describe("ProviderRoutingTab - Hugging Face", () => {
           id: "owner/model",
           name: "Modelo",
           format: "GGUF",
-          compatibility: "prov�vel",
+          compatibility: "provável",
         },
       ],
       hfMetadata: {
@@ -360,6 +369,75 @@ describe("ProviderRoutingTab - Hugging Face", () => {
     expect(screen.queryByRole("button", { name: /baixar modelo/i })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /instalar modelo/i }));
     expect(await screen.findByText(/mit/i)).toBeTruthy();
+  });
+
+  it("pesquisa referências Hugging Face do Docker Model Runner sem exigir GGUF", async () => {
+    mockFetch({
+      registered: [],
+      hfModels: [
+        {
+          id: "Qwen/Qwen3-0.6B",
+          name: "Qwen3",
+          compatibility: "não verificada",
+          format: "",
+        },
+      ],
+    });
+    render(<ProviderRoutingTab />);
+
+    const runtime = await screen.findByLabelText(
+      "Runtime do modelo Hugging Face",
+    );
+    fireEvent.change(runtime, { target: { value: "dmr" } });
+    fireEvent.click(screen.getByRole("button", { name: /^buscar$/i }));
+
+    expect(await screen.findByText("Qwen/Qwen3-0.6B")).toBeTruthy();
+    expect(
+      (
+        global.fetch as unknown as { mock: { calls: unknown[][] } }
+      ).mock.calls.some(
+        ([url]) =>
+          typeof url === "string" &&
+          url.includes("/provider-routing/huggingface/models?") &&
+          url.includes("provider=dmr"),
+      ),
+    ).toBe(true);
+  });
+
+  it("instala um modelo DMR sem exigir arquivo GGUF selecionado", async () => {
+    mockFetch({
+      registered: [],
+      hfModels: [{ id: "Qwen/Qwen3-0.6B", name: "Qwen3", format: "" }],
+      hfMetadata: { id: "Qwen/Qwen3-0.6B", files: [] },
+      dmrJob: { id: "a".repeat(32), status: "completed" },
+    });
+    render(<ProviderRoutingTab />);
+    fireEvent.change(
+      await screen.findByLabelText("Runtime do modelo Hugging Face"),
+      {
+        target: { value: "dmr" },
+      },
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^buscar$/i }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /instalar modelo/i }),
+    );
+    await screen.findByDisplayValue("hf.co/Qwen/Qwen3-0.6B");
+    const installButtons = await screen.findAllByRole("button", {
+      name: /instalar modelo/i,
+    });
+    fireEvent.click(installButtons.at(-1)!);
+    await waitFor(() => {
+      expect(
+        (
+          global.fetch as unknown as { mock: { calls: unknown[][] } }
+        ).mock.calls.some(
+          ([url, init]) =>
+            url === "/provider-routing/dmr/models/jobs" &&
+            (init as RequestInit)?.method === "POST",
+        ),
+      ).toBe(true);
+    });
   });
 });
 
@@ -495,7 +573,7 @@ describe("ProviderRoutingTab — OpenRouter", () => {
     render(<ProviderRoutingTab />);
     const input = await screen.findByPlaceholderText(/sk-or-v1/i);
     fireEvent.change(input, { target: { value: "sk-or-v1-abcdef" } });
-    fireEvent.click(screen.getByRole("button", { name: /salvar/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Salvar$/ }));
 
     await waitFor(() => {
       expect(screen.getByText(/configurada/i)).toBeTruthy();
@@ -512,7 +590,7 @@ describe("ProviderRoutingTab — OpenRouter", () => {
     render(<ProviderRoutingTab />);
     const input = await screen.findByPlaceholderText(/sk-or-v1/i);
     fireEvent.change(input, { target: { value: "bad-key" } });
-    fireEvent.click(screen.getByRole("button", { name: /salvar/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Salvar$/ }));
 
     await waitFor(() => {
       expect(screen.getByText(/key rejeitada/i)).toBeTruthy();
@@ -905,9 +983,9 @@ describe("LlamaCppSection", () => {
     render(<ProviderRoutingTab />);
 
     const removeButtons = await screen.findAllByRole("button", {
-      name: /remover runtime gerenciado/i,
+      name: /remover esta versão do runtime/i,
     });
-    expect(removeButtons.length).toBe(2);
+    expect(removeButtons.length).toBe(1);
     fireEvent.click(removeButtons[0]);
 
     await waitFor(() => {

@@ -143,6 +143,7 @@ const PROVIDER_ICONS: Record<
   openrouter: OpenRouterIcon,
   nine_router: OpenRouterIcon,
   llamacpp: OllamaIcon,
+  dmr: OllamaIcon,
 };
 
 /** Ícone do provedor para um dado provider — usado no seletor de modelo. */

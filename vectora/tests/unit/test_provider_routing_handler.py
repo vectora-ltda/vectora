@@ -14,12 +14,13 @@ Valida:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
-from collections.abc import Callable, Generator
 import zipfile
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -28,6 +29,7 @@ from fastapi.testclient import TestClient
 
 from backend.api.handlers.provider_routing import (
     LlamaCppRollbackRequest,
+    _confirmation_evidence_sha256,
     _extract_llamacpp_archive,
     llamacpp_runtime_status,
     remove_llamacpp_runtime,
@@ -218,7 +220,7 @@ class TestOllamaDiscovery:
 class TestOllamaRegisteredModels:
     def test_registered_model_mutation_requires_authentication(
         self, client, monkeypatch
-    ):
+    ) -> None:
         monkeypatch.setenv("VECTORA_AUTH_REQUIRED", "true")
         response = client.post(
             "/provider-routing/ollama/registered", json={"tag": "unauthorized"}
@@ -256,16 +258,37 @@ class TestOllamaRegisteredModels:
 
 
 class TestLlamaCppAndHuggingFace:
+    def test_confirmation_evidence_is_canonical_and_parameter_bound(self):
+        serialized, evidence = _confirmation_evidence_sha256(
+            "a" * 64,
+            "0123456789abcdef",
+            {"temperature": 0.2, "seed": 7},
+        )
+        assert serialized == '{"seed":7,"temperature":0.2}'
+        assert (
+            evidence
+            == hashlib.sha256(
+                f"{'a' * 64}:0123456789abcdef:{serialized}".encode()
+            ).hexdigest()
+        )
+        _, changed = _confirmation_evidence_sha256(
+            "a" * 64,
+            "0123456789abcdef",
+            {"temperature": 0.3, "seed": 7},
+        )
+        assert changed != evidence
+
     def test_llamacpp_status_uses_suggested_endpoint_without_configuring_provider(
-        self, client
-    ):
+        self, client, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from backend.settings import settings
 
+        monkeypatch.setenv("LLAMACPP_MODE", "external")
         object.__setattr__(settings, "llamacpp_base_url", None)
         response = client.get("/provider-routing/llamacpp/status")
         assert response.status_code == 200
         assert response.json()["configured"] is False
-        assert response.json()["base_url"] == "http://127.0.0.1:8080/v1"
+        assert response.json()["base_url"] == "http://127.0.0.1:18080/v1"
 
     def test_llamacpp_connection_test_reports_empty_catalog(self, client):
         response = MagicMock()
@@ -323,10 +346,14 @@ class TestLlamaCppAndHuggingFace:
             mock_httpx.return_value = mock_ctx
             llama = client.get("/provider-routing/huggingface/models?provider=llamacpp")
             ollama = client.get("/provider-routing/huggingface/models?provider=ollama")
+            dmr = client.get("/provider-routing/huggingface/models?provider=dmr")
 
-        assert llama.status_code == ollama.status_code == 200
+        assert llama.status_code == ollama.status_code == dmr.status_code == 200
         assert llama.json()["models"][0]["provider"] == "llamacpp"
         assert ollama.json()["models"][0]["provider"] == "ollama"
+        assert dmr.json()["models"][0]["provider"] == "dmr"
+        assert mock_ctx.get.await_count == 3
+        assert "filter" not in (mock_ctx.get.await_args_list[2].kwargs["params"])
 
     def test_huggingface_catalog_rejects_unknown_runtime(self, client):
         response = client.get("/provider-routing/huggingface/models?provider=unknown")
@@ -357,9 +384,48 @@ class TestLlamaCppAndHuggingFace:
             response = client.get("/provider-routing/huggingface/models/org/model-GGUF")
 
         assert response.status_code == 200
+        assert mock_ctx.get.await_args is not None
+        assert mock_ctx.get.await_args.kwargs["params"] == {"blobs": "true"}
+        assert response.json()["publisher"] == "org"
         assert response.json()["architecture"] == "transformers"
         assert response.json()["quantization"] == "q4_k_m"
         assert response.json()["context_length"] == 8192
+
+    @pytest.mark.asyncio
+    async def test_huggingface_file_metadata_requests_revision_and_published_digest(
+        self,
+    ):
+        from backend.api.handlers.provider_routing import _huggingface_file_metadata
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {
+            "siblings": [
+                {
+                    "rfilename": "weights.gguf",
+                    "size": 123,
+                    "lfs": {"sha256": "a" * 64, "size": 123},
+                }
+            ]
+        }
+        with patch("httpx.AsyncClient") as mock_httpx:
+            mock_ctx = AsyncMock()
+            mock_ctx.__aenter__ = AsyncMock(return_value=mock_ctx)
+            mock_ctx.__aexit__ = AsyncMock(return_value=False)
+            mock_ctx.get = AsyncMock(return_value=mock_response)
+            mock_httpx.return_value = mock_ctx
+
+            digest, size = await _huggingface_file_metadata(
+                "org/model", "revision-1", "weights.gguf"
+            )
+
+        assert digest == "a" * 64
+        assert size == 123
+        assert mock_ctx.get.await_args is not None
+        assert mock_ctx.get.await_args.kwargs["params"] == {
+            "revision": "revision-1",
+            "blobs": "true",
+        }
 
     def test_local_executor_requires_desktop_bridge_token(self, monkeypatch):
         from fastapi import HTTPException
@@ -412,7 +478,7 @@ class TestLlamaCppAndHuggingFace:
         )
         partial.parent.mkdir(parents=True)
         partial.write_bytes(b"partial")
-        key = "org/model/revision-1/weights.gguf"
+        key = "org/model/weights.gguf"
         lock = await provider_mod._download_lock(key)
         await lock.acquire()
         event = asyncio.Event()
@@ -436,6 +502,44 @@ class TestLlamaCppAndHuggingFace:
         assert not partial.exists()
 
     @pytest.mark.asyncio
+    async def test_huggingface_download_rejects_duplicate_active_transfer(
+        self, tmp_path, monkeypatch
+    ):
+        from fastapi import HTTPException
+        from starlette.requests import Request
+
+        from backend.api.handlers import provider_routing as provider_mod
+        from backend.api.handlers.provider_routing import (
+            HuggingFaceDownloadRequest,
+            download_huggingface_model,
+        )
+        from backend.settings import settings
+
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        key = "org/model/weights.gguf"
+        provider_mod._download_cancel_events[key] = asyncio.Event()
+
+        class DisconnectedRequest:
+            async def is_disconnected(self) -> bool:
+                return False
+
+        try:
+            with pytest.raises(HTTPException) as error:
+                await download_huggingface_model(
+                    HuggingFaceDownloadRequest(
+                        repo_id="org/model",
+                        revision="main",
+                        filename="weights.gguf",
+                    ),
+                    cast("Request", DisconnectedRequest()),
+                    None,
+                )
+        finally:
+            provider_mod._download_cancel_events.pop(key, None)
+
+        assert error.value.status_code == 409
+
+    @pytest.mark.asyncio
     async def test_huggingface_install_writes_manifest_for_selected_files(
         self, tmp_path, monkeypatch
     ):
@@ -449,6 +553,22 @@ class TestLlamaCppAndHuggingFace:
         root.mkdir(parents=True)
         (root / "model.Q4_K_M.gguf").write_bytes(b"weights")
         (root / "mmproj-f16.gguf").write_bytes(b"projector")
+        for name, content in (
+            ("model.Q4_K_M.gguf", b"weights"),
+            ("mmproj-f16.gguf", b"projector"),
+        ):
+            (root / f"{name}.source.json").write_text(
+                json.dumps(
+                    {
+                        "repo_id": "org/model",
+                        "filename": name,
+                        "revision": "abc123",
+                        "sha256": hashlib.sha256(content).hexdigest(),
+                        "size": len(content),
+                    }
+                ),
+                encoding="utf-8",
+            )
         monkeypatch.setattr(settings, "vectora_home", tmp_path)
 
         result = await install_huggingface_model(
@@ -459,6 +579,11 @@ class TestLlamaCppAndHuggingFace:
                 mmproj_filename="mmproj-f16.gguf",
                 alias="local-model",
                 parameters={"ctx_size": 4096},
+                license="apache-2.0",
+                architecture="llama",
+                quantization="Q4_K_M",
+                context_length=8192,
+                compatibility="provável",
             ),
             None,
         )
@@ -468,11 +593,119 @@ class TestLlamaCppAndHuggingFace:
         assert isinstance(manifest, dict)
         assert manifest["revision"] == "abc123"
         assert manifest["alias"] == "local-model"
+        assert manifest["publisher"] == "org"
+        assert manifest["license"] == "apache-2.0"
+        assert manifest["architecture"] == "llama"
+        assert manifest["quantization"] == "Q4_K_M"
+        assert manifest["context_length"] == 8192
+        assert manifest["compatibility"] == "provável"
         assert [item["role"] for item in manifest["files"]] == [
             "model",
             "mmproj",
         ]
         assert (root / "model-manifest.json").is_file()
+
+    @pytest.mark.asyncio
+    async def test_huggingface_ollama_install_requires_alias(self) -> None:
+        from fastapi import HTTPException
+
+        from backend.api.handlers.provider_routing import (
+            HuggingFaceInstallRequest,
+            install_huggingface_model,
+        )
+
+        with pytest.raises(HTTPException, match="alias"):
+            await install_huggingface_model(
+                HuggingFaceInstallRequest(
+                    repo_id="org/model",
+                    filename="model.gguf",
+                    provider="ollama",
+                    alias="",
+                ),
+                None,
+            )
+
+    @pytest.mark.asyncio
+    async def test_huggingface_ollama_failure_does_not_publish_manifest(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        from fastapi import HTTPException
+
+        from backend.api.handlers.provider_routing import (
+            HuggingFaceInstallRequest,
+            install_huggingface_model,
+        )
+        from backend.settings import settings
+
+        root = tmp_path / "models" / "huggingface" / "org" / "model"
+        root.mkdir(parents=True)
+        model = root / "model.gguf"
+        model.write_bytes(b"weights")
+        model.with_name("model.gguf.source.json").write_text(
+            json.dumps(
+                {
+                    "repo_id": "org/model",
+                    "filename": "model.gguf",
+                    "revision": "abc123",
+                    "sha256": hashlib.sha256(b"weights").hexdigest(),
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+
+        response = MagicMock()
+        response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "upstream failure",
+            request=httpx.Request("POST", "http://127.0.0.1:11434/api/create"),
+            response=httpx.Response(500),
+        )
+        client_context = AsyncMock()
+        client_context.__aenter__ = AsyncMock(return_value=client_context)
+        client_context.__aexit__ = AsyncMock(return_value=False)
+        client_context.post = AsyncMock(return_value=response)
+
+        with patch("httpx.AsyncClient", return_value=client_context):
+            with pytest.raises(HTTPException, match="importar o modelo"):
+                await install_huggingface_model(
+                    HuggingFaceInstallRequest(
+                        repo_id="org/model",
+                        revision="abc123",
+                        filename="model.gguf",
+                        provider="ollama",
+                        alias="local-model",
+                    ),
+                    None,
+                )
+
+        assert not (root / "model-manifest.json").exists()
+
+    @pytest.mark.asyncio
+    async def test_huggingface_install_rejects_file_without_source_metadata(
+        self, tmp_path, monkeypatch
+    ):
+        from fastapi import HTTPException
+
+        from backend.api.handlers.provider_routing import (
+            HuggingFaceInstallRequest,
+            install_huggingface_model,
+        )
+        from backend.settings import settings
+
+        root = tmp_path / "models" / "huggingface" / "org" / "model"
+        root.mkdir(parents=True)
+        (root / "model.gguf").write_bytes(b"weights")
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+
+        with pytest.raises(HTTPException, match="metadados de origem ausentes"):
+            await install_huggingface_model(
+                HuggingFaceInstallRequest(
+                    repo_id="org/model",
+                    revision="abc123",
+                    filename="model.gguf",
+                ),
+                None,
+            )
 
     @pytest.mark.asyncio
     async def test_huggingface_start_uses_active_managed_runtime(
@@ -535,7 +768,7 @@ class TestLlamaCppAndHuggingFace:
             "executable": str(executable),
             "model": str(model_path),
             "host": "127.0.0.1",
-            "port": 8080,
+            "port": 18080,
             "alias": None,
             "mmproj": None,
             "ctx_size": None,
@@ -1325,7 +1558,12 @@ class TestLlamaCppConfiguration:
         assert response.json()["mode"] == "external"
         assert "LLAMACPP_MODE=external" in (tmp_path / ".env").read_text()
 
-    def test_config_syncs_model_environment(self, client, clean_llamacpp_config):
+    def test_config_syncs_model_environment(
+        self, client, clean_llamacpp_config, tmp_path, monkeypatch
+    ) -> None:
+        from backend.settings import settings
+
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
         response = client.post(
             "/provider-routing/llamacpp/config",
             json={
@@ -1364,6 +1602,48 @@ class TestLlamaCppConfiguration:
 
         assert status["installed"] is True
         assert status["runtimes"] == [{"asset": "llama-server.zip", "sha256": "abc"}]
+        assert status["state"] == "unavailable"
+        assert status["managed"] is True
+
+    @pytest.mark.asyncio
+    async def test_runtime_status_distinguishes_external_mode_without_managed_files(
+        self, tmp_path, monkeypatch
+    ):
+        from backend.api.handlers.provider_routing import llamacpp_runtime_status
+        from backend.settings import settings
+
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        monkeypatch.setattr(settings, "llamacpp_base_url", "http://127.0.0.1:8080/v1")
+        monkeypatch.setenv("LLAMACPP_MODE", "external")
+
+        status = await llamacpp_runtime_status()
+
+        assert status["state"] == "external"
+        assert status["managed"] is False
+        assert status["external"] is True
+
+    @pytest.mark.asyncio
+    async def test_runtime_status_marks_persisted_unknown_process(
+        self, tmp_path, monkeypatch
+    ):
+        from backend.api.handlers.provider_routing import llamacpp_runtime_status
+        from backend.settings import settings
+
+        root = tmp_path / "tools" / "llama.cpp"
+        root.mkdir(parents=True)
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        monkeypatch.setattr(
+            "backend.services.llamacpp_sidecar.llamacpp_status",
+            lambda: {
+                "running": False,
+                "persisted_pid": 9876,
+                "stale_state": False,
+            },
+        )
+
+        status = await llamacpp_runtime_status()
+
+        assert status["state"] == "unknown-process"
 
     @pytest.mark.asyncio
     async def test_runtime_removal_rejects_active_sidecar(self, monkeypatch):
@@ -1466,6 +1746,25 @@ class TestLlamaCppConfiguration:
         assert (versions / active).exists()
         assert (versions / newest).exists()
         assert not (versions / oldest).exists()
+
+    @pytest.mark.asyncio
+    async def test_runtime_transitions_are_serialized(self):
+        from backend.api.handlers.provider_routing import _runtime_transition
+
+        events: list[str] = []
+
+        @_runtime_transition
+        async def transition(name: str) -> None:
+            events.append(f"start:{name}")
+            await asyncio.sleep(0)
+            events.append(f"end:{name}")
+
+        await asyncio.gather(transition("first"), transition("second"))
+
+        assert events in (
+            ["start:first", "end:first", "start:second", "end:second"],
+            ["start:second", "end:second", "start:first", "end:first"],
+        )
 
     @pytest.mark.asyncio
     async def test_runtime_validation_requires_llama_server(self):

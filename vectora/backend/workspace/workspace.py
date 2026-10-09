@@ -185,6 +185,24 @@ class WorkspaceRegistry:
         self._load()
         return self._workspaces.get(workspace_id)
 
+    def claim_if_unowned(self, workspace_id: str, user_id: str) -> Workspace | None:
+        """Atomically claim a legacy workspace for its first tool caller.
+
+        Older registries may contain workspaces without ``owner_id``.  A
+        caller that addresses one explicitly must establish ownership before
+        Git tools use its repository; later callers are rejected by the normal
+        owner check.  Existing owners are never changed.
+        """
+        # Resolve through ``get`` so embedders and tests that provide a
+        # workspace backend continue to participate in the ownership check.
+        ws = self.get(workspace_id)
+        if ws is None:
+            return None
+        if ws.owner_id is None:
+            ws.owner_id = user_id
+            self._save()
+        return ws
+
     def list_all(self) -> list[Workspace]:
         """Lista todos os workspaces registrados."""
         self._load()

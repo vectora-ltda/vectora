@@ -38,7 +38,7 @@ import { autoUpdater } from "electron-updater";
 import * as http from "http";
 import * as os from "os";
 import * as path from "path";
-import { randomUUID } from "crypto";
+import { randomInt, randomUUID } from "crypto";
 import { Readable } from "stream";
 // tree-kill ships its own types — no @types/tree-kill needed.
 import treeKill = require("tree-kill");
@@ -102,13 +102,44 @@ import {
   runtimeHome as resolveRuntimeHome,
   runtimeUserDataName,
 } from "./runtime-profile.js";
+import { DockerCliExecutor } from "./docker-cli-executor.js";
+import { DmrOperations } from "./dmr-operations.js";
+import {
+  startElectronCdpProxy,
+  waitForElectronCdpTarget,
+} from "./electron-cdp-proxy.js";
 
 // O backend conecta ao mesmo Chromium do Electron via CDP. O endpoint fica
-// restrito ao loopback e é herdado pelo processo backend supervisionado.
-const electronCdpPort = process.env.VECTORA_ELECTRON_CDP_PORT ?? "9223";
+// restrito ao loopback e é herdado pelo processo backend supervisionado. Em
+// produção o processo usa uma porta efêmera para evitar que outro processo
+// local consiga assumir o CDP apenas conhecendo uma porta fixa; o backend
+// recebe o valor pelo ambiente junto com o token da ponte desktop.
+const electronCdpPort =
+  process.env.VECTORA_ELECTRON_CDP_PORT ?? String(randomInt(10000, 60000));
 process.env.VECTORA_ELECTRON_CDP_PORT = electronCdpPort;
+const electronCdpProxyPort =
+  process.env.VECTORA_ELECTRON_CDP_PROXY_PORT ??
+  String(randomInt(60001, 65000));
+const electronCdpAuthToken =
+  process.env.VECTORA_ELECTRON_CDP_AUTH_TOKEN ?? randomUUID();
+process.env.VECTORA_ELECTRON_CDP_PROXY_PORT = electronCdpProxyPort;
+process.env.VECTORA_ELECTRON_CDP_AUTH_TOKEN = electronCdpAuthToken;
 app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
 app.commandLine.appendSwitch("remote-debugging-port", electronCdpPort);
+
+let electronCdpProxy: import("node:http").Server | null = null;
+void app.whenReady().then(async () => {
+  try {
+    await waitForElectronCdpTarget(Number(electronCdpPort));
+    electronCdpProxy = await startElectronCdpProxy(
+      Number(electronCdpPort),
+      Number(electronCdpProxyPort),
+      electronCdpAuthToken,
+    );
+  } catch (error) {
+    console.error("Falha ao validar o alvo CDP do Electron", error);
+  }
+});
 
 const ELECTRON_RESTART_EXIT_CODE = 42;
 
@@ -182,6 +213,20 @@ const desktopBridgeToken =
 let selectedBackupPath: string | null = null;
 let pendingBackupPromise: Promise<void> | null = null;
 let updateDownloadPromise: Promise<void> | null = null;
+let dmrOperations: DmrOperations | null = null;
+
+function getDmrOperations(): DmrOperations {
+  return (dmrOperations ??= new DmrOperations(
+    new DockerCliExecutor(),
+    app.getPath("userData"),
+  ));
+}
+
+function assertTrustedRenderer(event: Electron.IpcMainInvokeEvent): void {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error("origem IPC não autorizada");
+  }
+}
 
 function startUpdateDownload(): Promise<void> {
   if (updateDownloadPromise) return updateDownloadPromise;
@@ -1243,6 +1288,51 @@ function registerIpc(): void {
     },
   );
 
+  // Docker Model Runner: o renderer só recebe contratos tipados; o CLI fica
+  // exclusivamente no processo principal e exige a origem IPC da janela.
+  ipcMain.handle("vectora:dmr-detect", (event) => {
+    assertTrustedRenderer(event);
+    return getDmrOperations().detect();
+  });
+  ipcMain.handle("vectora:dmr-list", (event) => {
+    assertTrustedRenderer(event);
+    return getDmrOperations().list();
+  });
+  ipcMain.handle("vectora:dmr-prepare", (event, reference: string) => {
+    assertTrustedRenderer(event);
+    return getDmrOperations().prepare(reference);
+  });
+  ipcMain.handle(
+    "vectora:dmr-start",
+    (event, reference: string, contextSize?: number) => {
+      assertTrustedRenderer(event);
+      return getDmrOperations().start(reference, contextSize);
+    },
+  );
+  ipcMain.handle("vectora:dmr-stop", (event, reference: string) => {
+    assertTrustedRenderer(event);
+    return getDmrOperations().stop(reference);
+  });
+  ipcMain.handle(
+    "vectora:dmr-remove",
+    (event, reference: string, confirmed: boolean) => {
+      assertTrustedRenderer(event);
+      return getDmrOperations().remove(reference, confirmed);
+    },
+  );
+  ipcMain.handle("vectora:dmr-operation", (event, id: string) => {
+    assertTrustedRenderer(event);
+    return getDmrOperations().getOperation(id) ?? null;
+  });
+  ipcMain.handle("vectora:dmr-operations", (event) => {
+    assertTrustedRenderer(event);
+    return getDmrOperations().listOperations();
+  });
+  ipcMain.handle("vectora:dmr-cancel", (event, id: string) => {
+    assertTrustedRenderer(event);
+    return getDmrOperations().cancel(id);
+  });
+
   // Instalação de temas do VS Code Marketplace (Preferências → Aparência) —
   // download + extração rodam aqui (fora do sandbox do renderer); erros
   // propagam pro renderer via rejeição da Promise do invoke.
@@ -1352,6 +1442,9 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   (app as unknown as { isQuitting: boolean }).isQuitting = true;
+  dmrOperations?.dispose();
+  electronCdpProxy?.close();
+  electronCdpProxy = null;
   if (backend?.pid) {
     const pid = backend.pid;
     backend = null;

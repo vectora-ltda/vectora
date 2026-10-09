@@ -99,6 +99,15 @@ async def browser_navigate(url: str, ctx: ToolContext) -> str:
     try:
         page = await get_browser_page(ctx.workspace_id or "default")
         await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+        logger.info(
+            "browser_navigate completed",
+            extra={
+                "tool": "browser_navigate",
+                "url": page.url,
+                "workspace_id": ctx.workspace_id,
+                "status": "ok",
+            },
+        )
         return f"[OK] Navegado para {page.url}"
     except Exception:
         logger.exception("browser_navigate failed", extra={"url": url})

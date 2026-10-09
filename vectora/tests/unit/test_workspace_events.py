@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
@@ -13,8 +14,8 @@ from fastapi import Request
 
 @pytest.mark.asyncio
 async def test_workspace_events_reports_missing_workspace_directory(
-    monkeypatch, tmp_path
-):
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     import backend.workspace.workspace as workspace_module
     from backend.api.handlers.workspaces import workspace_events
     from backend.vtypes import Workspace

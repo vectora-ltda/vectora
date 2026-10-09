@@ -32,23 +32,29 @@ _playwright: Any = None
 def _get_browser() -> Any:
     global _browser, _playwright
     if _browser is None:
-        import os
-
         from playwright.sync_api import sync_playwright
 
-        endpoint = os.environ.get("VECTORA_ELECTRON_CDP_URL", "").strip()
-        if not endpoint:
-            port = os.environ.get("VECTORA_ELECTRON_CDP_PORT", "9223").strip()
-            if port.isdigit():
-                endpoint = f"http://127.0.0.1:{port}"
-        if not endpoint:
-            raise RuntimeError(
-                "VECTORA_ELECTRON_CDP_PORT inválido para o Chromium do Electron."
+        from backend.browser.cdp import electron_cdp_endpoint, electron_cdp_headers
+
+        started_playwright: Any = None
+        try:
+            endpoint = electron_cdp_endpoint()
+            started_playwright = sync_playwright().start()
+            _playwright = started_playwright
+            _browser = _playwright.chromium.connect_over_cdp(
+                endpoint, headers=electron_cdp_headers()
             )
-        _playwright = sync_playwright().start()
-        _browser = _playwright.chromium.connect_over_cdp(endpoint)
-        if not _browser.contexts:
-            raise RuntimeError("Chromium do Electron não expôs contexto CDP")
+            if not _browser.contexts:
+                raise RuntimeError("Chromium do Electron não expôs contexto CDP")
+        except Exception:
+            if started_playwright is not None:
+                try:
+                    started_playwright.stop()
+                except Exception:
+                    logger.exception("search_fallback_playwright_cleanup_failed")
+            _browser = None
+            _playwright = None
+            raise
         logger.info("electron_browser_fallback_connected")
     return _browser
 
@@ -56,10 +62,11 @@ def _get_browser() -> Any:
 def close_search_fallback_browser() -> None:
     """Fecha o Chromium do fallback, se estiver aberto. Idempotente."""
     global _browser, _playwright
-    if _browser is None:
+    if _browser is None and _playwright is None:
         return
     try:
-        _playwright.stop()
+        if _playwright is not None:
+            _playwright.stop()
     except Exception:
         logger.exception("search_fallback_browser_close_failed")
     finally:

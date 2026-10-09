@@ -46,19 +46,22 @@ import hmac
 import json
 import logging
 import os
+import platform
 import re
 import shutil
 import tarfile
 import time
 import uuid
 import zipfile
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import suppress
 from datetime import UTC, datetime
+from functools import wraps
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, ParamSpec, TypeVar
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.api.handlers.admin import require_admin
 from backend.settings import CapabilityState, settings
@@ -106,6 +109,22 @@ def _require_desktop_bridge(
 
 DesktopBridge = Depends(_require_desktop_bridge)
 
+_RuntimeP = ParamSpec("_RuntimeP")
+_RuntimeR = TypeVar("_RuntimeR")
+
+
+def _runtime_transition(  # noqa: UP047
+    handler: Callable[_RuntimeP, Awaitable[_RuntimeR]],
+) -> Callable[_RuntimeP, Awaitable[_RuntimeR]]:
+    """Serializa alterações no manifesto e no marcador do runtime."""
+
+    @wraps(handler)
+    async def guarded(*args: _RuntimeP.args, **kwargs: _RuntimeP.kwargs) -> _RuntimeR:
+        async with _runtime_transition_lock:
+            return await handler(*args, **kwargs)
+
+    return guarded
+
 
 async def _get_http_client() -> AsyncIterator[Any]:
     """Dependency do client HTTP usado pelas chamadas de descoberta/catálogo.
@@ -131,6 +150,7 @@ _download_locks: dict[str, asyncio.Lock] = {}
 _download_locks_guard = asyncio.Lock()
 _download_cancel_events: dict[str, asyncio.Event] = {}
 _download_progress: dict[str, dict[str, int | str | None]] = {}
+_runtime_transition_lock = asyncio.Lock()
 _MAX_DOWNLOAD_BYTES = 100 * 1024**3
 _GITHUB_RELEASE_HOSTS = frozenset(
     {
@@ -198,6 +218,26 @@ class LlamaCppModeRequest(BaseModel):
     mode: Literal["managed", "external"]
 
 
+class DmrConfigRequest(BaseModel):
+    """Endpoint local e modelo padrão do Docker Model Runner."""
+
+    base_url: str = "http://127.0.0.1:12434"
+    model: str = ""
+
+
+class DmrModelRequest(BaseModel):
+    """Referência Docker/OCI validada antes de chegar ao executor."""
+
+    reference: str
+    context_size: int | None = Field(default=None, ge=1, le=1_000_000)
+
+
+class DmrJobRequest(DmrModelRequest):
+    """Operação assíncrona local de preparação ou inicialização."""
+
+    operation: Literal["prepare", "start"] = "start"
+
+
 class HuggingFaceDownloadRequest(BaseModel):
     repo_id: str
     filename: str
@@ -214,7 +254,13 @@ class HuggingFaceInstallRequest(BaseModel):
     filename: str
     mmproj_filename: str | None = None
     alias: str | None = None
-    parameters: dict[str, str | int | float | bool | None] = {}
+    provider: Literal["ollama", "llamacpp"] = "llamacpp"
+    parameters: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
+    license: str | None = None
+    architecture: str | None = None
+    quantization: str | None = None
+    context_length: int | str | None = None
+    compatibility: str | None = None
 
 
 class HuggingFaceStartRequest(BaseModel):
@@ -223,7 +269,7 @@ class HuggingFaceStartRequest(BaseModel):
     repo_id: str
     filename: str | None = None
     host: str = "127.0.0.1"
-    port: int = 8080
+    port: int = 18080
     alias: str | None = None
     ctx_size: int | None = None
     n_gpu_layers: int | None = None
@@ -255,7 +301,7 @@ class LlamaCppSidecarRequest(BaseModel):
     executable: str
     model: str
     host: str = "127.0.0.1"
-    port: int = 8080
+    port: int = 18080
     alias: str | None = None
     mmproj: str | None = None
     ctx_size: int | None = None
@@ -271,6 +317,11 @@ def _llamacpp_runtime_root() -> Path:
 
 def _llamacpp_manifest_path() -> Path:
     return _llamacpp_runtime_root() / "runtime-manifest.json"
+
+
+def _dmr_manifest_path() -> Path:
+    """Manifesto local de modelos preparados explicitamente pela Vectora."""
+    return (settings.vectora_home / "docker-model-runner-manifest.json").resolve()
 
 
 async def _validate_runtime_executable(files: list[str]) -> str:
@@ -319,6 +370,9 @@ def _extract_llamacpp_archive(archive: Path, destination_root: Path) -> list[str
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with bundle.open(info) as source, target.open("wb") as output:
                     output.write(source.read())
+                mode = (info.external_attr >> 16) & 0o777
+                if mode:
+                    target.chmod(mode)
                 extracted.append(str(target))
         return extracted
     if tarfile.is_tarfile(archive):
@@ -336,6 +390,8 @@ def _extract_llamacpp_archive(archive: Path, destination_root: Path) -> list[str
                     raise ValueError("arquivo do runtime inválido")
                 with source, target.open("wb") as output:
                     output.write(source.read())
+                if member.mode:
+                    target.chmod(member.mode & 0o777)
                 extracted.append(str(target))
         return extracted
     return []
@@ -366,6 +422,19 @@ class LlamaCppModelConfirmation(BaseModel):
     parameters: dict[str, str | int | float | bool | None]
     evidence_sha256: str
     confirmed_at: str
+
+
+def _confirmation_evidence_sha256(
+    model_sha256: str,
+    runtime_id: str,
+    parameters: dict[str, str | int | float | bool | None],
+) -> tuple[str, str]:
+    """Serialize confirmation inputs once and derive their integrity evidence."""
+    serialized = json.dumps(parameters, sort_keys=True, separators=(",", ":"))
+    evidence = hashlib.sha256(
+        f"{model_sha256}:{runtime_id}:{serialized}".encode()
+    ).hexdigest()
+    return serialized, evidence
 
 
 async def _get_db() -> Any:
@@ -510,7 +579,7 @@ async def discover_llamacpp_models() -> OpenAICompatibleDiscoveryResponse:
     """
     import httpx
 
-    base_url = (settings.llamacpp_base_url or "http://127.0.0.1:8080/v1").rstrip("/")
+    base_url = (settings.llamacpp_base_url or "http://127.0.0.1:18080/v1").rstrip("/")
     headers = (
         {"Authorization": f"Bearer {settings.llamacpp_api_key}"}
         if settings.llamacpp_api_key
@@ -541,7 +610,7 @@ async def test_llamacpp_connection() -> LlamaCppConnectionTestResponse:
     """Testa o contrato OpenAI-compatible sem expor credenciais."""
     import httpx
 
-    base_url = (settings.llamacpp_base_url or "http://127.0.0.1:8080/v1").rstrip("/")
+    base_url = (settings.llamacpp_base_url or "http://127.0.0.1:18080/v1").rstrip("/")
     headers = (
         {"Authorization": f"Bearer {settings.llamacpp_api_key}"}
         if settings.llamacpp_api_key
@@ -635,10 +704,9 @@ async def confirm_llamacpp_model(
     ):
         raise HTTPException(status_code=409, detail="runtime não está instalado")
     model_sha256 = await asyncio.to_thread(_sha256_file, model_path)
-    serialized = json.dumps(body.parameters, sort_keys=True, separators=(",", ":"))
-    evidence_sha256 = hashlib.sha256(
-        f"{model_sha256}:{body.runtime_id}:{serialized}".encode()
-    ).hexdigest()
+    serialized, evidence_sha256 = _confirmation_evidence_sha256(
+        model_sha256, body.runtime_id, body.parameters
+    )
     confirmed_at = datetime.now(UTC).isoformat()
     db = await _get_db()
     await _ensure_llamacpp_confirmation_table(db)
@@ -709,13 +777,30 @@ async def list_llamacpp_model_confirmations() -> list[LlamaCppModelConfirmation]
                 "DELETE FROM llamacpp_model_confirmations WHERE tag = ?", (row[0],)
             )
             continue
+        try:
+            parameters = json.loads(row[4])
+            if not isinstance(parameters, dict):
+                raise ValueError("parâmetros não são um objeto")
+            _, evidence_sha256 = _confirmation_evidence_sha256(
+                row[2], row[3], parameters
+            )
+        except (TypeError, ValueError, json.JSONDecodeError):
+            await db.execute(
+                "DELETE FROM llamacpp_model_confirmations WHERE tag = ?", (row[0],)
+            )
+            continue
+        if evidence_sha256 != row[5]:
+            await db.execute(
+                "DELETE FROM llamacpp_model_confirmations WHERE tag = ?", (row[0],)
+            )
+            continue
         valid.append(
             LlamaCppModelConfirmation(
                 tag=row[0],
                 model_path=row[1],
                 model_sha256=row[2],
                 runtime_id=row[3],
-                parameters=json.loads(row[4]),
+                parameters=parameters,
                 evidence_sha256=row[5],
                 confirmed_at=row[6],
             )
@@ -728,7 +813,7 @@ async def list_llamacpp_model_confirmations() -> list[LlamaCppModelConfirmation]
 @router.get("/llama-cpp/status", include_in_schema=False)
 async def get_llamacpp_status() -> LlamaCppStatus:
     key = settings.llamacpp_api_key or ""
-    configured_url = settings.llamacpp_base_url or "http://127.0.0.1:8080/v1"
+    configured_url = settings.llamacpp_base_url or "http://127.0.0.1:18080/v1"
     mode_value = os.getenv("LLAMACPP_MODE")
     mode: Literal["managed", "external"] = (
         mode_value
@@ -738,7 +823,7 @@ async def get_llamacpp_status() -> LlamaCppStatus:
         )
     )
     return LlamaCppStatus(
-        configured=bool(settings.llamacpp_base_url),
+        configured=bool(settings.llamacpp_base_url) or mode == "managed",
         base_url=configured_url,
         model=settings.llamacpp_model or "",
         masked=(f"{key[:4]}…{key[-4:]}" if len(key) > 8 else ("••••" if key else "")),
@@ -761,7 +846,8 @@ async def set_llamacpp_config(
     if len(base_url) > 500 or len(body.api_key) > 500 or len(body.model) > 300:
         raise HTTPException(status_code=400, detail="configuração excede o limite")
     object.__setattr__(settings, "llamacpp_base_url", base_url)
-    object.__setattr__(settings, "llamacpp_api_key", body.api_key.strip() or None)
+    api_key = body.api_key.strip() or settings.llamacpp_api_key
+    object.__setattr__(settings, "llamacpp_api_key", api_key)
     model = body.model.strip()
     object.__setattr__(settings, "llamacpp_model", model or None)
     env_file = _env_file()
@@ -771,10 +857,8 @@ async def set_llamacpp_config(
         os.environ["LLAMACPP_MODEL"] = model
     else:
         os.environ.pop("LLAMACPP_MODEL", None)
-    if body.api_key.strip():
-        _set_env_key(env_file, "LLAMACPP_API_KEY", body.api_key.strip())
-    else:
-        _remove_env_key(env_file, "LLAMACPP_API_KEY")
+    if api_key:
+        _set_env_key(env_file, "LLAMACPP_API_KEY", api_key)
     return await get_llamacpp_status()
 
 
@@ -798,8 +882,8 @@ async def clear_llamacpp_config(
     return await get_llamacpp_status()
 
 
-@router.post("/llamacpp/mode")
-@router.post("/llama-cpp/mode", include_in_schema=False)
+@router.post("/llamacpp/mode", dependencies=[DesktopBridge])
+@router.post("/llama-cpp/mode", include_in_schema=False, dependencies=[DesktopBridge])
 async def set_llamacpp_mode(
     body: LlamaCppModeRequest,
     _: ProviderAdmin,
@@ -827,6 +911,433 @@ async def get_llamacpp_sidecar_status() -> dict[str, int | bool | str | None]:
     from backend.services.llamacpp_sidecar import llamacpp_status
 
     return llamacpp_status()
+
+
+@router.get("/dmr/status", dependencies=[DesktopBridge])
+async def get_dmr_status() -> dict[str, object]:
+    """Detecta Docker Model Runner e o contrato HTTP disponível no host local."""
+    from backend.services.docker_model_runner import (
+        DEFAULT_DMR_BASE_URL,
+        docker_host_info,
+        docker_model_available,
+        probe_dmr,
+    )
+
+    cli_available, cli_detail = await docker_model_available()
+    try:
+        host_info = await docker_host_info()
+    except (OSError, RuntimeError, ValueError):
+        host_info = {}
+    base_url = settings.dmr_base_url or DEFAULT_DMR_BASE_URL
+    probe = await probe_dmr(base_url)
+    try:
+        manifest = await _read_json_file_async(_dmr_manifest_path())
+    except (FileNotFoundError, json.JSONDecodeError):
+        manifest = {}
+    raw_models = manifest.get("models", []) if isinstance(manifest, dict) else []
+    if isinstance(raw_models, dict):
+        managed_models = [
+            str(reference) for reference in raw_models if isinstance(reference, str)
+        ]
+    elif isinstance(raw_models, list):
+        managed_models = [
+            str(item["reference"])
+            for item in raw_models
+            if isinstance(item, dict) and isinstance(item.get("reference"), str)
+        ]
+    else:
+        managed_models = []
+    cli_detail_lower = (cli_detail or "").lower()
+    if probe.reachable:
+        state = "ready"
+    elif not cli_available:
+        state = (
+            "plugin_unavailable"
+            if "model" in cli_detail_lower or "unknown command" in cli_detail_lower
+            else "docker_unavailable"
+        )
+    else:
+        state = "stopped"
+    runtimes = host_info.get("runtimes")
+    gpu_backends = host_info.get("gpu_backends")
+    backend = (
+        str(gpu_backends[0])
+        if isinstance(gpu_backends, list) and gpu_backends
+        else None
+    )
+    return {
+        "configured": bool(settings.dmr_base_url),
+        "base_url": base_url,
+        "model": settings.dmr_model or "",
+        "state": state,
+        "platform": str(host_info.get("os") or platform.system()).lower(),
+        "architecture": str(
+            host_info.get("architecture") or platform.machine()
+        ).lower(),
+        "backend": backend,
+        "capabilities": {
+            "cpus": host_info.get("cpus"),
+            "memory_bytes": host_info.get("memory_bytes"),
+            "runtimes": runtimes if isinstance(runtimes, list) else [],
+            "gpu_backends": gpu_backends if isinstance(gpu_backends, list) else [],
+            "warnings": host_info.get("warnings", []),
+        },
+        "cli_available": cli_available,
+        "cli_detail": cli_detail,
+        "reachable": probe.reachable if probe else False,
+        "contract": probe.contract if probe else settings.dmr_contract,
+        "models": list(probe.models) if probe else [],
+        "managed_models": managed_models,
+        "detail": probe.detail if probe else "endpoint ainda não configurado",
+    }
+
+
+@router.get("/dmr/http-status", dependencies=[DesktopBridge])
+async def get_dmr_http_status() -> dict[str, object]:
+    """Sonda somente o endpoint HTTP do DMR, sem executar comandos Docker.
+
+    A UI Electron usa este contrato junto da detecção feita pela bridge nativa;
+    assim o backend não precisa possuir nem iniciar o CLI Docker para atualizar
+    o estado do provider.
+    """
+    from backend.services.docker_model_runner import DEFAULT_DMR_BASE_URL, probe_dmr
+
+    base_url = settings.dmr_base_url or DEFAULT_DMR_BASE_URL
+    probe = await probe_dmr(base_url)
+    try:
+        manifest = await _read_json_file_async(_dmr_manifest_path())
+    except (FileNotFoundError, json.JSONDecodeError):
+        manifest = {}
+    raw_models = manifest.get("models", []) if isinstance(manifest, dict) else []
+    if isinstance(raw_models, dict):
+        managed_models = [str(reference) for reference in raw_models]
+    elif isinstance(raw_models, list):
+        managed_models = [
+            str(item["reference"])
+            for item in raw_models
+            if isinstance(item, dict) and isinstance(item.get("reference"), str)
+        ]
+    else:
+        managed_models = []
+    return {
+        "configured": bool(settings.dmr_base_url),
+        "base_url": base_url,
+        "model": settings.dmr_model or "",
+        "reachable": probe.reachable,
+        "contract": probe.contract,
+        "models": list(probe.models),
+        "managed_models": managed_models,
+        "detail": probe.detail,
+    }
+
+
+@router.post("/dmr/config")
+async def set_dmr_config(body: DmrConfigRequest, _: ProviderAdmin) -> dict[str, object]:
+    """Persiste apenas endpoint/modelo; operações Docker exigem a bridge."""
+    from backend.services.docker_model_runner import normalize_base_url
+
+    try:
+        base_url = normalize_base_url(body.base_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    model = body.model.strip()
+    if model:
+        from backend.services.docker_model_runner import validate_model_reference
+
+        try:
+            model = validate_model_reference(model)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    object.__setattr__(settings, "dmr_base_url", base_url)
+    object.__setattr__(settings, "dmr_model", model or None)
+    env_file = _env_file()
+    _set_env_key(env_file, "DMR_BASE_URL", base_url)
+    _set_env_key(env_file, "DMR_MODEL", model)
+    os.environ["DMR_BASE_URL"] = base_url
+    if model:
+        os.environ["DMR_MODEL"] = model
+    else:
+        os.environ.pop("DMR_MODEL", None)
+    return await get_dmr_status()
+
+
+@router.post("/dmr/test", dependencies=[DesktopBridge])
+async def test_dmr_connection() -> dict[str, object]:
+    """Executa a detecção de CLI e o probe HTTP sem alterar estado."""
+    return await get_dmr_status()
+
+
+@router.get("/dmr/models", dependencies=[DesktopBridge])
+async def list_dmr_models() -> dict[str, object]:
+    """Lista modelos descobertos pelo contrato que o DMR anunciou."""
+    status = await get_dmr_status()
+    return {
+        "reachable": status["reachable"],
+        "contract": status["contract"],
+        "models": status["models"],
+    }
+
+
+@router.post("/dmr/models/jobs", dependencies=[DesktopBridge])
+async def create_dmr_model_job(
+    body: DmrJobRequest, _: ProviderAdmin
+) -> dict[str, object]:
+    """Agenda pull/run e devolve um identificador para progresso e cancelamento."""
+    from backend.services.docker_model_runner import create_model_job
+
+    try:
+        job = await create_model_job(body.reference, body.operation, body.context_size)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "id": job.id,
+        "operation": job.operation,
+        "reference": job.reference,
+        "context_size": job.context_size,
+        "progress": job.progress,
+        "phase": job.phase,
+        "status": job.status,
+    }
+
+
+@router.get("/dmr/models/jobs/{job_id}", dependencies=[DesktopBridge])
+async def get_dmr_model_job(job_id: str, _: ProviderAdmin) -> dict[str, object]:
+    """Consulta o estado de um job sem expor saída ilimitada do Docker."""
+    from backend.services.docker_model_runner import get_model_job, restore_model_jobs
+
+    if not re.fullmatch(r"[0-9a-f]{32}", job_id):
+        raise HTTPException(status_code=400, detail="identificador de job inválido")
+    await restore_model_jobs()
+    job = get_model_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job não encontrado")
+    if job.status == "completed":
+        try:
+            manifest = await _read_json_file_async(_dmr_manifest_path())
+        except (FileNotFoundError, json.JSONDecodeError):
+            manifest = {"models": []}
+        if not isinstance(manifest, dict):
+            manifest = {"models": []}
+        models = [item for item in manifest.get("models", []) if isinstance(item, dict)]
+        entry = {
+            "reference": job.reference,
+            "source": "docker-model-runner",
+            "owned_by_vectora": True,
+            "prepared_at": datetime.now(UTC).isoformat(),
+            "platform": platform.system().lower(),
+            "architecture": platform.machine().lower(),
+            **job.metadata,
+        }
+        models = [item for item in models if item.get("reference") != job.reference]
+        models.append(entry)
+        await _write_json_atomic(_dmr_manifest_path(), {"models": models})
+    return {
+        "id": job.id,
+        "operation": job.operation,
+        "reference": job.reference,
+        "context_size": job.context_size,
+        "progress": job.progress,
+        "phase": job.phase,
+        "status": job.status,
+        "output": job.output[-2000:],
+        "error": job.error,
+        "metadata": job.metadata,
+    }
+
+
+@router.get("/dmr/models/jobs", dependencies=[DesktopBridge])
+async def list_dmr_model_jobs(_: ProviderAdmin) -> dict[str, object]:
+    """Lista operações persistidas para que a interface recupere interrupções."""
+    from backend.services.docker_model_runner import list_model_jobs
+
+    jobs = await list_model_jobs()
+    return {
+        "jobs": [
+            {
+                "id": job.id,
+                "operation": job.operation,
+                "reference": job.reference,
+                "context_size": job.context_size,
+                "progress": job.progress,
+                "phase": job.phase,
+                "status": job.status,
+                "output": job.output[-2000:],
+                "error": job.error,
+                "metadata": job.metadata,
+            }
+            for job in jobs
+        ]
+    }
+
+
+@router.post("/dmr/models/jobs/{job_id}/retry", dependencies=[DesktopBridge])
+async def retry_dmr_model_job(job_id: str, _: ProviderAdmin) -> dict[str, object]:
+    """Retoma explicitamente um job que foi interrompido por reinício."""
+    from backend.services.docker_model_runner import retry_model_job
+
+    if not re.fullmatch(r"[0-9a-f]{32}", job_id):
+        raise HTTPException(status_code=400, detail="identificador de job inválido")
+    job = await retry_model_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job não encontrado")
+    return {
+        "id": job.id,
+        "operation": job.operation,
+        "reference": job.reference,
+        "context_size": job.context_size,
+        "progress": job.progress,
+        "phase": job.phase,
+        "status": job.status,
+        "output": job.output[-2000:],
+        "error": job.error,
+    }
+
+
+@router.delete("/dmr/models/jobs/{job_id}", dependencies=[DesktopBridge])
+async def cancel_dmr_model_job(job_id: str, _: ProviderAdmin) -> dict[str, object]:
+    """Cancela um job e encerra o processo Docker associado, quando ativo."""
+    from backend.services.docker_model_runner import cancel_model_job
+
+    if not re.fullmatch(r"[0-9a-f]{32}", job_id):
+        raise HTTPException(status_code=400, detail="identificador de job inválido")
+    job = await cancel_model_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job não encontrado")
+    return {"id": job.id, "status": job.status, "error": job.error}
+
+
+async def _prepare_dmr_model(body: DmrModelRequest) -> dict[str, object]:
+    """Prepara um modelo pelo plugin local, sem executar shell arbitrário."""
+    from backend.services.docker_model_runner import (
+        prepare_model,
+        validate_model_reference,
+    )
+
+    try:
+        reference = validate_model_reference(body.reference)
+        output = await prepare_model(reference)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    object.__setattr__(settings, "dmr_model", reference)
+    env_file = _env_file()
+    _set_env_key(env_file, "DMR_MODEL", reference)
+    os.environ["DMR_MODEL"] = reference
+    return {"status": "prepared", "reference": reference, "output": output[-2000:]}
+
+
+@router.post("/dmr/models/prepare", dependencies=[DesktopBridge])
+async def prepare_dmr_model(
+    body: DmrModelRequest, _: ProviderAdmin
+) -> dict[str, object]:
+    return await _prepare_dmr_model(body)
+
+
+@router.post("/dmr/models/start", dependencies=[DesktopBridge])
+async def start_dmr_model(body: DmrModelRequest, _: ProviderAdmin) -> dict[str, object]:
+    """Prepara, pré-carrega e valida o modelo antes de registrá-lo."""
+    await _prepare_dmr_model(body)
+    from backend.services.docker_model_runner import (
+        probe_dmr_inference,
+        run_model,
+        stop_model,
+        validate_model_reference,
+    )
+
+    try:
+        reference = validate_model_reference(body.reference)
+        output = await run_model(reference, body.context_size)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    status = await get_dmr_status()
+    if not status["reachable"]:
+        with suppress(Exception):
+            await stop_model(reference)
+        raise HTTPException(status_code=503, detail="DMR não está pronto")
+    models = status.get("models")
+    model_name = reference
+    if isinstance(models, list) and models:
+        model_name = str(models[0])
+    contract = str(status.get("contract") or "")
+    if not await probe_dmr_inference(str(status["base_url"]), contract, model_name):
+        with suppress(Exception):
+            await stop_model(reference)
+        raise HTTPException(
+            status_code=503,
+            detail="DMR respondeu ao catálogo, mas não concluiu uma inferência",
+        )
+    if not settings.dmr_base_url:
+        base_url = str(status["base_url"])
+        object.__setattr__(settings, "dmr_base_url", base_url)
+        _set_env_key(_env_file(), "DMR_BASE_URL", base_url)
+        os.environ["DMR_BASE_URL"] = base_url
+        status = await get_dmr_status()
+    if contract in {"openai", "ollama"} and settings.dmr_contract != contract:
+        object.__setattr__(settings, "dmr_contract", contract)
+        _set_env_key(_env_file(), "DMR_CONTRACT", contract)
+        os.environ["DMR_CONTRACT"] = contract
+        status = await get_dmr_status()
+    return {
+        "status": "ready",
+        "reference": reference,
+        "output": output[-2000:],
+        **status,
+    }
+
+
+@router.post("/dmr/models/stop", dependencies=[DesktopBridge])
+async def stop_dmr_model(body: DmrModelRequest, _: ProviderAdmin) -> dict[str, object]:
+    """Pede parada ao Docker sem remover o modelo armazenado."""
+    from backend.services.docker_model_runner import (
+        stop_model,
+        validate_model_reference,
+    )
+
+    try:
+        reference = validate_model_reference(body.reference)
+        output = await stop_model(reference)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"status": "stopped", "reference": reference, "output": output[-2000:]}
+
+
+@router.delete("/dmr/models/{reference:path}", dependencies=[DesktopBridge])
+async def remove_dmr_model(
+    reference: str, _: ProviderAdmin, confirm: bool = False
+) -> dict[str, object]:
+    """Remove o modelo somente quando a UI envia confirmação explícita."""
+    if not confirm:
+        raise HTTPException(status_code=400, detail="confirmação explícita necessária")
+    from backend.services.docker_model_runner import (
+        remove_model,
+        validate_model_reference,
+    )
+
+    try:
+        value = validate_model_reference(reference)
+        output = await remove_model(value)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if settings.dmr_model == value:
+        object.__setattr__(settings, "dmr_model", None)
+        env_file = _env_file()
+        _remove_env_key(env_file, "DMR_MODEL")
+        os.environ.pop("DMR_MODEL", None)
+    try:
+        manifest = await _read_json_file_async(_dmr_manifest_path())
+    except (FileNotFoundError, json.JSONDecodeError):
+        manifest = {}
+    if isinstance(manifest, dict) and isinstance(manifest.get("models"), list):
+        await _write_json_atomic(
+            _dmr_manifest_path(),
+            {
+                "models": [
+                    item
+                    for item in manifest["models"]
+                    if not (isinstance(item, dict) and item.get("reference") == value)
+                ]
+            },
+        )
+    return {"status": "removed", "reference": value, "output": output[-2000:]}
 
 
 @router.post("/llamacpp/sidecar/start", dependencies=[DesktopBridge])
@@ -932,7 +1443,7 @@ async def start_installed_huggingface_model(
         if isinstance(runtime_manifest, dict)
         else []
     )
-    runtime_entry = next(
+    active_runtime_entry = next(
         (
             item
             for item in runtimes
@@ -940,14 +1451,21 @@ async def start_installed_huggingface_model(
         ),
         None,
     )
-    if not isinstance(runtime_entry, dict) or not isinstance(
-        runtime_entry.get("directory"), str
+    if not isinstance(active_runtime_entry, dict) or not isinstance(
+        active_runtime_entry.get("directory"), str
     ):
         raise HTTPException(status_code=409, detail="runtime ativo inválido")
-    runtime_dir = Path(runtime_entry["directory"]).expanduser().resolve()
     runtime_root_resolved = (runtime_root / "versions").resolve()
-    if runtime_root_resolved not in runtime_dir.parents:
-        raise HTTPException(status_code=422, detail="runtime fora da raiz gerenciada")
+    runtime_candidates = [active_runtime_entry]
+    runtime_candidates.extend(
+        item
+        for item in sorted(
+            (item for item in runtimes if isinstance(item, dict)),
+            key=lambda item: str(item.get("installed_at", "")),
+            reverse=True,
+        )
+        if item is not active_runtime_entry and item.get("id") != active_id
+    )
     mmproj_entry = next(
         (
             item
@@ -964,34 +1482,62 @@ async def start_installed_huggingface_model(
         ):
             raise HTTPException(status_code=409, detail="mmproj indisponível")
         mmproj_path = candidate
-    executable = next(
-        (
-            path
-            for path in (await asyncio.to_thread(lambda: list(runtime_dir.rglob("*"))))
-            if path.name.lower() in {"llama-server", "llama-server.exe"}
-        ),
-        None,
-    )
-    if executable is None or not await asyncio.to_thread(executable.is_file):
-        raise HTTPException(status_code=409, detail="llama-server não encontrado")
-    try:
-        await start_llamacpp(
-            executable,
-            model_path,
-            host=body.host,
-            port=body.port,
-            alias=body.alias,
-            mmproj=mmproj_path,
-            ctx_size=body.ctx_size,
-            n_gpu_layers=body.n_gpu_layers,
-            threads=body.threads,
-            parallel=body.parallel,
-            jinja=body.jinja,
+    started_runtime_id = active_id
+    last_runtime_error: RuntimeError | None = None
+    executable: Path | None = None
+    for candidate in runtime_candidates:
+        candidate_id = candidate.get("id")
+        candidate_directory = candidate.get("directory")
+        if not isinstance(candidate_id, str) or not isinstance(
+            candidate_directory, str
+        ):
+            continue
+        runtime_dir = Path(candidate_directory).expanduser().resolve()
+        if runtime_root_resolved not in runtime_dir.parents:
+            continue
+        candidate_executable = next(
+            (
+                path
+                for path in await asyncio.to_thread(
+                    lambda path=runtime_dir: list(path.rglob("*"))
+                )
+                if path.name.lower() in {"llama-server", "llama-server.exe"}
+            ),
+            None,
         )
-    except (FileNotFoundError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        if candidate_executable is None or not await asyncio.to_thread(
+            candidate_executable.is_file
+        ):
+            continue
+        try:
+            await start_llamacpp(
+                candidate_executable,
+                model_path,
+                host=body.host,
+                port=body.port,
+                alias=body.alias,
+                mmproj=mmproj_path,
+                ctx_size=body.ctx_size,
+                n_gpu_layers=body.n_gpu_layers,
+                threads=body.threads,
+                parallel=body.parallel,
+                jinja=body.jinja,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            last_runtime_error = exc
+            continue
+        started_runtime_id = candidate_id
+        executable = candidate_executable
+        break
+    if executable is None:
+        detail = "llama-server não ficou pronto em nenhum runtime instalado"
+        if last_runtime_error is not None:
+            detail = str(last_runtime_error)
+        raise HTTPException(status_code=502, detail=detail) from last_runtime_error
+    if started_runtime_id != active_id:
+        await _write_text_atomic(active_path, started_runtime_id)
     tag = body.alias or str(manifest.get("alias") or model_entry["filename"])
     parameters: dict[str, str | int | float | bool | None] = {
         "alias": body.alias,
@@ -1012,7 +1558,7 @@ async def start_installed_huggingface_model(
             ConfirmLlamaCppModelRequest(
                 tag=tag,
                 model_path=str(model_path),
-                runtime_id=active_id,
+                runtime_id=started_runtime_id,
                 parameters=parameters,
             ),
             None,
@@ -1071,14 +1617,16 @@ async def search_huggingface_models(
     """
     import httpx
 
-    if provider not in {"ollama", "llamacpp"}:
+    if provider not in {"ollama", "llamacpp", "dmr"}:
         raise HTTPException(status_code=400, detail="provider inválido")
     query = q.strip()[:120] or "llama.cpp"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
+            params = {"search": query, "limit": 25}
+            if provider != "dmr":
+                params["filter"] = "gguf"
             response = await client.get(
-                "https://huggingface.co/api/models",
-                params={"search": query, "filter": "gguf", "limit": 25},
+                "https://huggingface.co/api/models", params=params
             )
             response.raise_for_status()
             payload = response.json()
@@ -1091,6 +1639,7 @@ async def search_huggingface_models(
         "models": [
             {
                 "id": str(item.get("id", "")),
+                "publisher": str(item.get("id", "")).split("/", 1)[0],
                 "pipeline_tag": str(item.get("pipeline_tag", "")),
                 "provider": provider,
                 "downloads": str(item.get("downloads", 0)),
@@ -1107,9 +1656,11 @@ async def search_huggingface_models(
                 "context_length": str(
                     (item.get("cardData") or {}).get("context_length", "")
                 ),
-                "format": "GGUF"
-                if "gguf" in {str(tag).lower() for tag in item.get("tags", [])}
-                else "",
+                "format": (
+                    "GGUF"
+                    if "gguf" in {str(tag).lower() for tag in item.get("tags", [])}
+                    else ""
+                ),
                 "compatibility": (
                     "provável"
                     if "gguf" in {str(tag).lower() for tag in item.get("tags", [])}
@@ -1144,6 +1695,11 @@ def _sha256_file(path: Path) -> str:
         while chunk := source.read(1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _download_source_metadata_path(path: Path) -> Path:
+    """Retorna o sidecar de procedência associado a um arquivo baixado."""
+    return path.with_name(f"{path.name}.source.json")
 
 
 def _read_json_file(path: Path) -> object:
@@ -1191,6 +1747,52 @@ async def _ensure_download_capacity(path: Path, expected: int | None) -> None:
         )
 
 
+async def _huggingface_file_metadata(
+    repo_id: str, revision: str, filename: str
+) -> tuple[str | None, int | None]:
+    """Obtém checksum e tamanho publicados para a revisão selecionada.
+
+    O frontend pode exibir e reenviar esses dados, mas a integridade do arquivo
+    precisa ser decidida pelo backend a partir da API da Hugging Face.
+    """
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(
+                f"https://huggingface.co/api/models/{repo_id}",
+                params={"revision": revision, "blobs": "true"},
+            )
+            response.raise_for_status()
+            data = response.json()
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            raise HTTPException(
+                status_code=404, detail="modelo não encontrado"
+            ) from exc
+        raise HTTPException(
+            status_code=502, detail="metadados da Hugging Face indisponíveis"
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail="metadados da Hugging Face indisponíveis"
+        ) from exc
+
+    for item in data.get("siblings", []) if isinstance(data, dict) else []:
+        if not isinstance(item, dict) or item.get("rfilename") != filename:
+            continue
+        lfs = item.get("lfs")
+        sha256 = lfs.get("sha256") if isinstance(lfs, dict) else None
+        size = lfs.get("size") if isinstance(lfs, dict) else item.get("size")
+        return (
+            sha256.lower()
+            if isinstance(sha256, str) and re.fullmatch(r"[0-9a-f]{64}", sha256.lower())
+            else None,
+            size if isinstance(size, int) and size >= 0 else None,
+        )
+    return None, None
+
+
 @router.get("/huggingface/models/{repo_id:path}")
 async def get_huggingface_model_metadata(repo_id: str) -> dict[str, object]:
     """Retorna metadados do repositório sem encaminhar pesos ao backend."""
@@ -1201,7 +1803,10 @@ async def get_huggingface_model_metadata(repo_id: str) -> dict[str, object]:
         raise HTTPException(status_code=400, detail="repo_id deve ser owner/model")
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.get(f"https://huggingface.co/api/models/{repo_id}")
+            response = await client.get(
+                f"https://huggingface.co/api/models/{repo_id}",
+                params={"blobs": "true"},
+            )
             response.raise_for_status()
             data = response.json()
     except httpx.HTTPStatusError as exc:
@@ -1215,6 +1820,11 @@ async def get_huggingface_model_metadata(repo_id: str) -> dict[str, object]:
         {
             "rfilename": item.get("rfilename", ""),
             "size": item.get("size"),
+            "sha256": (
+                (item.get("lfs") or {}).get("sha256")
+                if isinstance(item.get("lfs"), dict)
+                else None
+            ),
             "format": "GGUF"
             if str(item.get("rfilename", "")).lower().endswith(".gguf")
             else "",
@@ -1224,6 +1834,7 @@ async def get_huggingface_model_metadata(repo_id: str) -> dict[str, object]:
     ]
     return {
         "id": data.get("id", repo_id),
+        "publisher": str(data.get("id", repo_id)).split("/", 1)[0],
         "revision": str(data.get("sha") or "main"),
         "license": (data.get("cardData") or {}).get("license"),
         "downloads": data.get("downloads", 0),
@@ -1275,124 +1886,201 @@ async def download_huggingface_model(
         )
     await asyncio.to_thread(destination.parent.mkdir, parents=True, exist_ok=True)
     partial = destination.with_name(destination.name + ".part")
-    download_key = f"{repo_id}/{revision}/{filename}"
+    partial_metadata = partial.with_name(partial.name + ".meta")
+    source_metadata = _download_source_metadata_path(destination)
+    # O arquivo parcial é identificado pelo caminho, independentemente da
+    # revisão. Assim o DELETE da UI consegue cancelar a mesma transferência
+    # mesmo quando a revisão foi omitida ou mudou entre tentativas.
+    download_key = f"{repo_id}/{filename}"
     lock = await _download_lock(download_key)
-    async with lock:
-        cancel_event = asyncio.Event()
-        _download_cancel_events[download_key] = cancel_event
-        _download_progress[download_key] = {
-            "downloaded": 0,
-            "total": None,
-            "status": "starting",
-        }
-        current_task = asyncio.current_task()
-        if current_task is not None:
-
-            def _clear_cancel_event(_task: asyncio.Task[object]) -> None:
-                if _download_cancel_events.get(download_key) is cancel_event:
-                    _download_cancel_events.pop(download_key, None)
-
-            current_task.add_done_callback(_clear_cancel_event)
-        if body.resume and await asyncio.to_thread(partial.exists):
-            offset = (await asyncio.to_thread(partial.stat)).st_size
-        else:
-            offset = 0
-        url = f"https://huggingface.co/{repo_id}/resolve/{revision}/{filename}"
-        digest = hashlib.sha256()
-        downloaded = offset
-        try:
-            async with httpx.AsyncClient(timeout=1800, follow_redirects=True) as client:
-                headers = {"Range": f"bytes={offset}-"} if offset else {}
-                async with client.stream("GET", url, headers=headers) as response:
-                    _validate_redirect_host(
-                        response,
-                        allowed=frozenset({"huggingface.co"}),
-                        suffixes=_HUGGINGFACE_DOWNLOAD_SUFFIXES,
-                    )
-                    if offset and response.status_code == 200:
-                        offset = 0
-                    elif offset and response.status_code != 206:
-                        raise ValueError("retomada rejeitada pelo servidor")
-                    downloaded = offset
-                    response.raise_for_status()
-                    length = response.headers.get("content-length")
-                    total = (
-                        offset + int(length) if length and length.isdigit() else None
-                    )
-                    _download_progress[download_key] = {
-                        "downloaded": offset,
-                        "total": total,
-                        "status": "downloading",
-                    }
-                    await _ensure_download_capacity(
-                        destination_root,
-                        (offset + int(length)) if length and length.isdigit() else None,
-                    )
-                    if offset:
-                        content_range = response.headers.get("content-range", "")
-                        match = re.fullmatch(
-                            r"bytes (\d+)-(\d+)/(\d+|\*)", content_range
+    # Registre o evento antes de esperar pelo lock: o DELETE precisa conseguir
+    # cancelar uma transferência que ainda esteja aguardando a seção crítica.
+    cancel_event = asyncio.Event()
+    previous_event = _download_cancel_events.get(download_key)
+    if previous_event is not None:
+        raise HTTPException(status_code=409, detail="download já está em execução")
+    _download_cancel_events[download_key] = cancel_event
+    try:
+        published_sha256, published_size = await _huggingface_file_metadata(
+            repo_id, revision, filename
+        )
+        if body.sha256 and published_sha256 and body.sha256.lower() != published_sha256:
+            raise HTTPException(
+                status_code=422, detail="checksum publicado incompatível"
+            )
+        expected_sha256 = published_sha256 or (
+            body.sha256.lower() if body.sha256 else None
+        )
+        async with lock:
+            _download_progress[download_key] = {
+                "downloaded": 0,
+                "total": None,
+                "status": "starting",
+            }
+            metadata: dict[str, object] | None = None
+            if await asyncio.to_thread(partial_metadata.is_file):
+                try:
+                    candidate_metadata = await _read_json_file_async(partial_metadata)
+                    if isinstance(candidate_metadata, dict):
+                        metadata = candidate_metadata
+                except (OSError, json.JSONDecodeError):
+                    metadata = None
+            if await asyncio.to_thread(partial.exists) and (
+                metadata is None
+                or metadata.get("repo_id") != repo_id
+                or metadata.get("filename") != filename
+                or metadata.get("revision") != revision
+                or metadata.get("sha256") != expected_sha256
+            ):
+                await asyncio.to_thread(partial.unlink, missing_ok=True)
+                await asyncio.to_thread(partial_metadata.unlink, missing_ok=True)
+            await _write_json_atomic(
+                partial_metadata,
+                {
+                    "repo_id": repo_id,
+                    "filename": filename,
+                    "revision": revision,
+                    "sha256": expected_sha256,
+                },
+            )
+            offset = (
+                (await asyncio.to_thread(partial.stat)).st_size
+                if body.resume and await asyncio.to_thread(partial.exists)
+                else 0
+            )
+            url = f"https://huggingface.co/{repo_id}/resolve/{revision}/{filename}"
+            digest = hashlib.sha256()
+            downloaded = offset
+            try:
+                async with httpx.AsyncClient(
+                    timeout=1800, follow_redirects=True
+                ) as client:
+                    headers = {"Range": f"bytes={offset}-"} if offset else {}
+                    async with client.stream("GET", url, headers=headers) as response:
+                        _validate_redirect_host(
+                            response,
+                            allowed=frozenset({"huggingface.co"}),
+                            suffixes=_HUGGINGFACE_DOWNLOAD_SUFFIXES,
                         )
-                        if not match or int(match.group(1)) != offset:
-                            raise ValueError("Content-Range inválido")
-                    if offset:
+                        if offset and response.status_code == 200:
+                            offset = 0
+                        elif offset and response.status_code != 206:
+                            raise ValueError("retomada rejeitada pelo servidor")
+                        downloaded = offset
+                        response.raise_for_status()
+                        length = response.headers.get("content-length")
+                        total = (
+                            offset + int(length)
+                            if length and length.isdigit()
+                            else None
+                        )
+                        _download_progress[download_key] = {
+                            "downloaded": offset,
+                            "total": total,
+                            "status": "downloading",
+                        }
+                        await _ensure_download_capacity(
+                            destination_root,
+                            published_size
+                            or (
+                                (offset + int(length))
+                                if length and length.isdigit()
+                                else None
+                            ),
+                        )
+                        if offset:
+                            content_range = response.headers.get("content-range", "")
+                            match = re.fullmatch(
+                                r"bytes (\d+)-(\d+)/(\d+|\*)", content_range
+                            )
+                            if not match or int(match.group(1)) != offset:
+                                raise ValueError("Content-Range inválido")
+                            if (
+                                published_size
+                                and match.group(3) != "*"
+                                and int(match.group(3)) != published_size
+                            ):
+                                raise ValueError("tamanho publicado incompatível")
 
-                        def _hash_existing() -> None:
-                            with partial.open("rb") as existing:
-                                while chunk := existing.read(1024 * 1024):
-                                    digest.update(chunk)
+                            def _hash_existing() -> None:
+                                with partial.open("rb") as existing:
+                                    while chunk := existing.read(1024 * 1024):
+                                        digest.update(chunk)
 
-                        await asyncio.to_thread(_hash_existing)
-                    with partial.open("ab" if offset else "wb") as output:
-                        async for chunk in response.aiter_bytes(1024 * 1024):
-                            if cancel_event.is_set():
-                                raise asyncio.CancelledError
-                            if await request.is_disconnected():
-                                raise asyncio.CancelledError
-                            downloaded += len(chunk)
-                            if downloaded > _MAX_DOWNLOAD_BYTES:
-                                raise HTTPException(
-                                    status_code=413,
-                                    detail="arquivo excede o limite permitido",
+                            await asyncio.to_thread(_hash_existing)
+                        with partial.open("ab" if offset else "wb") as output:
+                            async for chunk in response.aiter_bytes(1024 * 1024):
+                                if cancel_event.is_set():
+                                    raise asyncio.CancelledError
+                                if await request.is_disconnected():
+                                    raise asyncio.CancelledError
+                                downloaded += len(chunk)
+                                if downloaded > _MAX_DOWNLOAD_BYTES:
+                                    raise HTTPException(
+                                        status_code=413,
+                                        detail="arquivo excede o limite permitido",
+                                    )
+                                digest.update(chunk)
+                                await asyncio.to_thread(output.write, chunk)
+                                _download_progress[download_key]["downloaded"] = (
+                                    downloaded
                                 )
-                            digest.update(chunk)
-                            await asyncio.to_thread(output.write, chunk)
-                            _download_progress[download_key]["downloaded"] = downloaded
-            if await request.is_disconnected():
-                raise asyncio.CancelledError
-            await asyncio.to_thread(partial.replace, destination)
-            _download_progress[download_key]["status"] = "completed"
-        except asyncio.CancelledError:
-            _download_progress[download_key]["status"] = "cancelled"
-            await asyncio.to_thread(partial.unlink, missing_ok=True)
-            raise
-        except HTTPException:
-            _download_progress[download_key]["status"] = "failed"
-            raise
-        except httpx.TransportError as exc:
-            # Um erro de transporte é retomável; preserve o .part para que a
-            # próxima tentativa não recomece um arquivo GGUF de dezenas de GB.
-            _download_progress[download_key]["status"] = "interrupted"
-            raise HTTPException(
-                status_code=502, detail="falha no download da Hugging Face"
-            ) from exc
-        except Exception as exc:
-            _download_progress[download_key]["status"] = "failed"
-            await asyncio.to_thread(partial.unlink, missing_ok=True)
-            await asyncio.to_thread(destination.unlink, missing_ok=True)
-            raise HTTPException(
-                status_code=502, detail="falha no download da Hugging Face"
-            ) from exc
-        actual = digest.hexdigest()
-        if body.sha256 and actual.lower() != body.sha256.lower():
-            await asyncio.to_thread(destination.unlink, missing_ok=True)
-            raise HTTPException(status_code=422, detail="checksum sha256 incompatível")
-        return {
-            "status": "downloaded",
-            "path": str(destination),
-            "files": [],
-            "sha256": actual,
-        }
+                if cancel_event.is_set() or await request.is_disconnected():
+                    raise asyncio.CancelledError
+                await asyncio.to_thread(partial.replace, destination)
+                await asyncio.to_thread(partial_metadata.unlink, missing_ok=True)
+                await _write_json_atomic(
+                    source_metadata,
+                    {
+                        "repo_id": repo_id,
+                        "filename": filename,
+                        "revision": revision,
+                        "sha256": digest.hexdigest(),
+                        "size": downloaded,
+                    },
+                )
+                _download_progress[download_key]["status"] = "completed"
+            except asyncio.CancelledError:
+                _download_progress[download_key]["status"] = "cancelled"
+                await asyncio.to_thread(partial.unlink, missing_ok=True)
+                await asyncio.to_thread(partial_metadata.unlink, missing_ok=True)
+                raise
+            except HTTPException:
+                _download_progress[download_key]["status"] = "failed"
+                raise
+            except httpx.TransportError as exc:
+                # Um erro de transporte é retomável; preserve o .part para que a
+                # próxima tentativa não recomece um arquivo GGUF de dezenas de GB.
+                _download_progress[download_key]["status"] = "interrupted"
+                raise HTTPException(
+                    status_code=502, detail="falha no download da Hugging Face"
+                ) from exc
+            except Exception as exc:
+                _download_progress[download_key]["status"] = "failed"
+                await asyncio.to_thread(partial.unlink, missing_ok=True)
+                await asyncio.to_thread(partial_metadata.unlink, missing_ok=True)
+                await asyncio.to_thread(destination.unlink, missing_ok=True)
+                await asyncio.to_thread(source_metadata.unlink, missing_ok=True)
+                raise HTTPException(
+                    status_code=502, detail="falha no download da Hugging Face"
+                ) from exc
+            actual = digest.hexdigest()
+            if expected_sha256 and actual.lower() != expected_sha256:
+                await asyncio.to_thread(destination.unlink, missing_ok=True)
+                await asyncio.to_thread(source_metadata.unlink, missing_ok=True)
+                await asyncio.to_thread(partial_metadata.unlink, missing_ok=True)
+                raise HTTPException(
+                    status_code=422, detail="checksum sha256 incompatível"
+                )
+            return {
+                "status": "downloaded",
+                "path": str(destination),
+                "files": [],
+                "sha256": actual,
+            }
+    finally:
+        if _download_cancel_events.get(download_key) is cancel_event:
+            _download_cancel_events.pop(download_key, None)
 
 
 @router.get("/huggingface/download/progress")
@@ -1406,7 +2094,7 @@ async def get_huggingface_download_progress(
     if repo_id.count("/") != 1:
         raise HTTPException(status_code=400, detail="repo_id deve ser owner/model")
     return _download_progress.get(
-        f"{repo_id}/{revision}/{filename}",
+        f"{repo_id}/{filename}",
         {"downloaded": 0, "total": None, "status": "idle"},
     )
 
@@ -1432,6 +2120,12 @@ async def install_huggingface_model(
     )
     if repo_id.count("/") != 1:
         raise HTTPException(status_code=400, detail="repo_id deve ser owner/model")
+    alias = body.alias.strip() if body.alias else ""
+    if body.provider == "ollama" and not alias:
+        raise HTTPException(
+            status_code=400,
+            detail="alias é obrigatório para instalar um modelo no Ollama",
+        )
     if body.alias is not None and not re.fullmatch(
         r"[A-Za-z0-9][A-Za-z0-9._:-]{0,99}", body.alias.strip()
     ):
@@ -1446,7 +2140,29 @@ async def install_huggingface_model(
                 status_code=409,
                 detail=f"arquivo ainda não foi baixado: {selected_name}",
             )
+        source_metadata_path = _download_source_metadata_path(path)
+        try:
+            source_metadata = await _read_json_file_async(source_metadata_path)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=f"metadados de origem ausentes: {selected_name}",
+            ) from exc
+        if not isinstance(source_metadata, dict) or (
+            source_metadata.get("repo_id") != repo_id
+            or source_metadata.get("filename") != selected_name
+            or source_metadata.get("revision") != revision
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=f"arquivo não pertence à revisão solicitada: {selected_name}",
+            )
         digest = await asyncio.to_thread(_sha256_file, path)
+        if source_metadata.get("sha256") != digest:
+            raise HTTPException(
+                status_code=409,
+                detail=f"hash do arquivo mudou: {selected_name}",
+            )
         stat_result = await asyncio.to_thread(path.stat)
         size = stat_result.st_size
         files.append(
@@ -1455,21 +2171,43 @@ async def install_huggingface_model(
                 "path": str(path),
                 "size": size,
                 "sha256": digest,
+                "revision": revision,
                 "role": "mmproj" if selected_name == mmproj else "model",
             }
         )
     manifest = {
         "repo_id": repo_id,
+        "publisher": repo_id.split("/", 1)[0],
         "revision": revision,
         "alias": body.alias.strip() if body.alias else filename,
+        "license": body.license,
+        "architecture": body.architecture,
+        "quantization": body.quantization,
+        "context_length": body.context_length,
+        "compatibility": body.compatibility or "não verificada",
         "parameters": body.parameters,
         "files": files,
         "created_at": datetime.now(UTC).isoformat(),
         "source": f"https://huggingface.co/{repo_id}/tree/{revision}",
     }
     manifest_path = root / "model-manifest.json"
-    temporary = manifest_path.with_suffix(".tmp")
     await asyncio.to_thread(root.mkdir, parents=True, exist_ok=True)
+    if body.provider == "ollama":
+        import httpx
+
+        ollama_url = (settings.ollama_base_url or "http://127.0.0.1:11434").rstrip("/")
+        try:
+            async with httpx.AsyncClient(timeout=1800) as client:
+                response = await client.post(
+                    f"{ollama_url}/api/create",
+                    json={"name": alias, "modelfile": f"FROM {files[0]['path']}"},
+                )
+                response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=502, detail="não foi possível importar o modelo no Ollama"
+            ) from exc
+    temporary = manifest_path.with_suffix(".tmp")
     await asyncio.to_thread(
         temporary.write_text,
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
@@ -1515,11 +2253,12 @@ async def cancel_huggingface_download(
         raise HTTPException(status_code=400, detail="repo_id deve ser owner/model")
     root = (settings.vectora_home / "models" / "huggingface" / repo_id).resolve()
     partial = (root / (filename + ".part")).resolve()
+    partial_metadata = partial.with_name(partial.name + ".meta")
     if root not in partial.parents:
         raise HTTPException(
             status_code=400, detail="arquivo fora do diretório permitido"
         )
-    download_key = f"{repo_id}/{revision}/{filename}"
+    download_key = f"{repo_id}/{filename}"
     cancel_event = _download_cancel_events.get(download_key)
     if cancel_event is not None:
         cancel_event.set()
@@ -1530,6 +2269,7 @@ async def cancel_huggingface_download(
     lock = await _download_lock(download_key)
     async with lock:
         await asyncio.to_thread(partial.unlink, missing_ok=True)
+        await asyncio.to_thread(partial_metadata.unlink, missing_ok=True)
     return {"ok": True, "status": "cancelled"}
 
 
@@ -1553,6 +2293,42 @@ async def list_llamacpp_releases() -> dict[str, list[dict[str, object]]]:
             payload = response.json()
     except Exception as exc:
         raise HTTPException(status_code=502, detail="GitHub indisponível") from exc
+    import platform
+
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+    os_patterns = {
+        "windows": ("win",),
+        "darwin": ("mac", "osx", "darwin"),
+        "linux": ("ubuntu", "linux"),
+    }
+    os_tokens = os_patterns.get(system, ())
+    arch_tokens = (
+        ("arm64", "aarch64")
+        if "arm" in machine or "aarch64" in machine
+        else ("x64", "x86_64", "amd64")
+    )
+
+    def asset_payload(asset: dict[str, object]) -> dict[str, object]:
+        name = str(asset.get("name", ""))
+        lowered = name.lower()
+        recommended = bool(
+            os_tokens
+            and any(token in lowered for token in os_tokens)
+            and any(token in lowered for token in arch_tokens)
+            and not any(
+                token in lowered
+                for token in ("cuda", "vulkan", "rocm", "hip", "sycl", "opencl")
+            )
+        )
+        return {
+            "name": name,
+            "url": asset.get("browser_download_url", ""),
+            "size": asset.get("size", 0),
+            "sha256": str(asset.get("digest", "")).removeprefix("sha256:"),
+            "recommended": recommended,
+        }
+
     return {
         "releases": [
             {
@@ -1560,10 +2336,7 @@ async def list_llamacpp_releases() -> dict[str, list[dict[str, object]]]:
                 "name": item.get("name", ""),
                 "assets": [
                     {
-                        "name": asset.get("name", ""),
-                        "url": asset.get("browser_download_url", ""),
-                        "size": asset.get("size", 0),
-                        "sha256": str(asset.get("digest", "")).removeprefix("sha256:"),
+                        **asset_payload(asset),
                     }
                     for asset in item.get("assets", [])
                     if asset.get("browser_download_url")
@@ -1579,6 +2352,7 @@ async def list_llamacpp_releases() -> dict[str, list[dict[str, object]]]:
 @router.post(
     "/llama-cpp/install", include_in_schema=False, dependencies=[DesktopBridge]
 )
+@_runtime_transition
 async def install_llamacpp_runtime(
     body: LlamaCppInstallRequest,
     _: ProviderAdmin,
@@ -1597,6 +2371,13 @@ async def install_llamacpp_runtime(
         raise HTTPException(status_code=400, detail="release do llama.cpp inválida")
     if body.sha256 and not re.fullmatch(r"[0-9a-fA-F]{64}", body.sha256):
         raise HTTPException(status_code=400, detail="sha256 inválido")
+    from backend.services.llamacpp_sidecar import llamacpp_status
+
+    if llamacpp_status().get("running"):
+        raise HTTPException(
+            status_code=409,
+            detail="pare o sidecar antes de instalar ou substituir um runtime",
+        )
     filename = Path(parsed.path).name
     if not filename or filename in {".", ".."} or len(filename) > 200:
         raise HTTPException(status_code=400, detail="nome do artefato inválido")
@@ -1639,22 +2420,48 @@ async def install_llamacpp_runtime(
         await asyncio.to_thread(destination.unlink, missing_ok=True)
         raise HTTPException(status_code=422, detail="checksum sha256 incompatível")
     version_root: Path | None = None
+    staging_version: Path | None = None
     try:
         runtime_id = actual[:16]
         version_root = (destination_root / "versions" / runtime_id).resolve()
-        await asyncio.to_thread(version_root.mkdir, parents=True, exist_ok=True)
+        try:
+            existing_manifest = await _read_json_file_async(_llamacpp_manifest_path())
+        except (FileNotFoundError, json.JSONDecodeError):
+            existing_manifest = {"runtimes": []}
+        existing = (
+            next(
+                (
+                    item
+                    for item in existing_manifest.get("runtimes", [])
+                    if isinstance(item, dict) and item.get("id") == runtime_id
+                ),
+                None,
+            )
+            if isinstance(existing_manifest, dict)
+            else None
+        )
+        if existing is not None and version_root.is_dir():
+            await asyncio.to_thread(destination.unlink, missing_ok=True)
+            return {"status": "installed", "path": str(version_root), **existing}
+        staging_version = version_root.parent / f".{runtime_id}.{uuid.uuid4().hex}.tmp"
+        await asyncio.to_thread(staging_version.mkdir, parents=True, exist_ok=False)
         files = await asyncio.to_thread(
-            _extract_llamacpp_archive, destination, version_root
+            _extract_llamacpp_archive, destination, staging_version
         )
         runtime_version = await _validate_runtime_executable(files)
-        archive_path = version_root / filename
+        archive_path = staging_version / filename
         await asyncio.to_thread(destination.replace, archive_path)
+        if version_root.exists():
+            raise FileExistsError("runtime já publicado")
+        await asyncio.to_thread(staging_version.replace, version_root)
+        files = [
+            str(version_root / Path(file).relative_to(staging_version))
+            for file in files
+        ]
     except (OSError, ValueError, zipfile.BadZipFile, tarfile.TarError) as exc:
         await asyncio.to_thread(destination.unlink, missing_ok=True)
-        if version_root is not None:
-            import shutil
-
-            await asyncio.to_thread(shutil.rmtree, version_root, ignore_errors=True)
+        if staging_version is not None:
+            await asyncio.to_thread(shutil.rmtree, staging_version, ignore_errors=True)
         raise HTTPException(
             status_code=422, detail="arquivo do runtime inválido"
         ) from exc
@@ -1680,22 +2487,66 @@ async def install_llamacpp_runtime(
         }
     )
     await _write_json_atomic(manifest_path, {"runtimes": runtimes})
-    await _write_text_atomic(destination_root / "active-runtime", runtime_id)
+    active_path = destination_root / "active-runtime"
+    try:
+        active_runtime = (
+            await asyncio.to_thread(active_path.read_text, encoding="utf-8")
+        ).strip()
+    except FileNotFoundError:
+        active_runtime = ""
+    activated = not active_runtime
+    if activated:
+        await _write_text_atomic(active_path, runtime_id)
     return {
         "status": "installed" if files else "downloaded",
         "path": str(version_root),
         "files": files,
         "sha256": actual,
+        "active_runtime": runtime_id if activated else active_runtime,
+        "activated": activated,
     }
 
 
 @router.get("/llamacpp/runtime/status")
 @router.get("/llama-cpp/runtime/status", include_in_schema=False)
 async def llamacpp_runtime_status() -> dict[str, object]:
-    """Informa runtimes locais sem inspecionar ou remover pesos."""
+    """Informa runtimes locais sem inspecionar ou remover pesos.
+
+    ``state`` torna explícita a diferença entre uma instalação gerenciada,
+    uma configuração externa e um estado persistido que deixou de representar
+    um processo vivo. Os campos antigos permanecem para compatibilidade.
+    """
+    from backend.services.llamacpp_sidecar import llamacpp_status
+
     root = _llamacpp_runtime_root()
+    sidecar = llamacpp_status()
     if not await asyncio.to_thread(root.is_dir):
-        return {"installed": False, "path": None, "files": [], "runtimes": []}
+        external = (
+            bool(settings.llamacpp_base_url)
+            and os.getenv("LLAMACPP_MODE", "external") != "managed"
+        )
+        persisted_pid = sidecar.get("persisted_pid")
+        state = (
+            "stale"
+            if sidecar.get("stale_state")
+            else "unknown-process"
+            if isinstance(persisted_pid, int)
+            else "external"
+            if external
+            else "absent"
+        )
+        return {
+            "installed": False,
+            "path": None,
+            "files": [],
+            "runtimes": [],
+            "active_runtime": None,
+            "free_bytes": None,
+            "state": state,
+            "managed": not external,
+            "external": external,
+            "stale_state": bool(sidecar.get("stale_state")),
+        }
 
     def _list_files() -> list[str]:
         return [str(path) for path in root.rglob("*") if path.is_file()]
@@ -1715,6 +2566,24 @@ async def llamacpp_runtime_status() -> dict[str, object]:
     except FileNotFoundError:
         active = None
     disk_usage = await asyncio.to_thread(shutil.disk_usage, root)
+    external = (
+        bool(settings.llamacpp_base_url)
+        and os.getenv("LLAMACPP_MODE", "external") != "managed"
+    )
+    if sidecar.get("stale_state"):
+        state = "stale"
+    elif sidecar.get("running"):
+        state = "managed-running"
+    elif isinstance(sidecar.get("persisted_pid"), int):
+        state = "unknown-process"
+    elif active and any(
+        isinstance(item, dict) and item.get("id") == active for item in runtimes
+    ):
+        state = "managed-ready"
+    elif external:
+        state = "external"
+    else:
+        state = "unavailable"
     return {
         "installed": bool(files),
         "path": str(root),
@@ -1722,6 +2591,10 @@ async def llamacpp_runtime_status() -> dict[str, object]:
         "runtimes": runtimes,
         "active_runtime": active,
         "free_bytes": disk_usage.free,
+        "state": state,
+        "managed": not external,
+        "external": external,
+        "stale_state": bool(sidecar.get("stale_state")),
     }
 
 
@@ -1748,6 +2621,7 @@ async def update_llamacpp_runtime(
 @router.post(
     "/llama-cpp/runtime/rollback", include_in_schema=False, dependencies=[DesktopBridge]
 )
+@_runtime_transition
 async def rollback_llamacpp_runtime(
     body: LlamaCppRollbackRequest,
     _: ProviderAdmin,
@@ -1792,6 +2666,7 @@ async def rollback_llamacpp_runtime(
     include_in_schema=False,
     dependencies=[DesktopBridge],
 )
+@_runtime_transition
 async def remove_llamacpp_runtime_version(
     runtime_id: str,
     _: ProviderAdmin,
@@ -1850,6 +2725,7 @@ async def remove_llamacpp_runtime_version(
 @router.post(
     "/llama-cpp/runtime/cleanup", include_in_schema=False, dependencies=[DesktopBridge]
 )
+@_runtime_transition
 async def cleanup_llamacpp_runtime_versions(
     body: LlamaCppRetentionRequest,
     _: ProviderAdmin,
@@ -1953,6 +2829,7 @@ async def check_llamacpp_runtime(
 @router.delete(
     "/llama-cpp/runtime", include_in_schema=False, dependencies=[DesktopBridge]
 )
+@_runtime_transition
 async def remove_llamacpp_runtime(
     _: ProviderAdmin,
 ) -> dict[str, bool]:

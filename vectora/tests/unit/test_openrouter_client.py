@@ -31,7 +31,7 @@ def _client(handler) -> OpenRouterClient:
 
 class TestAuthEHeaders:
     @pytest.mark.asyncio
-    async def test_manda_bearer_e_headers_de_atribuicao(self):
+    async def test_manda_bearer_e_headers_de_atribuicao(self) -> None:
         capturado: dict[str, str] = {}
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -54,7 +54,7 @@ class TestAuthEHeaders:
             OpenRouterClient(api_key="")
 
     @pytest.mark.asyncio
-    async def test_chave_opcional_omite_autorizacao_e_atribuicao(self):
+    async def test_chave_opcional_omite_autorizacao_e_atribuicao(self) -> None:
         capturado: dict[str, str] = {}
 
         def handler(request: httpx.Request) -> httpx.Response:

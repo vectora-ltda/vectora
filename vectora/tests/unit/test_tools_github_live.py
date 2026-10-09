@@ -27,7 +27,9 @@ def _live_token() -> str:
     )
 
 
-async def test_github_rest_pr_publico_sem_login_real(monkeypatch):
+async def test_github_rest_pr_publico_sem_login_real(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A API REST deve ler o diff público sem GITHUB_TOKEN."""
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     result = await github_fetch_pr_diff(
@@ -37,7 +39,7 @@ async def test_github_rest_pr_publico_sem_login_real(monkeypatch):
     assert "diff --git" in result
 
 
-async def test_github_rest_pr_com_token_real(monkeypatch):
+async def test_github_rest_pr_com_token_real(monkeypatch: pytest.MonkeyPatch) -> None:
     """A API REST autentica a leitura do repositório principal."""
     token = _live_token()
     if not token:
@@ -52,7 +54,9 @@ async def test_github_rest_pr_com_token_real(monkeypatch):
     assert "diff --git" in result
 
 
-async def test_github_fetch_url_publico_sem_login_real(monkeypatch):
+async def test_github_fetch_url_publico_sem_login_real(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A rota web deve ler a issue pública sem token ou sessão GitHub."""
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     result = await fetch_url(url="https://github.com/vectora-ltda/vectora/issues/317")
@@ -69,8 +73,8 @@ async def test_github_fetch_url_publico_sem_login_real(monkeypatch):
     ],
 )
 async def test_github_fetch_url_repos_publicos_sem_token_real(
-    monkeypatch, repo_url: str, marker: str
-):
+    monkeypatch: pytest.MonkeyPatch, repo_url: str, marker: str
+) -> None:
     """Repositórios públicos da organização e externos não exigem login."""
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     result = await fetch_url(url=repo_url)
@@ -79,7 +83,9 @@ async def test_github_fetch_url_repos_publicos_sem_token_real(
     assert marker in result.lower()
 
 
-async def test_github_fetch_url_com_token_real(monkeypatch):
+async def test_github_fetch_url_com_token_real(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """O caminho web também envia o token autenticado sem expô-lo."""
     token = _live_token()
     if not token:
@@ -93,10 +99,13 @@ async def test_github_fetch_url_com_token_real(monkeypatch):
     assert "vectora" in result.lower()
 
 
-async def test_github_cli_pr_view_real_com_sessao_do_terminal():
+async def test_github_cli_pr_view_real_com_sessao_do_terminal() -> None:
     """O caminho `gh` usa a sessão real já autenticada do terminal."""
     result = await gh_pr_view(
-        ctx=ToolContext(workspace_id="", user_id="live-github-cli"),
+        # The terminal/Actions session is the credential source for this
+        # contract.  No Vectora user override is supplied, so the tool may
+        # use the native gh session (or GH_TOKEN in CI).
+        ctx=ToolContext(workspace_id=""),
         pr_number=319,
         workspace_id=None,
     )

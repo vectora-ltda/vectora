@@ -17,7 +17,8 @@ import logging
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, get_type_hints
+from types import UnionType
+from typing import Any, get_args, get_origin, get_type_hints
 
 from pydantic import BaseModel, create_model
 
@@ -79,7 +80,12 @@ class ToolSpec:
         except Exception as exc:
             logger.warning(
                 "argumentos inválidos para tool",
-                extra={"tool": self.name, "error": str(exc)},
+                extra={
+                    "tool": self.name,
+                    "argument_keys": sorted(args),
+                    "status": "invalid_arguments",
+                    "error": str(exc),
+                },
             )
             return f"Error: argumentos inválidos para '{self.name}': {exc}"
         # getattr (não model_dump()) preserva instâncias de BaseModel
@@ -91,9 +97,26 @@ class ToolSpec:
         if self.needs_ctx:
             kwargs[self.ctx_param_name] = ctx
         try:
-            return await self.handler(**kwargs)
+            logger.debug(
+                "tool_invocation_started",
+                extra={
+                    "tool": self.name,
+                    "argument_keys": sorted(args),
+                    "status": "started",
+                },
+            )
+            result = await self.handler(**kwargs)
+            result_status = "error" if result.lstrip().startswith("Error:") else "ok"
+            logger.info(
+                "tool_invocation_completed",
+                extra={"tool": self.name, "status": result_status},
+            )
+            return result
         except Exception as exc:
-            logger.exception("tool falhou", extra={"tool": self.name})
+            logger.exception(
+                "tool falhou",
+                extra={"tool": self.name, "status": "error"},
+            )
             return f"Error: '{self.name}' falhou: {exc}"
 
 
@@ -202,7 +225,7 @@ def vtool(
         needs_ctx = False
         ctx_param_name: str | None = None
         for name, param in sig.parameters.items():
-            if hints.get(name) is ToolContext:
+            if _is_tool_context_annotation(hints.get(name)):
                 needs_ctx = True
                 ctx_param_name = name
                 continue
@@ -233,3 +256,23 @@ def vtool(
         return fn
 
     return decorator
+
+
+def _is_tool_context_annotation(annotation: Any) -> bool:
+    """Reconhece ``ToolContext`` também dentro de uniões opcionais.
+
+    Algumas tools de integração podem ser chamadas diretamente fora do loop
+    nativo e, por isso, anotam o contexto como ``ToolContext | None``. Esse
+    parâmetro continua sendo interno ao dispatcher: ele nunca deve aparecer
+    no schema enviado ao modelo e precisa receber o contexto atual quando a
+    tool é invocada pelo agente.
+    """
+    if annotation is ToolContext:
+        return True
+    origin = get_origin(annotation)
+    if origin == UnionType:
+        return any(_is_tool_context_annotation(arg) for arg in get_args(annotation))
+    # typing.Optional/Union em versões suportadas de Python.
+    return origin is not None and any(
+        _is_tool_context_annotation(arg) for arg in get_args(annotation)
+    )

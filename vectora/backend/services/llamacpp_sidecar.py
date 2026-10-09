@@ -9,11 +9,15 @@ import logging
 import os
 import re
 import time
+from ctypes import wintypes
 from pathlib import Path
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+_READINESS_INTERVAL_SECONDS = 0.5
+_READINESS_TIMEOUT_SECONDS = 120.0
 _process: asyncio.subprocess.Process | None = None
 _lifecycle_lock = asyncio.Lock()
 _process_spec: tuple[str, str, str, int] | None = None
@@ -29,8 +33,36 @@ def _state_path() -> Path:
     return root / "llamacpp-sidecar.json"
 
 
-def _process_creation_time(pid: int) -> float | None:
-    """Obtém a criação do processo quando o sistema a expõe via procfs."""
+def _windows_process_creation_time(pid: int) -> float | None:
+    """Obtém o horário de criação por ``GetProcessTimes``."""
+    windll = getattr(ctypes, "WinDLL", None)
+    if windll is None:
+        return None
+    kernel32 = windll("kernel32", use_last_error=True)
+    handle = kernel32.OpenProcess(0x1000, False, pid)
+    if not handle:
+        return None
+    try:
+        creation = wintypes.FILETIME()
+        exit_time = wintypes.FILETIME()
+        kernel_time = wintypes.FILETIME()
+        user_time = wintypes.FILETIME()
+        if not kernel32.GetProcessTimes(
+            handle,
+            ctypes.byref(creation),
+            ctypes.byref(exit_time),
+            ctypes.byref(kernel_time),
+            ctypes.byref(user_time),
+        ):
+            return None
+        windows_ticks = (creation.dwHighDateTime << 32) | creation.dwLowDateTime
+        return windows_ticks / 10_000_000 - 11_644_473_600
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _procfs_process_creation_time(pid: int) -> float | None:
+    """Obtém o horário de criação a partir do procfs Linux."""
     stat_path = Path(f"/proc/{pid}/stat")
     boot_path = Path("/proc/stat")
     if not stat_path.is_file() or not boot_path.is_file():
@@ -49,6 +81,33 @@ def _process_creation_time(pid: int) -> float | None:
         return boot_time + start_ticks / clock_ticks
     except (OSError, IndexError, StopIteration, ValueError):
         return None
+
+
+def _process_creation_time(pid: int) -> float | None:
+    """Obtém o horário de criação do processo em Unix e Windows."""
+    if os.name == "nt":
+        return _windows_process_creation_time(pid)
+    return _procfs_process_creation_time(pid)
+
+
+def _pid_exists(pid: int) -> bool:
+    """Verifica existência sem enviar CTRL_C_EVENT no Windows."""
+    if os.name == "nt":
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return False
+        kernel32.CloseHandle(handle)
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
 
 
 async def _write_state(
@@ -108,10 +167,7 @@ def llamacpp_status() -> dict[str, int | bool | str | None]:
     stale = False
     persisted_pid = persisted.get("pid") if persisted else None
     if isinstance(persisted_pid, int):
-        try:
-            os.kill(persisted_pid, 0)
-        except OSError:
-            stale = True
+        stale = not _pid_exists(persisted_pid)
         persisted_started = persisted.get("started_at") if persisted else None
         actual_started = _process_creation_time(persisted_pid)
         if (
@@ -138,7 +194,7 @@ async def start_llamacpp(
     model: str | Path,
     *,
     host: str = "127.0.0.1",
-    port: int = 8080,
+    port: int = 18080,
     alias: str | None = None,
     mmproj: str | Path | None = None,
     ctx_size: int | None = None,
@@ -224,19 +280,33 @@ async def start_llamacpp(
         try:
             async with httpx.AsyncClient(timeout=1.0) as client:
                 health_ready = False
-                for _ in range(30):
+                deadline = time.monotonic() + float(
+                    os.getenv(
+                        "VECTORA_LLAMACPP_READINESS_TIMEOUT_S",
+                        str(_READINESS_TIMEOUT_SECONDS),
+                    )
+                )
+                while time.monotonic() < deadline:
+                    if _process is None or _process.returncode is not None:
+                        break
                     try:
                         if not health_ready:
                             health = await client.get(_health_url(host, port))
                             health_ready = health.is_success
                         if health_ready:
                             response = await client.get(_readiness_url(host, port))
-                            if response.is_success:
+                            if (
+                                _process is not None
+                                and _process.returncode is None
+                                and response.is_success
+                            ):
                                 await _write_state(_process, _process_started_at)
                                 return _process
                     except httpx.HTTPError:
                         pass
-                    await asyncio.sleep(0.25)
+                    remaining = deadline - time.monotonic()
+                    if remaining > 0:
+                        await asyncio.sleep(min(_READINESS_INTERVAL_SECONDS, remaining))
         except BaseException:
             await _stop_process()
             raise
@@ -253,16 +323,38 @@ async def stop_llamacpp() -> None:
 async def _stop_process() -> None:
     """Encerra o único processo cujo handle pertence a este módulo."""
     global _process, _process_spec, _process_options, _process_started_at
-    process, _process = _process, None
-    _process_spec = None
-    _process_options = None
-    _process_started_at = None
-    await _clear_state()
+    process = _process
     if process is None or process.returncode is not None:
+        try:
+            await _clear_state()
+        finally:
+            _process = None
+            _process_spec = None
+            _process_options = None
+            _process_started_at = None
         return
-    process.terminate()
+
+    async def terminate_process() -> None:
+        process.terminate()
+        try:
+            await asyncio.wait_for(process.wait(), timeout=5)
+        except TimeoutError:
+            process.kill()
+            await process.wait()
+
     try:
-        await asyncio.wait_for(process.wait(), timeout=5)
-    except TimeoutError:
-        process.kill()
-        await process.wait()
+        await terminate_process()
+    except asyncio.CancelledError:
+        # A cancelled request must not abandon a live sidecar. Finish the
+        # termination under shielding, then propagate cancellation to the
+        # caller after ownership and persisted state are consistent.
+        await asyncio.shield(terminate_process())
+        raise
+    finally:
+        try:
+            await _clear_state()
+        finally:
+            _process = None
+            _process_spec = None
+            _process_options = None
+            _process_started_at = None

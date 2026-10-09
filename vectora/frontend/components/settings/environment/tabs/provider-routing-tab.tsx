@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { m } from "@/lib/paraglide/messages";
+import type { VectoraDmrOperation } from "@/lib/types/vectora-bridge";
 
 interface OllamaModelInfo {
   name: string;
@@ -61,7 +62,8 @@ interface NineRouterModelInfo {
 
 interface LlamaCppModelInfo {
   id: string;
-  name: string;
+  publisher?: string;
+  name?: string;
   format?: string;
   compatibility?: string;
   architecture?: string;
@@ -72,11 +74,13 @@ interface LlamaCppModelInfo {
 interface HuggingFaceFileInfo {
   rfilename: string;
   size?: number | null;
+  sha256?: string | null;
   format?: string;
 }
 
 interface HuggingFaceMetadata {
   id: string;
+  publisher?: string;
   revision?: string;
   license?: string | null;
   downloads?: number;
@@ -92,6 +96,7 @@ interface LlamaCppReleaseAsset {
   url: string;
   size: number;
   sha256?: string;
+  recommended?: boolean;
 }
 
 interface LlamaCppRuntimeStatus {
@@ -108,6 +113,51 @@ interface LlamaCppRuntimeStatus {
     source?: string;
     version?: string;
   }>;
+}
+
+interface DmrStatus {
+  configured: boolean;
+  base_url: string;
+  model: string;
+  cli_available: boolean;
+  reachable: boolean;
+  contract: string | null;
+  models: string[];
+  managed_models: string[];
+  detail?: string | null;
+  state: "docker_unavailable" | "plugin_unavailable" | "stopped" | "ready";
+  platform: string;
+  architecture: string;
+  backend: string | null;
+  capabilities: {
+    cpus: number | null;
+    memory_bytes: number | null;
+    runtimes: string[];
+    gpu_backends: string[];
+    warnings: string[];
+  };
+}
+
+interface DmrJob {
+  id: string;
+  operation: "prepare" | "start";
+  reference: string;
+  context_size?: number | null;
+  progress: number;
+  phase:
+    | "queued"
+    | "pulling"
+    | "configuring"
+    | "starting"
+    | "checking"
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | "interrupted";
+  status:
+    "queued" | "running" | "completed" | "failed" | "cancelled" | "interrupted";
+  output?: string;
+  error?: string | null;
 }
 
 async function discoverModels(): Promise<{
@@ -166,6 +216,478 @@ async function fetchLlamaCppRuntimeStatus(): Promise<LlamaCppRuntimeStatus> {
   return res.json() as Promise<LlamaCppRuntimeStatus>;
 }
 
+async function fetchDmrStatus(): Promise<DmrStatus> {
+  const bridge = window.vectora?.dmr;
+  if (bridge) {
+    const [detection, httpStatus, manifest] = await Promise.all([
+      bridge.detect(),
+      fetch("/provider-routing/dmr/http-status").then(async (response) => {
+        if (!response.ok) throw new Error(`Erro ${response.status}`);
+        return (await response.json()) as Partial<DmrStatus>;
+      }),
+      bridge.list(),
+    ]);
+    const state =
+      detection.status === "ready"
+        ? httpStatus.reachable
+          ? "ready"
+          : "stopped"
+        : detection.status === "plugin_unavailable"
+          ? "plugin_unavailable"
+          : "docker_unavailable";
+    const models = Object.keys(manifest.models);
+    return {
+      configured: httpStatus.configured ?? false,
+      base_url: httpStatus.base_url ?? "http://127.0.0.1:12434",
+      model: httpStatus.model ?? models[0] ?? "",
+      cli_available: detection.docker && detection.plugin,
+      reachable: httpStatus.reachable ?? false,
+      contract: httpStatus.contract ?? null,
+      models: httpStatus.models ?? models,
+      managed_models: httpStatus.managed_models ?? models,
+      detail: detection.detail ?? httpStatus.detail,
+      state,
+      platform: window.vectora?.platform ?? "unknown",
+      architecture: "unknown",
+      backend: Object.values(manifest.models)[0]?.engine ?? null,
+      capabilities: {
+        cpus: null,
+        memory_bytes: null,
+        runtimes: [],
+        gpu_backends: [],
+        warnings: [],
+      },
+    };
+  }
+  const response = await fetch("/provider-routing/dmr/status");
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  return (await response.json()) as DmrStatus;
+}
+
+async function configureDmr(
+  baseUrl: string,
+  model: string,
+): Promise<DmrStatus> {
+  const response = await fetch("/provider-routing/dmr/config", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ base_url: baseUrl, model }),
+  });
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  return (await response.json()) as DmrStatus;
+}
+
+async function prepareDmrModel(reference: string): Promise<DmrStatus> {
+  const response = await fetch("/provider-routing/dmr/models/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reference }),
+  });
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  return (await response.json()) as DmrStatus;
+}
+
+async function createDmrModelJob(
+  reference: string,
+  operationKind: "prepare" | "start" = "start",
+  contextSize?: number,
+): Promise<DmrJob> {
+  const bridge = window.vectora?.dmr;
+  if (bridge) {
+    const operation =
+      operationKind === "prepare"
+        ? await bridge.prepare(reference)
+        : await bridge.start(reference, contextSize);
+    return dmrOperationToJob(operation);
+  }
+  const response = await fetch("/provider-routing/dmr/models/jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      reference,
+      operation: operationKind,
+      ...(contextSize === undefined ? {} : { context_size: contextSize }),
+    }),
+  });
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  return (await response.json()) as DmrJob;
+}
+
+function dmrOperationToJob(operation: VectoraDmrOperation): DmrJob {
+  const phase: DmrJob["phase"] =
+    operation.phase === "stopping" || operation.phase === "removing"
+      ? "checking"
+      : operation.phase;
+  return {
+    id: operation.id,
+    operation: operation.operation === "prepare" ? "prepare" : "start",
+    reference: operation.reference,
+    progress: operation.progress,
+    phase,
+    status: operation.status,
+    output: operation.output,
+    error: operation.error,
+  };
+}
+
+async function fetchDmrModelJob(jobId: string): Promise<DmrJob> {
+  const bridge = window.vectora?.dmr;
+  if (bridge) {
+    const operation = await bridge.getOperation(jobId);
+    if (!operation) throw new Error("operação DMR não encontrada");
+    return dmrOperationToJob(operation);
+  }
+  const response = await fetch(`/provider-routing/dmr/models/jobs/${jobId}`);
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  return (await response.json()) as DmrJob;
+}
+
+async function fetchDmrModelJobs(): Promise<DmrJob[]> {
+  const bridge = window.vectora?.dmr;
+  if (bridge) {
+    return (await bridge.listOperations()).map(dmrOperationToJob);
+  }
+  const response = await fetch("/provider-routing/dmr/models/jobs");
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  const payload = (await response.json()) as { jobs?: DmrJob[] };
+  return payload.jobs ?? [];
+}
+
+async function retryDmrModelJob(jobId: string): Promise<DmrJob> {
+  const response = await fetch(
+    `/provider-routing/dmr/models/jobs/${jobId}/retry`,
+    {
+      method: "POST",
+    },
+  );
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  return (await response.json()) as DmrJob;
+}
+
+async function cancelDmrModelJob(jobId: string): Promise<DmrJob> {
+  const bridge = window.vectora?.dmr;
+  if (bridge) {
+    await bridge.cancel(jobId);
+    const operation = await bridge.getOperation(jobId);
+    if (!operation) throw new Error("operação DMR não encontrada");
+    return dmrOperationToJob(operation);
+  }
+  const response = await fetch(`/provider-routing/dmr/models/jobs/${jobId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  return (await response.json()) as DmrJob;
+}
+
+async function stopDmrModel(reference: string): Promise<DmrStatus> {
+  const bridge = window.vectora?.dmr;
+  if (bridge) {
+    await waitForDmrOperation(bridge.stop(reference));
+    return fetchDmrStatus();
+  }
+  const response = await fetch("/provider-routing/dmr/models/stop", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reference }),
+  });
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  return fetchDmrStatus();
+}
+
+async function removeDmrModel(reference: string): Promise<DmrStatus> {
+  const bridge = window.vectora?.dmr;
+  if (bridge) {
+    await waitForDmrOperation(bridge.remove(reference, true));
+    return fetchDmrStatus();
+  }
+  const response = await fetch(
+    `/provider-routing/dmr/models/${encodeURIComponent(reference)}?confirm=true`,
+    { method: "DELETE" },
+  );
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  return fetchDmrStatus();
+}
+
+async function waitForDmrOperation(
+  operationPromise: Promise<VectoraDmrOperation>,
+): Promise<void> {
+  const bridge = window.vectora?.dmr;
+  if (!bridge) return;
+  let operation = await operationPromise;
+  while (operation.status === "queued" || operation.status === "running") {
+    await new Promise((resolve) => window.setTimeout(resolve, 250));
+    const next = await bridge.getOperation(operation.id);
+    if (!next) throw new Error("operação DMR não encontrada");
+    operation = next;
+  }
+  if (operation.status !== "completed") {
+    throw new Error(operation.error ?? "operação DMR falhou");
+  }
+}
+
+function DmrSection() {
+  const [status, setStatus] = useState<DmrStatus | null>(null);
+  const [baseUrl, setBaseUrl] = useState("http://127.0.0.1:12434");
+  const [model, setModel] = useState("");
+  const [contextSize, setContextSize] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [job, setJob] = useState<DmrJob | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const next = await fetchDmrStatus();
+      setStatus(next);
+      setBaseUrl(next.base_url);
+      setModel(next.model);
+      const jobs = await fetchDmrModelJobs();
+      const active = jobs.find(
+        (candidate) =>
+          candidate.status === "queued" ||
+          candidate.status === "running" ||
+          candidate.status === "interrupted",
+      );
+      setJob(active ?? null);
+    } catch {
+      setError("Não foi possível consultar o Docker Model Runner.");
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  async function save() {
+    setBusy(true);
+    setError("");
+    try {
+      setStatus(await configureDmr(baseUrl, model));
+    } catch {
+      setError("Não foi possível salvar o endpoint do Docker Model Runner.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function prepare() {
+    if (!model.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      const parsedContext = contextSize.trim()
+        ? Number(contextSize)
+        : undefined;
+      if (parsedContext !== undefined && !Number.isInteger(parsedContext)) {
+        throw new Error("tamanho de contexto inválido");
+      }
+      let current = await createDmrModelJob(
+        model.trim(),
+        "start",
+        parsedContext,
+      );
+      setJob(current);
+      while (current.status === "queued" || current.status === "running") {
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+        current = await fetchDmrModelJob(current.id);
+        setJob(current);
+      }
+      if (current.status !== "completed") {
+        throw new Error(current.error ?? "operação DMR falhou");
+      }
+      setStatus(await fetchDmrStatus());
+    } catch {
+      setError("Não foi possível preparar o modelo no Docker Model Runner.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function cancelPrepare() {
+    if (!job || (job.status !== "queued" && job.status !== "running")) return;
+    try {
+      setJob(await cancelDmrModelJob(job.id));
+    } catch {
+      setError("Não foi possível cancelar a operação do Docker Model Runner.");
+    }
+  }
+
+  async function retryPrepare() {
+    if (!job || job.status !== "interrupted") return;
+    setBusy(true);
+    setError("");
+    try {
+      let current = await retryDmrModelJob(job.id);
+      setJob(current);
+      while (current.status === "queued" || current.status === "running") {
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+        current = await fetchDmrModelJob(current.id);
+        setJob(current);
+      }
+      if (current.status !== "completed") {
+        throw new Error(current.error ?? "operação DMR falhou");
+      }
+      setStatus(await fetchDmrStatus());
+    } catch {
+      setError("Não foi possível retomar a operação do Docker Model Runner.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function stop() {
+    if (!model.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      setStatus(await stopDmrModel(model.trim()));
+    } catch {
+      setError("Não foi possível parar o modelo no Docker Model Runner.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (!model.trim() || !window.confirm("Remover este modelo do Docker?"))
+      return;
+    setBusy(true);
+    setError("");
+    try {
+      setStatus(await removeDmrModel(model.trim()));
+    } catch {
+      setError("Não foi possível remover o modelo do Docker Model Runner.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3 rounded-lg border p-4">
+      <div>
+        <h3 className="font-medium">{m.provider_routing_dmr_title()}</h3>
+        <p className="text-xs text-muted-foreground">
+          {m.provider_routing_dmr_subtitle()}
+        </p>
+      </div>
+      <div className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto]">
+        <Input
+          aria-label={m.provider_routing_dmr_endpoint()}
+          value={baseUrl}
+          onChange={(event) => setBaseUrl(event.target.value)}
+          placeholder={m.provider_routing_dmr_endpoint_placeholder()}
+        />
+        <Input
+          aria-label={m.provider_routing_dmr_model()}
+          value={model}
+          onChange={(event) => setModel(event.target.value)}
+          placeholder={m.provider_routing_dmr_model_placeholder()}
+        />
+        <Input
+          aria-label={m.provider_routing_hf_ctx_size()}
+          type="number"
+          min={1}
+          max={1000000}
+          value={contextSize}
+          onChange={(event) => setContextSize(event.target.value)}
+          placeholder={m.provider_routing_hf_ctx_size()}
+        />
+        <Button type="button" disabled={busy} onClick={() => void save()}>
+          {m.provider_routing_dmr_save()}
+        </Button>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy}
+          onClick={() => void refresh()}
+        >
+          {m.provider_routing_dmr_test()}
+        </Button>
+        {job && (job.status === "queued" || job.status === "running") ? (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void cancelPrepare()}
+          >
+            {m.provider_routing_dmr_cancel()}
+          </Button>
+        ) : job?.status === "interrupted" ? (
+          <Button
+            type="button"
+            disabled={busy}
+            onClick={() => void retryPrepare()}
+          >
+            {m.provider_routing_dmr_prepare()}
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            disabled={busy || !model.trim()}
+            onClick={() => void prepare()}
+          >
+            {m.provider_routing_dmr_prepare()}
+          </Button>
+        )}
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy || !model.trim() || status?.state !== "ready"}
+          onClick={() => void stop()}
+        >
+          {m.provider_routing_dmr_stop()}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={busy || !model.trim()}
+          onClick={() => void remove()}
+        >
+          {m.provider_routing_dmr_remove()}
+        </Button>
+      </div>
+      {status && (
+        <p className="text-xs text-muted-foreground">
+          {status.state === "ready"
+            ? m.provider_routing_dmr_ready({ contract: status.contract ?? "?" })
+            : status.state === "stopped"
+              ? m.provider_routing_dmr_stopped()
+              : status.state === "plugin_unavailable"
+                ? m.provider_routing_dmr_missing_plugin()
+                : m.provider_routing_dmr_missing_cli()}
+          {` · ${status.platform}/${status.architecture}`}
+          {status.backend ? ` · ${status.backend}` : ""}
+          {status.capabilities.gpu_backends.length
+            ? ` · GPU: ${status.capabilities.gpu_backends.join(", ")}`
+            : ""}
+          {status.models.length ? ` · ${status.models.join(", ")}` : ""}
+          {status.managed_models.length
+            ? ` · ${status.managed_models.join(", ")}`
+            : ""}
+        </p>
+      )}
+      {job && (job.status === "queued" || job.status === "running") && (
+        <p className="text-xs text-muted-foreground">
+          {m.provider_routing_dmr_job_running({
+            status: `${job.phase} · ${job.progress}%`,
+          })}
+        </p>
+      )}
+      {job?.status === "cancelled" && (
+        <p className="text-xs text-muted-foreground">
+          {m.provider_routing_dmr_job_cancelled()}
+        </p>
+      )}
+      {job?.status === "interrupted" && (
+        <p className="text-xs text-muted-foreground">
+          {m.provider_routing_dmr_job_interrupted()}
+        </p>
+      )}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  );
+}
+
 async function removeLlamaCppRuntime(): Promise<void> {
   const res = await fetch("/provider-routing/llamacpp/runtime", {
     method: "DELETE",
@@ -189,9 +711,18 @@ async function removeLlamaCppRuntimeVersion(runtimeId: string): Promise<void> {
   if (!res.ok) throw new Error(`Erro ${res.status}`);
 }
 
+async function cleanupLlamaCppRuntime(keep: number): Promise<void> {
+  const res = await fetch("/provider-routing/llamacpp/runtime/cleanup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ keep }),
+  });
+  if (!res.ok) throw new Error(`Erro ${res.status}`);
+}
+
 async function searchHuggingFaceModels(
   query: string,
-  provider: "ollama" | "llamacpp" = "llamacpp",
+  provider: "ollama" | "llamacpp" | "dmr" = "llamacpp",
 ): Promise<LlamaCppModelInfo[]> {
   const res = await fetch(
     `/provider-routing/huggingface/models?q=${encodeURIComponent(query)}&provider=${provider}`,
@@ -208,12 +739,15 @@ async function downloadHuggingFaceModel(
   signal?: AbortSignal,
 ): Promise<{ path: string; filename: string }> {
   const metadataResponse = await fetch(
-    `/provider-routing/huggingface/models/${repoId}`,
+    `/provider-routing/huggingface/models/${repoId
+      .split("/")
+      .map((segment) => encodeURIComponent(segment))
+      .join("/")}`,
     { signal },
   );
   if (!metadataResponse.ok) throw new Error(`Erro ${metadataResponse.status}`);
   const metadata = (await metadataResponse.json()) as {
-    files?: Array<{ rfilename: string; format?: string }>;
+    files?: Array<{ rfilename: string; format?: string; sha256?: string }>;
   };
   const file = filename
     ? metadata.files?.find((item) => item.rfilename === filename)
@@ -226,6 +760,7 @@ async function downloadHuggingFaceModel(
       repo_id: repoId,
       filename: file.rfilename,
       revision,
+      ...(file.sha256 ? { sha256: file.sha256 } : {}),
     }),
     signal,
   });
@@ -237,8 +772,12 @@ async function downloadHuggingFaceModel(
 async function fetchHuggingFaceMetadata(
   repoId: string,
 ): Promise<HuggingFaceMetadata> {
+  const encodedRepo = repoId
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
   const response = await fetch(
-    `/provider-routing/huggingface/models/${encodeURIComponent(repoId)}`,
+    `/provider-routing/huggingface/models/${encodedRepo}`,
   );
   if (!response.ok) throw new Error(`Erro ${response.status}`);
   return (await response.json()) as HuggingFaceMetadata;
@@ -251,11 +790,28 @@ async function installHuggingFaceModel(input: {
   mmprojFilename?: string;
   alias: string;
   provider: "ollama" | "llamacpp";
+  license?: string | null;
+  architecture?: string;
+  quantization?: string;
+  contextLength?: number | string | null;
+  compatibility?: string;
 }): Promise<void> {
   const response = await fetch("/provider-routing/huggingface/install", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
+    body: JSON.stringify({
+      repo_id: input.repoId,
+      revision: input.revision,
+      filename: input.filename,
+      mmproj_filename: input.mmprojFilename,
+      alias: input.alias,
+      provider: input.provider,
+      license: input.license,
+      architecture: input.architecture,
+      quantization: input.quantization,
+      context_length: input.contextLength,
+      compatibility: input.compatibility,
+    }),
   });
   if (!response.ok) throw new Error(`Erro ${response.status}`);
   await registerModel(
@@ -318,7 +874,9 @@ async function startInstalledHuggingFaceModel(
 }
 
 function HuggingFaceCatalogSection() {
-  const [provider, setProvider] = useState<"ollama" | "llamacpp">("llamacpp");
+  const [provider, setProvider] = useState<"ollama" | "llamacpp" | "dmr">(
+    "llamacpp",
+  );
   const [query, setQuery] = useState("llama");
   const [models, setModels] = useState<LlamaCppModelInfo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -331,6 +889,7 @@ function HuggingFaceCatalogSection() {
   const [alias, setAlias] = useState("");
   const [installing, setInstalling] = useState(false);
   const [downloadPercent, setDownloadPercent] = useState<number | null>(null);
+  const [dmrJobId, setDmrJobId] = useState<string | null>(null);
   const [installedModel, setInstalledModel] = useState<{
     repoId: string;
     filename: string;
@@ -363,6 +922,13 @@ function HuggingFaceCatalogSection() {
     return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
   }
 
+  function selectedFileHash(): string {
+    return (
+      metadata?.files?.find((item) => item.rfilename === selectedFile)
+        ?.sha256 || m.provider_routing_hf_metadata_unknown()
+    );
+  }
+
   async function search() {
     setLoading(true);
     setError(null);
@@ -379,6 +945,13 @@ function HuggingFaceCatalogSection() {
     setError(null);
     try {
       const data = await fetchHuggingFaceMetadata(repoId);
+      if (provider === "dmr") {
+        setMetadata(data);
+        setSelectedFile("");
+        setSelectedMmproj("");
+        setAlias(`hf.co/${repoId}`);
+        return;
+      }
       const gguf = (data.files ?? []).filter((item) => item.format === "GGUF");
       if (!gguf.length) throw new Error("Nenhum arquivo GGUF encontrado");
       setMetadata(data);
@@ -394,7 +967,9 @@ function HuggingFaceCatalogSection() {
   }
 
   async function installSelectedModel() {
-    if (!metadata || !selectedFile || !alias.trim()) return;
+    if (!metadata || !alias.trim() || (provider !== "dmr" && !selectedFile)) {
+      return;
+    }
     const controller = new AbortController();
     downloadController.current = controller;
     setInstalling(true);
@@ -402,6 +977,20 @@ function HuggingFaceCatalogSection() {
     setError(null);
     let progressTimer: number | undefined;
     try {
+      if (provider === "dmr") {
+        let job = await createDmrModelJob(`hf.co/${metadata.id}`, "start");
+        setDmrJobId(job.id);
+        while (job.status === "queued" || job.status === "running") {
+          await new Promise((resolve) => window.setTimeout(resolve, 500));
+          job = await fetchDmrModelJob(job.id);
+        }
+        if (job.status !== "completed") {
+          throw new Error(job.error ?? "operação DMR falhou");
+        }
+        setDownloaded(`hf.co/${metadata.id}`);
+        setMetadata(null);
+        return;
+      }
       const revision = metadata.revision ?? "main";
       progressTimer = window.setInterval(() => {
         void fetchHuggingFaceDownloadProgress(
@@ -440,6 +1029,11 @@ function HuggingFaceCatalogSection() {
         mmprojFilename: selectedMmproj || undefined,
         alias: alias.trim(),
         provider,
+        license: metadata.license,
+        architecture: metadata.architecture,
+        quantization: metadata.quantization,
+        contextLength: metadata.context_length,
+        compatibility: metadata.compatibility,
       });
       setDownloaded(alias.trim());
       setDownloadPercent(100);
@@ -468,6 +1062,7 @@ function HuggingFaceCatalogSection() {
       if (downloadController.current === controller) {
         downloadController.current = null;
       }
+      setDmrJobId(null);
       if (progressTimer !== undefined) window.clearInterval(progressTimer);
       setInstalling(false);
       setDownloadPercent(null);
@@ -502,6 +1097,7 @@ function HuggingFaceCatalogSection() {
             {m.provider_routing_llamacpp_title()}
           </option>
           <option value="ollama">{m.provider_routing_ollama_title()}</option>
+          <option value="dmr">{m.provider_routing_dmr_title()}</option>
         </select>
         <Button type="button" onClick={() => void search()} disabled={loading}>
           <Search className="mr-2 size-4" /> {m.provider_routing_hf_search()}
@@ -516,6 +1112,11 @@ function HuggingFaceCatalogSection() {
             >
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">{model.id}</p>
+                <p className="text-xs text-muted-foreground">
+                  {m.provider_routing_hf_origin({
+                    publisher: model.publisher || model.id.split("/")[0] || "?",
+                  })}
+                </p>
                 <p className="text-xs text-muted-foreground">
                   {m.provider_routing_hf_model_metadata({
                     format: model.format || "GGUF",
@@ -552,6 +1153,12 @@ function HuggingFaceCatalogSection() {
           <div>
             <p className="font-medium">{metadata.id}</p>
             <p className="text-xs text-muted-foreground">
+              {m.provider_routing_hf_origin({
+                publisher:
+                  metadata.publisher || metadata.id.split("/")[0] || "?",
+              })}
+            </p>
+            <p className="text-xs text-muted-foreground">
               {m.provider_routing_hf_review({
                 license: metadata.license ?? "desconhecida",
                 downloads: String(metadata.downloads ?? 0),
@@ -561,6 +1168,7 @@ function HuggingFaceCatalogSection() {
               {m.provider_routing_hf_file_details({
                 revision: metadata.revision ?? "main",
                 size: selectedFileSize(),
+                sha256: selectedFileHash(),
               })}
             </p>
             <p className="text-xs text-muted-foreground">
@@ -581,43 +1189,51 @@ function HuggingFaceCatalogSection() {
               })}
             </p>
           </div>
-          <Label htmlFor="hf-model-file">
-            {m.provider_routing_hf_model_file()}
-          </Label>
-          <select
-            id="hf-model-file"
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-            value={selectedFile}
-            onChange={(event) => setSelectedFile(event.target.value)}
-            disabled={installing}
-          >
-            {(metadata.files ?? [])
-              .filter((item) => item.format === "GGUF")
-              .map((item) => (
-                <option key={item.rfilename} value={item.rfilename}>
-                  {item.rfilename}
-                </option>
-              ))}
-          </select>
-          <Label htmlFor="hf-mmproj-file">
-            {m.provider_routing_hf_mmproj_file()}
-          </Label>
-          <select
-            id="hf-mmproj-file"
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-            value={selectedMmproj}
-            onChange={(event) => setSelectedMmproj(event.target.value)}
-            disabled={installing}
-          >
-            <option value="">{m.provider_routing_hf_mmproj_none()}</option>
-            {(metadata.files ?? [])
-              .filter((item) => /mmproj/i.test(item.rfilename))
-              .map((item) => (
-                <option key={item.rfilename} value={item.rfilename}>
-                  {item.rfilename}
-                </option>
-              ))}
-          </select>
+          {provider === "dmr" ? (
+            <p className="text-xs text-muted-foreground">
+              {m.provider_routing_dmr_model()}: {`hf.co/${metadata.id}`}
+            </p>
+          ) : (
+            <>
+              <Label htmlFor="hf-model-file">
+                {m.provider_routing_hf_model_file()}
+              </Label>
+              <select
+                id="hf-model-file"
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                value={selectedFile}
+                onChange={(event) => setSelectedFile(event.target.value)}
+                disabled={installing}
+              >
+                {(metadata.files ?? [])
+                  .filter((item) => item.format === "GGUF")
+                  .map((item) => (
+                    <option key={item.rfilename} value={item.rfilename}>
+                      {item.rfilename}
+                    </option>
+                  ))}
+              </select>
+              <Label htmlFor="hf-mmproj-file">
+                {m.provider_routing_hf_mmproj_file()}
+              </Label>
+              <select
+                id="hf-mmproj-file"
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                value={selectedMmproj}
+                onChange={(event) => setSelectedMmproj(event.target.value)}
+                disabled={installing}
+              >
+                <option value="">{m.provider_routing_hf_mmproj_none()}</option>
+                {(metadata.files ?? [])
+                  .filter((item) => /mmproj/i.test(item.rfilename))
+                  .map((item) => (
+                    <option key={item.rfilename} value={item.rfilename}>
+                      {item.rfilename}
+                    </option>
+                  ))}
+              </select>
+            </>
+          )}
           <Input
             aria-label={m.provider_routing_hf_alias()}
             value={alias}
@@ -625,52 +1241,56 @@ function HuggingFaceCatalogSection() {
             placeholder={m.provider_routing_hf_alias()}
             disabled={installing}
           />
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Input
-              aria-label={m.provider_routing_hf_ctx_size()}
-              type="number"
-              min={1}
-              value={ctxSize}
-              onChange={(event) => setCtxSize(event.target.value)}
-              placeholder={m.provider_routing_hf_ctx_size()}
-              disabled={installing}
-            />
-            <Input
-              aria-label={m.provider_routing_hf_gpu_layers()}
-              type="number"
-              value={gpuLayers}
-              onChange={(event) => setGpuLayers(event.target.value)}
-              placeholder={m.provider_routing_hf_gpu_layers()}
-              disabled={installing}
-            />
-            <Input
-              aria-label={m.provider_routing_hf_threads()}
-              type="number"
-              min={1}
-              value={threads}
-              onChange={(event) => setThreads(event.target.value)}
-              placeholder={m.provider_routing_hf_threads()}
-              disabled={installing}
-            />
-            <Input
-              aria-label={m.provider_routing_hf_parallel()}
-              type="number"
-              min={1}
-              value={parallel}
-              onChange={(event) => setParallel(event.target.value)}
-              placeholder={m.provider_routing_hf_parallel()}
-              disabled={installing}
-            />
-          </div>
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={jinja}
-              onChange={(event) => setJinja(event.target.checked)}
-              disabled={installing}
-            />
-            {m.provider_routing_hf_jinja()}
-          </label>
+          {provider !== "dmr" && (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Input
+                aria-label={m.provider_routing_hf_ctx_size()}
+                type="number"
+                min={1}
+                value={ctxSize}
+                onChange={(event) => setCtxSize(event.target.value)}
+                placeholder={m.provider_routing_hf_ctx_size()}
+                disabled={installing}
+              />
+              <Input
+                aria-label={m.provider_routing_hf_gpu_layers()}
+                type="number"
+                value={gpuLayers}
+                onChange={(event) => setGpuLayers(event.target.value)}
+                placeholder={m.provider_routing_hf_gpu_layers()}
+                disabled={installing}
+              />
+              <Input
+                aria-label={m.provider_routing_hf_threads()}
+                type="number"
+                min={1}
+                value={threads}
+                onChange={(event) => setThreads(event.target.value)}
+                placeholder={m.provider_routing_hf_threads()}
+                disabled={installing}
+              />
+              <Input
+                aria-label={m.provider_routing_hf_parallel()}
+                type="number"
+                min={1}
+                value={parallel}
+                onChange={(event) => setParallel(event.target.value)}
+                placeholder={m.provider_routing_hf_parallel()}
+                disabled={installing}
+              />
+            </div>
+          )}
+          {provider !== "dmr" && (
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={jinja}
+                onChange={(event) => setJinja(event.target.checked)}
+                disabled={installing}
+              />
+              {m.provider_routing_hf_jinja()}
+            </label>
+          )}
           <div className="flex justify-end gap-2">
             <Button
               type="button"
@@ -685,6 +1305,10 @@ function HuggingFaceCatalogSection() {
                 type="button"
                 variant="outline"
                 onClick={() => {
+                  if (provider === "dmr" && dmrJobId) {
+                    void cancelDmrModelJob(dmrJobId);
+                    return;
+                  }
                   downloadController.current?.abort();
                   if (metadata) {
                     const revision = metadata.revision ?? "main";
@@ -711,7 +1335,9 @@ function HuggingFaceCatalogSection() {
               <Button
                 type="button"
                 onClick={() => void installSelectedModel()}
-                disabled={!selectedFile || !alias.trim()}
+                disabled={
+                  !alias.trim() || (provider !== "dmr" && !selectedFile)
+                }
               >
                 {m.provider_routing_hf_install()}
               </Button>
@@ -747,7 +1373,7 @@ function HuggingFaceCatalogSection() {
                 );
               }}
             >
-              {m.provider_routing_llamacpp_test()}
+              {m.provider_routing_hf_start()}
             </Button>
           )}
         </div>
@@ -1740,7 +2366,7 @@ function MediaModelsSection() {
 }
 
 function LlamaCppSection() {
-  const [baseUrl, setBaseUrl] = useState("http://127.0.0.1:8080/v1");
+  const [baseUrl, setBaseUrl] = useState("http://127.0.0.1:18080/v1");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [mode, setMode] = useState<"managed" | "external">("external");
@@ -1753,6 +2379,7 @@ function LlamaCppSection() {
   const [releases, setReleases] = useState<LlamaCppReleaseAsset[]>([]);
   const [runtime, setRuntime] = useState<LlamaCppRuntimeStatus | null>(null);
   const [runtimeBusy, setRuntimeBusy] = useState(false);
+  const [runtimeKeep, setRuntimeKeep] = useState(1);
 
   useEffect(() => {
     void fetchLlamaCppRuntimeStatus()
@@ -1773,7 +2400,7 @@ function LlamaCppSection() {
           model?: string;
           mode?: "managed" | "external";
         }) => {
-          setBaseUrl(data.base_url ?? "http://127.0.0.1:8080/v1");
+          setBaseUrl(data.base_url ?? "http://127.0.0.1:18080/v1");
           setModel(data.model ?? "");
           setMode(data.mode ?? "external");
         },
@@ -1868,37 +2495,7 @@ function LlamaCppSection() {
     try {
       const assets = await fetchLlamaCppReleases();
       setReleases(assets);
-      const nav = navigator as Navigator & {
-        userAgentData?: { platform?: string; architecture?: string };
-      };
-      const platform =
-        `${nav.userAgent} ${nav.userAgentData?.platform ?? ""}`.toLowerCase();
-      const architecture = (
-        nav.userAgentData?.architecture ?? nav.userAgent
-      ).toLowerCase();
-      const isWindows = platform.includes("windows");
-      const isMac =
-        platform.includes("mac os") || platform.includes("macintosh");
-      const isLinux = platform.includes("linux");
-      const isArm = /arm64|aarch64|arm/.test(architecture);
-      const platformPattern = isWindows
-        ? /win|windows/i
-        : isMac
-          ? /mac|darwin|osx/i
-          : isLinux
-            ? /linux/i
-            : null;
-      const architecturePattern = isArm
-        ? /arm64|aarch64/i
-        : /x64|x86[-_ ]?64|amd64|win64|wow64|intel|x86/i;
-      const preferred = platformPattern
-        ? assets.find(
-            (asset) =>
-              platformPattern.test(asset.name) &&
-              architecturePattern.test(asset.name) &&
-              !/cuda|vulkan|rocm/i.test(asset.name),
-          )
-        : undefined;
+      const preferred = assets.find((asset) => asset.recommended);
       if (!preferred) throw new Error("Nenhum runtime compatível encontrado");
       setInstalling(true);
       await installLlamaCppRuntime(preferred.url, preferred.sha256);
@@ -1920,6 +2517,22 @@ function LlamaCppSection() {
       setRuntime(await fetchLlamaCppRuntimeStatus());
     } catch {
       setError("Não foi possível remover o runtime. Pare o sidecar antes.");
+    } finally {
+      setRuntimeBusy(false);
+    }
+  }
+
+  async function cleanupRuntime() {
+    if (!runtime) return;
+    setRuntimeBusy(true);
+    setError("");
+    try {
+      await cleanupLlamaCppRuntime(runtimeKeep);
+      setRuntime(await fetchLlamaCppRuntimeStatus());
+    } catch {
+      setError(
+        "Não foi possível limpar versões antigas. Pare o sidecar antes.",
+      );
     } finally {
       setRuntimeBusy(false);
     }
@@ -2074,7 +2687,7 @@ function LlamaCppSection() {
                     if (
                       !item.id ||
                       !window.confirm(
-                        m.provider_routing_llamacpp_runtime_remove(),
+                        m.provider_routing_llamacpp_runtime_remove_version(),
                       )
                     )
                       return;
@@ -2091,20 +2704,48 @@ function LlamaCppSection() {
                       .finally(() => setRuntimeBusy(false));
                   }}
                 >
-                  {m.provider_routing_llamacpp_runtime_remove()}
+                  {m.provider_routing_llamacpp_runtime_remove_version()}
                 </Button>
               </div>
             ))}
           {runtime.installed && (
-            <Button
-              type="button"
-              variant="ghost"
-              className="mt-2 px-0"
-              disabled={runtimeBusy || loading || installing}
-              onClick={() => void removeRuntime()}
-            >
-              {m.provider_routing_llamacpp_runtime_remove()}
-            </Button>
+            <div className="mt-3 flex flex-wrap items-end gap-2">
+              <div className="grid gap-1">
+                <Label htmlFor="llamacpp-runtime-keep" className="text-xs">
+                  {m.provider_routing_llamacpp_runtime_keep_label()}
+                </Label>
+                <Input
+                  id="llamacpp-runtime-keep"
+                  type="number"
+                  min={0}
+                  max={50}
+                  className="w-24"
+                  value={runtimeKeep}
+                  onChange={(event) =>
+                    setRuntimeKeep(
+                      Math.max(0, Math.min(50, Number(event.target.value))),
+                    )
+                  }
+                />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={runtimeBusy || loading || installing}
+                onClick={() => void cleanupRuntime()}
+              >
+                {m.provider_routing_llamacpp_runtime_cleanup()}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="px-0"
+                disabled={runtimeBusy || loading || installing}
+                onClick={() => void removeRuntime()}
+              >
+                {m.provider_routing_llamacpp_runtime_remove_all()}
+              </Button>
+            </div>
           )}
         </div>
       )}
@@ -2136,6 +2777,7 @@ export function ProviderRoutingTab() {
   return (
     <div className="space-y-4">
       <OllamaSection />
+      <DmrSection />
       <HuggingFaceCatalogSection />
       <OpenRouterSection />
       <NineRouterSection />

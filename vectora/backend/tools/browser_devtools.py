@@ -108,6 +108,16 @@ async def browser_new_tab(ctx: ToolContext, url: str | None = None) -> str:
     workspace_id = _workspace_id(ctx)
     try:
         tab_id = await new_tab(workspace_id, url=url)
+        logger.info(
+            "browser_new_tab completed",
+            extra={
+                "tool": "browser_new_tab",
+                "url": url,
+                "tab_id": tab_id,
+                "workspace_id": workspace_id,
+                "status": "ok",
+            },
+        )
         return json.dumps({"status": "ok", "tab_id": tab_id})
     except Exception as exc:
         logger.exception("browser_new_tab failed", extra={"url": url})

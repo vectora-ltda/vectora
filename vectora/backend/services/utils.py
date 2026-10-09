@@ -37,6 +37,7 @@ _PROVIDER_SPEC: dict[str, str] = {
     "openrouter": "OPENROUTER_MODEL",
     "nine_router": "NINE_ROUTER_MODEL",
     "llamacpp": "LLAMACPP_MODEL",
+    "dmr": "DMR_MODEL",
 }
 
 
