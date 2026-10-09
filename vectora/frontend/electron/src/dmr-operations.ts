@@ -85,6 +85,7 @@ function parseJsonObject(value: string): Record<string, unknown> {
 /** Mantém manifestos em userData sem permitir que referências virem caminhos. */
 export class DmrOperations {
   private readonly operations = new Map<string, MutableOperation>();
+  private readonly tasks = new Map<string, Promise<void>>();
   private manifest: DmrManifest = { version: 1, models: {} };
   private manifestLoaded = false;
 
@@ -158,9 +159,11 @@ export class DmrOperations {
       if (result.code !== 0) throw new Error(errorText(result));
       return result;
     } catch (error) {
-      item.status = "failed";
-      item.phase = "failed";
-      item.error = error instanceof Error ? error.message : String(error);
+      if (!this.isCancelled(item)) {
+        item.status = "failed";
+        item.phase = "failed";
+        item.error = error instanceof Error ? error.message : String(error);
+      }
       throw error;
     }
   }
@@ -218,84 +221,28 @@ export class DmrOperations {
     }
   }
 
+  private queue(item: MutableOperation, task: Promise<void>): DmrOperation {
+    this.tasks.set(item.id, task);
+    void task.finally(() => this.tasks.delete(item.id));
+    return { ...item };
+  }
+
   async prepare(reference: string): Promise<DmrOperation> {
     await this.loadManifest();
     const item = this.createOperation("prepare", reference);
-    await this.execute(item, "pulling", 25, () =>
-      this.executor.execute("pull", reference, undefined, {
-        operationId: item.id,
-      }),
-    );
-    this.manifest.models[reference] = {
-      ...(this.manifest.models[reference] ?? {}),
-      reference,
-      source: "docker-model-runner",
-      state: "prepared",
-      updatedAt: new Date().toISOString(),
-    };
-    await this.saveManifest();
-    item.status = "completed";
-    item.phase = "completed";
-    item.progress = 100;
-    return item;
+    return this.queue(item, this.runPrepare(item));
   }
 
   async start(reference: string, contextSize?: number): Promise<DmrOperation> {
     await this.loadManifest();
     const item = this.createOperation("start", reference);
-    await this.execute(item, "pulling", 20, () =>
-      this.executor.execute("pull", reference, undefined, {
-        operationId: item.id,
-      }),
-    );
-    if (contextSize !== undefined) {
-      await this.execute(item, "configuring", 50, () =>
-        this.executor.execute("configure", reference, contextSize, {
-          operationId: item.id,
-        }),
-      );
-    }
-    await this.execute(item, "starting", 75, () =>
-      this.executor.execute("run", reference, undefined, {
-        operationId: item.id,
-      }),
-    );
-    this.manifest.models[reference] = {
-      ...(this.manifest.models[reference] ?? {}),
-      reference,
-      contextSize,
-      source: "docker-model-runner",
-      state: "running",
-      updatedAt: new Date().toISOString(),
-    };
-    await this.saveManifest();
-    item.status = "completed";
-    item.phase = "completed";
-    item.progress = 100;
-    return item;
+    return this.queue(item, this.runStart(item, contextSize));
   }
 
   async stop(reference: string): Promise<DmrOperation> {
     await this.loadManifest();
     const item = this.createOperation("stop", reference);
-    await this.execute(item, "stopping", 50, () =>
-      this.executor.execute("stop", reference, undefined, {
-        operationId: item.id,
-      }),
-    );
-    const model = this.manifest.models[reference];
-    if (model) {
-      this.manifest.models[reference] = {
-        ...model,
-        state: "stopped",
-        updatedAt: new Date().toISOString(),
-      };
-      await this.saveManifest();
-    }
-    item.status = "completed";
-    item.phase = "completed";
-    item.progress = 100;
-    return item;
+    return this.queue(item, this.runStop(item));
   }
 
   async remove(reference: string, confirmed: boolean): Promise<DmrOperation> {
@@ -303,17 +250,118 @@ export class DmrOperations {
       throw new Error("remoção do modelo exige confirmação explícita");
     await this.loadManifest();
     const item = this.createOperation("remove", reference);
-    await this.execute(item, "removing", 50, () =>
-      this.executor.execute("remove", reference, undefined, {
-        operationId: item.id,
-      }),
-    );
-    delete this.manifest.models[reference];
-    await this.saveManifest();
+    return this.queue(item, this.runRemove(item));
+  }
+
+  private async runPrepare(item: MutableOperation): Promise<void> {
+    try {
+      await this.execute(item, "pulling", 25, () =>
+        this.executor.execute("pull", item.reference, undefined, {
+          operationId: item.id,
+        }),
+      );
+      if (this.isCancelled(item)) return;
+      this.manifest.models[item.reference] = {
+        ...(this.manifest.models[item.reference] ?? {}),
+        reference: item.reference,
+        source: "docker-model-runner",
+        state: "prepared",
+        updatedAt: new Date().toISOString(),
+      };
+      await this.saveManifest();
+      this.complete(item);
+    } catch {
+      // `execute` records a structured failure; cancellation is terminal too.
+    }
+  }
+
+  private async runStart(
+    item: MutableOperation,
+    contextSize?: number,
+  ): Promise<void> {
+    try {
+      await this.execute(item, "pulling", 20, () =>
+        this.executor.execute("pull", item.reference, undefined, {
+          operationId: item.id,
+        }),
+      );
+      if (this.isCancelled(item)) return;
+      if (contextSize !== undefined) {
+        await this.execute(item, "configuring", 50, () =>
+          this.executor.execute("configure", item.reference, contextSize, {
+            operationId: item.id,
+          }),
+        );
+      }
+      if (this.isCancelled(item)) return;
+      await this.execute(item, "starting", 75, () =>
+        this.executor.execute("run", item.reference, undefined, {
+          operationId: item.id,
+        }),
+      );
+      if (this.isCancelled(item)) return;
+      this.manifest.models[item.reference] = {
+        ...(this.manifest.models[item.reference] ?? {}),
+        reference: item.reference,
+        contextSize,
+        source: "docker-model-runner",
+        state: "running",
+        updatedAt: new Date().toISOString(),
+      };
+      await this.saveManifest();
+      this.complete(item);
+    } catch {
+      // `execute` records a structured failure; cancellation is terminal too.
+    }
+  }
+
+  private async runStop(item: MutableOperation): Promise<void> {
+    try {
+      await this.execute(item, "stopping", 50, () =>
+        this.executor.execute("stop", item.reference, undefined, {
+          operationId: item.id,
+        }),
+      );
+      if (this.isCancelled(item)) return;
+      const model = this.manifest.models[item.reference];
+      if (model) {
+        this.manifest.models[item.reference] = {
+          ...model,
+          state: "stopped",
+          updatedAt: new Date().toISOString(),
+        };
+        await this.saveManifest();
+      }
+      this.complete(item);
+    } catch {
+      // `execute` records a structured failure; cancellation is terminal too.
+    }
+  }
+
+  private async runRemove(item: MutableOperation): Promise<void> {
+    try {
+      await this.execute(item, "removing", 50, () =>
+        this.executor.execute("remove", item.reference, undefined, {
+          operationId: item.id,
+        }),
+      );
+      if (this.isCancelled(item)) return;
+      delete this.manifest.models[item.reference];
+      await this.saveManifest();
+      this.complete(item);
+    } catch {
+      // `execute` records a structured failure; cancellation is terminal too.
+    }
+  }
+
+  private complete(item: MutableOperation): void {
     item.status = "completed";
     item.phase = "completed";
     item.progress = 100;
-    return item;
+  }
+
+  private isCancelled(item: MutableOperation): boolean {
+    return item.status === "cancelled";
   }
 
   async list(): Promise<DmrManifest> {
@@ -335,6 +383,7 @@ export class DmrOperations {
   }
 
   dispose(): void {
+    this.tasks.clear();
     this.executor.dispose();
   }
 }
