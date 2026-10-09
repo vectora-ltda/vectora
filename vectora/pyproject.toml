@@ -383,7 +383,7 @@ markers = [
     "stress: testes de carga e concorrência — sem APIs externas, apenas infra local",
     "storage: testes de integração de storage — Postgres, Redis, Qdrant, SQLite, LanceDB (sobe docker automaticamente)",
     "singularity: testes de escape real do sandbox Singularity/Apptainer — requer binário instalado, deselecionado por padrão no CI (roda local com 'singularity'/'apptainer' presentes)",
-    "browser: testes que sobem Chromium real via Playwright — requer 'playwright install chromium'",
+    "browser: testes que conectam ao Chromium do Electron via CDP — requer Electron ativo",
     "frontend_build: testes que sobem o backend real servindo frontend/dist — requer 'pnpm --dir frontend build'",
     "electron_dev: testes que sobem o Electron dev build real — requer 'scons frontend' (ou 'pnpm --dir vectora/frontend install && pnpm --dir vectora/frontend run electron:build')",
     "live: testes sem mock que chamam LLM/Tavily reais — custam API real, só via 'scons tests-live'",

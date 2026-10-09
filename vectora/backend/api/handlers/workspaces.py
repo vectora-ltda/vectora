@@ -3918,8 +3918,8 @@ async def browser_detect(workspace_id: str) -> DetectResponse:
 # ---------------------------------------------------------------------------
 # Browser devtools — espelha backend/tools/browser_devtools.py em REST pro
 # painel visual do workbench (frontend/components/workbench/tabs/
-# browser-devtools-panel.tsx). Sessão é a do AGENTE (Playwright headless,
-# backend/browser/session.py) — distinta da view que o usuário vê no resto
+# browser-devtools-panel.tsx). Sessão é a do AGENTE (Playwright conectado ao
+# Chromium do Electron via CDP, backend/browser/session.py) — distinta da view que o usuário vê no resto
 # da aba Browser (iframe/WebContentsView), que não expõe console/network.
 # ---------------------------------------------------------------------------
 

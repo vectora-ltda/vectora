@@ -173,8 +173,8 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const statusRequestRef = useRef(0);
   const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const [consoleLoading, setConsoleLoading] = useState(false);
-  // Painel de devtools da sessão do AGENTE (Playwright headless) — distinto
-  // do console de stdout do dev server acima, que é sobre o processo, não
+  // Painel de devtools da sessão do AGENTE (Playwright conectado ao Chromium
+  // do Electron via CDP) — distinto do console de stdout do dev server acima, que é sobre o processo, não
   // sobre a página que o agente navega via tools de browser.
   const [devtoolsOpen, setDevtoolsOpen] = useState(false);
   const [clearProfileError, setClearProfileError] = useState(false);
@@ -673,10 +673,16 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     report();
     const observer = new ResizeObserver(report);
     observer.observe(el);
+    // A largura do workbench pode mudar no elemento pai durante o drag da
+    // sidebar, enquanto o container mantém o mesmo estilo flex. Observe os
+    // dois níveis para recalcular os bounds nativos sempre que o layout mudar.
+    if (el.parentElement) observer.observe(el.parentElement);
     window.addEventListener("resize", report);
+    window.visualViewport?.addEventListener("resize", report);
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", report);
+      window.visualViewport?.removeEventListener("resize", report);
     };
   }, [
     activeViewId,
@@ -710,9 +716,12 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     report();
     const observer = new ResizeObserver(report);
     observer.observe(el);
+    if (el.parentElement) observer.observe(el.parentElement);
+    window.visualViewport?.addEventListener("resize", report);
     return () => {
       observer.disconnect();
       desktopBrowser.setVisible(settingsViewId, false);
+      window.visualViewport?.removeEventListener("resize", report);
     };
   }, [
     browserSettingsOpen,

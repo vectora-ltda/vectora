@@ -1,5 +1,5 @@
-"""Automação de browser do agente — Playwright, sessão persistente por
-workspace, navegação livre (`browser_navigate`) ou dev server local.
+"""Automação de browser do agente — Playwright via CDP do Electron, sessão
+persistente por workspace, navegação livre (`browser_navigate`) ou dev server local.
 """
 
 from __future__ import annotations
