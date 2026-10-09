@@ -5,7 +5,7 @@ gestão dos dev servers declarados em `.vectora/launch.json`.
 `browser_navigate` é a porta de entrada pra navegação livre — nenhum
 guardrail de host/porta, só esquema (`http`/`https`). As demais tools de
 automação (`browser_click`/`browser_fill`/etc.) operam sobre a página já
-carregada na sessão Playwright persistente do workspace
+carregada na sessão persistente do workspace conectada ao Electron via CDP
 (`backend.browser.session.get_browser_page`); se nada foi navegado ainda,
 caem no dev server ativo do workspace (mesmo fallback de sempre).
 """
@@ -45,9 +45,10 @@ async def _resolve_page(ctx: ToolContext) -> tuple[Any, str]:
     """Retorna (page, "") em sucesso, ou (None, error) se não houver página
     resolvível — nem já navegada, nem dev server ativo do workspace.
 
-    Só lança um browser Playwright novo (`get_browser_page`) quando já tem
-    algo pra mostrar nele — uma sessão existente (navegação anterior via
-    `browser_navigate`) ou um dev server confirmado — nunca à toa.
+    Só conecta ao browser do Electron (`get_browser_page`) quando já tem algo
+    pra mostrar nele — uma sessão existente (navegação anterior via
+    `browser_navigate`) ou um dev server confirmado — nunca inicia outro
+    Chromium.
     """
     workspace_id = ctx.workspace_id
     session_key = workspace_id or "default"

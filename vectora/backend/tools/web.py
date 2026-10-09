@@ -116,7 +116,7 @@ async def _search_via_fallback(query: str) -> str:
 
 
 async def _fetch_via_fallback(url: str) -> str:
-    """Fallback sem API key para `fetch_url`: Chromium real (Playwright).
+    """Fallback sem API key para `fetch_url`: Chromium do Electron via CDP.
     Mesmo contrato de `_search_via_fallback` — nunca propaga."""
     try:
         from backend.browser.search_fallback import fetch_fallback
@@ -140,7 +140,7 @@ async def _fetch_via_fallback(url: str) -> str:
         logger.exception("fetch_url fallback failed", extra={"url": url})
         return (
             "Error: TAVILY_API_KEY not configured and the Chromium fallback "
-            "failed. Set TAVILY_API_KEY or run `playwright install chromium`."
+            "failed. Set TAVILY_API_KEY and start the Electron Browser Workbench."
         )
 
 

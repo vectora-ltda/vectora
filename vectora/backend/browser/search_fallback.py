@@ -10,10 +10,8 @@ especificamente, um `httpx` puro leva o mesmo bloqueio, então é rejeição por
 IP/rede, algo que afetaria igualmente ambientes de nuvem/VPS. A API JSON é
 oficial, sem chave e não tropeça nesse bloqueio.
 
-`fetch_fallback` usa Chromium real (Playwright, API síncrona, sessão
-isolada da de `backend/browser/session.py` usada pela aba Browser do
-workspace) — extrair o texto de uma URL específica (não é busca, não bate
-no anti-bot do DDG) funcionou de forma confiável nos testes.
+`fetch_fallback` conecta ao Chromium do Electron via CDP — extrair o texto de
+uma URL específica reutiliza a sessão autenticada do Browser Workbench.
 """
 
 from __future__ import annotations
@@ -34,11 +32,24 @@ _playwright: Any = None
 def _get_browser() -> Any:
     global _browser, _playwright
     if _browser is None:
+        import os
+
         from playwright.sync_api import sync_playwright
 
+        endpoint = os.environ.get("VECTORA_ELECTRON_CDP_URL", "").strip()
+        if not endpoint:
+            port = os.environ.get("VECTORA_ELECTRON_CDP_PORT", "9223").strip()
+            if port.isdigit():
+                endpoint = f"http://127.0.0.1:{port}"
+        if not endpoint:
+            raise RuntimeError(
+                "VECTORA_ELECTRON_CDP_PORT inválido para o Chromium do Electron."
+            )
         _playwright = sync_playwright().start()
-        _browser = _playwright.chromium.launch(headless=True)
-        logger.info("search_fallback_browser_started")
+        _browser = _playwright.chromium.connect_over_cdp(endpoint)
+        if not _browser.contexts:
+            raise RuntimeError("Chromium do Electron não expôs contexto CDP")
+        logger.info("electron_browser_fallback_connected")
     return _browser
 
 
@@ -48,7 +59,6 @@ def close_search_fallback_browser() -> None:
     if _browser is None:
         return
     try:
-        _browser.close()
         _playwright.stop()
     except Exception:
         logger.exception("search_fallback_browser_close_failed")
@@ -116,7 +126,9 @@ def fetch_fallback(url: str) -> str:
         )
 
     browser = _get_browser()
-    page = browser.new_page()
+    if not browser.contexts:
+        raise RuntimeError("Chromium do Electron não expôs contexto CDP")
+    page = browser.contexts[0].new_page()
     try:
         page.set_default_timeout(_NAV_TIMEOUT_MS)
         page.goto(url)

@@ -168,8 +168,8 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const statusRequestRef = useRef(0);
   const saveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const [consoleLoading, setConsoleLoading] = useState(false);
-  // Painel de devtools da sessão do AGENTE (Playwright headless) — distinto
-  // do console de stdout do dev server acima, que é sobre o processo, não
+  // Painel de devtools da sessão do AGENTE (Playwright conectado ao Chromium
+  // do Electron via CDP) — distinto do console de stdout do dev server acima, que é sobre o processo, não
   // sobre a página que o agente navega via tools de browser.
   const [devtoolsOpen, setDevtoolsOpen] = useState(false);
   const [sessionHydrationVersion, setSessionHydrationVersion] = useState(0);
@@ -687,10 +687,16 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     report();
     const observer = new ResizeObserver(report);
     observer.observe(el);
+    // A largura do workbench pode mudar no elemento pai durante o drag da
+    // sidebar, enquanto o container mantém o mesmo estilo flex. Observe os
+    // dois níveis para recalcular os bounds nativos sempre que o layout mudar.
+    if (el.parentElement) observer.observe(el.parentElement);
     window.addEventListener("resize", report);
+    window.visualViewport?.addEventListener("resize", report);
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", report);
+      window.visualViewport?.removeEventListener("resize", report);
     };
   }, [
     activeViewId,
@@ -700,6 +706,55 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     settingsOpen,
     visible,
   ]);
+
+  useEffect(() => {
+    if (!desktopBrowser || settingsViewId === null) return;
+
+    const shouldShow = browserSettingsOpen && visible && !settingsOpen;
+    const el = browserViewContainerRef.current;
+    if (!shouldShow || !el) {
+      desktopBrowser.setVisible(settingsViewId, false);
+      return;
+    }
+
+    const report = () => {
+      const rect = el.getBoundingClientRect();
+      desktopBrowser.setBounds(settingsViewId, {
+        x: Math.round(rect.left),
+        y: Math.round(rect.top),
+        width: Math.max(0, Math.round(rect.width)),
+        height: Math.max(0, Math.round(rect.height)),
+      });
+      desktopBrowser.setVisible(settingsViewId, true);
+    };
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(el);
+    if (el.parentElement) observer.observe(el.parentElement);
+    window.visualViewport?.addEventListener("resize", report);
+    return () => {
+      observer.disconnect();
+      desktopBrowser.setVisible(settingsViewId, false);
+      window.visualViewport?.removeEventListener("resize", report);
+    };
+  }, [
+    browserSettingsOpen,
+    desktopBrowser,
+    settingsOpen,
+    settingsViewId,
+    visible,
+  ]);
+
+  useEffect(
+    () => () => {
+      settingsRequestRef.current += 1;
+      if (desktopBrowser && settingsViewIdRef.current !== null) {
+        desktopBrowser.destroyView(settingsViewIdRef.current);
+        settingsViewIdRef.current = null;
+      }
+    },
+    [desktopBrowser],
+  );
 
   const fetchLaunch = useCallback(
     async (isCurrent: () => boolean = () => true) => {

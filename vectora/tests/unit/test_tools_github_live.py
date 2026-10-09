@@ -62,7 +62,7 @@ async def test_github_fetch_url_publico_sem_login_real(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "repo_url,marker",
+    ("repo_url", "marker"),
     [
         ("https://github.com/vectora-ltda/vectora-issues", "vectora-issues"),
         ("https://github.com/octocat/Hello-World", "hello-world"),

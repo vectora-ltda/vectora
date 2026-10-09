@@ -103,6 +103,13 @@ import {
   runtimeUserDataName,
 } from "./runtime-profile.js";
 
+// O backend conecta ao mesmo Chromium do Electron via CDP. O endpoint fica
+// restrito ao loopback e é herdado pelo processo backend supervisionado.
+const electronCdpPort = process.env.VECTORA_ELECTRON_CDP_PORT ?? "9223";
+process.env.VECTORA_ELECTRON_CDP_PORT = electronCdpPort;
+app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
+app.commandLine.appendSwitch("remote-debugging-port", electronCdpPort);
+
 const ELECTRON_RESTART_EXIT_CODE = 42;
 
 /**
