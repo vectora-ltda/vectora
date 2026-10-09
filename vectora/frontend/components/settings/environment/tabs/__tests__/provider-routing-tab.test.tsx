@@ -59,6 +59,7 @@ function mockFetch(
     llamacppRuntimeRemoveOk: boolean;
     hfModels?: object[];
     hfMetadata?: object;
+    dmrJob?: { id: string; status: string; error?: string | null };
   }>,
 ) {
   global.fetch = vi
@@ -283,6 +284,24 @@ function mockFetch(
             handlers.hfMetadata ?? { id: "owner/model", files: [] },
         } as Response);
       }
+      if (url === "/provider-routing/dmr/models/jobs" && method === "POST") {
+        return Promise.resolve({
+          ok: true,
+          json: async () =>
+            handlers.dmrJob ?? { id: "a".repeat(32), status: "completed" },
+        } as Response);
+      }
+      if (
+        typeof url === "string" &&
+        url.startsWith("/provider-routing/dmr/models/jobs/") &&
+        !url.endsWith("/retry")
+      ) {
+        return Promise.resolve({
+          ok: true,
+          json: async () =>
+            handlers.dmrJob ?? { id: "a".repeat(32), status: "completed" },
+        } as Response);
+      }
       if (url === "/provider-routing/llamacpp/runtime/status") {
         return Promise.resolve({
           ok: true,
@@ -383,6 +402,40 @@ describe("ProviderRoutingTab - Hugging Face", () => {
           url.includes("provider=dmr"),
       ),
     ).toBe(true);
+  });
+
+  it("instala um modelo DMR sem exigir arquivo GGUF selecionado", async () => {
+    mockFetch({
+      registered: [],
+      hfModels: [{ id: "Qwen/Qwen3-0.6B", name: "Qwen3", format: "" }],
+      hfMetadata: { id: "Qwen/Qwen3-0.6B", files: [] },
+      dmrJob: { id: "a".repeat(32), status: "completed" },
+    });
+    render(<ProviderRoutingTab />);
+    fireEvent.change(
+      await screen.findByLabelText("Runtime do modelo Hugging Face"),
+      {
+        target: { value: "dmr" },
+      },
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^buscar$/i }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /instalar modelo/i }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: /instalar modelo/i }),
+    );
+    await waitFor(() => {
+      expect(
+        (
+          global.fetch as unknown as { mock: { calls: unknown[][] } }
+        ).mock.calls.some(
+          ([url, init]) =>
+            url === "/provider-routing/dmr/models/jobs" &&
+            (init as RequestInit)?.method === "POST",
+        ),
+      ).toBe(true);
+    });
   });
 });
 

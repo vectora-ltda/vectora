@@ -1223,7 +1223,9 @@ function HuggingFaceCatalogSection() {
               <Button
                 type="button"
                 onClick={() => void installSelectedModel()}
-                disabled={!selectedFile || !alias.trim()}
+                disabled={
+                  !alias.trim() || (provider !== "dmr" && !selectedFile)
+                }
               >
                 {m.provider_routing_hf_install()}
               </Button>

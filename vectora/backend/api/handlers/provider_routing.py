@@ -1134,10 +1134,7 @@ async def cancel_dmr_model_job(job_id: str, _: ProviderAdmin) -> dict[str, objec
     return {"id": job.id, "status": job.status, "error": job.error}
 
 
-@router.post("/dmr/models/prepare", dependencies=[DesktopBridge])
-async def prepare_dmr_model(
-    body: DmrModelRequest, _: ProviderAdmin
-) -> dict[str, object]:
+async def _prepare_dmr_model(body: DmrModelRequest) -> dict[str, object]:
     """Prepara um modelo pelo plugin local, sem executar shell arbitrário."""
     from backend.services.docker_model_runner import (
         prepare_model,
@@ -1156,10 +1153,17 @@ async def prepare_dmr_model(
     return {"status": "prepared", "reference": reference, "output": output[-2000:]}
 
 
+@router.post("/dmr/models/prepare", dependencies=[DesktopBridge])
+async def prepare_dmr_model(
+    body: DmrModelRequest, _: ProviderAdmin
+) -> dict[str, object]:
+    return await _prepare_dmr_model(body)
+
+
 @router.post("/dmr/models/start", dependencies=[DesktopBridge])
 async def start_dmr_model(body: DmrModelRequest, _: ProviderAdmin) -> dict[str, object]:
     """Prepara, pré-carrega e valida o modelo antes de registrá-lo."""
-    await prepare_dmr_model(body, None)
+    await _prepare_dmr_model(body)
     from backend.services.docker_model_runner import (
         probe_dmr_inference,
         run_model,
@@ -1226,7 +1230,7 @@ async def stop_dmr_model(body: DmrModelRequest, _: ProviderAdmin) -> dict[str, o
 
 @router.delete("/dmr/models/{reference:path}", dependencies=[DesktopBridge])
 async def remove_dmr_model(
-    reference: str, confirm: bool = False, _: ProviderAdmin = None
+    reference: str, _: ProviderAdmin, confirm: bool = False
 ) -> dict[str, object]:
     """Remove o modelo somente quando a UI envia confirmação explícita."""
     if not confirm:
@@ -1823,14 +1827,18 @@ async def download_huggingface_model(
     previous_event = _download_cancel_events.get(download_key)
     if previous_event is not None:
         raise HTTPException(status_code=409, detail="download já está em execução")
-    published_sha256, published_size = await _huggingface_file_metadata(
-        repo_id, revision, filename
-    )
-    if body.sha256 and published_sha256 and body.sha256.lower() != published_sha256:
-        raise HTTPException(status_code=422, detail="checksum publicado incompatível")
-    expected_sha256 = published_sha256 or (body.sha256.lower() if body.sha256 else None)
     _download_cancel_events[download_key] = cancel_event
     try:
+        published_sha256, published_size = await _huggingface_file_metadata(
+            repo_id, revision, filename
+        )
+        if body.sha256 and published_sha256 and body.sha256.lower() != published_sha256:
+            raise HTTPException(
+                status_code=422, detail="checksum publicado incompatível"
+            )
+        expected_sha256 = published_sha256 or (
+            body.sha256.lower() if body.sha256 else None
+        )
         async with lock:
             _download_progress[download_key] = {
                 "downloaded": 0,
