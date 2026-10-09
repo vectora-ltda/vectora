@@ -54,6 +54,26 @@ async def get_configured_providers() -> dict:
                     "image_capability": state.value,
                 }
             )
+    # O DMR anuncia modelos por HTTP e não usa o registry SQLite da Vectora.
+    # Incluí-los aqui mantém o seletor coerente com o catálogo local.
+    if "dmr" in configured_providers:
+        from backend.api.handlers.provider_routing import list_dmr_models
+
+        dmr = await list_dmr_models()
+        dmr_models = dmr.get("models", [])
+        for tag in dmr_models if isinstance(dmr_models, list) else []:
+            if isinstance(tag, str) and tag:
+                model_id = f"dmr:{tag}"
+                state = await _model_supports_vision(model_id)
+                dynamic_models.append(
+                    {
+                        "id": model_id,
+                        "label": tag,
+                        "provider": "dmr",
+                        "available": bool(dmr.get("reachable")),
+                        "image_capability": state.value,
+                    }
+                )
 
     models = []
     for provider, provider_models in AVAILABLE_MODELS.items():

@@ -111,6 +111,17 @@ interface LlamaCppRuntimeStatus {
   }>;
 }
 
+interface DmrStatus {
+  configured: boolean;
+  base_url: string;
+  model: string;
+  cli_available: boolean;
+  reachable: boolean;
+  contract: string | null;
+  models: string[];
+  detail?: string | null;
+}
+
 async function discoverModels(): Promise<{
   reachable: boolean;
   models: OllamaModelInfo[];
@@ -165,6 +176,139 @@ async function fetchLlamaCppRuntimeStatus(): Promise<LlamaCppRuntimeStatus> {
   const res = await fetch("/provider-routing/llamacpp/runtime/status");
   if (!res.ok) throw new Error(`Erro ${res.status}`);
   return res.json() as Promise<LlamaCppRuntimeStatus>;
+}
+
+async function fetchDmrStatus(): Promise<DmrStatus> {
+  const response = await fetch("/provider-routing/dmr/status");
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  return (await response.json()) as DmrStatus;
+}
+
+async function configureDmr(
+  baseUrl: string,
+  model: string,
+): Promise<DmrStatus> {
+  const response = await fetch("/provider-routing/dmr/config", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ base_url: baseUrl, model }),
+  });
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  return (await response.json()) as DmrStatus;
+}
+
+async function prepareDmrModel(reference: string): Promise<DmrStatus> {
+  const response = await fetch("/provider-routing/dmr/models/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reference }),
+  });
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  return (await response.json()) as DmrStatus;
+}
+
+function DmrSection() {
+  const [status, setStatus] = useState<DmrStatus | null>(null);
+  const [baseUrl, setBaseUrl] = useState("http://127.0.0.1:12434");
+  const [model, setModel] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const refresh = useCallback(async () => {
+    try {
+      const next = await fetchDmrStatus();
+      setStatus(next);
+      setBaseUrl(next.base_url);
+      setModel(next.model);
+    } catch {
+      setError("Não foi possível consultar o Docker Model Runner.");
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  async function save() {
+    setBusy(true);
+    setError("");
+    try {
+      setStatus(await configureDmr(baseUrl, model));
+    } catch {
+      setError("Não foi possível salvar o endpoint do Docker Model Runner.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function prepare() {
+    if (!model.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      setStatus(await prepareDmrModel(model));
+    } catch {
+      setError("Não foi possível preparar o modelo no Docker Model Runner.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3 rounded-lg border p-4">
+      <div>
+        <h3 className="font-medium">{m.provider_routing_dmr_title()}</h3>
+        <p className="text-xs text-muted-foreground">
+          {m.provider_routing_dmr_subtitle()}
+        </p>
+      </div>
+      <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+        <Input
+          aria-label={m.provider_routing_dmr_endpoint()}
+          value={baseUrl}
+          onChange={(event) => setBaseUrl(event.target.value)}
+          placeholder={m.provider_routing_dmr_endpoint_placeholder()}
+        />
+        <Input
+          aria-label={m.provider_routing_dmr_model()}
+          value={model}
+          onChange={(event) => setModel(event.target.value)}
+          placeholder={m.provider_routing_dmr_model_placeholder()}
+        />
+        <Button type="button" disabled={busy} onClick={() => void save()}>
+          {m.provider_routing_dmr_save()}
+        </Button>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy}
+          onClick={() => void refresh()}
+        >
+          {m.provider_routing_dmr_test()}
+        </Button>
+        <Button
+          type="button"
+          disabled={busy || !model.trim()}
+          onClick={() => void prepare()}
+        >
+          {m.provider_routing_dmr_prepare()}
+        </Button>
+      </div>
+      {status && (
+        <p className="text-xs text-muted-foreground">
+          {status.cli_available && status.reachable
+            ? m.provider_routing_dmr_ready({ contract: status.contract ?? "?" })
+            : status.cli_available
+              ? m.provider_routing_dmr_cli_only()
+              : m.provider_routing_dmr_missing_cli()}
+          {status.models.length ? ` · ${status.models.join(", ")}` : ""}
+        </p>
+      )}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  );
 }
 
 async function removeLlamaCppRuntime(): Promise<void> {
@@ -758,7 +902,7 @@ function HuggingFaceCatalogSection() {
                 );
               }}
             >
-              {m.provider_routing_llamacpp_test()}
+              {m.provider_routing_hf_start()}
             </Button>
           )}
         </div>
@@ -2117,6 +2261,7 @@ export function ProviderRoutingTab() {
   return (
     <div className="space-y-4">
       <OllamaSection />
+      <DmrSection />
       <HuggingFaceCatalogSection />
       <OpenRouterSection />
       <NineRouterSection />

@@ -26,7 +26,8 @@ export interface ModelConfig {
     | "ollama"
     | "openrouter"
     | "nine_router"
-    | "llamacpp";
+    | "llamacpp"
+    | "dmr";
   description?: string;
 }
 

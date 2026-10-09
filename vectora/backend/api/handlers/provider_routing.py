@@ -198,6 +198,19 @@ class LlamaCppModeRequest(BaseModel):
     mode: Literal["managed", "external"]
 
 
+class DmrConfigRequest(BaseModel):
+    """Endpoint local e modelo padrão do Docker Model Runner."""
+
+    base_url: str = "http://127.0.0.1:12434"
+    model: str = ""
+
+
+class DmrModelRequest(BaseModel):
+    """Referência Docker/OCI validada antes de chegar ao executor."""
+
+    reference: str
+
+
 class HuggingFaceDownloadRequest(BaseModel):
     repo_id: str
     filename: str
@@ -832,6 +845,141 @@ async def get_llamacpp_sidecar_status() -> dict[str, int | bool | str | None]:
     from backend.services.llamacpp_sidecar import llamacpp_status
 
     return llamacpp_status()
+
+
+@router.get("/dmr/status")
+async def get_dmr_status() -> dict[str, object]:
+    """Detecta Docker Model Runner e o contrato HTTP disponível no host local."""
+    from backend.services.docker_model_runner import docker_model_available, probe_dmr
+
+    cli_available, cli_detail = await docker_model_available()
+    base_url = settings.dmr_base_url
+    probe = await probe_dmr(base_url) if base_url else None
+    return {
+        "configured": bool(base_url),
+        "base_url": base_url or "http://127.0.0.1:12434",
+        "model": settings.dmr_model or "",
+        "cli_available": cli_available,
+        "cli_detail": cli_detail,
+        "reachable": probe.reachable if probe else False,
+        "contract": probe.contract if probe else None,
+        "models": list(probe.models) if probe else [],
+        "detail": probe.detail if probe else "endpoint ainda não configurado",
+    }
+
+
+@router.post("/dmr/config")
+async def set_dmr_config(body: DmrConfigRequest, _: ProviderAdmin) -> dict[str, object]:
+    """Persiste apenas endpoint/modelo; operações Docker exigem a bridge."""
+    from backend.services.docker_model_runner import normalize_base_url
+
+    try:
+        base_url = normalize_base_url(body.base_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    model = body.model.strip()
+    if model:
+        from backend.services.docker_model_runner import validate_model_reference
+
+        try:
+            model = validate_model_reference(model)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    object.__setattr__(settings, "dmr_base_url", base_url)
+    object.__setattr__(settings, "dmr_model", model or None)
+    env_file = _env_file()
+    _set_env_key(env_file, "DMR_BASE_URL", base_url)
+    _set_env_key(env_file, "DMR_MODEL", model)
+    os.environ["DMR_BASE_URL"] = base_url
+    if model:
+        os.environ["DMR_MODEL"] = model
+    else:
+        os.environ.pop("DMR_MODEL", None)
+    return await get_dmr_status()
+
+
+@router.post("/dmr/test")
+async def test_dmr_connection() -> dict[str, object]:
+    """Executa a detecção de CLI e o probe HTTP sem alterar estado."""
+    return await get_dmr_status()
+
+
+@router.get("/dmr/models")
+async def list_dmr_models() -> dict[str, object]:
+    """Lista modelos descobertos pelo contrato que o DMR anunciou."""
+    status = await get_dmr_status()
+    return {
+        "reachable": status["reachable"],
+        "contract": status["contract"],
+        "models": status["models"],
+    }
+
+
+@router.post("/dmr/models/prepare", dependencies=[DesktopBridge])
+async def prepare_dmr_model(
+    body: DmrModelRequest, _: ProviderAdmin
+) -> dict[str, object]:
+    """Prepara um modelo pelo plugin local, sem executar shell arbitrário."""
+    from backend.services.docker_model_runner import (
+        prepare_model,
+        validate_model_reference,
+    )
+
+    try:
+        reference = validate_model_reference(body.reference)
+        output = await prepare_model(reference)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    object.__setattr__(settings, "dmr_model", reference)
+    return {"status": "prepared", "reference": reference, "output": output[-2000:]}
+
+
+@router.post("/dmr/models/start", dependencies=[DesktopBridge])
+async def start_dmr_model(body: DmrModelRequest, _: ProviderAdmin) -> dict[str, object]:
+    """Prepara o modelo e só o registra depois de readiness HTTP."""
+    await prepare_dmr_model(body, None)
+    status = await get_dmr_status()
+    if not status["reachable"]:
+        raise HTTPException(status_code=503, detail="DMR não está pronto")
+    return {"status": "ready", "reference": body.reference, **status}
+
+
+@router.post("/dmr/models/stop", dependencies=[DesktopBridge])
+async def stop_dmr_model(body: DmrModelRequest, _: ProviderAdmin) -> dict[str, object]:
+    """Pede parada ao Docker sem remover o modelo armazenado."""
+    from backend.services.docker_model_runner import (
+        stop_model,
+        validate_model_reference,
+    )
+
+    try:
+        reference = validate_model_reference(body.reference)
+        output = await stop_model(reference)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"status": "stopped", "reference": reference, "output": output[-2000:]}
+
+
+@router.delete("/dmr/models/{reference:path}", dependencies=[DesktopBridge])
+async def remove_dmr_model(
+    reference: str, confirm: bool = False, _: ProviderAdmin = None
+) -> dict[str, object]:
+    """Remove o modelo somente quando a UI envia confirmação explícita."""
+    if not confirm:
+        raise HTTPException(status_code=400, detail="confirmação explícita necessária")
+    from backend.services.docker_model_runner import (
+        remove_model,
+        validate_model_reference,
+    )
+
+    try:
+        value = validate_model_reference(reference)
+        output = await remove_model(value)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if settings.dmr_model == value:
+        object.__setattr__(settings, "dmr_model", None)
+    return {"status": "removed", "reference": value, "output": output[-2000:]}
 
 
 @router.post("/llamacpp/sidecar/start", dependencies=[DesktopBridge])

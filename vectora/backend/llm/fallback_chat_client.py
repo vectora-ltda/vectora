@@ -222,11 +222,27 @@ def load_chat_client(model_id: str) -> ChatClient:  # noqa: PLR0911
                     include_attribution=False,
                 ),
             )
+        case "dmr":
+            from backend.llm.openrouter.chat_client import OpenRouterChatClient
+            from backend.llm.openrouter.client import OpenRouterClient
+            from backend.services.docker_model_runner import normalize_base_url
+            from backend.settings import settings
+
+            base_url = normalize_base_url(settings.dmr_base_url)
+            return OpenRouterChatClient(
+                model=model_name,
+                client=OpenRouterClient(
+                    api_key="",
+                    base_url=f"{base_url}/engines/v1",
+                    require_api_key=False,
+                    include_attribution=False,
+                ),
+            )
         case _:
             msg = (
                 f"Provider de LLM nativo desconhecido: {provider!r}. Suportados: "
                 "openai, anthropic, google_genai, cohere, ollama, openrouter, "
-                "nine_router, llamacpp."
+                "nine_router, llamacpp, dmr."
             )
             raise ValueError(msg)
 

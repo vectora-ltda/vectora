@@ -1,0 +1,89 @@
+"""Contratos determinísticos do Docker Model Runner.
+
+As chamadas HTTP usam ``httpx.MockTransport`` apenas para testar o parser do
+contrato. O teste live opcional fica separado e só roda quando explicitamente
+habilitado pelo ambiente.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+
+import httpx
+import pytest
+
+from backend.services import docker_model_runner as dmr
+
+
+def test_validate_model_reference_rejects_command_injection() -> None:
+    assert dmr.validate_model_reference("hf.co/Qwen/Qwen3-0.6B") == (
+        "hf.co/Qwen/Qwen3-0.6B"
+    )
+    with pytest.raises(ValueError):
+        dmr.validate_model_reference("hf.co/model;rm -rf /")
+    with pytest.raises(ValueError):
+        dmr.validate_model_reference("--help")
+
+
+def test_normalize_base_url_rejects_non_http() -> None:
+    assert dmr.normalize_base_url("http://127.0.0.1:12434/") == (
+        "http://127.0.0.1:12434"
+    )
+    with pytest.raises(ValueError):
+        dmr.normalize_base_url("file:///tmp/docker.sock")
+
+
+@pytest.mark.asyncio
+async def test_probe_prefers_openai_contract() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/engines/v1/models":
+            return httpx.Response(
+                200,
+                json={"data": [{"id": "hf.co/Qwen/Qwen3-0.6B"}]},
+            )
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    result = await dmr.probe_dmr(transport=transport)
+    assert result.reachable is True
+    assert result.contract == "openai"
+    assert result.models == ("hf.co/Qwen/Qwen3-0.6B",)
+
+
+@pytest.mark.asyncio
+async def test_run_docker_model_uses_exec_without_shell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[tuple[str, ...], bool]] = []
+
+    class Process:
+        returncode = 0
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return b"ok", b""
+
+        async def wait(self) -> None:
+            return None
+
+    async def create(*args: str, **kwargs: object) -> Process:
+        calls.append((args, bool(kwargs.get("shell"))))
+        return Process()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create)
+    output = await dmr.run_docker_model("pull", "hf.co/Qwen/Qwen3-0.6B")
+    assert output == "ok\n"
+    assert calls == [(("docker", "model", "pull", "hf.co/Qwen/Qwen3-0.6B"), False)]
+
+
+@pytest.mark.asyncio
+async def test_dmr_live_probe_when_explicitly_enabled() -> None:
+    """Smoke test contra Docker real; nunca substitui os contratos determinísticos."""
+    if os.getenv("VECTORA_TEST_DMR_LIVE") != "1":
+        pytest.skip(
+            "ative VECTORA_TEST_DMR_LIVE=1 para testar Docker Model Runner real"
+        )
+    available, detail = await dmr.docker_model_available()
+    assert available, detail
+    result = await dmr.probe_dmr(os.getenv("DMR_BASE_URL"))
+    assert result.reachable, result.detail
