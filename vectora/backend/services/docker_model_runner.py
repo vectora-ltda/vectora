@@ -46,6 +46,7 @@ class DmrJob:
     id: str
     operation: Literal["prepare", "start"]
     reference: str
+    context_size: int | None
     status: Literal[
         "queued",
         "running",
@@ -78,6 +79,7 @@ def _job_record(job: DmrJob) -> dict[str, object]:
         "id": job.id,
         "operation": job.operation,
         "reference": job.reference,
+        "context_size": job.context_size,
         "status": job.status,
         "output": job.output[-MAX_OUTPUT_BYTES:],
         "error": job.error,
@@ -91,12 +93,14 @@ def _job_from_record(record: object) -> DmrJob | None:
     job_id = record.get("id")
     operation = record.get("operation")
     reference = record.get("reference")
+    context_size = record.get("context_size")
     status = record.get("status")
     if (
         not isinstance(job_id, str)
         or not re.fullmatch(r"[0-9a-f]{32}", job_id)
         or operation not in {"prepare", "start"}
         or not isinstance(reference, str)
+        or (context_size is not None and not isinstance(context_size, int))
         or status
         not in {"queued", "running", "completed", "failed", "cancelled", "interrupted"}
     ):
@@ -106,6 +110,7 @@ def _job_from_record(record: object) -> DmrJob | None:
         id=job_id,
         operation=operation,
         reference=reference,
+        context_size=context_size,
         status=status,
         output=str(record.get("output") or "")[-MAX_OUTPUT_BYTES:],
         error=(str(record["error"])[:2000] if record.get("error") else None),
@@ -168,6 +173,15 @@ def validate_model_reference(reference: str) -> str:
     if not MODEL_REFERENCE.fullmatch(value) or value.startswith("-"):
         raise ValueError("referência de modelo Docker inválida")
     return value
+
+
+def validate_context_size(context_size: int | None) -> int | None:
+    """Valida o limite de contexto aceito pelo Model Runner."""
+    if context_size is None:
+        return None
+    if not isinstance(context_size, int) or not 1 <= context_size <= 1_000_000:
+        raise ValueError("tamanho de contexto inválido")
+    return context_size
 
 
 def normalize_base_url(value: str | None) -> str:
@@ -368,8 +382,19 @@ async def prepare_model(reference: str) -> str:
     return await run_docker_model("pull", validate_model_reference(reference))
 
 
-async def run_model(reference: str) -> str:
+async def configure_model(reference: str, context_size: int) -> str:
+    """Configura o contexto por modelo usando o comando oficial do DMR."""
+    value = validate_model_reference(reference)
+    size = validate_context_size(context_size)
+    if size is None:
+        raise ValueError("tamanho de contexto ausente")
+    return await run_docker_model("configure", "--context-size", str(size), value)
+
+
+async def run_model(reference: str, context_size: int | None = None) -> str:
     """Pré-carrega um modelo no runner sem abrir um chat interativo."""
+    if context_size is not None:
+        await configure_model(reference, context_size)
     return await run_docker_model(
         "run", "--detach", validate_model_reference(reference)
     )
@@ -442,9 +467,16 @@ async def _run_job(job: DmrJob) -> None:
     try:
         job.output = await prepare_model(job.reference)
         if job.operation == "start":
-            job.output = (job.output + "\n" + await run_model(job.reference))[
-                -MAX_OUTPUT_BYTES:
-            ]
+            job.output = (
+                job.output + "\n" + await run_model(job.reference, job.context_size)
+            )[-MAX_OUTPUT_BYTES:]
+        elif job.context_size is not None:
+            job.output = (
+                job.output
+                + "\n"
+                + await configure_model(job.reference, job.context_size)
+            )[-MAX_OUTPUT_BYTES:]
+        if job.operation == "start":
             started = True
             probe = await _assert_model_ready(job.reference)
             job.metadata = {
@@ -474,15 +506,19 @@ async def _run_job(job: DmrJob) -> None:
 
 
 async def create_model_job(
-    reference: str, operation: Literal["prepare", "start"]
+    reference: str,
+    operation: Literal["prepare", "start"],
+    context_size: int | None = None,
 ) -> DmrJob:
     """Agenda uma operação local sem aceitar comandos fora do catálogo."""
     await restore_model_jobs()
     value = validate_model_reference(reference)
+    context = validate_context_size(context_size)
     for existing in _jobs.values():
         if (
             existing.reference == value
             and existing.operation == operation
+            and existing.context_size == context
             and existing.status in {"queued", "running"}
         ):
             return existing
@@ -490,6 +526,7 @@ async def create_model_job(
         id=uuid.uuid4().hex,
         operation=operation,
         reference=value,
+        context_size=context,
         status="queued",
     )
     _jobs[job.id] = job

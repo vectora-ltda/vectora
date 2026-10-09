@@ -54,6 +54,7 @@ import time
 import uuid
 import zipfile
 from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import suppress
 from datetime import UTC, datetime
 from functools import wraps
 from pathlib import Path
@@ -228,6 +229,7 @@ class DmrModelRequest(BaseModel):
     """Referência Docker/OCI validada antes de chegar ao executor."""
 
     reference: str
+    context_size: int | None = Field(default=None, ge=1, le=1_000_000)
 
 
 class DmrJobRequest(DmrModelRequest):
@@ -1012,13 +1014,14 @@ async def create_dmr_model_job(
     from backend.services.docker_model_runner import create_model_job
 
     try:
-        job = await create_model_job(body.reference, body.operation)
+        job = await create_model_job(body.reference, body.operation, body.context_size)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {
         "id": job.id,
         "operation": job.operation,
         "reference": job.reference,
+        "context_size": job.context_size,
         "status": job.status,
     }
 
@@ -1058,6 +1061,7 @@ async def get_dmr_model_job(job_id: str, _: ProviderAdmin) -> dict[str, object]:
         "id": job.id,
         "operation": job.operation,
         "reference": job.reference,
+        "context_size": job.context_size,
         "status": job.status,
         "output": job.output[-2000:],
         "error": job.error,
@@ -1077,6 +1081,7 @@ async def list_dmr_model_jobs(_: ProviderAdmin) -> dict[str, object]:
                 "id": job.id,
                 "operation": job.operation,
                 "reference": job.reference,
+                "context_size": job.context_size,
                 "status": job.status,
                 "output": job.output[-2000:],
                 "error": job.error,
@@ -1101,6 +1106,7 @@ async def retry_dmr_model_job(job_id: str, _: ProviderAdmin) -> dict[str, object
         "id": job.id,
         "operation": job.operation,
         "reference": job.reference,
+        "context_size": job.context_size,
         "status": job.status,
         "output": job.output[-2000:],
         "error": job.error,
@@ -1149,16 +1155,19 @@ async def start_dmr_model(body: DmrModelRequest, _: ProviderAdmin) -> dict[str, 
     from backend.services.docker_model_runner import (
         probe_dmr_inference,
         run_model,
+        stop_model,
         validate_model_reference,
     )
 
     try:
         reference = validate_model_reference(body.reference)
-        output = await run_model(reference)
+        output = await run_model(reference, body.context_size)
     except (OSError, RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     status = await get_dmr_status()
     if not status["reachable"]:
+        with suppress(Exception):
+            await stop_model(reference)
         raise HTTPException(status_code=503, detail="DMR não está pronto")
     models = status.get("models")
     model_name = reference
@@ -1166,6 +1175,8 @@ async def start_dmr_model(body: DmrModelRequest, _: ProviderAdmin) -> dict[str, 
         model_name = str(models[0])
     contract = str(status.get("contract") or "")
     if not await probe_dmr_inference(str(status["base_url"]), contract, model_name):
+        with suppress(Exception):
+            await stop_model(reference)
         raise HTTPException(
             status_code=503,
             detail="DMR respondeu ao catálogo, mas não concluiu uma inferência",

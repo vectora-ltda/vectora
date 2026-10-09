@@ -228,6 +228,25 @@ async def test_run_model_preloads_in_detached_mode(
 
 
 @pytest.mark.asyncio
+async def test_run_model_configures_context_before_detached_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    async def fake_run(*args: str, command_timeout: float = 120.0) -> str:
+        calls.append(args)
+        return "ok"
+
+    monkeypatch.setattr(dmr, "run_docker_model", fake_run)
+
+    assert await dmr.run_model("hf.co/Qwen/Qwen3-0.6B", 8192) == "ok"
+    assert calls == [
+        ("configure", "--context-size", "8192", "hf.co/Qwen/Qwen3-0.6B"),
+        ("run", "--detach", "hf.co/Qwen/Qwen3-0.6B"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_model_job_reports_completion_and_keeps_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

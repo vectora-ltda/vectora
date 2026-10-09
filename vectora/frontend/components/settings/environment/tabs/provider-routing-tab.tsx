@@ -141,6 +141,7 @@ interface DmrJob {
   id: string;
   operation: "prepare" | "start";
   reference: string;
+  context_size?: number | null;
   status:
     "queued" | "running" | "completed" | "failed" | "cancelled" | "interrupted";
   output?: string;
@@ -235,11 +236,16 @@ async function prepareDmrModel(reference: string): Promise<DmrStatus> {
 async function createDmrModelJob(
   reference: string,
   operation: "prepare" | "start" = "start",
+  contextSize?: number,
 ): Promise<DmrJob> {
   const response = await fetch("/provider-routing/dmr/models/jobs", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ reference, operation }),
+    body: JSON.stringify({
+      reference,
+      operation,
+      ...(contextSize === undefined ? {} : { context_size: contextSize }),
+    }),
   });
   if (!response.ok) throw new Error(`Erro ${response.status}`);
   return (await response.json()) as DmrJob;
@@ -300,6 +306,7 @@ function DmrSection() {
   const [status, setStatus] = useState<DmrStatus | null>(null);
   const [baseUrl, setBaseUrl] = useState("http://127.0.0.1:12434");
   const [model, setModel] = useState("");
+  const [contextSize, setContextSize] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [job, setJob] = useState<DmrJob | null>(null);
@@ -344,7 +351,17 @@ function DmrSection() {
     setBusy(true);
     setError("");
     try {
-      let current = await createDmrModelJob(model.trim());
+      const parsedContext = contextSize.trim()
+        ? Number(contextSize)
+        : undefined;
+      if (parsedContext !== undefined && !Number.isInteger(parsedContext)) {
+        throw new Error("tamanho de contexto inválido");
+      }
+      let current = await createDmrModelJob(
+        model.trim(),
+        "start",
+        parsedContext,
+      );
       setJob(current);
       while (current.status === "queued" || current.status === "running") {
         await new Promise((resolve) => window.setTimeout(resolve, 500));
@@ -429,7 +446,7 @@ function DmrSection() {
           {m.provider_routing_dmr_subtitle()}
         </p>
       </div>
-      <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+      <div className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto]">
         <Input
           aria-label={m.provider_routing_dmr_endpoint()}
           value={baseUrl}
@@ -441,6 +458,15 @@ function DmrSection() {
           value={model}
           onChange={(event) => setModel(event.target.value)}
           placeholder={m.provider_routing_dmr_model_placeholder()}
+        />
+        <Input
+          aria-label={m.provider_routing_hf_ctx_size()}
+          type="number"
+          min={1}
+          max={1000000}
+          value={contextSize}
+          onChange={(event) => setContextSize(event.target.value)}
+          placeholder={m.provider_routing_hf_ctx_size()}
         />
         <Button type="button" disabled={busy} onClick={() => void save()}>
           {m.provider_routing_dmr_save()}
