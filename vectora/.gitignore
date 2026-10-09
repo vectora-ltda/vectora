@@ -352,3 +352,4 @@ AbilitySystem_repo/
 
 # Saída legada do context graph (agora em .vectora/context-graph/)
 graphify-out/
+!.vectora/skills.lock.json
