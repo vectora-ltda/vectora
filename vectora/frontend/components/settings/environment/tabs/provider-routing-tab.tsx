@@ -129,6 +129,15 @@ interface DmrStatus {
   backend: string | null;
 }
 
+interface DmrJob {
+  id: string;
+  operation: "prepare" | "start";
+  reference: string;
+  status: "queued" | "running" | "completed" | "failed" | "cancelled";
+  output?: string;
+  error?: string | null;
+}
+
 async function discoverModels(): Promise<{
   reachable: boolean;
   models: OllamaModelInfo[];
@@ -214,6 +223,33 @@ async function prepareDmrModel(reference: string): Promise<DmrStatus> {
   return (await response.json()) as DmrStatus;
 }
 
+async function createDmrModelJob(
+  reference: string,
+  operation: "prepare" | "start" = "start",
+): Promise<DmrJob> {
+  const response = await fetch("/provider-routing/dmr/models/jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reference, operation }),
+  });
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  return (await response.json()) as DmrJob;
+}
+
+async function fetchDmrModelJob(jobId: string): Promise<DmrJob> {
+  const response = await fetch(`/provider-routing/dmr/models/jobs/${jobId}`);
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  return (await response.json()) as DmrJob;
+}
+
+async function cancelDmrModelJob(jobId: string): Promise<DmrJob> {
+  const response = await fetch(`/provider-routing/dmr/models/jobs/${jobId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  return (await response.json()) as DmrJob;
+}
+
 async function stopDmrModel(reference: string): Promise<DmrStatus> {
   const response = await fetch("/provider-routing/dmr/models/stop", {
     method: "POST",
@@ -239,6 +275,7 @@ function DmrSection() {
   const [model, setModel] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [job, setJob] = useState<DmrJob | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -272,11 +309,30 @@ function DmrSection() {
     setBusy(true);
     setError("");
     try {
-      setStatus(await prepareDmrModel(model));
+      let current = await createDmrModelJob(model.trim());
+      setJob(current);
+      while (current.status === "queued" || current.status === "running") {
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+        current = await fetchDmrModelJob(current.id);
+        setJob(current);
+      }
+      if (current.status !== "completed") {
+        throw new Error(current.error ?? "operação DMR falhou");
+      }
+      setStatus(await fetchDmrStatus());
     } catch {
       setError("Não foi possível preparar o modelo no Docker Model Runner.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function cancelPrepare() {
+    if (!job || (job.status !== "queued" && job.status !== "running")) return;
+    try {
+      setJob(await cancelDmrModelJob(job.id));
+    } catch {
+      setError("Não foi possível cancelar a operação do Docker Model Runner.");
     }
   }
 
@@ -341,13 +397,23 @@ function DmrSection() {
         >
           {m.provider_routing_dmr_test()}
         </Button>
-        <Button
-          type="button"
-          disabled={busy || !model.trim()}
-          onClick={() => void prepare()}
-        >
-          {m.provider_routing_dmr_prepare()}
-        </Button>
+        {job && (job.status === "queued" || job.status === "running") ? (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void cancelPrepare()}
+          >
+            {m.provider_routing_dmr_cancel()}
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            disabled={busy || !model.trim()}
+            onClick={() => void prepare()}
+          >
+            {m.provider_routing_dmr_prepare()}
+          </Button>
+        )}
         <Button
           type="button"
           variant="outline"
@@ -376,6 +442,16 @@ function DmrSection() {
                 : m.provider_routing_dmr_missing_cli()}
           {` · ${status.platform}/${status.architecture}`}
           {status.models.length ? ` · ${status.models.join(", ")}` : ""}
+        </p>
+      )}
+      {job && (job.status === "queued" || job.status === "running") && (
+        <p className="text-xs text-muted-foreground">
+          {m.provider_routing_dmr_job_running({ status: job.status })}
+        </p>
+      )}
+      {job?.status === "cancelled" && (
+        <p className="text-xs text-muted-foreground">
+          {m.provider_routing_dmr_job_cancelled()}
         </p>
       )}
       {error && <p className="text-xs text-destructive">{error}</p>}

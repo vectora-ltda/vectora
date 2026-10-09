@@ -12,8 +12,9 @@ import asyncio
 import json
 import logging
 import re
+import uuid
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, Literal
 from urllib.parse import urlparse
 
 import httpx
@@ -34,6 +35,22 @@ class DmrProbe:
     contract: str | None
     models: tuple[str, ...]
     detail: str | None = None
+
+
+@dataclass
+class DmrJob:
+    """Estado observável de uma operação local do Model Runner."""
+
+    id: str
+    operation: Literal["prepare", "start"]
+    reference: str
+    status: Literal["queued", "running", "completed", "failed", "cancelled"]
+    output: str = ""
+    error: str | None = None
+
+
+_jobs: dict[str, DmrJob] = {}
+_job_tasks: dict[str, asyncio.Task[None]] = {}
 
 
 def validate_model_reference(reference: str) -> str:
@@ -155,3 +172,56 @@ async def stop_model(reference: str) -> str:
 async def remove_model(reference: str) -> str:
     """Remove um modelo pelo identificador oficial, nunca por filesystem."""
     return await run_docker_model("rm", validate_model_reference(reference))
+
+
+async def _run_job(job: DmrJob) -> None:
+    """Executa um job e converte cancelamento em estado consultável."""
+    job.status = "running"
+    try:
+        job.output = await prepare_model(job.reference)
+        if job.operation == "start":
+            job.output = (job.output + "\n" + await run_model(job.reference))[
+                -MAX_OUTPUT_BYTES:
+            ]
+        job.status = "completed"
+    except asyncio.CancelledError:
+        job.status = "cancelled"
+        job.error = "operação cancelada"
+    except (OSError, RuntimeError, ValueError) as exc:
+        job.status = "failed"
+        job.error = str(exc)[:2000]
+    finally:
+        _job_tasks.pop(job.id, None)
+
+
+async def create_model_job(
+    reference: str, operation: Literal["prepare", "start"]
+) -> DmrJob:
+    """Agenda uma operação local sem aceitar comandos fora do catálogo."""
+    value = validate_model_reference(reference)
+    job = DmrJob(
+        id=uuid.uuid4().hex,
+        operation=operation,
+        reference=value,
+        status="queued",
+    )
+    _jobs[job.id] = job
+    _job_tasks[job.id] = asyncio.create_task(_run_job(job))
+    return job
+
+
+def get_model_job(job_id: str) -> DmrJob | None:
+    """Retorna o estado de um job local ainda disponível nesta sessão."""
+    return _jobs.get(job_id)
+
+
+async def cancel_model_job(job_id: str) -> DmrJob | None:
+    """Cancela o subprocesso associado ao job, se ele ainda estiver ativo."""
+    job = _jobs.get(job_id)
+    task = _job_tasks.get(job_id)
+    if job is None:
+        return None
+    if task is not None and not task.done():
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    return job

@@ -154,6 +154,30 @@ async def test_run_model_preloads_in_detached_mode(
 
 
 @pytest.mark.asyncio
+async def test_model_job_reports_completion_and_keeps_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    async def fake_run(*args: str, command_timeout: float = 120.0) -> str:
+        calls.append(args)
+        return "ok"
+
+    monkeypatch.setattr(dmr, "run_docker_model", fake_run)
+    job = await dmr.create_model_job("hf.co/Qwen/Qwen3-0.6B", "start")
+    for _ in range(20):
+        if job.status not in {"queued", "running"}:
+            break
+        await asyncio.sleep(0)
+    assert job.status == "completed"
+    assert job.output == "ok\nok"
+    assert calls == [
+        ("pull", "hf.co/Qwen/Qwen3-0.6B"),
+        ("run", "--detach", "hf.co/Qwen/Qwen3-0.6B"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_dmr_live_probe_when_explicitly_enabled() -> None:
     """Smoke test contra Docker real; nunca substitui os contratos determinísticos."""
     if os.getenv("VECTORA_TEST_DMR_LIVE") != "1":

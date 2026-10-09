@@ -230,6 +230,12 @@ class DmrModelRequest(BaseModel):
     reference: str
 
 
+class DmrJobRequest(DmrModelRequest):
+    """Operação assíncrona local de preparação ou inicialização."""
+
+    operation: Literal["prepare", "start"] = "start"
+
+
 class HuggingFaceDownloadRequest(BaseModel):
     repo_id: str
     filename: str
@@ -956,6 +962,58 @@ async def list_dmr_models() -> dict[str, object]:
         "contract": status["contract"],
         "models": status["models"],
     }
+
+
+@router.post("/dmr/models/jobs", dependencies=[DesktopBridge])
+async def create_dmr_model_job(
+    body: DmrJobRequest, _: ProviderAdmin
+) -> dict[str, object]:
+    """Agenda pull/run e devolve um identificador para progresso e cancelamento."""
+    from backend.services.docker_model_runner import create_model_job
+
+    try:
+        job = await create_model_job(body.reference, body.operation)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "id": job.id,
+        "operation": job.operation,
+        "reference": job.reference,
+        "status": job.status,
+    }
+
+
+@router.get("/dmr/models/jobs/{job_id}", dependencies=[DesktopBridge])
+async def get_dmr_model_job(job_id: str, _: ProviderAdmin) -> dict[str, object]:
+    """Consulta o estado de um job sem expor saída ilimitada do Docker."""
+    from backend.services.docker_model_runner import get_model_job
+
+    if not re.fullmatch(r"[0-9a-f]{32}", job_id):
+        raise HTTPException(status_code=400, detail="identificador de job inválido")
+    job = get_model_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job não encontrado")
+    return {
+        "id": job.id,
+        "operation": job.operation,
+        "reference": job.reference,
+        "status": job.status,
+        "output": job.output[-2000:],
+        "error": job.error,
+    }
+
+
+@router.delete("/dmr/models/jobs/{job_id}", dependencies=[DesktopBridge])
+async def cancel_dmr_model_job(job_id: str, _: ProviderAdmin) -> dict[str, object]:
+    """Cancela um job e encerra o processo Docker associado, quando ativo."""
+    from backend.services.docker_model_runner import cancel_model_job
+
+    if not re.fullmatch(r"[0-9a-f]{32}", job_id):
+        raise HTTPException(status_code=400, detail="identificador de job inválido")
+    job = await cancel_model_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job não encontrado")
+    return {"id": job.id, "status": job.status, "error": job.error}
 
 
 @router.post("/dmr/models/prepare", dependencies=[DesktopBridge])
