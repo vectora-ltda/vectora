@@ -162,7 +162,7 @@ def test_git_workbench_auxiliary_tools_registered() -> None:
         assert expected in names, f"Tool Git Workbench ausente: {expected}"
 
 
-def test_native_tools_registered():
+def test_native_tools_registered() -> None:
     # Utilitários nativos (backend/tools/native/) devem estar registrados em
     # ALL_TOOLS para chegar ao agente real.
     names = {t.name for t in ALL_TOOLS}

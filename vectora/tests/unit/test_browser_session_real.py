@@ -85,7 +85,7 @@ async def test_get_browser_page_sobe_chromium_real_e_navega() -> None:
     assert page_again is page
 
 
-async def test_browser_navega_github_publico_real_sem_login():
+async def test_browser_navega_github_publico_real_sem_login() -> None:
     """Chromium deve acessar a issue pública sem cookies do GitHub."""
     page = await browser_session.get_browser_page("ws-github-public")
     response = await page.goto(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -11,7 +12,7 @@ from backend.browser import session as browser_session
 
 
 @pytest.fixture(autouse=True)
-async def _clean_sessions():
+async def _clean_sessions() -> AsyncIterator[None]:
     await browser_session.close_all_browser_sessions()
     yield
     await browser_session.close_all_browser_sessions()

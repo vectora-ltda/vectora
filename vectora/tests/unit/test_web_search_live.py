@@ -106,19 +106,20 @@ async def test_web_search_query_vazia_borda():
 # ---------------------------------------------------------------------------
 
 
-async def test_fetch_url_pagina_real():
+async def test_fetch_url_pagina_real() -> None:
     content = await fetch_url(url="https://fastapi.tiangolo.com/")
     assert isinstance(content, str)
     assert content.strip()
     assert not content.startswith("Error:")
 
 
-async def test_fetch_url_github_publico_real():
+async def test_fetch_url_github_publico_real() -> None:
     """A URL pública do GitHub deve ser legível mesmo sem depender do Tavily."""
     content = await fetch_url(url="https://github.com/vectora-ltda/vectora/issues/317")
     assert content.strip()
     assert not content.startswith("Error:")
-    assert "vectora" in content.lower()
+    body = content.split("\n", 2)[-1].rsplit("\n</untrusted_content>", 1)[0]
+    assert "provider" in body.lower() or "llama" in body.lower()
 
 
 async def test_fetch_url_url_invalida_sem_lancar():

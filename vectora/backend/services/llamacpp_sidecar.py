@@ -14,6 +14,9 @@ from pathlib import Path
 import httpx
 
 logger = logging.getLogger(__name__)
+
+_READINESS_ATTEMPTS = 240
+_READINESS_INTERVAL_SECONDS = 0.5
 _process: asyncio.subprocess.Process | None = None
 _lifecycle_lock = asyncio.Lock()
 _process_spec: tuple[str, str, str, int] | None = None
@@ -241,7 +244,7 @@ async def start_llamacpp(
         try:
             async with httpx.AsyncClient(timeout=1.0) as client:
                 health_ready = False
-                for _ in range(30):
+                for _ in range(_READINESS_ATTEMPTS):
                     try:
                         if not health_ready:
                             health = await client.get(_health_url(host, port))
@@ -257,7 +260,7 @@ async def start_llamacpp(
                                 return _process
                     except httpx.HTTPError:
                         pass
-                    await asyncio.sleep(0.25)
+                    await asyncio.sleep(_READINESS_INTERVAL_SECONDS)
         except BaseException:
             await _stop_process()
             raise

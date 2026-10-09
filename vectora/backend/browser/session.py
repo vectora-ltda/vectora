@@ -174,6 +174,7 @@ async def get_browser_page(workspace_id: str, tab_id: str | None = None) -> Any:
         _sessions[workspace_id] = {
             "playwright": playwright,
             "browser": browser,
+            "context": context,
             "owns_browser": False,
             "tabs": {first_tab_id: tab},
             "active_tab_id": first_tab_id,
@@ -206,7 +207,7 @@ async def new_tab(workspace_id: str, url: str | None = None) -> str:
     if not has_browser_session(workspace_id):
         await get_browser_page(workspace_id)
     session = _sessions[workspace_id]
-    page = await session["browser"].new_page()
+    page = await session["context"].new_page()
     if url:
         await page.goto(url, wait_until="domcontentloaded")
     tab = await _create_tab_state(page)
@@ -232,7 +233,7 @@ async def close_tab(workspace_id: str, tab_id: str) -> bool:
         logger.debug("browser_session: falha ao fechar aba %s", tab_id)
 
     if not session["tabs"]:
-        blank_page = await session["browser"].new_page()
+        blank_page = await session["context"].new_page()
         blank_tab = await _create_tab_state(blank_page)
         blank_id = uuid.uuid4().hex[:12]
         session["tabs"][blank_id] = blank_tab

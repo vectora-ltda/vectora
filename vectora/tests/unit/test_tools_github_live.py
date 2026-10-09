@@ -83,7 +83,9 @@ async def test_github_fetch_url_repos_publicos_sem_token_real(
     assert marker in result.lower()
 
 
-async def test_github_fetch_url_com_token_real(monkeypatch):
+async def test_github_fetch_url_com_token_real(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """O caminho web também envia o token autenticado sem expô-lo."""
     token = _live_token()
     if not token:
@@ -97,7 +99,7 @@ async def test_github_fetch_url_com_token_real(monkeypatch):
     assert "vectora" in result.lower()
 
 
-async def test_github_cli_pr_view_real_com_sessao_do_terminal():
+async def test_github_cli_pr_view_real_com_sessao_do_terminal() -> None:
     """O caminho `gh` usa a sessão real já autenticada do terminal."""
     result = await gh_pr_view(
         ctx=ToolContext(workspace_id="", user_id="live-github-cli"),

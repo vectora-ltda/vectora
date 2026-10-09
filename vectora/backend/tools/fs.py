@@ -50,6 +50,7 @@ def _delete_confined(path: Path, root: Path) -> None:
     """
     root_real = root.resolve(strict=True)
     candidate = path.absolute()
+    _assert_no_symlink_components(candidate, root_real)
     if candidate.is_symlink():
         raise ValueError("symlink não pode ser removido por esta tool")
     try:
@@ -80,6 +81,21 @@ def _move_no_replace(source: Path, target: Path) -> None:
     except Exception:
         target.unlink(missing_ok=True)
         raise
+
+
+def _assert_no_symlink_components(path: Path, root: Path) -> None:
+    """Reject symlinked path components before a mutating filesystem call."""
+    root_real = root.resolve(strict=True)
+    candidate = path.absolute()
+    try:
+        relative = candidate.relative_to(root_real)
+    except ValueError as exc:
+        raise ValueError("caminho fora do workspace") from exc
+    current = root_real
+    for component in relative.parts:
+        current /= component
+        if current.is_symlink():
+            raise ValueError("symlink não pode redirecionar a operação")
 
 
 # ---------------------------------------------------------------------------
@@ -481,6 +497,8 @@ async def file_create_dir(path: str, ctx: ToolContext) -> str:
     if resolved is None:
         return err
     try:
+        root, _ = _workspace_root(ctx)
+        await asyncio.to_thread(_assert_no_symlink_components, resolved, root)
         await asyncio.to_thread(resolved.mkdir, parents=True, exist_ok=True)
         return f"[OK] Diretório criado: {path}"
     except OSError as exc:
@@ -546,7 +564,11 @@ async def file_move(from_path: str, to_path: str, ctx: ToolContext) -> str:
     if target.exists():
         return f"Error: destino já existe: {to_path}"
     try:
+        root, _ = _workspace_root(ctx)
+        await asyncio.to_thread(_assert_no_symlink_components, source, root)
+        await asyncio.to_thread(_assert_no_symlink_components, target, root)
         await asyncio.to_thread(target.parent.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(_assert_no_symlink_components, target.parent, root)
         await asyncio.to_thread(_move_no_replace, source, target)
         return f"[OK] Movido: {from_path} -> {to_path}"
     except OSError as exc:

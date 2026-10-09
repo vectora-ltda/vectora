@@ -188,16 +188,6 @@ function mockFetch(
           }),
         } as Response);
       }
-      if (url === "/provider-routing/llamacpp/status") {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            configured: false,
-            base_url: "http://127.0.0.1:8080/v1",
-            model: "",
-          }),
-        } as Response);
-      }
       if (url === "/provider-routing/nine-router/config" && method === "POST") {
         const ok = handlers.nineRouterConfigSaveOk ?? true;
         return Promise.resolve({
@@ -335,7 +325,7 @@ describe("ProviderRoutingTab - Hugging Face", () => {
     overwriteGetLocale(() => "pt");
   });
 
-  it("oferece uma �nica a��o de instala��o para cada modelo", async () => {
+  it("oferece uma única ação de instalação para cada modelo", async () => {
     mockFetch({
       registered: [],
       hfModels: [
@@ -343,7 +333,7 @@ describe("ProviderRoutingTab - Hugging Face", () => {
           id: "owner/model",
           name: "Modelo",
           format: "GGUF",
-          compatibility: "prov�vel",
+          compatibility: "provável",
         },
       ],
       hfMetadata: {

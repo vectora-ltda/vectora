@@ -318,7 +318,7 @@ venvPath = "."
 executionEnvironments = [{ root = "vectora" }]
 
 [tool.pytest.ini_options]
-addopts = "--color=yes --tb=short"
+addopts = "--color=yes --tb=short -m 'not live'"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
