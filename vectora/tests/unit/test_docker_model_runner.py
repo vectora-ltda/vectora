@@ -80,6 +80,36 @@ async def test_provider_status_probes_default_endpoint_without_saved_config(
     assert status["base_url"] == dmr.DEFAULT_DMR_BASE_URL
     assert status["reachable"] is True
     assert status["models"] == ["hf.co/Qwen/Qwen3-0.6B"]
+    assert status["state"] == "ready"
+    assert status["architecture"]
+
+
+@pytest.mark.asyncio
+async def test_provider_status_distinguishes_missing_model_runner_plugin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.api.handlers import provider_routing
+    from backend.settings import settings
+
+    async def fake_available() -> tuple[bool, str]:
+        return False, "docker: unknown command: model"
+
+    async def fake_probe(*args: object, **kwargs: object) -> dmr.DmrProbe:
+        return dmr.DmrProbe(False, None, (), "endpoint indisponível")
+
+    monkeypatch.setattr(settings, "dmr_base_url", None)
+    monkeypatch.setattr(
+        "backend.services.docker_model_runner.docker_model_available",
+        fake_available,
+    )
+    monkeypatch.setattr(
+        "backend.services.docker_model_runner.probe_dmr",
+        fake_probe,
+    )
+
+    status = await provider_routing.get_dmr_status()
+
+    assert status["state"] == "plugin_unavailable"
 
 
 @pytest.mark.asyncio

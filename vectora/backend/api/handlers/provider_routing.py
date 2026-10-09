@@ -46,6 +46,7 @@ import hmac
 import json
 import logging
 import os
+import platform
 import re
 import shutil
 import tarfile
@@ -882,10 +883,25 @@ async def get_dmr_status() -> dict[str, object]:
     cli_available, cli_detail = await docker_model_available()
     base_url = settings.dmr_base_url or DEFAULT_DMR_BASE_URL
     probe = await probe_dmr(base_url)
+    cli_detail_lower = (cli_detail or "").lower()
+    if probe.reachable:
+        state = "ready"
+    elif not cli_available:
+        state = (
+            "plugin_unavailable"
+            if "model" in cli_detail_lower or "unknown command" in cli_detail_lower
+            else "docker_unavailable"
+        )
+    else:
+        state = "stopped"
     return {
         "configured": bool(settings.dmr_base_url),
         "base_url": base_url,
         "model": settings.dmr_model or "",
+        "state": state,
+        "platform": platform.system().lower(),
+        "architecture": platform.machine().lower(),
+        "backend": None,
         "cli_available": cli_available,
         "cli_detail": cli_detail,
         "reachable": probe.reachable if probe else False,
@@ -978,6 +994,12 @@ async def start_dmr_model(body: DmrModelRequest, _: ProviderAdmin) -> dict[str, 
     status = await get_dmr_status()
     if not status["reachable"]:
         raise HTTPException(status_code=503, detail="DMR não está pronto")
+    if not settings.dmr_base_url:
+        base_url = str(status["base_url"])
+        object.__setattr__(settings, "dmr_base_url", base_url)
+        _set_env_key(_env_file(), "DMR_BASE_URL", base_url)
+        os.environ["DMR_BASE_URL"] = base_url
+        status = await get_dmr_status()
     return {
         "status": "ready",
         "reference": reference,

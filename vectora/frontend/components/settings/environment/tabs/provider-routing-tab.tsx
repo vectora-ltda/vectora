@@ -123,6 +123,10 @@ interface DmrStatus {
   contract: string | null;
   models: string[];
   detail?: string | null;
+  state: "docker_unavailable" | "plugin_unavailable" | "stopped" | "ready";
+  platform: string;
+  architecture: string;
+  backend: string | null;
 }
 
 async function discoverModels(): Promise<{
@@ -210,6 +214,25 @@ async function prepareDmrModel(reference: string): Promise<DmrStatus> {
   return (await response.json()) as DmrStatus;
 }
 
+async function stopDmrModel(reference: string): Promise<DmrStatus> {
+  const response = await fetch("/provider-routing/dmr/models/stop", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reference }),
+  });
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  return fetchDmrStatus();
+}
+
+async function removeDmrModel(reference: string): Promise<DmrStatus> {
+  const response = await fetch(
+    `/provider-routing/dmr/models/${encodeURIComponent(reference)}?confirm=true`,
+    { method: "DELETE" },
+  );
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  return fetchDmrStatus();
+}
+
 function DmrSection() {
   const [status, setStatus] = useState<DmrStatus | null>(null);
   const [baseUrl, setBaseUrl] = useState("http://127.0.0.1:12434");
@@ -257,6 +280,33 @@ function DmrSection() {
     }
   }
 
+  async function stop() {
+    if (!model.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      setStatus(await stopDmrModel(model.trim()));
+    } catch {
+      setError("Não foi possível parar o modelo no Docker Model Runner.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    if (!model.trim() || !window.confirm("Remover este modelo do Docker?"))
+      return;
+    setBusy(true);
+    setError("");
+    try {
+      setStatus(await removeDmrModel(model.trim()));
+    } catch {
+      setError("Não foi possível remover o modelo do Docker Model Runner.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-3 rounded-lg border p-4">
       <div>
@@ -298,14 +348,33 @@ function DmrSection() {
         >
           {m.provider_routing_dmr_prepare()}
         </Button>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy || !model.trim() || status?.state !== "ready"}
+          onClick={() => void stop()}
+        >
+          {m.provider_routing_dmr_stop()}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={busy || !model.trim()}
+          onClick={() => void remove()}
+        >
+          {m.provider_routing_dmr_remove()}
+        </Button>
       </div>
       {status && (
         <p className="text-xs text-muted-foreground">
-          {status.cli_available && status.reachable
+          {status.state === "ready"
             ? m.provider_routing_dmr_ready({ contract: status.contract ?? "?" })
-            : status.cli_available
-              ? m.provider_routing_dmr_cli_only()
-              : m.provider_routing_dmr_missing_cli()}
+            : status.state === "stopped"
+              ? m.provider_routing_dmr_stopped()
+              : status.state === "plugin_unavailable"
+                ? m.provider_routing_dmr_missing_plugin()
+                : m.provider_routing_dmr_missing_cli()}
+          {` · ${status.platform}/${status.architecture}`}
           {status.models.length ? ` · ${status.models.join(", ")}` : ""}
         </p>
       )}
