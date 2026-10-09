@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from contextlib import suppress
 from unittest.mock import AsyncMock
 
 import httpx
@@ -316,13 +317,34 @@ async def test_model_jobs_are_recovered_as_interrupted_after_restart(
 
 
 @pytest.mark.asyncio
-async def test_dmr_live_probe_when_explicitly_enabled() -> None:
-    """Smoke test contra Docker real; nunca substitui os contratos determinísticos."""
+async def test_dmr_live_pull_run_and_infer_when_explicitly_enabled() -> None:
+    """Exercita pull, preload e inferência contra um DMR real.
+
+    O teste permanece opt-in porque requer Docker Model Runner local e baixa um
+    modelo. Quando habilitado, nenhum contrato HTTP é simulado.
+    """
     if os.getenv("VECTORA_TEST_DMR_LIVE") != "1":
         pytest.skip(
             "ative VECTORA_TEST_DMR_LIVE=1 para testar Docker Model Runner real"
         )
+    reference = os.getenv("VECTORA_TEST_DMR_MODEL", "ai/smollm2")
+    base_url = os.getenv("DMR_BASE_URL")
     available, detail = await dmr.docker_model_available()
     assert available, detail
-    result = await dmr.probe_dmr(os.getenv("DMR_BASE_URL"))
-    assert result.reachable, result.detail
+    await dmr.prepare_model(reference)
+    try:
+        await dmr.run_model(reference)
+        result = await dmr.probe_dmr(base_url)
+        assert result.reachable, result.detail
+        assert result.contract in {"openai", "ollama"}
+        candidates = set(result.models)
+        model = (
+            reference if reference in candidates else reference.removeprefix("hf.co/")
+        )
+        assert model in candidates, result.models
+        assert await dmr.probe_dmr_inference(base_url, result.contract, model), (
+            "DMR não concluiu uma inferência real"
+        )
+    finally:
+        with suppress(OSError, RuntimeError, ValueError):
+            await dmr.stop_model(reference)
