@@ -501,7 +501,7 @@ async def file_create_dir(path: str, ctx: ToolContext) -> str:
         await asyncio.to_thread(_assert_no_symlink_components, resolved, root)
         await asyncio.to_thread(resolved.mkdir, parents=True, exist_ok=True)
         return f"[OK] Diretório criado: {path}"
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         return f"Error criando diretório: {exc}"
 
 
@@ -571,7 +571,7 @@ async def file_move(from_path: str, to_path: str, ctx: ToolContext) -> str:
         await asyncio.to_thread(_assert_no_symlink_components, target.parent, root)
         await asyncio.to_thread(_move_no_replace, source, target)
         return f"[OK] Movido: {from_path} -> {to_path}"
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         return f"Error movendo caminho: {exc}"
 
 
