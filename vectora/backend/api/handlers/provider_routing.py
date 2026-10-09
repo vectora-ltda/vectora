@@ -2024,14 +2024,7 @@ async def install_huggingface_model(
         "source": f"https://huggingface.co/{repo_id}/tree/{revision}",
     }
     manifest_path = root / "model-manifest.json"
-    temporary = manifest_path.with_suffix(".tmp")
     await asyncio.to_thread(root.mkdir, parents=True, exist_ok=True)
-    await asyncio.to_thread(
-        temporary.write_text,
-        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
-        "utf-8",
-    )
-    await asyncio.to_thread(temporary.replace, manifest_path)
     if body.provider == "ollama":
         import httpx
 
@@ -2047,6 +2040,13 @@ async def install_huggingface_model(
             raise HTTPException(
                 status_code=502, detail="não foi possível importar o modelo no Ollama"
             ) from exc
+    temporary = manifest_path.with_suffix(".tmp")
+    await asyncio.to_thread(
+        temporary.write_text,
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        "utf-8",
+    )
+    await asyncio.to_thread(temporary.replace, manifest_path)
     return {"status": "installed", "manifest": manifest}
 
 
@@ -2320,12 +2320,23 @@ async def install_llamacpp_runtime(
         }
     )
     await _write_json_atomic(manifest_path, {"runtimes": runtimes})
-    await _write_text_atomic(destination_root / "active-runtime", runtime_id)
+    active_path = destination_root / "active-runtime"
+    try:
+        active_runtime = (
+            await asyncio.to_thread(active_path.read_text, encoding="utf-8")
+        ).strip()
+    except FileNotFoundError:
+        active_runtime = ""
+    activated = not active_runtime
+    if activated:
+        await _write_text_atomic(active_path, runtime_id)
     return {
         "status": "installed" if files else "downloaded",
         "path": str(version_root),
         "files": files,
         "sha256": actual,
+        "active_runtime": runtime_id if activated else active_runtime,
+        "activated": activated,
     }
 
 

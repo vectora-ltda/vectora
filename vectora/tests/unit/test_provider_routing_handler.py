@@ -563,6 +563,61 @@ class TestLlamaCppAndHuggingFace:
             )
 
     @pytest.mark.asyncio
+    async def test_huggingface_ollama_failure_does_not_publish_manifest(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        from fastapi import HTTPException
+
+        from backend.api.handlers.provider_routing import (
+            HuggingFaceInstallRequest,
+            install_huggingface_model,
+        )
+        from backend.settings import settings
+
+        root = tmp_path / "models" / "huggingface" / "org" / "model"
+        root.mkdir(parents=True)
+        model = root / "model.gguf"
+        model.write_bytes(b"weights")
+        model.with_name("model.gguf.source.json").write_text(
+            json.dumps(
+                {
+                    "repo_id": "org/model",
+                    "filename": "model.gguf",
+                    "revision": "abc123",
+                    "sha256": hashlib.sha256(b"weights").hexdigest(),
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+
+        response = MagicMock()
+        response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "upstream failure",
+            request=httpx.Request("POST", "http://127.0.0.1:11434/api/create"),
+            response=httpx.Response(500),
+        )
+        client_context = AsyncMock()
+        client_context.__aenter__ = AsyncMock(return_value=client_context)
+        client_context.__aexit__ = AsyncMock(return_value=False)
+        client_context.post = AsyncMock(return_value=response)
+
+        with patch("httpx.AsyncClient", return_value=client_context):
+            with pytest.raises(HTTPException, match="importar o modelo"):
+                await install_huggingface_model(
+                    HuggingFaceInstallRequest(
+                        repo_id="org/model",
+                        revision="abc123",
+                        filename="model.gguf",
+                        provider="ollama",
+                        alias="local-model",
+                    ),
+                    None,
+                )
+
+        assert not (root / "model-manifest.json").exists()
+
+    @pytest.mark.asyncio
     async def test_huggingface_install_rejects_file_without_source_metadata(
         self, tmp_path, monkeypatch
     ):
