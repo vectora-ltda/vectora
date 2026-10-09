@@ -196,7 +196,7 @@ def load_chat_client(model_id: str) -> ChatClient:  # noqa: PLR0911
             from backend.settings import settings
 
             mode = os.getenv("LLAMACPP_MODE", "external")
-            base_url = settings.llamacpp_base_url or "http://127.0.0.1:8080/v1"
+            base_url = settings.llamacpp_base_url or "http://127.0.0.1:18080/v1"
             api_key = settings.llamacpp_api_key or ""
             if mode == "managed":
                 from backend.services.llamacpp_sidecar import llamacpp_status

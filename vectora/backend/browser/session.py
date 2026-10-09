@@ -158,15 +158,17 @@ async def get_browser_page(workspace_id: str, tab_id: str | None = None) -> Any:
 
     from playwright.async_api import async_playwright
 
-    playwright = await async_playwright().start()
     endpoint = _electron_cdp_endpoint()
+    playwright = await async_playwright().start()
     try:
         browser = await playwright.chromium.connect_over_cdp(endpoint)
         contexts = browser.contexts
         if not contexts:
             raise RuntimeError("Chromium do Electron não expôs nenhum contexto CDP")
         context = contexts[0]
-        page = context.pages[0] if context.pages else await context.new_page()
+        # Nunca reutilize uma página arbitrária: ela pode ser a janela do
+        # Electron ou pertencer a outro workspace. A aba do agente é dedicada.
+        page = await context.new_page()
         tab = await _create_tab_state(page)
         first_tab_id = uuid.uuid4().hex[:12]
         _sessions[workspace_id] = {

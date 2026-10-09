@@ -1020,6 +1020,8 @@
   "provider_routing_llamacpp_runtime_disk_free": "Espaço livre: {bytes} bytes",
   "provider_routing_llamacpp_runtime_installed": "Runtime instalado",
   "provider_routing_llamacpp_runtime_remove": "Remover runtime gerenciado",
+  "provider_routing_llamacpp_runtime_remove_all": "Remover todos os runtimes gerenciados",
+  "provider_routing_llamacpp_runtime_remove_version": "Remover esta versão do runtime",
   "provider_routing_llamacpp_runtime_rollback": "Reverter runtime",
   "provider_routing_llamacpp_save": "Aplicar configuração",
   "provider_routing_llamacpp_subtitle": "Servidor OpenAI-compatible local. O Vectora não hospeda binários nem pesos.",

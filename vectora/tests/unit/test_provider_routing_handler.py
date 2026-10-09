@@ -217,7 +217,7 @@ class TestOllamaDiscovery:
 class TestOllamaRegisteredModels:
     def test_registered_model_mutation_requires_authentication(
         self, client, monkeypatch
-    ):
+    ) -> None:
         monkeypatch.setenv("VECTORA_AUTH_REQUIRED", "true")
         response = client.post(
             "/provider-routing/ollama/registered", json={"tag": "unauthorized"}
@@ -256,15 +256,16 @@ class TestOllamaRegisteredModels:
 
 class TestLlamaCppAndHuggingFace:
     def test_llamacpp_status_uses_suggested_endpoint_without_configuring_provider(
-        self, client
-    ):
+        self, client, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from backend.settings import settings
 
+        monkeypatch.setenv("LLAMACPP_MODE", "external")
         object.__setattr__(settings, "llamacpp_base_url", None)
         response = client.get("/provider-routing/llamacpp/status")
         assert response.status_code == 200
         assert response.json()["configured"] is False
-        assert response.json()["base_url"] == "http://127.0.0.1:8080/v1"
+        assert response.json()["base_url"] == "http://127.0.0.1:18080/v1"
 
     def test_llamacpp_connection_test_reports_empty_catalog(self, client):
         response = MagicMock()
@@ -411,7 +412,7 @@ class TestLlamaCppAndHuggingFace:
         )
         partial.parent.mkdir(parents=True)
         partial.write_bytes(b"partial")
-        key = "org/model/revision-1/weights.gguf"
+        key = "org/model/weights.gguf"
         lock = await provider_mod._download_lock(key)
         await lock.acquire()
         event = asyncio.Event()
@@ -534,7 +535,7 @@ class TestLlamaCppAndHuggingFace:
             "executable": str(executable),
             "model": str(model_path),
             "host": "127.0.0.1",
-            "port": 8080,
+            "port": 18080,
             "alias": None,
             "mmproj": None,
             "ctx_size": None,
@@ -1324,7 +1325,12 @@ class TestLlamaCppConfiguration:
         assert response.json()["mode"] == "external"
         assert "LLAMACPP_MODE=external" in (tmp_path / ".env").read_text()
 
-    def test_config_syncs_model_environment(self, client, clean_llamacpp_config):
+    def test_config_syncs_model_environment(
+        self, client, clean_llamacpp_config, tmp_path, monkeypatch
+    ) -> None:
+        from backend.settings import settings
+
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
         response = client.post(
             "/provider-routing/llamacpp/config",
             json={

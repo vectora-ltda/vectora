@@ -51,6 +51,26 @@ def _process_creation_time(pid: int) -> float | None:
         return None
 
 
+def _pid_exists(pid: int) -> bool:
+    """Verifica existência sem enviar CTRL_C_EVENT no Windows."""
+    if os.name == "nt":
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return False
+        kernel32.CloseHandle(handle)
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
 async def _write_state(
     process: asyncio.subprocess.Process, started_at: float | None = None
 ) -> None:
@@ -108,10 +128,7 @@ def llamacpp_status() -> dict[str, int | bool | str | None]:
     stale = False
     persisted_pid = persisted.get("pid") if persisted else None
     if isinstance(persisted_pid, int):
-        try:
-            os.kill(persisted_pid, 0)
-        except OSError:
-            stale = True
+        stale = not _pid_exists(persisted_pid)
         persisted_started = persisted.get("started_at") if persisted else None
         actual_started = _process_creation_time(persisted_pid)
         if (
@@ -138,7 +155,7 @@ async def start_llamacpp(
     model: str | Path,
     *,
     host: str = "127.0.0.1",
-    port: int = 8080,
+    port: int = 18080,
     alias: str | None = None,
     mmproj: str | Path | None = None,
     ctx_size: int | None = None,
@@ -231,7 +248,11 @@ async def start_llamacpp(
                             health_ready = health.is_success
                         if health_ready:
                             response = await client.get(_readiness_url(host, port))
-                            if response.is_success:
+                            if (
+                                _process is not None
+                                and _process.returncode is None
+                                and response.is_success
+                            ):
                                 await _write_state(_process, _process_started_at)
                                 return _process
                     except httpx.HTTPError:
@@ -253,12 +274,13 @@ async def stop_llamacpp() -> None:
 async def _stop_process() -> None:
     """Encerra o único processo cujo handle pertence a este módulo."""
     global _process, _process_spec, _process_options, _process_started_at
-    process, _process = _process, None
-    _process_spec = None
-    _process_options = None
-    _process_started_at = None
-    await _clear_state()
+    process = _process
     if process is None or process.returncode is not None:
+        _process = None
+        _process_spec = None
+        _process_options = None
+        _process_started_at = None
+        await _clear_state()
         return
     process.terminate()
     try:
@@ -266,3 +288,8 @@ async def _stop_process() -> None:
     except TimeoutError:
         process.kill()
         await process.wait()
+    _process = None
+    _process_spec = None
+    _process_options = None
+    _process_started_at = None
+    await _clear_state()

@@ -26,7 +26,9 @@ def _mock_httpx(response: MagicMock):
 
 class TestGithubFetchPrDiff:
     @pytest.mark.asyncio
-    async def test_repositorio_publico_funciona_sem_token(self, monkeypatch):
+    async def test_repositorio_publico_funciona_sem_token(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
         mock_response = MagicMock(status_code=200, text="diff público")
         client = _mock_httpx(mock_response)
@@ -38,7 +40,9 @@ class TestGithubFetchPrDiff:
         assert "Authorization" not in client.get.call_args.kwargs["headers"]
 
     @pytest.mark.asyncio
-    async def test_token_do_usuario_tem_precedencia(self, monkeypatch):
+    async def test_token_do_usuario_tem_precedencia(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("GITHUB_TOKEN", "token-global")
         mock_response = MagicMock(status_code=200, text="diff autenticado")
         client = _mock_httpx(mock_response)

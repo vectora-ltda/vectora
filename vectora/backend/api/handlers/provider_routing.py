@@ -214,6 +214,7 @@ class HuggingFaceInstallRequest(BaseModel):
     filename: str
     mmproj_filename: str | None = None
     alias: str | None = None
+    provider: Literal["ollama", "llamacpp"] = "llamacpp"
     parameters: dict[str, str | int | float | bool | None] = {}
 
 
@@ -223,7 +224,7 @@ class HuggingFaceStartRequest(BaseModel):
     repo_id: str
     filename: str | None = None
     host: str = "127.0.0.1"
-    port: int = 8080
+    port: int = 18080
     alias: str | None = None
     ctx_size: int | None = None
     n_gpu_layers: int | None = None
@@ -255,7 +256,7 @@ class LlamaCppSidecarRequest(BaseModel):
     executable: str
     model: str
     host: str = "127.0.0.1"
-    port: int = 8080
+    port: int = 18080
     alias: str | None = None
     mmproj: str | None = None
     ctx_size: int | None = None
@@ -319,6 +320,9 @@ def _extract_llamacpp_archive(archive: Path, destination_root: Path) -> list[str
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with bundle.open(info) as source, target.open("wb") as output:
                     output.write(source.read())
+                mode = (info.external_attr >> 16) & 0o777
+                if mode:
+                    target.chmod(mode)
                 extracted.append(str(target))
         return extracted
     if tarfile.is_tarfile(archive):
@@ -336,6 +340,8 @@ def _extract_llamacpp_archive(archive: Path, destination_root: Path) -> list[str
                     raise ValueError("arquivo do runtime inválido")
                 with source, target.open("wb") as output:
                     output.write(source.read())
+                if member.mode:
+                    target.chmod(member.mode & 0o777)
                 extracted.append(str(target))
         return extracted
     return []
@@ -510,7 +516,7 @@ async def discover_llamacpp_models() -> OpenAICompatibleDiscoveryResponse:
     """
     import httpx
 
-    base_url = (settings.llamacpp_base_url or "http://127.0.0.1:8080/v1").rstrip("/")
+    base_url = (settings.llamacpp_base_url or "http://127.0.0.1:18080/v1").rstrip("/")
     headers = (
         {"Authorization": f"Bearer {settings.llamacpp_api_key}"}
         if settings.llamacpp_api_key
@@ -541,7 +547,7 @@ async def test_llamacpp_connection() -> LlamaCppConnectionTestResponse:
     """Testa o contrato OpenAI-compatible sem expor credenciais."""
     import httpx
 
-    base_url = (settings.llamacpp_base_url or "http://127.0.0.1:8080/v1").rstrip("/")
+    base_url = (settings.llamacpp_base_url or "http://127.0.0.1:18080/v1").rstrip("/")
     headers = (
         {"Authorization": f"Bearer {settings.llamacpp_api_key}"}
         if settings.llamacpp_api_key
@@ -728,7 +734,7 @@ async def list_llamacpp_model_confirmations() -> list[LlamaCppModelConfirmation]
 @router.get("/llama-cpp/status", include_in_schema=False)
 async def get_llamacpp_status() -> LlamaCppStatus:
     key = settings.llamacpp_api_key or ""
-    configured_url = settings.llamacpp_base_url or "http://127.0.0.1:8080/v1"
+    configured_url = settings.llamacpp_base_url or "http://127.0.0.1:18080/v1"
     mode_value = os.getenv("LLAMACPP_MODE")
     mode: Literal["managed", "external"] = (
         mode_value
@@ -738,7 +744,7 @@ async def get_llamacpp_status() -> LlamaCppStatus:
         )
     )
     return LlamaCppStatus(
-        configured=bool(settings.llamacpp_base_url),
+        configured=bool(settings.llamacpp_base_url) or mode == "managed",
         base_url=configured_url,
         model=settings.llamacpp_model or "",
         masked=(f"{key[:4]}…{key[-4:]}" if len(key) > 8 else ("••••" if key else "")),
@@ -761,7 +767,8 @@ async def set_llamacpp_config(
     if len(base_url) > 500 or len(body.api_key) > 500 or len(body.model) > 300:
         raise HTTPException(status_code=400, detail="configuração excede o limite")
     object.__setattr__(settings, "llamacpp_base_url", base_url)
-    object.__setattr__(settings, "llamacpp_api_key", body.api_key.strip() or None)
+    api_key = body.api_key.strip() or settings.llamacpp_api_key
+    object.__setattr__(settings, "llamacpp_api_key", api_key)
     model = body.model.strip()
     object.__setattr__(settings, "llamacpp_model", model or None)
     env_file = _env_file()
@@ -771,10 +778,8 @@ async def set_llamacpp_config(
         os.environ["LLAMACPP_MODEL"] = model
     else:
         os.environ.pop("LLAMACPP_MODEL", None)
-    if body.api_key.strip():
-        _set_env_key(env_file, "LLAMACPP_API_KEY", body.api_key.strip())
-    else:
-        _remove_env_key(env_file, "LLAMACPP_API_KEY")
+    if api_key:
+        _set_env_key(env_file, "LLAMACPP_API_KEY", api_key)
     return await get_llamacpp_status()
 
 
@@ -1275,7 +1280,10 @@ async def download_huggingface_model(
         )
     await asyncio.to_thread(destination.parent.mkdir, parents=True, exist_ok=True)
     partial = destination.with_name(destination.name + ".part")
-    download_key = f"{repo_id}/{revision}/{filename}"
+    # O arquivo parcial é identificado pelo caminho, independentemente da
+    # revisão. Assim o DELETE da UI consegue cancelar a mesma transferência
+    # mesmo quando a revisão foi omitida ou mudou entre tentativas.
+    download_key = f"{repo_id}/{filename}"
     lock = await _download_lock(download_key)
     async with lock:
         cancel_event = asyncio.Event()
@@ -1406,7 +1414,7 @@ async def get_huggingface_download_progress(
     if repo_id.count("/") != 1:
         raise HTTPException(status_code=400, detail="repo_id deve ser owner/model")
     return _download_progress.get(
-        f"{repo_id}/{revision}/{filename}",
+        f"{repo_id}/{filename}",
         {"downloaded": 0, "total": None, "status": "idle"},
     )
 
@@ -1476,6 +1484,22 @@ async def install_huggingface_model(
         "utf-8",
     )
     await asyncio.to_thread(temporary.replace, manifest_path)
+    if body.provider == "ollama":
+        import httpx
+
+        alias = body.alias.strip() if body.alias else filename
+        ollama_url = (settings.ollama_base_url or "http://127.0.0.1:11434").rstrip("/")
+        try:
+            async with httpx.AsyncClient(timeout=1800) as client:
+                response = await client.post(
+                    f"{ollama_url}/api/create",
+                    json={"name": alias, "modelfile": f"FROM {files[0]['path']}"},
+                )
+                response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=502, detail="não foi possível importar o modelo no Ollama"
+            ) from exc
     return {"status": "installed", "manifest": manifest}
 
 
@@ -1519,7 +1543,7 @@ async def cancel_huggingface_download(
         raise HTTPException(
             status_code=400, detail="arquivo fora do diretório permitido"
         )
-    download_key = f"{repo_id}/{revision}/{filename}"
+    download_key = f"{repo_id}/{filename}"
     cancel_event = _download_cancel_events.get(download_key)
     if cancel_event is not None:
         cancel_event.set()
@@ -1553,6 +1577,39 @@ async def list_llamacpp_releases() -> dict[str, list[dict[str, object]]]:
             payload = response.json()
     except Exception as exc:
         raise HTTPException(status_code=502, detail="GitHub indisponível") from exc
+    import platform
+
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+    os_patterns = {
+        "windows": ("win",),
+        "darwin": ("mac", "osx", "darwin"),
+        "linux": ("ubuntu", "linux"),
+    }
+    os_tokens = os_patterns.get(system, ())
+    arch_tokens = (
+        ("arm64", "aarch64")
+        if "arm" in machine or "aarch64" in machine
+        else ("x64", "x86_64", "amd64")
+    )
+
+    def asset_payload(asset: dict[str, object]) -> dict[str, object]:
+        name = str(asset.get("name", ""))
+        lowered = name.lower()
+        recommended = bool(
+            os_tokens
+            and any(token in lowered for token in os_tokens)
+            and any(token in lowered for token in arch_tokens)
+            and not any(token in lowered for token in ("cuda", "vulkan", "rocm"))
+        )
+        return {
+            "name": name,
+            "url": asset.get("browser_download_url", ""),
+            "size": asset.get("size", 0),
+            "sha256": str(asset.get("digest", "")).removeprefix("sha256:"),
+            "recommended": recommended,
+        }
+
     return {
         "releases": [
             {
@@ -1560,10 +1617,7 @@ async def list_llamacpp_releases() -> dict[str, list[dict[str, object]]]:
                 "name": item.get("name", ""),
                 "assets": [
                     {
-                        "name": asset.get("name", ""),
-                        "url": asset.get("browser_download_url", ""),
-                        "size": asset.get("size", 0),
-                        "sha256": str(asset.get("digest", "")).removeprefix("sha256:"),
+                        **asset_payload(asset),
                     }
                     for asset in item.get("assets", [])
                     if asset.get("browser_download_url")
@@ -1597,6 +1651,13 @@ async def install_llamacpp_runtime(
         raise HTTPException(status_code=400, detail="release do llama.cpp inválida")
     if body.sha256 and not re.fullmatch(r"[0-9a-fA-F]{64}", body.sha256):
         raise HTTPException(status_code=400, detail="sha256 inválido")
+    from backend.services.llamacpp_sidecar import llamacpp_status
+
+    if llamacpp_status().get("running"):
+        raise HTTPException(
+            status_code=409,
+            detail="pare o sidecar antes de instalar ou substituir um runtime",
+        )
     filename = Path(parsed.path).name
     if not filename or filename in {".", ".."} or len(filename) > 200:
         raise HTTPException(status_code=400, detail="nome do artefato inválido")
@@ -1639,22 +1700,48 @@ async def install_llamacpp_runtime(
         await asyncio.to_thread(destination.unlink, missing_ok=True)
         raise HTTPException(status_code=422, detail="checksum sha256 incompatível")
     version_root: Path | None = None
+    staging_version: Path | None = None
     try:
         runtime_id = actual[:16]
         version_root = (destination_root / "versions" / runtime_id).resolve()
-        await asyncio.to_thread(version_root.mkdir, parents=True, exist_ok=True)
+        try:
+            existing_manifest = await _read_json_file_async(_llamacpp_manifest_path())
+        except (FileNotFoundError, json.JSONDecodeError):
+            existing_manifest = {"runtimes": []}
+        existing = (
+            next(
+                (
+                    item
+                    for item in existing_manifest.get("runtimes", [])
+                    if isinstance(item, dict) and item.get("id") == runtime_id
+                ),
+                None,
+            )
+            if isinstance(existing_manifest, dict)
+            else None
+        )
+        if existing is not None and version_root.is_dir():
+            await asyncio.to_thread(destination.unlink, missing_ok=True)
+            return {"status": "installed", "path": str(version_root), **existing}
+        staging_version = version_root.parent / f".{runtime_id}.{uuid.uuid4().hex}.tmp"
+        await asyncio.to_thread(staging_version.mkdir, parents=True, exist_ok=False)
         files = await asyncio.to_thread(
-            _extract_llamacpp_archive, destination, version_root
+            _extract_llamacpp_archive, destination, staging_version
         )
         runtime_version = await _validate_runtime_executable(files)
-        archive_path = version_root / filename
+        archive_path = staging_version / filename
         await asyncio.to_thread(destination.replace, archive_path)
+        if version_root.exists():
+            raise FileExistsError("runtime já publicado")
+        await asyncio.to_thread(staging_version.replace, version_root)
+        files = [
+            str(version_root / Path(file).relative_to(staging_version))
+            for file in files
+        ]
     except (OSError, ValueError, zipfile.BadZipFile, tarfile.TarError) as exc:
         await asyncio.to_thread(destination.unlink, missing_ok=True)
-        if version_root is not None:
-            import shutil
-
-            await asyncio.to_thread(shutil.rmtree, version_root, ignore_errors=True)
+        if staging_version is not None:
+            await asyncio.to_thread(shutil.rmtree, staging_version, ignore_errors=True)
         raise HTTPException(
             status_code=422, detail="arquivo do runtime inválido"
         ) from exc

@@ -72,7 +72,7 @@ async def _clean_sessions():
 
 
 @pytest.mark.asyncio
-async def test_get_browser_page_sobe_chromium_real_e_navega():
+async def test_get_browser_page_sobe_chromium_real_e_navega() -> None:
     page = await browser_session.get_browser_page("ws-real-1")
     await page.goto("about:blank")
 

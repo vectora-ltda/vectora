@@ -17,7 +17,9 @@ from backend.vtypes import Workspace
 
 
 @pytest.fixture
-def trusted_ws(tmp_path, monkeypatch):
+def trusted_ws(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> dict[str, dict[str, str]]:
     """Workspace confiável apontando para tmp_path + config para as tools.
 
     As tools de fs confinam toda operação ao workspace ativo. Os testes
@@ -104,7 +106,9 @@ class TestFileRead:
 
 
 class TestFileWorkbenchParity:
-    async def test_create_move_search_delete(self, tmp_path, trusted_ws):
+    async def test_create_move_search_delete(
+        self, tmp_path: Path, trusted_ws: dict[str, dict[str, str]]
+    ) -> None:
         from backend.tools.fs import (
             file_create_dir,
             file_delete,

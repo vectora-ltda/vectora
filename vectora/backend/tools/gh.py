@@ -48,6 +48,10 @@ async def _gh_run(
     cmd = ["gh", *args]
     env = os.environ.copy()
     if user_id:
+        # Nunca permita que uma credencial global seja usada em nome de outro
+        # usuário. O contexto autenticado deve ser explícito ou anônimo.
+        env.pop("GH_TOKEN", None)
+        env.pop("GITHUB_TOKEN", None)
         try:
             from backend.rbac.auth import get_env_overrides
 

@@ -50,7 +50,11 @@ def _resolve_workspace(workspace_id: str | None, ctx: ToolContext) -> Any:
     if wid:
         ws = workspace_registry.get(wid)
         if ws is not None:
-            return ws
+            owner_id = getattr(ws, "owner_id", None)
+            if owner_id is None or owner_id == ctx.user_id:
+                return ws
+            return None
+        return None
     return workspace_registry.get_or_create()
 
 

@@ -46,9 +46,17 @@ def _get_browser() -> Any:
                 "VECTORA_ELECTRON_CDP_PORT inválido para o Chromium do Electron."
             )
         _playwright = sync_playwright().start()
-        _browser = _playwright.chromium.connect_over_cdp(endpoint)
-        if not _browser.contexts:
-            raise RuntimeError("Chromium do Electron não expôs contexto CDP")
+        try:
+            _browser = _playwright.chromium.connect_over_cdp(endpoint)
+            if not _browser.contexts:
+                raise RuntimeError("Chromium do Electron não expôs contexto CDP")
+        except Exception:
+            try:
+                _playwright.stop()
+            finally:
+                _browser = None
+                _playwright = None
+            raise
         logger.info("electron_browser_fallback_connected")
     return _browser
 

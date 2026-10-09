@@ -153,8 +153,10 @@ async def _fetch_via_http(url: str, ctx: ToolContext | None = None) -> str:
         "User-Agent": "Vectora/1.0",
         "Accept": "text/html,application/json,text/plain",
     }
+    github_hosts = {"github.com", "www.github.com", "api.github.com"}
     host = (urlparse(url).hostname or "").lower()
-    if host in {"github.com", "www.github.com", "api.github.com"} and ctx is not None:
+    token: str | None = None
+    if urlparse(url).scheme == "https" and host in github_hosts and ctx is not None:
         try:
             from backend.tools.github import _github_token
 
@@ -164,19 +166,45 @@ async def _fetch_via_http(url: str, ctx: ToolContext | None = None) -> str:
         except Exception:
             logger.debug("fetch_url: token GitHub indisponível", exc_info=True)
 
-    async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
-        response = await client.get(url, headers=headers)
-        if 300 <= response.status_code < 400:
-            location = response.headers.get("location")
-            if not location:
-                response.raise_for_status()
-            redirected = urljoin(url, location)
-            if not is_url_ssrf_safe(redirected):
-                raise ValueError("redirect recusado pelo SSRF guard")
-            response = await client.get(redirected, headers=headers)
-        response.raise_for_status()
+    max_bytes = 2_000_000
 
-    content = response.text[:2_000_000]
+    async def _read_limited(response: httpx.Response) -> str:
+        response.raise_for_status()
+        chunks: list[bytes] = []
+        size = 0
+        async for chunk in response.aiter_bytes():
+            size += len(chunk)
+            if size > max_bytes:
+                remaining = max_bytes - (size - len(chunk))
+                if remaining > 0:
+                    chunks.append(chunk[:remaining])
+                raise ValueError("resposta excede o limite de 2 MB")
+            chunks.append(chunk)
+        return b"".join(chunks).decode(response.encoding or "utf-8", errors="replace")
+
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+        async with client.stream("GET", url, headers=headers) as response:
+            if 300 <= response.status_code < 400:
+                location = response.headers.get("location")
+                if not location:
+                    response.raise_for_status()
+                redirected = urljoin(url, location)
+                if not is_url_ssrf_safe(redirected):
+                    raise ValueError("redirect recusado pelo SSRF guard")
+                redirected_url = urlparse(redirected)
+                redirected_host = (redirected_url.hostname or "").lower()
+                redirected_headers = dict(headers)
+                if (
+                    redirected_url.scheme != "https"
+                    or redirected_host not in github_hosts
+                ):
+                    redirected_headers.pop("Authorization", None)
+                async with client.stream(
+                    "GET", redirected, headers=redirected_headers
+                ) as redirected_response:
+                    content = await _read_limited(redirected_response)
+            else:
+                content = await _read_limited(response)
     if (pattern := detect_injection(content)) is not None:
         logger.warning(
             "fetch_url: padrão de prompt injection detectado (log-only)",

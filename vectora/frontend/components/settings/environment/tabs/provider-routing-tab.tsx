@@ -92,6 +92,7 @@ interface LlamaCppReleaseAsset {
   url: string;
   size: number;
   sha256?: string;
+  recommended?: boolean;
 }
 
 interface LlamaCppRuntimeStatus {
@@ -208,7 +209,10 @@ async function downloadHuggingFaceModel(
   signal?: AbortSignal,
 ): Promise<{ path: string; filename: string }> {
   const metadataResponse = await fetch(
-    `/provider-routing/huggingface/models/${repoId}`,
+    `/provider-routing/huggingface/models/${repoId
+      .split("/")
+      .map((segment) => encodeURIComponent(segment))
+      .join("/")}`,
     { signal },
   );
   if (!metadataResponse.ok) throw new Error(`Erro ${metadataResponse.status}`);
@@ -255,7 +259,14 @@ async function installHuggingFaceModel(input: {
   const response = await fetch("/provider-routing/huggingface/install", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
+    body: JSON.stringify({
+      repo_id: input.repoId,
+      revision: input.revision,
+      filename: input.filename,
+      mmproj_filename: input.mmprojFilename,
+      alias: input.alias,
+      provider: input.provider,
+    }),
   });
   if (!response.ok) throw new Error(`Erro ${response.status}`);
   await registerModel(
@@ -1740,7 +1751,7 @@ function MediaModelsSection() {
 }
 
 function LlamaCppSection() {
-  const [baseUrl, setBaseUrl] = useState("http://127.0.0.1:8080/v1");
+  const [baseUrl, setBaseUrl] = useState("http://127.0.0.1:18080/v1");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [mode, setMode] = useState<"managed" | "external">("external");
@@ -1773,7 +1784,7 @@ function LlamaCppSection() {
           model?: string;
           mode?: "managed" | "external";
         }) => {
-          setBaseUrl(data.base_url ?? "http://127.0.0.1:8080/v1");
+          setBaseUrl(data.base_url ?? "http://127.0.0.1:18080/v1");
           setModel(data.model ?? "");
           setMode(data.mode ?? "external");
         },
@@ -1868,37 +1879,7 @@ function LlamaCppSection() {
     try {
       const assets = await fetchLlamaCppReleases();
       setReleases(assets);
-      const nav = navigator as Navigator & {
-        userAgentData?: { platform?: string; architecture?: string };
-      };
-      const platform =
-        `${nav.userAgent} ${nav.userAgentData?.platform ?? ""}`.toLowerCase();
-      const architecture = (
-        nav.userAgentData?.architecture ?? nav.userAgent
-      ).toLowerCase();
-      const isWindows = platform.includes("windows");
-      const isMac =
-        platform.includes("mac os") || platform.includes("macintosh");
-      const isLinux = platform.includes("linux");
-      const isArm = /arm64|aarch64|arm/.test(architecture);
-      const platformPattern = isWindows
-        ? /win|windows/i
-        : isMac
-          ? /mac|darwin|osx/i
-          : isLinux
-            ? /linux/i
-            : null;
-      const architecturePattern = isArm
-        ? /arm64|aarch64/i
-        : /x64|x86[-_ ]?64|amd64|win64|wow64|intel|x86/i;
-      const preferred = platformPattern
-        ? assets.find(
-            (asset) =>
-              platformPattern.test(asset.name) &&
-              architecturePattern.test(asset.name) &&
-              !/cuda|vulkan|rocm/i.test(asset.name),
-          )
-        : undefined;
+      const preferred = assets.find((asset) => asset.recommended);
       if (!preferred) throw new Error("Nenhum runtime compatível encontrado");
       setInstalling(true);
       await installLlamaCppRuntime(preferred.url, preferred.sha256);
@@ -2074,7 +2055,7 @@ function LlamaCppSection() {
                     if (
                       !item.id ||
                       !window.confirm(
-                        m.provider_routing_llamacpp_runtime_remove(),
+                        m.provider_routing_llamacpp_runtime_remove_version(),
                       )
                     )
                       return;
@@ -2091,7 +2072,7 @@ function LlamaCppSection() {
                       .finally(() => setRuntimeBusy(false));
                   }}
                 >
-                  {m.provider_routing_llamacpp_runtime_remove()}
+                  {m.provider_routing_llamacpp_runtime_remove_version()}
                 </Button>
               </div>
             ))}
@@ -2103,7 +2084,7 @@ function LlamaCppSection() {
               disabled={runtimeBusy || loading || installing}
               onClick={() => void removeRuntime()}
             >
-              {m.provider_routing_llamacpp_runtime_remove()}
+              {m.provider_routing_llamacpp_runtime_remove_all()}
             </Button>
           )}
         </div>

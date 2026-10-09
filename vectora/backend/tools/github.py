@@ -36,6 +36,10 @@ async def _github_token(ctx: ToolContext | None = None) -> str:
             logger.debug(
                 "github: não foi possível ler o token do usuário", exc_info=True
             )
+    # Com contexto de usuário, ausência de token significa operação anônima;
+    # não herde a credencial global de outro usuário.
+    if ctx is not None:
+        return ""
     return os.environ.get("GITHUB_TOKEN", "").strip()
 
 

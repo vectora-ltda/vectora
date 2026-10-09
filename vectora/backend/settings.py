@@ -998,7 +998,10 @@ class Settings(BaseSettings):
             providers.append("nine_router")
         if getattr(self, "ollama_base_url", ""):
             providers.append("ollama")
-        if getattr(self, "llamacpp_base_url", ""):
+        if (
+            getattr(self, "llamacpp_base_url", "")
+            or os.getenv("LLAMACPP_MODE", "external") == "managed"
+        ):
             providers.append("llamacpp")
         return providers
 

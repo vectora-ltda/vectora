@@ -135,7 +135,7 @@ def test_browser_tools_registered():
         assert expected in names, f"Browser tool ausente: {expected}"
 
 
-def test_workbench_github_tools_registered():
+def test_workbench_github_tools_registered() -> None:
     """As superfícies GitHub do Workbench também chegam ao agente."""
     names = {t.name for t in ALL_TOOLS}
     for expected in (
@@ -150,13 +150,13 @@ def test_workbench_github_tools_registered():
         assert expected in names, f"Tool GitHub ausente: {expected}"
 
 
-def test_files_workbench_tools_registered():
+def test_files_workbench_tools_registered() -> None:
     names = {t.name for t in ALL_TOOLS}
     for expected in ("file_create_dir", "file_delete", "file_move", "file_search"):
         assert expected in names, f"Tool Files ausente: {expected}"
 
 
-def test_git_workbench_auxiliary_tools_registered():
+def test_git_workbench_auxiliary_tools_registered() -> None:
     names = {t.name for t in ALL_TOOLS}
     for expected in ("git_operation", "git_operations", "git_commit_suggestion"):
         assert expected in names, f"Tool Git Workbench ausente: {expected}"

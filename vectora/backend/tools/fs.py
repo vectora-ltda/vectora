@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import platform
 import re
 import shlex
@@ -38,6 +39,47 @@ from backend.tools.registry import ToolExtras, vtool
 from backend.vtypes.documents import VALID_ARTIFACT_TYPES
 
 logger = logging.getLogger(__name__)
+
+
+def _delete_confined(path: Path, root: Path) -> None:
+    """Revalida o caminho imediatamente antes da remoção.
+
+    A operação rejeita symlinks e qualquer troca do diretório pai observada
+    entre a validação inicial e o I/O destrutivo. Isso reduz a janela de
+    substituição do workspace por um link durante a chamada assíncrona.
+    """
+    root_real = root.resolve(strict=True)
+    candidate = path.absolute()
+    if candidate.is_symlink():
+        raise ValueError("symlink não pode ser removido por esta tool")
+    try:
+        candidate.resolve(strict=True).relative_to(root_real)
+    except ValueError as exc:
+        raise ValueError("caminho fora do workspace") from exc
+    if candidate.is_dir():
+        shutil.rmtree(candidate)
+    else:
+        candidate.unlink()
+
+
+def _move_no_replace(source: Path, target: Path) -> None:
+    """Move sem substituir um destino criado por outra tarefa.
+
+    Arquivos usam hard-link + unlink, operação atômica de criação sem
+    substituição. Diretórios usam rename, que preserva a semântica nativa do
+    sistema e falha quando o destino já existe no Windows.
+    """
+    if target.exists() or target.is_symlink():
+        raise FileExistsError(target)
+    if source.is_dir():
+        source.rename(target)
+        return
+    os.link(source, target)
+    try:
+        source.unlink()
+    except Exception:
+        target.unlink(missing_ok=True)
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -467,10 +509,8 @@ async def file_delete(path: str, ctx: ToolContext, permanent: bool = False) -> s
         return f"Error: caminho não encontrado: {path}"
     try:
         if permanent:
-            if resolved.is_dir():
-                await asyncio.to_thread(shutil.rmtree, resolved)
-            else:
-                await asyncio.to_thread(resolved.unlink)
+            root, _ = _workspace_root(ctx)
+            await asyncio.to_thread(_delete_confined, resolved, root)
         else:
             import send2trash
 
@@ -507,7 +547,7 @@ async def file_move(from_path: str, to_path: str, ctx: ToolContext) -> str:
         return f"Error: destino já existe: {to_path}"
     try:
         await asyncio.to_thread(target.parent.mkdir, parents=True, exist_ok=True)
-        await asyncio.to_thread(shutil.move, str(source), str(target))
+        await asyncio.to_thread(_move_no_replace, source, target)
         return f"[OK] Movido: {from_path} -> {to_path}"
     except OSError as exc:
         return f"Error movendo caminho: {exc}"
