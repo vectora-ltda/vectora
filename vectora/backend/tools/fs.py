@@ -9,6 +9,8 @@ Tools nativas (``@vtool``) — chamadas como função async direta com
 from __future__ import annotations
 
 import asyncio
+import ctypes
+import errno
 import json
 import logging
 import os
@@ -17,6 +19,7 @@ import re
 import shlex
 import shutil
 import stat
+import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -87,7 +90,7 @@ def _move_no_replace(source: Path, target: Path) -> None:
     if target.exists() or target.is_symlink():
         raise FileExistsError(target)
     if source.is_dir():
-        source.rename(target)
+        _rename_no_replace(source, target)
         return
     os.link(source, target)
     try:
@@ -95,6 +98,42 @@ def _move_no_replace(source: Path, target: Path) -> None:
     except Exception:
         target.unlink(missing_ok=True)
         raise
+
+
+def _rename_no_replace(source: Path, target: Path) -> None:
+    """Rename a directory without replacing a concurrently-created target."""
+    if os.name == "nt":
+        # Windows ``MoveFileEx`` semantics used by ``os.rename`` reject an
+        # existing destination, including one created after our prior check.
+        source.rename(target)
+        return
+    if sys.platform == "linux":
+        libc = ctypes.CDLL(None, use_errno=True)
+        renameat2 = getattr(libc, "renameat2", None)
+        if renameat2 is None:
+            raise OSError(errno.ENOTSUP, "renameat2 não está disponível")
+        renameat2.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        renameat2.restype = ctypes.c_int
+        result = renameat2(
+            -100,
+            os.fsencode(source),
+            -100,
+            os.fsencode(target),
+            1,  # RENAME_NOREPLACE
+        )
+        if result != 0:
+            error = ctypes.get_errno()
+            raise OSError(error, os.strerror(error), str(target))
+        return
+    raise OSError(
+        errno.ENOTSUP, "movimentação de diretório sem substituição não suportada"
+    )
 
 
 def _supports_descriptor_operations() -> bool:
@@ -171,9 +210,33 @@ def _move_confined(source: Path, target: Path, root: Path) -> None:
         if stat.S_ISDIR(
             os.stat(source_name, dir_fd=source_fd, follow_symlinks=False).st_mode
         ):
-            os.rename(
-                source_name, target_name, src_dir_fd=source_fd, dst_dir_fd=target_fd
+            if sys.platform != "linux":
+                raise OSError(
+                    errno.ENOTSUP,
+                    "movimentação segura de diretório não suportada nesta plataforma",
+                )
+            libc = ctypes.CDLL(None, use_errno=True)
+            renameat2 = getattr(libc, "renameat2", None)
+            if renameat2 is None:
+                raise OSError(errno.ENOTSUP, "renameat2 não está disponível")
+            renameat2.argtypes = [
+                ctypes.c_int,
+                ctypes.c_char_p,
+                ctypes.c_int,
+                ctypes.c_char_p,
+                ctypes.c_uint,
+            ]
+            renameat2.restype = ctypes.c_int
+            result = renameat2(
+                source_fd,
+                os.fsencode(source_name),
+                target_fd,
+                os.fsencode(target_name),
+                1,
             )
+            if result != 0:
+                error = ctypes.get_errno()
+                raise OSError(error, os.strerror(error), str(target))
         else:
             os.link(
                 source_name,
