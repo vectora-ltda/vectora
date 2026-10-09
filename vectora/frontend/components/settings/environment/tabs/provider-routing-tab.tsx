@@ -337,6 +337,15 @@ async function removeLlamaCppRuntimeVersion(runtimeId: string): Promise<void> {
   if (!res.ok) throw new Error(`Erro ${res.status}`);
 }
 
+async function cleanupLlamaCppRuntime(keep: number): Promise<void> {
+  const res = await fetch("/provider-routing/llamacpp/runtime/cleanup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ keep }),
+  });
+  if (!res.ok) throw new Error(`Erro ${res.status}`);
+}
+
 async function searchHuggingFaceModels(
   query: string,
   provider: "ollama" | "llamacpp" = "llamacpp",
@@ -1942,6 +1951,7 @@ function LlamaCppSection() {
   const [releases, setReleases] = useState<LlamaCppReleaseAsset[]>([]);
   const [runtime, setRuntime] = useState<LlamaCppRuntimeStatus | null>(null);
   const [runtimeBusy, setRuntimeBusy] = useState(false);
+  const [runtimeKeep, setRuntimeKeep] = useState(1);
 
   useEffect(() => {
     void fetchLlamaCppRuntimeStatus()
@@ -2079,6 +2089,22 @@ function LlamaCppSection() {
       setRuntime(await fetchLlamaCppRuntimeStatus());
     } catch {
       setError("Não foi possível remover o runtime. Pare o sidecar antes.");
+    } finally {
+      setRuntimeBusy(false);
+    }
+  }
+
+  async function cleanupRuntime() {
+    if (!runtime) return;
+    setRuntimeBusy(true);
+    setError("");
+    try {
+      await cleanupLlamaCppRuntime(runtimeKeep);
+      setRuntime(await fetchLlamaCppRuntimeStatus());
+    } catch {
+      setError(
+        "Não foi possível limpar versões antigas. Pare o sidecar antes.",
+      );
     } finally {
       setRuntimeBusy(false);
     }
@@ -2255,15 +2281,43 @@ function LlamaCppSection() {
               </div>
             ))}
           {runtime.installed && (
-            <Button
-              type="button"
-              variant="ghost"
-              className="mt-2 px-0"
-              disabled={runtimeBusy || loading || installing}
-              onClick={() => void removeRuntime()}
-            >
-              {m.provider_routing_llamacpp_runtime_remove_all()}
-            </Button>
+            <div className="mt-3 flex flex-wrap items-end gap-2">
+              <div className="grid gap-1">
+                <Label htmlFor="llamacpp-runtime-keep" className="text-xs">
+                  {m.provider_routing_llamacpp_runtime_keep_label()}
+                </Label>
+                <Input
+                  id="llamacpp-runtime-keep"
+                  type="number"
+                  min={0}
+                  max={50}
+                  className="w-24"
+                  value={runtimeKeep}
+                  onChange={(event) =>
+                    setRuntimeKeep(
+                      Math.max(0, Math.min(50, Number(event.target.value))),
+                    )
+                  }
+                />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={runtimeBusy || loading || installing}
+                onClick={() => void cleanupRuntime()}
+              >
+                {m.provider_routing_llamacpp_runtime_cleanup()}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="px-0"
+                disabled={runtimeBusy || loading || installing}
+                onClick={() => void removeRuntime()}
+              >
+                {m.provider_routing_llamacpp_runtime_remove_all()}
+              </Button>
+            </div>
           )}
         </div>
       )}
