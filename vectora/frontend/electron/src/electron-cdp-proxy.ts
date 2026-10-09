@@ -8,6 +8,64 @@ import { connect } from "node:net";
 
 const AUTH_HEADER = "authorization";
 
+/** Aguarda o CDP real do Electron e rejeita uma porta ocupada por outro processo. */
+export async function waitForElectronCdpTarget(
+  targetPort: number,
+  attempts = 40,
+): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const browser = await new Promise<string>((resolve, reject) => {
+        const probe = request(
+          {
+            host: "127.0.0.1",
+            port: targetPort,
+            path: "/json/version",
+            method: "GET",
+            timeout: 500,
+          },
+          (response) => {
+            const chunks: Buffer[] = [];
+            response.on("data", (chunk: Buffer) => chunks.push(chunk));
+            response.on("end", () => {
+              if (response.statusCode !== 200) {
+                reject(new Error(`CDP retornou HTTP ${response.statusCode}`));
+                return;
+              }
+              try {
+                const payload = JSON.parse(
+                  Buffer.concat(chunks).toString("utf8"),
+                ) as { Browser?: unknown };
+                if (
+                  typeof payload.Browser !== "string" ||
+                  !payload.Browser.toLowerCase().includes("electron")
+                ) {
+                  reject(new Error("a porta CDP não pertence ao Electron"));
+                  return;
+                }
+                resolve(payload.Browser);
+              } catch (error) {
+                reject(error);
+              }
+            });
+          },
+        );
+        probe.once("timeout", () => probe.destroy(new Error("timeout")));
+        probe.once("error", reject);
+        probe.end();
+      });
+      if (browser) return;
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(
+    `CDP do Electron não ficou disponível na porta ${targetPort}: ${String(lastError)}`,
+  );
+}
+
 function authorized(requestMessage: IncomingMessage, token: string): boolean {
   return requestMessage.headers[AUTH_HEADER] === `Bearer ${token}`;
 }

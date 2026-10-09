@@ -76,7 +76,10 @@ import {
 import { startUpdateDownload as startUpdateDownloadAfterBackup } from "./updater-download.js";
 import { DockerCliExecutor } from "./docker-cli-executor.js";
 import { DmrOperations } from "./dmr-operations.js";
-import { startElectronCdpProxy } from "./electron-cdp-proxy.js";
+import {
+  startElectronCdpProxy,
+  waitForElectronCdpTarget,
+} from "./electron-cdp-proxy.js";
 
 // O backend conecta ao mesmo Chromium do Electron via CDP. O endpoint fica
 // restrito ao loopback e é herdado pelo processo backend supervisionado. Em
@@ -98,11 +101,16 @@ app.commandLine.appendSwitch("remote-debugging-port", electronCdpPort);
 
 let electronCdpProxy: import("node:http").Server | null = null;
 void app.whenReady().then(async () => {
-  electronCdpProxy = await startElectronCdpProxy(
-    Number(electronCdpPort),
-    Number(electronCdpProxyPort),
-    electronCdpAuthToken,
-  );
+  try {
+    await waitForElectronCdpTarget(Number(electronCdpPort));
+    electronCdpProxy = await startElectronCdpProxy(
+      Number(electronCdpPort),
+      Number(electronCdpProxyPort),
+      electronCdpAuthToken,
+    );
+  } catch (error) {
+    console.error("Falha ao validar o alvo CDP do Electron", error);
+  }
 });
 
 const ELECTRON_RESTART_EXIT_CODE = 42;
