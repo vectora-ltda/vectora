@@ -57,6 +57,51 @@ export interface VectoraVscodeMarketplaceSearchItem {
   installs: number;
 }
 
+export interface VectoraDmrDetection {
+  status:
+    | "ready"
+    | "stopped"
+    | "docker_unavailable"
+    | "plugin_unavailable"
+    | "runner_unavailable"
+    | "backend_incompatible";
+  docker: boolean;
+  plugin: boolean;
+  runner: boolean;
+  host?: Record<string, unknown>;
+  detail?: string;
+}
+
+export interface VectoraDmrOperation {
+  id: string;
+  operation: "prepare" | "start" | "stop" | "remove";
+  reference: string;
+  status: "queued" | "running" | "completed" | "failed" | "cancelled";
+  phase:
+    | "queued"
+    | "pulling"
+    | "configuring"
+    | "starting"
+    | "stopping"
+    | "removing"
+    | "completed"
+    | "failed"
+    | "cancelled";
+  progress: number;
+  error?: string;
+  output?: string;
+}
+
+export interface VectoraDmrManifestModel {
+  reference: string;
+  digest?: string;
+  engine?: string;
+  contextSize?: number;
+  source: "docker-model-runner";
+  state: "prepared" | "running" | "stopped";
+  updatedAt: string;
+}
+
 export interface VectoraDesktopBridge {
   readonly platform?: NodeJS.Platform;
   readonly appVersion?: string;
@@ -134,6 +179,25 @@ export interface VectoraDesktopBridge {
   zoom?: {
     setPercent: (percent: number) => void;
     get: () => Promise<number>;
+  };
+  dmr?: {
+    detect: () => Promise<VectoraDmrDetection>;
+    list: () => Promise<{
+      version: 1;
+      models: Record<string, VectoraDmrManifestModel>;
+    }>;
+    prepare: (reference: string) => Promise<VectoraDmrOperation>;
+    start: (
+      reference: string,
+      contextSize?: number,
+    ) => Promise<VectoraDmrOperation>;
+    stop: (reference: string) => Promise<VectoraDmrOperation>;
+    remove: (
+      reference: string,
+      confirmed: boolean,
+    ) => Promise<VectoraDmrOperation>;
+    getOperation: (id: string) => Promise<VectoraDmrOperation | null>;
+    cancel: (id: string) => Promise<boolean>;
   };
 }
 

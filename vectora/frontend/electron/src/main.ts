@@ -74,6 +74,8 @@ import {
   restoreUpdateBackup,
 } from "./update-backup.js";
 import { startUpdateDownload as startUpdateDownloadAfterBackup } from "./updater-download.js";
+import { DockerCliExecutor } from "./docker-cli-executor.js";
+import { DmrOperations } from "./dmr-operations.js";
 
 // O backend conecta ao mesmo Chromium do Electron via CDP. O endpoint fica
 // restrito ao loopback e é herdado pelo processo backend supervisionado. Em
@@ -140,6 +142,20 @@ const desktopBridgeToken =
 let selectedBackupPath: string | null = null;
 let pendingBackupPromise: Promise<void> | null = null;
 let updateDownloadPromise: Promise<void> | null = null;
+let dmrOperations: DmrOperations | null = null;
+
+function getDmrOperations(): DmrOperations {
+  return (dmrOperations ??= new DmrOperations(
+    new DockerCliExecutor(),
+    app.getPath("userData"),
+  ));
+}
+
+function assertTrustedRenderer(event: Electron.IpcMainInvokeEvent): void {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error("origem IPC não autorizada");
+  }
+}
 
 function startUpdateDownload(): Promise<void> {
   if (updateDownloadPromise) return updateDownloadPromise;
@@ -1061,6 +1077,47 @@ function registerIpc(): void {
     },
   );
 
+  // Docker Model Runner: o renderer só recebe contratos tipados; o CLI fica
+  // exclusivamente no processo principal e exige a origem IPC da janela.
+  ipcMain.handle("vectora:dmr-detect", (event) => {
+    assertTrustedRenderer(event);
+    return getDmrOperations().detect();
+  });
+  ipcMain.handle("vectora:dmr-list", (event) => {
+    assertTrustedRenderer(event);
+    return getDmrOperations().list();
+  });
+  ipcMain.handle("vectora:dmr-prepare", (event, reference: string) => {
+    assertTrustedRenderer(event);
+    return getDmrOperations().prepare(reference);
+  });
+  ipcMain.handle(
+    "vectora:dmr-start",
+    (event, reference: string, contextSize?: number) => {
+      assertTrustedRenderer(event);
+      return getDmrOperations().start(reference, contextSize);
+    },
+  );
+  ipcMain.handle("vectora:dmr-stop", (event, reference: string) => {
+    assertTrustedRenderer(event);
+    return getDmrOperations().stop(reference);
+  });
+  ipcMain.handle(
+    "vectora:dmr-remove",
+    (event, reference: string, confirmed: boolean) => {
+      assertTrustedRenderer(event);
+      return getDmrOperations().remove(reference, confirmed);
+    },
+  );
+  ipcMain.handle("vectora:dmr-operation", (event, id: string) => {
+    assertTrustedRenderer(event);
+    return getDmrOperations().getOperation(id) ?? null;
+  });
+  ipcMain.handle("vectora:dmr-cancel", (event, id: string) => {
+    assertTrustedRenderer(event);
+    return getDmrOperations().cancel(id);
+  });
+
   // Instalação de temas do VS Code Marketplace (Preferências → Aparência) —
   // download + extração rodam aqui (fora do sandbox do renderer); erros
   // propagam pro renderer via rejeição da Promise do invoke.
@@ -1170,6 +1227,7 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   (app as unknown as { isQuitting: boolean }).isQuitting = true;
+  dmrOperations?.dispose();
   if (backend?.pid) {
     const pid = backend.pid;
     backend = null;
