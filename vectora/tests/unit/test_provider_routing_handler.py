@@ -206,6 +206,87 @@ class TestOllamaRegisteredModels:
         assert resp.status_code == 409
 
 
+class TestLlamaCppAndHuggingFace:
+    def test_llamacpp_discovery_uses_openai_models_endpoint(self, client):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {
+            "data": [{"id": "Qwen3-8B", "name": "Qwen3-8B"}]
+        }
+        with patch("httpx.AsyncClient") as mock_httpx:
+            mock_ctx = AsyncMock()
+            mock_ctx.__aenter__ = AsyncMock(return_value=mock_ctx)
+            mock_ctx.__aexit__ = AsyncMock(return_value=False)
+            mock_ctx.get = AsyncMock(return_value=mock_response)
+            mock_httpx.return_value = mock_ctx
+            response = client.get("/provider-routing/llamacpp/models")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "reachable": True,
+            "models": [{"id": "Qwen3-8B", "name": "Qwen3-8B"}],
+        }
+        mock_ctx.get.assert_awaited_once()
+        assert mock_ctx.get.await_args is not None
+        assert mock_ctx.get.await_args.args[0].endswith("/v1/models")
+
+    def test_huggingface_catalog_is_shared_by_runtimes(self, client):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = [
+            {
+                "id": "org/model-GGUF",
+                "pipeline_tag": "text-generation",
+                "downloads": 12,
+                "cardData": {"license": "apache-2.0"},
+            }
+        ]
+        with patch("httpx.AsyncClient") as mock_httpx:
+            mock_ctx = AsyncMock()
+            mock_ctx.__aenter__ = AsyncMock(return_value=mock_ctx)
+            mock_ctx.__aexit__ = AsyncMock(return_value=False)
+            mock_ctx.get = AsyncMock(return_value=mock_response)
+            mock_httpx.return_value = mock_ctx
+            llama = client.get("/provider-routing/huggingface/models?provider=llamacpp")
+            ollama = client.get("/provider-routing/huggingface/models?provider=ollama")
+
+        assert llama.status_code == ollama.status_code == 200
+        assert llama.json()["models"][0]["provider"] == "llamacpp"
+        assert ollama.json()["models"][0]["provider"] == "ollama"
+
+    def test_huggingface_catalog_rejects_unknown_runtime(self, client):
+        response = client.get("/provider-routing/huggingface/models?provider=unknown")
+        assert response.status_code == 400
+
+    def test_huggingface_metadata_rejects_invalid_repo(self, client):
+        response = client.get("/provider-routing/huggingface/models/not-a-repo")
+        assert response.status_code == 400
+
+    def test_huggingface_download_rejects_path_traversal(self, client):
+        response = client.post(
+            "/provider-routing/huggingface/download",
+            json={"repo_id": "org/model", "filename": "../model.gguf"},
+        )
+        assert response.status_code == 400
+
+    def test_llamacpp_install_rejects_non_official_url(self, client):
+        response = client.post(
+            "/provider-routing/llamacpp/install",
+            json={"asset_url": "https://example.com/llama.zip"},
+        )
+        assert response.status_code == 400
+
+    def test_llamacpp_install_rejects_invalid_checksum(self, client):
+        response = client.post(
+            "/provider-routing/llamacpp/install",
+            json={
+                "asset_url": "https://github.com/ggml-org/llama.cpp/releases/download/b1/llama.zip",
+                "sha256": "bad",
+            },
+        )
+        assert response.status_code == 400
+
+
 class TestOpenRouterKey:
     def test_status_not_configured_by_default(self, client, clean_openrouter_key):
         os.environ.pop("OPENROUTER_API_KEY", None)

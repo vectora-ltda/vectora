@@ -190,11 +190,23 @@ def load_chat_client(model_id: str) -> ChatClient:  # noqa: PLR0911
                 model=model_name,
                 client=OpenRouterClient(api_key=api_key, base_url=base_url),
             )
+        case "llamacpp":
+            from backend.llm.openrouter.chat_client import OpenRouterChatClient
+            from backend.llm.openrouter.client import OpenRouterClient
+            from backend.settings import settings
+
+            return OpenRouterChatClient(
+                model=model_name,
+                client=OpenRouterClient(
+                    api_key=settings.llamacpp_api_key or "local",
+                    base_url=settings.llamacpp_base_url,
+                ),
+            )
         case _:
             msg = (
                 f"Provider de LLM nativo desconhecido: {provider!r}. Suportados: "
                 "openai, anthropic, google_genai, cohere, ollama, openrouter, "
-                "nine_router."
+                "nine_router, llamacpp."
             )
             raise ValueError(msg)
 

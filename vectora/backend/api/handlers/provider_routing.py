@@ -5,6 +5,8 @@ Endpoints (exigem auth via middleware):
     GET    /provider-routing/ollama/registered               — modelos Ollama registrados
     POST   /provider-routing/ollama/registered                — registra um modelo (tag)
     DELETE /provider-routing/ollama/registered/{model_id}     — remove
+    GET    /provider-routing/llamacpp/models                  — descoberta OpenAI-compatible
+    GET    /provider-routing/huggingface/models?q=           — catálogo público de modelos
 
     GET    /provider-routing/openrouter/status                — key configurada? (mascarada)
     POST   /provider-routing/openrouter/key                   — valida e salva a key
@@ -38,7 +40,11 @@ de descoberta/validação e da lista de modelos escolhida pelo usuário.
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import logging
+import os
+import re
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -87,6 +93,36 @@ class OllamaModelInfo(BaseModel):
 class OllamaDiscoveryResponse(BaseModel):
     reachable: bool
     models: list[OllamaModelInfo]
+
+
+class OpenAICompatibleDiscoveryResponse(BaseModel):
+    reachable: bool
+    models: list[dict[str, str]]
+
+
+class LlamaCppConfigRequest(BaseModel):
+    base_url: str
+    api_key: str = ""
+    model: str = ""
+
+
+class LlamaCppStatus(BaseModel):
+    configured: bool
+    base_url: str
+    model: str
+    masked: str
+
+
+class HuggingFaceDownloadRequest(BaseModel):
+    repo_id: str
+    filename: str
+    revision: str = "main"
+    sha256: str | None = None
+
+
+class LlamaCppInstallRequest(BaseModel):
+    asset_url: str
+    sha256: str | None = None
 
 
 class RegisteredModel(BaseModel):
@@ -206,6 +242,296 @@ async def unregister_ollama_model(model_id: str) -> dict:
     return {"ok": True}
 
 
+@router.get("/llamacpp/models")
+async def discover_llamacpp_models() -> OpenAICompatibleDiscoveryResponse:
+    """Descobre modelos em um servidor llama.cpp OpenAI-compatible.
+
+    O endpoint é configurável para permitir uma instalação externa; por
+    padrão permanece em loopback. Falhas de conexão são estado normal da UI.
+    """
+    import httpx
+
+    base_url = settings.llamacpp_base_url.rstrip("/")
+    headers = (
+        {"Authorization": f"Bearer {settings.llamacpp_api_key}"}
+        if settings.llamacpp_api_key
+        else {}
+    )
+    try:
+        async with httpx.AsyncClient(timeout=_DISCOVERY_TIMEOUT_S) as client:
+            response = await client.get(f"{base_url}/models", headers=headers)
+            response.raise_for_status()
+            payload = response.json()
+    except Exception:
+        logger.info(
+            "provider_routing: llama.cpp em %s inacessível", base_url, exc_info=True
+        )
+        return OpenAICompatibleDiscoveryResponse(reachable=False, models=[])
+
+    models = [
+        {"id": str(item["id"]), "name": str(item.get("name", item["id"]))}
+        for item in payload.get("data", [])
+        if isinstance(item, dict) and item.get("id")
+    ]
+    return OpenAICompatibleDiscoveryResponse(reachable=True, models=models)
+
+
+@router.get("/llamacpp/status")
+async def get_llamacpp_status() -> LlamaCppStatus:
+    key = settings.llamacpp_api_key or ""
+    return LlamaCppStatus(
+        configured=bool(settings.llamacpp_base_url),
+        base_url=settings.llamacpp_base_url,
+        model=settings.llamacpp_model or "",
+        masked=(f"{key[:4]}…{key[-4:]}" if len(key) > 8 else ("••••" if key else "")),
+    )
+
+
+@router.post("/llamacpp/config")
+async def set_llamacpp_config(body: LlamaCppConfigRequest) -> LlamaCppStatus:
+    from urllib.parse import urlparse
+
+    base_url = body.base_url.strip().rstrip("/")
+    parsed = urlparse(base_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise HTTPException(status_code=400, detail="base_url inválida")
+    if len(base_url) > 500 or len(body.api_key) > 500 or len(body.model) > 300:
+        raise HTTPException(status_code=400, detail="configuração excede o limite")
+    object.__setattr__(settings, "llamacpp_base_url", base_url)
+    object.__setattr__(settings, "llamacpp_api_key", body.api_key.strip() or None)
+    object.__setattr__(settings, "llamacpp_model", body.model.strip() or None)
+    env_file = _env_file()
+    _set_env_key(env_file, "LLAMACPP_BASE_URL", base_url)
+    _set_env_key(env_file, "LLAMACPP_MODEL", body.model.strip())
+    if body.api_key.strip():
+        _set_env_key(env_file, "LLAMACPP_API_KEY", body.api_key.strip())
+    else:
+        _remove_env_key(env_file, "LLAMACPP_API_KEY")
+    return await get_llamacpp_status()
+
+
+@router.delete("/llamacpp/config")
+async def clear_llamacpp_config() -> LlamaCppStatus:
+    env_file = _env_file()
+    for key in ("LLAMACPP_BASE_URL", "LLAMACPP_MODEL", "LLAMACPP_API_KEY"):
+        _remove_env_key(env_file, key)
+        os.environ.pop(key, None)
+    object.__setattr__(settings, "llamacpp_base_url", "http://127.0.0.1:8080/v1")
+    object.__setattr__(settings, "llamacpp_api_key", None)
+    object.__setattr__(settings, "llamacpp_model", None)
+    return await get_llamacpp_status()
+
+
+@router.get("/huggingface/models")
+async def search_huggingface_models(
+    q: str = "llama.cpp", provider: str = "llamacpp"
+) -> dict[str, list[dict[str, str]]]:
+    """Pesquisa modelos públicos para Ollama ou llama.cpp.
+
+    O endpoint só retorna metadados; pesos continuam sendo baixados pelo
+    cliente diretamente da Hugging Face. O provider limita a busca aos
+    formatos que o runtime selecionado consegue consumir.
+    """
+    import httpx
+
+    if provider not in {"ollama", "llamacpp"}:
+        raise HTTPException(status_code=400, detail="provider inválido")
+    query = q.strip()[:120] or "llama.cpp"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(
+                "https://huggingface.co/api/models",
+                params={"search": query, "filter": "gguf", "limit": 25},
+            )
+            response.raise_for_status()
+            payload = response.json()
+    except Exception:
+        logger.info(
+            "provider_routing: catálogo Hugging Face indisponível", exc_info=True
+        )
+        return {"models": []}
+    return {
+        "models": [
+            {
+                "id": str(item.get("id", "")),
+                "pipeline_tag": str(item.get("pipeline_tag", "")),
+                "provider": provider,
+                "downloads": str(item.get("downloads", 0)),
+                "license": str(item.get("cardData", {}).get("license", "")),
+            }
+            for item in payload
+            if isinstance(item, dict) and item.get("id")
+        ]
+    }
+
+
+def _validate_hf_path(value: str, *, field: str) -> str:
+    value = value.strip()
+    if not value or len(value) > 300 or ".." in value or "\\" in value:
+        raise HTTPException(status_code=400, detail=f"{field} inválido")
+    return value
+
+
+@router.get("/huggingface/models/{repo_id:path}")
+async def get_huggingface_model_metadata(repo_id: str) -> dict[str, object]:
+    """Retorna metadados do repositório sem encaminhar pesos ao backend."""
+    import httpx
+
+    repo_id = _validate_hf_path(repo_id, field="repo_id")
+    if repo_id.count("/") != 1:
+        raise HTTPException(status_code=400, detail="repo_id deve ser owner/model")
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(f"https://huggingface.co/api/models/{repo_id}")
+            response.raise_for_status()
+            data = response.json()
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=404, detail="modelo não encontrado") from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail="Hugging Face indisponível"
+        ) from exc
+    siblings = data.get("siblings", [])
+    files = [
+        {"rfilename": item.get("rfilename", ""), "size": item.get("size")}
+        for item in siblings
+        if isinstance(item, dict) and item.get("rfilename")
+    ]
+    return {
+        "id": data.get("id", repo_id),
+        "license": (data.get("cardData") or {}).get("license"),
+        "downloads": data.get("downloads", 0),
+        "tags": data.get("tags", []),
+        "files": files,
+    }
+
+
+@router.post("/huggingface/download")
+async def download_huggingface_model(
+    body: HuggingFaceDownloadRequest,
+) -> dict[str, object]:
+    """Baixa um arquivo diretamente da Hugging Face para o armazenamento local."""
+    import httpx
+
+    repo_id = _validate_hf_path(body.repo_id, field="repo_id")
+    filename = _validate_hf_path(body.filename, field="filename")
+    revision = _validate_hf_path(body.revision, field="revision")
+    if repo_id.count("/") != 1 or (
+        body.sha256 and not re.fullmatch(r"[0-9a-fA-F]{64}", body.sha256)
+    ):
+        raise HTTPException(status_code=400, detail="identificador ou sha256 inválido")
+    destination_root = settings.vectora_home / "models" / "huggingface" / repo_id
+    destination = (destination_root / filename).resolve()
+    if destination_root.resolve() not in destination.parents:
+        raise HTTPException(
+            status_code=400, detail="arquivo fora do diretório permitido"
+        )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    url = f"https://huggingface.co/{repo_id}/resolve/{revision}/{filename}"
+    digest = hashlib.sha256()
+    try:
+        async with httpx.AsyncClient(timeout=1800, follow_redirects=True) as client:
+            async with client.stream("GET", url) as response:
+                response.raise_for_status()
+                with destination.open("wb") as output:
+                    async for chunk in response.aiter_bytes(1024 * 1024):
+                        digest.update(chunk)
+                        await asyncio.to_thread(output.write, chunk)
+    except Exception as exc:
+        destination.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=502, detail="falha no download da Hugging Face"
+        ) from exc
+    actual = digest.hexdigest()
+    if body.sha256 and actual.lower() != body.sha256.lower():
+        destination.unlink(missing_ok=True)
+        raise HTTPException(status_code=422, detail="checksum sha256 incompatível")
+    return {"status": "downloaded", "path": str(destination), "sha256": actual}
+
+
+@router.get("/llamacpp/releases")
+async def list_llamacpp_releases() -> dict[str, list[dict[str, object]]]:
+    """Lista releases oficiais, sem carregar artefatos no backend."""
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.get(
+                "https://api.github.com/repos/ggml-org/llama.cpp/releases",
+                params={"per_page": 10},
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "User-Agent": "Vectora",
+                },
+            )
+            response.raise_for_status()
+            payload = response.json()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="GitHub indisponível") from exc
+    return {
+        "releases": [
+            {
+                "tag": item.get("tag_name", ""),
+                "name": item.get("name", ""),
+                "assets": [
+                    {
+                        "name": asset.get("name", ""),
+                        "url": asset.get("browser_download_url", ""),
+                        "size": asset.get("size", 0),
+                    }
+                    for asset in item.get("assets", [])
+                    if asset.get("browser_download_url")
+                ],
+            }
+            for item in payload
+            if isinstance(item, dict) and not item.get("draft")
+        ]
+    }
+
+
+@router.post("/llamacpp/install")
+async def install_llamacpp_runtime(body: LlamaCppInstallRequest) -> dict[str, object]:
+    """Baixa um artefato de release oficial para o armazenamento do usuário."""
+    from urllib.parse import urlparse
+
+    import httpx
+
+    parsed = urlparse(body.asset_url)
+    if parsed.scheme != "https" or parsed.netloc != "github.com":
+        raise HTTPException(
+            status_code=400, detail="runtime deve vir do GitHub oficial"
+        )
+    if not parsed.path.startswith("/ggml-org/llama.cpp/releases/download/"):
+        raise HTTPException(status_code=400, detail="release do llama.cpp inválida")
+    if body.sha256 and not re.fullmatch(r"[0-9a-fA-F]{64}", body.sha256):
+        raise HTTPException(status_code=400, detail="sha256 inválido")
+    filename = Path(parsed.path).name
+    if not filename or filename in {".", ".."} or len(filename) > 200:
+        raise HTTPException(status_code=400, detail="nome do artefato inválido")
+    destination_root = (settings.vectora_home / "tools" / "llama.cpp").resolve()
+    destination_root.mkdir(parents=True, exist_ok=True)
+    destination = (destination_root / filename).resolve()
+    digest = hashlib.sha256()
+    try:
+        async with httpx.AsyncClient(timeout=1800, follow_redirects=True) as client:
+            async with client.stream("GET", body.asset_url) as response:
+                response.raise_for_status()
+                with destination.open("wb") as output:
+                    async for chunk in response.aiter_bytes(1024 * 1024):
+                        digest.update(chunk)
+                        await asyncio.to_thread(output.write, chunk)
+    except Exception as exc:
+        destination.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=502, detail="falha no download do runtime"
+        ) from exc
+    actual = digest.hexdigest()
+    if body.sha256 and actual.lower() != body.sha256.lower():
+        destination.unlink(missing_ok=True)
+        raise HTTPException(status_code=422, detail="checksum sha256 incompatível")
+    return {"status": "downloaded", "path": str(destination), "sha256": actual}
+
+
 # ---------------------------------------------------------------------------
 # OpenRouter — key (validada contra /auth/key), catálogo público, registro
 # ---------------------------------------------------------------------------
@@ -239,6 +565,21 @@ def _env_file() -> Path:
     p = settings.vectora_home / ".env"
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
+
+
+def _set_env_key(env_file: Path, key: str, value: str) -> None:
+    """Atualiza uma variável no .env sem duplicar linhas existentes."""
+    env_file.parent.mkdir(parents=True, exist_ok=True)
+    lines = (
+        env_file.read_text(encoding="utf-8").splitlines() if env_file.exists() else []
+    )
+    prefix = f"{key}="
+    filtered = [line for line in lines if not line.startswith(prefix)]
+    if value:
+        filtered.append(f"{prefix}{value}")
+    env_file.write_text(
+        "\n".join(filtered) + ("\n" if filtered else ""), encoding="utf-8"
+    )
 
 
 def _mask_key(value: str) -> str:
