@@ -20,6 +20,7 @@ import asyncio
 import logging
 import os
 import signal
+import socket
 import sys
 from collections.abc import Callable
 
@@ -48,6 +49,18 @@ _job_handle: int | None = None
 # Exit status used by Electron to request a backend-managed restart. A normal
 # exit remains an intentional shutdown signal (for example, tray "Sair").
 ELECTRON_RESTART_EXIT_CODE = 42
+
+
+def _ensure_electron_cdp_port() -> str:
+    """Reserve a loopback port value shared by backend and Electron."""
+    configured = os.environ.get("VECTORA_ELECTRON_CDP_PORT", "").strip()
+    if configured.isdigit() and 1 <= int(configured) <= 65535:
+        return configured
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = str(probe.getsockname()[1])
+    os.environ["VECTORA_ELECTRON_CDP_PORT"] = port
+    return port
 
 
 def set_backend_shutdown_callback(callback: Callable[[], None] | None) -> None:
@@ -102,7 +115,12 @@ async def ensure_electron_sidecar() -> asyncio.subprocess.Process | None:
             return None
         exe, exe_args = launch
 
-        env = {**os.environ, "VECTORA_EXTERNAL_BACKEND": "1"}
+        cdp_port = _ensure_electron_cdp_port()
+        env = {
+            **os.environ,
+            "VECTORA_EXTERNAL_BACKEND": "1",
+            "VECTORA_ELECTRON_CDP_PORT": cdp_port,
+        }
         try:
             proc = await asyncio.create_subprocess_exec(
                 exe,

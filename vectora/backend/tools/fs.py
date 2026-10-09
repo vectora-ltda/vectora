@@ -9,6 +9,7 @@ Tools nativas (``@vtool``) — chamadas como função async direta com
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import ctypes
 import errno
 import json
@@ -107,33 +108,46 @@ def _rename_no_replace(source: Path, target: Path) -> None:
         # existing destination, including one created after our prior check.
         source.rename(target)
         return
-    if sys.platform == "linux":
-        libc = ctypes.CDLL(None, use_errno=True)
-        renameat2 = getattr(libc, "renameat2", None)
-        if renameat2 is None:
-            raise OSError(errno.ENOTSUP, "renameat2 não está disponível")
-        renameat2.argtypes = [
-            ctypes.c_int,
-            ctypes.c_char_p,
-            ctypes.c_int,
-            ctypes.c_char_p,
-            ctypes.c_uint,
-        ]
-        renameat2.restype = ctypes.c_int
-        result = renameat2(
-            -100,
-            os.fsencode(source),
-            -100,
-            os.fsencode(target),
-            1,  # RENAME_NOREPLACE
-        )
-        if result != 0:
-            error = ctypes.get_errno()
-            raise OSError(error, os.strerror(error), str(target))
-        return
-    raise OSError(
-        errno.ENOTSUP, "movimentação de diretório sem substituição não suportada"
+    _native_rename_no_replace(
+        -100, os.fsencode(source), -100, os.fsencode(target), target
     )
+
+
+def _native_rename_no_replace(
+    source_fd: int,
+    source_name: bytes,
+    target_fd: int,
+    target_name: bytes,
+    target: Path,
+) -> None:
+    """Rename relative to descriptors without replacing an existing target."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == "linux":
+        rename = getattr(libc, "renameat2", None)
+        flag = 1  # RENAME_NOREPLACE
+    elif sys.platform == "darwin":
+        rename = getattr(libc, "renameatx_np", None)
+        flag = 0x4  # RENAME_EXCL
+    else:
+        rename = None
+        flag = 0
+    if rename is None:
+        raise OSError(
+            errno.ENOTSUP,
+            "movimentação de diretório sem substituição não suportada",
+        )
+    rename.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    rename.restype = ctypes.c_int
+    result = rename(source_fd, source_name, target_fd, target_name, flag)
+    if result != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error), str(target))
 
 
 def _supports_descriptor_operations() -> bool:
@@ -210,33 +224,13 @@ def _move_confined(source: Path, target: Path, root: Path) -> None:
         if stat.S_ISDIR(
             os.stat(source_name, dir_fd=source_fd, follow_symlinks=False).st_mode
         ):
-            if sys.platform != "linux":
-                raise OSError(
-                    errno.ENOTSUP,
-                    "movimentação segura de diretório não suportada nesta plataforma",
-                )
-            libc = ctypes.CDLL(None, use_errno=True)
-            renameat2 = getattr(libc, "renameat2", None)
-            if renameat2 is None:
-                raise OSError(errno.ENOTSUP, "renameat2 não está disponível")
-            renameat2.argtypes = [
-                ctypes.c_int,
-                ctypes.c_char_p,
-                ctypes.c_int,
-                ctypes.c_char_p,
-                ctypes.c_uint,
-            ]
-            renameat2.restype = ctypes.c_int
-            result = renameat2(
+            _native_rename_no_replace(
                 source_fd,
                 os.fsencode(source_name),
                 target_fd,
                 os.fsencode(target_name),
-                1,
+                target,
             )
-            if result != 0:
-                error = ctypes.get_errno()
-                raise OSError(error, os.strerror(error), str(target))
         else:
             os.link(
                 source_name,
@@ -245,7 +239,12 @@ def _move_confined(source: Path, target: Path, root: Path) -> None:
                 dst_dir_fd=target_fd,
                 follow_symlinks=False,
             )
-            os.unlink(source_name, dir_fd=source_fd)
+            try:
+                os.unlink(source_name, dir_fd=source_fd)
+            except Exception:
+                with contextlib.suppress(OSError):
+                    os.unlink(target_name, dir_fd=target_fd)
+                raise
     finally:
         os.close(source_fd)
         os.close(target_fd)
