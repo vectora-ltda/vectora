@@ -229,6 +229,15 @@ def load_chat_client(model_id: str) -> ChatClient:  # noqa: PLR0911
             from backend.settings import settings
 
             base_url = normalize_base_url(settings.dmr_base_url)
+            contract = settings.dmr_contract or "openai"
+            if contract == "ollama":
+                from backend.llm.ollama.chat_client import OllamaChatClient
+                from backend.llm.ollama.client import OllamaClient
+
+                return OllamaChatClient(
+                    model=model_name,
+                    client=OllamaClient(base_url=base_url),
+                )
             return OpenRouterChatClient(
                 model=model_name,
                 client=OpenRouterClient(

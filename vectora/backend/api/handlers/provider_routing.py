@@ -929,7 +929,7 @@ async def get_dmr_status() -> dict[str, object]:
         "cli_available": cli_available,
         "cli_detail": cli_detail,
         "reachable": probe.reachable if probe else False,
-        "contract": probe.contract if probe else None,
+        "contract": probe.contract if probe else settings.dmr_contract,
         "models": list(probe.models) if probe else [],
         "managed_models": managed_models,
         "detail": probe.detail if probe else "endpoint ainda não configurado",
@@ -1111,6 +1111,11 @@ async def start_dmr_model(body: DmrModelRequest, _: ProviderAdmin) -> dict[str, 
         object.__setattr__(settings, "dmr_base_url", base_url)
         _set_env_key(_env_file(), "DMR_BASE_URL", base_url)
         os.environ["DMR_BASE_URL"] = base_url
+        status = await get_dmr_status()
+    if contract in {"openai", "ollama"} and settings.dmr_contract != contract:
+        object.__setattr__(settings, "dmr_contract", contract)
+        _set_env_key(_env_file(), "DMR_CONTRACT", contract)
+        os.environ["DMR_CONTRACT"] = contract
         status = await get_dmr_status()
     return {
         "status": "ready",

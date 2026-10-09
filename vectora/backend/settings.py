@@ -126,6 +126,7 @@ class Settings(BaseSettings):
     # Docker Model Runner (local Docker Desktop/Engine plugin)
     dmr_base_url: str | None = None
     dmr_model: str | None = None
+    dmr_contract: str | None = None
 
     # Cohere Chat (command-* series)
     # Nota: cohere_api_key (seção EMBEDDINGS abaixo) é reutilizado para ChatCohere.
