@@ -381,6 +381,18 @@ async def fetch_url(url: str, ctx: ToolContext | None = None) -> str:
             "metadata IP address (blocked for security, SSRF)."
         )
 
+    # GitHub pages and API responses are public HTTP resources.  Resolve them
+    # directly instead of requiring Tavily or a local Electron browser; this
+    # keeps the public route usable in headless CI and when no provider key is
+    # configured.  The helper still applies the SSRF guard, size limit and
+    # optional integration token.
+    github_hosts = {"github.com", "www.github.com", "api.github.com"}
+    if (urlparse(url).hostname or "").lower() in github_hosts:
+        try:
+            return await _fetch_via_http(url, ctx)
+        except Exception:
+            logger.exception("fetch_url GitHub HTTP path failed", extra={"url": url})
+
     if not settings.tavily_api_key:
         logger.warning("TAVILY_API_KEY not configured — usando fallback via Chromium")
         return await _fetch_via_fallback(url)

@@ -102,7 +102,10 @@ async def test_github_fetch_url_com_token_real(
 async def test_github_cli_pr_view_real_com_sessao_do_terminal() -> None:
     """O caminho `gh` usa a sessão real já autenticada do terminal."""
     result = await gh_pr_view(
-        ctx=ToolContext(workspace_id="", user_id="live-github-cli"),
+        # The terminal/Actions session is the credential source for this
+        # contract.  No Vectora user override is supplied, so the tool may
+        # use the native gh session (or GH_TOKEN in CI).
+        ctx=ToolContext(workspace_id=""),
         pr_number=319,
         workspace_id=None,
     )
