@@ -485,7 +485,7 @@ describe("ProviderRoutingTab — OpenRouter", () => {
     render(<ProviderRoutingTab />);
     const input = await screen.findByPlaceholderText(/sk-or-v1/i);
     fireEvent.change(input, { target: { value: "sk-or-v1-abcdef" } });
-    fireEvent.click(screen.getByRole("button", { name: /salvar/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Salvar$/ }));
 
     await waitFor(() => {
       expect(screen.getByText(/configurada/i)).toBeTruthy();
@@ -502,7 +502,7 @@ describe("ProviderRoutingTab — OpenRouter", () => {
     render(<ProviderRoutingTab />);
     const input = await screen.findByPlaceholderText(/sk-or-v1/i);
     fireEvent.change(input, { target: { value: "bad-key" } });
-    fireEvent.click(screen.getByRole("button", { name: /salvar/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Salvar$/ }));
 
     await waitFor(() => {
       expect(screen.getByText(/key rejeitada/i)).toBeTruthy();
@@ -895,9 +895,9 @@ describe("LlamaCppSection", () => {
     render(<ProviderRoutingTab />);
 
     const removeButtons = await screen.findAllByRole("button", {
-      name: /remover runtime gerenciado/i,
+      name: /remover esta versão do runtime/i,
     });
-    expect(removeButtons.length).toBe(2);
+    expect(removeButtons.length).toBe(1);
     fireEvent.click(removeButtons[0]);
 
     await waitFor(() => {

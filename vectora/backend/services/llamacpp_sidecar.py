@@ -279,20 +279,36 @@ async def _stop_process() -> None:
     global _process, _process_spec, _process_options, _process_started_at
     process = _process
     if process is None or process.returncode is not None:
-        _process = None
-        _process_spec = None
-        _process_options = None
-        _process_started_at = None
-        await _clear_state()
+        try:
+            await _clear_state()
+        finally:
+            _process = None
+            _process_spec = None
+            _process_options = None
+            _process_started_at = None
         return
-    process.terminate()
+
+    async def terminate_process() -> None:
+        process.terminate()
+        try:
+            await asyncio.wait_for(process.wait(), timeout=5)
+        except TimeoutError:
+            process.kill()
+            await process.wait()
+
     try:
-        await asyncio.wait_for(process.wait(), timeout=5)
-    except TimeoutError:
-        process.kill()
-        await process.wait()
-    _process = None
-    _process_spec = None
-    _process_options = None
-    _process_started_at = None
-    await _clear_state()
+        await terminate_process()
+    except asyncio.CancelledError:
+        # A cancelled request must not abandon a live sidecar. Finish the
+        # termination under shielding, then propagate cancellation to the
+        # caller after ownership and persisted state are consistent.
+        await asyncio.shield(terminate_process())
+        raise
+    finally:
+        try:
+            await _clear_state()
+        finally:
+            _process = None
+            _process_spec = None
+            _process_options = None
+            _process_started_at = None

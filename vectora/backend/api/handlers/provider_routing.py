@@ -1368,6 +1368,11 @@ async def get_huggingface_model_metadata(repo_id: str) -> dict[str, object]:
         {
             "rfilename": item.get("rfilename", ""),
             "size": item.get("size"),
+            "sha256": (
+                (item.get("lfs") or {}).get("sha256")
+                if isinstance(item.get("lfs"), dict)
+                else None
+            ),
             "format": "GGUF"
             if str(item.get("rfilename", "")).lower().endswith(".gguf")
             else "",

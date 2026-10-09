@@ -72,6 +72,7 @@ interface LlamaCppModelInfo {
 interface HuggingFaceFileInfo {
   rfilename: string;
   size?: number | null;
+  sha256?: string | null;
   format?: string;
 }
 
@@ -361,7 +362,7 @@ async function downloadHuggingFaceModel(
   );
   if (!metadataResponse.ok) throw new Error(`Erro ${metadataResponse.status}`);
   const metadata = (await metadataResponse.json()) as {
-    files?: Array<{ rfilename: string; format?: string }>;
+    files?: Array<{ rfilename: string; format?: string; sha256?: string }>;
   };
   const file = filename
     ? metadata.files?.find((item) => item.rfilename === filename)
@@ -374,6 +375,7 @@ async function downloadHuggingFaceModel(
       repo_id: repoId,
       filename: file.rfilename,
       revision,
+      ...(file.sha256 ? { sha256: file.sha256 } : {}),
     }),
     signal,
   });
@@ -385,8 +387,12 @@ async function downloadHuggingFaceModel(
 async function fetchHuggingFaceMetadata(
   repoId: string,
 ): Promise<HuggingFaceMetadata> {
+  const encodedRepo = repoId
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
   const response = await fetch(
-    `/provider-routing/huggingface/models/${encodeURIComponent(repoId)}`,
+    `/provider-routing/huggingface/models/${encodedRepo}`,
   );
   if (!response.ok) throw new Error(`Erro ${response.status}`);
   return (await response.json()) as HuggingFaceMetadata;
