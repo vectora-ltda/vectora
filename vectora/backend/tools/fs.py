@@ -16,6 +16,7 @@ import platform
 import re
 import shlex
 import shutil
+import stat
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -57,6 +58,19 @@ def _delete_confined(path: Path, root: Path) -> None:
         candidate.resolve(strict=True).relative_to(root_real)
     except ValueError as exc:
         raise ValueError("caminho fora do workspace") from exc
+    relative = candidate.relative_to(root_real)
+    if _supports_descriptor_operations():
+        parent_fd, name = _open_parent_descriptor(root_real, relative)
+        try:
+            if stat.S_ISDIR(
+                os.stat(name, dir_fd=parent_fd, follow_symlinks=False).st_mode
+            ):
+                shutil.rmtree(name, dir_fd=parent_fd)
+            else:
+                os.unlink(name, dir_fd=parent_fd)
+        finally:
+            os.close(parent_fd)
+        return
     if candidate.is_dir():
         shutil.rmtree(candidate)
     else:
@@ -81,6 +95,97 @@ def _move_no_replace(source: Path, target: Path) -> None:
     except Exception:
         target.unlink(missing_ok=True)
         raise
+
+
+def _supports_descriptor_operations() -> bool:
+    """Return whether this platform supports descriptor-relative safe I/O."""
+    return (
+        os.name != "nt"
+        and getattr(os, "O_DIRECTORY", None) is not None
+        and getattr(os, "O_NOFOLLOW", None) is not None
+        and os.open in os.supports_dir_fd
+    )
+
+
+def _open_parent_descriptor(root: Path, relative: Path) -> tuple[int, str]:
+    """Open the validated parent chain without following symlinks."""
+    if not relative.parts:
+        raise ValueError("a raiz do workspace não pode ser alterada")
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(root, flags)
+    try:
+        for component in relative.parts[:-1]:
+            next_fd = os.open(component, flags, dir_fd=fd)
+            os.close(fd)
+            fd = next_fd
+    except Exception:
+        os.close(fd)
+        raise
+    return fd, relative.parts[-1]
+
+
+def _mkdir_confined(path: Path, root: Path) -> None:
+    """Create a directory tree while keeping each ancestor descriptor-bound."""
+    root_real = root.resolve(strict=True)
+    relative = path.absolute().relative_to(root_real)
+    if not relative.parts:
+        return
+    if not _supports_descriptor_operations():
+        path.mkdir(parents=True, exist_ok=True)
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(root_real, flags)
+    try:
+        for component in relative.parts:
+            try:
+                os.mkdir(component, dir_fd=fd)
+            except FileExistsError:
+                if not stat.S_ISDIR(
+                    os.stat(component, dir_fd=fd, follow_symlinks=False).st_mode
+                ):
+                    raise
+            next_fd = os.open(component, flags, dir_fd=fd)
+            os.close(fd)
+            fd = next_fd
+    finally:
+        os.close(fd)
+
+
+def _move_confined(source: Path, target: Path, root: Path) -> None:
+    """Move using validated parent descriptors where the OS supports it."""
+    root_real = root.resolve(strict=True)
+    source_rel = source.absolute().relative_to(root_real)
+    target_rel = target.absolute().relative_to(root_real)
+    if not _supports_descriptor_operations():
+        _move_no_replace(source, target)
+        return
+    source_fd, source_name = _open_parent_descriptor(root_real, source_rel)
+    target_fd, target_name = _open_parent_descriptor(root_real, target_rel)
+    try:
+        try:
+            os.stat(target_name, dir_fd=target_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            raise FileExistsError(target)
+        if stat.S_ISDIR(
+            os.stat(source_name, dir_fd=source_fd, follow_symlinks=False).st_mode
+        ):
+            os.rename(
+                source_name, target_name, src_dir_fd=source_fd, dst_dir_fd=target_fd
+            )
+        else:
+            os.link(
+                source_name,
+                target_name,
+                src_dir_fd=source_fd,
+                dst_dir_fd=target_fd,
+                follow_symlinks=False,
+            )
+            os.unlink(source_name, dir_fd=source_fd)
+    finally:
+        os.close(source_fd)
+        os.close(target_fd)
 
 
 def _assert_no_symlink_components(path: Path, root: Path) -> None:
@@ -499,7 +604,7 @@ async def file_create_dir(path: str, ctx: ToolContext) -> str:
     try:
         root, _ = _workspace_root(ctx)
         await asyncio.to_thread(_assert_no_symlink_components, resolved, root)
-        await asyncio.to_thread(resolved.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(_mkdir_confined, resolved, root)
         return f"[OK] Diretório criado: {path}"
     except (OSError, ValueError) as exc:
         return f"Error criando diretório: {exc}"
@@ -569,7 +674,7 @@ async def file_move(from_path: str, to_path: str, ctx: ToolContext) -> str:
         await asyncio.to_thread(_assert_no_symlink_components, target, root)
         await asyncio.to_thread(target.parent.mkdir, parents=True, exist_ok=True)
         await asyncio.to_thread(_assert_no_symlink_components, target.parent, root)
-        await asyncio.to_thread(_move_no_replace, source, target)
+        await asyncio.to_thread(_move_confined, source, target, root)
         return f"[OK] Movido: {from_path} -> {to_path}"
     except (OSError, ValueError) as exc:
         return f"Error movendo caminho: {exc}"

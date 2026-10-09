@@ -475,6 +475,26 @@ class TestLlamaCppAndHuggingFace:
         assert (root / "model-manifest.json").is_file()
 
     @pytest.mark.asyncio
+    async def test_huggingface_ollama_install_requires_alias(self) -> None:
+        from fastapi import HTTPException
+
+        from backend.api.handlers.provider_routing import (
+            HuggingFaceInstallRequest,
+            install_huggingface_model,
+        )
+
+        with pytest.raises(HTTPException, match="alias"):
+            await install_huggingface_model(
+                HuggingFaceInstallRequest(
+                    repo_id="org/model",
+                    filename="model.gguf",
+                    provider="ollama",
+                    alias="",
+                ),
+                None,
+            )
+
+    @pytest.mark.asyncio
     async def test_huggingface_start_uses_active_managed_runtime(
         self, tmp_path, monkeypatch
     ):

@@ -17,7 +17,9 @@ uma URL específica reutiliza a sessão autenticada do Browser Workbench.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +34,6 @@ _playwright: Any = None
 def _get_browser() -> Any:
     global _browser, _playwright
     if _browser is None:
-        import os
-
         from playwright.sync_api import sync_playwright
 
         endpoint = os.environ.get("VECTORA_ELECTRON_CDP_URL", "").strip()
@@ -45,6 +45,15 @@ def _get_browser() -> Any:
             raise RuntimeError(
                 "VECTORA_ELECTRON_CDP_PORT inválido para o Chromium do Electron."
             )
+        parsed = urlparse(endpoint)
+        if (
+            parsed.scheme != "http"
+            or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
+            or parsed.username
+            or parsed.password
+            or parsed.path not in {"", "/"}
+        ):
+            raise RuntimeError("VECTORA_ELECTRON_CDP_URL deve apontar para loopback")
         _playwright = sync_playwright().start()
         try:
             _browser = _playwright.chromium.connect_over_cdp(endpoint)

@@ -31,6 +31,12 @@ def test_endpoint_cdp_usa_url_explicita(monkeypatch: pytest.MonkeyPatch) -> None
     assert browser_session._electron_cdp_endpoint() == "http://127.0.0.1:9223"
 
 
+def test_endpoint_cdp_rejeita_host_remoto(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("VECTORA_ELECTRON_CDP_URL", "http://10.0.0.8:9223")
+    with pytest.raises(RuntimeError, match="loopback"):
+        browser_session._electron_cdp_endpoint()
+
+
 @pytest.mark.asyncio
 async def test_get_browser_page_conecta_ao_electron_sem_lancar_chromium(
     monkeypatch: pytest.MonkeyPatch,

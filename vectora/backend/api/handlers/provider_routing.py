@@ -1593,6 +1593,12 @@ async def install_huggingface_model(
     )
     if repo_id.count("/") != 1:
         raise HTTPException(status_code=400, detail="repo_id deve ser owner/model")
+    alias = body.alias.strip() if body.alias else ""
+    if body.provider == "ollama" and not alias:
+        raise HTTPException(
+            status_code=400,
+            detail="alias é obrigatório para instalar um modelo no Ollama",
+        )
     if body.alias is not None and not re.fullmatch(
         r"[A-Za-z0-9][A-Za-z0-9._:-]{0,99}", body.alias.strip()
     ):
@@ -1640,7 +1646,6 @@ async def install_huggingface_model(
     if body.provider == "ollama":
         import httpx
 
-        alias = body.alias.strip() if body.alias else filename
         ollama_url = (settings.ollama_base_url or "http://127.0.0.1:11434").rstrip("/")
         try:
             async with httpx.AsyncClient(timeout=1800) as client:

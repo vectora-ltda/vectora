@@ -28,6 +28,7 @@ import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -62,12 +63,22 @@ def has_browser_session(workspace_id: str) -> bool:
 def _electron_cdp_endpoint() -> str:
     """Resolve o endpoint CDP publicado pelo processo Electron."""
     endpoint = os.environ.get("VECTORA_ELECTRON_CDP_URL", "").strip()
-    if endpoint:
-        return endpoint
-    port = os.environ.get("VECTORA_ELECTRON_CDP_PORT", "9223").strip()
-    if port.isdigit():
-        return f"http://127.0.0.1:{port}"
-    raise RuntimeError("VECTORA_ELECTRON_CDP_PORT inválido")
+    if not endpoint:
+        port = os.environ.get("VECTORA_ELECTRON_CDP_PORT", "9223").strip()
+        if port.isdigit():
+            endpoint = f"http://127.0.0.1:{port}"
+        else:
+            raise RuntimeError("VECTORA_ELECTRON_CDP_PORT inválido")
+    parsed = urlparse(endpoint)
+    if parsed.scheme != "http" or parsed.hostname not in {
+        "127.0.0.1",
+        "localhost",
+        "::1",
+    }:
+        raise RuntimeError("VECTORA_ELECTRON_CDP_URL deve apontar para loopback")
+    if parsed.username or parsed.password or parsed.path not in {"", "/"}:
+        raise RuntimeError("VECTORA_ELECTRON_CDP_URL inválido")
+    return endpoint
 
 
 def _register_page_listeners(tab: TabState) -> None:
