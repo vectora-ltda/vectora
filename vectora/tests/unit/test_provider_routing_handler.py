@@ -29,6 +29,7 @@ from fastapi.testclient import TestClient
 
 from backend.api.handlers.provider_routing import (
     LlamaCppRollbackRequest,
+    _confirmation_evidence_sha256,
     _extract_llamacpp_archive,
     llamacpp_runtime_status,
     remove_llamacpp_runtime,
@@ -257,6 +258,26 @@ class TestOllamaRegisteredModels:
 
 
 class TestLlamaCppAndHuggingFace:
+    def test_confirmation_evidence_is_canonical_and_parameter_bound(self):
+        serialized, evidence = _confirmation_evidence_sha256(
+            "a" * 64,
+            "0123456789abcdef",
+            {"temperature": 0.2, "seed": 7},
+        )
+        assert serialized == '{"seed":7,"temperature":0.2}'
+        assert (
+            evidence
+            == hashlib.sha256(
+                f"{'a' * 64}:0123456789abcdef:{serialized}".encode()
+            ).hexdigest()
+        )
+        _, changed = _confirmation_evidence_sha256(
+            "a" * 64,
+            "0123456789abcdef",
+            {"temperature": 0.3, "seed": 7},
+        )
+        assert changed != evidence
+
     def test_llamacpp_status_uses_suggested_endpoint_without_configuring_provider(
         self, client, monkeypatch: pytest.MonkeyPatch
     ) -> None:

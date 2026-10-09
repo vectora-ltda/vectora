@@ -424,6 +424,19 @@ class LlamaCppModelConfirmation(BaseModel):
     confirmed_at: str
 
 
+def _confirmation_evidence_sha256(
+    model_sha256: str,
+    runtime_id: str,
+    parameters: dict[str, str | int | float | bool | None],
+) -> tuple[str, str]:
+    """Serialize confirmation inputs once and derive their integrity evidence."""
+    serialized = json.dumps(parameters, sort_keys=True, separators=(",", ":"))
+    evidence = hashlib.sha256(
+        f"{model_sha256}:{runtime_id}:{serialized}".encode()
+    ).hexdigest()
+    return serialized, evidence
+
+
 async def _get_db() -> Any:
     """Reusa a conexão SQLite do handler de threads (mesmo arquivo
     ~/.vectora/checkpoints.db) em vez de abrir outra."""
@@ -691,10 +704,9 @@ async def confirm_llamacpp_model(
     ):
         raise HTTPException(status_code=409, detail="runtime não está instalado")
     model_sha256 = await asyncio.to_thread(_sha256_file, model_path)
-    serialized = json.dumps(body.parameters, sort_keys=True, separators=(",", ":"))
-    evidence_sha256 = hashlib.sha256(
-        f"{model_sha256}:{body.runtime_id}:{serialized}".encode()
-    ).hexdigest()
+    serialized, evidence_sha256 = _confirmation_evidence_sha256(
+        model_sha256, body.runtime_id, body.parameters
+    )
     confirmed_at = datetime.now(UTC).isoformat()
     db = await _get_db()
     await _ensure_llamacpp_confirmation_table(db)
@@ -765,13 +777,30 @@ async def list_llamacpp_model_confirmations() -> list[LlamaCppModelConfirmation]
                 "DELETE FROM llamacpp_model_confirmations WHERE tag = ?", (row[0],)
             )
             continue
+        try:
+            parameters = json.loads(row[4])
+            if not isinstance(parameters, dict):
+                raise ValueError("parâmetros não são um objeto")
+            _, evidence_sha256 = _confirmation_evidence_sha256(
+                row[2], row[3], parameters
+            )
+        except (TypeError, ValueError, json.JSONDecodeError):
+            await db.execute(
+                "DELETE FROM llamacpp_model_confirmations WHERE tag = ?", (row[0],)
+            )
+            continue
+        if evidence_sha256 != row[5]:
+            await db.execute(
+                "DELETE FROM llamacpp_model_confirmations WHERE tag = ?", (row[0],)
+            )
+            continue
         valid.append(
             LlamaCppModelConfirmation(
                 tag=row[0],
                 model_path=row[1],
                 model_sha256=row[2],
                 runtime_id=row[3],
-                parameters=json.loads(row[4]),
+                parameters=parameters,
                 evidence_sha256=row[5],
                 confirmed_at=row[6],
             )
