@@ -124,6 +124,33 @@ class TestGatewayStatusComToken:
         assert data["state"] == "error"
         assert data["detail"] == "network error"
 
+    def test_nao_tenta_decodificar_resposta_html_do_worker(
+        self, tmp_path: Path
+    ) -> None:
+        token_path = tmp_path / "gateway_token"
+        token_path.write_text("abc123")
+
+        mock_resp = AsyncMock()
+        mock_resp.status = 200
+        mock_resp.content_type = "text/html"
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__ = AsyncMock(return_value=mock_resp)
+        mock_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_session = AsyncMock()
+        mock_session.get = MagicMock(return_value=mock_ctx)
+        mock_session_ctx = AsyncMock()
+        mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session_ctx.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("backend.api.handlers.gateway._TOKEN_PATH", token_path):
+            with patch(
+                "backend.api.handlers.gateway.aiohttp.ClientSession",
+                return_value=mock_session_ctx,
+            ):
+                res = self._app().get("/gateway/status")
+
+        assert res.json()["detail"] == "Gateway respondeu conteúdo não-JSON"
+
 
 # ---------------------------------------------------------------------------
 # POST /gateway/revoke
