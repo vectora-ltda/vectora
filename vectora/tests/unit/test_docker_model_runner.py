@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -236,6 +237,14 @@ async def test_model_job_reports_completion_and_keeps_output(
         return "ok"
 
     monkeypatch.setattr(dmr, "run_docker_model", fake_run)
+    monkeypatch.setattr(
+        dmr,
+        "probe_dmr",
+        AsyncMock(
+            return_value=dmr.DmrProbe(True, "openai", ("hf.co/Qwen/Qwen3-0.6B",))
+        ),
+    )
+    monkeypatch.setattr(dmr, "probe_dmr_inference", AsyncMock(return_value=True))
     job = await dmr.create_model_job("hf.co/Qwen/Qwen3-0.6B", "start")
     for _ in range(100):
         if job.status not in {"queued", "running"}:
@@ -248,6 +257,29 @@ async def test_model_job_reports_completion_and_keeps_output(
         ("run", "--detach", "hf.co/Qwen/Qwen3-0.6B"),
         ("inspect", "hf.co/Qwen/Qwen3-0.6B"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_model_job_fails_when_readiness_inference_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_run(*args: str, command_timeout: float = 120.0) -> str:
+        return "ok"
+
+    monkeypatch.setattr(dmr, "run_docker_model", fake_run)
+    monkeypatch.setattr(
+        dmr,
+        "probe_dmr",
+        AsyncMock(return_value=dmr.DmrProbe(True, "openai", ("hf.co/model",))),
+    )
+    monkeypatch.setattr(dmr, "probe_dmr_inference", AsyncMock(return_value=False))
+    job = await dmr.create_model_job("hf.co/model", "start")
+    for _ in range(100):
+        if job.status not in {"queued", "running"}:
+            break
+        await asyncio.sleep(0.01)
+    assert job.status == "failed"
+    assert "readiness" in (job.error or "")
 
 
 @pytest.mark.asyncio

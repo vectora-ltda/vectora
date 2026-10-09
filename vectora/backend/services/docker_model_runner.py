@@ -403,6 +403,24 @@ async def inspect_model(reference: str) -> dict[str, object]:
     }
 
 
+async def _assert_model_ready(reference: str) -> DmrProbe:
+    """Confirma catálogo e inferência antes de concluir um job de inicialização."""
+    from backend.settings import settings
+
+    probe = await probe_dmr(settings.dmr_base_url)
+    if not probe.reachable or probe.contract is None:
+        raise RuntimeError(probe.detail or "Docker Model Runner indisponível")
+    candidates = set(probe.models)
+    model_name = (
+        reference if reference in candidates else reference.removeprefix("hf.co/")
+    )
+    if model_name not in candidates:
+        raise RuntimeError("Docker Model Runner não anunciou o modelo solicitado")
+    if not await probe_dmr_inference(settings.dmr_base_url, probe.contract, model_name):
+        raise RuntimeError("Docker Model Runner não concluiu a inferência de readiness")
+    return probe
+
+
 async def _run_job(job: DmrJob) -> None:
     """Executa um job e converte cancelamento em estado consultável."""
     job.status = "running"
@@ -413,8 +431,16 @@ async def _run_job(job: DmrJob) -> None:
             job.output = (job.output + "\n" + await run_model(job.reference))[
                 -MAX_OUTPUT_BYTES:
             ]
+            probe = await _assert_model_ready(job.reference)
+            job.metadata = {
+                "contract": probe.contract,
+                "models": list(probe.models),
+            }
         try:
-            job.metadata = await inspect_model(job.reference)
+            job.metadata = {
+                **job.metadata,
+                **await inspect_model(job.reference),
+            }
         except (OSError, RuntimeError, ValueError):
             job.metadata = {}
         job.status = "completed"
