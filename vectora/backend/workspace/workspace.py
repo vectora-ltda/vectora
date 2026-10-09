@@ -193,8 +193,9 @@ class WorkspaceRegistry:
         Git tools use its repository; later callers are rejected by the normal
         owner check.  Existing owners are never changed.
         """
-        self._load()
-        ws = self._workspaces.get(workspace_id)
+        # Resolve through ``get`` so embedders and tests that provide a
+        # workspace backend continue to participate in the ownership check.
+        ws = self.get(workspace_id)
         if ws is None:
             return None
         if ws.owner_id is None:
