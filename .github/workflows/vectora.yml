@@ -349,7 +349,7 @@ jobs:
           VECTORA_TEST_QDRANT_URL: http://localhost:6333
         run: uv run pytest tests/integration/ -v --timeout=120 -p no:randomly --tb=short -m "not singularity"
       - name: E2E tests
-        run: uv run pytest tests/e2e/ -v --timeout=180 --tb=short
+        run: uv run pytest tests/e2e/ -m live -v --timeout=180 --tb=short
 
   # ── 5. Resolve release line ─────────────────────────────────────────────
   # Both native builds and R2/KV publication consume this single output. In
