@@ -1486,6 +1486,7 @@ async def download_huggingface_model(
         )
     await asyncio.to_thread(destination.parent.mkdir, parents=True, exist_ok=True)
     partial = destination.with_name(destination.name + ".part")
+    partial_metadata = partial.with_name(partial.name + ".meta")
     # O arquivo parcial é identificado pelo caminho, independentemente da
     # revisão. Assim o DELETE da UI consegue cancelar a mesma transferência
     # mesmo quando a revisão foi omitida ou mudou entre tentativas.
@@ -1505,6 +1506,32 @@ async def download_huggingface_model(
                 "total": None,
                 "status": "starting",
             }
+            metadata: dict[str, object] | None = None
+            if await asyncio.to_thread(partial_metadata.is_file):
+                try:
+                    candidate_metadata = await _read_json_file_async(partial_metadata)
+                    if isinstance(candidate_metadata, dict):
+                        metadata = candidate_metadata
+                except (OSError, json.JSONDecodeError):
+                    metadata = None
+            if await asyncio.to_thread(partial.exists) and (
+                metadata is None
+                or metadata.get("repo_id") != repo_id
+                or metadata.get("filename") != filename
+                or metadata.get("revision") != revision
+                or metadata.get("sha256") != body.sha256
+            ):
+                await asyncio.to_thread(partial.unlink, missing_ok=True)
+                await asyncio.to_thread(partial_metadata.unlink, missing_ok=True)
+            await _write_json_atomic(
+                partial_metadata,
+                {
+                    "repo_id": repo_id,
+                    "filename": filename,
+                    "revision": revision,
+                    "sha256": body.sha256,
+                },
+            )
             offset = (
                 (await asyncio.to_thread(partial.stat)).st_size
                 if body.resume and await asyncio.to_thread(partial.exists)
@@ -1581,10 +1608,12 @@ async def download_huggingface_model(
                 if cancel_event.is_set() or await request.is_disconnected():
                     raise asyncio.CancelledError
                 await asyncio.to_thread(partial.replace, destination)
+                await asyncio.to_thread(partial_metadata.unlink, missing_ok=True)
                 _download_progress[download_key]["status"] = "completed"
             except asyncio.CancelledError:
                 _download_progress[download_key]["status"] = "cancelled"
                 await asyncio.to_thread(partial.unlink, missing_ok=True)
+                await asyncio.to_thread(partial_metadata.unlink, missing_ok=True)
                 raise
             except HTTPException:
                 _download_progress[download_key]["status"] = "failed"
@@ -1599,6 +1628,7 @@ async def download_huggingface_model(
             except Exception as exc:
                 _download_progress[download_key]["status"] = "failed"
                 await asyncio.to_thread(partial.unlink, missing_ok=True)
+                await asyncio.to_thread(partial_metadata.unlink, missing_ok=True)
                 await asyncio.to_thread(destination.unlink, missing_ok=True)
                 raise HTTPException(
                     status_code=502, detail="falha no download da Hugging Face"
@@ -1606,6 +1636,7 @@ async def download_huggingface_model(
             actual = digest.hexdigest()
             if body.sha256 and actual.lower() != body.sha256.lower():
                 await asyncio.to_thread(destination.unlink, missing_ok=True)
+                await asyncio.to_thread(partial_metadata.unlink, missing_ok=True)
                 raise HTTPException(
                     status_code=422, detail="checksum sha256 incompatível"
                 )
@@ -1761,6 +1792,7 @@ async def cancel_huggingface_download(
         raise HTTPException(status_code=400, detail="repo_id deve ser owner/model")
     root = (settings.vectora_home / "models" / "huggingface" / repo_id).resolve()
     partial = (root / (filename + ".part")).resolve()
+    partial_metadata = partial.with_name(partial.name + ".meta")
     if root not in partial.parents:
         raise HTTPException(
             status_code=400, detail="arquivo fora do diretório permitido"
@@ -1776,6 +1808,7 @@ async def cancel_huggingface_download(
     lock = await _download_lock(download_key)
     async with lock:
         await asyncio.to_thread(partial.unlink, missing_ok=True)
+        await asyncio.to_thread(partial_metadata.unlink, missing_ok=True)
     return {"ok": True, "status": "cancelled"}
 
 
