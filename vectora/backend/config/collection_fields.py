@@ -24,6 +24,12 @@ collection_field(
     adapter=RegisteredModelsTableAdapter("ollama_registered_models"),
 )
 collection_field(
+    "llamacpp_registered_models",
+    category="provider_routing",
+    description="Modelos registrados do gateway llama.cpp.",
+    adapter=RegisteredModelsTableAdapter("llamacpp_registered_models"),
+)
+collection_field(
     "openrouter_registered_models",
     category="provider_routing",
     description="Modelos registrados do gateway OpenRouter.",
