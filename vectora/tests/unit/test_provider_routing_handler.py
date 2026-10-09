@@ -14,6 +14,7 @@ Valida:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import zipfile
@@ -488,6 +489,22 @@ class TestLlamaCppAndHuggingFace:
         root.mkdir(parents=True)
         (root / "model.Q4_K_M.gguf").write_bytes(b"weights")
         (root / "mmproj-f16.gguf").write_bytes(b"projector")
+        for name, content in (
+            ("model.Q4_K_M.gguf", b"weights"),
+            ("mmproj-f16.gguf", b"projector"),
+        ):
+            (root / f"{name}.source.json").write_text(
+                json.dumps(
+                    {
+                        "repo_id": "org/model",
+                        "filename": name,
+                        "revision": "abc123",
+                        "sha256": hashlib.sha256(content).hexdigest(),
+                        "size": len(content),
+                    }
+                ),
+                encoding="utf-8",
+            )
         monkeypatch.setattr(settings, "vectora_home", tmp_path)
 
         result = await install_huggingface_model(
@@ -540,6 +557,33 @@ class TestLlamaCppAndHuggingFace:
                     filename="model.gguf",
                     provider="ollama",
                     alias="",
+                ),
+                None,
+            )
+
+    @pytest.mark.asyncio
+    async def test_huggingface_install_rejects_file_without_source_metadata(
+        self, tmp_path, monkeypatch
+    ):
+        from fastapi import HTTPException
+
+        from backend.api.handlers.provider_routing import (
+            HuggingFaceInstallRequest,
+            install_huggingface_model,
+        )
+        from backend.settings import settings
+
+        root = tmp_path / "models" / "huggingface" / "org" / "model"
+        root.mkdir(parents=True)
+        (root / "model.gguf").write_bytes(b"weights")
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+
+        with pytest.raises(HTTPException, match="metadados de origem ausentes"):
+            await install_huggingface_model(
+                HuggingFaceInstallRequest(
+                    repo_id="org/model",
+                    revision="abc123",
+                    filename="model.gguf",
                 ),
                 None,
             )

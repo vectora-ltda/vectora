@@ -1367,6 +1367,11 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _download_source_metadata_path(path: Path) -> Path:
+    """Retorna o sidecar de procedência associado a um arquivo baixado."""
+    return path.with_name(f"{path.name}.source.json")
+
+
 def _read_json_file(path: Path) -> object:
     """Lê JSON em uma thread para não bloquear o event loop."""
     return json.loads(path.read_text(encoding="utf-8"))
@@ -1502,6 +1507,7 @@ async def download_huggingface_model(
     await asyncio.to_thread(destination.parent.mkdir, parents=True, exist_ok=True)
     partial = destination.with_name(destination.name + ".part")
     partial_metadata = partial.with_name(partial.name + ".meta")
+    source_metadata = _download_source_metadata_path(destination)
     # O arquivo parcial é identificado pelo caminho, independentemente da
     # revisão. Assim o DELETE da UI consegue cancelar a mesma transferência
     # mesmo quando a revisão foi omitida ou mudou entre tentativas.
@@ -1624,6 +1630,16 @@ async def download_huggingface_model(
                     raise asyncio.CancelledError
                 await asyncio.to_thread(partial.replace, destination)
                 await asyncio.to_thread(partial_metadata.unlink, missing_ok=True)
+                await _write_json_atomic(
+                    source_metadata,
+                    {
+                        "repo_id": repo_id,
+                        "filename": filename,
+                        "revision": revision,
+                        "sha256": digest.hexdigest(),
+                        "size": downloaded,
+                    },
+                )
                 _download_progress[download_key]["status"] = "completed"
             except asyncio.CancelledError:
                 _download_progress[download_key]["status"] = "cancelled"
@@ -1645,12 +1661,14 @@ async def download_huggingface_model(
                 await asyncio.to_thread(partial.unlink, missing_ok=True)
                 await asyncio.to_thread(partial_metadata.unlink, missing_ok=True)
                 await asyncio.to_thread(destination.unlink, missing_ok=True)
+                await asyncio.to_thread(source_metadata.unlink, missing_ok=True)
                 raise HTTPException(
                     status_code=502, detail="falha no download da Hugging Face"
                 ) from exc
             actual = digest.hexdigest()
             if body.sha256 and actual.lower() != body.sha256.lower():
                 await asyncio.to_thread(destination.unlink, missing_ok=True)
+                await asyncio.to_thread(source_metadata.unlink, missing_ok=True)
                 await asyncio.to_thread(partial_metadata.unlink, missing_ok=True)
                 raise HTTPException(
                     status_code=422, detail="checksum sha256 incompatível"
@@ -1723,7 +1741,29 @@ async def install_huggingface_model(
                 status_code=409,
                 detail=f"arquivo ainda não foi baixado: {selected_name}",
             )
+        source_metadata_path = _download_source_metadata_path(path)
+        try:
+            source_metadata = await _read_json_file_async(source_metadata_path)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=f"metadados de origem ausentes: {selected_name}",
+            ) from exc
+        if not isinstance(source_metadata, dict) or (
+            source_metadata.get("repo_id") != repo_id
+            or source_metadata.get("filename") != selected_name
+            or source_metadata.get("revision") != revision
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=f"arquivo não pertence à revisão solicitada: {selected_name}",
+            )
         digest = await asyncio.to_thread(_sha256_file, path)
+        if source_metadata.get("sha256") != digest:
+            raise HTTPException(
+                status_code=409,
+                detail=f"hash do arquivo mudou: {selected_name}",
+            )
         stat_result = await asyncio.to_thread(path.stat)
         size = stat_result.st_size
         files.append(
@@ -1732,6 +1772,7 @@ async def install_huggingface_model(
                 "path": str(path),
                 "size": size,
                 "sha256": digest,
+                "revision": revision,
                 "role": "mmproj" if selected_name == mmproj else "model",
             }
         )
