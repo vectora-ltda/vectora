@@ -52,10 +52,11 @@ import tarfile
 import time
 import uuid
 import zipfile
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import UTC, datetime
+from functools import wraps
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, ParamSpec, TypeVar
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
@@ -106,6 +107,22 @@ def _require_desktop_bridge(
 
 DesktopBridge = Depends(_require_desktop_bridge)
 
+_RuntimeP = ParamSpec("_RuntimeP")
+_RuntimeR = TypeVar("_RuntimeR")
+
+
+def _runtime_transition(  # noqa: UP047
+    handler: Callable[_RuntimeP, Awaitable[_RuntimeR]],
+) -> Callable[_RuntimeP, Awaitable[_RuntimeR]]:
+    """Serializa alterações no manifesto e no marcador do runtime."""
+
+    @wraps(handler)
+    async def guarded(*args: _RuntimeP.args, **kwargs: _RuntimeP.kwargs) -> _RuntimeR:
+        async with _runtime_transition_lock:
+            return await handler(*args, **kwargs)
+
+    return guarded
+
 
 async def _get_http_client() -> AsyncIterator[Any]:
     """Dependency do client HTTP usado pelas chamadas de descoberta/catálogo.
@@ -131,6 +148,7 @@ _download_locks: dict[str, asyncio.Lock] = {}
 _download_locks_guard = asyncio.Lock()
 _download_cancel_events: dict[str, asyncio.Event] = {}
 _download_progress: dict[str, dict[str, int | str | None]] = {}
+_runtime_transition_lock = asyncio.Lock()
 _MAX_DOWNLOAD_BYTES = 100 * 1024**3
 _GITHUB_RELEASE_HOSTS = frozenset(
     {
@@ -1805,6 +1823,7 @@ async def list_llamacpp_releases() -> dict[str, list[dict[str, object]]]:
 @router.post(
     "/llama-cpp/install", include_in_schema=False, dependencies=[DesktopBridge]
 )
+@_runtime_transition
 async def install_llamacpp_runtime(
     body: LlamaCppInstallRequest,
     _: ProviderAdmin,
@@ -2007,6 +2026,7 @@ async def update_llamacpp_runtime(
 @router.post(
     "/llama-cpp/runtime/rollback", include_in_schema=False, dependencies=[DesktopBridge]
 )
+@_runtime_transition
 async def rollback_llamacpp_runtime(
     body: LlamaCppRollbackRequest,
     _: ProviderAdmin,
@@ -2051,6 +2071,7 @@ async def rollback_llamacpp_runtime(
     include_in_schema=False,
     dependencies=[DesktopBridge],
 )
+@_runtime_transition
 async def remove_llamacpp_runtime_version(
     runtime_id: str,
     _: ProviderAdmin,
@@ -2109,6 +2130,7 @@ async def remove_llamacpp_runtime_version(
 @router.post(
     "/llama-cpp/runtime/cleanup", include_in_schema=False, dependencies=[DesktopBridge]
 )
+@_runtime_transition
 async def cleanup_llamacpp_runtime_versions(
     body: LlamaCppRetentionRequest,
     _: ProviderAdmin,
@@ -2212,6 +2234,7 @@ async def check_llamacpp_runtime(
 @router.delete(
     "/llama-cpp/runtime", include_in_schema=False, dependencies=[DesktopBridge]
 )
+@_runtime_transition
 async def remove_llamacpp_runtime(
     _: ProviderAdmin,
 ) -> dict[str, bool]:

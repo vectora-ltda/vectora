@@ -1532,6 +1532,25 @@ class TestLlamaCppConfiguration:
         assert not (versions / oldest).exists()
 
     @pytest.mark.asyncio
+    async def test_runtime_transitions_are_serialized(self):
+        from backend.api.handlers.provider_routing import _runtime_transition
+
+        events: list[str] = []
+
+        @_runtime_transition
+        async def transition(name: str) -> None:
+            events.append(f"start:{name}")
+            await asyncio.sleep(0)
+            events.append(f"end:{name}")
+
+        await asyncio.gather(transition("first"), transition("second"))
+
+        assert events in (
+            ["start:first", "end:first", "start:second", "end:second"],
+            ["start:second", "end:second", "start:first", "end:first"],
+        )
+
+    @pytest.mark.asyncio
     async def test_runtime_validation_requires_llama_server(self):
         from backend.api.handlers.provider_routing import _validate_runtime_executable
 
