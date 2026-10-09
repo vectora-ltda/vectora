@@ -1428,6 +1428,25 @@ class TestLlamaCppConfiguration:
 
         assert status["installed"] is True
         assert status["runtimes"] == [{"asset": "llama-server.zip", "sha256": "abc"}]
+        assert status["state"] == "unavailable"
+        assert status["managed"] is True
+
+    @pytest.mark.asyncio
+    async def test_runtime_status_distinguishes_external_mode_without_managed_files(
+        self, tmp_path, monkeypatch
+    ):
+        from backend.api.handlers.provider_routing import llamacpp_runtime_status
+        from backend.settings import settings
+
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        monkeypatch.setattr(settings, "llamacpp_base_url", "http://127.0.0.1:8080/v1")
+        monkeypatch.setenv("LLAMACPP_MODE", "external")
+
+        status = await llamacpp_runtime_status()
+
+        assert status["state"] == "external"
+        assert status["managed"] is False
+        assert status["external"] is True
 
     @pytest.mark.asyncio
     async def test_runtime_removal_rejects_active_sidecar(self, monkeypatch):

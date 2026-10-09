@@ -1970,10 +1970,33 @@ async def install_llamacpp_runtime(
 @router.get("/llamacpp/runtime/status")
 @router.get("/llama-cpp/runtime/status", include_in_schema=False)
 async def llamacpp_runtime_status() -> dict[str, object]:
-    """Informa runtimes locais sem inspecionar ou remover pesos."""
+    """Informa runtimes locais sem inspecionar ou remover pesos.
+
+    ``state`` torna explícita a diferença entre uma instalação gerenciada,
+    uma configuração externa e um estado persistido que deixou de representar
+    um processo vivo. Os campos antigos permanecem para compatibilidade.
+    """
+    from backend.services.llamacpp_sidecar import llamacpp_status
+
     root = _llamacpp_runtime_root()
+    sidecar = llamacpp_status()
     if not await asyncio.to_thread(root.is_dir):
-        return {"installed": False, "path": None, "files": [], "runtimes": []}
+        external = (
+            bool(settings.llamacpp_base_url)
+            and os.getenv("LLAMACPP_MODE", "external") != "managed"
+        )
+        return {
+            "installed": False,
+            "path": None,
+            "files": [],
+            "runtimes": [],
+            "active_runtime": None,
+            "free_bytes": None,
+            "state": "external" if external else "absent",
+            "managed": not external,
+            "external": external,
+            "stale_state": bool(sidecar.get("stale_state")),
+        }
 
     def _list_files() -> list[str]:
         return [str(path) for path in root.rglob("*") if path.is_file()]
@@ -1993,6 +2016,22 @@ async def llamacpp_runtime_status() -> dict[str, object]:
     except FileNotFoundError:
         active = None
     disk_usage = await asyncio.to_thread(shutil.disk_usage, root)
+    external = (
+        bool(settings.llamacpp_base_url)
+        and os.getenv("LLAMACPP_MODE", "external") != "managed"
+    )
+    if sidecar.get("stale_state"):
+        state = "stale"
+    elif sidecar.get("running"):
+        state = "managed-running"
+    elif active and any(
+        isinstance(item, dict) and item.get("id") == active for item in runtimes
+    ):
+        state = "managed-ready"
+    elif external:
+        state = "external"
+    else:
+        state = "unavailable"
     return {
         "installed": bool(files),
         "path": str(root),
@@ -2000,6 +2039,10 @@ async def llamacpp_runtime_status() -> dict[str, object]:
         "runtimes": runtimes,
         "active_runtime": active,
         "free_bytes": disk_usage.free,
+        "state": state,
+        "managed": not external,
+        "external": external,
+        "stale_state": bool(sidecar.get("stale_state")),
     }
 
 
