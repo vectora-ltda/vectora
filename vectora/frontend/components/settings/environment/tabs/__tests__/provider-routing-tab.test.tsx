@@ -49,6 +49,16 @@ function mockFetch(
     nineRouterRegisterOk: boolean;
     mediaModelsGet: { models: Record<string, string> } | null;
     mediaModelsPatch: { models: Record<string, string> };
+    llamacppRuntimeStatus: {
+      installed: boolean;
+      path: string | null;
+      files: string[];
+      active_runtime?: string | null;
+      runtimes: Array<{ id: string; asset: string }>;
+    };
+    llamacppRuntimeRemoveOk: boolean;
+    hfModels?: object[];
+    hfMetadata?: object;
   }>,
 ) {
   global.fetch = vi
@@ -168,6 +178,26 @@ function mockFetch(
             },
         } as Response);
       }
+      if (url === "/provider-routing/llamacpp/status") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            configured: false,
+            base_url: "http://127.0.0.1:8080/v1",
+            model: "",
+          }),
+        } as Response);
+      }
+      if (url === "/provider-routing/llamacpp/status") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            configured: false,
+            base_url: "http://127.0.0.1:8080/v1",
+            model: "",
+          }),
+        } as Response);
+      }
       if (url === "/provider-routing/nine-router/config" && method === "POST") {
         const ok = handlers.nineRouterConfigSaveOk ?? true;
         return Promise.resolve({
@@ -244,6 +274,48 @@ function mockFetch(
           json: async () => body ?? {},
         } as Response);
       }
+      if (
+        typeof url === "string" &&
+        url.startsWith("/provider-routing/huggingface/models?q=")
+      ) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ models: handlers.hfModels ?? [] }),
+        } as Response);
+      }
+      if (
+        typeof url === "string" &&
+        url.startsWith("/provider-routing/huggingface/models/")
+      ) {
+        return Promise.resolve({
+          ok: true,
+          json: async () =>
+            handlers.hfMetadata ?? { id: "owner/model", files: [] },
+        } as Response);
+      }
+      if (url === "/provider-routing/llamacpp/runtime/status") {
+        return Promise.resolve({
+          ok: true,
+          json: async () =>
+            handlers.llamacppRuntimeStatus ?? {
+              installed: false,
+              path: null,
+              files: [],
+              runtimes: [],
+            },
+        } as Response);
+      }
+      if (
+        typeof url === "string" &&
+        url.startsWith("/provider-routing/llamacpp/runtime/") &&
+        method === "DELETE"
+      ) {
+        return Promise.resolve({
+          ok: handlers.llamacppRuntimeRemoveOk ?? true,
+          status: handlers.llamacppRuntimeRemoveOk === false ? 409 : 200,
+          json: async () => ({ ok: true }),
+        } as Response);
+      }
       if (url === "/admin/media-models" && method === "PATCH") {
         return Promise.resolve({
           ok: true,
@@ -257,6 +329,39 @@ function mockFetch(
       } as Response);
     });
 }
+
+describe("ProviderRoutingTab - Hugging Face", () => {
+  beforeEach(() => {
+    overwriteGetLocale(() => "pt");
+  });
+
+  it("oferece uma �nica a��o de instala��o para cada modelo", async () => {
+    mockFetch({
+      registered: [],
+      hfModels: [
+        {
+          id: "owner/model",
+          name: "Modelo",
+          format: "GGUF",
+          compatibility: "prov�vel",
+        },
+      ],
+      hfMetadata: {
+        id: "owner/model",
+        revision: "abc123",
+        license: "mit",
+        downloads: 12,
+        files: [{ rfilename: "model.Q4_K_M.gguf", format: "GGUF" }],
+      },
+    });
+    render(<ProviderRoutingTab />);
+    fireEvent.click(await screen.findByRole("button", { name: /^buscar$/i }));
+    expect(await screen.findByText("owner/model")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /baixar modelo/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /instalar modelo/i }));
+    expect(await screen.findByText(/mit/i)).toBeTruthy();
+  });
+});
 
 describe("ProviderRoutingTab — Ollama", () => {
   beforeEach(() => {
@@ -775,5 +880,41 @@ describe("MediaModelsSection", () => {
       "Ollama — voice",
     )) as HTMLInputElement;
     expect(campo.value).toBe("");
+  });
+});
+
+describe("LlamaCppSection", () => {
+  beforeEach(() => {
+    overwriteGetLocale(() => "pt");
+  });
+
+  it("remove uma versão inativa sem permitir remover a ativa", async () => {
+    const runtimeStatus = {
+      installed: true,
+      path: "/tmp/llama-server",
+      files: ["llama-server"],
+      active_runtime: "active-runtime",
+      runtimes: [
+        { id: "active-runtime", asset: "llama-active" },
+        { id: "old-runtime", asset: "llama-old" },
+      ],
+    };
+    mockFetch({ llamacppRuntimeStatus: runtimeStatus });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(<ProviderRoutingTab />);
+
+    const removeButtons = await screen.findAllByRole("button", {
+      name: /remover runtime gerenciado/i,
+    });
+    expect(removeButtons.length).toBe(2);
+    fireEvent.click(removeButtons[0]);
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/provider-routing/llamacpp/runtime/old-runtime",
+        { method: "DELETE" },
+      );
+    });
   });
 });

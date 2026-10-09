@@ -3451,7 +3451,20 @@ async def workspace_events(workspace_id: str, request: Request) -> StreamingResp
 
         return StreamingResponse(_not_found(), media_type="text/event-stream")
 
-    cwd = str(Path(ws.cwd).resolve())
+    cwd_path = Path(ws.cwd).expanduser().resolve()
+    if not await asyncio.to_thread(cwd_path.is_dir):
+
+        async def _workspace_unavailable() -> AsyncGenerator[str]:
+            yield (
+                'data: {"type": "error", "code": "workspace_path_unavailable", '
+                '"message": "O diretório do workspace não está disponível."}\n\n'
+            )
+
+        return StreamingResponse(
+            _workspace_unavailable(), media_type="text/event-stream"
+        )
+
+    cwd = str(cwd_path)
 
     loop = asyncio.get_event_loop()
     queue: asyncio.Queue[list[str]] = asyncio.Queue(maxsize=50)
@@ -3485,8 +3498,19 @@ async def workspace_events(workspace_id: str, request: Request) -> StreamingResp
     # impede o shutdown do processo — caso contrário o interpretador trava no
     # ``threading._shutdown()`` aguardando essa thread (travava a CI).
     observer.daemon = True
-    observer.schedule(_Handler(), cwd, recursive=True)
-    observer.start()
+    try:
+        observer.schedule(_Handler(), cwd, recursive=True)
+        observer.start()
+    except (OSError, RuntimeError):
+        observer.stop()
+
+        async def _watcher_unavailable() -> AsyncGenerator[str]:
+            yield (
+                'data: {"type": "error", "code": "watcher_unavailable", '
+                '"message": "Não foi possível observar o workspace."}\n\n'
+            )
+
+        return StreamingResponse(_watcher_unavailable(), media_type="text/event-stream")
 
     async def _stream() -> AsyncGenerator[str]:
         try:

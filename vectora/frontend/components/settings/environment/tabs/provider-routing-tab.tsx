@@ -62,24 +62,51 @@ interface NineRouterModelInfo {
 interface LlamaCppModelInfo {
   id: string;
   name: string;
+  format?: string;
+  compatibility?: string;
+  architecture?: string;
+  quantization?: string;
+  context_length?: string;
+}
+
+interface HuggingFaceFileInfo {
+  rfilename: string;
+  size?: number | null;
+  format?: string;
+}
+
+interface HuggingFaceMetadata {
+  id: string;
+  revision?: string;
+  license?: string | null;
+  downloads?: number;
+  architecture?: string;
+  quantization?: string;
+  context_length?: number | string | null;
+  compatibility?: string;
+  files?: HuggingFaceFileInfo[];
 }
 
 interface LlamaCppReleaseAsset {
   name: string;
   url: string;
   size: number;
+  sha256?: string;
 }
 
 interface LlamaCppRuntimeStatus {
   installed: boolean;
   path: string | null;
   files: string[];
+  free_bytes?: number;
   active_runtime?: string | null;
   runtimes: Array<{
     id?: string;
     asset: string;
     sha256: string;
     installed_at?: string;
+    source?: string;
+    version?: string;
   }>;
 }
 
@@ -121,11 +148,14 @@ async function fetchLlamaCppReleases(): Promise<LlamaCppReleaseAsset[]> {
   return data.releases?.flatMap((release) => release.assets ?? []) ?? [];
 }
 
-async function installLlamaCppRuntime(assetUrl: string): Promise<void> {
+async function installLlamaCppRuntime(
+  assetUrl: string,
+  sha256?: string,
+): Promise<void> {
   const res = await fetch("/provider-routing/llamacpp/install", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ asset_url: assetUrl }),
+    body: JSON.stringify({ asset_url: assetUrl, sha256 }),
   });
   if (!res.ok) throw new Error(`Erro ${res.status}`);
 }
@@ -152,6 +182,13 @@ async function rollbackLlamaCppRuntime(runtimeId: string): Promise<void> {
   if (!res.ok) throw new Error(`Erro ${res.status}`);
 }
 
+async function removeLlamaCppRuntimeVersion(runtimeId: string): Promise<void> {
+  const res = await fetch(`/provider-routing/llamacpp/runtime/${runtimeId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(`Erro ${res.status}`);
+}
+
 async function searchHuggingFaceModels(
   query: string,
   provider: "ollama" | "llamacpp" = "llamacpp",
@@ -166,8 +203,10 @@ async function searchHuggingFaceModels(
 
 async function downloadHuggingFaceModel(
   repoId: string,
+  filename?: string,
+  revision = "main",
   signal?: AbortSignal,
-): Promise<string> {
+): Promise<{ path: string; filename: string }> {
   const metadataResponse = await fetch(
     `/provider-routing/huggingface/models/${repoId}`,
     { signal },
@@ -176,17 +215,106 @@ async function downloadHuggingFaceModel(
   const metadata = (await metadataResponse.json()) as {
     files?: Array<{ rfilename: string; format?: string }>;
   };
-  const file = metadata.files?.find((item) => item.format === "GGUF");
+  const file = filename
+    ? metadata.files?.find((item) => item.rfilename === filename)
+    : metadata.files?.find((item) => item.format === "GGUF");
   if (!file) throw new Error("Nenhum arquivo GGUF encontrado");
   const response = await fetch("/provider-routing/huggingface/download", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ repo_id: repoId, filename: file.rfilename }),
+    body: JSON.stringify({
+      repo_id: repoId,
+      filename: file.rfilename,
+      revision,
+    }),
     signal,
   });
   if (!response.ok) throw new Error(`Erro ${response.status}`);
   const result = (await response.json()) as { path: string };
-  return result.path;
+  return { path: result.path, filename: file.rfilename };
+}
+
+async function fetchHuggingFaceMetadata(
+  repoId: string,
+): Promise<HuggingFaceMetadata> {
+  const response = await fetch(
+    `/provider-routing/huggingface/models/${encodeURIComponent(repoId)}`,
+  );
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  return (await response.json()) as HuggingFaceMetadata;
+}
+
+async function installHuggingFaceModel(input: {
+  repoId: string;
+  revision: string;
+  filename: string;
+  mmprojFilename?: string;
+  alias: string;
+  provider: "ollama" | "llamacpp";
+}): Promise<void> {
+  const response = await fetch("/provider-routing/huggingface/install", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  await registerModel(
+    input.provider === "ollama" ? "ollama" : "llamacpp",
+    input.alias,
+  );
+}
+
+async function cancelHuggingFaceDownload(
+  repoId: string,
+  filename: string,
+  revision: string,
+): Promise<void> {
+  const params = new URLSearchParams({ repo_id: repoId, filename, revision });
+  await fetch(`/provider-routing/huggingface/download?${params.toString()}`, {
+    method: "DELETE",
+  });
+}
+
+async function fetchHuggingFaceDownloadProgress(
+  repoId: string,
+  filename: string,
+  revision: string,
+): Promise<{ downloaded: number; total: number | null; status: string }> {
+  const params = new URLSearchParams({ repo_id: repoId, filename, revision });
+  const response = await fetch(
+    `/provider-routing/huggingface/download/progress?${params.toString()}`,
+  );
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  return (await response.json()) as {
+    downloaded: number;
+    total: number | null;
+    status: string;
+  };
+}
+
+async function startInstalledHuggingFaceModel(
+  repoId: string,
+  filename: string,
+  options: {
+    ctx_size?: number;
+    n_gpu_layers?: number;
+    threads?: number;
+    parallel?: number;
+    jinja: boolean;
+  },
+): Promise<void> {
+  const response = await fetch("/provider-routing/huggingface/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ repo_id: repoId, filename, ...options }),
+  });
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  const modeResponse = await fetch("/provider-routing/llamacpp/mode", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode: "managed" }),
+  });
+  if (!modeResponse.ok) throw new Error(`Erro ${modeResponse.status}`);
 }
 
 function HuggingFaceCatalogSection() {
@@ -194,10 +322,46 @@ function HuggingFaceCatalogSection() {
   const [query, setQuery] = useState("llama");
   const [models, setModels] = useState<LlamaCppModelInfo[]>([]);
   const [loading, setLoading] = useState(false);
-  const [downloading, setDownloading] = useState<string | null>(null);
   const [downloaded, setDownloaded] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const downloadController = useRef<AbortController | null>(null);
+  const [metadata, setMetadata] = useState<HuggingFaceMetadata | null>(null);
+  const [selectedFile, setSelectedFile] = useState("");
+  const [selectedMmproj, setSelectedMmproj] = useState("");
+  const [alias, setAlias] = useState("");
+  const [installing, setInstalling] = useState(false);
+  const [downloadPercent, setDownloadPercent] = useState<number | null>(null);
+  const [installedModel, setInstalledModel] = useState<{
+    repoId: string;
+    filename: string;
+    options: {
+      ctx_size?: number;
+      n_gpu_layers?: number;
+      threads?: number;
+      parallel?: number;
+      jinja: boolean;
+    };
+  } | null>(null);
+  const [ctxSize, setCtxSize] = useState("4096");
+  const [gpuLayers, setGpuLayers] = useState("");
+  const [threads, setThreads] = useState("");
+  const [parallel, setParallel] = useState("1");
+  const [jinja, setJinja] = useState(false);
+
+  function selectedFileSize(): string {
+    const size = metadata?.files?.find(
+      (item) => item.rfilename === selectedFile,
+    )?.size;
+    if (!size) return "?";
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let value = size;
+    let index = 0;
+    while (value >= 1024 && index < units.length - 1) {
+      value /= 1024;
+      index += 1;
+    }
+    return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+  }
 
   async function search() {
     setLoading(true);
@@ -208,6 +372,105 @@ function HuggingFaceCatalogSection() {
       setError("Erro ao consultar a Hugging Face");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function prepareModel(repoId: string) {
+    setError(null);
+    try {
+      const data = await fetchHuggingFaceMetadata(repoId);
+      const gguf = (data.files ?? []).filter((item) => item.format === "GGUF");
+      if (!gguf.length) throw new Error("Nenhum arquivo GGUF encontrado");
+      setMetadata(data);
+      setSelectedFile(gguf[0]?.rfilename ?? "");
+      setSelectedMmproj(
+        (data.files ?? []).find((item) => /mmproj/i.test(item.rfilename))
+          ?.rfilename ?? "",
+      );
+      setAlias(gguf[0]?.rfilename ?? "");
+    } catch {
+      setError(m.provider_routing_hf_download_error());
+    }
+  }
+
+  async function installSelectedModel() {
+    if (!metadata || !selectedFile || !alias.trim()) return;
+    const controller = new AbortController();
+    downloadController.current = controller;
+    setInstalling(true);
+    setDownloadPercent(0);
+    setError(null);
+    let progressTimer: number | undefined;
+    try {
+      const revision = metadata.revision ?? "main";
+      progressTimer = window.setInterval(() => {
+        void fetchHuggingFaceDownloadProgress(
+          metadata.id,
+          selectedFile,
+          revision,
+        ).then((progress) => {
+          if (progress.total && progress.total > 0) {
+            setDownloadPercent(
+              Math.min(
+                100,
+                Math.round((progress.downloaded / progress.total) * 100),
+              ),
+            );
+          }
+        });
+      }, 500);
+      await downloadHuggingFaceModel(
+        metadata.id,
+        selectedFile,
+        revision,
+        controller.signal,
+      );
+      if (selectedMmproj) {
+        await downloadHuggingFaceModel(
+          metadata.id,
+          selectedMmproj,
+          revision,
+          controller.signal,
+        );
+      }
+      await installHuggingFaceModel({
+        repoId: metadata.id,
+        revision,
+        filename: selectedFile,
+        mmprojFilename: selectedMmproj || undefined,
+        alias: alias.trim(),
+        provider,
+      });
+      setDownloaded(alias.trim());
+      setDownloadPercent(100);
+      if (provider === "llamacpp") {
+        setInstalledModel({
+          repoId: metadata.id,
+          filename: selectedFile,
+          options: {
+            ctx_size: Number(ctxSize) || undefined,
+            n_gpu_layers: gpuLayers === "" ? undefined : Number(gpuLayers),
+            threads: threads === "" ? undefined : Number(threads),
+            parallel: Number(parallel) || undefined,
+            jinja,
+          },
+        });
+      }
+      setMetadata(null);
+    } catch (installError: unknown) {
+      if (
+        !(installError instanceof DOMException) ||
+        installError.name !== "AbortError"
+      ) {
+        setError(m.provider_routing_hf_download_error());
+      }
+    } finally {
+      if (downloadController.current === controller) {
+        downloadController.current = null;
+      }
+      if (progressTimer !== undefined) window.clearInterval(progressTimer);
+      setInstalling(false);
+      setDownloadPercent(null);
     }
   }
 
@@ -245,63 +508,249 @@ function HuggingFaceCatalogSection() {
         </Button>
       </div>
       {models.length > 0 && (
-        <div className="space-y-1 text-sm">
+        <div className="space-y-2 text-sm">
           {models.map((model) => (
             <div
               key={model.id}
-              className="flex items-center justify-between gap-2"
+              className="flex items-center justify-between gap-3 rounded-md border bg-muted/10 px-3 py-2"
             >
-              <span className="truncate">{model.id}</span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium">{model.id}</p>
+                <p className="text-xs text-muted-foreground">
+                  {m.provider_routing_hf_model_metadata({
+                    format: model.format || "GGUF",
+                    compatibility:
+                      model.compatibility ||
+                      m.provider_routing_hf_compatibility_unknown(),
+                    architecture:
+                      model.architecture ||
+                      m.provider_routing_hf_metadata_unknown(),
+                    quantization:
+                      model.quantization ||
+                      m.provider_routing_hf_metadata_unknown(),
+                    context:
+                      model.context_length ||
+                      m.provider_routing_hf_metadata_unknown(),
+                  })}
+                </p>
+              </div>
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={downloading !== null}
-                onClick={() => {
-                  const controller = new AbortController();
-                  downloadController.current = controller;
-                  setDownloading(model.id);
-                  setError(null);
-                  void downloadHuggingFaceModel(model.id, controller.signal)
-                    .then((path) => setDownloaded(path))
-                    .catch((downloadError: unknown) => {
-                      if (
-                        !(downloadError instanceof DOMException) ||
-                        downloadError.name !== "AbortError"
-                      ) {
-                        setError(m.provider_routing_hf_download_error());
-                      }
-                    })
-                    .finally(() => {
-                      if (downloadController.current === controller) {
-                        downloadController.current = null;
-                      }
-                      setDownloading(null);
-                    });
-                }}
+                disabled={installing}
+                onClick={() => void prepareModel(model.id)}
               >
-                {downloading === model.id
-                  ? m.provider_routing_hf_downloading()
-                  : m.provider_routing_hf_download()}
+                {m.provider_routing_hf_install()}
               </Button>
-              {downloading === model.id && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => downloadController.current?.abort()}
-                >
-                  {m.provider_routing_hf_cancel()}
-                </Button>
-              )}
             </div>
           ))}
         </div>
       )}
-      {downloaded && (
+      {metadata && (
+        <div className="space-y-3 rounded-lg border bg-muted/20 p-4 text-sm">
+          <div>
+            <p className="font-medium">{metadata.id}</p>
+            <p className="text-xs text-muted-foreground">
+              {m.provider_routing_hf_review({
+                license: metadata.license ?? "desconhecida",
+                downloads: String(metadata.downloads ?? 0),
+              })}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {m.provider_routing_hf_file_details({
+                revision: metadata.revision ?? "main",
+                size: selectedFileSize(),
+              })}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {m.provider_routing_hf_model_metadata({
+                format: "GGUF",
+                compatibility:
+                  metadata.compatibility ||
+                  m.provider_routing_hf_compatibility_unknown(),
+                architecture:
+                  metadata.architecture ||
+                  m.provider_routing_hf_metadata_unknown(),
+                quantization:
+                  metadata.quantization ||
+                  m.provider_routing_hf_metadata_unknown(),
+                context:
+                  metadata.context_length ||
+                  m.provider_routing_hf_metadata_unknown(),
+              })}
+            </p>
+          </div>
+          <Label htmlFor="hf-model-file">
+            {m.provider_routing_hf_model_file()}
+          </Label>
+          <select
+            id="hf-model-file"
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+            value={selectedFile}
+            onChange={(event) => setSelectedFile(event.target.value)}
+            disabled={installing}
+          >
+            {(metadata.files ?? [])
+              .filter((item) => item.format === "GGUF")
+              .map((item) => (
+                <option key={item.rfilename} value={item.rfilename}>
+                  {item.rfilename}
+                </option>
+              ))}
+          </select>
+          <Label htmlFor="hf-mmproj-file">
+            {m.provider_routing_hf_mmproj_file()}
+          </Label>
+          <select
+            id="hf-mmproj-file"
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+            value={selectedMmproj}
+            onChange={(event) => setSelectedMmproj(event.target.value)}
+            disabled={installing}
+          >
+            <option value="">{m.provider_routing_hf_mmproj_none()}</option>
+            {(metadata.files ?? [])
+              .filter((item) => /mmproj/i.test(item.rfilename))
+              .map((item) => (
+                <option key={item.rfilename} value={item.rfilename}>
+                  {item.rfilename}
+                </option>
+              ))}
+          </select>
+          <Input
+            aria-label={m.provider_routing_hf_alias()}
+            value={alias}
+            onChange={(event) => setAlias(event.target.value)}
+            placeholder={m.provider_routing_hf_alias()}
+            disabled={installing}
+          />
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Input
+              aria-label={m.provider_routing_hf_ctx_size()}
+              type="number"
+              min={1}
+              value={ctxSize}
+              onChange={(event) => setCtxSize(event.target.value)}
+              placeholder={m.provider_routing_hf_ctx_size()}
+              disabled={installing}
+            />
+            <Input
+              aria-label={m.provider_routing_hf_gpu_layers()}
+              type="number"
+              value={gpuLayers}
+              onChange={(event) => setGpuLayers(event.target.value)}
+              placeholder={m.provider_routing_hf_gpu_layers()}
+              disabled={installing}
+            />
+            <Input
+              aria-label={m.provider_routing_hf_threads()}
+              type="number"
+              min={1}
+              value={threads}
+              onChange={(event) => setThreads(event.target.value)}
+              placeholder={m.provider_routing_hf_threads()}
+              disabled={installing}
+            />
+            <Input
+              aria-label={m.provider_routing_hf_parallel()}
+              type="number"
+              min={1}
+              value={parallel}
+              onChange={(event) => setParallel(event.target.value)}
+              placeholder={m.provider_routing_hf_parallel()}
+              disabled={installing}
+            />
+          </div>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={jinja}
+              onChange={(event) => setJinja(event.target.checked)}
+              disabled={installing}
+            />
+            {m.provider_routing_hf_jinja()}
+          </label>
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={installing}
+              onClick={() => setMetadata(null)}
+            >
+              {m.provider_routing_hf_cancel()}
+            </Button>
+            {installing ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  downloadController.current?.abort();
+                  if (metadata) {
+                    const revision = metadata.revision ?? "main";
+                    void Promise.all([
+                      cancelHuggingFaceDownload(
+                        metadata.id,
+                        selectedFile,
+                        revision,
+                      ),
+                      selectedMmproj
+                        ? cancelHuggingFaceDownload(
+                            metadata.id,
+                            selectedMmproj,
+                            revision,
+                          )
+                        : Promise.resolve(),
+                    ]);
+                  }
+                }}
+              >
+                {m.provider_routing_hf_cancel()}
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                onClick={() => void installSelectedModel()}
+                disabled={!selectedFile || !alias.trim()}
+              >
+                {m.provider_routing_hf_install()}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+      {installing && downloadPercent !== null && (
         <p className="text-xs text-muted-foreground">
-          {m.provider_routing_hf_downloaded({ path: downloaded })}
+          {m.provider_routing_hf_download_progress({
+            percent: String(downloadPercent),
+          })}
         </p>
+      )}
+      {downloaded && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">
+            {m.provider_routing_hf_downloaded({ path: downloaded })}
+          </p>
+          {installedModel && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setError(null);
+                void startInstalledHuggingFaceModel(
+                  installedModel.repoId,
+                  installedModel.filename,
+                  installedModel.options,
+                ).catch(() =>
+                  setError(m.provider_routing_llamacpp_unreachable()),
+                );
+              }}
+            >
+              {m.provider_routing_llamacpp_test()}
+            </Button>
+          )}
+        </div>
       )}
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
@@ -1294,6 +1743,7 @@ function LlamaCppSection() {
   const [baseUrl, setBaseUrl] = useState("http://127.0.0.1:8080/v1");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
+  const [mode, setMode] = useState<"managed" | "external">("external");
   const [models, setModels] = useState<LlamaCppModelInfo[]>([]);
   const [hfModels, setHfModels] = useState<LlamaCppModelInfo[]>([]);
   const [query, setQuery] = useState("llama.cpp");
@@ -1313,11 +1763,21 @@ function LlamaCppSection() {
 
   useEffect(() => {
     void fetch("/provider-routing/llamacpp/status")
-      .then((response) => response.json())
-      .then((data: { base_url?: string; model?: string }) => {
-        setBaseUrl(data.base_url ?? "http://127.0.0.1:8080/v1");
-        setModel(data.model ?? "");
+      .then((response) => {
+        if (!response.ok) throw new Error(String(response.status));
+        return response.json();
       })
+      .then(
+        (data: {
+          base_url?: string;
+          model?: string;
+          mode?: "managed" | "external";
+        }) => {
+          setBaseUrl(data.base_url ?? "http://127.0.0.1:8080/v1");
+          setModel(data.model ?? "");
+          setMode(data.mode ?? "external");
+        },
+      )
       .catch(() => undefined);
   }, []);
 
@@ -1347,6 +1807,30 @@ function LlamaCppSection() {
       setError("Erro ao consultar o llama.cpp");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function changeMode(nextMode: "managed" | "external") {
+    setError("");
+    try {
+      const response = await fetch("/provider-routing/llamacpp/mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: nextMode }),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as {
+          detail?: string;
+        };
+        throw new Error(body.detail ?? String(response.status));
+      }
+      setMode(nextMode);
+    } catch (modeError) {
+      setError(
+        modeError instanceof Error
+          ? modeError.message
+          : "Não foi possível alterar o modo do llama.cpp",
+      );
     }
   }
 
@@ -1406,7 +1890,7 @@ function LlamaCppSection() {
             : null;
       const architecturePattern = isArm
         ? /arm64|aarch64/i
-        : /x64|amd64|x86_64/i;
+        : /x64|x86[-_ ]?64|amd64|win64|wow64|intel|x86/i;
       const preferred = platformPattern
         ? assets.find(
             (asset) =>
@@ -1417,7 +1901,7 @@ function LlamaCppSection() {
         : undefined;
       if (!preferred) throw new Error("Nenhum runtime compatível encontrado");
       setInstalling(true);
-      await installLlamaCppRuntime(preferred.url);
+      await installLlamaCppRuntime(preferred.url, preferred.sha256);
       setRuntime(await fetchLlamaCppRuntimeStatus());
     } catch {
       setError("Erro ao instalar o runtime oficial do llama.cpp");
@@ -1450,6 +1934,22 @@ function LlamaCppSection() {
         </p>
       </div>
       <div className="grid gap-2 sm:grid-cols-2">
+        <select
+          aria-label={m.provider_routing_llamacpp_mode()}
+          className="rounded-md border bg-background px-3 text-sm"
+          value={mode}
+          onChange={(event) =>
+            void changeMode(event.target.value as "managed" | "external")
+          }
+          disabled={loading || installing}
+        >
+          <option value="external">
+            {m.provider_routing_llamacpp_mode_external()}
+          </option>
+          <option value="managed">
+            {m.provider_routing_llamacpp_mode_managed()}
+          </option>
+        </select>
         <Input
           aria-label={m.provider_routing_llamacpp_endpoint()}
           value={baseUrl}
@@ -1522,30 +2022,78 @@ function LlamaCppSection() {
             {runtime.runtimes.length > 0 &&
               ` (${runtime.runtimes.map((item) => item.asset).join(", ")})`}
           </p>
+          {runtime.free_bytes !== undefined && (
+            <p>
+              {m.provider_routing_llamacpp_runtime_disk_free({
+                bytes: String(runtime.free_bytes),
+              })}
+            </p>
+          )}
+          <div className="mt-2 space-y-1">
+            {runtime.runtimes.map((item) => (
+              <p key={item.id ?? item.asset} className="truncate">
+                {m.provider_routing_llamacpp_runtime_details({
+                  version: item.version || item.asset,
+                  source: item.source || "—",
+                  sha256: item.sha256 || "—",
+                })}
+              </p>
+            ))}
+          </div>
           {runtime.runtimes
             .filter((item) => item.id && item.id !== runtime.active_runtime)
             .map((item) => (
-              <Button
-                key={item.id}
-                type="button"
-                variant="ghost"
-                className="mt-2 mr-2 px-0"
-                disabled={runtimeBusy || loading || installing}
-                onClick={() => {
-                  if (!item.id) return;
-                  setRuntimeBusy(true);
-                  void rollbackLlamaCppRuntime(item.id)
-                    .then(async () =>
-                      setRuntime(await fetchLlamaCppRuntimeStatus()),
+              <div key={item.id} className="mt-2 mr-2 inline-flex gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="px-0"
+                  disabled={runtimeBusy || loading || installing}
+                  onClick={() => {
+                    if (!item.id) return;
+                    setRuntimeBusy(true);
+                    void rollbackLlamaCppRuntime(item.id)
+                      .then(async () =>
+                        setRuntime(await fetchLlamaCppRuntimeStatus()),
+                      )
+                      .catch(() =>
+                        setError("Não foi possível reverter o runtime."),
+                      )
+                      .finally(() => setRuntimeBusy(false));
+                  }}
+                >
+                  {m.provider_routing_llamacpp_runtime_rollback()} ({item.asset}
+                  )
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="px-0"
+                  disabled={runtimeBusy || loading || installing}
+                  onClick={() => {
+                    if (
+                      !item.id ||
+                      !window.confirm(
+                        m.provider_routing_llamacpp_runtime_remove(),
+                      )
                     )
-                    .catch(() =>
-                      setError("Não foi possível reverter o runtime."),
-                    )
-                    .finally(() => setRuntimeBusy(false));
-                }}
-              >
-                {m.provider_routing_llamacpp_runtime_rollback()} ({item.asset})
-              </Button>
+                      return;
+                    setRuntimeBusy(true);
+                    void removeLlamaCppRuntimeVersion(item.id)
+                      .then(async () =>
+                        setRuntime(await fetchLlamaCppRuntimeStatus()),
+                      )
+                      .catch(() =>
+                        setError(
+                          "Não foi possível remover a versão do runtime.",
+                        ),
+                      )
+                      .finally(() => setRuntimeBusy(false));
+                  }}
+                >
+                  {m.provider_routing_llamacpp_runtime_remove()}
+                </Button>
+              </div>
             ))}
           {runtime.installed && (
             <Button
