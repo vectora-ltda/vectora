@@ -150,6 +150,9 @@ export class DmrOperations {
     progress: number,
     command: () => Promise<DockerCommandResult>,
   ): Promise<DockerCommandResult> {
+    if (this.isCancelled(item)) {
+      throw new Error("operação Docker cancelada");
+    }
     item.status = "running";
     item.phase = phase;
     item.progress = progress;
@@ -221,28 +224,34 @@ export class DmrOperations {
     }
   }
 
-  private queue(item: MutableOperation, task: Promise<void>): DmrOperation {
-    this.tasks.set(item.id, task);
-    void task.finally(() => this.tasks.delete(item.id));
+  private queue(
+    item: MutableOperation,
+    task: () => Promise<void>,
+  ): DmrOperation {
+    const pending = new Promise<void>((resolve) => setTimeout(resolve, 0)).then(
+      task,
+    );
+    this.tasks.set(item.id, pending);
+    void pending.finally(() => this.tasks.delete(item.id));
     return { ...item };
   }
 
   async prepare(reference: string): Promise<DmrOperation> {
     await this.loadManifest();
     const item = this.createOperation("prepare", reference);
-    return this.queue(item, this.runPrepare(item));
+    return this.queue(item, () => this.runPrepare(item));
   }
 
   async start(reference: string, contextSize?: number): Promise<DmrOperation> {
     await this.loadManifest();
     const item = this.createOperation("start", reference);
-    return this.queue(item, this.runStart(item, contextSize));
+    return this.queue(item, () => this.runStart(item, contextSize));
   }
 
   async stop(reference: string): Promise<DmrOperation> {
     await this.loadManifest();
     const item = this.createOperation("stop", reference);
-    return this.queue(item, this.runStop(item));
+    return this.queue(item, () => this.runStop(item));
   }
 
   async remove(reference: string, confirmed: boolean): Promise<DmrOperation> {
@@ -250,7 +259,7 @@ export class DmrOperations {
       throw new Error("remoção do modelo exige confirmação explícita");
     await this.loadManifest();
     const item = this.createOperation("remove", reference);
-    return this.queue(item, this.runRemove(item));
+    return this.queue(item, () => this.runRemove(item));
   }
 
   private async runPrepare(item: MutableOperation): Promise<void> {
@@ -376,10 +385,16 @@ export class DmrOperations {
 
   cancel(id: string): boolean {
     const operation = this.operations.get(id);
-    if (!operation || operation.status !== "running") return false;
+    if (
+      !operation ||
+      (operation.status !== "queued" && operation.status !== "running")
+    ) {
+      return false;
+    }
     operation.status = "cancelled";
     operation.phase = "cancelled";
-    return this.executor.cancel(id);
+    this.executor.cancel(id);
+    return true;
   }
 
   dispose(): void {

@@ -103,4 +103,31 @@ describe("Electron DMR operation lifecycle", () => {
     expect((await operations.list()).models).toEqual({});
     await rm(directory, { recursive: true, force: true });
   });
+
+  it("cancels a queued operation before its executor starts", async () => {
+    const executor = {
+      execute: vi.fn(async () => ({
+        operationId: "operation",
+        code: 0,
+        signal: null,
+        stdout: "ok",
+        stderr: "",
+      })),
+      cancel: vi.fn(() => false),
+      dispose: vi.fn(),
+    };
+    executors.push(executor);
+    const directory = await mkdtemp(join(tmpdir(), "vectora-dmr-"));
+    const operations = new DmrOperations(
+      executor as unknown as DockerCliExecutor,
+      directory,
+    );
+    const initial = await operations.prepare("hf.co/Qwen/Qwen3-0.6B");
+    expect(operations.cancel(initial.id)).toBe(true);
+    await waitFor(
+      () => operations.getOperation(initial.id)?.phase === "cancelled",
+    );
+    expect(executor.execute).not.toHaveBeenCalled();
+    await rm(directory, { recursive: true, force: true });
+  });
 });
