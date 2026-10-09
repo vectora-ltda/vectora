@@ -62,7 +62,7 @@ interface NineRouterModelInfo {
 interface LlamaCppModelInfo {
   id: string;
   publisher?: string;
-  name: string;
+  name?: string;
   format?: string;
   compatibility?: string;
   architecture?: string;
@@ -571,7 +571,7 @@ async function cleanupLlamaCppRuntime(keep: number): Promise<void> {
 
 async function searchHuggingFaceModels(
   query: string,
-  provider: "ollama" | "llamacpp" = "llamacpp",
+  provider: "ollama" | "llamacpp" | "dmr" = "llamacpp",
 ): Promise<LlamaCppModelInfo[]> {
   const res = await fetch(
     `/provider-routing/huggingface/models?q=${encodeURIComponent(query)}&provider=${provider}`,
@@ -723,7 +723,9 @@ async function startInstalledHuggingFaceModel(
 }
 
 function HuggingFaceCatalogSection() {
-  const [provider, setProvider] = useState<"ollama" | "llamacpp">("llamacpp");
+  const [provider, setProvider] = useState<"ollama" | "llamacpp" | "dmr">(
+    "llamacpp",
+  );
   const [query, setQuery] = useState("llama");
   const [models, setModels] = useState<LlamaCppModelInfo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -736,6 +738,7 @@ function HuggingFaceCatalogSection() {
   const [alias, setAlias] = useState("");
   const [installing, setInstalling] = useState(false);
   const [downloadPercent, setDownloadPercent] = useState<number | null>(null);
+  const [dmrJobId, setDmrJobId] = useState<string | null>(null);
   const [installedModel, setInstalledModel] = useState<{
     repoId: string;
     filename: string;
@@ -791,6 +794,13 @@ function HuggingFaceCatalogSection() {
     setError(null);
     try {
       const data = await fetchHuggingFaceMetadata(repoId);
+      if (provider === "dmr") {
+        setMetadata(data);
+        setSelectedFile("");
+        setSelectedMmproj("");
+        setAlias(`hf.co/${repoId}`);
+        return;
+      }
       const gguf = (data.files ?? []).filter((item) => item.format === "GGUF");
       if (!gguf.length) throw new Error("Nenhum arquivo GGUF encontrado");
       setMetadata(data);
@@ -806,7 +816,9 @@ function HuggingFaceCatalogSection() {
   }
 
   async function installSelectedModel() {
-    if (!metadata || !selectedFile || !alias.trim()) return;
+    if (!metadata || !alias.trim() || (provider !== "dmr" && !selectedFile)) {
+      return;
+    }
     const controller = new AbortController();
     downloadController.current = controller;
     setInstalling(true);
@@ -814,6 +826,20 @@ function HuggingFaceCatalogSection() {
     setError(null);
     let progressTimer: number | undefined;
     try {
+      if (provider === "dmr") {
+        let job = await createDmrModelJob(`hf.co/${metadata.id}`, "start");
+        setDmrJobId(job.id);
+        while (job.status === "queued" || job.status === "running") {
+          await new Promise((resolve) => window.setTimeout(resolve, 500));
+          job = await fetchDmrModelJob(job.id);
+        }
+        if (job.status !== "completed") {
+          throw new Error(job.error ?? "operação DMR falhou");
+        }
+        setDownloaded(`hf.co/${metadata.id}`);
+        setMetadata(null);
+        return;
+      }
       const revision = metadata.revision ?? "main";
       progressTimer = window.setInterval(() => {
         void fetchHuggingFaceDownloadProgress(
@@ -885,6 +911,7 @@ function HuggingFaceCatalogSection() {
       if (downloadController.current === controller) {
         downloadController.current = null;
       }
+      setDmrJobId(null);
       if (progressTimer !== undefined) window.clearInterval(progressTimer);
       setInstalling(false);
       setDownloadPercent(null);
@@ -919,6 +946,7 @@ function HuggingFaceCatalogSection() {
             {m.provider_routing_llamacpp_title()}
           </option>
           <option value="ollama">{m.provider_routing_ollama_title()}</option>
+          <option value="dmr">{m.provider_routing_dmr_title()}</option>
         </select>
         <Button type="button" onClick={() => void search()} disabled={loading}>
           <Search className="mr-2 size-4" /> {m.provider_routing_hf_search()}
@@ -1010,43 +1038,51 @@ function HuggingFaceCatalogSection() {
               })}
             </p>
           </div>
-          <Label htmlFor="hf-model-file">
-            {m.provider_routing_hf_model_file()}
-          </Label>
-          <select
-            id="hf-model-file"
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-            value={selectedFile}
-            onChange={(event) => setSelectedFile(event.target.value)}
-            disabled={installing}
-          >
-            {(metadata.files ?? [])
-              .filter((item) => item.format === "GGUF")
-              .map((item) => (
-                <option key={item.rfilename} value={item.rfilename}>
-                  {item.rfilename}
-                </option>
-              ))}
-          </select>
-          <Label htmlFor="hf-mmproj-file">
-            {m.provider_routing_hf_mmproj_file()}
-          </Label>
-          <select
-            id="hf-mmproj-file"
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-            value={selectedMmproj}
-            onChange={(event) => setSelectedMmproj(event.target.value)}
-            disabled={installing}
-          >
-            <option value="">{m.provider_routing_hf_mmproj_none()}</option>
-            {(metadata.files ?? [])
-              .filter((item) => /mmproj/i.test(item.rfilename))
-              .map((item) => (
-                <option key={item.rfilename} value={item.rfilename}>
-                  {item.rfilename}
-                </option>
-              ))}
-          </select>
+          {provider === "dmr" ? (
+            <p className="text-xs text-muted-foreground">
+              {m.provider_routing_dmr_model()}: {`hf.co/${metadata.id}`}
+            </p>
+          ) : (
+            <>
+              <Label htmlFor="hf-model-file">
+                {m.provider_routing_hf_model_file()}
+              </Label>
+              <select
+                id="hf-model-file"
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                value={selectedFile}
+                onChange={(event) => setSelectedFile(event.target.value)}
+                disabled={installing}
+              >
+                {(metadata.files ?? [])
+                  .filter((item) => item.format === "GGUF")
+                  .map((item) => (
+                    <option key={item.rfilename} value={item.rfilename}>
+                      {item.rfilename}
+                    </option>
+                  ))}
+              </select>
+              <Label htmlFor="hf-mmproj-file">
+                {m.provider_routing_hf_mmproj_file()}
+              </Label>
+              <select
+                id="hf-mmproj-file"
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                value={selectedMmproj}
+                onChange={(event) => setSelectedMmproj(event.target.value)}
+                disabled={installing}
+              >
+                <option value="">{m.provider_routing_hf_mmproj_none()}</option>
+                {(metadata.files ?? [])
+                  .filter((item) => /mmproj/i.test(item.rfilename))
+                  .map((item) => (
+                    <option key={item.rfilename} value={item.rfilename}>
+                      {item.rfilename}
+                    </option>
+                  ))}
+              </select>
+            </>
+          )}
           <Input
             aria-label={m.provider_routing_hf_alias()}
             value={alias}
@@ -1054,52 +1090,56 @@ function HuggingFaceCatalogSection() {
             placeholder={m.provider_routing_hf_alias()}
             disabled={installing}
           />
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Input
-              aria-label={m.provider_routing_hf_ctx_size()}
-              type="number"
-              min={1}
-              value={ctxSize}
-              onChange={(event) => setCtxSize(event.target.value)}
-              placeholder={m.provider_routing_hf_ctx_size()}
-              disabled={installing}
-            />
-            <Input
-              aria-label={m.provider_routing_hf_gpu_layers()}
-              type="number"
-              value={gpuLayers}
-              onChange={(event) => setGpuLayers(event.target.value)}
-              placeholder={m.provider_routing_hf_gpu_layers()}
-              disabled={installing}
-            />
-            <Input
-              aria-label={m.provider_routing_hf_threads()}
-              type="number"
-              min={1}
-              value={threads}
-              onChange={(event) => setThreads(event.target.value)}
-              placeholder={m.provider_routing_hf_threads()}
-              disabled={installing}
-            />
-            <Input
-              aria-label={m.provider_routing_hf_parallel()}
-              type="number"
-              min={1}
-              value={parallel}
-              onChange={(event) => setParallel(event.target.value)}
-              placeholder={m.provider_routing_hf_parallel()}
-              disabled={installing}
-            />
-          </div>
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={jinja}
-              onChange={(event) => setJinja(event.target.checked)}
-              disabled={installing}
-            />
-            {m.provider_routing_hf_jinja()}
-          </label>
+          {provider !== "dmr" && (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Input
+                aria-label={m.provider_routing_hf_ctx_size()}
+                type="number"
+                min={1}
+                value={ctxSize}
+                onChange={(event) => setCtxSize(event.target.value)}
+                placeholder={m.provider_routing_hf_ctx_size()}
+                disabled={installing}
+              />
+              <Input
+                aria-label={m.provider_routing_hf_gpu_layers()}
+                type="number"
+                value={gpuLayers}
+                onChange={(event) => setGpuLayers(event.target.value)}
+                placeholder={m.provider_routing_hf_gpu_layers()}
+                disabled={installing}
+              />
+              <Input
+                aria-label={m.provider_routing_hf_threads()}
+                type="number"
+                min={1}
+                value={threads}
+                onChange={(event) => setThreads(event.target.value)}
+                placeholder={m.provider_routing_hf_threads()}
+                disabled={installing}
+              />
+              <Input
+                aria-label={m.provider_routing_hf_parallel()}
+                type="number"
+                min={1}
+                value={parallel}
+                onChange={(event) => setParallel(event.target.value)}
+                placeholder={m.provider_routing_hf_parallel()}
+                disabled={installing}
+              />
+            </div>
+          )}
+          {provider !== "dmr" && (
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={jinja}
+                onChange={(event) => setJinja(event.target.checked)}
+                disabled={installing}
+              />
+              {m.provider_routing_hf_jinja()}
+            </label>
+          )}
           <div className="flex justify-end gap-2">
             <Button
               type="button"
@@ -1114,6 +1154,10 @@ function HuggingFaceCatalogSection() {
                 type="button"
                 variant="outline"
                 onClick={() => {
+                  if (provider === "dmr" && dmrJobId) {
+                    void cancelDmrModelJob(dmrJobId);
+                    return;
+                  }
                   downloadController.current?.abort();
                   if (metadata) {
                     const revision = metadata.revision ?? "main";

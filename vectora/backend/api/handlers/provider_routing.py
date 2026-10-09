@@ -1522,14 +1522,16 @@ async def search_huggingface_models(
     """
     import httpx
 
-    if provider not in {"ollama", "llamacpp"}:
+    if provider not in {"ollama", "llamacpp", "dmr"}:
         raise HTTPException(status_code=400, detail="provider inválido")
     query = q.strip()[:120] or "llama.cpp"
     try:
         async with httpx.AsyncClient(timeout=10) as client:
+            params = {"search": query, "limit": 25}
+            if provider != "dmr":
+                params["filter"] = "gguf"
             response = await client.get(
-                "https://huggingface.co/api/models",
-                params={"search": query, "filter": "gguf", "limit": 25},
+                "https://huggingface.co/api/models", params=params
             )
             response.raise_for_status()
             payload = response.json()
@@ -1559,9 +1561,11 @@ async def search_huggingface_models(
                 "context_length": str(
                     (item.get("cardData") or {}).get("context_length", "")
                 ),
-                "format": "GGUF"
-                if "gguf" in {str(tag).lower() for tag in item.get("tags", [])}
-                else "",
+                "format": (
+                    "GGUF"
+                    if "gguf" in {str(tag).lower() for tag in item.get("tags", [])}
+                    else ""
+                ),
                 "compatibility": (
                     "provável"
                     if "gguf" in {str(tag).lower() for tag in item.get("tags", [])}

@@ -325,10 +325,14 @@ class TestLlamaCppAndHuggingFace:
             mock_httpx.return_value = mock_ctx
             llama = client.get("/provider-routing/huggingface/models?provider=llamacpp")
             ollama = client.get("/provider-routing/huggingface/models?provider=ollama")
+            dmr = client.get("/provider-routing/huggingface/models?provider=dmr")
 
-        assert llama.status_code == ollama.status_code == 200
+        assert llama.status_code == ollama.status_code == dmr.status_code == 200
         assert llama.json()["models"][0]["provider"] == "llamacpp"
         assert ollama.json()["models"][0]["provider"] == "ollama"
+        assert dmr.json()["models"][0]["provider"] == "dmr"
+        assert mock_ctx.get.await_count == 3
+        assert "filter" not in (mock_ctx.get.await_args_list[2].kwargs["params"])
 
     def test_huggingface_catalog_rejects_unknown_runtime(self, client):
         response = client.get("/provider-routing/huggingface/models?provider=unknown")

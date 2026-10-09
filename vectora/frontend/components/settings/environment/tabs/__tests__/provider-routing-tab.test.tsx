@@ -351,6 +351,39 @@ describe("ProviderRoutingTab - Hugging Face", () => {
     fireEvent.click(screen.getByRole("button", { name: /instalar modelo/i }));
     expect(await screen.findByText(/mit/i)).toBeTruthy();
   });
+
+  it("pesquisa referências Hugging Face do Docker Model Runner sem exigir GGUF", async () => {
+    mockFetch({
+      registered: [],
+      hfModels: [
+        {
+          id: "Qwen/Qwen3-0.6B",
+          name: "Qwen3",
+          compatibility: "não verificada",
+          format: "",
+        },
+      ],
+    });
+    render(<ProviderRoutingTab />);
+
+    const runtime = await screen.findByLabelText(
+      "Runtime do modelo Hugging Face",
+    );
+    fireEvent.change(runtime, { target: { value: "dmr" } });
+    fireEvent.click(screen.getByRole("button", { name: /^buscar$/i }));
+
+    expect(await screen.findByText("Qwen/Qwen3-0.6B")).toBeTruthy();
+    expect(
+      (
+        global.fetch as unknown as { mock: { calls: unknown[][] } }
+      ).mock.calls.some(
+        ([url]) =>
+          typeof url === "string" &&
+          url.includes("/provider-routing/huggingface/models?") &&
+          url.includes("provider=dmr"),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("ProviderRoutingTab — Ollama", () => {
