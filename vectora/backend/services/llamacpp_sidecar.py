@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import time
+from ctypes import wintypes
 from pathlib import Path
 
 import httpx
@@ -32,8 +33,36 @@ def _state_path() -> Path:
     return root / "llamacpp-sidecar.json"
 
 
-def _process_creation_time(pid: int) -> float | None:
-    """Obtém a criação do processo quando o sistema a expõe via procfs."""
+def _windows_process_creation_time(pid: int) -> float | None:
+    """Obtém o horário de criação por ``GetProcessTimes``."""
+    windll = getattr(ctypes, "WinDLL", None)
+    if windll is None:
+        return None
+    kernel32 = windll("kernel32", use_last_error=True)
+    handle = kernel32.OpenProcess(0x1000, False, pid)
+    if not handle:
+        return None
+    try:
+        creation = wintypes.FILETIME()
+        exit_time = wintypes.FILETIME()
+        kernel_time = wintypes.FILETIME()
+        user_time = wintypes.FILETIME()
+        if not kernel32.GetProcessTimes(
+            handle,
+            ctypes.byref(creation),
+            ctypes.byref(exit_time),
+            ctypes.byref(kernel_time),
+            ctypes.byref(user_time),
+        ):
+            return None
+        windows_ticks = (creation.dwHighDateTime << 32) | creation.dwLowDateTime
+        return windows_ticks / 10_000_000 - 11_644_473_600
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _procfs_process_creation_time(pid: int) -> float | None:
+    """Obtém o horário de criação a partir do procfs Linux."""
     stat_path = Path(f"/proc/{pid}/stat")
     boot_path = Path("/proc/stat")
     if not stat_path.is_file() or not boot_path.is_file():
@@ -52,6 +81,13 @@ def _process_creation_time(pid: int) -> float | None:
         return boot_time + start_ticks / clock_ticks
     except (OSError, IndexError, StopIteration, ValueError):
         return None
+
+
+def _process_creation_time(pid: int) -> float | None:
+    """Obtém o horário de criação do processo em Unix e Windows."""
+    if os.name == "nt":
+        return _windows_process_creation_time(pid)
+    return _procfs_process_creation_time(pid)
 
 
 def _pid_exists(pid: int) -> bool:
