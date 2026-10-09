@@ -273,6 +273,8 @@ async def test_model_job_fails_when_readiness_inference_fails(
         AsyncMock(return_value=dmr.DmrProbe(True, "openai", ("hf.co/model",))),
     )
     monkeypatch.setattr(dmr, "probe_dmr_inference", AsyncMock(return_value=False))
+    stop = AsyncMock(return_value="stopped")
+    monkeypatch.setattr(dmr, "stop_model", stop)
     job = await dmr.create_model_job("hf.co/model", "start")
     for _ in range(100):
         if job.status not in {"queued", "running"}:
@@ -280,6 +282,7 @@ async def test_model_job_fails_when_readiness_inference_fails(
         await asyncio.sleep(0.01)
     assert job.status == "failed"
     assert "readiness" in (job.error or "")
+    stop.assert_awaited_once_with("hf.co/model")
 
 
 @pytest.mark.asyncio

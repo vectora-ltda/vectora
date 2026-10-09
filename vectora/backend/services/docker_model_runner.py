@@ -425,12 +425,27 @@ async def _run_job(job: DmrJob) -> None:
     """Executa um job e converte cancelamento em estado consultável."""
     job.status = "running"
     await _persist_jobs()
+    started = False
+
+    async def stop_started_model() -> None:
+        if not started or job.operation != "start":
+            return
+        try:
+            await stop_model(job.reference)
+        except (OSError, RuntimeError, ValueError):
+            logger.warning(
+                "dmr: não foi possível limpar modelo após falha do job",
+                extra={"reference": job.reference},
+                exc_info=True,
+            )
+
     try:
         job.output = await prepare_model(job.reference)
         if job.operation == "start":
             job.output = (job.output + "\n" + await run_model(job.reference))[
                 -MAX_OUTPUT_BYTES:
             ]
+            started = True
             probe = await _assert_model_ready(job.reference)
             job.metadata = {
                 "contract": probe.contract,
@@ -445,10 +460,12 @@ async def _run_job(job: DmrJob) -> None:
             job.metadata = {}
         job.status = "completed"
     except asyncio.CancelledError:
+        await stop_started_model()
         job.status = "cancelled"
         job.error = "operação cancelada"
         await _persist_jobs()
     except (OSError, RuntimeError, ValueError) as exc:
+        await stop_started_model()
         job.status = "failed"
         job.error = str(exc)[:2000]
     finally:
