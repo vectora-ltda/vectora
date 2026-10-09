@@ -148,14 +148,12 @@ export class DmrOperations {
   }
 
   private pruneOperations(): void {
-    const terminal = [...this.operations.values()]
-      .filter(
-        (operation) =>
-          operation.status === "completed" ||
-          operation.status === "failed" ||
-          operation.status === "cancelled",
-      )
-      .sort((left, right) => left.id.localeCompare(right.id));
+    const terminal = [...this.operations.values()].filter(
+      (operation) =>
+        operation.status === "completed" ||
+        operation.status === "failed" ||
+        operation.status === "cancelled",
+    );
     const excess = terminal.length - MAX_TERMINAL_OPERATIONS;
     for (const operation of excess > 0 ? terminal.slice(0, excess) : []) {
       this.operations.delete(operation.id);
