@@ -387,6 +387,7 @@ markers = [
     "frontend_build: testes que sobem o backend real servindo frontend/dist — requer 'pnpm --dir frontend build'",
     "electron_dev: testes que sobem o Electron dev build real — requer 'scons frontend' (ou 'pnpm --dir vectora/frontend install && pnpm --dir vectora/frontend run electron:build')",
     "live: testes sem mock que chamam LLM/Tavily reais — custam API real, só via 'scons tests-live'",
+    "local_llm: teste de integração contra um llama.cpp real iniciado pelo workflow local-llm",
     "real_lancedb: testes que chamam lancedb.connect_async() real (sem mock) — travam de forma determinística no Linux CI, rodam em step isolado do workflow (ver comentário do timeout acima)",
 ]
 

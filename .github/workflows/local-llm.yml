@@ -1,0 +1,104 @@
+name: Local LLM (real llama.cpp)
+
+# Este workflow fica barato para os PRs normais: o detector só libera o job
+# pesado quando o commit enviado contém o marcador explícito [local-llm].
+# Assim a execução real é opt-in, auditável e repetível no mesmo PR.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [master, "release/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    name: Detect [local-llm] marker
+    runs-on: ubuntu-24.04
+    outputs:
+      requested: ${{ steps.marker.outputs.requested }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+      - id: marker
+        shell: bash
+        run: |
+          subject="$(git log -1 --format=%s)"
+          echo "commit_subject=$subject"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" || "$subject" == *"[local-llm]"* ]]; then
+            echo "requested=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "requested=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  local-llm:
+    name: Real Docker + llama.cpp + SmolLM2
+    needs: detect
+    if: needs.detect.outputs.requested == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends build-essential cmake curl git jq
+      - name: Verify Docker daemon
+        run: |
+          docker version
+          docker run --rm hello-world
+      - name: Build llama.cpp server
+        env:
+          LLAMA_CPP_DIR: ${{ runner.temp }}/llama.cpp
+        run: |
+          git clone --depth 1 https://github.com/ggml-org/llama.cpp.git "$LLAMA_CPP_DIR"
+          cmake -S "$LLAMA_CPP_DIR" -B "$LLAMA_CPP_DIR/build" \
+            -DGGML_NATIVE=OFF -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$LLAMA_CPP_DIR/build" --config Release \
+            --target llama-server --parallel 2
+          test -x "$LLAMA_CPP_DIR/build/bin/llama-server"
+          echo "LLAMA_SERVER=$LLAMA_CPP_DIR/build/bin/llama-server" >> "$GITHUB_ENV"
+      - name: Download pinned small SmolLM2 model
+        env:
+          MODEL_URL: https://huggingface.co/bartowski/SmolLM2-135M-Instruct-GGUF/resolve/main/SmolLM2-135M-Instruct-Q4_K_M.gguf?download=true
+          MODEL_PATH: ${{ runner.temp }}/smollm2-135m-instruct-q4_k_m.gguf
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 --output "$MODEL_PATH" "$MODEL_URL"
+          # O tamanho esperado vem do artefato público e evita aceitar uma
+          # resposta HTML/erro como se fosse um modelo válido.
+          test "$(stat --format=%s "$MODEL_PATH")" -eq 105454432
+          echo "MODEL_PATH=$MODEL_PATH" >> "$GITHUB_ENV"
+      - name: Start llama.cpp and wait for readiness
+        run: |
+          "$LLAMA_SERVER" \
+            --model "$MODEL_PATH" \
+            --host 127.0.0.1 --port 18080 \
+            --ctx-size 512 --threads 2 --parallel 1 \
+            > "$RUNNER_TEMP/llama-server.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/llama-server.pid"
+          for attempt in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:18080/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/llama-server.log"
+          exit 1
+      - name: Run real local-LLM integration test
+        working-directory: vectora
+        env:
+          VECTORA_LOCAL_LLM_BASE_URL: http://127.0.0.1:18080/v1
+        run: |
+          uv sync --locked
+          uv run pytest tests/integration/test_local_llm_live.py -m local_llm -v --timeout=180
+      - name: Upload llama.cpp log
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: local-llm-server-log
+          path: ${{ runner.temp }}/llama-server.log
+          if-no-files-found: ignore
