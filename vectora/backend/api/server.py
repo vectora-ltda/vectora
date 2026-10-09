@@ -481,6 +481,16 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             logger.warning("api/server: erro ao encerrar sidecar NATS", exc_info=True)
 
         try:
+            from backend.services.llamacpp_sidecar import stop_llamacpp
+
+            await stop_llamacpp()
+            logger.info("api/server: sidecar llama.cpp fechado")
+        except Exception:
+            logger.warning(
+                "api/server: erro ao encerrar sidecar llama.cpp", exc_info=True
+            )
+
+        try:
             from backend.services.electron_sidecar import stop_electron_sidecar
 
             await stop_electron_sidecar()

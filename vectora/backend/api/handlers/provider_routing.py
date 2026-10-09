@@ -45,8 +45,10 @@ import hashlib
 import logging
 import os
 import re
+import tarfile
 import time
 import uuid
+import zipfile
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -100,6 +102,12 @@ class OpenAICompatibleDiscoveryResponse(BaseModel):
     models: list[dict[str, str]]
 
 
+class LlamaCppConnectionTestResponse(BaseModel):
+    status: str
+    models: list[dict[str, str]] = []
+    detail: str | None = None
+
+
 class LlamaCppConfigRequest(BaseModel):
     base_url: str
     api_key: str = ""
@@ -123,6 +131,60 @@ class HuggingFaceDownloadRequest(BaseModel):
 class LlamaCppInstallRequest(BaseModel):
     asset_url: str
     sha256: str | None = None
+
+
+class LlamaCppRuntimeRequest(BaseModel):
+    path: str
+
+
+class LlamaCppSidecarRequest(BaseModel):
+    executable: str
+    model: str
+    host: str = "127.0.0.1"
+    port: int = 8080
+
+
+def _extract_llamacpp_archive(archive: Path, destination_root: Path) -> list[str]:
+    """Extrai releases oficiais sem permitir escape de diretório."""
+    extracted: list[str] = []
+
+    def safe_target(name: str) -> Path:
+        target = (destination_root / name).resolve()
+        if destination_root.resolve() not in target.parents:
+            raise ValueError("arquivo do runtime fora do diretório permitido")
+        return target
+
+    if zipfile.is_zipfile(archive):
+        with zipfile.ZipFile(archive) as bundle:
+            for info in bundle.infolist():
+                if info.is_dir():
+                    continue
+                if (info.external_attr >> 16) & 0o170000 == 0o120000:
+                    raise ValueError("release contém link simbólico")
+                target = safe_target(info.filename)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with bundle.open(info) as source, target.open("wb") as output:
+                    output.write(source.read())
+                extracted.append(str(target))
+        return extracted
+    if tarfile.is_tarfile(archive):
+        with tarfile.open(archive) as bundle:
+            members = bundle.getmembers()
+            for member in members:
+                if member.isdir():
+                    continue
+                if not member.isfile():
+                    raise ValueError("release contém entrada não suportada")
+                target = safe_target(member.name)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                source = bundle.extractfile(member)
+                if source is None:
+                    raise ValueError("arquivo do runtime inválido")
+                with source, target.open("wb") as output:
+                    output.write(source.read())
+                extracted.append(str(target))
+        return extracted
+    return []
 
 
 class RegisteredModel(BaseModel):
@@ -243,6 +305,7 @@ async def unregister_ollama_model(model_id: str) -> dict:
 
 
 @router.get("/llamacpp/models")
+@router.get("/llama-cpp/models", include_in_schema=False)
 async def discover_llamacpp_models() -> OpenAICompatibleDiscoveryResponse:
     """Descobre modelos em um servidor llama.cpp OpenAI-compatible.
 
@@ -251,7 +314,7 @@ async def discover_llamacpp_models() -> OpenAICompatibleDiscoveryResponse:
     """
     import httpx
 
-    base_url = settings.llamacpp_base_url.rstrip("/")
+    base_url = (settings.llamacpp_base_url or "http://127.0.0.1:8080/v1").rstrip("/")
     headers = (
         {"Authorization": f"Bearer {settings.llamacpp_api_key}"}
         if settings.llamacpp_api_key
@@ -276,18 +339,82 @@ async def discover_llamacpp_models() -> OpenAICompatibleDiscoveryResponse:
     return OpenAICompatibleDiscoveryResponse(reachable=True, models=models)
 
 
+@router.post("/llamacpp/test")
+@router.post("/llama-cpp/test", include_in_schema=False)
+async def test_llamacpp_connection() -> LlamaCppConnectionTestResponse:
+    """Testa o contrato OpenAI-compatible sem expor credenciais."""
+    import httpx
+
+    base_url = (settings.llamacpp_base_url or "http://127.0.0.1:8080/v1").rstrip("/")
+    headers = (
+        {"Authorization": f"Bearer {settings.llamacpp_api_key}"}
+        if settings.llamacpp_api_key
+        else {}
+    )
+    try:
+        async with httpx.AsyncClient(timeout=_DISCOVERY_TIMEOUT_S) as client:
+            response = await client.get(f"{base_url}/models", headers=headers)
+    except httpx.HTTPError:
+        return LlamaCppConnectionTestResponse(status="unreachable")
+    if response.status_code in {401, 403}:
+        return LlamaCppConnectionTestResponse(status="auth_error")
+    if response.status_code >= 400:
+        return LlamaCppConnectionTestResponse(status="incompatible")
+    try:
+        payload = response.json()
+        data = payload["data"]
+        if not isinstance(data, list):
+            raise ValueError
+        models = [
+            {"id": str(item["id"]), "name": str(item.get("name", item["id"]))}
+            for item in data
+            if isinstance(item, dict) and item.get("id")
+        ]
+    except (ValueError, KeyError, TypeError):
+        return LlamaCppConnectionTestResponse(status="incompatible")
+    if not models:
+        return LlamaCppConnectionTestResponse(status="empty")
+    return LlamaCppConnectionTestResponse(status="ok", models=models)
+
+
+async def list_registered_llamacpp_models() -> list[RegisteredModel]:
+    """Modelos llama.cpp selecionados para o seletor global."""
+    return await _list_registered("llamacpp_registered_models")
+
+
+@router.get("/llamacpp/registered")
+@router.get("/llama-cpp/registered", include_in_schema=False)
+async def get_registered_llamacpp_models() -> list[RegisteredModel]:
+    return await list_registered_llamacpp_models()
+
+
+@router.post("/llamacpp/registered")
+@router.post("/llama-cpp/registered", include_in_schema=False)
+async def register_llamacpp_model(body: RegisterModelRequest) -> RegisteredModel:
+    return await _register("llamacpp_registered_models", body.tag)
+
+
+@router.delete("/llamacpp/registered/{model_id}")
+@router.delete("/llama-cpp/registered/{model_id}", include_in_schema=False)
+async def unregister_llamacpp_model(model_id: str) -> dict[str, bool]:
+    await _unregister("llamacpp_registered_models", model_id)
+    return {"ok": True}
+
+
 @router.get("/llamacpp/status")
+@router.get("/llama-cpp/status", include_in_schema=False)
 async def get_llamacpp_status() -> LlamaCppStatus:
     key = settings.llamacpp_api_key or ""
     return LlamaCppStatus(
         configured=bool(settings.llamacpp_base_url),
-        base_url=settings.llamacpp_base_url,
+        base_url=settings.llamacpp_base_url or "http://127.0.0.1:8080/v1",
         model=settings.llamacpp_model or "",
         masked=(f"{key[:4]}…{key[-4:]}" if len(key) > 8 else ("••••" if key else "")),
     )
 
 
 @router.post("/llamacpp/config")
+@router.post("/llama-cpp/config", include_in_schema=False)
 async def set_llamacpp_config(body: LlamaCppConfigRequest) -> LlamaCppStatus:
     from urllib.parse import urlparse
 
@@ -311,15 +438,58 @@ async def set_llamacpp_config(body: LlamaCppConfigRequest) -> LlamaCppStatus:
 
 
 @router.delete("/llamacpp/config")
+@router.delete("/llama-cpp/config", include_in_schema=False)
 async def clear_llamacpp_config() -> LlamaCppStatus:
     env_file = _env_file()
     for key in ("LLAMACPP_BASE_URL", "LLAMACPP_MODEL", "LLAMACPP_API_KEY"):
         _remove_env_key(env_file, key)
         os.environ.pop(key, None)
-    object.__setattr__(settings, "llamacpp_base_url", "http://127.0.0.1:8080/v1")
+    object.__setattr__(settings, "llamacpp_base_url", None)
     object.__setattr__(settings, "llamacpp_api_key", None)
     object.__setattr__(settings, "llamacpp_model", None)
     return await get_llamacpp_status()
+
+
+@router.get("/llamacpp/sidecar/status")
+@router.get("/llama-cpp/sidecar/status", include_in_schema=False)
+async def get_llamacpp_sidecar_status() -> dict[str, int | bool | None]:
+    """Expõe apenas o estado do processo gerenciado pelo Vectora."""
+    from backend.services.llamacpp_sidecar import llamacpp_status
+
+    return llamacpp_status()
+
+
+@router.post("/llamacpp/sidecar/start")
+@router.post("/llama-cpp/sidecar/start", include_in_schema=False)
+async def start_llamacpp_sidecar(
+    body: LlamaCppSidecarRequest,
+) -> dict[str, int | bool | None]:
+    """Inicia llama-server local sem assumir ownership de servidores externos."""
+    from backend.services.llamacpp_sidecar import start_llamacpp
+
+    if body.host not in {"127.0.0.1", "localhost", "::1"}:
+        raise HTTPException(status_code=400, detail="sidecar deve usar loopback")
+    if not 1024 <= body.port <= 65535:
+        raise HTTPException(status_code=400, detail="porta inválida")
+    try:
+        await start_llamacpp(
+            body.executable, body.model, host=body.host, port=body.port
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return await get_llamacpp_sidecar_status()
+
+
+@router.post("/llamacpp/sidecar/stop")
+@router.post("/llama-cpp/sidecar/stop", include_in_schema=False)
+async def stop_llamacpp_sidecar() -> dict[str, int | bool | None]:
+    """Encerra somente o processo iniciado pela rota de start."""
+    from backend.services.llamacpp_sidecar import stop_llamacpp
+
+    await stop_llamacpp()
+    return await get_llamacpp_sidecar_status()
 
 
 @router.get("/huggingface/models")
@@ -358,6 +528,15 @@ async def search_huggingface_models(
                 "provider": provider,
                 "downloads": str(item.get("downloads", 0)),
                 "license": str(item.get("cardData", {}).get("license", "")),
+                "architecture": str(item.get("library_name", "")),
+                "format": "GGUF"
+                if "gguf" in {str(tag).lower() for tag in item.get("tags", [])}
+                else "",
+                "compatibility": (
+                    "provável"
+                    if "gguf" in {str(tag).lower() for tag in item.get("tags", [])}
+                    else "não verificada"
+                ),
             }
             for item in payload
             if isinstance(item, dict) and item.get("id")
@@ -393,7 +572,13 @@ async def get_huggingface_model_metadata(repo_id: str) -> dict[str, object]:
         ) from exc
     siblings = data.get("siblings", [])
     files = [
-        {"rfilename": item.get("rfilename", ""), "size": item.get("size")}
+        {
+            "rfilename": item.get("rfilename", ""),
+            "size": item.get("size"),
+            "format": "GGUF"
+            if str(item.get("rfilename", "")).lower().endswith(".gguf")
+            else "",
+        }
         for item in siblings
         if isinstance(item, dict) and item.get("rfilename")
     ]
@@ -402,6 +587,15 @@ async def get_huggingface_model_metadata(repo_id: str) -> dict[str, object]:
         "license": (data.get("cardData") or {}).get("license"),
         "downloads": data.get("downloads", 0),
         "tags": data.get("tags", []),
+        "compatibility": (
+            "provável"
+            if any(
+                str(item.get("rfilename", "")).lower().endswith(".gguf")
+                for item in siblings
+                if isinstance(item, dict)
+            )
+            else "não verificada"
+        ),
         "files": files,
     }
 
@@ -446,10 +640,23 @@ async def download_huggingface_model(
     if body.sha256 and actual.lower() != body.sha256.lower():
         destination.unlink(missing_ok=True)
         raise HTTPException(status_code=422, detail="checksum sha256 incompatível")
-    return {"status": "downloaded", "path": str(destination), "sha256": actual}
+    try:
+        files = _extract_llamacpp_archive(destination, destination_root)
+    except (OSError, ValueError, zipfile.BadZipFile, tarfile.TarError) as exc:
+        destination.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=422, detail="arquivo do runtime inválido"
+        ) from exc
+    return {
+        "status": "installed" if files else "downloaded",
+        "path": str(destination),
+        "files": files,
+        "sha256": actual,
+    }
 
 
 @router.get("/llamacpp/releases")
+@router.get("/llama-cpp/releases", include_in_schema=False)
 async def list_llamacpp_releases() -> dict[str, list[dict[str, object]]]:
     """Lista releases oficiais, sem carregar artefatos no backend."""
     import httpx
@@ -490,6 +697,7 @@ async def list_llamacpp_releases() -> dict[str, list[dict[str, object]]]:
 
 
 @router.post("/llamacpp/install")
+@router.post("/llama-cpp/install", include_in_schema=False)
 async def install_llamacpp_runtime(body: LlamaCppInstallRequest) -> dict[str, object]:
     """Baixa um artefato de release oficial para o armazenamento do usuário."""
     from urllib.parse import urlparse
@@ -530,6 +738,57 @@ async def install_llamacpp_runtime(body: LlamaCppInstallRequest) -> dict[str, ob
         destination.unlink(missing_ok=True)
         raise HTTPException(status_code=422, detail="checksum sha256 incompatível")
     return {"status": "downloaded", "path": str(destination), "sha256": actual}
+
+
+@router.get("/llamacpp/runtime/status")
+@router.get("/llama-cpp/runtime/status", include_in_schema=False)
+async def llamacpp_runtime_status() -> dict[str, object]:
+    """Informa runtimes locais sem inspecionar ou remover pesos."""
+    root = (settings.vectora_home / "tools" / "llama.cpp").resolve()
+    if not root.is_dir():
+        return {"installed": False, "path": None, "files": []}
+    files = [str(path) for path in root.rglob("*") if path.is_file()]
+    return {"installed": bool(files), "path": str(root), "files": files}
+
+
+@router.post("/llamacpp/runtime/test")
+@router.post("/llama-cpp/runtime/test", include_in_schema=False)
+async def test_llamacpp_runtime(body: LlamaCppRuntimeRequest) -> dict[str, object]:
+    """Executa apenas ``--version`` no binário indicado pelo usuário."""
+    executable = Path(body.path).expanduser().resolve()
+    if not executable.is_file() or executable.name.lower() not in {
+        "llama-server",
+        "llama-server.exe",
+    }:
+        raise HTTPException(status_code=400, detail="binário llama-server inválido")
+    try:
+        process = await asyncio.create_subprocess_exec(
+            str(executable),
+            "--version",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=15)
+    except (OSError, TimeoutError) as exc:
+        raise HTTPException(
+            status_code=502, detail="não foi possível testar o runtime"
+        ) from exc
+    return {
+        "ok": process.returncode == 0,
+        "version": (stdout or stderr).decode(errors="replace").strip()[:500],
+    }
+
+
+@router.delete("/llamacpp/runtime")
+@router.delete("/llama-cpp/runtime", include_in_schema=False)
+async def remove_llamacpp_runtime() -> dict[str, bool]:
+    """Remove somente o runtime gerenciado; modelos ficam intactos."""
+    import shutil
+
+    root = (settings.vectora_home / "tools" / "llama.cpp").resolve()
+    if root.exists():
+        await asyncio.to_thread(shutil.rmtree, root)
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------

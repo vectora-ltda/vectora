@@ -199,7 +199,7 @@ def load_chat_client(model_id: str) -> ChatClient:  # noqa: PLR0911
                 model=model_name,
                 client=OpenRouterClient(
                     api_key=settings.llamacpp_api_key or "local",
-                    base_url=settings.llamacpp_base_url,
+                    base_url=settings.llamacpp_base_url or "http://127.0.0.1:8080/v1",
                 ),
             )
         case _:
