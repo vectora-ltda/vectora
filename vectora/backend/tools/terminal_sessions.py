@@ -26,9 +26,9 @@ _DEFAULT_CONTEXT = ToolContext()
     )
 )
 async def list_terminals(ctx: ToolContext) -> str:
-    """Lista os terminais PTY abertos manualmente pelo usuário nesta sessão."""
-    sessions = pty_registry.list_for_context(
-        user_id=ctx.user_id, thread_id=ctx.thread_id, workspace_id=ctx.workspace_id
+    """Lista os terminais PTY abertos nesta sessão (incluindo os que podem ser assumidos)."""
+    sessions = pty_registry.list_for_user_workspace(
+        user_id=ctx.user_id, workspace_id=ctx.workspace_id
     )
     return json.dumps(
         {
@@ -39,11 +39,48 @@ async def list_terminals(ctx: ToolContext) -> str:
                     "workspace_id": s.workspace_id,
                     "user_id": getattr(s, "user_id", "local"),
                     "alive": s.is_alive(),
+                    "is_current_thread": s.thread_id == ctx.thread_id,
                 }
                 for s in sessions
             ]
         }
     )
+
+
+@vtool(
+    extras=ToolExtras(
+        render_hint="code_block",
+        category="filesystem",
+        destructive=False,
+        icon="terminal",
+    )
+)
+async def attach_terminal(terminal_id: str, ctx: ToolContext = _DEFAULT_CONTEXT) -> str:
+    """Assume explicitamente o controle de um terminal PTY interativo aberto pelo usuário.
+
+    Isso vincula o terminal à thread atual do agente, permitindo chamar read_terminal e write_terminal nele.
+    """
+    if not terminal_id:
+        return json.dumps({"status": "error", "message": "terminal_id é obrigatório."})
+    if not ctx.thread_id or not ctx.workspace_id:
+        return json.dumps(
+            {"status": "error", "message": "Contexto inválido para claim."}
+        )
+
+    session = pty_registry.claim_for_context(
+        terminal_id,
+        user_id=ctx.user_id,
+        workspace_id=ctx.workspace_id,
+        thread_id=ctx.thread_id,
+    )
+    if session is None:
+        return json.dumps(
+            {
+                "status": "error",
+                "message": f"Terminal {terminal_id!r} não encontrado ou incompatível.",
+            }
+        )
+    return json.dumps({"status": "attached", "terminal_id": terminal_id})
 
 
 @vtool(
@@ -177,4 +214,10 @@ async def write_terminal(
     )
 
 
-__all__ = ["close_terminal", "list_terminals", "read_terminal", "write_terminal"]
+__all__ = [
+    "attach_terminal",
+    "close_terminal",
+    "list_terminals",
+    "read_terminal",
+    "write_terminal",
+]

@@ -99,6 +99,30 @@ class TestFileRead:
 
 
 # ---------------------------------------------------------------------------
+# Files Workbench parity
+# ---------------------------------------------------------------------------
+
+
+class TestFileWorkbenchParity:
+    async def test_create_move_search_delete(self, tmp_path, trusted_ws):
+        from backend.tools.fs import (
+            file_create_dir,
+            file_delete,
+            file_move,
+            file_search,
+        )
+
+        ctx = ctx_from_config(trusted_ws)
+        assert "OK" in await file_create_dir("nested", ctx)
+        (tmp_path / "nested" / "note.txt").write_text("github workbench")
+        assert "github" in (await file_search("github", ctx, "nested")).lower()
+        assert "OK" in await file_move("nested/note.txt", "renamed.txt", ctx)
+        assert (tmp_path / "renamed.txt").exists()
+        assert "OK" in await file_delete("renamed.txt", ctx, permanent=True)
+        assert not (tmp_path / "renamed.txt").exists()
+
+
+# ---------------------------------------------------------------------------
 # file_write
 # ---------------------------------------------------------------------------
 

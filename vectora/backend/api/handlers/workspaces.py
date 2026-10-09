@@ -2547,13 +2547,21 @@ class PullRequestListResponse(BaseModel):
 @workspace_scoped_router.get("/pr", response_model=PullRequestListResponse)
 async def pr_list(
     workspace_id: str,
+    request: Request,
     state: Annotated[str, Query()] = "open",
 ) -> PullRequestListResponse:
     """Lista PRs do repositório via ``gh pr list``."""
     from backend.tools.context import ToolContext
     from backend.tools.gh import _gh_run, _resolve_cwd
 
-    cwd = _resolve_cwd(workspace_id, ToolContext())
+    # O Workbench usa a mesma integração GitHub do agente. Sem propagar o
+    # usuário autenticado, ``_gh_run`` ignorava o token salvo em Integrações
+    # e dependia apenas do keyring global do processo.
+    context = ToolContext(
+        user_id=_user_id(request),
+        workspace_id=workspace_id,
+    )
+    cwd = _resolve_cwd(workspace_id, context)
     result = await _gh_run(
         [
             "pr",
@@ -2564,6 +2572,7 @@ async def pr_list(
             "number,title,state,author,headRefName,baseRefName",
         ],
         cwd=cwd,
+        user_id=context.user_id,
     )
     if result.get("status") != "ok":
         return PullRequestListResponse(
@@ -2596,7 +2605,7 @@ class PullRequestCreateRequest(BaseModel):
 
 @workspace_scoped_router.post("/pr", response_model=StatusResponse)
 async def pr_create(
-    workspace_id: str, body: PullRequestCreateRequest
+    workspace_id: str, body: PullRequestCreateRequest, request: Request
 ) -> StatusResponse:
     """Cria um PR da branch atual via ``gh pr create``."""
     from backend.tools.context import ToolContext
@@ -2604,7 +2613,11 @@ async def pr_create(
 
     if not body.title.strip():
         return StatusResponse(status="error", message="Título do PR é obrigatório.")
-    cwd = _resolve_cwd(workspace_id, ToolContext())
+    context = ToolContext(
+        user_id=_user_id(request),
+        workspace_id=workspace_id,
+    )
+    cwd = _resolve_cwd(workspace_id, context)
     args = [
         "pr",
         "create",
@@ -2617,7 +2630,7 @@ async def pr_create(
     ]
     if body.draft:
         args.append("--draft")
-    result = await _gh_run(args, cwd=cwd)
+    result = await _gh_run(args, cwd=cwd, user_id=context.user_id)
     if result.get("status") == "ok":
         return StatusResponse(status="ok", message=result.get("output", ""))
     return StatusResponse(status="error", message=result.get("message", ""))

@@ -12,6 +12,7 @@ import pytest
 from backend.services.pty_registry import pty_registry
 from backend.tools.context import ToolContext
 from backend.tools.terminal_sessions import (
+    attach_terminal,
     close_terminal,
     list_terminals,
     read_terminal,
@@ -45,7 +46,7 @@ def _clean_registry():
 
 class TestListTerminals:
     @pytest.mark.asyncio
-    async def test_lista_terminais_da_thread(self) -> None:
+    async def test_lista_terminais_do_usuario_no_workspace(self) -> None:
         pty_registry.add(_fake_session("t1", "thr-1", "ws-1"))
         pty_registry.add(_fake_session("t2", "thr-2", "ws-1"))
 
@@ -53,7 +54,29 @@ class TestListTerminals:
             ctx=ToolContext(thread_id="thr-1", workspace_id="ws-1")
         )
         data = json.loads(result)
-        assert [t["terminal_id"] for t in data["terminals"]] == ["t1"]
+        assert [t["terminal_id"] for t in data["terminals"]] == ["t1", "t2"]
+
+    @pytest.mark.asyncio
+    async def test_attach_vincula_terminal_de_outra_thread(self) -> None:
+        pty_registry.add(_fake_session("t1", "thr-ui", "ws-1"))
+        result = await attach_terminal(
+            "t1", ctx=ToolContext(thread_id="thr-agent", workspace_id="ws-1")
+        )
+        assert json.loads(result) == {"status": "attached", "terminal_id": "t1"}
+        session = pty_registry.get("t1")
+        assert session is not None
+        assert session.thread_id == "thr-agent"
+
+    @pytest.mark.asyncio
+    async def test_attach_rejeita_usuario_ou_workspace_diferente(self) -> None:
+        pty_registry.add(_fake_session("t1", "thr-ui", "ws-1", user_id="owner"))
+        result = await attach_terminal(
+            "t1",
+            ctx=ToolContext(
+                user_id="other", thread_id="thr-agent", workspace_id="ws-1"
+            ),
+        )
+        assert json.loads(result)["status"] == "error"
 
     @pytest.mark.asyncio
     async def test_sem_contexto_nao_lista_sessoes(self) -> None:

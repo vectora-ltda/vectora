@@ -14,6 +14,7 @@ import logging
 import platform
 import re
 import shlex
+import shutil
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -417,6 +418,114 @@ async def file_write(file_path: str, content: str, ctx: ToolContext) -> str:
     except Exception:
         logger.exception("file_write failed", extra={"path": file_path})
         return "Error writing file. Check logs."
+
+
+@vtool(
+    extras=ToolExtras(
+        render_hint="code_block",
+        category="filesystem",
+        destructive=True,
+        icon="folder-plus",
+        invalidates=["files"],
+    )
+)
+async def file_create_dir(path: str, ctx: ToolContext) -> str:
+    """Cria um diretório dentro do workspace confiável."""
+    if remote_err := _require_local(ctx):
+        return remote_err
+    if trust_err := _require_trust(ctx):
+        return trust_err
+    resolved, err = _confine(path, ctx)
+    if resolved is None:
+        return err
+    try:
+        await asyncio.to_thread(resolved.mkdir, parents=True, exist_ok=True)
+        return f"[OK] Diretório criado: {path}"
+    except OSError as exc:
+        return f"Error criando diretório: {exc}"
+
+
+@vtool(
+    extras=ToolExtras(
+        render_hint="code_block",
+        category="filesystem",
+        destructive=True,
+        icon="trash-2",
+        invalidates=["files", "diff"],
+    )
+)
+async def file_delete(path: str, ctx: ToolContext, permanent: bool = False) -> str:
+    """Remove um arquivo ou diretório; usa lixeira por padrão."""
+    if remote_err := _require_local(ctx):
+        return remote_err
+    if trust_err := _require_trust(ctx):
+        return trust_err
+    resolved, err = _confine(path, ctx)
+    if resolved is None:
+        return err
+    if not resolved.exists():
+        return f"Error: caminho não encontrado: {path}"
+    try:
+        if permanent:
+            if resolved.is_dir():
+                await asyncio.to_thread(shutil.rmtree, resolved)
+            else:
+                await asyncio.to_thread(resolved.unlink)
+        else:
+            import send2trash
+
+            await asyncio.to_thread(send2trash.send2trash, str(resolved))
+        return f"[OK] Caminho removido: {path}"
+    except OSError as exc:
+        return f"Error removendo caminho: {exc}"
+
+
+@vtool(
+    extras=ToolExtras(
+        render_hint="code_block",
+        category="filesystem",
+        destructive=True,
+        icon="move",
+        invalidates=["files", "diff"],
+    )
+)
+async def file_move(from_path: str, to_path: str, ctx: ToolContext) -> str:
+    """Move ou renomeia um caminho sem permitir sair do workspace."""
+    if remote_err := _require_local(ctx):
+        return remote_err
+    if trust_err := _require_trust(ctx):
+        return trust_err
+    source, source_err = _confine(from_path, ctx)
+    target, target_err = _confine(to_path, ctx)
+    if source is None:
+        return source_err
+    if target is None:
+        return target_err
+    if not source.exists():
+        return f"Error: origem não encontrada: {from_path}"
+    if target.exists():
+        return f"Error: destino já existe: {to_path}"
+    try:
+        await asyncio.to_thread(target.parent.mkdir, parents=True, exist_ok=True)
+        await asyncio.to_thread(shutil.move, str(source), str(target))
+        return f"[OK] Movido: {from_path} -> {to_path}"
+    except OSError as exc:
+        return f"Error movendo caminho: {exc}"
+
+
+@vtool(
+    extras=ToolExtras(
+        render_hint="table",
+        category="filesystem",
+        destructive=False,
+        icon="search",
+    )
+)
+async def file_search(query: str, ctx: ToolContext, path: str = ".") -> str:
+    """Busca texto no workspace, com o mesmo contrato do Files Workbench."""
+    if not query.strip():
+        return "Error: query é obrigatório"
+    return await grep(re.escape(query), ctx, path)
 
 
 def _grep_sync(pattern: str, search_path: Path) -> list[str]:

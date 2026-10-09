@@ -816,6 +816,65 @@ async def git_status(ctx: ToolContext, workspace_id: str | None = None) -> str:
 
 @vtool(
     extras=ToolExtras(
+        render_hint="code_block", category="git", destructive=False, icon="activity"
+    )
+)
+async def git_operation(ctx: ToolContext, workspace_id: str | None = None) -> str:
+    """Retorna a operação Git mais recente do Workbench."""
+    from backend.services.git import git_service
+
+    wid = workspace_id or ctx.workspace_id
+    if not wid:
+        return json.dumps({"status": "error", "message": "workspace_id é obrigatório."})
+    operation = await git_service.latest(wid)
+    return json.dumps(
+        {"status": "ok", "operation": operation.model_dump() if operation else None}
+    )
+
+
+@vtool(
+    extras=ToolExtras(
+        render_hint="table", category="git", destructive=False, icon="history"
+    )
+)
+async def git_operations(
+    ctx: ToolContext, limit: int = 50, workspace_id: str | None = None
+) -> str:
+    """Lista operações Git recentes para reconexão e diagnóstico."""
+    from backend.services.git import git_service
+
+    wid = workspace_id or ctx.workspace_id
+    if not wid:
+        return json.dumps({"status": "error", "message": "workspace_id é obrigatório."})
+    operations = await git_service.history(wid, limit=max(1, min(limit, 200)))
+    return json.dumps(
+        {"status": "ok", "operations": [item.model_dump() for item in operations]}
+    )
+
+
+@vtool(
+    extras=ToolExtras(
+        render_hint="code_block",
+        category="git",
+        destructive=False,
+        icon="message-square",
+    )
+)
+async def git_commit_suggestion(
+    ctx: ToolContext, workspace_id: str | None = None
+) -> str:
+    """Gera a mesma sugestão de commit exibida no Git Workbench."""
+    wid = workspace_id or ctx.workspace_id
+    if not wid:
+        return json.dumps({"status": "error", "message": "workspace_id é obrigatório."})
+    from backend.api.handlers.workspaces import _git_commit_suggestion_sync
+
+    suggestion = await asyncio.to_thread(_git_commit_suggestion_sync, wid)
+    return json.dumps({"status": "ok", "suggestion": suggestion.model_dump()})
+
+
+@vtool(
+    extras=ToolExtras(
         render_hint="table",
         category="git",
         destructive=False,

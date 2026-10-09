@@ -63,6 +63,46 @@ class PtyRegistry:
             )
         ]
 
+    def list_for_user_workspace(
+        self, *, user_id: str, workspace_id: str
+    ) -> list[PtySession]:
+        """Lista sessões do usuário no workspace, independente da thread."""
+        if not workspace_id:
+            return []
+        return [
+            s
+            for s in self._sessions.values()
+            if getattr(s, "user_id", "local") == user_id
+            and s.workspace_id == workspace_id
+        ]
+
+    def claim_for_context(
+        self,
+        terminal_id: str,
+        *,
+        user_id: str,
+        workspace_id: str,
+        thread_id: str,
+    ) -> PtySession | None:
+        """Vincula uma sessão aberta pela UI ao turno atual do agente.
+
+        A identidade do usuário e o workspace nunca mudam durante o claim;
+        somente o ``thread_id`` é atualizado, permitindo que a tool assuma o
+        terminal que o usuário abriu em outra aba/thread.
+        """
+        if not terminal_id or not workspace_id or not thread_id:
+            return None
+        session = self._sessions.get(terminal_id)
+        if session is None or not session.is_alive():
+            return None
+        if (
+            getattr(session, "user_id", "local") != user_id
+            or session.workspace_id != workspace_id
+        ):
+            return None
+        session.thread_id = thread_id
+        return session
+
     def close(self, terminal_id: str) -> bool:
         session = self._sessions.pop(terminal_id, None)
         if session is None:

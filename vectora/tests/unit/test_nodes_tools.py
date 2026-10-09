@@ -88,7 +88,7 @@ def test_all_tools_count():
     # A mensagem lista os nomes: só o número não diz *qual* tool entrou ou
     # sumiu, e a contagem já ficou defasada em silêncio uma vez por isso.
     nomes = sorted(t.name for t in ALL_TOOLS)
-    assert len(ALL_TOOLS) == 177, f"tools registradas: {nomes}"
+    assert len(ALL_TOOLS) == 187, f"tools registradas: {nomes}"
 
 
 def test_all_tools_sem_nome_duplicado():
@@ -133,6 +133,33 @@ def test_browser_tools_registered():
         "browser_read_dom",
     ):
         assert expected in names, f"Browser tool ausente: {expected}"
+
+
+def test_workbench_github_tools_registered():
+    """As superfícies GitHub do Workbench também chegam ao agente."""
+    names = {t.name for t in ALL_TOOLS}
+    for expected in (
+        "gh_pr_list",
+        "gh_pr_create",
+        "gh_pr_view",
+        "gh_issue_list",
+        "gh_issue_view",
+        "github_fetch_pr_diff",
+        "github_post_pr_comment",
+    ):
+        assert expected in names, f"Tool GitHub ausente: {expected}"
+
+
+def test_files_workbench_tools_registered():
+    names = {t.name for t in ALL_TOOLS}
+    for expected in ("file_create_dir", "file_delete", "file_move", "file_search"):
+        assert expected in names, f"Tool Files ausente: {expected}"
+
+
+def test_git_workbench_auxiliary_tools_registered():
+    names = {t.name for t in ALL_TOOLS}
+    for expected in ("git_operation", "git_operations", "git_commit_suggestion"):
+        assert expected in names, f"Tool Git Workbench ausente: {expected}"
 
 
 def test_native_tools_registered():

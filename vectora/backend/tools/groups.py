@@ -136,6 +136,10 @@ register_tool_group(
             "file_read",
             "file_edit",
             "file_write",
+            "file_create_dir",
+            "file_delete",
+            "file_move",
+            "file_search",
             "grep",
             "list_dir",
             "create_artifact",
@@ -164,7 +168,15 @@ register_tool_group(
     ToolGroupSpec(
         name="git_readonly",
         description="Inspeção de git, sem mutar histórico/working tree.",
-        tool_names=["git_status", "git_log", "git_diff", "git_branch"],
+        tool_names=[
+            "git_status",
+            "git_operation",
+            "git_operations",
+            "git_commit_suggestion",
+            "git_log",
+            "git_diff",
+            "git_branch",
+        ],
     )
 )
 
@@ -200,6 +212,8 @@ register_tool_group(
             "gh_issue_create",
             "gh_issue_view",
             "gh_issue_comment",
+            "github_fetch_pr_diff",
+            "github_post_pr_comment",
         ],
         includes=["git_readonly"],
     )
