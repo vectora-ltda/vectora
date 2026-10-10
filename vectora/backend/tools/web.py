@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 #: `max_results` e `search_depth` agora são por chamada — o cliente nativo
 #: não os prende na construção como o pacote de integração de terceiros fazia.
 _MAX_RESULTS = 5
+_MAX_TOOL_CONTENT = 120_000
 
 
 def _tavily_client() -> Any:
@@ -205,6 +206,17 @@ async def _fetch_via_http(url: str, ctx: ToolContext | None = None) -> str:
                     content = await _read_limited(redirected_response)
             else:
                 content = await _read_limited(response)
+    original_length = len(content)
+    if len(content) > _MAX_TOOL_CONTENT:
+        content = (
+            content[:_MAX_TOOL_CONTENT]
+            + f"\n\n[conteúdo truncado pelo Vectora: {original_length} bytes; "
+            f"limite {_MAX_TOOL_CONTENT}]"
+        )
+        logger.info(
+            "fetch_url content truncated",
+            extra={"url": url, "content_length": original_length},
+        )
     if (pattern := detect_injection(content)) is not None:
         logger.warning(
             "fetch_url: padrão de prompt injection detectado (log-only)",

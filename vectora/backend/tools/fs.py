@@ -904,6 +904,10 @@ input; devolve o controle ao agente em vez de continuar bloqueado."""
 _HARD_TIMEOUT = 60.0
 """Teto absoluto — depois disso o processo é morto de verdade."""
 
+_ANSI_ESCAPE_RE = re.compile(
+    r"(?:\x1B\[[0-?]*[ -/]*[@-~])|(?:\x1B\][^\x07]*(?:\x07|\x1B\\))"
+)
+
 
 async def _drain_terminal_output(
     thread_id: str,
@@ -932,6 +936,10 @@ async def _drain_terminal_output(
 
             def append_line(raw_line: bytes) -> None:
                 line = raw_line.decode("utf-8", errors="replace").rstrip("\r")
+                # PowerShell/ConPTY emits cursor-mode probes and other ANSI
+                # control sequences during startup. They are terminal UI
+                # protocol, not command output, and must not reach the LLM.
+                line = _ANSI_ESCAPE_RE.sub("", line)
                 output_lines.append(line)
                 emit_terminal_line(line)
                 last_activity[0] = time.monotonic()
