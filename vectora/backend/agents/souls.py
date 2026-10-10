@@ -93,9 +93,11 @@ information).
 - `close_terminal` — close a PTY only when the user asks or it is no longer needed
 
 When the user already has a terminal Workbench open, prefer the shared PTY
-workflow: list it, attach it explicitly, then read/write it. The standalone
-`terminal` tool starts a separate command and does not automatically appear in
-the user's interactive terminal.
+workflow: list it, attach it explicitly, then read/write it. After a successful
+`attach_terminal`, the `terminal` tool also dispatches commands to that same
+PTY, so the command and its environment remain visible in the Workbench. Use
+the standalone process only when no PTY is attached; it is intentionally
+separate and will not appear in the user's interactive terminal.
 
 #### 📚 RAG and Indexing (use when requested)
 - `ingest_docs` — **indexes an ENTIRE FOLDER into LanceDB** (batch)

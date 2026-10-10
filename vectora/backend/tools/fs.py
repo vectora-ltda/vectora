@@ -22,6 +22,7 @@ import shutil
 import stat
 import sys
 import time
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -1090,6 +1091,45 @@ async def terminal(
             f"Error: Command '{command}' is blocked for safety. "
             "Destructive commands like rm -rf, mkfs, dd if=/dev/zero, "
             "and fork bombs are not permitted."
+        )
+
+    # Quando o agente já assumiu um PTY aberto pela Workbench, ``terminal``
+    # precisa escrever nesse mesmo processo. Criar um subprocesso paralelo
+    # esconderia o comando da UI e perderia estado (cwd, autenticação e
+    # variáveis) do shell que o usuário abriu.
+    from backend.services.pty_registry import pty_registry
+
+    shared_sessions = pty_registry.list_for_context(
+        user_id=ctx.user_id,
+        thread_id=ctx.thread_id,
+        workspace_id=ctx.workspace_id,
+    )
+    if shared_sessions:
+        if len(shared_sessions) > 1:
+            return (
+                "Error: há mais de um terminal compartilhado nesta thread; "
+                "use `write_terminal` com o terminal_id explícito."
+            )
+        session = shared_sessions[0]
+        request_id = f"agent-terminal-{uuid.uuid4().hex}"
+        result = session.write_input((command + "\n").encode("utf-8"), request_id)
+        logger.info(
+            "terminal_shared_command_dispatched",
+            extra={
+                "command": command,
+                "terminal_id": session.terminal_id,
+                "thread_id": ctx.thread_id,
+                "workspace_id": ctx.workspace_id,
+                "status": result.get("status"),
+            },
+        )
+        return json.dumps(
+            {
+                **result,
+                "shared": True,
+                "message": "Comando enviado ao terminal da Workbench; use read_terminal para ler a saída.",
+            },
+            ensure_ascii=False,
         )
 
     root, ws = _workspace_root(ctx)
