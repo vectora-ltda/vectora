@@ -64,6 +64,7 @@ function descriptor(
     icon: Icon,
     scope: "user",
     sections: [{ id: "general", title: () => "General" }],
+    capabilities: [],
     Component: () => <p>settings form</p>,
     surface: { workbench: "form", settings: "form" },
     ...overrides,

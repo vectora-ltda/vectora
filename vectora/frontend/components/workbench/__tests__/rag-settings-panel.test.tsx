@@ -18,6 +18,7 @@ import {
   RagCollectionsSection,
   RagSettingsButton,
   RagSettingsForm,
+  RagSettingsPanel,
   useRagSettings,
 } from "../rag-settings-panel";
 

@@ -229,6 +229,21 @@ export function RagSettingsButton({
   );
 }
 
+/** Compatibilidade para consumidores que ainda montam o painel completo. */
+export function RagSettingsPanel() {
+  const state = useRagSettings();
+  return (
+    <>
+      <RagSettingsButton open={state.open} onToggle={state.toggle} />
+      {state.open && (
+        <div data-testid="rag-settings-panel">
+          <RagSettingsForm {...state} />
+        </div>
+      )}
+    </>
+  );
+}
+
 /** Ações das coleções ficam fora do conteúdo persistente de configurações. */
 export function RagCollectionsSection({
   collections,

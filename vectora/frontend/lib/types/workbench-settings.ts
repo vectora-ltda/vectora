@@ -21,6 +21,15 @@ export type WorkbenchSettingsPresentation = "workbench" | "settings";
 export type WorkbenchSettingsSurfaceMode = "form" | "native-view" | "link";
 export type ResolvedSurfaceMode = WorkbenchSettingsSurfaceMode | "unavailable";
 
+export type WorkbenchSettingsCapabilityStatus =
+  "available" | "unavailable" | "planned";
+
+export interface WorkbenchSettingsCapability {
+  id: string;
+  status: WorkbenchSettingsCapabilityStatus;
+  description?: () => string;
+}
+
 export interface WorkbenchSettingsSection {
   id: string;
   title: () => string;
@@ -51,6 +60,7 @@ export interface WorkbenchSettingsDescriptor {
   icon: ComponentType<{ className?: string }>;
   scope: WorkbenchSettingsScope;
   sections: readonly WorkbenchSettingsSection[];
+  capabilities: readonly WorkbenchSettingsCapability[];
   Component: ComponentType<WorkbenchSettingsContext>;
   surface: Record<WorkbenchSettingsPresentation, WorkbenchSettingsSurfaceMode>;
 }
