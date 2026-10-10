@@ -14,7 +14,7 @@ Valida:
 from __future__ import annotations
 
 import os
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -313,7 +313,7 @@ class TestOpenRouterCatalog:
     @contextmanager
     def _mocked_http_client(
         self, app, handler: Callable[[httpx.Request], httpx.Response]
-    ) -> Iterator[None]:
+    ) -> Generator[None]:
         """Troca o client HTTP do endpoint via dependency override do
         FastAPI — mais correto/idiomático que `unittest.mock.patch
         ("httpx.AsyncClient", ...)`, resolvido pelo próprio FastAPI dentro
