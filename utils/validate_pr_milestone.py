@@ -92,12 +92,7 @@ type EventPayload = PullRequestEvent | dict[str, object]
 
 _VEXT_TOKEN = re.compile(r"(?<![A-Za-z0-9])vext(?![A-Za-z0-9])", re.IGNORECASE)
 _STACK_BASE = re.compile(r"^stack/[a-z0-9][a-z0-9-]*$")
-_INTERNAL_BASE = re.compile(
-    r"^(?:build|chore|ci|docs|feat|fix|perf|refactor|stack|sync|test)/"
-    r"[a-z0-9][a-z0-9-]*$"
-)
-_RELEASE_BRANCH = re.compile(r"^release/.+$")
-_FORBIDDEN_CODEX_BRANCH = re.compile(r"^codex/")
+_RELEASE_BRANCH_PREFIX = "release/"
 
 
 class ReleaseLine(BaseModel):
@@ -188,6 +183,22 @@ def _is_forbidden_codex_branch(pull_request: PullRequestPayload) -> bool:
     return _FORBIDDEN_CODEX_BRANCH.match(head_ref) is not None
 
 
+def _is_release_branch_pr(
+    event: PullRequestEvent, pull_request: PullRequestPayload
+) -> bool:
+    """Aceita promoções internas de branches release/* para a base master."""
+    base = pull_request.base.ref if pull_request.base else ""
+    head = pull_request.head
+    head_ref = head.ref if head else ""
+    head_repo = head.repo.full_name if head and head.repo else None
+    repository = event.repository
+    return bool(
+        base == _release_lines().maintenance.branch
+        and head_ref.startswith(_RELEASE_BRANCH_PREFIX)
+        and head_repo == (repository.full_name if repository else None)
+    )
+
+
 def _is_vext_pr(pull_request: PullRequestPayload) -> bool:
     """Identifica títulos e branches VEXT para diagnósticos claros de validação."""
     head_ref = pull_request.head.ref if pull_request.head else ""
@@ -206,14 +217,9 @@ def validate_pull_request(event: EventPayload) -> list[str]:
 
     errors: list[str] = []
     base = pull_request.base.ref if pull_request.base else ""
-    if _is_forbidden_codex_branch(pull_request):
-        return [
-            "Branches com o prefixo `codex/` são proibidas; use `fix/`, `feat/` "
-            "ou `chore/`."
-        ]
-    if _is_release_branch_pr(parsed_event, pull_request):
-        return []
-    if _INTERNAL_BASE.fullmatch(base) and _is_internal_head(parsed_event, pull_request):
+    if _is_release_please_pr(parsed_event, pull_request) or _is_release_branch_pr(
+        parsed_event, pull_request
+    ):
         return []
     line = _line_for_base(base)
     if line is None:
