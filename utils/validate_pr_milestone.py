@@ -96,7 +96,7 @@ _RELEASE_PLEASE_PATCH_BRANCH = re.compile(
     r"^release-please-(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>[1-9]\d*)$"
 )
 _STACK_BASE = re.compile(r"^stack/[a-z0-9][a-z0-9-]*$")
-_RELEASE_BRANCH_PREFIX = "release/"
+_RELEASE_BRANCH = re.compile(r"^release/.+$")
 
 
 class ReleaseLine(BaseModel):
@@ -198,7 +198,7 @@ def _is_release_branch_pr(
     repository = event.repository
     return bool(
         base == _release_lines().maintenance.branch
-        and head_ref.startswith(_RELEASE_BRANCH_PREFIX)
+        and _RELEASE_BRANCH.fullmatch(head_ref) is not None
         and head_repo == (repository.full_name if repository else None)
     )
 
