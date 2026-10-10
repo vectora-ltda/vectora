@@ -261,6 +261,7 @@ interface WorkbenchState {
   activeByThread: Record<string, string | null>;
   panelOpen: Record<string, boolean>;
   activeTabByThread: Record<string, WorkbenchTab>;
+  activeExtensionByThread: Record<string, string | null>;
   /** Largura do painel direito em px (default = largura da sidebar esquerda). */
   splitSize: number;
   /** Altura do viewer de arquivo (base do split vertical da aba Files) em px. */
@@ -283,6 +284,9 @@ interface WorkbenchState {
   /** Clique na nav-bar: troca para `tab` e abre; se `tab` já é a ativa e o
    * painel está aberto, fecha (colapsa) o painel. */
   selectTab: (threadId: string, tab: WorkbenchTab) => void;
+  getActiveExtension: (threadId: string) => string | null;
+  selectExtension: (threadId: string, extensionId: string) => void;
+  clearExtension: (threadId: string) => void;
 
   setSplitSize: (size: number) => void;
   setViewerHeight: (height: number) => void;
@@ -412,6 +416,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         activeByThread: {},
         panelOpen: {},
         activeTabByThread: {},
+        activeExtensionByThread: {},
         // Mesma largura default da sidebar esquerda (lib/stores/settings-store.ts).
         splitSize: SPLIT_SIZE_DEFAULT,
         viewerHeight: 280,
@@ -440,6 +445,10 @@ export const useWorkbenchStore = create<WorkbenchState>()(
                   ...s.activeTabByThread,
                   [threadId]: "terminal",
                 },
+                activeExtensionByThread: {
+                  ...s.activeExtensionByThread,
+                  [threadId]: null,
+                },
               };
             }
             return {
@@ -452,6 +461,10 @@ export const useWorkbenchStore = create<WorkbenchState>()(
               activeTabByThread: {
                 ...s.activeTabByThread,
                 [threadId]: "terminal",
+              },
+              activeExtensionByThread: {
+                ...s.activeExtensionByThread,
+                [threadId]: null,
               },
             };
           }),
@@ -498,6 +511,10 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         setActiveTab: (threadId, tab) =>
           set((s) => ({
             activeTabByThread: { ...s.activeTabByThread, [threadId]: tab },
+            activeExtensionByThread: {
+              ...s.activeExtensionByThread,
+              [threadId]: null,
+            },
             panelOpen: { ...s.panelOpen, [threadId]: true },
           })),
 
@@ -510,9 +527,31 @@ export const useWorkbenchStore = create<WorkbenchState>()(
             }
             return {
               activeTabByThread: { ...s.activeTabByThread, [threadId]: tab },
+              activeExtensionByThread: {
+                ...s.activeExtensionByThread,
+                [threadId]: null,
+              },
               panelOpen: { ...s.panelOpen, [threadId]: true },
             };
           }),
+
+        getActiveExtension: (threadId) =>
+          get().activeExtensionByThread[threadId] ?? null,
+        selectExtension: (threadId, extensionId) =>
+          set((s) => ({
+            activeExtensionByThread: {
+              ...s.activeExtensionByThread,
+              [threadId]: extensionId,
+            },
+            panelOpen: { ...s.panelOpen, [threadId]: true },
+          })),
+        clearExtension: (threadId) =>
+          set((s) => ({
+            activeExtensionByThread: {
+              ...s.activeExtensionByThread,
+              [threadId]: null,
+            },
+          })),
 
         setSplitSize: (size) => set({ splitSize: size }),
         setViewerHeight: (height) => set({ viewerHeight: height }),
@@ -850,6 +889,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           activeByThread: state.activeByThread,
           panelOpen: state.panelOpen,
           activeTabByThread: state.activeTabByThread,
+          activeExtensionByThread: state.activeExtensionByThread,
           splitSize: state.splitSize,
           viewerHeight: state.viewerHeight,
         }),

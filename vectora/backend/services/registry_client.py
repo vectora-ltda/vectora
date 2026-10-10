@@ -31,7 +31,7 @@ CACHE_TTL_ONLINE = timedelta(hours=6)
 CACHE_TTL_OFFLINE = timedelta(hours=48)
 HTTP_TIMEOUT = 10.0
 
-RegistryKind = Literal["mcp", "skills", "mcp_official"]
+RegistryKind = Literal["mcp", "skills", "extensions", "mcp_official"]
 
 
 class RegistryStatus(BaseModel):
@@ -126,6 +126,16 @@ def validate_mcp_catalog_entries(entries: Iterable[object]) -> list[McpCatalogEn
 
 def _registry_url() -> str:
     return os.getenv("VECTORA_REGISTRY_URL", DEFAULT_REGISTRY_URL).strip()
+
+
+def extension_download_url(extension_id: str, version: str) -> str:
+    """Build the remote URL for a published VEXT artifact."""
+    from urllib.parse import quote
+
+    return (
+        f"{_registry_url()}/extensions/{quote(extension_id, safe='')}/download/"
+        f"{quote(version, safe='')}"
+    )
 
 
 def _enterprise_registry_url() -> str:
@@ -347,5 +357,5 @@ async def fetch_official_mcp_registry(*, max_entries: int = 100) -> list[dict]:
 def clear_registry_cache() -> None:
     """Remove todo o cache local — útil em testes/troca de VECTORA_REGISTRY_URL."""
     with contextlib.suppress(OSError):
-        for kind in ("mcp", "skills", "mcp_official"):
+        for kind in ("mcp", "skills", "extensions", "mcp_official"):
             _cache_path(kind).unlink(missing_ok=True)

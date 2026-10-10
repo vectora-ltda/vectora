@@ -14,7 +14,20 @@ import { godotLanguages } from "@/lib/monaco/languages/godot";
 import { languageFromFence } from "@/lib/monaco/languages/resolve";
 import { MonacoCodeBlock } from "./monaco-code-block";
 
-export function MarkdownView({ content }: { content: string }) {
+export function MarkdownView({
+  content,
+  assetBaseUrl,
+}: {
+  content: string;
+  assetBaseUrl?: string;
+}) {
+  const transformUrl = (url: string) => {
+    if (!assetBaseUrl || /^(?:[a-z]+:|\/\/|#)/i.test(url)) return url;
+    return `${assetBaseUrl.replace(/\/$/, "")}/${url
+      .split("/")
+      .map((segment) => encodeURIComponent(segment))
+      .join("/")}`;
+  };
   return (
     <div
       className="prose prose-sm dark:prose-invert max-w-none p-4 prose-pre:bg-muted prose-pre:text-foreground prose-code:before:content-none prose-code:after:content-none prose-h1:text-lg prose-h2:text-base prose-h3:text-sm prose-h4:text-sm"
@@ -22,6 +35,7 @@ export function MarkdownView({ content }: { content: string }) {
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        urlTransform={transformUrl}
         components={{
           code({ className, children, ...props }) {
             const match = /language-([\w-]+)/.exec(className ?? "");

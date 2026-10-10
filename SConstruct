@@ -166,7 +166,17 @@ def _run(
             bufsize=1,
         )
         for line in proc.stdout:  # type: ignore[union-attr]
-            sys.stdout.write(line)
+            try:
+                sys.stdout.write(line)
+            except UnicodeEncodeError:
+                # Terminais Windows em code pages legadas não conseguem
+                # imprimir os símbolos Unicode emitidos pelo Wrangler.
+                encoding = sys.stdout.encoding or "utf-8"
+                sys.stdout.write(
+                    line.encode(encoding, errors="replace").decode(
+                        encoding, errors="replace"
+                    )
+                )
             log.write(_ANSI_RE.sub("", line))
         proc.wait()
         rc = proc.returncode
@@ -816,9 +826,9 @@ def _action_clean(target, source, env):
 
 
 # ── Prod (deploy) ─────────────────────────────────────────────────────────────
-# `scons prod` — deploy de produção da borda web/edge do monorepo: docs
-# (Vercel, docs.vectora.company), company (Vercel, vectora.company) e services
-# (Cloudflare Worker único: gateway + updates). Bump de versão, build do
+# `scons prod` — deploy de produção da borda web/edge do monorepo: services
+# (Cloudflare Worker único: gateway + updates), docs (Vercel,
+# docs.vectora.company) e company (Vercel, vectora.company). Bump de versão, build do
 # instalador e publicação no canal de update rodam só via GitHub Actions
 # (.github/workflows/vectora.yml), disparados por "[up-release]" na mensagem
 # do commit.
@@ -953,20 +963,6 @@ def _upgrade_d1_schema(
         ("skills_catalog", "verified", "INTEGER NOT NULL DEFAULT 0"),
         ("skills_catalog", "downloads_count", "INTEGER NOT NULL DEFAULT 0"),
         ("skills_catalog", "updated_at", "TEXT"),
-        ("mcp_catalog", "icon_url", "TEXT"),
-        ("mcp_catalog", "publisher", "TEXT"),
-        ("mcp_catalog", "publisher_url", "TEXT"),
-        ("mcp_catalog", "stars_count", "INTEGER NOT NULL DEFAULT 0"),
-        ("mcp_catalog", "runtime_hint", "TEXT"),
-        ("mcp_catalog", "package_identifier", "TEXT"),
-        ("mcp_catalog", "transport", "TEXT NOT NULL DEFAULT 'stdio'"),
-        ("mcp_catalog", "server_url", "TEXT"),
-        ("mcp_catalog", "catalog_source", "TEXT NOT NULL DEFAULT 'curated'"),
-        ("mcp_catalog", "vectora_verified", "INTEGER NOT NULL DEFAULT 0"),
-        ("mcp_catalog", "downloads_count", "INTEGER NOT NULL DEFAULT 0"),
-        ("mcp_catalog", "snapshot_id", "TEXT"),
-        ("mcp_catalog", "last_seen_at", "TEXT"),
-        ("mcp_catalog", "catalog_status", "TEXT NOT NULL DEFAULT 'active'"),
         ("mcp_catalog", "updated_at", "TEXT"),
         ("issue_comments", "updated_at", "TEXT"),
         ("issue_comments", "deleted_at", "TEXT"),
@@ -1055,7 +1051,9 @@ def _upgrade_d1_schema(
             cwd=SERVICES,
         )
 
-    if table_exists.get("skills_catalog"):
+    for timestamp_table in ("skills_catalog", "mcp_catalog"):
+        if not table_exists.get(timestamp_table):
+            continue
         # SQLite não permite DEFAULT(datetime('now')) em ALTER TABLE ADD
         # COLUMN. Repare linhas legadas e preserve o default para inserts.
         _run(
@@ -1066,36 +1064,7 @@ def _upgrade_d1_schema(
                 "vectora-db",
                 "--remote",
                 "--command",
-                "CREATE TRIGGER IF NOT EXISTS skills_catalog_updated_at_default AFTER INSERT ON skills_catalog WHEN NEW.updated_at IS NULL BEGIN UPDATE skills_catalog SET updated_at = datetime('now') WHERE id = NEW.id AND updated_at IS NULL; END",
-            ],
-            log=log,
-            cwd=SERVICES,
-        )
-
-        _run(
-            [
-                WRANGLER,
-                "d1",
-                "execute",
-                "vectora-db",
-                "--remote",
-                "--command",
-                "UPDATE skills_catalog SET updated_at = datetime('now') WHERE updated_at IS NULL",
-            ],
-            log=log,
-            cwd=SERVICES,
-        )
-
-    if table_exists.get("mcp_catalog"):
-        _run(
-            [
-                WRANGLER,
-                "d1",
-                "execute",
-                "vectora-db",
-                "--remote",
-                "--command",
-                "CREATE TRIGGER IF NOT EXISTS mcp_catalog_updated_at_default AFTER INSERT ON mcp_catalog WHEN NEW.updated_at IS NULL BEGIN UPDATE mcp_catalog SET updated_at = datetime('now') WHERE id = NEW.id AND updated_at IS NULL; END",
+                f"CREATE TRIGGER IF NOT EXISTS {timestamp_table}_updated_at_default AFTER INSERT ON {timestamp_table} WHEN NEW.updated_at IS NULL BEGIN UPDATE {timestamp_table} SET updated_at = datetime('now') WHERE id = NEW.id AND updated_at IS NULL; END",
             ],
             log=log,
             cwd=SERVICES,
@@ -1108,7 +1077,7 @@ def _upgrade_d1_schema(
                 "vectora-db",
                 "--remote",
                 "--command",
-                "UPDATE mcp_catalog SET updated_at = datetime('now') WHERE updated_at IS NULL",
+                f"UPDATE {timestamp_table} SET updated_at = datetime('now') WHERE updated_at IS NULL",
             ],
             log=log,
             cwd=SERVICES,
@@ -1123,20 +1092,19 @@ def _action_prod(target, source, env):
     _check_vercel_link(DOCS, "vectora-docs")
     _check_vercel_link(COMPANY, "vectora-company")
     with _open_log("prod") as log:
-        _run([VERCEL, "--prod", "--yes"], log=log, cwd=DOCS)
-        _run([VERCEL, "--prod", "--yes"], log=log, cwd=COMPANY)
-        # Bancos antigos podem ter catálogos sem as colunas usadas pelo
+        # Preflight do schema base antes das migrations numeradas.
+        # Bancos antigos podem ter skills_catalog sem as colunas usadas pelo
         # seed do schema base. Atualize tabelas já existentes antes de
         # reaplicar 0001_schema.sql; tabelas novas são criadas pelo próprio
         # schema e recebem uma segunda verificação após as migrations.
         _upgrade_d1_schema(
             log,
             skip_missing_tables=True,
-            tables_filter={"skills_catalog", "mcp_catalog"},
+            tables_filter={"skills_catalog"},
         )
-        # Migrations ANTES do deploy do worker: o código deployado assume o
-        # schema mais novo (ex.: users.role) — publicar worker sem aplicar as
-        # migrations quebra rotas em produção com SQLITE_ERROR.
+        # O schema base é idempotente e precisa ser aplicado antes das
+        # migrations numeradas: algumas migrations alteram tabelas criadas
+        # somente pelo 0001.
         # Sem flag de confirmação: `wrangler d1 migrations apply` moderno
         # detecta stdin não-TTY sozinho (`_run()` já redireciona pra
         # DEVNULL) e pula o prompt interativo automaticamente — uma flag
@@ -1144,19 +1112,6 @@ def _action_prod(target, source, env):
         # wrangler mas não existe mais (`Unknown arguments`), então passá-la
         # quebra o comando em vez de proteger contra o prompt.
         #
-        # `0001_schema.sql` fica FORA do rastreamento de `d1 migrations apply`
-        # de propósito (arquivo único idempotente, reaplicado por completo a
-        # cada mudança de schema — ver o cabeçalho do próprio arquivo). Isso
-        # significa que `d1 migrations apply` sozinho NUNCA propaga uma tabela
-        # nova adicionada ali pra produção — só os arquivos numerados em
-        # `migrations/000N_*.sql` entram nesse rastreamento. Sem o `d1
-        # execute` abaixo, uma tabela como `gha_bot_config` (adicionada a
-        # `0001_schema.sql` no código, nunca reaplicada manualmente) fica
-        # inexistente em produção indefinidamente, e a migration numerada que
-        # depende dela (`ALTER TABLE gha_bot_config ADD COLUMN ...`) falha com
-        # `no such table` no primeiro deploy que tentar rodá-la. Reaplicar
-        # aqui, sempre, antes de `migrations apply`, é seguro (só `CREATE
-        # TABLE/INDEX IF NOT EXISTS`) e elimina esse modo de falha de vez.
         _run(
             [
                 WRANGLER,
@@ -1181,8 +1136,8 @@ def _action_prod(target, source, env):
             log=log,
             cwd=SERVICES,
         )
-        # O upgrade aditivo só roda depois das migrations, que criam as
-        # tabelas auxiliares consultadas pelo preflight.
+        # O upgrade aditivo cobre bancos legados depois que o schema base e as
+        # migrations numeradas já criaram todas as tabelas necessárias.
         _upgrade_d1_schema(log)
         _run(
             [
@@ -1198,9 +1153,13 @@ def _action_prod(target, source, env):
             cwd=SERVICES,
         )
         _run([WRANGLER, "deploy"], log=log, cwd=SERVICES)
+        # Publica services antes dos frontends, para que os deployments Vercel
+        # já consumam as rotas e o schema de produção atualizados.
+        _run([VERCEL, "--prod", "--yes"], log=log, cwd=DOCS)
+        _run([VERCEL, "--prod", "--yes"], log=log, cwd=COMPANY)
     print(
         "\n>> deploy de produção concluído: "
-        "docs.vectora.company + vectora.company + services (Cloudflare Worker)"
+        "services (Cloudflare Worker) + docs.vectora.company + vectora.company"
     )
     print(">> log completo em .scons-logs/prod.txt")
 
