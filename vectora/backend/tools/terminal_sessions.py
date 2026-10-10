@@ -257,13 +257,18 @@ async def write_terminal(
     request_id: str = "",
     ctx: ToolContext = _DEFAULT_CONTEXT,
 ) -> str:
-    """Escreve entrada explícita no terminal após aprovação HITL."""
+    """Escreve entrada no terminal compartilhado.
+
+    A política HITL é decidida pelo motor antes da execução e depende do modo
+    de permissão da thread. Ela não é uma pré-condição fixa desta tool.
+    ``request_id`` é opcional para permitir chamadas autônomas; quando ausente
+    o backend gera um identificador único para manter a deduplicação.
+    """
     if not terminal_id or not input_data:
         return json.dumps({"status": "error", "code": "input_required"})
     if len(input_data.encode("utf-8")) > 8192:
         return json.dumps({"status": "error", "code": "input_too_large"})
-    if not request_id:
-        return json.dumps({"status": "error", "code": "request_id_required"})
+    request_id = request_id.strip() or f"agent-write-{uuid.uuid4().hex}"
     session = pty_registry.resolve_for_context(
         terminal_id,
         user_id=ctx.user_id,

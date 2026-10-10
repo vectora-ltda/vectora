@@ -35,6 +35,10 @@ def _fake_session(
         user_id=user_id,
         consume_rate_limit=lambda: None,
         is_alive=lambda: alive,
+        write_input=lambda _data, _request_id: {
+            "status": "accepted",
+            "terminal_id": terminal_id,
+        },
     )
 
 
@@ -101,6 +105,30 @@ class TestListTerminals:
             ),
         )
         assert json.loads(result)["status"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_write_sem_request_id_gera_idempotency_key(self) -> None:
+        class Session:
+            terminal_id = "t1"
+            user_id = "local"
+            thread_id = "thr-1"
+            workspace_id = "ws-1"
+
+            def consume_rate_limit(self):
+                return None
+
+            def write_input(self, data, request_id):
+                assert data == b"gh pr view 319\n"
+                assert request_id.startswith("agent-write-")
+                return {"status": "accepted", "terminal_id": self.terminal_id}
+
+        pty_registry.add(Session())  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        result = await write_terminal(
+            "t1",
+            "gh pr view 319\n",
+            ctx=ToolContext(thread_id="thr-1", workspace_id="ws-1"),
+        )
+        assert json.loads(result)["status"] == "accepted"
 
     @pytest.mark.asyncio
     async def test_sem_contexto_nao_lista_sessoes(self) -> None:
@@ -216,7 +244,7 @@ class TestInteractiveTerminalTools:
         assert json.loads(await list_terminals(ctx=ctx))["terminals"] == []
 
     @pytest.mark.asyncio
-    async def test_escrita_exige_request_id_e_isolamento(self) -> None:
+    async def test_escrita_gera_request_id_e_mantem_isolamento(self) -> None:
         pty_registry.add(_fake_session("t1", "thr-1", "ws-1"))
         assert (
             json.loads(
@@ -226,8 +254,8 @@ class TestInteractiveTerminalTools:
                     "",
                     ctx=ToolContext(thread_id="thr-1", workspace_id="ws-1"),
                 )
-            )["code"]
-            == "request_id_required"
+            )["status"]
+            == "accepted"
         )
         assert (
             json.loads(
