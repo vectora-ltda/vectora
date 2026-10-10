@@ -71,6 +71,10 @@ import {
   isValidViewId,
 } from "./browser-ipc-validation.js";
 
+function browserOwnerId(event: unknown): number {
+  return (event as { sender?: { id?: number } }).sender?.id ?? -1;
+}
+
 import { computeDefaultWindowSize } from "./window-size.js";
 import {
   fetchMarketplaceThemes,
@@ -1032,8 +1036,6 @@ function registerIpc(): void {
       (candidate.senderFrame?.url ?? "").startsWith(`${APP_SCHEME}://`)
     );
   };
-  const browserOwnerId = (event: unknown): number =>
-    (event as { sender?: { id?: number } }).sender?.id ?? -1;
   ipcMain.handle("vectora:browser-create-view", (event, options: unknown) => {
     if (!isTrustedBrowserSender(event)) throw new Error("origem IPC inválida");
     if (!options || typeof options !== "object")

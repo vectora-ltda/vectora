@@ -109,7 +109,6 @@ export function useRagSettings() {
   useEffect(() => {
     if (!open) return;
     let alive = true;
-    setSettingsStatus("loading");
     void (async () => {
       try {
         const res = await fetch("/rag/settings");
@@ -558,9 +557,8 @@ function EmbedModelPicker({
   }, []);
 
   useEffect(() => {
-    // Reinicia a lista antes de rebuscar modelos no backend (rede) ao trocar de provider.
-    // oxlint-disable-next-line react/set-state-in-effect
-    setModels([]);
+    // A resposta do provider substitui a lista; não limpamos estado
+    // sincronamente no efeito para evitar uma renderização em cascata.
     if (provider === "ollama") void loadOllama();
     else void searchOpenRouter("");
   }, [provider, loadOllama, searchOpenRouter]);
