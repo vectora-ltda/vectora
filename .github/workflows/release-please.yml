@@ -180,7 +180,7 @@ jobs:
             exit 1
           fi
           IFS=. read -r major minor patch <<< "$version"
-          if [[ "$patch" == "0" ]]; then target="release-please-${major}.${minor}"; else target="release-please-${version}"; fi
+          if [[ "$patch" == "0" ]]; then target="release/${major}.${minor}"; else target="release/${version}"; fi
           existing="$(gh pr list --repo "$GITHUB_REPOSITORY" --base "$RELEASE_TARGET_BRANCH" --head "$target" --state open --json number,headRefName,headRefOid,headRepository,title,body,labels,baseRefName)"
           selected="$(uv run --project vectora python utils/select_release_pr.py \
             --repository "$GITHUB_REPOSITORY" --source "$TARGET_BRANCH" \
