@@ -256,6 +256,39 @@ def test_release_please_pr_is_exempt_with_controlled_source_and_label() -> None:
     assert validator.validate_pull_request(event) == []
 
 
+def test_release_branch_promotion_to_master_is_exempt() -> None:
+    """Aceita uma promoção interna de qualquer branch com prefixo release/."""
+    event = _event(
+        base=MAINTENANCE_BRANCH,
+        milestone=DEVELOPMENT_MILESTONE,
+        head="release/0.3",
+    )
+    assert validator.validate_pull_request(event) == []
+
+
+def test_release_branch_promotion_from_another_repo_is_rejected() -> None:
+    """Não permite que um fork use a exceção da promoção de release."""
+    event = _event(
+        base=MAINTENANCE_BRANCH,
+        milestone=DEVELOPMENT_MILESTONE,
+        head="release/0.3",
+        head_repo="attacker/vectora",
+    )
+    errors = validator.validate_pull_request(event)
+    assert errors and "0.2.x" in errors[0]
+
+
+def test_empty_release_branch_does_not_use_promotion_exception() -> None:
+    """Exige a parte identificadora depois de ``release/``."""
+    event = _event(
+        base=MAINTENANCE_BRANCH,
+        milestone=DEVELOPMENT_MILESTONE,
+        head="release/",
+    )
+    errors = validator.validate_pull_request(event)
+    assert errors and "0.2.x" in errors[0]
+
+
 def test_release_please_pr_from_another_repo_is_rejected() -> None:
     """Rejeita uma branch de release criada a partir de outro repositório."""
     event = _event(
