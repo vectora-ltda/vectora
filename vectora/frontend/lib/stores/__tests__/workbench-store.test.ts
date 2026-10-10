@@ -33,7 +33,7 @@ beforeEach(() => {
 });
 
 describe("Workbench — última aba ao reabrir", () => {
-  it.each(["files", "diff", "plan", "browser", "terminal"] as const)(
+  it.each(["files", "git", "plan", "browser", "terminal"] as const)(
     "preserva %s depois de fechar e reabrir",
     (tab) => {
       s().selectTab("t1", tab);
@@ -193,11 +193,11 @@ describe("isPinned", () => {
 });
 
 describe("WORKBENCH_TABS — ordem das abas", () => {
-  it("segue a ordem: files, git(diff), plan, background, browser, memory(storage), context_graph, library, terminal", async () => {
+  it("segue a ordem: files, git, plan, background, browser, memory(storage), context_graph, library, terminal", async () => {
     const { WORKBENCH_TABS } = await import("@/lib/stores/workbench-store");
     expect(WORKBENCH_TABS).toEqual([
       "files",
-      "diff",
+      "git",
       "plan",
       "tasks",
       "browser",

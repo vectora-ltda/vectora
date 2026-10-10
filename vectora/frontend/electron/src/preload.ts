@@ -9,7 +9,11 @@
  */
 
 import { contextBridge, ipcRenderer } from "electron";
-import type { BrowserViewEvent, ViewBounds } from "./browser-view-manager.js";
+import type {
+  BrowserViewEvent,
+  BrowserViewOptions,
+  ViewBounds,
+} from "./browser-view-manager.js";
 import type { UpdateBackupEntry } from "./update-backup-types.js";
 
 export interface VectoraDesktopBridge {
@@ -90,7 +94,7 @@ export interface VectoraDesktopBridge {
    * própria (cookies/cache persistentes, contexto de navegação de nível
    * superior, imune a X-Frame-Options). Ver electron/src/browser-view-manager.ts. */
   browserView: {
-    createView: (profileId?: string) => Promise<number>;
+    createView: (options: BrowserViewOptions) => Promise<number>;
     destroyView: (viewId: number) => void;
     navigate: (
       viewId: number,
@@ -102,6 +106,8 @@ export interface VectoraDesktopBridge {
     stop: (viewId: number) => void;
     setBounds: (viewId: number, bounds: ViewBounds) => void;
     setVisible: (viewId: number, visible: boolean) => void;
+    setZoom: (viewId: number, percent: number) => void;
+    setAllowPopups: (viewId: number, allowPopups: boolean) => void;
     clearProfileData: (profileId?: string) => Promise<void>;
     /** Subscreve a eventos de navegação (navigated/titleUpdated/
      * faviconUpdated/loadingChanged/loadFailed) de qualquer view criada. */
@@ -189,8 +195,8 @@ const bridge: VectoraDesktopBridge = {
     },
   },
   browserView: {
-    createView: (profileId?: string) =>
-      ipcRenderer.invoke("vectora:browser-create-view", profileId),
+    createView: (options: BrowserViewOptions) =>
+      ipcRenderer.invoke("vectora:browser-create-view", options),
     destroyView: (viewId) =>
       ipcRenderer.send("vectora:browser-destroy-view", viewId),
     navigate: (viewId, url) =>
@@ -204,6 +210,10 @@ const bridge: VectoraDesktopBridge = {
       ipcRenderer.send("vectora:browser-set-bounds", viewId, bounds),
     setVisible: (viewId, visible) =>
       ipcRenderer.send("vectora:browser-set-visible", viewId, visible),
+    setZoom: (viewId, percent) =>
+      ipcRenderer.send("vectora:browser-set-zoom", viewId, percent),
+    setAllowPopups: (viewId, allowPopups) =>
+      ipcRenderer.send("vectora:browser-set-allow-popups", viewId, allowPopups),
     clearProfileData: (profileId?: string) =>
       ipcRenderer.invoke("vectora:browser-clear-profile-data", profileId),
     onEvent: (handler) => {

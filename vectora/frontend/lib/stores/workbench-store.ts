@@ -6,7 +6,7 @@
  *   1. **Shell persistido** (zustand/middleware/persist) — sobrevive reload:
  *      painel aberto/fechado, aba ativa, terminais (metadados), tamanho do
  *      split, pins. Chave `vectora-workbench-{user_id}`.
- *   2. **Caches voláteis** das abas Files/Diff/Plan — sobrevivem a remount
+ *   2. **Caches voláteis** das abas Files/Git/Plan — sobrevivem a remount
  *      e troca de aba (igual ao threads-store), mas não a reload. SWR pattern:
  *      render imediato do cache, refetch silencioso se stale.
  *
@@ -64,7 +64,7 @@ export interface TerminalInstance {
 export type WorkbenchTab =
   | "terminal"
   | "files"
-  | "diff"
+  | "git"
   | "plan"
   | "browser"
   | "storage"
@@ -76,7 +76,7 @@ export type WorkbenchTab =
 // context graph → library (MCP/Skills/Memory) → terminal (shell).
 export const WORKBENCH_TABS: WorkbenchTab[] = [
   "files",
-  "diff",
+  "git",
   "plan",
   "tasks",
   "browser",
@@ -296,7 +296,7 @@ interface WorkbenchState {
 
   // ── Caches voláteis ───────────────────────────────────────────────────────
   files: Record<string, FilesCache>;
-  diff: Record<string, DiffCache>;
+  git: Record<string, DiffCache>;
   plan: Record<string, PlanCache>;
   todos: Record<string, TodoItem[]>;
   gitOps: Record<string, GitOpsState>;
@@ -310,12 +310,12 @@ interface WorkbenchState {
   setFilesFilter: (wsId: string, filter: string) => void;
   invalidateFiles: (wsId?: string) => void;
 
-  // Diff
-  getDiff: (wsId: string) => DiffCache;
-  setDiffSummary: (wsId: string, summary: DiffSummary) => void;
-  setDiffOpenFile: (wsId: string, path: string, open: boolean) => void;
-  setDiffHunks: (wsId: string, path: string, hunks: DiffHunk[]) => void;
-  invalidateDiff: (wsId?: string) => void;
+  // Git workbench diff cache
+  getGit: (wsId: string) => DiffCache;
+  setGitSummary: (wsId: string, summary: DiffSummary) => void;
+  setGitOpenFile: (wsId: string, path: string, open: boolean) => void;
+  setGitHunks: (wsId: string, path: string, hunks: DiffHunk[]) => void;
+  invalidateGit: (wsId?: string) => void;
 
   // Plan
   getPlan: (threadId: string) => PlanCache;
@@ -348,11 +348,11 @@ interface WorkbenchState {
   invalidateTasks: (threadId?: string) => void;
 
   // Pendência de atualização por aba (volátil). Marcada quando uma tool do
-  // agente edita o workspace e a aba Files/Diff não está montada; limpa
+  // agente edita o workspace e as abas Files/Git não estão montadas; limpa
   // quando a aba é aberta e revalida.
-  pending: Record<string, { files: boolean; diff: boolean }>;
+  pending: Record<string, { files: boolean; git: boolean }>;
   markPending: (wsId: string) => void;
-  clearPending: (wsId: string, key: "files" | "diff") => void;
+  clearPending: (wsId: string, key: "files" | "git") => void;
 }
 
 // Caches default usados pelos getters quando uma chave ainda não existe.
@@ -401,6 +401,35 @@ function pruneContents(
   const next: Record<string, FileContent> = {};
   for (const k of slice) next[k] = contents[k];
   return next;
+}
+
+/** Migra o shell persistido de versões anteriores do Workbench. */
+type PersistedWorkbenchState = Omit<
+  Partial<WorkbenchState>,
+  "activeTabByThread"
+> & {
+  activeTabByThread?: Record<string, WorkbenchTab | "diff">;
+};
+
+export function migrateWorkbenchState(
+  persisted: PersistedWorkbenchState,
+  version: number,
+): Partial<WorkbenchState> {
+  const activeTabs = persisted.activeTabByThread;
+  const migratedTabs = activeTabs
+    ? (Object.fromEntries(
+        Object.entries(activeTabs).map(([threadId, tab]) => [
+          threadId,
+          tab === "diff" ? "git" : tab,
+        ]),
+      ) as Record<string, WorkbenchTab>)
+    : activeTabs;
+  return {
+    ...persisted,
+    activeTabByThread: migratedTabs,
+    splitSize: migrateSplitSize(persisted.splitSize, version) as
+      number | undefined,
+  };
 }
 
 export const useWorkbenchStore = create<WorkbenchState>()(
@@ -545,7 +574,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
 
         // ── Caches voláteis ─────────────────────────────────────────────────
         files: {},
-        diff: {},
+        git: {},
         plan: {},
         todos: {},
         gitOps: {},
@@ -612,13 +641,13 @@ export const useWorkbenchStore = create<WorkbenchState>()(
             };
           }),
 
-        getDiff: (wsId) => get().diff[wsId] ?? EMPTY_DIFF,
-        setDiffSummary: (wsId, summary) =>
+        getGit: (wsId) => get().git[wsId] ?? EMPTY_DIFF,
+        setGitSummary: (wsId, summary) =>
           set((s) => {
-            const cur = s.diff[wsId] ?? EMPTY_DIFF;
+            const cur = s.git[wsId] ?? EMPTY_DIFF;
             return {
-              diff: {
-                ...s.diff,
+              git: {
+                ...s.git,
                 [wsId]: {
                   ...cur,
                   summary,
@@ -627,20 +656,20 @@ export const useWorkbenchStore = create<WorkbenchState>()(
               },
             };
           }),
-        setDiffOpenFile: (wsId, path, open) =>
+        setGitOpenFile: (wsId, path, open) =>
           set((s) => {
-            const cur = s.diff[wsId] ?? EMPTY_DIFF;
+            const cur = s.git[wsId] ?? EMPTY_DIFF;
             const next = open
               ? [...new Set([...cur.openFiles, path])]
               : cur.openFiles.filter((p) => p !== path);
-            return { diff: { ...s.diff, [wsId]: { ...cur, openFiles: next } } };
+            return { git: { ...s.git, [wsId]: { ...cur, openFiles: next } } };
           }),
-        setDiffHunks: (wsId, path, hunks) =>
+        setGitHunks: (wsId, path, hunks) =>
           set((s) => {
-            const cur = s.diff[wsId] ?? EMPTY_DIFF;
+            const cur = s.git[wsId] ?? EMPTY_DIFF;
             return {
-              diff: {
-                ...s.diff,
+              git: {
+                ...s.git,
                 [wsId]: {
                   ...cur,
                   hunksByFile: { ...cur.hunksByFile, [path]: hunks },
@@ -649,14 +678,14 @@ export const useWorkbenchStore = create<WorkbenchState>()(
               },
             };
           }),
-        invalidateDiff: (wsId) =>
+        invalidateGit: (wsId) =>
           set((s) => {
-            if (!wsId) return { diff: {} };
-            const cur = s.diff[wsId];
+            if (!wsId) return { git: {} };
+            const cur = s.git[wsId];
             if (!cur) return s;
             return {
-              diff: {
-                ...s.diff,
+              git: {
+                ...s.git,
                 [wsId]: { ...cur, summaryFetchedAt: 0, fileFetchedAt: {} },
               },
             };
@@ -804,7 +833,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
 
         markPending: (wsId) =>
           set((s) => ({
-            pending: { ...s.pending, [wsId]: { files: true, diff: true } },
+            pending: { ...s.pending, [wsId]: { files: true, git: true } },
           })),
         clearPending: (wsId, key) =>
           set((s) => {
@@ -817,7 +846,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       }),
       {
         name: "vectora-workbench",
-        version: 2,
+        version: 3,
         // v0 guardava splitSize como % (default 40); v1 passa a usar px
         // (default = largura da sidebar). Valores antigos ficariam
         // minúsculos demais como largura — descarta e usa o novo default.
@@ -826,11 +855,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         // escolhida manualmente não é sobrescrita.
         migrate: (persisted, version) => {
           const state = persisted as Partial<WorkbenchState>;
-          if (!state || typeof state.splitSize === "undefined") return state;
-          return {
-            ...state,
-            splitSize: migrateSplitSize(state.splitSize, version),
-          };
+          return migrateWorkbenchState(state, version);
         },
         storage: createJSONStorage(() =>
           typeof window !== "undefined"
@@ -841,7 +866,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
                 removeItem: () => {},
               },
         ),
-        // Apenas o "shell" persiste. Caches voláteis (files/diff/plan) ficam
+        // Apenas o "shell" persiste. Caches voláteis (files/Git/plan) ficam
         // de fora — são revalidados rápido e a verdade vive no backend.
         // `pinnedFiles` NÃO persiste: o backend é a fonte de verdade (§8) e
         // `loadPins` reconcilia o cache ao abrir a sessão.

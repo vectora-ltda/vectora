@@ -9,7 +9,7 @@
  * usar o RAG para código enquanto o grafo cuida dos markdowns.
  *
  * `useRagSettings` centraliza o estado; `RagSettingsButton` (gatilho inline,
- * ex.: ao lado da busca) e `RagSettingsSlidePanel` (conteúdo, largura cheia)
+ * ex.: ao lado da busca) e `RagSettingsSlidePanel` (conteúdo modal)
  * são exportados separados para o consumidor controlar onde cada um entra no
  * layout — o painel precisa ocupar a largura total da workbench numa linha
  * própria abaixo do gatilho, nunca dividir espaço com ele na mesma linha
@@ -25,7 +25,7 @@ import {
   type GraphFileType,
 } from "@/lib/stores/context-graph-settings-store";
 import { useToastStore } from "@/lib/stores/toast-store";
-import { WorkbenchSlidePanel } from "@/components/workbench/workbench-slide-panel";
+import { WorkbenchDialog } from "@/components/workbench/workbench-dialog";
 import { m } from "@/lib/paraglide/messages";
 
 interface RagSettings {
@@ -78,19 +78,33 @@ const PROVIDER_LABELS: Record<string, () => string> = {
   openrouter: m.rag_provider_openrouter,
 };
 
-export function useRagSettings() {
-  const [open, setOpen] = useState(false);
+export function useRagSettings({
+  autoLoad = false,
+}: { autoLoad?: boolean } = {}) {
+  const [open, setOpen] = useState(autoLoad);
   const [settings, setSettings] = useState<RagSettings>(DEFAULTS);
   const [collections, setCollections] = useState<Collection[]>([]);
+  const [settingsStatus, setSettingsStatus] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const [collectionsStatus, setCollectionsStatus] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const [patching, setPatching] = useState(false);
 
   const loadCollections = useCallback(async () => {
+    setCollectionsStatus("loading");
     try {
       const res = await fetch("/rag/collections");
-      if (!res.ok) return;
+      if (!res.ok) {
+        setCollectionsStatus("error");
+        return;
+      }
       const data = (await res.json()) as { collections?: Collection[] };
       setCollections(Array.isArray(data.collections) ? data.collections : []);
+      setCollectionsStatus("ready");
     } catch {
-      /* sem rede: lista vazia */
+      setCollectionsStatus("error");
     }
   }, []);
 
@@ -103,9 +117,12 @@ export function useRagSettings() {
         if (res.ok && alive) {
           const data = (await res.json()) as Partial<RagSettings>;
           setSettings({ ...DEFAULTS, ...data });
+          setSettingsStatus("ready");
+        } else if (alive) {
+          setSettingsStatus("error");
         }
       } catch {
-        /* mantém defaults */
+        if (alive) setSettingsStatus("error");
       }
     })();
     // Busca coleções RAG no backend (rede) ao abrir o painel, não estado derivado.
@@ -116,22 +133,33 @@ export function useRagSettings() {
     };
   }, [open, loadCollections]);
 
-  const patch = useCallback(async (changes: Partial<RagSettings>) => {
-    setSettings((s) => ({ ...s, ...changes }));
-    try {
-      const res = await fetch("/rag/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(changes),
-      });
-      if (res.ok) {
-        const data = (await res.json()) as RagSettings;
-        setSettings({ ...DEFAULTS, ...data });
+  const patch = useCallback(
+    async (changes: Partial<RagSettings>) => {
+      const previous = settings;
+      setSettings((s) => ({ ...s, ...changes }));
+      setPatching(true);
+      try {
+        const res = await fetch("/rag/settings", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(changes),
+        });
+        if (res.ok) {
+          const data = (await res.json()) as RagSettings;
+          setSettings({ ...DEFAULTS, ...data });
+          return;
+        }
+        setSettings(previous);
+        useToastStore.getState().error(m.workbench_settings_error());
+      } catch {
+        setSettings(previous);
+        useToastStore.getState().error(m.workbench_settings_error());
+      } finally {
+        setPatching(false);
       }
-    } catch {
-      /* offline: mantém o estado otimista */
-    }
-  }, []);
+    },
+    [settings],
+  );
 
   const deleteCollection = useCallback(async (name: string) => {
     if (!window.confirm(m.rag_collection_delete_confirm({ name }))) return;
@@ -154,6 +182,9 @@ export function useRagSettings() {
     toggle: () => setOpen((v) => !v),
     close: () => setOpen(false),
     settings,
+    settingsStatus,
+    collectionsStatus,
+    patching,
     collections,
     patch,
     loadCollections,
@@ -184,7 +215,7 @@ export function RagSettingsButton({
   );
 }
 
-export function RagSettingsSlidePanel({
+export function RagSettingsForm({
   open,
   close,
   settings,
@@ -192,6 +223,9 @@ export function RagSettingsSlidePanel({
   patch,
   loadCollections,
   deleteCollection,
+  settingsStatus,
+  collectionsStatus,
+  patching,
 }: Pick<
   RagSettingsState,
   | "open"
@@ -201,174 +235,225 @@ export function RagSettingsSlidePanel({
   | "patch"
   | "loadCollections"
   | "deleteCollection"
+  | "settingsStatus"
+  | "collectionsStatus"
+  | "patching"
 >) {
+  if (settingsStatus === "loading" || settingsStatus === "idle") {
+    return (
+      <p className="p-4 text-xs text-muted-foreground">
+        {m.workbench_settings_loading()}
+      </p>
+    );
+  }
+  if (settingsStatus === "error") {
+    return (
+      <p className="p-4 text-xs text-destructive">
+        {m.workbench_settings_error()}
+      </p>
+    );
+  }
   return (
-    <WorkbenchSlidePanel
-      open={open}
-      onClose={close}
-      title={m.rag_settings_title()}
-      testId="rag-settings-panel"
-    >
-      <div className="space-y-3 text-xs">
-        {/* Reranker on/off + top_k */}
-        <label className="flex items-center justify-between gap-2 cursor-pointer select-none">
-          <span className="text-foreground">{m.rag_reranker_enabled()}</span>
-          <input
-            type="checkbox"
-            checked={settings.reranker_enabled}
-            onChange={(e) => void patch({ reranker_enabled: e.target.checked })}
-            className="accent-[var(--color-primary)]"
-          />
-        </label>
-        <p className="-mt-1.5 text-[10px] text-muted-foreground">
-          {m.rag_reranker_help()}
-        </p>
-        <label className="flex items-center justify-between gap-2">
-          <span className="text-foreground">{m.rag_reranker_top_k()}</span>
-          <input
-            type="number"
-            min={1}
-            max={50}
-            value={settings.reranker_top_k}
-            disabled={!settings.reranker_enabled}
-            onChange={(e) =>
-              void patch({
-                reranker_top_k: Math.max(1, Number(e.target.value) || 1),
-              })
-            }
-            className="w-16 bg-background border border-border/60 rounded px-1.5 py-0.5 text-right disabled:opacity-40"
-          />
-        </label>
+    <div className="min-w-0 space-y-3 text-xs" aria-busy={patching}>
+      {/* Reranker on/off + top_k */}
+      <label className="flex items-center justify-between gap-2 cursor-pointer select-none">
+        <span className="text-foreground">{m.rag_reranker_enabled()}</span>
+        <input
+          type="checkbox"
+          checked={settings.reranker_enabled}
+          onChange={(e) => void patch({ reranker_enabled: e.target.checked })}
+          className="accent-[var(--color-primary)]"
+        />
+      </label>
+      <p className="-mt-1.5 text-[10px] text-muted-foreground">
+        {m.rag_reranker_help()}
+      </p>
+      <label className="flex items-center justify-between gap-2">
+        <span className="text-foreground">{m.rag_reranker_top_k()}</span>
+        <input
+          type="number"
+          min={1}
+          max={50}
+          value={settings.reranker_top_k}
+          disabled={!settings.reranker_enabled}
+          onChange={(e) =>
+            void patch({
+              reranker_top_k: Math.max(1, Number(e.target.value) || 1),
+            })
+          }
+          className="w-16 bg-background border border-border/60 rounded px-1.5 py-0.5 text-right disabled:opacity-40"
+        />
+      </label>
 
-        {/* Providers */}
-        <label className="flex items-center justify-between gap-2">
-          <span className="text-foreground">{m.rag_rerank_provider()}</span>
-          <ProviderSelect
-            value={settings.rerank_provider}
-            onChange={(v) => void patch({ rerank_provider: v })}
-            providers={RERANK_PROVIDERS}
-            unavailable={
-              new Set(
-                Object.entries(settings.rerank_provider_available ?? {})
-                  .filter(([, available]) => !available)
-                  .map(([provider]) => provider),
-              )
-            }
-          />
-        </label>
-        {settings.rerank_provider !== "auto" &&
-          settings.rerank_provider_available?.[settings.rerank_provider] ===
-            false && (
-            <p className="text-[10px] text-amber-600 dark:text-amber-400">
-              {m.rag_rerank_provider_unavailable_warning()}
-            </p>
-          )}
-        <label className="flex items-center justify-between gap-2">
-          <span className="text-foreground">{m.rag_embed_provider()}</span>
-          <ProviderSelect
-            value={settings.embed_provider}
-            onChange={(v) => void patch({ embed_provider: v, embed_model: "" })}
-            providers={EMBED_PROVIDERS}
-          />
-        </label>
-        {(settings.embed_provider === "ollama" ||
-          settings.embed_provider === "openrouter") && (
-          <EmbedModelPicker
-            provider={settings.embed_provider}
-            value={settings.embed_model}
-            onChange={(v) => void patch({ embed_model: v })}
-          />
-        )}
-
-        {/* Tipos de arquivo a ingerir */}
-        <div>
-          <p className="font-medium text-foreground">
-            {m.graph_settings_filetypes()}
+      {/* Providers */}
+      <label className="flex items-center justify-between gap-2">
+        <span className="text-foreground">{m.rag_rerank_provider()}</span>
+        <ProviderSelect
+          value={settings.rerank_provider}
+          onChange={(v) => void patch({ rerank_provider: v })}
+          providers={RERANK_PROVIDERS}
+          unavailable={
+            new Set(
+              Object.entries(settings.rerank_provider_available ?? {})
+                .filter(([, available]) => !available)
+                .map(([provider]) => provider),
+            )
+          }
+        />
+      </label>
+      {settings.rerank_provider !== "auto" &&
+        settings.rerank_provider_available?.[settings.rerank_provider] ===
+          false && (
+          <p className="text-[10px] text-amber-600 dark:text-amber-400">
+            {m.rag_rerank_provider_unavailable_warning()}
           </p>
-          <div className="mt-1 space-y-1">
-            {ALL_GRAPH_FILE_TYPES.map((t: GraphFileType) => (
-              <label
-                key={t}
-                className="flex items-center gap-2 cursor-pointer select-none"
-              >
-                <input
-                  type="checkbox"
-                  checked={
-                    settings.ingest_file_types.length === 0 ||
-                    settings.ingest_file_types.includes(t)
-                  }
-                  onChange={() => {
-                    const cur =
-                      settings.ingest_file_types.length === 0
-                        ? [...ALL_GRAPH_FILE_TYPES]
-                        : settings.ingest_file_types;
-                    const next = cur.includes(t)
-                      ? cur.filter((x) => x !== t)
-                      : [...cur, t];
-                    void patch({ ingest_file_types: next });
-                  }}
-                  className="accent-[var(--color-primary)]"
-                />
-                <span className="text-foreground">
-                  {t === "code"
-                    ? m.graph_filetype_code()
-                    : t === "document"
-                      ? m.graph_filetype_document()
-                      : m.graph_filetype_paper()}
-                </span>
-              </label>
-            ))}
-          </div>
-        </div>
+        )}
+      <label className="flex items-center justify-between gap-2">
+        <span className="text-foreground">{m.rag_embed_provider()}</span>
+        <ProviderSelect
+          value={settings.embed_provider}
+          onChange={(v) => void patch({ embed_provider: v, embed_model: "" })}
+          providers={EMBED_PROVIDERS}
+        />
+      </label>
+      {(settings.embed_provider === "ollama" ||
+        settings.embed_provider === "openrouter") && (
+        <EmbedModelPicker
+          provider={settings.embed_provider}
+          value={settings.embed_model}
+          onChange={(v) => void patch({ embed_model: v })}
+        />
+      )}
 
-        {/* Coleções */}
-        <div className="border-t border-border/60 pt-2">
-          <div className="flex items-center justify-between">
-            <p className="font-medium text-foreground">
-              {m.rag_collections_title()}
-            </p>
-            <button
-              onClick={() => void loadCollections()}
-              aria-label="reload"
-              className="text-muted-foreground hover:text-foreground"
+      {/* Tipos de arquivo a ingerir */}
+      <div>
+        <p className="font-medium text-foreground">
+          {m.graph_settings_filetypes()}
+        </p>
+        <div className="mt-1 space-y-1">
+          {ALL_GRAPH_FILE_TYPES.map((t: GraphFileType) => (
+            <label
+              key={t}
+              className="flex items-center gap-2 cursor-pointer select-none"
             >
-              <RefreshCw className="h-3 w-3" />
-            </button>
-          </div>
-          {collections.length === 0 ? (
-            <p className="mt-1 text-[10px] text-muted-foreground">
-              {m.rag_collections_empty()}
-            </p>
-          ) : (
-            <ul className="mt-1 space-y-1">
-              {collections.map((c) => (
-                <li
-                  key={c.name}
-                  className="flex items-center justify-between gap-2 rounded border border-border/60 px-2 py-1"
-                >
-                  <span className="min-w-0 truncate text-foreground">
-                    {c.name}
-                    {c.count != null && (
-                      <span className="ml-1 text-[10px] text-muted-foreground">
-                        {m.rag_collection_count({ n: c.count })}
-                      </span>
-                    )}
-                  </span>
-                  <button
-                    onClick={() => void deleteCollection(c.name)}
-                    aria-label={m.rag_collection_delete()}
-                    title={m.rag_collection_delete()}
-                    className="shrink-0 text-muted-foreground hover:text-destructive"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+              <input
+                type="checkbox"
+                checked={
+                  settings.ingest_file_types.length === 0 ||
+                  settings.ingest_file_types.includes(t)
+                }
+                onChange={() => {
+                  const cur =
+                    settings.ingest_file_types.length === 0
+                      ? [...ALL_GRAPH_FILE_TYPES]
+                      : settings.ingest_file_types;
+                  const next = cur.includes(t)
+                    ? cur.filter((x) => x !== t)
+                    : [...cur, t];
+                  void patch({ ingest_file_types: next });
+                }}
+                className="accent-[var(--color-primary)]"
+              />
+              <span className="text-foreground">
+                {t === "code"
+                  ? m.graph_filetype_code()
+                  : t === "document"
+                    ? m.graph_filetype_document()
+                    : m.graph_filetype_paper()}
+              </span>
+            </label>
+          ))}
         </div>
       </div>
-    </WorkbenchSlidePanel>
+
+      {/* Coleções */}
+      <div className="border-t border-border/60 pt-2">
+        <div className="flex items-center justify-between">
+          <p className="font-medium text-foreground">
+            {m.rag_collections_title()}
+          </p>
+          <button
+            onClick={() => void loadCollections()}
+            aria-label={m.workbench_files_refresh()}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <RefreshCw className="h-3 w-3" />
+          </button>
+        </div>
+        {collectionsStatus === "loading" ? (
+          <p className="mt-1 text-[10px] text-muted-foreground">
+            {m.workbench_settings_loading()}
+          </p>
+        ) : collectionsStatus === "error" ? (
+          <p className="mt-1 text-[10px] text-destructive">
+            {m.workbench_settings_error()}
+          </p>
+        ) : collections.length === 0 ? (
+          <p className="mt-1 text-[10px] text-muted-foreground">
+            {m.rag_collections_empty()}
+          </p>
+        ) : (
+          <ul className="mt-1 space-y-1">
+            {collections.map((c) => (
+              <li
+                key={c.name}
+                className="flex items-center justify-between gap-2 rounded border border-border/60 px-2 py-1"
+              >
+                <span className="min-w-0 truncate text-foreground">
+                  {c.name}
+                  {c.count != null && (
+                    <span className="ml-1 text-[10px] text-muted-foreground">
+                      {m.rag_collection_count({ n: c.count })}
+                    </span>
+                  )}
+                </span>
+                <button
+                  onClick={() => void deleteCollection(c.name)}
+                  aria-label={m.rag_collection_delete()}
+                  title={m.rag_collection_delete()}
+                  className="shrink-0 text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function RagSettingsSlidePanel(
+  props: Pick<
+    RagSettingsState,
+    | "open"
+    | "close"
+    | "settings"
+    | "collections"
+    | "patch"
+    | "loadCollections"
+    | "deleteCollection"
+  >,
+) {
+  const formProps = {
+    ...props,
+    settingsStatus: "ready" as const,
+    collectionsStatus: "ready" as const,
+    patching: false,
+  };
+  return (
+    <WorkbenchDialog
+      open={props.open}
+      onOpenChange={(open) => {
+        if (!open) props.close();
+      }}
+      title={m.rag_settings_title()}
+      description={m.rag_settings_title()}
+      testId="rag-settings-panel"
+    >
+      <RagSettingsForm {...formProps} />
+    </WorkbenchDialog>
   );
 }
 
@@ -474,9 +559,8 @@ function EmbedModelPicker({
   }, []);
 
   useEffect(() => {
-    // Reinicia a lista antes de rebuscar modelos no backend (rede) ao trocar de provider.
-    // oxlint-disable-next-line react/set-state-in-effect
-    setModels([]);
+    // A resposta do provider substitui a lista; não limpamos estado
+    // sincronamente no efeito para evitar uma renderização em cascata.
     if (provider === "ollama") void loadOllama();
     else void searchOpenRouter("");
   }, [provider, loadOllama, searchOpenRouter]);

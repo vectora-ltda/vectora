@@ -56,9 +56,9 @@ describe("isNavigableUrl", () => {
     expect(isNavigableUrl("http://localhost:3000")).toBe(true);
   });
 
-  it("preserva a página interna de configurações do Chromium", () => {
-    expect(isNavigableUrl("chrome://settings")).toBe(true);
-    expect(isNavigableUrl("chrome://settings/passwords")).toBe(true);
+  it("rejeita páginas internas do Chromium", () => {
+    expect(isNavigableUrl("chrome://settings")).toBe(false);
+    expect(isNavigableUrl("chrome://settings/passwords")).toBe(false);
     expect(isNavigableUrl("https://chrome//settings/")).toBe(true);
   });
 
@@ -138,6 +138,29 @@ describe("BrowserViewManager", () => {
     });
   });
 
+  it("nega a janela nativa e encaminha popup permitido como evento gerenciado", () => {
+    const id = manager.createView("profile", "tab", null, {
+      allowPopups: true,
+    });
+    const view = views[0];
+    expect(view.getWindowOpenAction("https://example.com/new")).toEqual({
+      action: "deny",
+    });
+    expect(emitted).toContainEqual({
+      viewId: id,
+      event: { type: "popupRequested", url: "https://example.com/new" },
+    });
+  });
+
+  it("ignora popup permitido com esquema não navegável", () => {
+    manager.createView("profile", "tab", null, { allowPopups: true });
+    const view = views[0];
+    expect(view.getWindowOpenAction("file:///secret")).toEqual({
+      action: "deny",
+    });
+    expect(emitted).toEqual([]);
+  });
+
   it("destroi a view via deps.destroyView; id inexistente não quebra", () => {
     const id = manager.createView();
     manager.destroyView(id);
@@ -154,21 +177,28 @@ describe("BrowserViewManager", () => {
     );
   });
 
-  it("navigate mantém a URL interna de settings sem convertê-la em HTTPS", () => {
-    const id = manager.createView();
-    const result = manager.navigate(id, "chrome://settings/");
-    expect(result.ok).toBe(true);
-    expect(views[0].webContents.loadURL).toHaveBeenCalledWith(
-      "chrome://settings/",
-    );
-  });
-
   it("navigate rejeita esquema não-http com erro claro, sem tocar loadURL", () => {
     const id = manager.createView();
     const result = manager.navigate(id, "file:///etc/passwd");
     expect(result.ok).toBe(false);
     expect(result.error).toContain("esquema não permitido");
     expect(views[0].webContents.loadURL).not.toHaveBeenCalled();
+  });
+
+  it("emite loadFailed quando a navegação interna falha", async () => {
+    const id = manager.createView();
+    vi.mocked(views[0].webContents.loadURL).mockRejectedValueOnce(
+      new Error("network down"),
+    );
+    expect(manager.navigate(id, "https://example.com").ok).toBe(true);
+    await Promise.resolve();
+    expect(emitted).toContainEqual({
+      viewId: id,
+      event: expect.objectContaining({
+        type: "loadFailed",
+        errorDescription: "network down",
+      }),
+    });
   });
 
   it("cancela redirects e navegações nativas fora da allowlist", () => {
@@ -188,6 +218,27 @@ describe("BrowserViewManager", () => {
   it("navigate em view inexistente retorna erro em vez de lançar", () => {
     const result = manager.navigate(9999, "https://example.com");
     expect(result.ok).toBe(false);
+  });
+
+  it("rejeita operações de outro ownerId", () => {
+    const id = manager.createView("profile-a", "tab", 10);
+    expect(manager.navigate(id, "https://example.com", 11)).toEqual({
+      ok: false,
+      error: "view não pertence ao remetente",
+    });
+    manager.destroyView(id, 11);
+    expect(deps.destroyView).not.toHaveBeenCalled();
+    manager.destroyView(id, 10);
+    expect(deps.destroyView).toHaveBeenCalledOnce();
+  });
+
+  it("remove a entrada mesmo quando Electron falha ao destruí-la", () => {
+    const id = manager.createView();
+    vi.mocked(deps.destroyView).mockImplementationOnce(() => {
+      throw new Error("already detached");
+    });
+    expect(() => manager.destroyView(id)).not.toThrow();
+    expect(manager.navigate(id, "https://example.com").ok).toBe(false);
   });
 
   it("usa navigationHistory sem chamar a API legada", () => {
