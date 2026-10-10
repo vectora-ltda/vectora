@@ -21,7 +21,9 @@ def google_workspace_enabled() -> bool:
     return False
 
 
-def convert_google_workspace_file(path, out_dir, **kwargs) -> None:  # type: ignore[no-untyped-def]
+def convert_google_workspace_file(
+    path: Path, out_dir: Path, **kwargs: object
+) -> str | None:
     return None
 
 
@@ -914,7 +916,7 @@ def _is_noise_dir(part: str, parent: Path | None = None) -> bool:
         return True
     if part.endswith(".egg-info"):
         return True
-    # worktrees/ nested inside a dotted dir (e.g. .claude/worktrees/, .git/worktrees/)
+    # Temporary checkout folders nested inside a hidden directory are noise.
     return bool(
         part == "worktrees" and parent is not None and parent.name.startswith(".")
     )
@@ -1294,7 +1296,8 @@ def detect(
                     continue
             if not in_memory_tree:
                 # Prune noise dirs in-place so os.walk never descends into them.
-                # Dot dirs are allowed — users often want .github/, .claude/, etc.
+                # Hidden directories are allowed because projects often store
+                # configuration there.
                 # Framework caches (.next, .nuxt, …) are caught by _is_noise_dir.
                 # Negations need no special-casing here: _is_ignored already applies
                 # last-match-wins (so `!dir/` un-ignores a directory and it won't be
