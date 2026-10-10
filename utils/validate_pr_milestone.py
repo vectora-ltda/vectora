@@ -92,7 +92,7 @@ type EventPayload = PullRequestEvent | dict[str, object]
 
 _VEXT_TOKEN = re.compile(r"(?<![A-Za-z0-9])vext(?![A-Za-z0-9])", re.IGNORECASE)
 _STACK_BASE = re.compile(r"^stack/[a-z0-9][a-z0-9-]*$")
-_RELEASE_BRANCH_PREFIX = "release/"
+_RELEASE_BRANCH = re.compile(r"^release/.+$")
 
 
 class ReleaseLine(BaseModel):
@@ -194,7 +194,7 @@ def _is_release_branch_pr(
     repository = event.repository
     return bool(
         base == _release_lines().maintenance.branch
-        and head_ref.startswith(_RELEASE_BRANCH_PREFIX)
+        and _RELEASE_BRANCH.fullmatch(head_ref) is not None
         and head_repo == (repository.full_name if repository else None)
     )
 
