@@ -71,6 +71,11 @@ _project_root = Path(__file__).parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
+from backend.runtime_profile import (
+    normalize_runtime_home,
+    runtime_home_for_profile,
+    sanitize_runtime_profile,
+)
 from backend.services.log_setup import setup_logging
 
 setup_logging()
@@ -554,8 +559,6 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
     """
     import uvicorn
 
-    from backend.api.server import create_app
-
     # `vectora web` is an explicit browser-only mode. Clear desktop flags that
     # could have been inherited from a launcher and never auto-start Electron,
     # including when the installed Electron binary is discoverable.
@@ -584,12 +587,34 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
     # sozinho, no seu próprio startup, se faz sentido subir uma janela.
     from backend.services.electron_sidecar import should_spawn_electron
 
-    if not force_web and should_spawn_electron():
+    dev_electron = not force_web and should_spawn_electron()
+    if dev_electron:
+        # A development desktop must never reuse the installed app's
+        # databases, sockets, PID file or NATS JetStream store. Keep an
+        # explicit VECTORA_HOME untouched so callers can choose another
+        # profile for automated runs.
+        os.environ.setdefault("VECTORA_RUNTIME_PROFILE", "dev")
         os.environ["VECTORA_DESKTOP"] = "1"
         os.environ["VECTORA_SPAWN_ELECTRON"] = "1"
         logger.info(
             "Electron (dev) resolvido — sobe como sidecar no startup do FastAPI"
         )
+
+    # Fixe o perfil e a home antes de importar módulos que podem construir o
+    # singleton de settings. Assim o backend iniciado diretamente usa a mesma
+    # home isolada que o Electron, inclusive para perfis nomeados.
+    runtime_profile = sanitize_runtime_profile(
+        os.environ.get("VECTORA_RUNTIME_PROFILE"),
+        "dev" if dev_electron else "stable",
+    )
+    os.environ["VECTORA_RUNTIME_PROFILE"] = runtime_profile
+    configured_home = os.environ.get("VECTORA_HOME")
+    if configured_home:
+        os.environ["VECTORA_HOME"] = str(normalize_runtime_home(configured_home))
+    else:
+        os.environ["VECTORA_HOME"] = str(runtime_home_for_profile(runtime_profile))
+
+    from backend.api.server import create_app
 
     # TLS opcional — CLI tem prioridade; settings (env SSL_CERTFILE/SSL_KEYFILE
     # ou ~/.vectora/.env) é o fallback. Com cert+key o uvicorn serve https://,
