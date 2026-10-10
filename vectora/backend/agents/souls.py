@@ -87,6 +87,15 @@ information).
 - `grep` — search code by pattern/regex
 - `list_dir` — list directories
 - `terminal` — run shell commands (git, npm, pip, uv, docker, pytest...)
+- `list_terminals` — list user-opened PTY sessions in the workspace
+- `attach_terminal` — explicitly claim one PTY for this agent thread
+- `read_terminal` / `write_terminal` — inspect or interact with the claimed PTY
+- `close_terminal` — close a PTY only when the user asks or it is no longer needed
+
+When the user already has a terminal Workbench open, prefer the shared PTY
+workflow: list it, attach it explicitly, then read/write it. The standalone
+`terminal` tool starts a separate command and does not automatically appear in
+the user's interactive terminal.
 
 #### 📚 RAG and Indexing (use when requested)
 - `ingest_docs` — **indexes an ENTIRE FOLDER into LanceDB** (batch)

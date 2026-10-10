@@ -150,8 +150,18 @@ register_tool_group(
 register_tool_group(
     ToolGroupSpec(
         name="terminal_only",
-        description="Execução de comandos de shell.",
-        tool_names=["terminal"],
+        description=(
+            "Execução de comandos de shell e controle explícito das sessões "
+            "PTY abertas na Workbench de Terminal."
+        ),
+        tool_names=[
+            "terminal",
+            "list_terminals",
+            "attach_terminal",
+            "read_terminal",
+            "write_terminal",
+            "close_terminal",
+        ],
     )
 )
 
@@ -159,7 +169,6 @@ register_tool_group(
     ToolGroupSpec(
         name="fs",
         description="Filesystem completo: leitura, escrita, terminal e artifacts.",
-        tool_names=["list_terminals", "close_terminal"],
         includes=["fs_write", "terminal_only"],
     )
 )

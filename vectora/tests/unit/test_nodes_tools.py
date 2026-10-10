@@ -10,6 +10,7 @@ from backend.nodes.tools import (
     MEMORY_TOOLS,
     SEARCH_TOOLS,
 )
+from backend.tools.groups import resolve_tool_group
 
 
 def test_fs_tools_not_empty() -> None:
@@ -54,6 +55,19 @@ def test_search_tools_include_web_search() -> None:
 def test_fs_tools_include_file_read() -> None:
     names = [t.name for t in FS_TOOLS]
     assert "file_read" in names
+
+
+def test_terminal_group_exposes_shared_pty_contract() -> None:
+    """O agente precisa receber as mesmas operações da Workbench de terminal."""
+    names = {tool.name for tool in resolve_tool_group("terminal_only")}
+    assert names >= {
+        "terminal",
+        "list_terminals",
+        "attach_terminal",
+        "read_terminal",
+        "write_terminal",
+        "close_terminal",
+    }
 
 
 def test_memory_tools_include_save_memory() -> None:
