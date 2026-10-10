@@ -170,6 +170,16 @@ def test_stacked_feature_pr_is_accepted_without_release_milestone() -> None:
     )
 
 
+def test_contracts_stack_base_is_accepted_without_release_milestone() -> None:
+    """Aceita o primeiro PR empilhado diretamente sobre os contratos."""
+    assert (
+        validator.validate_pull_request(
+            _event(base="feat/contratos-workbenches", milestone=None)
+        )
+        == []
+    )
+
+
 @pytest.mark.parametrize("head_repo", ["fork/vectora", None])
 def test_stacked_fork_pr_does_not_bypass_release_milestone(
     head_repo: str | None,
@@ -180,6 +190,15 @@ def test_stacked_fork_pr_does_not_bypass_release_milestone(
     )
     assert errors
     assert "base declarada" in errors[0]
+
+
+@pytest.mark.parametrize("base", ["stack/base-contracts", "feat/contratos-workbenches"])
+def test_contract_stack_fork_does_not_bypass_release_milestone(base: str) -> None:
+    """Bases empilhadas não liberam PRs de forks."""
+    errors = validator.validate_pull_request(
+        _event(base=base, milestone=None, head_repo="fork/vectora")
+    )
+    assert errors and "base declarada" in errors[0]
 
 
 def test_master_pr_rejects_maintenance_milestone() -> None:

@@ -96,6 +96,7 @@ _RELEASE_PLEASE_PATCH_BRANCH = re.compile(
     r"^release-please-(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>[1-9]\d*)$"
 )
 _STACK_BASE = re.compile(r"^stack/[a-z0-9][a-z0-9-]*$")
+_CONTRACTS_BASE = "feat/contratos-workbenches"
 _RELEASE_BRANCH = re.compile(r"^release/.+$")
 
 
@@ -225,7 +226,11 @@ def validate_pull_request(event: EventPayload) -> list[str]:
         parsed_event, pull_request
     ):
         return []
-    if _STACK_BASE.fullmatch(base):
+    # A stack may start directly from the contracts PR before its first
+    # generated ``stack/*`` branch exists.  Keep this exception restricted to
+    # branches in the same repository; fork heads must still pass the normal
+    # release-line and milestone validation below.
+    if _STACK_BASE.fullmatch(base) or base == _CONTRACTS_BASE:
         head = pull_request.head
         head_repo = head.repo.full_name if head and head.repo else None
         repository = parsed_event.repository
