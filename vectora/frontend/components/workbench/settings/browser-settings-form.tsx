@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToastStore } from "@/lib/stores/toast-store";
 import { resolveBrowserProfileId } from "@/lib/browser-profile";
@@ -25,6 +25,11 @@ export function BrowserSettingsForm({
   const zoomPercent = useSettingsStore((s) => s.browserZoomPercent);
   const setAllowPopups = useSettingsStore((s) => s.setBrowserAllowPopups);
   const setZoomPercent = useSettingsStore((s) => s.setBrowserZoomPercent);
+  useEffect(() => {
+    // Keep drafts aligned when another surface changes the persisted value.
+    // oxlint-disable-next-line react/set-state-in-effect
+    setZoomDraft(String(zoomPercent));
+  }, [zoomPercent]);
   const desktopBrowser =
     typeof window !== "undefined" ? window.vectora?.browserView : undefined;
   const profileId =
@@ -61,7 +66,6 @@ export function BrowserSettingsForm({
               </span>
             </span>
             <input
-              key={zoomPercent}
               className="w-20 rounded border border-border/60 bg-background px-2 py-1 text-right"
               type="number"
               min={25}
@@ -71,8 +75,14 @@ export function BrowserSettingsForm({
               onChange={(event) => setZoomDraft(event.target.value)}
               onBlur={() => {
                 const value = Number(zoomDraft);
-                if (Number.isFinite(value)) setZoomPercent(value);
-                else setZoomDraft(String(zoomPercent));
+                if (!Number.isFinite(value)) {
+                  setZoomDraft(String(zoomPercent));
+                  return;
+                }
+                setZoomPercent(value);
+                setZoomDraft(
+                  String(useSettingsStore.getState().browserZoomPercent),
+                );
               }}
               onKeyDown={(event) => {
                 if (event.key === "Enter") event.currentTarget.blur();

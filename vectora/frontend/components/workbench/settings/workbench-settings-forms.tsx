@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -44,6 +44,11 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
   const [fontSizeDraft, setFontSizeDraft] = useState(() =>
     String(settings.monacoFontSize),
   );
+  useEffect(() => {
+    // Reflect changes made by another settings surface in the local draft.
+    // oxlint-disable-next-line react/set-state-in-effect
+    setFontSizeDraft(String(settings.monacoFontSize));
+  }, [settings.monacoFontSize]);
   return (
     <div className="space-y-4">
       <Toggle
@@ -63,7 +68,6 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
           </p>
         </div>
         <Input
-          key={settings.monacoFontSize}
           id="files-font-size"
           type="number"
           min={10}
@@ -72,8 +76,14 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
           onChange={(event) => setFontSizeDraft(event.target.value)}
           onBlur={() => {
             const value = Number(fontSizeDraft);
-            if (Number.isFinite(value)) settings.setMonacoFontSize(value);
-            else setFontSizeDraft(String(settings.monacoFontSize));
+            if (!Number.isFinite(value)) {
+              setFontSizeDraft(String(settings.monacoFontSize));
+              return;
+            }
+            settings.setMonacoFontSize(value);
+            setFontSizeDraft(
+              String(useSettingsStore.getState().monacoFontSize),
+            );
           }}
           onKeyDown={(event) => {
             if (event.key === "Enter") event.currentTarget.blur();
