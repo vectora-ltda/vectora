@@ -29,7 +29,7 @@ let snapshotQueue: Promise<void> = Promise.resolve();
 function isTransientFileLock(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const code = (error as { code?: unknown }).code;
-  return code === "EBUSY" || code === "EPERM" || code === "EACCES";
+  return code === "EBUSY" || code === "EPERM";
 }
 
 export async function withFileLockRetry<T>(
@@ -56,6 +56,19 @@ function isExcluded(relativePath: string): boolean {
     .some((component) => EXCLUDED.has(component));
 }
 
+/** Resolve a relative backup path without allowing it to escape its root. */
+function resolveBackupPath(root: string, relativePath: string): string {
+  const resolvedRoot = path.resolve(root);
+  const resolvedPath = path.resolve(resolvedRoot, relativePath);
+  if (
+    resolvedPath !== resolvedRoot &&
+    !resolvedPath.startsWith(`${resolvedRoot}${path.sep}`)
+  ) {
+    throw new Error("Caminho do backup fora da área permitida");
+  }
+  return resolvedPath;
+}
+
 function digestTree(files: readonly UpdateBackupFile[]): string {
   const hash = createHash("sha256");
   for (const file of [...files].sort((a, b) => a.path.localeCompare(b.path))) {
@@ -64,17 +77,92 @@ function digestTree(files: readonly UpdateBackupFile[]): string {
   return hash.digest("hex");
 }
 
-async function collectFiles(root: string, current = root): Promise<string[]> {
+function isRetentionManifest(
+  candidate: unknown,
+  entryName: string,
+  backupRoot: string,
+): candidate is UpdateBackupEntry {
+  if (!candidate || typeof candidate !== "object") return false;
+  const manifest = candidate as Partial<UpdateBackupEntry>;
+  if (
+    manifest.id !== entryName ||
+    typeof manifest.path !== "string" ||
+    path.resolve(manifest.path) !== path.resolve(backupRoot, entryName) ||
+    !Array.isArray(manifest.files) ||
+    manifest.files.some(
+      (file) =>
+        !file ||
+        typeof file !== "object" ||
+        typeof (file as UpdateBackupFile).path !== "string" ||
+        typeof (file as UpdateBackupFile).bytes !== "number" ||
+        typeof (file as UpdateBackupFile).sha256 !== "string",
+    ) ||
+    typeof manifest.sha256 !== "string" ||
+    manifest.sha256 !== digestTree(manifest.files)
+  )
+    return false;
+  return true;
+}
+
+/** Coleta arquivos e registra caminhos omitidos por bloqueio transitório. */
+async function collectFiles(
+  root: string,
+  current = root,
+  skipped: string[] = [],
+): Promise<string[]> {
   const result: string[] = [];
-  for (const name of await fs.readdir(current)) {
+  let names: string[];
+  try {
+    names = await fs.readdir(current);
+  } catch (error) {
+    if (!isTransientFileLock(error)) throw error;
+    const relative = path.relative(root, current);
+    if (!relative) throw error;
+    skipped.push(relative);
+    console.warn("[updater] backup omitindo diretório bloqueado", {
+      path: relative || ".",
+      error,
+    });
+    return result;
+  }
+  for (const name of names) {
     const relative = path.relative(root, path.join(current, name));
     if (isExcluded(relative) || name.endsWith(".lock")) continue;
     const source = path.join(current, name);
-    const stat = await withFileLockRetry(() => fs.lstat(source));
+    let stat;
+    try {
+      stat = await withFileLockRetry(() => fs.lstat(source));
+    } catch (error) {
+      if (isTransientFileLock(error)) {
+        skipped.push(relative);
+        console.warn("[updater] backup omitindo caminho bloqueado", {
+          path: relative,
+          error,
+        });
+        continue;
+      }
+      throw error;
+    }
     if (stat.isSymbolicLink()) throw new Error("userData contém symlink");
-    if (stat.isDirectory()) result.push(...(await collectFiles(root, source)));
-    else if (stat.isFile() && stat.size <= MAX_FILE_BYTES)
-      result.push(relative);
+    if (stat.isDirectory()) {
+      result.push(...(await collectFiles(root, source, skipped)));
+    } else if (stat.isFile()) {
+      if (stat.size <= MAX_FILE_BYTES) {
+        result.push(relative);
+      } else {
+        skipped.push(relative);
+        console.warn("[updater] backup omitindo arquivo acima do limite", {
+          path: relative,
+          bytes: stat.size,
+          limit: MAX_FILE_BYTES,
+        });
+      }
+    } else {
+      skipped.push(relative);
+      console.warn("[updater] backup omitindo entrada não regular", {
+        path: relative,
+      });
+    }
   }
   return result;
 }
@@ -110,6 +198,7 @@ async function removeManagedContent(
   }
 }
 
+/** Copy one regular source file and fail closed when the destination is unavailable. */
 async function copySafe(
   source: string,
   destination: string,
@@ -119,12 +208,18 @@ async function copySafe(
     throw new Error("entrada não regular");
   if (stat.size > MAX_FILE_BYTES) throw new Error("arquivo excede o limite");
   const data = await withFileLockRetry(() => fs.readFile(source));
-  await withFileLockRetry(() =>
-    fs.mkdir(path.dirname(destination), { recursive: true }),
-  );
-  await withFileLockRetry(() =>
-    fs.writeFile(destination, data, { mode: 0o600 }),
-  );
+  try {
+    await withFileLockRetry(() =>
+      fs.mkdir(path.dirname(destination), { recursive: true }),
+    );
+    await withFileLockRetry(() =>
+      fs.writeFile(destination, data, { mode: 0o600 }),
+    );
+  } catch (error) {
+    throw new Error("falha ao gravar arquivo no destino do backup", {
+      cause: error,
+    });
+  }
   return {
     path: "",
     bytes: data.byteLength,
@@ -132,6 +227,7 @@ async function copySafe(
   };
 }
 
+/** Serialize snapshot creation and restoration to avoid concurrent mutations. */
 async function withSnapshotLock<T>(operation: () => Promise<T>): Promise<T> {
   const previous = snapshotQueue;
   let release!: () => void;
@@ -151,6 +247,7 @@ export async function createRotatingUpdateBackup(
   backupRoot: string,
   appVersion: string,
   maxBackups = 5,
+  maxPartialBackups = maxBackups,
 ): Promise<UpdateBackupEntry> {
   return withSnapshotLock(async () => {
     const id = `${new Date().toISOString().replace(/[:.]/g, "-")}-${appVersion}`;
@@ -159,13 +256,26 @@ export async function createRotatingUpdateBackup(
     await fs.mkdir(temporary, { recursive: true });
     try {
       const files: UpdateBackupFile[] = [];
-      for (const relative of await collectFiles(userData)) {
-        const copied = await copySafe(
-          path.join(userData, relative),
-          path.join(temporary, relative),
-        );
-        files.push({ ...copied, path: relative });
+      const skipped: string[] = [];
+      for (const relative of await collectFiles(userData, userData, skipped)) {
+        try {
+          const copied = await copySafe(
+            path.join(userData, relative),
+            resolveBackupPath(temporary, relative),
+          );
+          files.push({ ...copied, path: relative });
+        } catch (error) {
+          if (!isTransientFileLock(error)) throw error;
+          skipped.push(relative);
+          console.warn("[updater] backup omitindo arquivo bloqueado", {
+            path: relative,
+            error,
+          });
+        }
       }
+      const normalizedSkipped = [...new Set(skipped)].sort((a, b) =>
+        a.localeCompare(b),
+      );
       const manifest: UpdateBackupEntry = {
         id,
         createdAt: new Date().toISOString(),
@@ -174,6 +284,7 @@ export async function createRotatingUpdateBackup(
         bytes: files.reduce((sum, file) => sum + file.bytes, 0),
         sha256: digestTree(files),
         files,
+        ...(normalizedSkipped.length > 0 ? { skipped: normalizedSkipped } : {}),
       };
       await withFileLockRetry(() =>
         fs.writeFile(
@@ -183,12 +294,35 @@ export async function createRotatingUpdateBackup(
         ),
       );
       await withFileLockRetry(() => fs.rename(temporary, destination));
-      const entries = (await fs.readdir(backupRoot))
-        .filter((entry) => !entry.startsWith(".tmp-"))
-        .sort()
-        .reverse();
+      const completeEntries: string[] = [];
+      const partialEntries: string[] = [];
+      for (const entry of await fs.readdir(backupRoot)) {
+        if (entry.startsWith(".tmp-")) continue;
+        try {
+          const manifest = JSON.parse(
+            await fs.readFile(path.join(backupRoot, entry, MANIFEST), "utf8"),
+          ) as Partial<UpdateBackupEntry>;
+          if (!isRetentionManifest(manifest, entry, backupRoot)) continue;
+          if (!manifest.skipped || manifest.skipped.length === 0)
+            completeEntries.push(entry);
+          else if (Array.isArray(manifest.skipped)) partialEntries.push(entry);
+        } catch {
+          // Ignore malformed or unrelated directories during retention.
+        }
+      }
+      completeEntries.sort().reverse();
       await Promise.all(
-        entries.slice(maxBackups).map((entry) =>
+        completeEntries.slice(maxBackups).map((entry) =>
+          withFileLockRetry(() =>
+            fs.rm(path.join(backupRoot, entry), {
+              recursive: true,
+              force: true,
+            }),
+          ).catch(() => undefined),
+        ),
+      );
+      await Promise.all(
+        partialEntries.slice(maxPartialBackups).map((entry) =>
           withFileLockRetry(() =>
             fs.rm(path.join(backupRoot, entry), {
               recursive: true,
@@ -236,6 +370,7 @@ export async function listUpdateBackups(
   return entries.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
+/** Validate and restore a complete update snapshot while preserving managed files. */
 async function restoreUpdateBackupUnlocked(
   entry: UpdateBackupEntry,
   userData: string,
@@ -272,6 +407,8 @@ async function restoreUpdateBackupUnlocked(
     manifest.sha256 !== digestTree(manifest.files)
   )
     throw new Error("Backup inválido");
+  if (manifest.skipped && manifest.skipped.length > 0)
+    throw new Error("Backup parcial não pode ser restaurado");
   for (const file of manifest.files) {
     const source = path.join(resolvedPath, file.path);
     const relative = path.relative(resolvedPath, source);

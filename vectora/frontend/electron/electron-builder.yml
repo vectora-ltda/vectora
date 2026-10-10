@@ -175,6 +175,10 @@ nsis:
   # auto-incluído pelo electron-builder) — sem ele a fonte do instalador borra em HiDPI.
   oneClick: false
   perMachine: false
+  # Mantém o instalador compatível com os blockmaps publicados no canal para
+  # que electron-updater aplique deltas quando possível, em vez de baixar e
+  # reconstruir todo o pacote a cada versão.
+  differentialPackage: true
   allowToChangeInstallationDirectory: true
   installerIcon: public/vectora.ico
   uninstallerIcon: public/vectora.ico
