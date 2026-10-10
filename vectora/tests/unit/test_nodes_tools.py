@@ -11,6 +11,7 @@ from backend.nodes.tools import (
     SEARCH_TOOLS,
 )
 from backend.tools.groups import resolve_tool_group
+from backend.tools.registry import TOOL_REGISTRY
 
 
 def test_fs_tools_not_empty() -> None:
@@ -68,6 +69,26 @@ def test_terminal_group_exposes_shared_pty_contract() -> None:
         "write_terminal",
         "close_terminal",
     }
+
+
+def test_node_catalog_covers_every_non_subagent_tool() -> None:
+    """Toda tool nativa chega ao node principal; AITL é subagente-only."""
+    import backend.tools.aitl  # noqa: F401  # registra ask_parent_agent
+
+    registered = {tool.name for tool in TOOL_REGISTRY.all()}
+    catalog = {tool.name for tool in ALL_TOOLS}
+    assert registered - catalog == {"ask_parent_agent"}
+
+
+def test_every_tool_group_resolves_to_registered_tools() -> None:
+    """Grupos não podem apontar para nomes ausentes no registry nativo."""
+    import backend.agents.souls  # noqa: F401  # registra AITL antes de resolver
+    import backend.nodes.tools  # noqa: F401  # registra todos os módulos
+    from backend.tools.groups import TOOL_GROUPS
+
+    registered = {tool.name for tool in TOOL_REGISTRY.all()}
+    for group_name in TOOL_GROUPS:
+        assert {tool.name for tool in resolve_tool_group(group_name)} <= registered
 
 
 def test_memory_tools_include_save_memory() -> None:
