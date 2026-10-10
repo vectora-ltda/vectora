@@ -6,6 +6,6 @@ import {
 } from "@/components/workbench/rag-settings-panel";
 
 export function MemorySettings() {
-  const state = useRagSettings();
+  const state = useRagSettings({ autoLoad: true });
   return <RagSettingsForm {...state} showCollections={false} />;
 }
