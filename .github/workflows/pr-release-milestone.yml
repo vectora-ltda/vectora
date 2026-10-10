@@ -25,7 +25,7 @@ concurrency:
 permissions:
   contents: read
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 jobs:
   release-milestone:
@@ -35,16 +35,18 @@ jobs:
       # Usa a revisão confiável que contém este workflow e a configuração.
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.workflow_sha }}
+          ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
       - name: Assign release milestone from base branch
         id: assign-milestone
         if: >-
-          github.event.action == 'opened' &&
           github.event.pull_request.milestone == null
         uses: actions/github-script@v8
         with:
-          github-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          # O token dedicado continua preferido, mas o GITHUB_TOKEN com
+          # permissões explícitas evita que a atribuição dependa de um secret
+          # ausente em PRs comuns.
+          github-token: ${{ github.token }}
           script: |
             const fs = require("fs");
             const config = JSON.parse(
@@ -139,6 +141,24 @@ jobs:
             );
             core.setOutput("current_base", refreshedPullRequest.data.base.ref);
 
+      # pull_request_target can redact head fields from the event environment
+      # when the source is a stacked branch. Resolve authoritative metadata
+      # through the trusted GitHub API before running the validator.
+      - name: Resolve current pull request head
+        id: pull-request-head
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { owner, repo } = context.repo;
+            const pull = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: context.issue.number,
+            });
+            core.setOutput("ref", pull.data.head.ref || "");
+            core.setOutput("repo", pull.data.head.repo?.full_name || "");
+
       - uses: ./.github/actions/setup-uv
         with:
           python-version: "3.13"
@@ -150,3 +170,5 @@ jobs:
           GITHUB_EVENT_PATH: ${{ github.event_path }}
           CURRENT_RELEASE_MILESTONE: ${{ steps.assign-milestone.outputs.current_milestone || github.event.pull_request.milestone.title }}
           CURRENT_PR_BASE: ${{ steps.assign-milestone.outputs.current_base || github.event.pull_request.base.ref }}
+          CURRENT_PR_HEAD_REF: ${{ steps.pull-request-head.outputs.ref || github.event.pull_request.head.ref }}
+          CURRENT_PR_HEAD_REPO: ${{ steps.pull-request-head.outputs.repo || github.event.pull_request.head.repo.full_name }}

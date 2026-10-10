@@ -1,4 +1,4 @@
-"""Testes da atualizaÃ§Ã£o automÃ¡tica das linhas de release."""
+"""Testes da atualização automática das linhas de release."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from prepare_release_line_config import update_release_line_files
 
 
 def _write_inputs(tmp_path: Path, version: str = "0.3.0") -> tuple[Path, Path, Path]:
+    """Prepara arquivos temporários para testar a migração da configuração."""
     changelog = tmp_path / "CHANGELOG.md"
     lines = tmp_path / "release-lines.json"
     manifest = tmp_path / "manifest.json"
@@ -37,6 +38,7 @@ def _write_inputs(tmp_path: Path, version: str = "0.3.0") -> tuple[Path, Path, P
 
 
 def test_minor_release_updates_next_lines(tmp_path: Path) -> None:
+    """A minor prepara a próxima linha e a manutenção da versão publicada."""
     changelog, lines, manifest = _write_inputs(tmp_path)
 
     assert update_release_line_files(changelog, lines, manifest, "release/0.3") is True
@@ -53,6 +55,7 @@ def test_minor_release_updates_next_lines(tmp_path: Path) -> None:
 
 
 def test_patch_release_does_not_rotate_lines(tmp_path: Path) -> None:
+    """Uma versão patch preserva o manifesto e as linhas existentes."""
     changelog, lines, manifest = _write_inputs(tmp_path, "0.3.1")
 
     assert update_release_line_files(changelog, lines, manifest, "release/0.3") is False

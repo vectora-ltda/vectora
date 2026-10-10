@@ -16,6 +16,32 @@ import type {
 } from "./browser-view-manager.js";
 import type { UpdateBackupEntry } from "./update-backup-types.js";
 
+export interface BrowserDownloadEvent {
+  id: string;
+  profileId: string;
+  filename: string;
+  state: "progressing" | "completed" | "cancelled" | "interrupted";
+  receivedBytes: number;
+  totalBytes: number;
+}
+
+export interface BrowserCredential {
+  id: string;
+  origin: string;
+  username: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BrowserCookie {
+  name: string;
+  domain: string;
+  path: string;
+  secure: boolean;
+  httpOnly: boolean;
+  expirationDate?: number;
+}
+
 export interface VectoraDesktopBridge {
   /** "win32" | "darwin" | "linux" — útil para shortcuts e UI condicional. */
   readonly platform: NodeJS.Platform;
@@ -107,12 +133,41 @@ export interface VectoraDesktopBridge {
     setBounds: (viewId: number, bounds: ViewBounds) => void;
     setVisible: (viewId: number, visible: boolean) => void;
     setZoom: (viewId: number, percent: number) => void;
-    clearProfileData: (profileId?: string) => Promise<void>;
+    setPolicy: (
+      viewId: number,
+      policy: {
+        allowPopups?: boolean;
+        permissionMode?: "allow" | "deny";
+        originPermissions?: Record<string, "allow" | "deny">;
+      },
+    ) => void;
+    clearProfileData: (
+      profileId?: string,
+      options?: { storage: boolean; cache: boolean; credentials?: boolean },
+    ) => Promise<void>;
     /** Subscreve a eventos de navegação (navigated/titleUpdated/
      * faviconUpdated/loadingChanged/loadFailed) de qualquer view criada. */
     onEvent: (
       handler: (viewId: number, event: BrowserViewEvent) => void,
     ) => () => void;
+    onDownload: (handler: (event: BrowserDownloadEvent) => void) => () => void;
+    listCredentials: (profileId: string) => Promise<BrowserCredential[]>;
+    saveCredential: (input: {
+      profileId: string;
+      origin: string;
+      username: string;
+      password: string;
+    }) => Promise<BrowserCredential>;
+    deleteCredential: (input: {
+      profileId: string;
+      id: string;
+    }) => Promise<void>;
+    listCookies: (profileId: string) => Promise<BrowserCookie[]>;
+    removeCookie: (input: {
+      profileId: string;
+      url: string;
+      name: string;
+    }) => Promise<void>;
   };
   /** Busca/instalação de temas do VS Code Marketplace — baixa e
    * descompacta o `.vsix` no processo principal (ver
@@ -211,8 +266,14 @@ const bridge: VectoraDesktopBridge = {
       ipcRenderer.send("vectora:browser-set-visible", viewId, visible),
     setZoom: (viewId, percent) =>
       ipcRenderer.send("vectora:browser-set-zoom", viewId, percent),
-    clearProfileData: (profileId?: string) =>
-      ipcRenderer.invoke("vectora:browser-clear-profile-data", profileId),
+    setPolicy: (viewId, policy) =>
+      ipcRenderer.send("vectora:browser-set-policy", viewId, policy),
+    clearProfileData: (profileId, options) =>
+      ipcRenderer.invoke(
+        "vectora:browser-clear-profile-data",
+        profileId,
+        options,
+      ),
     onEvent: (handler) => {
       const listener = (
         _event: unknown,
@@ -224,6 +285,23 @@ const bridge: VectoraDesktopBridge = {
         ipcRenderer.removeListener("vectora:browser-view-event", listener);
       };
     },
+    onDownload: (handler) => {
+      const listener = (_event: unknown, download: BrowserDownloadEvent) =>
+        handler(download);
+      ipcRenderer.on("vectora:browser-download", listener);
+      return () =>
+        ipcRenderer.removeListener("vectora:browser-download", listener);
+    },
+    listCredentials: (profileId) =>
+      ipcRenderer.invoke("vectora:browser-list-credentials", profileId),
+    saveCredential: (input) =>
+      ipcRenderer.invoke("vectora:browser-save-credential", input),
+    deleteCredential: (input) =>
+      ipcRenderer.invoke("vectora:browser-delete-credential", input),
+    listCookies: (profileId) =>
+      ipcRenderer.invoke("vectora:browser-list-cookies", profileId),
+    removeCookie: (input) =>
+      ipcRenderer.invoke("vectora:browser-remove-cookie", input),
   },
   themes: {
     fetchMarketplace: (extensionId) =>

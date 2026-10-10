@@ -87,8 +87,8 @@ def test_shutdown_handler_is_idempotent_when_console_repeats_signal() -> None:
         _install_terminal_signals(server, icon_ref)
         handler = signal.getsignal(signal.SIGINT)
         assert callable(handler)
-        cast(Any, handler)(signal.SIGINT, None)
-        cast(Any, handler)(signal.SIGINT, None)
+        cast("Any", handler)(signal.SIGINT, None)
+        cast("Any", handler)(signal.SIGINT, None)
         icon.stop.assert_called_once()
     finally:
         signal.signal(signal.SIGINT, original)

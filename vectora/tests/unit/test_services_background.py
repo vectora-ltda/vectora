@@ -9,6 +9,7 @@ webhook→IA. Cada caminho feliz tem o par de erro/borda no mesmo teste.
 from __future__ import annotations
 
 import asyncio
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -43,8 +44,11 @@ async def db(tmp_path, monkeypatch):
 
     import aiosqlite
 
+    connections: list[aiosqlite.Connection] = []
+
     async def _connect() -> Any:
         conn: Any = await aiosqlite.connect(db_path)
+        connections.append(conn)
         conn.row_factory = lambda c, r: dict(
             zip([col[0] for col in c.description], r, strict=False)
         )
@@ -58,7 +62,11 @@ async def db(tmp_path, monkeypatch):
     monkeypatch.setattr(bg, "_get_db", _connect)
     # threads.py (upsert/increment/list de sessions) compartilha o mesmo banco.
     monkeypatch.setattr("backend.api.handlers.threads._get_db", _connect)
-    return db_path
+    try:
+        yield db_path
+    finally:
+        for connection in connections:
+            await connection.close()
 
 
 @pytest.fixture(autouse=True)
@@ -578,7 +586,7 @@ async def test_tick_pula_interval_atrasada_mas_executa_once_atrasada(db, monkeyp
 
     executed: list[str] = []
 
-    async def _fake_run_task(task, trigger, payload=None):
+    async def _fake_run_task(task, trigger, payload=None, *, _attempt=None):
         executed.append(task.id)
 
     monkeypatch.setattr(bg, "run_task", _fake_run_task)
@@ -1319,7 +1327,7 @@ async def test_interval_completion_reloads_concurrently_edited_schedule(
         nonlocal calls
         calls += 1
         if calls == 1:
-            with sqlite3.connect(db) as conn:
+            with closing(sqlite3.connect(db)) as conn:
                 conn.execute(
                     "UPDATE vectora_background_tasks SET trigger_config = ?, "
                     "next_run_at = ? WHERE id = ?",
@@ -2004,7 +2012,7 @@ async def test_cancel_expired_claim_blocks_task_before_stale_cleanup(
     assert await kanban.claim_task(task.id, run_id)
     await bg._insert_run(run_id, task, "sess-cancel-expired", "manual")
     await bg._mark_run_awaiting(run_id, "aguardando terminal")
-    with sqlite3.connect(db) as conn:
+    with closing(sqlite3.connect(db)) as conn:
         conn.execute(
             "UPDATE vectora_background_tasks SET claim_expires_at = ? WHERE id = ?",
             ("2000-01-01T00:00:00+00:00", task.id),
@@ -2105,7 +2113,7 @@ async def test_scheduler_runs_due_and_skips_disabled(db, monkeypatch):
     fired: list[str] = []
     from backend.scheduling import kanban
 
-    async def _fake_run(task, trigger_source, payload=None):
+    async def _fake_run(task, trigger_source, payload=None, *, _attempt=None):
         fired.append(task.id)
         run_id = f"run-{task.id}"
         assert await kanban.claim_task(task.id, run_id)
@@ -2161,7 +2169,7 @@ async def test_scheduler_runs_due_and_skips_disabled(db, monkeypatch):
 async def test_dispatch_webhook_matches_provider_and_event(db, monkeypatch):
     fired: list[tuple[str, str]] = []
 
-    async def _fake_run(task, trigger_source, payload=None):
+    async def _fake_run(task, trigger_source, payload=None, *, _attempt=None):
         fired.append((task.id, trigger_source))
         return "bg-x"
 
@@ -2768,18 +2776,9 @@ class TestRunTaskComPerfilDeAgente:
     async def test_model_override_do_perfil_e_passado_ao_chat_client(
         self, db, native_session_store, monkeypatch
     ):
-        import aiosqlite
-
         from backend.services import agent_profiles
 
-        async def _connect_profiles():
-            conn: Any = await aiosqlite.connect(db)
-            conn.row_factory = lambda c, r: dict(
-                zip([col[0] for col in c.description], r, strict=False)
-            )
-            return conn
-
-        monkeypatch.setattr(agent_profiles, "_get_db", _connect_profiles)
+        monkeypatch.setattr(agent_profiles, "_get_db", bg._get_db)
 
         await agent_profiles.create_profile(
             "u1", "Perfil X", model_override="openrouter:gpt-4o"
@@ -2851,18 +2850,9 @@ class TestRunTaskComPerfilDeAgente:
         """Erro/borda: agent_profile_id aponta pra um perfil que não existe
         mais (apagado) — a run continua normalmente, sem instrução/modelo
         extra, em vez de falhar."""
-        import aiosqlite
-
         from backend.services import agent_profiles
 
-        async def _connect_profiles():
-            conn: Any = await aiosqlite.connect(db)
-            conn.row_factory = lambda c, r: dict(
-                zip([col[0] for col in c.description], r, strict=False)
-            )
-            return conn
-
-        monkeypatch.setattr(agent_profiles, "_get_db", _connect_profiles)
+        monkeypatch.setattr(agent_profiles, "_get_db", bg._get_db)
 
         _patch_native_engine(
             monkeypatch,
@@ -2889,3 +2879,115 @@ class TestRunTaskComPerfilDeAgente:
         run_thread_id = await bg.run_task(task, "manual")
 
         assert run_thread_id is not None
+
+
+async def test_retry_reexecutes_failed_agent_and_blocks_only_final_failure(
+    db: str, native_session_store: SessionStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Transient failures remain claimable for the configured number of attempts."""
+    from backend.scheduling import kanban
+
+    _patch_native_engine(
+        monkeypatch,
+        session_store=native_session_store,
+        chat_client=_ScriptedChatClient(exc=RuntimeError("offline")),
+    )
+    monkeypatch.setattr(
+        bg,
+        "_task_frontend_int",
+        lambda task, key, default: 2 if key == "taskRetryCount" else 100,
+    )
+    task = await bg.create_task(
+        session_id="retry",
+        user_id="u1",
+        kind="routine",
+        name="retry",
+        instruction="i",
+        trigger_type="interval",
+        trigger_config={"cron_expr": "0 9 * * *"},
+    )
+    assert await bg._run_scheduled_task(task) is None
+    runs = await bg.list_runs(task.session_id)
+    assert len(runs) == 3
+    assert len({run["run_thread_id"] for run in runs}) == 3
+    assert all(run["status"] == "error" for run in runs)
+    assert (await kanban.get_task_status(task.id))["status"] == "blocked"
+
+
+async def test_retry_does_not_replay_completed_run_after_bookkeeping_failure(
+    db: str, native_session_store: SessionStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A committed completion survives a failed last-run timestamp update."""
+    monkeypatch.setattr("backend.api.handlers.threads._upsert_session", AsyncMock())
+    _patch_native_engine(
+        monkeypatch,
+        session_store=native_session_store,
+        chat_client=_ScriptedChatClient([[_texto_chunk("ok")]]),
+    )
+    monkeypatch.setattr(
+        bg,
+        "_task_frontend_int",
+        lambda task, key, default: 2 if key == "taskRetryCount" else 100,
+    )
+    monkeypatch.setattr(
+        bg, "_touch_last_run", AsyncMock(side_effect=RuntimeError("offline"))
+    )
+    task = await bg.create_task(
+        session_id="committed",
+        user_id="u1",
+        kind="routine",
+        name="committed",
+        instruction="i",
+        trigger_type="interval",
+        trigger_config={"cron_expr": "0 9 * * *"},
+    )
+    assert await bg._run_scheduled_task(task) is not None
+    runs = await bg.list_runs(task.session_id)
+    assert len(runs) == 1
+    assert runs[0]["status"] == "done"
+
+
+async def test_retry_stops_on_rejected_claim_or_changed_occurrence(
+    db: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ownership and schedule changes never authorize another agent invocation."""
+    from backend.scheduling import kanban
+
+    monkeypatch.setattr(bg, "_task_frontend_int", lambda task, key, default: 2)
+    task = await bg.create_task(
+        session_id="claimed",
+        user_id="u1",
+        kind="routine",
+        name="claimed",
+        instruction="i",
+        trigger_type="interval",
+        trigger_config={"cron_expr": "0 9 * * *"},
+    )
+    assert await kanban.claim_task(task.id, "other")
+    assert await bg._run_scheduled_task(task) is None
+    assert await bg.list_runs(task.session_id) == []
+    assert not await kanban.release_task_for_retry(task.id, "wrong")
+    assert await kanban.release_task_for_retry(task.id, "other")
+    assert not await kanban.claim_task(task.id, "new", occurrence=("different",))
+    assert await kanban.claim_task(task.id, "new", occurrence=(task.next_run_at,))
+
+
+async def test_rejected_claim_does_not_mark_once_task_as_started(
+    db: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A competing claim must leave a one-shot task eligible for a later tick."""
+    from backend.scheduling import kanban
+
+    task = await bg.create_task(
+        session_id="once-claim",
+        user_id="u1",
+        kind="routine",
+        name="once",
+        instruction="i",
+        trigger_type="once",
+        next_run_at=None,
+    )
+    assert await kanban.claim_task(task.id, "other")
+    execution = bg.RunAttempt()
+    assert await bg._run_scheduled_task(task, execution=execution) is None
+    assert execution.started is False

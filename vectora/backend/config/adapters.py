@@ -240,7 +240,7 @@ class MemoryAdapter:
                 exc,
             )
             return None
-        import datetime
+        import datetime as dt
 
         from backend.tools.memory import _memory_namespace
 
@@ -249,7 +249,7 @@ class MemoryAdapter:
             "key": key,
             "content": content,
             "metadata": {},
-            "updated_at": datetime.datetime.now(datetime.UTC).isoformat(),
+            "updated_at": dt.datetime.now(dt.UTC).isoformat(),
             "category": None,
         }
         await store.aput(ns, key, value)

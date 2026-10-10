@@ -27,8 +27,12 @@ import { m } from "@/lib/paraglide/messages";
 import { WorkbenchDialog } from "@/components/workbench/workbench-dialog";
 import type { WorkbenchSettingsContext } from "@/lib/types/workbench-settings";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { apiFsCreateFile } from "@/components/workbench/files/files-api";
 import { apiUpdateFile, fetchFile } from "@/lib/api/fs-files";
+import { useSettingsStore } from "@/lib/stores/settings-store";
 
 interface SandboxStatus {
   enabled: boolean;
@@ -327,24 +331,101 @@ function SandboxSettingsForm({
 /** Entrada do contrato global de configurações para o sandbox do Terminal. */
 export function TerminalSettings({ workspaceId }: WorkbenchSettingsContext) {
   const { status, refetch } = useSandboxStatus(workspaceId ?? undefined);
-
-  if (!workspaceId) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        {m.workbench_settings_missing_workspace()}
-      </p>
-    );
-  }
+  const fontSize = useSettingsStore((s) => s.terminalFontSize);
+  const scrollback = useSettingsStore((s) => s.terminalScrollback);
+  const cursorBlink = useSettingsStore((s) => s.terminalCursorBlink);
+  const setFontSize = useSettingsStore((s) => s.setTerminalFontSize);
+  const setScrollback = useSettingsStore((s) => s.setTerminalScrollback);
+  const setCursorBlink = useSettingsStore((s) => s.setTerminalCursorBlink);
 
   return (
-    <SandboxSettingsForm
-      workspaceId={workspaceId}
-      diagnostic={status?.diagnostic ?? null}
-      open
-      inline
-      onOpenChange={() => undefined}
-      onInitDone={refetch}
-    />
+    <div className="space-y-6">
+      <section className="space-y-3 rounded-md border border-border/60 p-4">
+        <div>
+          <h3 className="font-medium">
+            {m.workbench_terminal_display_title()}
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            {m.workbench_terminal_display_help()}
+          </p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="terminal-font-size">
+              {m.workbench_terminal_font_size_label()}
+            </Label>
+            <Input
+              id="terminal-font-size"
+              type="number"
+              min={8}
+              max={32}
+              key={`font-${fontSize}`}
+              defaultValue={fontSize}
+              onBlur={(e) => {
+                if (e.target.value.trim() && e.target.validity.valid)
+                  setFontSize(Number(e.target.value));
+                else e.target.value = String(fontSize);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              {m.workbench_terminal_font_size_help()}
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="terminal-scrollback">
+              {m.workbench_terminal_scrollback_label()}
+            </Label>
+            <Input
+              id="terminal-scrollback"
+              type="number"
+              min={100}
+              max={50000}
+              key={`scrollback-${scrollback}`}
+              defaultValue={scrollback}
+              onBlur={(e) => {
+                if (e.target.value.trim() && e.target.validity.valid)
+                  setScrollback(Number(e.target.value));
+                else e.target.value = String(scrollback);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              {m.workbench_terminal_scrollback_help()}
+            </p>
+          </div>
+        </div>
+        <label className="flex items-center justify-between gap-3 rounded-md border border-border/60 px-3 py-2">
+          <span>
+            <span className="block text-sm font-medium">
+              {m.workbench_terminal_cursor_blink_label()}
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              {m.workbench_terminal_cursor_blink_help()}
+            </span>
+          </span>
+          <Switch checked={cursorBlink} onCheckedChange={setCursorBlink} />
+        </label>
+      </section>
+      {workspaceId ? (
+        <SandboxSettingsForm
+          workspaceId={workspaceId}
+          diagnostic={status?.diagnostic ?? null}
+          open
+          inline
+          onOpenChange={() => undefined}
+          onInitDone={refetch}
+        />
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          {m.workbench_settings_missing_workspace()}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -363,6 +444,9 @@ export function TerminalPanel({ threadId }: TerminalPanelProps) {
   const close = useTerminalsStore((s) => s.close);
   const setActive = useTerminalsStore((s) => s.setActive);
   const workspace = useWorkspacesStore((s) => s.getActive());
+  const terminalFontSize = useSettingsStore((s) => s.terminalFontSize);
+  const terminalScrollback = useSettingsStore((s) => s.terminalScrollback);
+  const terminalCursorBlink = useSettingsStore((s) => s.terminalCursorBlink);
   const { status: sandboxStatus, refetch: refetchSandboxStatus } =
     useSandboxStatus(workspace?.id);
   const [sandboxDialogOpen, setSandboxDialogOpen] = useState(false);
@@ -492,6 +576,9 @@ export function TerminalPanel({ threadId }: TerminalPanelProps) {
               terminalId={term.id}
               threadId={threadId}
               workspaceId={term.workspaceId}
+              fontSize={terminalFontSize}
+              scrollback={terminalScrollback}
+              cursorBlink={terminalCursorBlink}
               onClosed={() => close(threadId, term.id)}
             />
           </div>

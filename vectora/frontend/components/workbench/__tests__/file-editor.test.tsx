@@ -57,7 +57,12 @@ vi.mock("@/lib/hooks/use-is-dark", () => ({
   useIsDark: () => false,
 }));
 
-const mockSettings = { monacoFontSize: 13 };
+const mockSettings = {
+  monacoFontSize: 13,
+  editorFileWatcherEnabled: false,
+  editorEncoding: "utf8",
+  editorEndOfLine: "lf",
+};
 vi.mock("@/lib/stores/settings-store", () => ({
   useSettingsStore: (sel: (s: typeof mockSettings) => unknown) =>
     sel(mockSettings),
@@ -83,13 +88,111 @@ vi.mock("@/lib/api/fs-files", () => ({
 }));
 
 import { FileEditor } from "../file-editor";
+import {
+  editorBuffers,
+  editorKey,
+  useEditorRegistry,
+} from "@/lib/stores/editor-registry";
 
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  editorBuffers.clear();
+  vi.useRealTimers();
+  mockSettings.editorFileWatcherEnabled = false;
+  mockSettings.editorEncoding = "utf8";
+  mockSettings.editorEndOfLine = "lf";
 });
 
 describe("FileEditor", () => {
+  it("ignores a watcher response arriving after local edits", async () => {
+    mockSettings.editorFileWatcherEnabled = true;
+    fetchFile.mockResolvedValueOnce({
+      content: "original",
+      sha256: "one",
+      kind: "text",
+    });
+    render(<FileEditor workspaceId="watch" path="file.ts" />);
+    const editor = await screen.findByTestId("monaco-editor");
+    let resolve!: (value: unknown) => void;
+    fetchFile.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolve = r;
+        }),
+    );
+    vi.useFakeTimers();
+    // Recreate the interval under fake timers.
+    fireEvent.change(editor, { target: { value: "temporary" } });
+    fireEvent.change(editor, { target: { value: "original" } });
+    await act(async () => {
+      vi.advanceTimersByTime(3000);
+    });
+    fireEvent.change(editor, { target: { value: "unsaved" } });
+    await act(async () => {
+      resolve({ content: "external", sha256: "two", kind: "text" });
+    });
+    expect((editor as HTMLTextAreaElement).value).toBe("unsaved");
+  });
+
+  it("does not apply a watcher response after an edit is reverted", async () => {
+    mockSettings.editorFileWatcherEnabled = true;
+    fetchFile.mockResolvedValueOnce({
+      content: "original",
+      sha256: "one",
+      kind: "text",
+    });
+    render(<FileEditor workspaceId="watch-revert" path="file.ts" />);
+    const editor = await screen.findByTestId("monaco-editor");
+    vi.useFakeTimers();
+    fireEvent.change(editor, { target: { value: "temporary" } });
+    fireEvent.change(editor, { target: { value: "original" } });
+    let resolve!: (value: unknown) => void;
+    fetchFile.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolve = r;
+        }),
+    );
+    await act(async () => {
+      vi.advanceTimersByTime(3000);
+    });
+
+    fireEvent.change(editor, { target: { value: "new local edit" } });
+    fireEvent.change(editor, { target: { value: "original" } });
+    await act(async () => {
+      resolve({ content: "external", sha256: "two", kind: "text" });
+    });
+
+    expect((editor as HTMLTextAreaElement).value).toBe("original");
+  });
+
+  it("serializes BOM and CRLF only in the save payload", async () => {
+    mockSettings.editorEncoding = "utf8bom";
+    mockSettings.editorEndOfLine = "crlf";
+    fetchFile.mockResolvedValue({
+      content: "old",
+      sha256: "one",
+      kind: "text",
+    });
+    apiUpdateFile.mockResolvedValue({ ok: true, sha256: "two" });
+    render(<FileEditor workspaceId="save" path="file.ts" />);
+    const editor = await screen.findByTestId("monaco-editor");
+    fireEvent.change(editor, { target: { value: "first\nsecond" } });
+    await act(async () => {
+      await useEditorRegistry
+        .getState()
+        .entries[editorKey("save", "file.ts")].save();
+    });
+    expect(apiUpdateFile).toHaveBeenCalledWith(
+      "save",
+      "file.ts",
+      "\ufefffirst\r\nsecond",
+      "one",
+    );
+    expect((editor as HTMLTextAreaElement).value).toBe("first\nsecond");
+    expect(screen.queryByTitle("workbench_files_unsaved")).toBeNull();
+  });
   it("carrega o conteúdo do arquivo e exibe no editor Monaco", async () => {
     fetchFile.mockResolvedValue({
       content: "const x = 1;",

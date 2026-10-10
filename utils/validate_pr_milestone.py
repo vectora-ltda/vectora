@@ -34,7 +34,14 @@ class HeadPayload(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
 
     ref: str = ""
+    label: str = ""
     repo: RepositoryPayload | None = None
+
+
+# ``from __future__ import annotations`` defers the nested model annotation.
+# Rebuild this leaf model explicitly because ``main`` constructs a replacement
+# head when GitHub provides the current branch through environment variables.
+HeadPayload.model_rebuild()
 
 
 class BasePayload(BaseModel):
@@ -96,6 +103,8 @@ _RELEASE_PLEASE_PATCH_BRANCH = re.compile(
     r"^release-please-(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>[1-9]\d*)$"
 )
 _STACK_BASE = re.compile(r"^stack/[a-z0-9][a-z0-9-]*$")
+_CONTRACTS_BASE = "feat/contratos-workbenches"
+_RELEASE_BRANCH = re.compile(r"^release/.+$")
 
 
 class ReleaseLine(BaseModel):
@@ -171,12 +180,48 @@ def _is_release_please_pr(
     if line is None:
         return False
 
-    if line is _release_lines().development:
-        match = _RELEASE_PLEASE_MINOR_BRANCH.fullmatch(head_ref)
-        return bool(match and f"{match['major']}.{match['minor']}" == line.milestone)
+    config = _release_lines()
+    match = _RELEASE_PLEASE_MINOR_BRANCH.fullmatch(head_ref)
+    if match:
+        return bool(
+            base == config.maintenance.branch
+            and f"{match['major']}.{match['minor']}" == config.development.milestone
+        )
+
+    if line is not config.maintenance:
+        return False
 
     match = _RELEASE_PLEASE_PATCH_BRANCH.fullmatch(head_ref)
     return bool(match and f"{match['major']}.{match['minor']}.x" == line.milestone)
+
+
+def _is_release_branch_pr(
+    event: PullRequestEvent, pull_request: PullRequestPayload
+) -> bool:
+    """Aceita promoções internas de branches release/* para a base master."""
+    base = pull_request.base.ref if pull_request.base else ""
+    head = pull_request.head
+    head_ref = head.ref if head else ""
+    head_repo = head.repo.full_name if head and head.repo else None
+    repository = event.repository
+    return bool(
+        base == _release_lines().maintenance.branch
+        and _RELEASE_BRANCH.fullmatch(head_ref) is not None
+        and head_repo == (repository.full_name if repository else None)
+    )
+
+
+def _is_internal_head(
+    event: PullRequestEvent, pull_request: PullRequestPayload
+) -> bool:
+    """Confirma a identidade completa do repositório do head da PR."""
+    head = pull_request.head
+    repository = event.repository
+    repository_name = repository.full_name if repository else None
+    if head is None or repository_name is None:
+        return False
+    head_repo = head.repo.full_name if head.repo else None
+    return head_repo == repository_name
 
 
 def _is_vext_pr(pull_request: PullRequestPayload) -> bool:
@@ -197,9 +242,13 @@ def validate_pull_request(event: EventPayload) -> list[str]:
 
     errors: list[str] = []
     base = pull_request.base.ref if pull_request.base else ""
-    if _is_release_please_pr(parsed_event, pull_request):
+    if _is_release_please_pr(parsed_event, pull_request) or _is_release_branch_pr(
+        parsed_event, pull_request
+    ):
         return []
-    if _STACK_BASE.fullmatch(base):
+    if (_STACK_BASE.fullmatch(base) or base == _CONTRACTS_BASE) and _is_internal_head(
+        parsed_event, pull_request
+    ):
         return []
     line = _line_for_base(base)
     if line is None:
@@ -251,11 +300,31 @@ def main() -> int:
         return 2
     current_milestone = os.environ.get("CURRENT_RELEASE_MILESTONE")
     current_base = os.environ.get("CURRENT_PR_BASE")
+    current_head = os.environ.get("CURRENT_PR_HEAD_REF") or os.environ.get(
+        "GITHUB_HEAD_REF"
+    )
+    current_head_repo = os.environ.get("CURRENT_PR_HEAD_REPO")
     if payload.pull_request is not None:
-        if current_milestone is not None:
+        # GitHub Actions expande outputs ausentes para uma string vazia. Nesse
+        # caso, preserve a milestone recebida no evento em vez de substituí-la
+        # por um valor vazio.
+        if current_milestone:
             payload.pull_request.milestone = MilestonePayload(title=current_milestone)
         if current_base:
             payload.pull_request.base = BasePayload(ref=current_base)
+        if current_head:
+            event_head_repo = (
+                payload.pull_request.head.repo.full_name
+                if payload.pull_request.head and payload.pull_request.head.repo
+                else None
+            )
+            validated_head_repo = current_head_repo or event_head_repo
+            payload.pull_request.head = HeadPayload(
+                ref=current_head,
+                repo=RepositoryPayload(full_name=validated_head_repo)
+                if validated_head_repo
+                else None,
+            )
     errors = validate_pull_request(payload)
     if errors:
         for error in errors:

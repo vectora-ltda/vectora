@@ -1,4 +1,4 @@
-"""Calcula e aplica a prÃ³xima rotaÃ§Ã£o das linhas de release."""
+"""Calcula e aplica a próxima rotação das linhas de release."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ SEMVER_TAG: re.Pattern[str] = re.compile(
 
 
 class Rotation(TypedDict):
-    """Metadados necessÃ¡rios para rotacionar as linhas de release ativas."""
+    """Metadados necessários para rotacionar as linhas de release ativas."""
 
     release_tag: str
     release_version: str
@@ -31,7 +31,7 @@ class Rotation(TypedDict):
 
 
 class OpenPullRequest(TypedDict):
-    """Metadados relevantes de uma pull request aberta durante a rotaÃ§Ã£o."""
+    """Metadados relevantes de uma pull request aberta durante a rotação."""
 
     number: int
     base_branch: str
@@ -39,7 +39,7 @@ class OpenPullRequest(TypedDict):
 
 
 class RotationOperation(TypedDict):
-    """Uma operaÃ§Ã£o determinÃ­stica executada pelo workflow de rotaÃ§Ã£o do GitHub."""
+    """Uma operação determinística executada pelo workflow de rotação do GitHub."""
 
     kind: Literal[
         "create_branch",
@@ -134,6 +134,7 @@ def rotation_for_release(
     already_rotated = (
         configured == f"{major}.{next_minor}"
         and config.development.branch == next_development
+        and config.maintenance.milestone == f"{expected}.x"
     )
     if configured != expected and not already_rotated:
         return None
@@ -146,13 +147,13 @@ def rotation_for_release(
         "development_milestone": f"{major}.{next_minor}",
         "previous_maintenance_branch": config.maintenance.branch,
         "previous_maintenance_milestone": config.maintenance.milestone,
-        "previous_development_branch": config.development.branch,
-        "previous_development_milestone": config.development.milestone,
+        "previous_development_branch": f"release/{expected}",
+        "previous_development_milestone": expected,
     }
 
 
 def rotated_config(config: ReleaseLines, rotation: Rotation) -> ReleaseLines:
-    """Monta a prÃ³xima configuraÃ§Ã£o sem alterar o mapeamento carregado."""
+    """Monta a próxima configuração sem alterar o mapeamento carregado."""
     return ReleaseLines(
         development={
             "branch": rotation["development_branch"],
@@ -170,7 +171,7 @@ def rotated_config(config: ReleaseLines, rotation: Rotation) -> ReleaseLines:
 
 
 def write_rotated_config(path: Path, config: ReleaseLines, rotation: Rotation) -> None:
-    """Persiste a prÃ³xima configuraÃ§Ã£o das linhas de release como JSON formatado."""
+    """Persiste a próxima configuração das linhas de release como JSON formatado."""
     path.write_text(
         json.dumps(rotated_config(config, rotation).model_dump(), indent=2) + "\n",
         encoding="utf-8",
@@ -178,10 +179,13 @@ def write_rotated_config(path: Path, config: ReleaseLines, rotation: Rotation) -
 
 
 def _event_values(event_path: Path) -> tuple[str, str | None]:
+    """Valida o envelope antes de acessar os metadados da release."""
     event = json.loads(event_path.read_text(encoding="utf-8"))
+    if not isinstance(event, dict):
+        raise ValueError("release event must be an object")  # noqa: TRY004
     release = event.get("release")
     if not isinstance(release, dict):
-        raise TypeError("release event is missing release metadata")
+        raise ValueError("release event is missing release metadata")  # noqa: TRY004
     tag = release.get("tag_name")
     target = release.get("target_commitish")
     if not isinstance(tag, str) or not tag:
@@ -190,7 +194,7 @@ def _event_values(event_path: Path) -> tuple[str, str | None]:
 
 
 def main() -> int:
-    """Imprime as saÃ­das do GitHub Actions e opcionalmente atualiza o arquivo de configuraÃ§Ã£o."""
+    """Imprime as saídas do GitHub Actions e opcionalmente atualiza o arquivo de configuração."""
     if len(sys.argv) not in (2, 4) or (len(sys.argv) == 4 and sys.argv[2] != "--write"):
         print(
             "usage: rotate_release_lines.py EVENT_JSON [--write CONFIG_PATH]",
