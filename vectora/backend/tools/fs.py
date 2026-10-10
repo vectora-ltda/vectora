@@ -1085,6 +1085,16 @@ async def terminal(
         )
 
     root, ws = _workspace_root(ctx)
+    logger.info(
+        "terminal_command_started",
+        extra={
+            "tool": "terminal",
+            "command": command,
+            "workspace_id": getattr(ws, "id", None),
+            "thread_id": thread_id,
+            "status": "started",
+        },
+    )
 
     # Workspace remoto (SSH ou Codespace): delega via transport.
     # O streaming linha-a-linha e o stdin interativo não são suportados

@@ -46,6 +46,15 @@ async def _gh_run(
 
     timeout = get_settings().git_cli_timeout
     cmd = ["gh", *args]
+    logger.info(
+        "github_cli_command_started",
+        extra={
+            "tool": "gh_cli",
+            "operation": " ".join(args[:3]),
+            "command": "gh " + " ".join(args),
+            "status": "started",
+        },
+    )
     env = os.environ.copy()
     if user_id:
         # Nunca permita que uma credencial global seja usada em nome de outro
@@ -113,12 +122,33 @@ async def _gh_run(
     stderr = stderr_b.decode(errors="replace").strip()
 
     if proc.returncode != 0:
+        logger.warning(
+            "github_cli_command_failed",
+            extra={
+                "tool": "gh_cli",
+                "operation": " ".join(args[:3]),
+                "command": "gh " + " ".join(args),
+                "exit_code": proc.returncode,
+                "status": "error",
+            },
+        )
         return {
             "status": "error",
             "message": stderr or stdout,
             "code": proc.returncode,
         }
 
+    logger.info(
+        "github_cli_command_completed",
+        extra={
+            "tool": "gh_cli",
+            "operation": " ".join(args[:3]),
+            "command": "gh " + " ".join(args),
+            "exit_code": proc.returncode,
+            "output_length": len(stdout),
+            "status": "ok",
+        },
+    )
     return {"status": "ok", "output": stdout}
 
 

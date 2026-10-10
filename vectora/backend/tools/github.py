@@ -75,6 +75,18 @@ async def github_fetch_pr_diff(
     token = await _github_token(ctx)
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    logger.info(
+        "github_api_request_started",
+        extra={
+            "tool": "github_fetch_pr_diff",
+            "endpoint": url,
+            "operation": "GET pull_request_diff",
+            "owner": owner,
+            "repo": repo,
+            "pr_number": pr_number,
+            "status": "started",
+        },
+    )
     try:
         resp: httpx.Response | None = None
         for attempt in range(3):
@@ -101,6 +113,19 @@ async def github_fetch_pr_diff(
                     "error": f"GitHub API respondeu {resp.status_code}; verifique o repositório e o número do PR.",
                 }
             )
+        logger.info(
+            "github_api_request_completed",
+            extra={
+                "tool": "github_fetch_pr_diff",
+                "endpoint": url,
+                "operation": "GET pull_request_diff",
+                "owner": owner,
+                "repo": repo,
+                "pr_number": pr_number,
+                "status": "ok",
+                "output_length": len(resp.text),
+            },
+        )
         return json.dumps({"status": "ok", "diff": resp.text})
     except Exception as exc:
         logger.exception(
@@ -150,6 +175,18 @@ async def github_post_pr_comment(
         "X-GitHub-Api-Version": "2022-11-28",
     }
     try:
+        logger.info(
+            "github_api_request_started",
+            extra={
+                "tool": "github_post_pr_comment",
+                "endpoint": url,
+                "operation": "POST issue_comment",
+                "owner": owner,
+                "repo": repo,
+                "pr_number": pr_number,
+                "status": "started",
+            },
+        )
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(url, headers=headers, json={"body": body})
         if resp.status_code != 201:
@@ -160,6 +197,18 @@ async def github_post_pr_comment(
                 }
             )
         data = resp.json()
+        logger.info(
+            "github_api_request_completed",
+            extra={
+                "tool": "github_post_pr_comment",
+                "endpoint": url,
+                "operation": "POST issue_comment",
+                "owner": owner,
+                "repo": repo,
+                "pr_number": pr_number,
+                "status": "ok",
+            },
+        )
         return json.dumps({"status": "ok", "comment_url": data.get("html_url", "")})
     except Exception as exc:
         logger.exception(

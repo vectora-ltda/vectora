@@ -79,7 +79,12 @@ class ToolSpec:
         except Exception as exc:
             logger.warning(
                 "argumentos inválidos para tool",
-                extra={"tool": self.name, "error": str(exc)},
+                extra={
+                    "tool": self.name,
+                    "argument_keys": sorted(args),
+                    "status": "invalid_arguments",
+                    "error": str(exc),
+                },
             )
             return f"Error: argumentos inválidos para '{self.name}': {exc}"
         # getattr (não model_dump()) preserva instâncias de BaseModel
@@ -91,9 +96,25 @@ class ToolSpec:
         if self.needs_ctx:
             kwargs[self.ctx_param_name] = ctx
         try:
-            return await self.handler(**kwargs)
+            logger.debug(
+                "tool_invocation_started",
+                extra={
+                    "tool": self.name,
+                    "argument_keys": sorted(args),
+                    "status": "started",
+                },
+            )
+            result = await self.handler(**kwargs)
+            logger.info(
+                "tool_invocation_completed",
+                extra={"tool": self.name, "status": "ok"},
+            )
+            return result
         except Exception as exc:
-            logger.exception("tool falhou", extra={"tool": self.name})
+            logger.exception(
+                "tool falhou",
+                extra={"tool": self.name, "status": "error"},
+            )
             return f"Error: '{self.name}' falhou: {exc}"
 
 
