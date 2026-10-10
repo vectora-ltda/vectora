@@ -71,6 +71,8 @@ async def build_knowledge_graph(
         lines = [
             f"Grafo construído: {result.node_count} nós, {result.edge_count} arestas."
         ]
+        if result.index_error:
+            lines.append(f"Aviso: {result.index_error}")
         if result.god_nodes:
             lines.append(
                 f"God nodes (mais conectados): {', '.join(result.god_nodes[:5])}."
@@ -118,6 +120,8 @@ async def graph_update(ctx: ToolContext, model: str = "") -> str:
         lines = [
             f"Grafo atualizado: {result.node_count} nós, {result.edge_count} arestas."
         ]
+        if result.index_error:
+            lines.append(f"Aviso: {result.index_error}")
         if result.god_nodes:
             lines.append(f"God nodes: {', '.join(result.god_nodes[:5])}.")
         return "\n".join(lines)
