@@ -35,7 +35,7 @@ jobs:
       # Usa a revisão confiável que contém este workflow e a configuração.
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.workflow_sha }}
+          ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
       - name: Assign release milestone from base branch
         id: assign-milestone
