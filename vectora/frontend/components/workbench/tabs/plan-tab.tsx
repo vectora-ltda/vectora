@@ -34,6 +34,7 @@ import {
   LayoutList,
   Loader2,
   Sparkles,
+  Settings2,
   type LucideIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
@@ -52,6 +53,9 @@ import {
 } from "@/lib/stores/workbench-store";
 import { m } from "@/lib/paraglide/messages";
 import { useSettingsStore } from "@/lib/stores/settings-store";
+import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
+import { WorkbenchSettingsSurface } from "@/components/workbench/settings/workbench-settings-surface";
+import { planSettings } from "@/components/workbench/settings/workbench-settings-registry";
 
 async function fetchArtifacts(threadId: string): Promise<PlanItem[]> {
   const qs = new URLSearchParams({ session_id: threadId });
@@ -170,6 +174,8 @@ function TodoStatusIcon({ status }: { status: TodoItem["status"] }) {
 }
 
 export function PlanTab({ threadId, onOpenPlanDocument }: PlanTabProps) {
+  const workspaceId = useWorkspacesStore((s) => s.getActive()?.id ?? null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // A chave inclui a thread e o contador nunca é resetado. Reiniciar o mapa
   // ao trocar de thread permitia que uma resposta antiga e uma nova usassem
   // o mesmo epoch para o mesmo slug.
@@ -379,6 +385,25 @@ export function PlanTab({ threadId, onOpenPlanDocument }: PlanTabProps) {
 
   return (
     <div className="h-full flex flex-col">
+      <div className="flex shrink-0 justify-end border-b border-border/40 px-2 py-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0"
+          aria-label={m.workbench_tab_plan()}
+          data-testid="plan-settings-btn"
+          onClick={() => setSettingsOpen(true)}
+        >
+          <Settings2 className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+      <WorkbenchSettingsSurface
+        descriptor={planSettings}
+        context={{ threadId, workspaceId }}
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        testId="plan-settings-panel"
+      />
       <div className="flex-1 overflow-y-auto min-h-0">
         <Accordion
           type="multiple"

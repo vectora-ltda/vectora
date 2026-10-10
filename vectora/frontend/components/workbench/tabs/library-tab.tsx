@@ -6,7 +6,7 @@
  * carregados de cada seção, sem endpoint agregado.
  */
 
-import { Archive, Puzzle, Search, Sparkles } from "lucide-react";
+import { Archive, Puzzle, Search, Settings2, Sparkles } from "lucide-react";
 import { useCallback, useMemo, useState, type KeyboardEvent } from "react";
 
 import {
@@ -17,9 +17,12 @@ import {
 } from "@/components/ui/accordion";
 import { m } from "@/lib/paraglide/messages";
 import { useSettingsStore } from "@/lib/stores/settings-store";
+import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { McpSection } from "./library-mcp-section";
 import { MemoryBucketsSection } from "./library-memory-buckets-section";
 import { SkillsSection } from "./library-skills-section";
+import { WorkbenchSettingsSurface } from "@/components/workbench/settings/workbench-settings-surface";
+import { librarySettings } from "@/components/workbench/settings/workbench-settings-registry";
 
 interface LibraryTabProps {
   threadId: string;
@@ -100,6 +103,8 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
   const [activeSection, setActiveSection] = useState<LibraryFilter>();
   const showSkills = useSettingsStore((s) => s.libraryShowSkills);
   const showMcp = useSettingsStore((s) => s.libraryShowMcp);
+  const workspaceId = useWorkspacesStore((s) => s.getActive()?.id ?? null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const visibleSections = useMemo(
     () => [
       ...(showMcp ? (["mcp"] as const) : []),
@@ -132,27 +137,27 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
         return;
       }
       event.preventDefault();
-      const index = visibleSections.indexOf(value);
+      const index = LIBRARY_SECTIONS.indexOf(value);
       const nextIndex =
         event.key === "Home"
           ? 0
           : event.key === "End"
-            ? visibleSections.length - 1
+            ? LIBRARY_SECTIONS.length - 1
             : (index +
                 (event.key === "ArrowLeft" || event.key === "ArrowUp"
                   ? -1
                   : 1) +
-                visibleSections.length) %
-              visibleSections.length;
+                LIBRARY_SECTIONS.length) %
+              LIBRARY_SECTIONS.length;
       const next = document.getElementById(
-        `library-tab-${visibleSections[nextIndex]}`,
+        `library-tab-${LIBRARY_SECTIONS[nextIndex]}`,
       );
       if (next instanceof HTMLButtonElement) {
         next.focus();
-        setActiveSection(visibleSections[nextIndex]);
+        setActiveSection(LIBRARY_SECTIONS[nextIndex]);
       }
     },
-    [visibleSections],
+    [],
   );
 
   return (
@@ -191,8 +196,25 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
             onKeyDown={(event) => handleSectionKeyDown(event, "memory")}
             tabIndex={rovingTabSection === "memory" ? 0 : -1}
           />
+          <button
+            type="button"
+            className="ml-auto inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label={m.workbench_tab_library()}
+            data-testid="library-settings-btn"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+          </button>
         </div>
       </div>
+
+      <WorkbenchSettingsSurface
+        descriptor={librarySettings}
+        context={{ threadId, workspaceId }}
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        testId="library-settings-panel"
+      />
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <Accordion
