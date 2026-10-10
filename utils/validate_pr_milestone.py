@@ -303,6 +303,8 @@ def main() -> int:
         return 2
     current_milestone = os.environ.get("CURRENT_RELEASE_MILESTONE")
     current_base = os.environ.get("CURRENT_PR_BASE")
+    current_head = os.environ.get("CURRENT_PR_HEAD_REF")
+    current_head_repo = os.environ.get("CURRENT_PR_HEAD_REPO")
     if payload.pull_request is not None:
         # GitHub Actions expande outputs ausentes para uma string vazia. Nesse
         # caso, preserve a milestone recebida no evento em vez de substituí-la
@@ -311,6 +313,13 @@ def main() -> int:
             payload.pull_request.milestone = MilestonePayload(title=current_milestone)
         if current_base:
             payload.pull_request.base = BasePayload(ref=current_base)
+        if current_head:
+            payload.pull_request.head = HeadPayload(
+                ref=current_head,
+                repo=RepositoryPayload(full_name=current_head_repo)
+                if current_head_repo
+                else None,
+            )
     errors = validate_pull_request(payload)
     if errors:
         for error in errors:
