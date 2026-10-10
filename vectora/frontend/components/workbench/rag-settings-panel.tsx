@@ -115,12 +115,6 @@ export function useRagSettings({
   }, []);
 
   useEffect(() => {
-    // Collection hydration is an intentional external synchronization.
-    // oxlint-disable-next-line react/set-state-in-effect
-    void loadCollections();
-  }, [loadCollections]);
-
-  useEffect(() => {
     if (!open) return;
     let alive = true;
     // Synchronize the loading indicator with this external settings request.
@@ -142,10 +136,14 @@ export function useRagSettings({
         if (alive) setSettingsStatus("error");
       }
     })();
+    // Load collections only when the settings workbench is visible so the
+    // panel does not expose a stale loading state before it is opened.
+    // oxlint-disable-next-line react/set-state-in-effect
+    void loadCollections();
     return () => {
       alive = false;
     };
-  }, [open]);
+  }, [open, loadCollections]);
 
   const patch = useCallback((changes: Partial<RagSettings>) => {
     pendingPatches.current += 1;
