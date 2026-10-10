@@ -8,20 +8,25 @@ repo temporário.
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import git
 import pytest
+from starlette.requests import Request
 
 from backend.api.handlers.workspaces import (
     GitCherryPickRequest,
     GitCommitRequest,
     GitReorderRequest,
     GitSquashRequest,
+    PullRequestCreateRequest,
     git_cherry_pick_inline,
     git_commit_inline,
     git_commit_suggestion,
     git_reorder_inline,
     git_squash_inline,
+    pr_create,
+    pr_list,
 )
 
 
@@ -117,6 +122,56 @@ async def test_commit_suggestion_empty_when_nothing_staged(
 
     assert result.title == ""
     assert result.description == ""
+
+
+def _request_for_user(user_id: str) -> Request:
+    request = Request({"type": "http", "headers": [], "query_string": b""})
+    request.state.user = SimpleNamespace(id=user_id)
+    return request
+
+
+@pytest.mark.asyncio
+async def test_pr_list_propagates_authenticated_user_to_gh(
+    ws_repo: tuple[git.Repo, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from backend.tools import gh
+
+    captured: dict[str, str | None] = {}
+
+    async def fake_gh_run(*_args: object, **kwargs: object) -> dict[str, object]:
+        value = kwargs.get("user_id")
+        captured["user_id"] = value if isinstance(value, str) else None
+        return {"status": "ok", "output": "[]"}
+
+    monkeypatch.setattr(gh, "_gh_run", fake_gh_run)
+    result = await pr_list("ws-git", _request_for_user("user-42"))
+
+    assert result.available is True
+    assert captured["user_id"] == "user-42"
+
+
+@pytest.mark.asyncio
+async def test_pr_create_propagates_authenticated_user_to_gh(
+    ws_repo: tuple[git.Repo, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from backend.tools import gh
+
+    captured: dict[str, str | None] = {}
+
+    async def fake_gh_run(*_args: object, **kwargs: object) -> dict[str, object]:
+        value = kwargs.get("user_id")
+        captured["user_id"] = value if isinstance(value, str) else None
+        return {"status": "ok", "output": "https://github.com/o/r/pull/1"}
+
+    monkeypatch.setattr(gh, "_gh_run", fake_gh_run)
+    result = await pr_create(
+        "ws-git",
+        PullRequestCreateRequest(title="feat: teste"),
+        _request_for_user("user-42"),
+    )
+
+    assert result.status == "ok"
+    assert captured["user_id"] == "user-42"
 
 
 @pytest.mark.asyncio

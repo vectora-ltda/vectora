@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * BrowserDevtoolsPanel — painel de observabilidade da sessão de browser do
- * AGENTE (Playwright headless), consumindo os endpoints REST espelhados de
+ * AGENTE (Playwright conectado ao Chromium do Electron via CDP), consumindo os endpoints REST espelhados de
  * backend/tools/browser_devtools.py. Cobre: estado sem sessão, listagem de
  * console/network, limpar console, e execução de script via aba Elements.
  */

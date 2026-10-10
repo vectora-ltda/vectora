@@ -38,6 +38,9 @@ from backend.tools import (
     git as _git_module,
 )
 from backend.tools import (
+    github as _github_module,
+)
+from backend.tools import (
     gmail as _gmail_module,
 )
 from backend.tools import (
@@ -130,11 +133,18 @@ graph_affected = _bridge("graph_affected")
 file_read = _bridge("file_read")
 file_edit = _bridge("file_edit")
 file_write = _bridge("file_write")
+file_create_dir = _bridge("file_create_dir")
+file_delete = _bridge("file_delete")
+file_move = _bridge("file_move")
+file_search = _bridge("file_search")
 grep = _bridge("grep")
 list_dir = _bridge("list_dir")
 terminal = _bridge("terminal")
 create_artifact = _bridge("create_artifact")
 git_status = _bridge("git_status")
+git_operation = _bridge("git_operation")
+git_operations = _bridge("git_operations")
+git_commit_suggestion = _bridge("git_commit_suggestion")
 git_log = _bridge("git_log")
 git_diff = _bridge("git_diff")
 git_branch = _bridge("git_branch")
@@ -226,12 +236,14 @@ browser_lighthouse_audit = _bridge("browser_lighthouse_audit")
 browser_screencast_start = _bridge("browser_screencast_start")
 browser_screencast_stop = _bridge("browser_screencast_stop")
 list_terminals = _bridge("list_terminals")
+open_terminal = _bridge("open_terminal")
 close_terminal = _bridge("close_terminal")
 list_desktop_windows = _bridge("list_desktop_windows")
 select_desktop_window = _bridge("select_desktop_window")
 focus_desktop_window = _bridge("focus_desktop_window")
 read_terminal = _bridge("read_terminal")
 write_terminal = _bridge("write_terminal")
+attach_terminal = _bridge("attach_terminal")
 gmail_list = _bridge("gmail_list")
 gmail_read = _bridge("gmail_read")
 slack_send = _bridge("slack_send")
@@ -257,6 +269,8 @@ gh_issue_list = _bridge("gh_issue_list")
 gh_issue_create = _bridge("gh_issue_create")
 gh_issue_view = _bridge("gh_issue_view")
 gh_issue_comment = _bridge("gh_issue_comment")
+github_fetch_pr_diff = _bridge("github_fetch_pr_diff")
+github_post_pr_comment = _bridge("github_post_pr_comment")
 workspace_describe = _bridge("workspace_describe")
 workspace_list = _bridge("workspace_list")
 time_now = _bridge("time_now")
@@ -319,17 +333,23 @@ FS_TOOLS: list[ToolSpec] = [
     file_read,
     file_edit,
     file_write,
+    file_create_dir,
+    file_delete,
+    file_move,
+    file_search,
     grep,
     list_dir,
     terminal,
     create_artifact,
     list_terminals,
+    open_terminal,
     close_terminal,
     list_desktop_windows,
     select_desktop_window,
     focus_desktop_window,
     read_terminal,
     write_terminal,
+    attach_terminal,
 ]
 
 #: Ferramentas de browser: navegação livre + automação + dev server
@@ -455,6 +475,9 @@ NATIVE_TOOLS: list[ToolSpec] = [
 #: Ferramentas git e GitHub CLI
 GIT_TOOLS: list[ToolSpec] = [
     git_status,
+    git_operation,
+    git_operations,
+    git_commit_suggestion,
     git_log,
     git_diff,
     git_branch,
@@ -485,6 +508,8 @@ GIT_TOOLS: list[ToolSpec] = [
     gh_issue_create,
     gh_issue_view,
     gh_issue_comment,
+    github_fetch_pr_diff,
+    github_post_pr_comment,
 ]
 
 # ---------------------------------------------------------------------------
@@ -509,6 +534,10 @@ for _t in [
     file_read,
     file_edit,
     file_write,
+    file_create_dir,
+    file_delete,
+    file_move,
+    file_search,
     grep,
     list_dir,
     terminal,
@@ -520,6 +549,7 @@ for _t in [
     focus_desktop_window,
     read_terminal,
     write_terminal,
+    attach_terminal,
     browser_navigate,
     browser_screenshot,
     browser_click,
@@ -594,6 +624,9 @@ for _t in [
     kanban_decompose,
     # Git + GitHub CLI
     git_status,
+    git_operation,
+    git_operations,
+    git_commit_suggestion,
     git_log,
     git_diff,
     git_branch,
@@ -624,6 +657,8 @@ for _t in [
     gh_issue_create,
     gh_issue_view,
     gh_issue_comment,
+    github_fetch_pr_diff,
+    github_post_pr_comment,
     # Integrações externas (configuradas via OAuth/API key; cada tool degrada
     # para erro tipado quando o provider não está conectado).
     google_drive_list,

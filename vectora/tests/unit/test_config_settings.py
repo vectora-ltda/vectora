@@ -59,6 +59,12 @@ def test_settings_set_model_updates_nine_router_default():
     assert s.nine_router_default_model == "cx/gpt-5.6-luna"
 
 
+def test_settings_set_model_updates_llamacpp_model():
+    s = Settings()
+    s.set_model("llamacpp", "local-model")
+    assert s.llamacpp_model == "local-model"
+
+
 def test_settings_vectora_app_secret_vem_do_defaults_env(monkeypatch):
     """Fixo por produto (backend/defaults.env) — não é auto-gerado por
     instalação, precisa bater com o mesmo valor configurado no Worker via
@@ -150,6 +156,19 @@ def test_cohere_not_available_without_api_key(monkeypatch):
     # Se cohere_api_key não está setado no env, não deve aparecer
     if not s.cohere_api_key:
         assert "cohere" not in providers
+
+
+def test_available_providers_includes_configured_local_runtimes():
+    settings = Settings()
+    object.__setattr__(settings, "ollama_base_url", "http://127.0.0.1:11434")
+    object.__setattr__(settings, "llamacpp_base_url", "http://127.0.0.1:18080/v1")
+    object.__setattr__(settings, "dmr_base_url", "http://127.0.0.1:12434")
+    object.__setattr__(settings, "nine_router_base_url", "http://127.0.0.1:8000")
+    object.__setattr__(settings, "nine_router_api_key", "local-key")
+
+    providers = settings.get_available_providers()
+
+    assert {"ollama", "llamacpp", "dmr", "nine_router"}.issubset(providers)
 
 
 def test_set_model_cohere():

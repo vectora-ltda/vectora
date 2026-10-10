@@ -22,6 +22,7 @@ async def get_configured_providers() -> dict:
     """Providers de LLM com credencial configurada + modelos dinâmicos."""
     from backend.api.handlers.chat import _model_supports_vision
     from backend.api.handlers.provider_routing import (
+        list_registered_llamacpp_models,
         list_registered_nine_router_models,
         list_registered_ollama_models,
         list_registered_openrouter_models,
@@ -39,6 +40,7 @@ async def get_configured_providers() -> dict:
         ("ollama", await list_registered_ollama_models()),
         ("openrouter", await list_registered_openrouter_models()),
         ("nine_router", await list_registered_nine_router_models()),
+        ("llamacpp", await list_registered_llamacpp_models()),
     ):
         for model in models:
             model_id = f"{provider}:{model.tag}"
@@ -52,6 +54,27 @@ async def get_configured_providers() -> dict:
                     "image_capability": state.value,
                 }
             )
+    # O DMR anuncia modelos por HTTP e não usa o registry SQLite da Vectora.
+    # Incluí-los aqui mantém o seletor coerente com o catálogo local.
+    if "dmr" in configured_providers:
+        from backend.services.docker_model_runner import probe_dmr
+
+        probe = await probe_dmr(settings.dmr_base_url)
+        dmr = {"reachable": probe.reachable, "models": list(probe.models)}
+        dmr_models = dmr["models"]
+        for tag in dmr_models if isinstance(dmr_models, list) else []:
+            if isinstance(tag, str) and tag:
+                model_id = f"dmr:{tag}"
+                state = await _model_supports_vision(model_id)
+                dynamic_models.append(
+                    {
+                        "id": model_id,
+                        "label": tag,
+                        "provider": "dmr",
+                        "available": bool(dmr.get("reachable")),
+                        "image_capability": state.value,
+                    }
+                )
 
     models = []
     for provider, provider_models in AVAILABLE_MODELS.items():

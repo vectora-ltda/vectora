@@ -9,12 +9,20 @@ Tools nativas (``@vtool``) — chamadas como função async direta com
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import ctypes
+import errno
 import json
 import logging
+import os
 import platform
 import re
 import shlex
+import shutil
+import stat
+import sys
 import time
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -37,6 +45,225 @@ from backend.tools.registry import ToolExtras, vtool
 from backend.vtypes.documents import VALID_ARTIFACT_TYPES
 
 logger = logging.getLogger(__name__)
+
+
+def _delete_confined(path: Path, root: Path) -> None:
+    """Revalida o caminho imediatamente antes da remoção.
+
+    A operação rejeita symlinks e qualquer troca do diretório pai observada
+    entre a validação inicial e o I/O destrutivo. Isso reduz a janela de
+    substituição do workspace por um link durante a chamada assíncrona.
+    """
+    root_real = root.resolve(strict=True)
+    candidate = path.absolute()
+    _assert_no_symlink_components(candidate, root_real)
+    if candidate.is_symlink():
+        raise ValueError("symlink não pode ser removido por esta tool")
+    try:
+        candidate.resolve(strict=True).relative_to(root_real)
+    except ValueError as exc:
+        raise ValueError("caminho fora do workspace") from exc
+    relative = candidate.relative_to(root_real)
+    if _supports_descriptor_operations():
+        parent_fd, name = _open_parent_descriptor(root_real, relative)
+        try:
+            if stat.S_ISDIR(
+                os.stat(name, dir_fd=parent_fd, follow_symlinks=False).st_mode
+            ):
+                shutil.rmtree(name, dir_fd=parent_fd)
+            else:
+                os.unlink(name, dir_fd=parent_fd)
+        finally:
+            os.close(parent_fd)
+        return
+    if candidate.is_dir():
+        shutil.rmtree(candidate)
+    else:
+        candidate.unlink()
+
+
+def _move_no_replace(source: Path, target: Path) -> None:
+    """Move sem substituir um destino criado por outra tarefa.
+
+    Arquivos usam hard-link + unlink, operação atômica de criação sem
+    substituição. Diretórios usam rename, que preserva a semântica nativa do
+    sistema e falha quando o destino já existe no Windows.
+    """
+    if target.exists() or target.is_symlink():
+        raise FileExistsError(target)
+    if source.is_dir():
+        _rename_no_replace(source, target)
+        return
+    os.link(source, target)
+    try:
+        source.unlink()
+    except Exception:
+        target.unlink(missing_ok=True)
+        raise
+
+
+def _rename_no_replace(source: Path, target: Path) -> None:
+    """Rename a directory without replacing a concurrently-created target."""
+    if os.name == "nt":
+        # Windows ``MoveFileEx`` semantics used by ``os.rename`` reject an
+        # existing destination, including one created after our prior check.
+        source.rename(target)
+        return
+    _native_rename_no_replace(
+        -100, os.fsencode(source), -100, os.fsencode(target), target
+    )
+
+
+def _native_rename_no_replace(
+    source_fd: int,
+    source_name: bytes,
+    target_fd: int,
+    target_name: bytes,
+    target: Path,
+) -> None:
+    """Rename relative to descriptors without replacing an existing target."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    if sys.platform == "linux":
+        rename = getattr(libc, "renameat2", None)
+        flag = 1  # RENAME_NOREPLACE
+    elif sys.platform == "darwin":
+        rename = getattr(libc, "renameatx_np", None)
+        flag = 0x4  # RENAME_EXCL
+    else:
+        rename = None
+        flag = 0
+    if rename is None:
+        raise OSError(
+            errno.ENOTSUP,
+            "movimentação de diretório sem substituição não suportada",
+        )
+    rename.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    rename.restype = ctypes.c_int
+    result = rename(source_fd, source_name, target_fd, target_name, flag)
+    if result != 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error), str(target))
+
+
+def _supports_descriptor_operations() -> bool:
+    """Return whether this platform supports descriptor-relative safe I/O."""
+    return (
+        os.name != "nt"
+        and getattr(os, "O_DIRECTORY", None) is not None
+        and getattr(os, "O_NOFOLLOW", None) is not None
+        and os.open in os.supports_dir_fd
+    )
+
+
+def _open_parent_descriptor(root: Path, relative: Path) -> tuple[int, str]:
+    """Open the validated parent chain without following symlinks."""
+    if not relative.parts:
+        raise ValueError("a raiz do workspace não pode ser alterada")
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(root, flags)
+    try:
+        for component in relative.parts[:-1]:
+            next_fd = os.open(component, flags, dir_fd=fd)
+            os.close(fd)
+            fd = next_fd
+    except Exception:
+        os.close(fd)
+        raise
+    return fd, relative.parts[-1]
+
+
+def _mkdir_confined(path: Path, root: Path) -> None:
+    """Create a directory tree while keeping each ancestor descriptor-bound."""
+    root_real = root.resolve(strict=True)
+    relative = path.absolute().relative_to(root_real)
+    if not relative.parts:
+        return
+    if not _supports_descriptor_operations():
+        path.mkdir(parents=True, exist_ok=True)
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(root_real, flags)
+    try:
+        for component in relative.parts:
+            try:
+                os.mkdir(component, dir_fd=fd)
+            except FileExistsError:
+                if not stat.S_ISDIR(
+                    os.stat(component, dir_fd=fd, follow_symlinks=False).st_mode
+                ):
+                    raise
+            next_fd = os.open(component, flags, dir_fd=fd)
+            os.close(fd)
+            fd = next_fd
+    finally:
+        os.close(fd)
+
+
+def _move_confined(source: Path, target: Path, root: Path) -> None:
+    """Move using validated parent descriptors where the OS supports it."""
+    root_real = root.resolve(strict=True)
+    source_rel = source.absolute().relative_to(root_real)
+    target_rel = target.absolute().relative_to(root_real)
+    if not _supports_descriptor_operations():
+        _move_no_replace(source, target)
+        return
+    source_fd, source_name = _open_parent_descriptor(root_real, source_rel)
+    target_fd, target_name = _open_parent_descriptor(root_real, target_rel)
+    try:
+        try:
+            os.stat(target_name, dir_fd=target_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            raise FileExistsError(target)
+        if stat.S_ISDIR(
+            os.stat(source_name, dir_fd=source_fd, follow_symlinks=False).st_mode
+        ):
+            _native_rename_no_replace(
+                source_fd,
+                os.fsencode(source_name),
+                target_fd,
+                os.fsencode(target_name),
+                target,
+            )
+        else:
+            os.link(
+                source_name,
+                target_name,
+                src_dir_fd=source_fd,
+                dst_dir_fd=target_fd,
+                follow_symlinks=False,
+            )
+            try:
+                os.unlink(source_name, dir_fd=source_fd)
+            except Exception:
+                with contextlib.suppress(OSError):
+                    os.unlink(target_name, dir_fd=target_fd)
+                raise
+    finally:
+        os.close(source_fd)
+        os.close(target_fd)
+
+
+def _assert_no_symlink_components(path: Path, root: Path) -> None:
+    """Reject symlinked path components before a mutating filesystem call."""
+    root_real = root.resolve(strict=True)
+    candidate = path.absolute()
+    try:
+        relative = candidate.relative_to(root_real)
+    except ValueError as exc:
+        raise ValueError("caminho fora do workspace") from exc
+    current = root_real
+    for component in relative.parts:
+        current /= component
+        if current.is_symlink():
+            raise ValueError("symlink não pode redirecionar a operação")
 
 
 # ---------------------------------------------------------------------------
@@ -419,6 +646,118 @@ async def file_write(file_path: str, content: str, ctx: ToolContext) -> str:
         return "Error writing file. Check logs."
 
 
+@vtool(
+    extras=ToolExtras(
+        render_hint="code_block",
+        category="filesystem",
+        destructive=True,
+        icon="folder-plus",
+        invalidates=["files"],
+    )
+)
+async def file_create_dir(path: str, ctx: ToolContext) -> str:
+    """Cria um diretório dentro do workspace confiável."""
+    if remote_err := _require_local(ctx):
+        return remote_err
+    if trust_err := _require_trust(ctx):
+        return trust_err
+    resolved, err = _confine(path, ctx)
+    if resolved is None:
+        return err
+    try:
+        root, _ = _workspace_root(ctx)
+        await asyncio.to_thread(_assert_no_symlink_components, resolved, root)
+        await asyncio.to_thread(_mkdir_confined, resolved, root)
+        return f"[OK] Diretório criado: {path}"
+    except (OSError, ValueError) as exc:
+        return f"Error criando diretório: {exc}"
+
+
+@vtool(
+    extras=ToolExtras(
+        render_hint="code_block",
+        category="filesystem",
+        destructive=True,
+        icon="trash-2",
+        invalidates=["files", "diff"],
+    )
+)
+async def file_delete(path: str, ctx: ToolContext, permanent: bool = False) -> str:
+    """Remove um arquivo ou diretório; usa lixeira por padrão."""
+    if remote_err := _require_local(ctx):
+        return remote_err
+    if trust_err := _require_trust(ctx):
+        return trust_err
+    resolved, err = _confine(path, ctx)
+    if resolved is None:
+        return err
+    if not resolved.exists():
+        return f"Error: caminho não encontrado: {path}"
+    try:
+        if permanent:
+            root, _ = _workspace_root(ctx)
+            await asyncio.to_thread(_delete_confined, resolved, root)
+        else:
+            import send2trash
+
+            await asyncio.to_thread(send2trash.send2trash, str(resolved))
+        return f"[OK] Caminho removido: {path}"
+    except OSError as exc:
+        return f"Error removendo caminho: {exc}"
+
+
+@vtool(
+    extras=ToolExtras(
+        render_hint="code_block",
+        category="filesystem",
+        destructive=True,
+        icon="move",
+        invalidates=["files", "diff"],
+    )
+)
+async def file_move(from_path: str, to_path: str, ctx: ToolContext) -> str:
+    """Move ou renomeia um caminho sem permitir sair do workspace."""
+    if remote_err := _require_local(ctx):
+        return remote_err
+    if trust_err := _require_trust(ctx):
+        return trust_err
+    source, source_err = _confine(from_path, ctx)
+    target, target_err = _confine(to_path, ctx)
+    if source is None:
+        return source_err
+    if target is None:
+        return target_err
+    if not source.exists():
+        return f"Error: origem não encontrada: {from_path}"
+    if target.exists():
+        return f"Error: destino já existe: {to_path}"
+    try:
+        root, _ = _workspace_root(ctx)
+        await asyncio.to_thread(_assert_no_symlink_components, source, root)
+        await asyncio.to_thread(_assert_no_symlink_components, target, root)
+        await asyncio.to_thread(_mkdir_confined, target.parent, root)
+        await asyncio.to_thread(_assert_no_symlink_components, target.parent, root)
+        await asyncio.to_thread(_move_confined, source, target, root)
+        return f"[OK] Movido: {from_path} -> {to_path}"
+    except (OSError, ValueError) as exc:
+        return f"Error movendo caminho: {exc}"
+
+
+@vtool(
+    extras=ToolExtras(
+        render_hint="table",
+        category="filesystem",
+        destructive=False,
+        icon="search",
+    )
+)
+async def file_search(query: str, ctx: ToolContext, path: str = ".") -> str:
+    """Busca texto no workspace, com o mesmo contrato do Files Workbench."""
+    if not query.strip():
+        return "Error: query é obrigatório"
+    return await grep(re.escape(query), ctx, path)
+
+
 def _grep_sync(pattern: str, search_path: Path) -> list[str]:
     results: list[str] = []
     base_dir = search_path if search_path.is_dir() else search_path.parent
@@ -566,6 +905,10 @@ input; devolve o controle ao agente em vez de continuar bloqueado."""
 _HARD_TIMEOUT = 60.0
 """Teto absoluto — depois disso o processo é morto de verdade."""
 
+_ANSI_ESCAPE_RE = re.compile(
+    r"(?:\x1B\[[0-?]*[ -/]*[@-~])|(?:\x1B\][^\x07]*(?:\x07|\x1B\\))"
+)
+
 
 async def _drain_terminal_output(
     thread_id: str,
@@ -590,14 +933,36 @@ async def _drain_terminal_output(
         async def _stream(stream: asyncio.StreamReader | None) -> None:
             if stream is None:
                 return
-            while True:
-                raw = await stream.readline()
-                if not raw:
-                    break
-                line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+            pending = bytearray()
+
+            def append_line(raw_line: bytes) -> None:
+                line = raw_line.decode("utf-8", errors="replace").rstrip("\r")
+                # PowerShell/ConPTY emits cursor-mode probes and other ANSI
+                # control sequences during startup. They are terminal UI
+                # protocol, not command output, and must not reach the LLM.
+                line = _ANSI_ESCAPE_RE.sub("", line)
                 output_lines.append(line)
                 emit_terminal_line(line)
                 last_activity[0] = time.monotonic()
+
+            while True:
+                # Do not use readline(): a command can emit a single very
+                # large line (for example a minified JSON response or a
+                # serialized diff), which exceeds asyncio's 64 KiB stream
+                # limit and raises LimitOverrunError. Chunked reads preserve
+                # streaming while allowing arbitrarily long logical lines.
+                raw = await stream.read(64 * 1024)
+                if not raw:
+                    break
+                pending.extend(raw)
+                while True:
+                    newline = pending.find(b"\n")
+                    if newline < 0:
+                        break
+                    append_line(bytes(pending[:newline]))
+                    del pending[: newline + 1]
+            if pending:
+                append_line(bytes(pending))
 
         stdout_task = asyncio.ensure_future(_stream(proc.stdout))
         stderr_task = asyncio.ensure_future(_stream(proc.stderr))
@@ -728,7 +1093,56 @@ async def terminal(
             "and fork bombs are not permitted."
         )
 
+    # Quando o agente já assumiu um PTY aberto pela Workbench, ``terminal``
+    # precisa escrever nesse mesmo processo. Criar um subprocesso paralelo
+    # esconderia o comando da UI e perderia estado (cwd, autenticação e
+    # variáveis) do shell que o usuário abriu.
+    from backend.services.pty_registry import pty_registry
+
+    shared_sessions = pty_registry.list_for_context(
+        user_id=ctx.user_id,
+        thread_id=ctx.thread_id,
+        workspace_id=ctx.workspace_id,
+    )
+    if shared_sessions:
+        if len(shared_sessions) > 1:
+            return (
+                "Error: há mais de um terminal compartilhado nesta thread; "
+                "use `write_terminal` com o terminal_id explícito."
+            )
+        session = shared_sessions[0]
+        request_id = f"agent-terminal-{uuid.uuid4().hex}"
+        result = session.write_input((command + "\n").encode("utf-8"), request_id)
+        logger.info(
+            "terminal_shared_command_dispatched",
+            extra={
+                "command": command,
+                "terminal_id": session.terminal_id,
+                "thread_id": ctx.thread_id,
+                "workspace_id": ctx.workspace_id,
+                "status": result.get("status"),
+            },
+        )
+        return json.dumps(
+            {
+                **result,
+                "shared": True,
+                "message": "Comando enviado ao terminal da Workbench; use read_terminal para ler a saída.",
+            },
+            ensure_ascii=False,
+        )
+
     root, ws = _workspace_root(ctx)
+    logger.info(
+        "terminal_command_started",
+        extra={
+            "tool": "terminal",
+            "command": command,
+            "workspace_id": getattr(ws, "id", None),
+            "thread_id": thread_id,
+            "status": "started",
+        },
+    )
 
     # Workspace remoto (SSH ou Codespace): delega via transport.
     # O streaming linha-a-linha e o stdin interativo não são suportados

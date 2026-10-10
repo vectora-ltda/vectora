@@ -17,8 +17,12 @@ import json
 import logging
 import time
 from typing import Any, Literal
+from urllib.parse import urljoin, urlparse
+
+import httpx
 
 from backend.settings import settings
+from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
 
 logger = logging.getLogger(__name__)
@@ -26,6 +30,7 @@ logger = logging.getLogger(__name__)
 #: `max_results` e `search_depth` agora são por chamada — o cliente nativo
 #: não os prende na construção como o pacote de integração de terceiros fazia.
 _MAX_RESULTS = 5
+_MAX_TOOL_CONTENT = 120_000
 
 
 def _tavily_client() -> Any:
@@ -112,7 +117,7 @@ async def _search_via_fallback(query: str) -> str:
 
 
 async def _fetch_via_fallback(url: str) -> str:
-    """Fallback sem API key para `fetch_url`: Chromium real (Playwright).
+    """Fallback sem API key para `fetch_url`: Chromium do Electron via CDP.
     Mesmo contrato de `_search_via_fallback` — nunca propaga."""
     try:
         from backend.browser.search_fallback import fetch_fallback
@@ -136,8 +141,96 @@ async def _fetch_via_fallback(url: str) -> str:
         logger.exception("fetch_url fallback failed", extra={"url": url})
         return (
             "Error: TAVILY_API_KEY not configured and the Chromium fallback "
-            "failed. Set TAVILY_API_KEY or run `playwright install chromium`."
+            "failed. Set TAVILY_API_KEY and start the Electron Browser Workbench."
         )
+
+
+async def _fetch_via_http(url: str, ctx: ToolContext | None = None) -> str:
+    """Busca uma URL diretamente quando o backend de extração falha."""
+    from backend.browser.ssrf_guard import is_url_ssrf_safe
+    from backend.services.prompt_injection import detect_injection, envelope_untrusted
+
+    headers = {
+        "User-Agent": "Vectora/1.0",
+        "Accept": "text/html,application/json,text/plain",
+    }
+    github_hosts = {"github.com", "www.github.com", "api.github.com"}
+    host = (urlparse(url).hostname or "").lower()
+    token: str | None = None
+    if urlparse(url).scheme == "https" and host in github_hosts and ctx is not None:
+        try:
+            from backend.tools.github import _github_token
+
+            token = await _github_token(ctx)
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+        except Exception:
+            logger.debug("fetch_url: token GitHub indisponível", exc_info=True)
+
+    max_bytes = 2_000_000
+
+    async def _read_limited(response: httpx.Response) -> str:
+        response.raise_for_status()
+        chunks: list[bytes] = []
+        size = 0
+        async for chunk in response.aiter_bytes():
+            size += len(chunk)
+            if size > max_bytes:
+                remaining = max_bytes - (size - len(chunk))
+                if remaining > 0:
+                    chunks.append(chunk[:remaining])
+                raise ValueError("resposta excede o limite de 2 MB")
+            chunks.append(chunk)
+        return b"".join(chunks).decode(response.encoding or "utf-8", errors="replace")
+
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+        async with client.stream("GET", url, headers=headers) as response:
+            if 300 <= response.status_code < 400:
+                location = response.headers.get("location")
+                if not location:
+                    response.raise_for_status()
+                redirected = urljoin(url, location)
+                if not is_url_ssrf_safe(redirected):
+                    raise ValueError("redirect recusado pelo SSRF guard")
+                redirected_url = urlparse(redirected)
+                redirected_host = (redirected_url.hostname or "").lower()
+                redirected_headers = dict(headers)
+                if (
+                    redirected_url.scheme != "https"
+                    or redirected_host not in github_hosts
+                ):
+                    redirected_headers.pop("Authorization", None)
+                async with client.stream(
+                    "GET", redirected, headers=redirected_headers
+                ) as redirected_response:
+                    content = await _read_limited(redirected_response)
+            else:
+                content = await _read_limited(response)
+    original_length = len(content)
+    if len(content) > _MAX_TOOL_CONTENT:
+        content = (
+            content[:_MAX_TOOL_CONTENT]
+            + f"\n\n[conteúdo truncado pelo Vectora: {original_length} bytes; "
+            f"limite {_MAX_TOOL_CONTENT}]"
+        )
+        logger.info(
+            "fetch_url content truncated",
+            extra={"url": url, "content_length": original_length},
+        )
+    if (pattern := detect_injection(content)) is not None:
+        logger.warning(
+            "fetch_url: padrão de prompt injection detectado (log-only)",
+            extra={"url": url, "pattern": pattern},
+        )
+    logger.info(
+        "fetch_url direct HTTP completed",
+        extra={
+            "url": url,
+            "content_length": len(content),
+            "status": response.status_code,
+        },
+    )
+    return envelope_untrusted(content, source=url)
 
 
 @vtool(
@@ -278,7 +371,7 @@ async def web_search(
         icon="link",
     )
 )
-async def fetch_url(url: str) -> str:
+async def fetch_url(url: str, ctx: ToolContext | None = None) -> str:
     """Busca e extrai conteúdo de texto de uma URL específica usando Tavily.
 
     Args:
@@ -300,6 +393,21 @@ async def fetch_url(url: str) -> str:
             "metadata IP address (blocked for security, SSRF)."
         )
 
+    # GitHub pages and API responses are public HTTP resources.  Resolve them
+    # directly instead of requiring Tavily or a local Electron browser; this
+    # keeps the public route usable in headless CI and when no provider key is
+    # configured.  The helper still applies the SSRF guard, size limit and
+    # optional integration token.
+    host = (urlparse(url).hostname or "").lower()
+    github_hosts = {"github.com", "www.github.com"}
+    if host == "api.github.com" or (
+        host in github_hosts and not settings.tavily_api_key
+    ):
+        try:
+            return await _fetch_via_http(url, ctx)
+        except Exception:
+            logger.exception("fetch_url GitHub HTTP path failed", extra={"url": url})
+
     if not settings.tavily_api_key:
         logger.warning("TAVILY_API_KEY not configured — usando fallback via Chromium")
         return await _fetch_via_fallback(url)
@@ -314,7 +422,17 @@ async def fetch_url(url: str) -> str:
 
     try:
         client = _get_extract_tool()
-        results = await _invoke_backend(client, {"url": url})
+        try:
+            results = await _invoke_backend(client, {"url": url})
+        except AttributeError:
+            logger.warning(
+                "backend de busca não suporta extração; usando HTTP direto",
+                extra={
+                    "url": url,
+                    "backend": getattr(client, "name", type(client).__name__),
+                },
+            )
+            return await _fetch_via_http(url, ctx)
         if not results:
             logger.warning("fetch_url returned no content", extra={"url": url})
             if _tracer:
@@ -370,7 +488,10 @@ async def fetch_url(url: str) -> str:
             return await _fetch_via_fallback(url)
         if "no extracted results" in err.lower():
             return f"No content found at {url}"
-        return "Error occurred fetching URL. Please check logs."
+        return (
+            "Error occurred fetching URL. The configured extraction backend "
+            "failed; check its configuration or retry."
+        )
 
 
 @vtool(

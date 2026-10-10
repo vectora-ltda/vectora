@@ -15,6 +15,7 @@ um cliente de provider, é o orquestrador entre eles.
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import TYPE_CHECKING
 
@@ -100,7 +101,6 @@ def load_chat_client(model_id: str) -> ChatClient:  # noqa: PLR0911
     Espelha `backend/services/utils.py::_build_concrete_model`, mas devolve
     um `ChatClient` (Protocol nativo) em vez de `BaseChatModel`.
     """
-    import os
 
     from backend.services.env import get_env
 
@@ -190,11 +190,68 @@ def load_chat_client(model_id: str) -> ChatClient:  # noqa: PLR0911
                 model=model_name,
                 client=OpenRouterClient(api_key=api_key, base_url=base_url),
             )
+        case "llamacpp":
+            from backend.llm.openrouter.chat_client import OpenRouterChatClient
+            from backend.llm.openrouter.client import OpenRouterClient
+            from backend.settings import settings
+
+            mode = os.getenv("LLAMACPP_MODE", "external")
+            base_url = settings.llamacpp_base_url or "http://127.0.0.1:18080/v1"
+            api_key = settings.llamacpp_api_key or ""
+            if mode == "managed":
+                from backend.services.llamacpp_sidecar import llamacpp_status
+
+                sidecar = llamacpp_status()
+                if not sidecar.get("running"):
+                    raise ValueError(
+                        "sidecar llama.cpp gerenciado não está em execução"
+                    )
+                host = str(sidecar.get("host") or "127.0.0.1")
+                port = sidecar.get("port")
+                if not isinstance(port, int):
+                    raise ValueError("sidecar llama.cpp sem porta válida")
+                base_url = f"http://{f'[{host}]' if ':' in host else host}:{port}/v1"
+                api_key = ""
+
+            return OpenRouterChatClient(
+                model=model_name,
+                client=OpenRouterClient(
+                    api_key=api_key,
+                    base_url=base_url,
+                    require_api_key=False,
+                    include_attribution=False,
+                ),
+            )
+        case "dmr":
+            from backend.llm.openrouter.chat_client import OpenRouterChatClient
+            from backend.llm.openrouter.client import OpenRouterClient
+            from backend.services.docker_model_runner import normalize_base_url
+            from backend.settings import settings
+
+            base_url = normalize_base_url(settings.dmr_base_url)
+            contract = settings.dmr_contract or "openai"
+            if contract == "ollama":
+                from backend.llm.ollama.chat_client import OllamaChatClient
+                from backend.llm.ollama.client import OllamaClient
+
+                return OllamaChatClient(
+                    model=model_name,
+                    client=OllamaClient(base_url=base_url),
+                )
+            return OpenRouterChatClient(
+                model=model_name,
+                client=OpenRouterClient(
+                    api_key="",
+                    base_url=f"{base_url}/engines/v1",
+                    require_api_key=False,
+                    include_attribution=False,
+                ),
+            )
         case _:
             msg = (
                 f"Provider de LLM nativo desconhecido: {provider!r}. Suportados: "
                 "openai, anthropic, google_genai, cohere, ollama, openrouter, "
-                "nine_router."
+                "nine_router, llamacpp, dmr."
             )
             raise ValueError(msg)
 

@@ -1,10 +1,13 @@
 """Tool: HTTP GET/POST/PUT requests (async)."""
 
 import json
+import logging
 
 import httpx
 
 from backend.tools.registry import ToolExtras, vtool
+
+logger = logging.getLogger(__name__)
 
 
 @vtool(
@@ -30,6 +33,15 @@ async def http_request(
         Response body ou erro
     """
     try:
+        logger.info(
+            "http_request_started",
+            extra={
+                "tool": "http_request",
+                "operation": method.upper(),
+                "endpoint": url,
+                "status": "started",
+            },
+        )
         async with httpx.AsyncClient(timeout=10) as client:
             req_headers = {}
             if headers:
@@ -40,6 +52,16 @@ async def http_request(
 
             resp = await client.request(
                 method.upper(), url, content=req_body, headers=req_headers
+            )
+            logger.info(
+                "http_request_completed",
+                extra={
+                    "tool": "http_request",
+                    "operation": method.upper(),
+                    "endpoint": url,
+                    "status": getattr(resp, "status_code", None),
+                    "output_length": len(resp.text),
+                },
             )
             return resp.text
     except Exception as e:

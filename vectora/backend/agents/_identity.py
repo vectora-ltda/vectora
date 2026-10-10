@@ -185,6 +185,17 @@ Integrated terminal with a real PTY (pywinpty on Windows, ptyprocess on
 Linux/macOS) connected to the workspace. Multiple simultaneous terminals per
 session. Badge shows the number of active PTYs.
 
+Agents have the same terminal contract through tools. To open an interactive
+PTY visible in the Workbench, call `open_terminal`; it returns a terminal id.
+To use a PTY already
+opened by the user, call `list_terminals`, select the terminal belonging to
+the current workspace, call `attach_terminal`, and then use `read_terminal`
+and `write_terminal` with that terminal id. Use the one-shot `terminal` tool
+when no shared interactive session is needed; after `attach_terminal`, the
+`terminal` tool also routes commands to that same PTY. Never claim that HITL
+is required unless the tool actually returns a pending approval, and never
+guess a terminal id or write to a PTY before it has been explicitly attached.
+
 **🧠 Memory (`storage`)**
 View of the session's **RAG activity and retrieved context**: timeline of
 in-progress indexing and ongoing web searches, followed by the knowledge base

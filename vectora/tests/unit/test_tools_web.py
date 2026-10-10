@@ -144,6 +144,32 @@ class TestFetchUrlSsrfGuard:
         assert "ok" in result
         assert result.startswith('<untrusted_content source="https://example.com">')
 
+    async def test_backend_sem_extract_usa_http_direto(self) -> None:
+        """Um SearchBackend só com `.search` não pode parecer repo privado."""
+        backend = MagicMock(name="tavily")
+        with (
+            patch("backend.tools.web.settings") as ms,
+            patch("backend.browser.ssrf_guard.is_url_ssrf_safe", return_value=True),
+            patch("backend.tools.web._get_extract_tool", return_value=backend),
+            patch(
+                "backend.tools.web._invoke_backend",
+                new=AsyncMock(side_effect=AttributeError("sem extract")),
+            ),
+            patch(
+                "backend.tools.web._fetch_via_http",
+                new=AsyncMock(
+                    return_value="<untrusted_content>github</untrusted_content>"
+                ),
+            ) as direct,
+        ):
+            ms.tavily_api_key = "real-key"
+            result = await fetch_url(
+                url="https://github.com/vectora-ltda/vectora/issues/317"
+            )
+
+        direct.assert_awaited_once()
+        assert "github" in result
+
 
 @pytest.mark.asyncio
 class TestCrawlEMapExigemKey:

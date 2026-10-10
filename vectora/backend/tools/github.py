@@ -7,12 +7,14 @@ Autenticação via ``GITHUB_TOKEN`` (mesmo token da integração OAuth/PAT em
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 
 import httpx
 
+from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
 
 logger = logging.getLogger(__name__)
@@ -20,7 +22,24 @@ logger = logging.getLogger(__name__)
 _GITHUB_API = "https://api.github.com"
 
 
-def _github_token() -> str:
+async def _github_token(ctx: ToolContext | None = None) -> str:
+    """Resolve o token salvo na integração do usuário antes do ambiente global."""
+    if ctx is not None:
+        try:
+            from backend.rbac.auth import get_env_overrides
+
+            overrides = await get_env_overrides(ctx.user_id)
+            token = overrides.get("GITHUB_TOKEN", "").strip()
+            if token:
+                return token
+        except Exception:
+            logger.debug(
+                "github: não foi possível ler o token do usuário", exc_info=True
+            )
+    # Com contexto de usuário, ausência de token significa operação anônima;
+    # não herde a credencial global de outro usuário.
+    if ctx is not None:
+        return ""
     return os.environ.get("GITHUB_TOKEN", "").strip()
 
 
@@ -32,7 +51,9 @@ def _github_token() -> str:
         icon="git-pull-request",
     )
 )
-async def github_fetch_pr_diff(owner: str, repo: str, pr_number: int) -> str:
+async def github_fetch_pr_diff(
+    owner: str, repo: str, pr_number: int, ctx: ToolContext | None = None
+) -> str:
     """Busca o diff completo de um Pull Request via API do GitHub.
 
     O payload do webhook `pull_request` não traz o diff, só metadados —
@@ -46,26 +67,65 @@ async def github_fetch_pr_diff(owner: str, repo: str, pr_number: int) -> str:
     Returns:
         JSON com o diff em texto, ou um objeto JSON com status de erro.
     """
-    token = _github_token()
-    if not token:
-        return json.dumps({"status": "error", "error": "GITHUB_TOKEN não configurado."})
-
     url = f"{_GITHUB_API}/repos/{owner}/{repo}/pulls/{pr_number}"
     headers = {
-        "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github.v3.diff",
         "X-GitHub-Api-Version": "2022-11-28",
     }
+    token = await _github_token(ctx)
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    logger.info(
+        "github_api_request_started",
+        extra={
+            "tool": "github_fetch_pr_diff",
+            "endpoint": url,
+            "operation": "GET pull_request_diff",
+            "owner": owner,
+            "repo": repo,
+            "pr_number": pr_number,
+            "status": "started",
+        },
+    )
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(url, headers=headers)
+        resp: httpx.Response | None = None
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    resp = await client.get(url, headers=headers)
+                break
+            except httpx.TransportError:
+                if attempt == 2:
+                    raise
+                await asyncio.sleep(0.25 * (attempt + 1))
+                logger.warning(
+                    "github_fetch_pr_diff: transporte instável, repetindo",
+                    extra={"owner": owner, "repo": repo, "pr_number": pr_number},
+                )
+        if resp is None:
+            return json.dumps(
+                {"status": "error", "error": "GitHub não retornou resposta."}
+            )
         if resp.status_code != 200:
             return json.dumps(
                 {
                     "status": "error",
-                    "error": f"GitHub API respondeu {resp.status_code}: {resp.text[:500]}",
+                    "error": f"GitHub API respondeu {resp.status_code}; verifique o repositório e o número do PR.",
                 }
             )
+        logger.info(
+            "github_api_request_completed",
+            extra={
+                "tool": "github_fetch_pr_diff",
+                "endpoint": url,
+                "operation": "GET pull_request_diff",
+                "owner": owner,
+                "repo": repo,
+                "pr_number": pr_number,
+                "status": "ok",
+                "output_length": len(resp.text),
+            },
+        )
         return json.dumps({"status": "ok", "diff": resp.text})
     except Exception as exc:
         logger.exception(
@@ -83,7 +143,11 @@ async def github_fetch_pr_diff(owner: str, repo: str, pr_number: int) -> str:
     )
 )
 async def github_post_pr_comment(
-    owner: str, repo: str, pr_number: int, body: str
+    owner: str,
+    repo: str,
+    pr_number: int,
+    body: str,
+    ctx: ToolContext | None = None,
 ) -> str:
     """Posta um comentário num Pull Request do GitHub.
 
@@ -100,7 +164,7 @@ async def github_post_pr_comment(
         JSON com a URL do comentário criado, ou um objeto JSON com status
         de erro.
     """
-    token = _github_token()
+    token = await _github_token(ctx)
     if not token:
         return json.dumps({"status": "error", "error": "GITHUB_TOKEN não configurado."})
 
@@ -111,6 +175,18 @@ async def github_post_pr_comment(
         "X-GitHub-Api-Version": "2022-11-28",
     }
     try:
+        logger.info(
+            "github_api_request_started",
+            extra={
+                "tool": "github_post_pr_comment",
+                "endpoint": url,
+                "operation": "POST issue_comment",
+                "owner": owner,
+                "repo": repo,
+                "pr_number": pr_number,
+                "status": "started",
+            },
+        )
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(url, headers=headers, json={"body": body})
         if resp.status_code != 201:
@@ -121,6 +197,18 @@ async def github_post_pr_comment(
                 }
             )
         data = resp.json()
+        logger.info(
+            "github_api_request_completed",
+            extra={
+                "tool": "github_post_pr_comment",
+                "endpoint": url,
+                "operation": "POST issue_comment",
+                "owner": owner,
+                "repo": repo,
+                "pr_number": pr_number,
+                "status": "ok",
+            },
+        )
         return json.dumps({"status": "ok", "comment_url": data.get("html_url", "")})
     except Exception as exc:
         logger.exception(

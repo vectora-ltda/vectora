@@ -26,16 +26,49 @@ def _mock_httpx(response: MagicMock):
 
 class TestGithubFetchPrDiff:
     @pytest.mark.asyncio
-    async def test_sem_token_retorna_erro(self, monkeypatch):
+    async def test_repositorio_publico_funciona_sem_token(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-        result = json.loads(
-            await github_fetch_pr_diff(owner="vectora", repo="vectora", pr_number=1)
-        )
-        assert result["status"] == "error"
-        assert "GITHUB_TOKEN" in result["error"]
+        mock_response = MagicMock(status_code=200, text="diff público")
+        client = _mock_httpx(mock_response)
+        with patch("httpx.AsyncClient", return_value=client):
+            result = json.loads(
+                await github_fetch_pr_diff(owner="vectora", repo="vectora", pr_number=1)
+            )
+        assert result == {"status": "ok", "diff": "diff público"}
+        assert "Authorization" not in client.get.call_args.kwargs["headers"]
 
     @pytest.mark.asyncio
-    async def test_sucesso_devolve_diff(self, monkeypatch):
+    async def test_token_do_usuario_tem_precedencia(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("GITHUB_TOKEN", "token-global")
+        mock_response = MagicMock(status_code=200, text="diff autenticado")
+        client = _mock_httpx(mock_response)
+        with (
+            patch("httpx.AsyncClient", return_value=client),
+            patch(
+                "backend.rbac.auth.get_env_overrides",
+                new=AsyncMock(return_value={"GITHUB_TOKEN": "token-do-usuario"}),
+            ),
+        ):
+            result = json.loads(
+                await github_fetch_pr_diff(
+                    owner="vectora",
+                    repo="vectora",
+                    pr_number=1,
+                    ctx=MagicMock(user_id="user-1"),
+                )
+            )
+        assert result["status"] == "ok"
+        assert (
+            client.get.call_args.kwargs["headers"]["Authorization"]
+            == "Bearer token-do-usuario"
+        )
+
+    @pytest.mark.asyncio
+    async def test_sucesso_devolve_diff(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("GITHUB_TOKEN", "ghp_fake")
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -52,7 +85,9 @@ class TestGithubFetchPrDiff:
         assert "print('oi')" in result["diff"]
 
     @pytest.mark.asyncio
-    async def test_pr_inexistente_retorna_erro_com_status_code(self, monkeypatch):
+    async def test_pr_inexistente_retorna_erro_com_status_code(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("GITHUB_TOKEN", "ghp_fake")
         mock_response = MagicMock()
         mock_response.status_code = 404
@@ -69,7 +104,9 @@ class TestGithubFetchPrDiff:
         assert "404" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_erro_de_rede_nunca_propaga(self, monkeypatch):
+    async def test_erro_de_rede_nunca_propaga(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("GITHUB_TOKEN", "ghp_fake")
         mock_ctx = AsyncMock()
         mock_ctx.__aenter__ = AsyncMock(return_value=mock_ctx)
@@ -87,7 +124,9 @@ class TestGithubFetchPrDiff:
 
 class TestGithubPostPrComment:
     @pytest.mark.asyncio
-    async def test_sem_token_retorna_erro(self, monkeypatch):
+    async def test_sem_token_retorna_erro(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.delenv("GITHUB_TOKEN", raising=False)
         result = json.loads(
             await github_post_pr_comment(
@@ -98,7 +137,9 @@ class TestGithubPostPrComment:
         assert "GITHUB_TOKEN" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_sucesso_devolve_url_do_comentario(self, monkeypatch):
+    async def test_sucesso_devolve_url_do_comentario(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("GITHUB_TOKEN", "ghp_fake")
         mock_response = MagicMock()
         mock_response.status_code = 201
@@ -120,7 +161,9 @@ class TestGithubPostPrComment:
         assert "issuecomment-1" in result["comment_url"]
 
     @pytest.mark.asyncio
-    async def test_token_sem_escopo_retorna_erro_com_status_code(self, monkeypatch):
+    async def test_token_sem_escopo_retorna_erro_com_status_code(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("GITHUB_TOKEN", "ghp_sem_escopo")
         mock_response = MagicMock()
         mock_response.status_code = 403

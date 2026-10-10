@@ -57,6 +57,11 @@ class TestIsPublicRoute:
 
         assert _is_public_route("/metrics") is False
 
+    def test_provider_routing_is_private(self):
+        from backend.api.middleware.auth import _is_public_route
+
+        assert _is_public_route("/provider-routing/llama-cpp/status") is False
+
     def test_update_changelog_is_private(self):
         from backend.api.middleware.auth import _is_public_route
 

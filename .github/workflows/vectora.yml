@@ -347,9 +347,9 @@ jobs:
           VECTORA_TEST_POSTGRES_DSN: postgresql://vectora:vectora@localhost:5432/vectora_test
           VECTORA_TEST_REDIS_URL: redis://localhost:6379/0
           VECTORA_TEST_QDRANT_URL: http://localhost:6333
-        run: uv run pytest tests/integration/ -v --timeout=120 -p no:randomly --tb=short -m "not singularity"
+        run: uv run pytest tests/integration/ -v --timeout=120 -p no:randomly --tb=short -m "not live and not singularity"
       - name: E2E tests
-        run: uv run pytest tests/e2e/ -v --timeout=180 --tb=short
+        run: uv run pytest tests/e2e/ -m live -v --timeout=180 --tb=short
 
   # ── 5. Resolve release line ─────────────────────────────────────────────
   # Both native builds and R2/KV publication consume this single output. In

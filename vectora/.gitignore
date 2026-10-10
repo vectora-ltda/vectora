@@ -346,9 +346,11 @@ AbilitySystem_repo/
 
 # WIP isolado fora do src/
 /.wip/
-.vectora/
+!.vectora/
+.vectora/*
 /desktop/dist-electron
 /desktop/build-resources
 
 # Saída legada do context graph (agora em .vectora/context-graph/)
 graphify-out/
+!.vectora/skills.lock.json

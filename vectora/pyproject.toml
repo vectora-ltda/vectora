@@ -318,7 +318,7 @@ venvPath = "."
 executionEnvironments = [{ root = "vectora" }]
 
 [tool.pytest.ini_options]
-addopts = "--color=yes --tb=short"
+addopts = "--color=yes --tb=short -m 'not live'"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
@@ -383,10 +383,11 @@ markers = [
     "stress: testes de carga e concorrência — sem APIs externas, apenas infra local",
     "storage: testes de integração de storage — Postgres, Redis, Qdrant, SQLite, LanceDB (sobe docker automaticamente)",
     "singularity: testes de escape real do sandbox Singularity/Apptainer — requer binário instalado, deselecionado por padrão no CI (roda local com 'singularity'/'apptainer' presentes)",
-    "browser: testes que sobem Chromium real via Playwright — requer 'playwright install chromium'",
+    "browser: testes que conectam ao Chromium do Electron via CDP — requer Electron ativo",
     "frontend_build: testes que sobem o backend real servindo frontend/dist — requer 'pnpm --dir frontend build'",
     "electron_dev: testes que sobem o Electron dev build real — requer 'scons frontend' (ou 'pnpm --dir vectora/frontend install && pnpm --dir vectora/frontend run electron:build')",
     "live: testes sem mock que chamam LLM/Tavily reais — custam API real, só via 'scons tests-live'",
+    "local_llm: teste de integração contra um llama.cpp real iniciado pelo workflow local-llm",
     "real_lancedb: testes que chamam lancedb.connect_async() real (sem mock) — travam de forma determinística no Linux CI, rodam em step isolado do workflow (ver comentário do timeout acima)",
 ]
 

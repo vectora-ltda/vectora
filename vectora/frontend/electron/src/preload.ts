@@ -11,6 +11,11 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { BrowserViewEvent, ViewBounds } from "./browser-view-manager.js";
 import type { UpdateBackupEntry } from "./update-backup-types.js";
+import type {
+  DmrDetection,
+  DmrManifestModel,
+  DmrOperation,
+} from "./dmr-operations.js";
 
 export interface VectoraDesktopBridge {
   /** "win32" | "darwin" | "linux" — útil para shortcuts e UI condicional. */
@@ -137,6 +142,21 @@ export interface VectoraDesktopBridge {
     setPercent: (percent: number) => void;
     get: () => Promise<number>;
   };
+  /** Operações locais do Docker Model Runner executadas no processo principal. */
+  dmr: {
+    detect: () => Promise<DmrDetection>;
+    list: () => Promise<{
+      version: 1;
+      models: Record<string, DmrManifestModel>;
+    }>;
+    prepare: (reference: string) => Promise<DmrOperation>;
+    start: (reference: string, contextSize?: number) => Promise<DmrOperation>;
+    stop: (reference: string) => Promise<DmrOperation>;
+    remove: (reference: string, confirmed: boolean) => Promise<DmrOperation>;
+    getOperation: (id: string) => Promise<DmrOperation | null>;
+    listOperations: () => Promise<DmrOperation[]>;
+    cancel: (id: string) => Promise<boolean>;
+  };
 }
 
 const bridge: VectoraDesktopBridge = {
@@ -228,6 +248,20 @@ const bridge: VectoraDesktopBridge = {
     setPercent: (percent) =>
       ipcRenderer.send("vectora:set-zoom-percent", percent),
     get: () => ipcRenderer.invoke("vectora:get-zoom-percent"),
+  },
+  dmr: {
+    detect: () => ipcRenderer.invoke("vectora:dmr-detect"),
+    list: () => ipcRenderer.invoke("vectora:dmr-list"),
+    prepare: (reference) =>
+      ipcRenderer.invoke("vectora:dmr-prepare", reference),
+    start: (reference, contextSize) =>
+      ipcRenderer.invoke("vectora:dmr-start", reference, contextSize),
+    stop: (reference) => ipcRenderer.invoke("vectora:dmr-stop", reference),
+    remove: (reference, confirmed) =>
+      ipcRenderer.invoke("vectora:dmr-remove", reference, confirmed),
+    getOperation: (id) => ipcRenderer.invoke("vectora:dmr-operation", id),
+    listOperations: () => ipcRenderer.invoke("vectora:dmr-operations"),
+    cancel: (id) => ipcRenderer.invoke("vectora:dmr-cancel", id),
   },
 };
 

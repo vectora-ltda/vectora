@@ -56,9 +56,11 @@ jobs:
     permissions:
       pull-requests: write
     steps:
-      - uses: srvaroa/labeler@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # A action oficial roda em Node e não precisa construir um container
+      # Alpine no Docker Hub, evitando falhas transitórias de rate limit.
+      - uses: actions/labeler@v6
+        with:
+          repo-token: ${{ github.token }}
 
   commitlint:
     name: Verify PR title (Conventional Commits)

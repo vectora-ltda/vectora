@@ -353,6 +353,55 @@ export function TerminalPanel({ threadId }: TerminalPanelProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // O agente também pode abrir PTYs. Sincroniza o registry do backend para
+  // que essas sessões apareçam como abas nesta mesma Workbench, inclusive
+  // quando várias forem criadas em paralelo.
+  useEffect(() => {
+    if (!workspace?.id || !workspace.trusted) return;
+    let stopped = false;
+    const syncAgentTerminals = async () => {
+      try {
+        const params = new URLSearchParams({
+          thread_id: threadId,
+          workspace_id: workspace.id,
+        });
+        const response = await fetch(
+          `/vectora.terminal.v1/list?${params.toString()}`,
+          { credentials: "include" },
+        );
+        if (!response.ok || stopped) return;
+        const payload = (await response.json()) as {
+          terminals?: Array<{ terminal_id?: string; alive?: boolean }>;
+        };
+        const current = useTerminalsStore.getState().list(threadId);
+        const known = new Set(current.map((terminal) => terminal.id));
+        for (const terminal of payload.terminals ?? []) {
+          if (
+            !terminal.terminal_id ||
+            !terminal.alive ||
+            known.has(terminal.terminal_id)
+          ) {
+            continue;
+          }
+          open(threadId, {
+            id: terminal.terminal_id,
+            title: "Agent terminal",
+            workspaceId: workspace.id,
+          });
+          known.add(terminal.terminal_id);
+        }
+      } catch {
+        // A transient auth/startup failure must not break the terminal panel.
+      }
+    };
+    void syncAgentTerminals();
+    const timer = window.setInterval(() => void syncAgentTerminals(), 1500);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [open, threadId, workspace?.id, workspace?.trusted]);
+
   if (!workspace) {
     return (
       <div className="h-full flex items-center justify-center text-xs text-muted-foreground">

@@ -135,6 +135,8 @@ def _provider_has_key(provider: str) -> bool:
 
     if provider == "nine_router":
         return bool(settings.nine_router_api_key and settings.nine_router_base_url)
+    if provider == "dmr":
+        return bool(settings.dmr_base_url)
 
     keymap = {
         "openai": settings.openai_api_key,

@@ -1,16 +1,17 @@
-"""Sessão de browser (Playwright/Chromium) contra o processo real — skip
-limpo sem o Chromium instalado (`playwright install chromium`).
+"""Sessão de browser via CDP contra o Chromium real do Electron.
 
-Diferente de test_tools_browser.py, que mocka Playwright deliberadamente
-(ver seu próprio docstring), este arquivo sobe um Chromium headless de
-verdade e valida o ciclo de vida completo de `backend/browser/session.py`.
+Diferente de test_tools_browser.py, que mocka Playwright deliberadamente,
+este arquivo conecta ao Electron ativo e valida o ciclo de vida completo de
+`backend/browser/session.py`, sem iniciar um navegador próprio.
 """
 
 from __future__ import annotations
 
 import http.server
+import os
 import threading
 
+import httpx
 import pytest
 
 from backend.browser import session as browser_session
@@ -39,17 +40,16 @@ def local_http_server():
         thread.join(timeout=5)
 
 
-def _chromium_available() -> bool:
-    from pathlib import Path
-
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
+def _electron_cdp_available() -> bool:
+    endpoint = os.environ.get("VECTORA_ELECTRON_CDP_URL", "").strip()
+    if not endpoint:
+        port = os.environ.get("VECTORA_ELECTRON_CDP_PORT", "9223").strip()
+        if port.isdigit():
+            endpoint = f"http://127.0.0.1:{port}"
+    if not endpoint:
         return False
-
     try:
-        with sync_playwright() as p:
-            return Path(p.chromium.executable_path).is_file()
+        return httpx.get(f"{endpoint}/json/version", timeout=1).is_success
     except Exception:
         return False
 
@@ -57,8 +57,8 @@ def _chromium_available() -> bool:
 pytestmark = [
     pytest.mark.browser,
     pytest.mark.skipif(
-        not _chromium_available(),
-        reason="Chromium não instalado — rode `playwright install chromium`",
+        not _electron_cdp_available(),
+        reason="Electron não está ativo ou não publicou o endpoint CDP",
     ),
 ]
 
@@ -72,7 +72,7 @@ async def _clean_sessions():
 
 
 @pytest.mark.asyncio
-async def test_get_browser_page_sobe_chromium_real_e_navega():
+async def test_get_browser_page_sobe_chromium_real_e_navega() -> None:
     page = await browser_session.get_browser_page("ws-real-1")
     await page.goto("about:blank")
 
@@ -83,6 +83,19 @@ async def test_get_browser_page_sobe_chromium_real_e_navega():
     # segundo Chromium por chamada.
     page_again = await browser_session.get_browser_page("ws-real-1")
     assert page_again is page
+
+
+async def test_browser_navega_github_publico_real_sem_login() -> None:
+    """Chromium deve acessar a issue pública sem cookies do GitHub."""
+    page = await browser_session.get_browser_page("ws-github-public")
+    response = await page.goto(
+        "https://github.com/vectora-ltda/vectora/issues/317",
+        wait_until="domcontentloaded",
+        timeout=30_000,
+    )
+    assert response is not None
+    assert response.status == 200
+    assert "vectora" in (await page.title()).lower()
 
 
 @pytest.mark.asyncio
