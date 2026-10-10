@@ -59,7 +59,7 @@ async def http_request(
                     "tool": "http_request",
                     "operation": method.upper(),
                     "endpoint": url,
-                    "status": resp.status_code,
+                    "status": getattr(resp, "status_code", None),
                     "output_length": len(resp.text),
                 },
             )

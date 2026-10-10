@@ -17,7 +17,8 @@ import logging
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, get_type_hints
+from types import UnionType
+from typing import Any, get_args, get_origin, get_type_hints
 
 from pydantic import BaseModel, create_model
 
@@ -224,7 +225,7 @@ def vtool(
         needs_ctx = False
         ctx_param_name: str | None = None
         for name, param in sig.parameters.items():
-            if hints.get(name) is ToolContext:
+            if _is_tool_context_annotation(hints.get(name)):
                 needs_ctx = True
                 ctx_param_name = name
                 continue
@@ -255,3 +256,23 @@ def vtool(
         return fn
 
     return decorator
+
+
+def _is_tool_context_annotation(annotation: Any) -> bool:
+    """Reconhece ``ToolContext`` também dentro de uniões opcionais.
+
+    Algumas tools de integração podem ser chamadas diretamente fora do loop
+    nativo e, por isso, anotam o contexto como ``ToolContext | None``. Esse
+    parâmetro continua sendo interno ao dispatcher: ele nunca deve aparecer
+    no schema enviado ao modelo e precisa receber o contexto atual quando a
+    tool é invocada pelo agente.
+    """
+    if annotation is ToolContext:
+        return True
+    origin = get_origin(annotation)
+    if origin == UnionType:
+        return any(_is_tool_context_annotation(arg) for arg in get_args(annotation))
+    # typing.Optional/Union em versões suportadas de Python.
+    return origin is not None and any(
+        _is_tool_context_annotation(arg) for arg in get_args(annotation)
+    )

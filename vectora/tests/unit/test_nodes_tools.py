@@ -73,17 +73,23 @@ def test_terminal_group_exposes_shared_pty_contract() -> None:
 
 def test_node_catalog_covers_every_non_subagent_tool() -> None:
     """Toda tool nativa chega ao node principal; AITL é subagente-only."""
-    import backend.tools.aitl  # noqa: F401  # registra ask_parent_agent
+    import backend.tools.aitl  # registra ask_parent_agent
 
-    registered = {tool.name for tool in TOOL_REGISTRY.all()}
+    # Ferramentas declaradas pelos próprios testes também ficam no singleton
+    # global durante a coleta. Elas não fazem parte do catálogo de produção.
+    registered = {
+        tool.name
+        for tool in TOOL_REGISTRY.all()
+        if tool.extras.category != "test" and not tool.name.startswith("_")
+    }
     catalog = {tool.name for tool in ALL_TOOLS}
     assert registered - catalog == {"ask_parent_agent", "delegate_to_subagent"}
 
 
 def test_every_tool_group_resolves_to_registered_tools() -> None:
     """Grupos não podem apontar para nomes ausentes no registry nativo."""
-    import backend.agents.souls  # noqa: F401  # registra AITL antes de resolver
-    import backend.nodes.tools  # noqa: F401  # registra todos os módulos
+    import backend.agents.souls  # registra AITL antes de resolver
+    import backend.nodes.tools  # registra todos os módulos
     from backend.tools.groups import TOOL_GROUPS
 
     registered = {tool.name for tool in TOOL_REGISTRY.all()}
