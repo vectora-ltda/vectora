@@ -16,6 +16,9 @@ Uso (PowerShell / cmd, a partir da raiz do monorepo):
     scons update --latest → mesma coisa, mas ignora ranges/lockfiles (pnpm
                           --latest cruza majors) — usar só antes de uma migração
                           grande, seguido de revisão manual de cada breaking change
+    scons install       → instala todas as dependências e runtimes locais
+                          (uv, pnpm, Hugo, Playwright/Chromium, Electron, NATS
+                          e FFmpeg) em uma única etapa reprodutível
     scons docker        → sobe PostgreSQL + Redis + Qdrant via docker compose
     scons clean         → remove outputs de build
 
@@ -740,6 +743,36 @@ def _action_update(target, source, env):
         print(">> revise uv.lock / pnpm-lock.yaml (x3) / go.mod+go.sum antes de commitar")
 
 
+def _action_install(target, source, env):
+    """Prepara todos os subprojetos e runtimes necessários para desenvolvimento.
+
+    A instalação respeita os lockfiles e não escolhe versões novas. Os
+    artefatos nativos são baixados depois das dependências que os invocam.
+    """
+    node_env = {"NODE_NO_WARNINGS": "1"}
+    with _open_log("install") as log:
+        _run([PNPM, "install", "--frozen-lockfile"], env=node_env, cwd=ROOT, log=log)
+        _run(["uv", "sync", "--frozen", "--all-extras"], log=log, cwd=VECTORA)
+        for project in ("vectora/frontend", "company", "services"):
+            _run(
+                [PNPM, "--dir", project, "install", "--frozen-lockfile"],
+                env=node_env,
+                cwd=ROOT,
+                log=log,
+            )
+        # Hugo resolve go.mod/go.sum; não existe `hugo mod download`.
+        _run([HUGO, "mod", "get"], log=log, cwd=DOCS)
+        _ensure_electron_binary()
+        playwright = [PNPM, "--dir", "vectora/frontend", "exec", "playwright", "install"]
+        if sys.platform == "linux":
+            playwright.append("--with-deps")
+        playwright.append("chromium")
+        _run(playwright, env=node_env, cwd=ROOT, log=log)
+        _action_fetch_nats(target, source, env)
+        _action_fetch_ffmpeg(target, source, env)
+    print("\n>> instalação completa; log em .scons-logs/install.txt")
+
+
 # ── Docker ────────────────────────────────────────────────────────────────────
 
 
@@ -1234,6 +1267,8 @@ def _action_help(target, source, env):
     scons clean            remove todos os outputs de build
 
   Manutenção
+    scons install          instala todos os projetos e runtimes locais (uv,
+                           pnpm, Hugo, Playwright/Chromium, Electron, NATS e FFmpeg)
     scons update           atualiza deps: uv (backend) + pnpm (frontend,
                            company, services) + hugo mod (docs)
     scons update --latest  idem, mas ignora ranges/lockfiles (major bumps) —
@@ -1455,6 +1490,7 @@ _cmd("coverage-edge", _action_coverage_edge)
 _cmd("tests-storage", _action_tests_storage)
 _cmd("tests-live", _action_tests_live)
 _cmd("lint",          _action_lint)
+_cmd("install",       _action_install)
 _cmd("update",        _action_update)
 _cmd("nats",          _action_fetch_nats)
 _cmd("ffmpeg",        _action_fetch_ffmpeg)
