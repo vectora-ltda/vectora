@@ -1,7 +1,7 @@
 import type {
   WorkbenchSettingsDescriptor,
-  WorkbenchId,
   WorkbenchSettingsCapability,
+  WorkbenchId,
 } from "@/lib/types/workbench-settings";
 import { createElement } from "react";
 import type { WorkbenchSettingsContext } from "@/lib/types/workbench-settings";
@@ -28,7 +28,7 @@ const MemorySettings = lazyWithRetry(
   "workbench-memory-settings",
 );
 function GitWorkbenchSettings(_context: WorkbenchSettingsContext) {
-  return createElement(GitSettingsTab, { showHeading: false });
+  return createElement(GitSettingsTab);
 }
 
 function section(
@@ -98,7 +98,7 @@ export const terminalSettings: WorkbenchSettingsDescriptor = {
   title: () => m.terminal_title(),
   description: () => m.terminal_sandbox_editor_autosync_hint(),
   icon: Settings2,
-  scope: "user",
+  scope: "workspace",
   sections: [
     section("display", () => m.workbench_terminal_display_title(), "user"),
     section("sandbox", () => m.terminal_title(), "workspace"),

@@ -977,7 +977,6 @@ function scheduleAutoUpdateChecks(): void {
 // IPC handlers (responde ao preload bridge)
 // ---------------------------------------------------------------------------
 
-/** Identify the application window that owns each native view. */
 function registerIpc(): void {
   ipcMain.handle("vectora:open-external", (_event, url: string) =>
     shell.openExternal(url),
