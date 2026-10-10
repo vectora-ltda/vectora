@@ -308,7 +308,7 @@ def test_release_rotation_verifies_tag_ancestry() -> None:
 
 def test_release_workflows_use_native_github_token() -> None:
     """Evita que um segredo expirado interrompa a criação automática das PRs."""
-    workflows = WORKFLOW.parent.glob("*.yml")
+    workflows = tuple(WORKFLOW.parent.glob("*.yml"))
     assert workflows
     for workflow in workflows:
         content = workflow.read_text(encoding="utf-8")
