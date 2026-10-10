@@ -36,7 +36,7 @@ describe("browser IPC validation", () => {
 
   it("validates kinds, ids, bounds and URLs", () => {
     expect(isValidBrowserViewKind("tab")).toBe(true);
-    expect(isValidBrowserViewKind("native-settings")).toBe(false);
+    expect(isValidBrowserViewKind("native-settings")).toBe(true);
     expect(isValidBrowserViewKind("settings")).toBe(false);
     expect(isValidViewId(1)).toBe(true);
     expect(isValidViewId(1.2)).toBe(false);
@@ -46,6 +46,25 @@ describe("browser IPC validation", () => {
     );
     expect(isValidBrowserUrl("https://example.com/path")).toBe(true);
     expect(isValidBrowserUrl("chrome://settings")).toBe(false);
+    expect(isValidBrowserUrl("chrome://settings", "native-settings")).toBe(
+      true,
+    );
+    expect(
+      isValidBrowserUrl("chrome://settings/passwords/", "native-settings"),
+    ).toBe(true);
+    expect(
+      isValidBrowserUrl(
+        "  CHROME://SETTINGS/Passwords///  ",
+        "native-settings",
+      ),
+    ).toBe(true);
+    expect(
+      isValidBrowserUrl("chrome://settings/flags", "native-settings"),
+    ).toBe(false);
+    expect(isValidBrowserUrl("chrome://settings/help", "native-settings")).toBe(
+      false,
+    );
+    expect(isValidBrowserUrl("chrome://flags", "native-settings")).toBe(false);
     expect(isValidBrowserUrl("file:///tmp/example")).toBe(false);
     expect(isValidBrowserUrl("not a URL")).toBe(false);
     expect(isValidBrowserUrl("")).toBe(false);

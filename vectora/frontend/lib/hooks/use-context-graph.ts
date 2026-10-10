@@ -7,6 +7,7 @@ export interface GraphStatus {
     | "not_built"
     | "running"
     | "done"
+    | "degraded"
     | "error"
     | "unknown"
     | "queued"
@@ -104,7 +105,7 @@ export function useContextGraph(workspaceId: string | null | undefined) {
 
   useEffect(() => {
     // oxlint-disable-next-line react/set-state-in-effect
-    if (status.status === "done") fetchReport();
+    if (status.status === "done" || status.status === "degraded") fetchReport();
   }, [status.status, fetchReport]);
 
   useEffect(() => {

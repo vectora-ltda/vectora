@@ -36,6 +36,8 @@ class GraphResult:
     god_nodes: list[str] = field(default_factory=list)
     suggested_questions: list[str] = field(default_factory=list)
     error: str | None = None
+    index_error: str | None = None
+    status: str = "completed"
 
 
 def _graph_out_dir(workspace_path: Path) -> Path:
@@ -362,6 +364,7 @@ async def build_workspace_graph(
                 "context_graph: falha ao exportar graph.json",
                 extra={"workspace_id": workspace_id},
             )
+            raise
 
         try:
             await asyncio.to_thread(to_html, graph, communities, str(graph_html))
@@ -392,16 +395,21 @@ async def build_workspace_graph(
 
             graph_data = json.loads(graph_json.read_text(encoding="utf-8"))
             if not update:
-                await purge_graph_index(workspace_id)
-            await index_graph_nodes(workspace_id, graph_data)
-        except Exception:
+                await purge_graph_index(workspace_id, strict=True)
+            await index_graph_nodes(workspace_id, graph_data, strict=True)
+        except Exception as exc:
+            result.status = "degraded"
+            result.index_error = (
+                "Índice semântico indisponível; o grafo estrutural foi preservado."
+            )
             logger.exception(
-                "context_graph: falha ao indexar nós no LanceDB",
-                extra={"workspace_id": workspace_id},
+                "context_graph: build degradado; falha ao indexar nós no LanceDB",
+                extra={"workspace_id": workspace_id, "error": str(exc)},
             )
 
         logger.info(
-            "context_graph: build completo — %d nós, %d arestas, %d tokens",
+            "context_graph: build %s — %d nós, %d arestas, %d tokens",
+            "degradado" if result.status == "degraded" else "completo",
             result.node_count,
             result.edge_count,
             result.input_tokens + result.output_tokens,
