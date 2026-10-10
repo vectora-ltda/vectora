@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -14,7 +14,6 @@ import { Switch } from "@/components/ui/switch";
 import { useSettingsStore } from "@/lib/stores/settings-store";
 import type { WorkbenchSettingsContext } from "@/lib/types/workbench-settings";
 import { m } from "@/lib/paraglide/messages";
-import { useEffect, useState } from "react";
 
 function DraftNumberInput({
   id,
