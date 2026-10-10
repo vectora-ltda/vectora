@@ -108,6 +108,11 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
     ],
     [showMcp, showSkills],
   );
+  const effectiveSection =
+    activeSection && visibleSections.includes(activeSection)
+      ? activeSection
+      : undefined;
+  const rovingTabSection = effectiveSection ?? visibleSections[0];
 
   const handleSectionKeyDown = useCallback(
     (
@@ -162,44 +167,29 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
             <FilterPill
               value="mcp"
               label={m.library_filter_mcp()}
-              active={activeSection === "mcp"}
+              active={effectiveSection === "mcp"}
               onSelect={() => setActiveSection("mcp")}
               onKeyDown={(event) => handleSectionKeyDown(event, "mcp")}
-              tabIndex={
-                activeSection === "mcp" ||
-                (!activeSection && visibleSections[0] === "mcp")
-                  ? 0
-                  : -1
-              }
+              tabIndex={rovingTabSection === "mcp" ? 0 : -1}
             />
           ) : null}
           {showSkills ? (
             <FilterPill
               value="skills"
               label={m.library_filter_skills()}
-              active={activeSection === "skills"}
+              active={effectiveSection === "skills"}
               onSelect={() => setActiveSection("skills")}
               onKeyDown={(event) => handleSectionKeyDown(event, "skills")}
-              tabIndex={
-                activeSection === "skills" ||
-                (!activeSection && visibleSections[0] === "skills")
-                  ? 0
-                  : -1
-              }
+              tabIndex={rovingTabSection === "skills" ? 0 : -1}
             />
           ) : null}
           <FilterPill
             value="memory"
             label={m.library_filter_memory_buckets()}
-            active={activeSection === "memory"}
+            active={effectiveSection === "memory"}
             onSelect={() => setActiveSection("memory")}
             onKeyDown={(event) => handleSectionKeyDown(event, "memory")}
-            tabIndex={
-              activeSection === "memory" ||
-              (!activeSection && visibleSections[0] === "memory")
-                ? 0
-                : -1
-            }
+            tabIndex={rovingTabSection === "memory" ? 0 : -1}
           />
         </div>
       </div>
@@ -208,7 +198,7 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
         <Accordion
           type="single"
           collapsible
-          value={activeSection ?? ""}
+          value={effectiveSection ?? ""}
           onValueChange={(value) =>
             setActiveSection((value || undefined) as LibraryFilter | undefined)
           }
