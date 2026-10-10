@@ -91,6 +91,15 @@ def test_every_tool_group_resolves_to_registered_tools() -> None:
         assert {tool.name for tool in resolve_tool_group(group_name)} <= registered
 
 
+def test_every_catalog_tool_has_callable_handler_and_schema() -> None:
+    """Cada tool exposta ao LLM precisa ser invocável e serializável."""
+    for tool in ALL_TOOLS:
+        assert callable(tool.handler), tool.name
+        schema = tool.openai_schema()
+        assert schema["function"]["name"] == tool.name
+        assert schema["function"]["parameters"]["type"] == "object"
+
+
 def test_memory_tools_include_save_memory() -> None:
     names = [t.name for t in MEMORY_TOOLS]
     assert "save_memory" in names
