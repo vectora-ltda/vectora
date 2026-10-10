@@ -34,6 +34,7 @@ class HeadPayload(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
 
     ref: str = ""
+    label: str = ""
     repo: RepositoryPayload | None = None
 
 
@@ -204,6 +205,28 @@ def _is_release_branch_pr(
     )
 
 
+def _is_internal_head(
+    event: PullRequestEvent, pull_request: PullRequestPayload
+) -> bool:
+    """Confirma que o head pertence ao repositório da PR, inclusive sem ``repo``."""
+    head = pull_request.head
+    repository = event.repository
+    repository_name = repository.full_name if repository else None
+    if head is None or repository_name is None:
+        return False
+    head_repo = head.repo.full_name if head.repo else None
+    if head_repo is not None:
+        return head_repo == repository_name
+    owner, separator, ref = head.label.partition(":")
+    repository_owner = repository_name.partition("/")[0]
+    return bool(
+        separator
+        and ref == head.ref
+        and owner == repository_owner
+        and _STACK_BASE.fullmatch(head.ref)
+    )
+
+
 def _is_vext_pr(pull_request: PullRequestPayload) -> bool:
     """Identifica títulos e branches VEXT para diagnósticos claros de validação."""
     head_ref = pull_request.head.ref if pull_request.head else ""
@@ -230,12 +253,10 @@ def validate_pull_request(event: EventPayload) -> list[str]:
     # generated ``stack/*`` branch exists.  Keep this exception restricted to
     # branches in the same repository; fork heads must still pass the normal
     # release-line and milestone validation below.
-    if _STACK_BASE.fullmatch(base) or base == _CONTRACTS_BASE:
-        head = pull_request.head
-        head_repo = head.repo.full_name if head and head.repo else None
-        repository = parsed_event.repository
-        if repository and head_repo == repository.full_name:
-            return []
+    if (_STACK_BASE.fullmatch(base) or base == _CONTRACTS_BASE) and _is_internal_head(
+        parsed_event, pull_request
+    ):
+        return []
     line = _line_for_base(base)
     if line is None:
         configured_bases = ", ".join(
