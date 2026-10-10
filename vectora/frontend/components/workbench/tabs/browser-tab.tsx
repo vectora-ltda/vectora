@@ -442,6 +442,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
             viewId,
             ...(pending ? { desktopUrl: pending } : {}),
           });
+          desktopBrowser.setAllowPopups?.(viewId, allowPopups);
           if (pending) {
             pendingNavigateRef.current.delete(tabId);
             void desktopBrowser.navigate(viewId, pending).then((result) => {
@@ -612,6 +613,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
                 : candidate,
             ),
           );
+          desktopBrowser.setAllowPopups?.(viewId, allowPopups);
           const initialUrl = pending ?? tab.desktopUrl;
           if (initialUrl) {
             void desktopBrowser.navigate(viewId, initialUrl).then((result) => {

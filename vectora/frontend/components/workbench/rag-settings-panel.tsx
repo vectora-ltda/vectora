@@ -17,7 +17,7 @@
  * `RagSettingsPanel` compõe os dois com o hook embutido, para uso standalone.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Search, Settings2, Trash2, RefreshCw } from "lucide-react";
 
 import {
@@ -91,16 +91,27 @@ export function useRagSettings({
     "idle" | "loading" | "ready" | "error"
   >("idle");
   const [patching, setPatching] = useState(false);
+  const collectionRequestRef = useRef(0);
+  const collectionGenerationRef = useRef(0);
+  const patchQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const settingsRef = useRef(settings);
+  const pendingPatchesRef = useRef(0);
+  const pendingDeleteRef = useRef<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   const loadCollections = useCallback(async () => {
+    const requestId = ++collectionRequestRef.current;
+    const generation = collectionGenerationRef.current;
     setCollectionsStatus("loading");
     try {
       const res = await fetch("/rag/collections");
+      if (requestId !== collectionRequestRef.current) return;
       if (!res.ok) {
         setCollectionsStatus("error");
         return;
       }
       const data = (await res.json()) as { collections?: Collection[] };
+      if (generation !== collectionGenerationRef.current) return;
       setCollections(Array.isArray(data.collections) ? data.collections : []);
       setCollectionsStatus("ready");
     } catch {
@@ -119,7 +130,9 @@ export function useRagSettings({
         const res = await fetch("/rag/settings");
         if (res.ok && alive) {
           const data = (await res.json()) as Partial<RagSettings>;
-          setSettings({ ...DEFAULTS, ...data });
+          const next = { ...DEFAULTS, ...data };
+          settingsRef.current = next;
+          setSettings(next);
           setSettingsStatus("ready");
         } else if (alive) {
           setSettingsStatus("error");
@@ -136,11 +149,14 @@ export function useRagSettings({
     };
   }, [open, loadCollections]);
 
-  const patch = useCallback(
-    async (changes: Partial<RagSettings>) => {
-      const previous = settings;
-      setSettings((s) => ({ ...s, ...changes }));
-      setPatching(true);
+  const patch = useCallback((changes: Partial<RagSettings>) => {
+    pendingPatchesRef.current += 1;
+    setPatching(true);
+    const run = async () => {
+      const previous = settingsRef.current;
+      const optimistic = { ...previous, ...changes };
+      settingsRef.current = optimistic;
+      setSettings(optimistic);
       try {
         const res = await fetch("/rag/settings", {
           method: "PATCH",
@@ -149,34 +165,48 @@ export function useRagSettings({
         });
         if (res.ok) {
           const data = (await res.json()) as RagSettings;
-          setSettings({ ...DEFAULTS, ...data });
+          const next = { ...DEFAULTS, ...data };
+          settingsRef.current = next;
+          setSettings(next);
           return;
         }
+        settingsRef.current = previous;
         setSettings(previous);
         useToastStore.getState().error(m.workbench_settings_error());
       } catch {
+        settingsRef.current = previous;
         setSettings(previous);
         useToastStore.getState().error(m.workbench_settings_error());
       } finally {
-        setPatching(false);
+        pendingPatchesRef.current -= 1;
+        if (pendingPatchesRef.current === 0) setPatching(false);
       }
-    },
-    [settings],
-  );
+    };
+    const queued = patchQueueRef.current.then(run, run);
+    patchQueueRef.current = queued.catch(() => undefined);
+    return queued;
+  }, []);
 
   const deleteCollection = useCallback(async (name: string) => {
     if (!window.confirm(m.rag_collection_delete_confirm({ name }))) return;
+    if (pendingDeleteRef.current === name) return;
+    pendingDeleteRef.current = name;
+    setPendingDelete(name);
     try {
       const res = await fetch(`/rag/collections/${encodeURIComponent(name)}`, {
         method: "DELETE",
       });
       if (res.ok) {
+        collectionGenerationRef.current += 1;
         setCollections((c) => c.filter((x) => x.name !== name));
       } else {
         useToastStore.getState().error(m.rag_collection_delete());
       }
     } catch {
       useToastStore.getState().error(m.rag_collection_delete());
+    } finally {
+      pendingDeleteRef.current = null;
+      setPendingDelete(null);
     }
   }, []);
 
@@ -192,6 +222,7 @@ export function useRagSettings({
     patch,
     loadCollections,
     deleteCollection,
+    pendingDelete,
   };
 }
 
@@ -226,6 +257,7 @@ export function RagSettingsForm({
   patch,
   loadCollections,
   deleteCollection,
+  pendingDelete,
   settingsStatus,
   collectionsStatus,
   patching,
@@ -238,6 +270,7 @@ export function RagSettingsForm({
   | "patch"
   | "loadCollections"
   | "deleteCollection"
+  | "pendingDelete"
   | "settingsStatus"
   | "collectionsStatus"
   | "patching"
@@ -412,6 +445,7 @@ export function RagSettingsForm({
                 </span>
                 <button
                   onClick={() => void deleteCollection(c.name)}
+                  disabled={pendingDelete === c.name}
                   aria-label={m.rag_collection_delete()}
                   title={m.rag_collection_delete()}
                   className="shrink-0 text-muted-foreground hover:text-destructive"
@@ -444,6 +478,7 @@ export function RagSettingsSlidePanel(
     settingsStatus: "ready" as const,
     collectionsStatus: "ready" as const,
     patching: false,
+    pendingDelete: null,
   };
   return (
     <WorkbenchDialog
