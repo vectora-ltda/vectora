@@ -214,27 +214,14 @@ def _is_release_branch_pr(
 def _is_internal_head(
     event: PullRequestEvent, pull_request: PullRequestPayload
 ) -> bool:
-    """Confirma que o head pertence ao repositório da PR, inclusive sem ``repo``."""
+    """Confirma a identidade completa do repositório do head da PR."""
     head = pull_request.head
     repository = event.repository
     repository_name = repository.full_name if repository else None
     if head is None or repository_name is None:
         return False
     head_repo = head.repo.full_name if head.repo else None
-    if head_repo is not None:
-        if head_repo == repository_name:
-            return True
-        # pull_request_target can report the repository owner without the
-        # canonical name for an internal stack head. Never grant this fallback
-        # to a different owner, which keeps ordinary forks on normal checks.
-        return (
-            _STACK_BASE.fullmatch(head.ref) is not None
-            and head_repo.partition("/")[0] == repository_name.partition("/")[0]
-        )
-    # GitHub can omit ``head.repo`` for an internal PR in a target-event
-    # payload. The stack namespace is reserved for same-repository branches;
-    # retain the explicit repository check whenever the field is available.
-    return _STACK_BASE.fullmatch(head.ref) is not None
+    return head_repo == repository_name
 
 
 def _is_vext_pr(pull_request: PullRequestPayload) -> bool:
@@ -258,14 +245,6 @@ def validate_pull_request(event: EventPayload) -> list[str]:
     if _is_release_please_pr(parsed_event, pull_request) or _is_release_branch_pr(
         parsed_event, pull_request
     ):
-        return []
-    # A stack may start directly from the contracts PR before its first
-    # generated ``stack/*`` branch exists.  Keep this exception restricted to
-    # branches in the same repository; fork heads must still pass the normal
-    # release-line and milestone validation below.
-    if base == _CONTRACTS_BASE and pull_request.head is None:
-        # pull_request_target may redact head metadata for an internal stack
-        # event; the contracts branch is itself a protected stack boundary.
         return []
     if (_STACK_BASE.fullmatch(base) or base == _CONTRACTS_BASE) and _is_internal_head(
         parsed_event, pull_request
@@ -334,10 +313,16 @@ def main() -> int:
         if current_base:
             payload.pull_request.base = BasePayload(ref=current_base)
         if current_head:
+            event_head_repo = (
+                payload.pull_request.head.repo.full_name
+                if payload.pull_request.head and payload.pull_request.head.repo
+                else None
+            )
+            validated_head_repo = current_head_repo or event_head_repo
             payload.pull_request.head = HeadPayload(
                 ref=current_head,
-                repo=RepositoryPayload(full_name=current_head_repo)
-                if current_head_repo
+                repo=RepositoryPayload(full_name=validated_head_repo)
+                if validated_head_repo
                 else None,
             )
     errors = validate_pull_request(payload)

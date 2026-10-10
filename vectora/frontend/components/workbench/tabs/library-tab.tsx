@@ -7,7 +7,7 @@
  */
 
 import { Archive, Puzzle, Search, Settings2, Sparkles } from "lucide-react";
-import { useCallback, useState, type KeyboardEvent } from "react";
+import { useCallback, useMemo, useState, type KeyboardEvent } from "react";
 
 import {
   Accordion,
@@ -105,6 +105,19 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
   const showMcp = useSettingsStore((s) => s.libraryShowMcp);
   const workspaceId = useWorkspacesStore((s) => s.getActive()?.id ?? null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const visibleSections = useMemo(
+    () => [
+      ...(showMcp ? (["mcp"] as const) : []),
+      ...(showSkills ? (["skills"] as const) : []),
+      "memory" as const,
+    ],
+    [showMcp, showSkills],
+  );
+  const effectiveSection =
+    activeSection && visibleSections.includes(activeSection)
+      ? activeSection
+      : undefined;
+  const rovingTabSection = effectiveSection ?? visibleSections[0];
 
   const handleSectionKeyDown = useCallback(
     (
@@ -159,31 +172,29 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
             <FilterPill
               value="mcp"
               label={m.library_filter_mcp()}
-              active={activeSection === "mcp"}
+              active={effectiveSection === "mcp"}
               onSelect={() => setActiveSection("mcp")}
               onKeyDown={(event) => handleSectionKeyDown(event, "mcp")}
-              tabIndex={
-                activeSection === "mcp" || activeSection === undefined ? 0 : -1
-              }
+              tabIndex={rovingTabSection === "mcp" ? 0 : -1}
             />
           ) : null}
           {showSkills ? (
             <FilterPill
               value="skills"
               label={m.library_filter_skills()}
-              active={activeSection === "skills"}
+              active={effectiveSection === "skills"}
               onSelect={() => setActiveSection("skills")}
               onKeyDown={(event) => handleSectionKeyDown(event, "skills")}
-              tabIndex={activeSection === "skills" ? 0 : -1}
+              tabIndex={rovingTabSection === "skills" ? 0 : -1}
             />
           ) : null}
           <FilterPill
             value="memory"
             label={m.library_filter_memory_buckets()}
-            active={activeSection === "memory"}
+            active={effectiveSection === "memory"}
             onSelect={() => setActiveSection("memory")}
             onKeyDown={(event) => handleSectionKeyDown(event, "memory")}
-            tabIndex={activeSection === "memory" ? 0 : -1}
+            tabIndex={rovingTabSection === "memory" ? 0 : -1}
           />
           <button
             type="button"
@@ -209,7 +220,7 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
         <Accordion
           type="single"
           collapsible
-          value={activeSection ?? ""}
+          value={effectiveSection ?? ""}
           onValueChange={(value) =>
             setActiveSection((value || undefined) as LibraryFilter | undefined)
           }

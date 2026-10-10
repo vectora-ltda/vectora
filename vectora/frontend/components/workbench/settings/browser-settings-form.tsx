@@ -51,6 +51,9 @@ export function BrowserSettingsForm(context: WorkbenchSettingsContext) {
     typeof window !== "undefined" ? window.vectora?.browserView : undefined;
   const profileId = context.browserProfileId ?? null;
   const profileSettings = getBrowserProfileSettings(settings, profileId);
+  const [zoomDraft, setZoomDraft] = useState(() =>
+    String(profileSettings.zoomPercent),
+  );
   const sessionKey = `${context.workspaceId ?? ""}:${context.threadId ?? ""}`;
   const [credentials, setCredentials] = useState<VectoraBrowserCredential[]>(
     [],
@@ -65,6 +68,12 @@ export function BrowserSettingsForm(context: WorkbenchSettingsContext) {
   const [clearCache, setClearCache] = useState(true);
   const [clearCredentials, setClearCredentials] = useState(false);
   const [error, setError] = useState(false);
+
+  useEffect(() => {
+    // Keep the text draft synchronized with clamped or externally changed settings.
+    // oxlint-disable-next-line react/set-state-in-effect
+    setZoomDraft(String(profileSettings.zoomPercent));
+  }, [profileSettings.zoomPercent]);
 
   useEffect(() => {
     if (!bridge || !profileId) return;
@@ -216,14 +225,33 @@ export function BrowserSettingsForm(context: WorkbenchSettingsContext) {
             min={25}
             max={500}
             step={10}
-            value={profileSettings.zoomPercent}
-            onChange={(event) =>
-              profileId
-                ? settings.setBrowserProfileSettings(profileId, {
-                    zoomPercent: Number(event.target.value),
-                  })
-                : settings.setBrowserZoomPercent(Number(event.target.value))
-            }
+            value={zoomDraft}
+            onChange={(event) => setZoomDraft(event.target.value)}
+            onBlur={() => {
+              const value = Number(zoomDraft);
+              if (!Number.isFinite(value)) {
+                setZoomDraft(String(profileSettings.zoomPercent));
+                return;
+              }
+              if (profileId) {
+                settings.setBrowserProfileSettings(profileId, {
+                  zoomPercent: value,
+                });
+              } else {
+                settings.setBrowserZoomPercent(value);
+              }
+              setZoomDraft(
+                String(
+                  getBrowserProfileSettings(
+                    useSettingsStore.getState(),
+                    profileId,
+                  ).zoomPercent,
+                ),
+              );
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") event.currentTarget.blur();
+            }}
             className="w-20 rounded border border-border/60 bg-background px-2 py-1"
           />
         </label>
