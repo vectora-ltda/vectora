@@ -30,6 +30,9 @@ export function BrowserSettingsForm({
 }: BrowserSettingsFormProps) {
   const [clearProfileError, setClearProfileError] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [zoomDraft, setZoomDraft] = useState(() =>
+    String(useSettingsStore.getState().browserZoomPercent),
+  );
   const [clearStorage, setClearStorage] = useState(true);
   const [clearCache, setClearCache] = useState(true);
   const [clearCredentials, setClearCredentials] = useState(false);
@@ -178,8 +181,16 @@ export function BrowserSettingsForm({
               min={25}
               max={500}
               step={5}
-              value={zoomPercent}
-              onChange={(event) => setZoomPercent(Number(event.target.value))}
+              value={zoomDraft}
+              onChange={(event) => setZoomDraft(event.target.value)}
+              onBlur={() => {
+                const value = Number(zoomDraft);
+                if (Number.isFinite(value)) setZoomPercent(value);
+                else setZoomDraft(String(zoomPercent));
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+              }}
             />
           </label>
           <div className="flex items-center justify-between gap-3 rounded border border-border/60 p-2 text-foreground">
