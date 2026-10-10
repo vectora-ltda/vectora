@@ -15,6 +15,7 @@ from backend.tools.terminal_sessions import (
     attach_terminal,
     close_terminal,
     list_terminals,
+    open_terminal,
     read_terminal,
     write_terminal,
 )
@@ -45,6 +46,29 @@ def _clean_registry():
 
 
 class TestListTerminals:
+    @pytest.mark.asyncio
+    async def test_open_registra_pty_do_agente_para_a_workbench(
+        self, monkeypatch
+    ) -> None:
+        workspace = SimpleNamespace(cwd="C:/workspace", trusted=True)
+        monkeypatch.setattr(
+            "backend.workspace.workspace.workspace_registry.get",
+            lambda _workspace_id: workspace,
+        )
+        monkeypatch.setattr(
+            "backend.tools.terminal_sessions.PtySession.create",
+            lambda **kwargs: _fake_session(
+                kwargs["terminal_id"], kwargs["thread_id"], kwargs["workspace_id"]
+            ),
+        )
+        result = await open_terminal(
+            ctx=ToolContext(thread_id="thr-agent", workspace_id="ws-1")
+        )
+        data = json.loads(result)
+        assert data["status"] == "opened"
+        assert data["shared"] is True
+        assert pty_registry.get(data["terminal_id"]) is not None
+
     @pytest.mark.asyncio
     async def test_lista_terminais_do_usuario_no_workspace(self) -> None:
         pty_registry.add(_fake_session("t1", "thr-1", "ws-1"))

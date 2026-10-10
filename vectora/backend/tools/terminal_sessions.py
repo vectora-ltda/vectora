@@ -8,13 +8,91 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
+from pathlib import Path
 
 from backend.services.pty_registry import pty_registry
+from backend.services.pty_session import PtySession
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
 
 logger = logging.getLogger(__name__)
 _DEFAULT_CONTEXT = ToolContext()
+
+
+@vtool(
+    extras=ToolExtras(
+        render_hint="code_block",
+        category="filesystem",
+        destructive=True,
+        icon="terminal",
+    )
+)
+async def open_terminal(
+    cols: int = 120,
+    rows: int = 32,
+    ctx: ToolContext = _DEFAULT_CONTEXT,
+) -> str:
+    """Abre uma nova PTY do agente, visível como uma aba na Workbench.
+
+    A sessão é registrada no mesmo ``pty_registry`` usado pelo WebSocket da
+    Workbench. Assim o usuário pode acompanhar e assumir qualquer quantidade
+    de terminais abertos pelo agente.
+    """
+    try:
+        from backend.sandbox.policy import parse_policy
+        from backend.workspace.workspace import workspace_registry
+
+        workspace = workspace_registry.get(ctx.workspace_id)
+        if workspace is None or not getattr(workspace, "trusted", False):
+            return json.dumps(
+                {"status": "error", "code": "workspace_not_trusted"},
+                ensure_ascii=False,
+            )
+        if not ctx.thread_id or not ctx.workspace_id:
+            return json.dumps(
+                {"status": "error", "code": "invalid_context"},
+                ensure_ascii=False,
+            )
+        terminal_id = f"agent-{uuid.uuid4().hex[:12]}"
+        policy = parse_policy(Path(workspace.cwd) / "vectora.toml")
+        session = PtySession.create(
+            terminal_id=terminal_id,
+            workspace_id=ctx.workspace_id,
+            thread_id=ctx.thread_id,
+            user_id=ctx.user_id,
+            cwd=workspace.cwd,
+            cols=max(20, min(int(cols), 400)),
+            rows=max(5, min(int(rows), 200)),
+            policy=policy,
+        )
+        pty_registry.add(session)
+        logger.info(
+            "terminal_agent_opened",
+            extra={
+                "terminal_id": terminal_id,
+                "thread_id": ctx.thread_id,
+                "workspace_id": ctx.workspace_id,
+            },
+        )
+        return json.dumps(
+            {
+                "status": "opened",
+                "terminal_id": terminal_id,
+                "shared": True,
+                "message": "PTY aberta na Workbench; use write_terminal/read_terminal.",
+            },
+            ensure_ascii=False,
+        )
+    except Exception as exc:
+        logger.exception(
+            "terminal_agent_open_failed",
+            extra={"thread_id": ctx.thread_id, "workspace_id": ctx.workspace_id},
+        )
+        return json.dumps(
+            {"status": "error", "code": "open_failed", "message": str(exc)},
+            ensure_ascii=False,
+        )
 
 
 @vtool(
@@ -218,6 +296,7 @@ __all__ = [
     "attach_terminal",
     "close_terminal",
     "list_terminals",
+    "open_terminal",
     "read_terminal",
     "write_terminal",
 ]

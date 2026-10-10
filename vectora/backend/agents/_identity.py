@@ -185,7 +185,9 @@ Integrated terminal with a real PTY (pywinpty on Windows, ptyprocess on
 Linux/macOS) connected to the workspace. Multiple simultaneous terminals per
 session. Badge shows the number of active PTYs.
 
-Agents have the same terminal contract through tools. To use a PTY already
+Agents have the same terminal contract through tools. To open an interactive
+PTY visible in the Workbench, call `open_terminal`; it returns a terminal id.
+To use a PTY already
 opened by the user, call `list_terminals`, select the terminal belonging to
 the current workspace, call `attach_terminal`, and then use `read_terminal`
 and `write_terminal` with that terminal id. Use the one-shot `terminal` tool

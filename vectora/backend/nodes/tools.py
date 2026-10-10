@@ -236,6 +236,7 @@ browser_lighthouse_audit = _bridge("browser_lighthouse_audit")
 browser_screencast_start = _bridge("browser_screencast_start")
 browser_screencast_stop = _bridge("browser_screencast_stop")
 list_terminals = _bridge("list_terminals")
+open_terminal = _bridge("open_terminal")
 close_terminal = _bridge("close_terminal")
 list_desktop_windows = _bridge("list_desktop_windows")
 select_desktop_window = _bridge("select_desktop_window")
@@ -341,6 +342,7 @@ FS_TOOLS: list[ToolSpec] = [
     terminal,
     create_artifact,
     list_terminals,
+    open_terminal,
     close_terminal,
     list_desktop_windows,
     select_desktop_window,
