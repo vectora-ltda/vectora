@@ -105,9 +105,10 @@ class ToolSpec:
                 },
             )
             result = await self.handler(**kwargs)
+            result_status = "error" if result.lstrip().startswith("Error:") else "ok"
             logger.info(
                 "tool_invocation_completed",
-                extra={"tool": self.name, "status": "ok"},
+                extra={"tool": self.name, "status": result_status},
             )
             return result
         except Exception as exc:
