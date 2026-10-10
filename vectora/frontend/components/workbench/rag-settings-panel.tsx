@@ -79,8 +79,10 @@ const PROVIDER_LABELS: Record<string, () => string> = {
   openrouter: m.rag_provider_openrouter,
 };
 
-export function useRagSettings() {
-  const [open, setOpen] = useState(false);
+export function useRagSettings({
+  autoLoad = false,
+}: { autoLoad?: boolean } = {}) {
+  const [open, setOpen] = useState(autoLoad);
   const [settings, setSettings] = useState<RagSettings>(DEFAULTS);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [settingsStatus, setSettingsStatus] = useState<
@@ -123,8 +125,7 @@ export function useRagSettings() {
   useEffect(() => {
     if (!open) return;
     let alive = true;
-    // This effect starts the remote load when the panel opens; the loading
-    // state is intentionally synchronized before the request begins.
+    // Synchronize the loading indicator with this external settings request.
     // oxlint-disable-next-line react/set-state-in-effect
     setSettingsStatus("loading");
     void (async () => {
@@ -352,7 +353,7 @@ export function RagSettingsForm({
   | "collectionsStatus"
   | "patching"
 > & { showCollections?: boolean }) {
-  if (settingsStatus === "loading") {
+  if (settingsStatus === "loading" || settingsStatus === "idle") {
     return (
       <p className="p-4 text-xs text-muted-foreground">
         {m.workbench_settings_loading()}

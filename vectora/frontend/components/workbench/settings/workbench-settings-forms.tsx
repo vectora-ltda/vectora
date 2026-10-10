@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -13,7 +14,6 @@ import { Switch } from "@/components/ui/switch";
 import { useSettingsStore } from "@/lib/stores/settings-store";
 import type { WorkbenchSettingsContext } from "@/lib/types/workbench-settings";
 import { m } from "@/lib/paraglide/messages";
-import { useEffect, useState } from "react";
 
 function DraftNumberInput({
   id,
@@ -84,6 +84,9 @@ function Toggle({
 /** Edit persisted Monaco, formatting, lint and file preferences. */
 export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
   const settings = useSettingsStore();
+  const [fontSizeDraft, setFontSizeDraft] = useState(() =>
+    String(settings.monacoFontSize),
+  );
   return (
     <div className="space-y-4">
       <div className="space-y-1">
@@ -152,10 +155,34 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
           type="number"
           min={10}
           max={24}
-          value={settings.monacoFontSize}
-          onChange={(event) =>
-            settings.setMonacoFontSize(Number(event.target.value))
-          }
+          value={fontSizeDraft}
+          onChange={(event) => setFontSizeDraft(event.target.value)}
+          onBlur={() => {
+            const value = Number(fontSizeDraft);
+            if (Number.isFinite(value)) settings.setMonacoFontSize(value);
+            else setFontSizeDraft(String(settings.monacoFontSize));
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+          }}
+          className="w-24"
+        />
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <Label htmlFor="files-max-size">
+            {m.workbench_files_max_size_label()}
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            {m.workbench_files_max_size_help()}
+          </p>
+        </div>
+        <DraftNumberInput
+          id="files-max-size"
+          value={settings.editorMaxFileSizeMb}
+          onCommit={settings.setEditorMaxFileSizeMb}
+          min={1}
+          max={100}
           className="w-24"
         />
       </div>
@@ -522,6 +549,21 @@ export function PlanSettingsForm(_context: WorkbenchSettingsContext) {
 /** Configure notifications, bounded retries and task concurrency. */
 export function TasksSettingsForm(_context: WorkbenchSettingsContext) {
   const settings = useSettingsStore();
+  const [retryDraft, setRetryDraft] = useState(() =>
+    String(settings.taskRetryCount),
+  );
+  const [concurrencyDraft, setConcurrencyDraft] = useState(() =>
+    String(settings.taskConcurrency),
+  );
+  const commitNumber = (
+    draft: string,
+    commit: (value: number) => void,
+    reset: () => void,
+  ) => {
+    const value = Number(draft);
+    if (Number.isFinite(value)) commit(value);
+    else reset();
+  };
   return (
     <div className="space-y-4">
       <Toggle
@@ -543,9 +585,12 @@ export function TasksSettingsForm(_context: WorkbenchSettingsContext) {
           type="number"
           min={0}
           max={5}
-          value={settings.taskRetryCount}
-          onChange={(event) =>
-            settings.setTaskRetryCount(Number(event.target.value))
+          value={retryDraft}
+          onChange={(event) => setRetryDraft(event.target.value)}
+          onBlur={() =>
+            commitNumber(retryDraft, settings.setTaskRetryCount, () =>
+              setRetryDraft(String(settings.taskRetryCount)),
+            )
           }
           className="w-24"
         />
@@ -564,9 +609,12 @@ export function TasksSettingsForm(_context: WorkbenchSettingsContext) {
           type="number"
           min={1}
           max={8}
-          value={settings.taskConcurrency}
-          onChange={(event) =>
-            settings.setTaskConcurrency(Number(event.target.value))
+          value={concurrencyDraft}
+          onChange={(event) => setConcurrencyDraft(event.target.value)}
+          onBlur={() =>
+            commitNumber(concurrencyDraft, settings.setTaskConcurrency, () =>
+              setConcurrencyDraft(String(settings.taskConcurrency)),
+            )
           }
           className="w-24"
         />
