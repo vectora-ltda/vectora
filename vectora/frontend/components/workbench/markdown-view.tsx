@@ -10,6 +10,9 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { godotLanguages } from "@/lib/monaco/languages/godot";
+import { languageFromFence } from "@/lib/monaco/languages/resolve";
+import { MonacoCodeBlock } from "./monaco-code-block";
 
 export function MarkdownView({
   content,
@@ -30,7 +33,34 @@ export function MarkdownView({
       className="prose prose-sm dark:prose-invert max-w-none p-4 prose-pre:bg-muted prose-pre:text-foreground prose-code:before:content-none prose-code:after:content-none prose-h1:text-lg prose-h2:text-base prose-h3:text-sm prose-h4:text-sm"
       style={{ fontSize: "calc(0.875rem * var(--font-scale-markdown, 1))" }}
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={transformUrl}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        urlTransform={transformUrl}
+        components={{
+          code({ className, children, ...props }) {
+            const match = /language-([\w-]+)/.exec(className ?? "");
+            if (!match)
+              return (
+                <code className={className} {...props}>
+                  {children}
+                </code>
+              );
+            const language = languageFromFence(match[1] ?? "", godotLanguages);
+            if (language === "plaintext")
+              return (
+                <code className={className} {...props}>
+                  {children}
+                </code>
+              );
+            return (
+              <MonacoCodeBlock
+                code={String(children).replace(/\n$/, "")}
+                language={language}
+              />
+            );
+          },
+        }}
+      >
         {content}
       </ReactMarkdown>
     </div>

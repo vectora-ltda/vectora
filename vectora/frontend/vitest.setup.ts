@@ -22,6 +22,44 @@ if (typeof document !== "undefined" && !document.queryCommandSupported) {
   document.queryCommandSupported = () => false;
 }
 
+// Monaco consulta `window.matchMedia` ao inicializar o serviço de temas.
+// jsdom não fornece essa API por padrão; o stub mantém o contrato mínimo
+// necessário sem impor um modo de cor aos testes.
+if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
+  window.matchMedia = (query: string): MediaQueryList => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  });
+}
+
+// O serviço de clipboard do Monaco registra um handler que usa
+// `navigator.clipboard.write` ao copiar conteúdo. O jsdom não fornece essa
+// API; o stub mantém a operação assíncrona inofensiva durante os testes.
+if (typeof globalThis.ClipboardItem === "undefined") {
+  class ClipboardItemStub {
+    constructor(public readonly items: Record<string, unknown>) {}
+  }
+  globalThis.ClipboardItem =
+    ClipboardItemStub as unknown as typeof ClipboardItem;
+}
+
+if (typeof navigator !== "undefined" && !navigator.clipboard) {
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: {
+      readText: async (): Promise<string> => "",
+      write: async (): Promise<void> => {},
+      writeText: async (): Promise<void> => {},
+    },
+  });
+}
+
 // Radix UI (Select/Popover/DropdownMenu) chama hasPointerCapture/
 // setPointerCapture/releasePointerCapture e scrollIntoView ao abrir —
 // jsdom não implementa nenhum dos dois, o que faz qualquer teste que

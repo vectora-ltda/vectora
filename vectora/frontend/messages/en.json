@@ -1700,5 +1700,20 @@
   "library_extension_desc_prettier": "Format workspace files with the configured Prettier settings.",
   "library_extension_desc_pyright": "Run Pyright diagnostics for Python files in the current workspace.",
   "library_extension_desc_ruff": "Run Ruff diagnostics and formatting for Python files in the current workspace.",
-  "library_extension_desc_ty": "Run Ty diagnostics for Python files in the current workspace."
+  "library_extension_desc_ty": "Run Ty diagnostics for Python files in the current workspace.",
+  "workbench_files_save_as": "Save as…",
+  "workbench_files_save_shortcut": "Ctrl+S",
+  "prefs_fonts_section": "Fonts",
+  "prefs_editor_font": "Editor font",
+  "prefs_editor_font_help": "Font used by the Monaco editor.",
+  "prefs_editor_font_size": "Editor font size",
+  "prefs_editor_font_size_help": "Monaco editor font size in pixels.",
+  "prefs_editor_font_size_unit": "px",
+  "prefs_editor_auto_save": "Auto-save",
+  "prefs_editor_auto_save_help": "Save the file after 800 ms without new changes.",
+  "prefs_mono_font": "Monospace UI font",
+  "prefs_mono_font_help": "Font used by terminals, diffs, and code blocks.",
+  "prefs_ui_font": "Interface font",
+  "prefs_ui_font_help": "Font used by the rest of Vectora.",
+  "prefs_fonts_godot_help": "Inter and JetBrains Mono are the default fonts used by Godot 4. The selected families must be installed on your system."
 }

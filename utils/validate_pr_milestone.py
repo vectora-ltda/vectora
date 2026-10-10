@@ -89,10 +89,14 @@ type EventPayload = PullRequestEvent | dict[str, object]
 
 _VEXT_TOKEN = re.compile(r"(?<![A-Za-z0-9])vext(?![A-Za-z0-9])", re.IGNORECASE)
 _RELEASE_PLEASE_LABEL = "autorelease: pending"
-_RELEASE_PLEASE_BRANCH = re.compile(r"^release-please-\d+\.\d+\.\d+$")
-_LEGACY_RELEASE_PLEASE_BRANCH = re.compile(
-    r"^release-please--branches--(?P<base>.+)--components--vectora$"
+_RELEASE_PLEASE_MINOR_BRANCH = re.compile(
+    r"^release-please-(?P<major>\d+)\.(?P<minor>\d+)$"
 )
+_RELEASE_PLEASE_PATCH_BRANCH = re.compile(
+    r"^release-please-(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>[1-9]\d*)$"
+)
+_STACK_BASE = re.compile(r"^stack/[a-z0-9][a-z0-9-]*$")
+_RELEASE_BRANCH = re.compile(r"^release/.+$")
 
 
 class ReleaseLine(BaseModel):
@@ -168,29 +172,35 @@ def _is_release_please_pr(
     if line is None:
         return False
 
-    legacy_match = _LEGACY_RELEASE_PLEASE_BRANCH.fullmatch(head_ref)
-    if legacy_match is not None:
-        # O nome legado codifica a base original. Compará-lo com a base atual
-        # impede que uma PR automática de desenvolvimento seja retargeteada
-        # silenciosamente para a linha de manutenção.
-        return legacy_match.group("base") == base
+    config = _release_lines()
+    match = _RELEASE_PLEASE_MINOR_BRANCH.fullmatch(head_ref)
+    if match:
+        return bool(
+            base == config.maintenance.branch
+            and f"{match['major']}.{match['minor']}" == config.development.milestone
+        )
 
-    if _RELEASE_PLEASE_BRANCH.fullmatch(head_ref) is None:
+    if line is not config.maintenance:
         return False
 
-    # O formato novo é emitido pelo fluxo controlado do Release Please. A
-    # origem confiável e o label já foram verificados acima; a base ainda deve
-    # ser a linha de desenvolvimento, pois uma PR de manutenção precisa de uma
-    # milestone explícita da linha correspondente.
-    if line is not _release_lines().development:
-        return False
+    match = _RELEASE_PLEASE_PATCH_BRANCH.fullmatch(head_ref)
+    return bool(match and f"{match['major']}.{match['minor']}.x" == line.milestone)
 
-    # Não derive a isenção da milestone viva: durante uma rotação ela já pode
-    # apontar para a próxima minor enquanto a PR atual ainda publica a minor
-    # anterior. O formato semântico do branch é a informação controlada.
-    version = head_ref.removeprefix("release-please-")
-    major, minor, patch = version.split(".")
-    return patch == "0" and all(part.isdigit() for part in (major, minor, patch))
+
+def _is_release_branch_pr(
+    event: PullRequestEvent, pull_request: PullRequestPayload
+) -> bool:
+    """Aceita promoções internas de branches release/* para a base master."""
+    base = pull_request.base.ref if pull_request.base else ""
+    head = pull_request.head
+    head_ref = head.ref if head else ""
+    head_repo = head.repo.full_name if head and head.repo else None
+    repository = event.repository
+    return bool(
+        base == _release_lines().maintenance.branch
+        and _RELEASE_BRANCH.fullmatch(head_ref) is not None
+        and head_repo == (repository.full_name if repository else None)
+    )
 
 
 def _is_vext_pr(pull_request: PullRequestPayload) -> bool:
@@ -211,8 +221,16 @@ def validate_pull_request(event: EventPayload) -> list[str]:
 
     errors: list[str] = []
     base = pull_request.base.ref if pull_request.base else ""
-    if _is_release_please_pr(parsed_event, pull_request):
+    if _is_release_please_pr(parsed_event, pull_request) or _is_release_branch_pr(
+        parsed_event, pull_request
+    ):
         return []
+    if _STACK_BASE.fullmatch(base):
+        head = pull_request.head
+        head_repo = head.repo.full_name if head and head.repo else None
+        repository = parsed_event.repository
+        if repository and head_repo == repository.full_name:
+            return []
     line = _line_for_base(base)
     if line is None:
         configured_bases = ", ".join(
@@ -264,7 +282,10 @@ def main() -> int:
     current_milestone = os.environ.get("CURRENT_RELEASE_MILESTONE")
     current_base = os.environ.get("CURRENT_PR_BASE")
     if payload.pull_request is not None:
-        if current_milestone is not None:
+        # GitHub Actions expande outputs ausentes para uma string vazia. Nesse
+        # caso, preserve a milestone recebida no evento em vez de substituí-la
+        # por um valor vazio.
+        if current_milestone:
             payload.pull_request.milestone = MilestonePayload(title=current_milestone)
         if current_base:
             payload.pull_request.base = BasePayload(ref=current_base)

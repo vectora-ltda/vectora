@@ -443,11 +443,6 @@ function SessionPage() {
     setShowNewChatDialog(true);
   }, [chatMode, navigate]);
 
-  const handleStartChatFromWelcome = useCallback(() => {
-    setChatMode(true);
-    markWorkspaceChosen(threadId);
-  }, [threadId, setChatMode]);
-
   const handleConfirmNewChat = useCallback(
     (workspaceId: string | null) => {
       // Não persiste a thread no backend ainda — isso evita acumular
@@ -732,16 +727,10 @@ function SessionPage() {
         showToolCalls={showToolCalls}
         onToggleToolCalls={() => setShowToolCalls((v) => !v)}
         onShowShortcuts={() => setShowShortcutsDialog(true)}
-        onOpenSidebar={
-          uiMode === "ide" || !isCompactSession
-            ? undefined
-            : () => setIsMobileSidebarOpen(true)
-        }
-        sidebarTriggerCompactOnly={uiMode !== "ide" && isCompactSession}
         showModeSwitch={!chatMode}
       />
     ),
-    [showToolCalls, chatMode, uiMode, isCompactSession],
+    [showToolCalls, chatMode],
   );
 
   // Cada modo escolhe explicitamente a coluna esquerda. Assistente e Kanban
@@ -756,8 +745,6 @@ function SessionPage() {
   // guarda e restaura por thread — não por manter a instância montada.
   const renderChatPanel = useCallback(
     (compact: boolean) => {
-      const welcomeActions =
-        !compact && hydrated && isNewRoute && !isWorkspaceChosen(threadId);
       return (
         <div className="flex flex-col h-full min-h-0 overflow-hidden">
           {compact && (
@@ -782,12 +769,6 @@ function SessionPage() {
               inputLocked={inputLocked}
               isNewThread={isNew(threadId)}
               compact={compact}
-              onStartChat={
-                welcomeActions ? handleStartChatFromWelcome : undefined
-              }
-              onStartCode={
-                welcomeActions ? () => setShowNewChatDialog(true) : undefined
-              }
             />
           </div>
         </div>
@@ -805,9 +786,6 @@ function SessionPage() {
       handleThreadPersistFailed,
       handleThreadNotFound,
       inputLocked,
-      hydrated,
-      isNewRoute,
-      handleStartChatFromWelcome,
     ],
   );
 

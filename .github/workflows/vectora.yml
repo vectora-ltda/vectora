@@ -732,9 +732,14 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          # O job cria e envia a tag no passo seguinte. As credenciais
+          # precisam permanecer no remote para que `git push origin "$TAG"`
+          # consiga autenticar com contents: write.
+          token: ${{ github.token }}
+          persist-credentials: true
       - name: Read released version
         id: version
+        working-directory: .
         shell: bash
         run: |
           set -euo pipefail
@@ -769,7 +774,7 @@ jobs:
           fi
       - name: Create GitHub Release and attach binaries
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
           VERSION: ${{ steps.version.outputs.value }}
         shell: bash

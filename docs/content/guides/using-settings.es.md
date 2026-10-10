@@ -10,6 +10,10 @@ Todo lo que configuras a través de la UI vive en tres diálogos separados, cada
 Configuración personal, para tu usuario.
 
 - **General** — tema (sistema/claro/oscuro/preset/personalizado), idioma, system prompt personalizado, orden de fallback de modelos, y colores personalizados (fondo, texto, tarjeta, borde, primario, acento, muted, sidebar, color de burbuja del usuario).
+
+Los presets **Godot Dark** y **Godot Light** aplican la paleta de Godot a todo el shell y sincronizan el tema de Monaco. Incluyen GDScript, escenas `.tscn`, recursos `.tres`, `project.godot`, shaders `.gdshader`/`.gdshaderinc` y las fences `gdscript`, `gd`, `tscn`, `tres`, `godot` y `gdshader` en Markdown y chat. Los demás presets conservan su apariencia y solo usan las reglas de lenguaje Godot en el código.
+
+Esta entrega es léxica: comentarios, cadenas, tipos, keywords, propiedades, referencias de nodos, folding y brackets. No ofrece autocompletado semántico, diagnósticos de la engine ni documentación F1. La paleta aproxima el tema predeterminado de Godot y mezcla previamente los estados del editor para Monaco; los colores de breakpoint y bookmark forman solo parte del contrato de colores.
 - **Memoria** — lista de memorias persistentes (pares clave-valor). Agregar, editar en línea, borrar una o limpiar todas, con una línea de tiempo de última actualización.
 - **Cuenta** — nombre (editable), email (solo lectura), rol (root/admin/member/viewer).
 
