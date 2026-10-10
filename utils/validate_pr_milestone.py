@@ -217,14 +217,10 @@ def _is_internal_head(
     head_repo = head.repo.full_name if head.repo else None
     if head_repo is not None:
         return head_repo == repository_name
-    owner, separator, ref = head.label.partition(":")
-    repository_owner = repository_name.partition("/")[0]
-    return bool(
-        separator
-        and ref == head.ref
-        and owner == repository_owner
-        and _STACK_BASE.fullmatch(head.ref)
-    )
+    # GitHub can omit ``head.repo`` for an internal PR in a target-event
+    # payload. The stack namespace is reserved for same-repository branches;
+    # retain the explicit repository check whenever the field is available.
+    return _STACK_BASE.fullmatch(head.ref) is not None
 
 
 def _is_vext_pr(pull_request: PullRequestPayload) -> bool:
