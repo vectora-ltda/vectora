@@ -151,13 +151,23 @@ jobs:
           github-token: ${{ github.token }}
           script: |
             const { owner, repo } = context.repo;
-            const pull = await github.rest.pulls.get({
-              owner,
-              repo,
-              pull_number: context.issue.number,
-            });
-            core.setOutput("ref", pull.data.head.ref || "");
-            core.setOutput("repo", pull.data.head.repo?.full_name || "");
+            try {
+              const pull = await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number: context.issue.number,
+              });
+              const headRepo = pull.data.head.repo?.full_name || "";
+              core.setOutput("ref", pull.data.head.ref || "");
+              core.setOutput("repo", headRepo);
+              if (!headRepo) {
+                core.warning("The pull request head repository is unavailable.");
+              }
+            } catch (error) {
+              core.warning(
+                `Could not resolve pull request head through the API: ${String(error)}`,
+              );
+            }
 
       - uses: ./.github/actions/setup-uv
         with:

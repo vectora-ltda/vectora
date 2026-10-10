@@ -93,6 +93,9 @@ export function useRagSettings({
   >("idle");
   const [patching, setPatching] = useState(false);
   const collectionsRequest = useRef(0);
+  const patchQueue = useRef<Promise<void>>(Promise.resolve());
+  const settingsRef = useRef(settings);
+  const pendingPatches = useRef(0);
 
   const loadCollections = useCallback(async () => {
     const requestId = ++collectionsRequest.current;
@@ -133,7 +136,9 @@ export function useRagSettings({
         const res = await fetch("/rag/settings");
         if (res.ok && alive) {
           const data = (await res.json()) as Partial<RagSettings>;
-          setSettings({ ...DEFAULTS, ...data });
+          const next = { ...DEFAULTS, ...data };
+          settingsRef.current = next;
+          setSettings(next);
           setSettingsStatus("ready");
         } else if (alive) {
           setSettingsStatus("error");
@@ -147,11 +152,14 @@ export function useRagSettings({
     };
   }, [open]);
 
-  const patch = useCallback(
-    async (changes: Partial<RagSettings>) => {
-      const previous = settings;
-      setSettings((s) => ({ ...s, ...changes }));
-      setPatching(true);
+  const patch = useCallback((changes: Partial<RagSettings>) => {
+    pendingPatches.current += 1;
+    setPatching(true);
+    const run = async () => {
+      const previous = settingsRef.current;
+      const optimistic = { ...previous, ...changes };
+      settingsRef.current = optimistic;
+      setSettings(optimistic);
       try {
         const res = await fetch("/rag/settings", {
           method: "PATCH",
@@ -160,20 +168,27 @@ export function useRagSettings({
         });
         if (res.ok) {
           const data = (await res.json()) as RagSettings;
-          setSettings({ ...DEFAULTS, ...data });
+          const next = { ...DEFAULTS, ...data };
+          settingsRef.current = next;
+          setSettings(next);
           return;
         }
+        settingsRef.current = previous;
         setSettings(previous);
         useToastStore.getState().error(m.workbench_settings_error());
       } catch {
+        settingsRef.current = previous;
         setSettings(previous);
         useToastStore.getState().error(m.workbench_settings_error());
       } finally {
-        setPatching(false);
+        pendingPatches.current -= 1;
+        if (pendingPatches.current === 0) setPatching(false);
       }
-    },
-    [settings],
-  );
+    };
+    const queued = patchQueue.current.then(run, run);
+    patchQueue.current = queued.catch(() => undefined);
+    return queued;
+  }, []);
 
   const deleteCollection = useCallback(async (name: string) => {
     try {
