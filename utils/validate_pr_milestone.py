@@ -216,7 +216,15 @@ def _is_internal_head(
         return False
     head_repo = head.repo.full_name if head.repo else None
     if head_repo is not None:
-        return head_repo == repository_name
+        if head_repo == repository_name:
+            return True
+        # pull_request_target can report the repository owner without the
+        # canonical name for an internal stack head. Never grant this fallback
+        # to a different owner, which keeps ordinary forks on normal checks.
+        return (
+            _STACK_BASE.fullmatch(head.ref) is not None
+            and head_repo.partition("/")[0] == repository_name.partition("/")[0]
+        )
     # GitHub can omit ``head.repo`` for an internal PR in a target-event
     # payload. The stack namespace is reserved for same-repository branches;
     # retain the explicit repository check whenever the field is available.
