@@ -8,7 +8,9 @@ import re
 import signal
 import subprocess  # nosec B404 - process is the test subject
 import sys
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -66,7 +68,11 @@ async def test_web_ctrl_c_fecha_backend_e_nats_ate_o_prompt(tmp_path: Path) -> N
         }
     )
     port = 0
-    proc = await asyncio.create_subprocess_exec(
+    create_process = cast(
+        "Callable[..., Awaitable[asyncio.subprocess.Process]]",
+        asyncio.create_subprocess_exec,
+    )
+    proc = await create_process(
         sys.executable,
         "-m",
         "backend.main",
