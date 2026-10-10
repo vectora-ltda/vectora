@@ -36,15 +36,25 @@ export async function waitForElectronCdpTarget(
               try {
                 const payload = JSON.parse(
                   Buffer.concat(chunks).toString("utf8"),
-                ) as { Browser?: unknown };
+                ) as { Browser?: unknown; "User-Agent"?: unknown };
+                // Electron's Chromium reports a Chrome product string in
+                // `Browser` on some versions, while its user agent retains
+                // the Electron product. Validate both fields so a healthy
+                // Electron endpoint is not rejected and the authenticated
+                // proxy can start for the backend.
+                const browser =
+                  typeof payload.Browser === "string" ? payload.Browser : "";
+                const userAgent =
+                  typeof payload["User-Agent"] === "string"
+                    ? payload["User-Agent"]
+                    : "";
                 if (
-                  typeof payload.Browser !== "string" ||
-                  !payload.Browser.toLowerCase().includes("electron")
+                  !`${browser} ${userAgent}`.toLowerCase().includes("electron")
                 ) {
                   reject(new Error("a porta CDP não pertence ao Electron"));
                   return;
                 }
-                resolve(payload.Browser);
+                resolve(`${browser} ${userAgent}`.trim());
               } catch (error) {
                 reject(error);
               }
