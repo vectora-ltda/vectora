@@ -149,10 +149,12 @@ export async function startElectronCdpProxy(
         });
       },
     );
-    upstream.on("error", () => {
+    const closeWithBadGateway = (): void => {
       if (!outgoing.headersSent) outgoing.writeHead(502);
-      outgoing.end();
-    });
+      if (!outgoing.writableEnded) outgoing.end();
+    };
+    upstream.once("error", closeWithBadGateway);
+    incoming.once("error", closeWithBadGateway);
     incoming.pipe(upstream);
   });
 
@@ -171,7 +173,18 @@ export async function startElectronCdpProxy(
       if (head.length) upstream.write(head);
       socket.pipe(upstream).pipe(socket);
     });
-    upstream.on("error", () => socket.destroy());
+    const destroyPair = (): void => {
+      if (!socket.destroyed) socket.destroy();
+      if (!upstream.destroyed) upstream.destroy();
+    };
+    socket.once("error", destroyPair);
+    upstream.once("error", destroyPair);
+    socket.once("close", () => {
+      if (!upstream.destroyed) upstream.destroy();
+    });
+    upstream.once("close", () => {
+      if (!socket.destroyed) socket.destroy();
+    });
   });
 
   await new Promise<void>((resolve, reject) => {

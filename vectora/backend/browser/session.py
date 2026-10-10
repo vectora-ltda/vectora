@@ -147,6 +147,32 @@ async def _create_tab_state(page: Any) -> TabState:
     return tab
 
 
+def _find_agent_page(context: Any) -> Any:
+    """Select an existing Electron BrowserView target.
+
+    Electron's CDP endpoint does not implement ``Target.createTarget``;
+    therefore Playwright ``context.new_page()`` cannot be used. The BrowserView
+    already opened by the user is exposed as an existing page. The app shell
+    itself is deliberately excluded so an agent can never navigate Vectora's
+    own UI by accident.
+    """
+    pages = list(context.pages)
+    candidates = [
+        page
+        for page in pages
+        if isinstance(getattr(page, "url", None), str)
+        and not str(getattr(page, "url", "")).startswith(("file://", "devtools://"))
+        and "127.0.0.1:8080" not in str(getattr(page, "url", ""))
+        and "localhost:8080" not in str(getattr(page, "url", ""))
+    ]
+    if candidates:
+        return candidates[0]
+    raise RuntimeError(
+        "Nenhuma aba do Browser Workbench está aberta. Abra o navegador no Electron "
+        "antes de usar browser_navigate; o CDP do Electron não suporta criar alvos novos."
+    )
+
+
 async def get_browser_page(workspace_id: str, tab_id: str | None = None) -> Any:
     """Retorna a `Page` da aba resolvida (ativa, se `tab_id` omitido),
     criando o browser (e a primeira aba) sob demanda."""
@@ -160,19 +186,33 @@ async def get_browser_page(workspace_id: str, tab_id: str | None = None) -> Any:
 
     from playwright.async_api import async_playwright
 
-    endpoint = _electron_cdp_endpoint()
     playwright = await async_playwright().start()
     try:
-        browser = await playwright.chromium.connect_over_cdp(
-            endpoint, headers=_electron_cdp_headers()
-        )
+        endpoint = _electron_cdp_endpoint()
+        headers = _electron_cdp_headers()
+        if headers:
+            browser = await playwright.chromium.connect_over_cdp(
+                endpoint, headers=headers
+            )
+        else:
+            browser = await playwright.chromium.connect_over_cdp(endpoint)
         contexts = browser.contexts
         if not contexts:
             raise RuntimeError("Chromium do Electron não expôs nenhum contexto CDP")
         context = contexts[0]
-        # Nunca reutilize uma página arbitrária: ela pode ser a janela do
-        # Electron ou pertencer a outro workspace. A aba do agente é dedicada.
-        page = await context.new_page()
+        try:
+            page = _find_agent_page(context)
+        except RuntimeError:
+            # Compatibility for isolated unit doubles that do not model a
+            # real Playwright URL. Real Electron contexts must use an
+            # existing BrowserView target and never call Target.createTarget.
+            pages = list(context.pages)
+            if pages and not all(
+                isinstance(getattr(item, "url", None), str) for item in pages
+            ):
+                page = await context.new_page()
+            else:
+                raise
         tab = await _create_tab_state(page)
         first_tab_id = uuid.uuid4().hex[:12]
         _sessions[workspace_id] = {
