@@ -278,6 +278,17 @@ def test_release_branch_promotion_from_another_repo_is_rejected() -> None:
     assert errors and "0.2.x" in errors[0]
 
 
+def test_empty_release_branch_does_not_use_promotion_exception() -> None:
+    """Exige a parte identificadora depois de ``release/``."""
+    event = _event(
+        base=MAINTENANCE_BRANCH,
+        milestone=DEVELOPMENT_MILESTONE,
+        head="release/",
+    )
+    errors = validator.validate_pull_request(event)
+    assert errors and "0.2.x" in errors[0]
+
+
 def test_release_please_pr_from_another_repo_is_rejected() -> None:
     """Rejeita uma branch de release criada a partir de outro repositório."""
     event = _event(
