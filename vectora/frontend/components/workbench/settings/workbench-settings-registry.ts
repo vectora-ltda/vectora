@@ -196,3 +196,6 @@ const SETTINGS_BY_WORKBENCH: Record<WorkbenchId, WorkbenchSettingsDescriptor> =
 /** Fonte única dos descriptors registrados pelas workbenches. */
 export const WORKBENCH_SETTINGS: readonly WorkbenchSettingsDescriptor[] =
   WORKBENCH_TABS.map((id) => SETTINGS_BY_WORKBENCH[id]);
+
+/** Alias de compatibilidade para consumidores globais de configurações. */
+export const ALL_WORKBENCH_SETTINGS = WORKBENCH_SETTINGS;

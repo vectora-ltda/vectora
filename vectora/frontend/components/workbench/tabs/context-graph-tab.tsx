@@ -296,6 +296,7 @@ export function ContextGraphTab({
             </div>
 
             <ContextGraphViewer
+              workspaceId={workspaceId}
               fetchGraphData={fetchGraphData}
               pathBetween={pathBetween}
               onExplainNode={(label) =>

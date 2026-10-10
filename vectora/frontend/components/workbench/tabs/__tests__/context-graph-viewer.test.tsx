@@ -77,7 +77,11 @@ afterEach(async () => {
 });
 
 import { ContextGraphViewer } from "../context-graph-viewer";
-import type { GraphQueryResult } from "@/lib/hooks/use-context-graph";
+import type {
+  GraphQueryResult,
+  RawGraphData,
+} from "@/lib/hooks/use-context-graph";
+import { useContextGraphSettingsStore } from "@/lib/stores/context-graph-settings-store";
 
 const GRAPH_DATA = {
   nodes: [
@@ -98,7 +102,8 @@ const GRAPH_DATA = {
 
 async function renderViewer(
   overrides: {
-    fetchGraphData?: () => Promise<typeof GRAPH_DATA | null>;
+    workspaceId?: string | null;
+    fetchGraphData?: () => Promise<RawGraphData | null>;
     pathBetween?: (
       source: string,
       target: string,
@@ -120,6 +125,7 @@ async function renderViewer(
     );
   render(
     <ContextGraphViewer
+      workspaceId={overrides.workspaceId}
       fetchGraphData={fetchGraphData}
       pathBetween={pathBetween}
       onExplainNode={onExplainNode}
@@ -138,6 +144,14 @@ describe("ContextGraphViewer", () => {
     expect(canvasEdges().length).toBe(2);
   });
 
+  it("passa o background resolvido dos tokens do tema ao canvas", async () => {
+    document.documentElement.style.setProperty("--background", "#123456");
+    await renderViewer();
+    const theme = lastCanvasProps?.theme as
+      { canvas?: { background?: string } } | undefined;
+    expect(theme?.canvas?.background).toBe("#123456");
+  });
+
   it("fetchGraphData retornando null não quebra — canvas some sem grafo", async () => {
     await renderViewer({ fetchGraphData: () => Promise.resolve(null) });
     expect(screen.queryByTestId("fake-node-n1")).toBeNull();
@@ -150,6 +164,43 @@ describe("ContextGraphViewer", () => {
     expect(screen.getByText("Billing")).toBeTruthy();
     expect(screen.getByText("2")).toBeTruthy(); // Auth tem 2 nós
     expect(screen.getByText("1")).toBeTruthy(); // Billing tem 1 nó
+  });
+
+  it("prefere o contrato explícito de comunidades exportado pelo backend", async () => {
+    await renderViewer({
+      fetchGraphData: () =>
+        Promise.resolve({
+          ...GRAPH_DATA,
+          communities: [
+            {
+              id: 0,
+              key: "community-auth",
+              name: "Authentication domain",
+              count: 2,
+              cohesion: 0.8,
+            },
+          ],
+        }),
+    });
+
+    expect(screen.getByText("Authentication domain")).toBeTruthy();
+    expect(screen.queryByText("Auth")).toBeNull();
+  });
+
+  it("expõe um divisor acessível e persiste a largura por workspace", async () => {
+    useContextGraphSettingsStore
+      .getState()
+      .setCommunityPanelWidth("ws-resize", 280);
+    await renderViewer({ workspaceId: "ws-resize" });
+    const resizer = screen.getByTestId("graph-community-resizer");
+
+    expect(resizer).toHaveAttribute("role", "separator");
+    expect(resizer).toHaveAttribute("aria-valuenow", "280");
+
+    fireEvent.keyDown(resizer, { key: "ArrowLeft" });
+    expect(resizer).toHaveAttribute("aria-valuenow", "270");
+    fireEvent.keyDown(resizer, { key: "End" });
+    expect(resizer).toHaveAttribute("aria-valuenow", "480");
   });
 
   it("desmarcar uma comunidade remove seus nós/arestas do canvas", async () => {
@@ -180,6 +231,9 @@ describe("ContextGraphViewer", () => {
 
     expect(screen.getByTestId("graph-node-info")).toBeTruthy();
     expect(screen.getByText("AuthService")).toBeTruthy();
+    expect(screen.getByTestId("graph-node-neighbors")).toHaveTextContent(
+      "TokenUtils",
+    );
 
     fireEvent.click(screen.getByText("graph_explain_node_button"));
     expect(onExplainNode).toHaveBeenCalledWith("AuthService");
