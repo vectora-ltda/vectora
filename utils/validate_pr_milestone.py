@@ -96,6 +96,7 @@ _RELEASE_PLEASE_PATCH_BRANCH = re.compile(
     r"^release-please-(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>[1-9]\d*)$"
 )
 _STACK_BASE = re.compile(r"^stack/[a-z0-9][a-z0-9-]*$")
+_RELEASE_BRANCH = re.compile(r"^release/.+$")
 
 
 class ReleaseLine(BaseModel):
@@ -186,6 +187,22 @@ def _is_release_please_pr(
     return bool(match and f"{match['major']}.{match['minor']}.x" == line.milestone)
 
 
+def _is_release_branch_pr(
+    event: PullRequestEvent, pull_request: PullRequestPayload
+) -> bool:
+    """Aceita promoções internas de branches release/* para a base master."""
+    base = pull_request.base.ref if pull_request.base else ""
+    head = pull_request.head
+    head_ref = head.ref if head else ""
+    head_repo = head.repo.full_name if head and head.repo else None
+    repository = event.repository
+    return bool(
+        base == _release_lines().maintenance.branch
+        and _RELEASE_BRANCH.fullmatch(head_ref) is not None
+        and head_repo == (repository.full_name if repository else None)
+    )
+
+
 def _is_vext_pr(pull_request: PullRequestPayload) -> bool:
     """Identifica títulos e branches VEXT para diagnósticos claros de validação."""
     head_ref = pull_request.head.ref if pull_request.head else ""
@@ -204,7 +221,9 @@ def validate_pull_request(event: EventPayload) -> list[str]:
 
     errors: list[str] = []
     base = pull_request.base.ref if pull_request.base else ""
-    if _is_release_please_pr(parsed_event, pull_request):
+    if _is_release_please_pr(parsed_event, pull_request) or _is_release_branch_pr(
+        parsed_event, pull_request
+    ):
         return []
     if _STACK_BASE.fullmatch(base):
         head = pull_request.head

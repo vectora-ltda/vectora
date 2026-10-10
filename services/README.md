@@ -158,7 +158,7 @@ Sobe pra R2 e atualiza o canal `latest` no KV (`scripts/release.ts`).
 
 ## Testes
 
-`@cloudflare/vitest-pool-workers` (miniflare real, não mocks manuais) —
+`@cloudflare/vitest-plugin` (miniflare real, não mocks manuais) —
 `pnpm test`. Alguns testes de Durable Object são pulados no Windows
 (`TEST_IS_WINDOWS=1`) por um lock de SQLite do workerd que não libera antes
 do cleanup do isolated storage; rodam normalmente em CI (Linux).
