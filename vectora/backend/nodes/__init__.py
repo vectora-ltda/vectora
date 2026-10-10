@@ -15,6 +15,9 @@ _FS_NAMES = frozenset(
         "terminal",
         "create_artifact",
         "list_terminals",
+        "attach_terminal",
+        "read_terminal",
+        "write_terminal",
         "close_terminal",
     }
 )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from backend.nodes import FS_TOOLS as LEGACY_FS_TOOLS
 from backend.nodes.tools import (
     ALL_TOOL_NAMES,
     ALL_TOOL_SPECS,
@@ -62,6 +63,17 @@ def test_terminal_group_exposes_shared_pty_contract() -> None:
     names = {tool.name for tool in resolve_tool_group("terminal_only")}
     assert names >= {
         "terminal",
+        "list_terminals",
+        "attach_terminal",
+        "read_terminal",
+        "write_terminal",
+        "close_terminal",
+    }
+
+
+def test_legacy_fs_view_exposes_shared_pty_contract() -> None:
+    names = {tool.name for tool in LEGACY_FS_TOOLS}
+    assert names >= {
         "list_terminals",
         "attach_terminal",
         "read_terminal",
