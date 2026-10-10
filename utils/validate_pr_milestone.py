@@ -303,7 +303,9 @@ def main() -> int:
         return 2
     current_milestone = os.environ.get("CURRENT_RELEASE_MILESTONE")
     current_base = os.environ.get("CURRENT_PR_BASE")
-    current_head = os.environ.get("CURRENT_PR_HEAD_REF")
+    current_head = os.environ.get("CURRENT_PR_HEAD_REF") or os.environ.get(
+        "GITHUB_HEAD_REF"
+    )
     current_head_repo = os.environ.get("CURRENT_PR_HEAD_REPO")
     if payload.pull_request is not None:
         # GitHub Actions expande outputs ausentes para uma string vazia. Nesse
