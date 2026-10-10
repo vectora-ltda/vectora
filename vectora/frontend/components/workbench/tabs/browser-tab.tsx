@@ -471,6 +471,11 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
             viewId,
             ...(pending ? { desktopUrl: pending } : {}),
           });
+          desktopBrowser.setPolicy?.(viewId, {
+            allowPopups,
+            permissionMode: browserPermissionMode,
+            originPermissions: browserOriginPermissions,
+          });
           if (pending) {
             pendingNavigateRef.current.delete(tabId);
             void desktopBrowser.navigate(viewId, pending).then((result) => {
@@ -641,6 +646,11 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
                 : candidate,
             ),
           );
+          desktopBrowser.setPolicy?.(viewId, {
+            allowPopups,
+            permissionMode: browserPermissionMode,
+            originPermissions: browserOriginPermissions,
+          });
           const initialUrl = pending ?? tab.desktopUrl;
           if (initialUrl) {
             void desktopBrowser.navigate(viewId, initialUrl).then((result) => {
@@ -662,6 +672,9 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     sessionKey,
     profileId,
     sessionHydrationVersion,
+    allowPopups,
+    browserPermissionMode,
+    browserOriginPermissions,
   ]);
 
   useEffect(() => {
