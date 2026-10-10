@@ -403,6 +403,35 @@ function pruneContents(
   return next;
 }
 
+/** Migra o shell persistido de versões anteriores do Workbench. */
+type PersistedWorkbenchState = Omit<
+  Partial<WorkbenchState>,
+  "activeTabByThread"
+> & {
+  activeTabByThread?: Record<string, WorkbenchTab | "diff">;
+};
+
+export function migrateWorkbenchState(
+  persisted: PersistedWorkbenchState,
+  version: number,
+): Partial<WorkbenchState> {
+  const activeTabs = persisted.activeTabByThread;
+  const migratedTabs = activeTabs
+    ? (Object.fromEntries(
+        Object.entries(activeTabs).map(([threadId, tab]) => [
+          threadId,
+          tab === "diff" ? "git" : tab,
+        ]),
+      ) as Record<string, WorkbenchTab>)
+    : activeTabs;
+  return {
+    ...persisted,
+    activeTabByThread: migratedTabs,
+    splitSize: migrateSplitSize(persisted.splitSize, version) as
+      number | undefined,
+  };
+}
+
 export const useWorkbenchStore = create<WorkbenchState>()(
   immer(
     persist(
@@ -817,7 +846,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       }),
       {
         name: "vectora-workbench",
-        version: 2,
+        version: 3,
         // v0 guardava splitSize como % (default 40); v1 passa a usar px
         // (default = largura da sidebar). Valores antigos ficariam
         // minúsculos demais como largura — descarta e usa o novo default.
@@ -826,11 +855,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         // escolhida manualmente não é sobrescrita.
         migrate: (persisted, version) => {
           const state = persisted as Partial<WorkbenchState>;
-          if (!state || typeof state.splitSize === "undefined") return state;
-          return {
-            ...state,
-            splitSize: migrateSplitSize(state.splitSize, version),
-          };
+          return migrateWorkbenchState(state, version);
         },
         storage: createJSONStorage(() =>
           typeof window !== "undefined"

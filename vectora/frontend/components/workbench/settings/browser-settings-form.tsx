@@ -18,6 +18,9 @@ export function BrowserSettingsForm({
 }: BrowserSettingsFormProps) {
   const [clearProfileError, setClearProfileError] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [zoomDraft, setZoomDraft] = useState(() =>
+    String(useSettingsStore.getState().browserZoomPercent),
+  );
   const allowPopups = useSettingsStore((s) => s.browserAllowPopups);
   const zoomPercent = useSettingsStore((s) => s.browserZoomPercent);
   const setAllowPopups = useSettingsStore((s) => s.setBrowserAllowPopups);
@@ -58,17 +61,27 @@ export function BrowserSettingsForm({
               </span>
             </span>
             <input
+              key={zoomPercent}
               className="w-20 rounded border border-border/60 bg-background px-2 py-1 text-right"
               type="number"
               min={25}
               max={500}
               step={5}
-              value={zoomPercent}
-              onChange={(event) => setZoomPercent(Number(event.target.value))}
+              value={zoomDraft}
+              onChange={(event) => setZoomDraft(event.target.value)}
+              onBlur={() => {
+                const value = Number(zoomDraft);
+                if (Number.isFinite(value)) setZoomPercent(value);
+                else setZoomDraft(String(zoomPercent));
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+              }}
             />
           </label>
           <button
             type="button"
+            disabled={!threadId || !profileId}
             className="max-w-full rounded border border-destructive/40 px-2 py-1 text-left text-destructive hover:bg-destructive/10"
             onClick={() => setConfirmClear(true)}
           >

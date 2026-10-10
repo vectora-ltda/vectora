@@ -211,6 +211,8 @@ const bridge: VectoraDesktopBridge = {
       ipcRenderer.send("vectora:browser-set-visible", viewId, visible),
     setZoom: (viewId, percent) =>
       ipcRenderer.send("vectora:browser-set-zoom", viewId, percent),
+    setAllowPopups: (viewId, allowPopups) =>
+      ipcRenderer.send("vectora:browser-set-allow-popups", viewId, allowPopups),
     clearProfileData: (profileId?: string) =>
       ipcRenderer.invoke("vectora:browser-clear-profile-data", profileId),
     onEvent: (handler) => {

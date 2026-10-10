@@ -168,10 +168,6 @@ export interface SettingsState {
   planSort: "created" | "title";
   /** Exibe notificações para tarefas em segundo plano. */
   taskNotifications: boolean;
-  /** Número de tentativas automáticas de tarefas que falham. */
-  taskRetryCount: number;
-  /** Limite de execuções concorrentes de tarefas. */
-  taskConcurrency: number;
   /** Exibe skills na Library. */
   libraryShowSkills: boolean;
   /** Exibe servidores MCP na Library. */
@@ -223,8 +219,6 @@ export interface SettingsState {
   setPlanAutoExpand: (v: boolean) => void;
   setPlanSort: (v: "created" | "title") => void;
   setTaskNotifications: (v: boolean) => void;
-  setTaskRetryCount: (v: number) => void;
-  setTaskConcurrency: (v: number) => void;
   setLibraryShowSkills: (v: boolean) => void;
   setLibraryShowMcp: (v: boolean) => void;
   setBrowserAllowPopups: (v: boolean) => void;
@@ -417,8 +411,6 @@ const DEFAULTS = {
   planAutoExpand: true,
   planSort: "created" as "created" | "title",
   taskNotifications: true,
-  taskRetryCount: 0,
-  taskConcurrency: 2,
   libraryShowSkills: true,
   libraryShowMcp: true,
   browserAllowPopups: false,
@@ -583,10 +575,6 @@ export const useSettingsStore = create<SettingsState>()(
       setPlanAutoExpand: (v) => set({ planAutoExpand: v }),
       setPlanSort: (v) => set({ planSort: v }),
       setTaskNotifications: (v) => set({ taskNotifications: v }),
-      setTaskRetryCount: (v) =>
-        set({ taskRetryCount: Math.max(0, Math.min(5, Math.round(v))) }),
-      setTaskConcurrency: (v) =>
-        set({ taskConcurrency: Math.max(1, Math.min(8, Math.round(v))) }),
       setLibraryShowSkills: (v) => set({ libraryShowSkills: v }),
       setLibraryShowMcp: (v) => set({ libraryShowMcp: v }),
       setBrowserAllowPopups: (v) => set({ browserAllowPopups: v }),
@@ -680,8 +668,6 @@ export const useSettingsStore = create<SettingsState>()(
         planAutoExpand: state.planAutoExpand,
         planSort: state.planSort,
         taskNotifications: state.taskNotifications,
-        taskRetryCount: state.taskRetryCount,
-        taskConcurrency: state.taskConcurrency,
         libraryShowSkills: state.libraryShowSkills,
         libraryShowMcp: state.libraryShowMcp,
         browserAllowPopups: state.browserAllowPopups,

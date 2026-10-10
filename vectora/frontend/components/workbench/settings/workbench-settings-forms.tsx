@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -40,6 +41,9 @@ function Toggle({
 
 export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
   const settings = useSettingsStore();
+  const [fontSizeDraft, setFontSizeDraft] = useState(() =>
+    String(settings.monacoFontSize),
+  );
   return (
     <div className="space-y-4">
       <Toggle
@@ -59,14 +63,21 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
           </p>
         </div>
         <Input
+          key={settings.monacoFontSize}
           id="files-font-size"
           type="number"
           min={10}
           max={24}
-          value={settings.monacoFontSize}
-          onChange={(event) =>
-            settings.setMonacoFontSize(Number(event.target.value))
-          }
+          value={fontSizeDraft}
+          onChange={(event) => setFontSizeDraft(event.target.value)}
+          onBlur={() => {
+            const value = Number(fontSizeDraft);
+            if (Number.isFinite(value)) settings.setMonacoFontSize(value);
+            else setFontSizeDraft(String(settings.monacoFontSize));
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+          }}
           className="w-24"
         />
       </div>
@@ -172,46 +183,6 @@ export function TasksSettingsForm(_context: WorkbenchSettingsContext) {
         checked={settings.taskNotifications}
         onChange={settings.setTaskNotifications}
       />
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <Label htmlFor="tasks-retry">{m.workbench_tasks_retry_label()}</Label>
-          <p className="text-xs text-muted-foreground">
-            {m.workbench_tasks_retry_help()}
-          </p>
-        </div>
-        <Input
-          id="tasks-retry"
-          type="number"
-          min={0}
-          max={5}
-          value={settings.taskRetryCount}
-          onChange={(event) =>
-            settings.setTaskRetryCount(Number(event.target.value))
-          }
-          className="w-24"
-        />
-      </div>
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <Label htmlFor="tasks-concurrency">
-            {m.workbench_tasks_concurrency_label()}
-          </Label>
-          <p className="text-xs text-muted-foreground">
-            {m.workbench_tasks_concurrency_help()}
-          </p>
-        </div>
-        <Input
-          id="tasks-concurrency"
-          type="number"
-          min={1}
-          max={8}
-          value={settings.taskConcurrency}
-          onChange={(event) =>
-            settings.setTaskConcurrency(Number(event.target.value))
-          }
-          className="w-24"
-        />
-      </div>
     </div>
   );
 }

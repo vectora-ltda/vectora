@@ -89,6 +89,7 @@ export type BrowserViewEvent =
   | { type: "titleUpdated"; title: string }
   | { type: "faviconUpdated"; favicon: string }
   | { type: "loadingChanged"; isLoading: boolean }
+  | { type: "popupRequested"; url: string }
   | { type: "escapePressed" }
   | {
       type: "loadFailed";
@@ -186,6 +187,16 @@ export class BrowserViewManager {
     const normalized = Math.max(25, Math.min(500, Math.round(percent)));
     const factor = normalized / 100;
     entry.view.webContents.setZoomLevel?.(Math.log(factor) / Math.log(1.2));
+  }
+
+  setAllowPopups(
+    id: number,
+    allowPopups: boolean,
+    ownerId: number | null = null,
+  ): void {
+    const entry = this.entries.get(id);
+    if (!entry || !this.owns(entry, ownerId)) return;
+    entry.allowPopups = allowPopups;
   }
 
   async clearData(profileId = "default"): Promise<void> {
@@ -310,11 +321,16 @@ export class BrowserViewManager {
     };
     wc.on("will-navigate", cancelUnsafeNavigation);
     wc.on("will-redirect", cancelUnsafeNavigation);
-    // Popups are denied until they can be created as managed views. Allowing
-    // them would bypass the manager's bounds, lifecycle and navigation guards.
-    wc.setWindowOpenHandler?.(() => ({
-      action: this.entries.get(id)?.allowPopups ? "allow" : "deny",
-    }));
+    // Native child windows are never allowed: they bypass the manager's
+    // bounds, lifecycle and navigation guards. When enabled, forward the
+    // requested URL to the renderer so it can create another managed tab.
+    wc.setWindowOpenHandler?.((details) => {
+      const entry = this.entries.get(id);
+      if (entry?.allowPopups && isNavigableUrl(details.url, kind)) {
+        this.deps.emit(id, { type: "popupRequested", url: details.url });
+      }
+      return { action: "deny" };
+    });
     const navigated = () =>
       this.deps.emit(id, {
         type: "navigated",

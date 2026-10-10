@@ -215,6 +215,15 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   }, [desktopBrowser, activeTab?.viewId, browserZoomPercent]);
 
   useEffect(() => {
+    if (!desktopBrowser) return;
+    for (const tab of tabsRef.current) {
+      if (tab.viewId !== null) {
+        desktopBrowser.setAllowPopups?.(tab.viewId, allowPopups);
+      }
+    }
+  }, [desktopBrowser, allowPopups]);
+
+  useEffect(() => {
     if (previousSessionKeyRef.current === sessionKey) return;
     previousSessionKeyRef.current = sessionKey;
     hydratedSessionKeyRef.current = null;
@@ -578,6 +587,10 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   useEffect(() => {
     if (!desktopBrowser) return;
     return desktopBrowser.onEvent((eventViewId, event) => {
+      if (event.type === "popupRequested") {
+        if (allowPopups) addTab(event.url);
+        return;
+      }
       setTabs((prev) =>
         prev.map((t) => {
           if (t.viewId !== eventViewId) return t;
@@ -603,7 +616,7 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
         }),
       );
     });
-  }, [desktopBrowser]);
+  }, [addTab, allowPopups, desktopBrowser]);
 
   // Visibilidade: só a view da aba ATIVA fica visível — todas as outras
   // (abas em segundo plano) ficam escondidas, senão desenhariam por cima

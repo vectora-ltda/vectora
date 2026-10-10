@@ -174,6 +174,7 @@ export function PlanTab({ threadId, onOpenPlanDocument }: PlanTabProps) {
   // ao trocar de thread permitia que uma resposta antiga e uma nova usassem
   // o mesmo epoch para o mesmo slug.
   const contentRequestEpoch = useRef(new Map<string, number>());
+  const autoExpandedThreadsRef = useRef(new Set<string>());
   const activeThreadRef = useRef(threadId);
   useEffect(() => {
     activeThreadRef.current = threadId;
@@ -236,13 +237,6 @@ export function PlanTab({ threadId, onOpenPlanDocument }: PlanTabProps) {
       return b.timestamp - a.timestamp;
     });
   }, [items, todos, planSort]);
-
-  useEffect(() => {
-    if (!planAutoExpand || entries.length === 0) return;
-    const first = entries[0]?.slug;
-    if (first && !openSlugs.includes(first))
-      togglePlanOpenSlug(threadId, first);
-  }, [entries, openSlugs, planAutoExpand, threadId, togglePlanOpenSlug]);
 
   const handleAccordionChange = useCallback(
     (next: string[]) => {
@@ -334,6 +328,16 @@ export function PlanTab({ threadId, onOpenPlanDocument }: PlanTabProps) {
       onOpenPlanDocument,
     ],
   );
+
+  useEffect(() => {
+    if (!planAutoExpand || entries.length === 0) return;
+    const first = entries[0]?.slug;
+    if (!first || autoExpandedThreadsRef.current.has(threadId)) return;
+    autoExpandedThreadsRef.current.add(threadId);
+    if (!openSlugs.includes(first)) {
+      handleAccordionChange([...openSlugs, first]);
+    }
+  }, [entries, handleAccordionChange, openSlugs, planAutoExpand, threadId]);
 
   // Estado de loading inicial: ainda não fetchamos uma única vez.
   const initialLoading = fetchedAt === 0;

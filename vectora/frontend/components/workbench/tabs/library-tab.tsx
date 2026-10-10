@@ -7,7 +7,7 @@
  */
 
 import { Archive, Puzzle, Search, Sparkles } from "lucide-react";
-import { useCallback, useState, type KeyboardEvent } from "react";
+import { useCallback, useMemo, useState, type KeyboardEvent } from "react";
 
 import {
   Accordion,
@@ -100,6 +100,14 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
   const [activeSection, setActiveSection] = useState<LibraryFilter>();
   const showSkills = useSettingsStore((s) => s.libraryShowSkills);
   const showMcp = useSettingsStore((s) => s.libraryShowMcp);
+  const visibleSections = useMemo(
+    () => [
+      ...(showMcp ? (["mcp"] as const) : []),
+      ...(showSkills ? (["skills"] as const) : []),
+      "memory" as const,
+    ],
+    [showMcp, showSkills],
+  );
 
   const handleSectionKeyDown = useCallback(
     (
@@ -119,27 +127,27 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
         return;
       }
       event.preventDefault();
-      const index = LIBRARY_SECTIONS.indexOf(value);
+      const index = visibleSections.indexOf(value);
       const nextIndex =
         event.key === "Home"
           ? 0
           : event.key === "End"
-            ? LIBRARY_SECTIONS.length - 1
+            ? visibleSections.length - 1
             : (index +
                 (event.key === "ArrowLeft" || event.key === "ArrowUp"
                   ? -1
                   : 1) +
-                LIBRARY_SECTIONS.length) %
-              LIBRARY_SECTIONS.length;
+                visibleSections.length) %
+              visibleSections.length;
       const next = document.getElementById(
-        `library-tab-${LIBRARY_SECTIONS[nextIndex]}`,
+        `library-tab-${visibleSections[nextIndex]}`,
       );
       if (next instanceof HTMLButtonElement) {
         next.focus();
-        setActiveSection(LIBRARY_SECTIONS[nextIndex]);
+        setActiveSection(visibleSections[nextIndex]);
       }
     },
-    [],
+    [visibleSections],
   );
 
   return (
@@ -158,7 +166,10 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
               onSelect={() => setActiveSection("mcp")}
               onKeyDown={(event) => handleSectionKeyDown(event, "mcp")}
               tabIndex={
-                activeSection === "mcp" || activeSection === undefined ? 0 : -1
+                activeSection === "mcp" ||
+                (!activeSection && visibleSections[0] === "mcp")
+                  ? 0
+                  : -1
               }
             />
           ) : null}
@@ -169,7 +180,12 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
               active={activeSection === "skills"}
               onSelect={() => setActiveSection("skills")}
               onKeyDown={(event) => handleSectionKeyDown(event, "skills")}
-              tabIndex={activeSection === "skills" ? 0 : -1}
+              tabIndex={
+                activeSection === "skills" ||
+                (!activeSection && visibleSections[0] === "skills")
+                  ? 0
+                  : -1
+              }
             />
           ) : null}
           <FilterPill
@@ -178,7 +194,12 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
             active={activeSection === "memory"}
             onSelect={() => setActiveSection("memory")}
             onKeyDown={(event) => handleSectionKeyDown(event, "memory")}
-            tabIndex={activeSection === "memory" ? 0 : -1}
+            tabIndex={
+              activeSection === "memory" ||
+              (!activeSection && visibleSections[0] === "memory")
+                ? 0
+                : -1
+            }
           />
         </div>
       </div>

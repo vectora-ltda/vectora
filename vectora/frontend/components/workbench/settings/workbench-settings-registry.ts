@@ -58,7 +58,7 @@ export const browserSettings: WorkbenchSettingsDescriptor = {
   title: () => m.workbench_browser_settings_title(),
   description: () => m.workbench_browser_settings_description(),
   icon: Settings2,
-  scope: "session",
+  scope: "user",
   Component: BrowserSettingsContent,
   surface: { workbench: "form", settings: "form" },
 };

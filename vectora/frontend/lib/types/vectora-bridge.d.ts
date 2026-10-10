@@ -36,6 +36,7 @@ export type VectoraBrowserViewEvent =
   | { type: "titleUpdated"; title: string }
   | { type: "faviconUpdated"; favicon: string }
   | { type: "loadingChanged"; isLoading: boolean }
+  | { type: "popupRequested"; url: string }
   | { type: "escapePressed" }
   | {
       type: "loadFailed";
@@ -120,6 +121,7 @@ export interface VectoraDesktopBridge {
     setBounds: (viewId: number, bounds: VectoraViewBounds) => void;
     setVisible: (viewId: number, visible: boolean) => void;
     setZoom?: (viewId: number, percent: number) => void;
+    setAllowPopups?: (viewId: number, allowPopups: boolean) => void;
     clearProfileData: (profileId?: string) => Promise<void>;
     onEvent: (
       handler: (viewId: number, event: VectoraBrowserViewEvent) => void,

@@ -138,6 +138,29 @@ describe("BrowserViewManager", () => {
     });
   });
 
+  it("nega a janela nativa e encaminha popup permitido como evento gerenciado", () => {
+    const id = manager.createView("profile", "tab", null, {
+      allowPopups: true,
+    });
+    const view = views[0];
+    expect(view.getWindowOpenAction("https://example.com/new")).toEqual({
+      action: "deny",
+    });
+    expect(emitted).toContainEqual({
+      viewId: id,
+      event: { type: "popupRequested", url: "https://example.com/new" },
+    });
+  });
+
+  it("ignora popup permitido com esquema não navegável", () => {
+    manager.createView("profile", "tab", null, { allowPopups: true });
+    const view = views[0];
+    expect(view.getWindowOpenAction("file:///secret")).toEqual({
+      action: "deny",
+    });
+    expect(emitted).toEqual([]);
+  });
+
   it("destroi a view via deps.destroyView; id inexistente não quebra", () => {
     const id = manager.createView();
     manager.destroyView(id);

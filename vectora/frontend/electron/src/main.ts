@@ -75,6 +75,17 @@ function browserOwnerId(event: unknown): number {
   return (event as { sender?: { id?: number } }).sender?.id ?? -1;
 }
 
+function isTrustedBrowserSender(event: unknown): boolean {
+  const candidate = event as {
+    sender?: unknown;
+    senderFrame?: { url?: string } | null;
+  };
+  return (
+    candidate.sender === mainWindow?.webContents &&
+    (candidate.senderFrame?.url ?? "").startsWith(`${APP_SCHEME}://`)
+  );
+}
+
 import { computeDefaultWindowSize } from "./window-size.js";
 import {
   fetchMarketplaceThemes,
@@ -1026,16 +1037,6 @@ function registerIpc(): void {
   // Browser real da aba Browser (ver getBrowserViewManager) — comandos
   // invoke/handle (resposta esperada) + eventos fire-and-forget, mesmo
   // padrão do restante deste arquivo.
-  const isTrustedBrowserSender = (event: unknown): boolean => {
-    const candidate = event as {
-      sender?: unknown;
-      senderFrame?: { url?: string } | null;
-    };
-    return (
-      candidate.sender === mainWindow?.webContents &&
-      (candidate.senderFrame?.url ?? "").startsWith(`${APP_SCHEME}://`)
-    );
-  };
   ipcMain.handle("vectora:browser-create-view", (event, options: unknown) => {
     if (!isTrustedBrowserSender(event)) throw new Error("origem IPC inválida");
     if (!options || typeof options !== "object")
@@ -1150,6 +1151,18 @@ function registerIpc(): void {
       getBrowserViewManager().setZoomPercent(
         viewId,
         percent,
+        browserOwnerId(event),
+      );
+    },
+  );
+  ipcMain.on(
+    "vectora:browser-set-allow-popups",
+    (event, viewId: number, allowPopups: boolean) => {
+      if (!isTrustedBrowserSender(event)) return;
+      if (!isValidViewId(viewId) || typeof allowPopups !== "boolean") return;
+      getBrowserViewManager().setAllowPopups(
+        viewId,
+        allowPopups,
         browserOwnerId(event),
       );
     },
