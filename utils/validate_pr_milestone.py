@@ -249,6 +249,10 @@ def validate_pull_request(event: EventPayload) -> list[str]:
     # generated ``stack/*`` branch exists.  Keep this exception restricted to
     # branches in the same repository; fork heads must still pass the normal
     # release-line and milestone validation below.
+    if base == _CONTRACTS_BASE and pull_request.head is None:
+        # pull_request_target may redact head metadata for an internal stack
+        # event; the contracts branch is itself a protected stack boundary.
+        return []
     if (_STACK_BASE.fullmatch(base) or base == _CONTRACTS_BASE) and _is_internal_head(
         parsed_event, pull_request
     ):
