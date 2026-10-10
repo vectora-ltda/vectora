@@ -163,7 +163,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          prs="$(gh pr list --repo "$GITHUB_REPOSITORY" --base "$RELEASE_TARGET_BRANCH" --head "$TARGET_BRANCH" --state open --limit 20 --json number,headRefName,headRefOid,headRepository,title,body,labels,baseRefName)"
+          prs="$(gh pr list --repo "$GITHUB_REPOSITORY" --base "$TARGET_BRANCH" --state open --limit 100 --json number,headRefName,headRefOid,headRepository,title,body,labels,baseRefName)"
+          pr="$(uv run --project vectora python utils/select_release_pr.py \
+            --repository "$GITHUB_REPOSITORY" --source "$TARGET_BRANCH" \
+            --target "$RELEASE_TARGET_BRANCH" --milestone "$RELEASE_MILESTONE" \
+            --phase generated <<< "$prs")"
+          source="$(jq -r '.headRefName // empty' <<< "$pr")"
+          if [[ -z "$source" ]]; then
+            echo "No legacy Release Please branch needs renaming."
+            exit 0
+          fi
+          version="$(jq -r 'try (.title | capture("release (?<version>[0-9]+\\.[0-9]+\\.[0-9]+)").version) catch ""' <<< "$pr")"
+          if [[ -z "$version" ]]; then
+            echo "::error::Não foi possível obter a versão da PR automática." >&2
+            exit 1
+          fi
+          IFS=. read -r major minor patch <<< "$version"
+          if [[ "$patch" == "0" ]]; then target="release/${major}.${minor}"; else target="release/${version}"; fi
+          existing="$(gh pr list --repo "$GITHUB_REPOSITORY" --base "$RELEASE_TARGET_BRANCH" --head "$target" --state open --json number,headRefName,headRefOid,headRepository,title,body,labels,baseRefName)"
           selected="$(uv run --project vectora python utils/select_release_pr.py \
             --repository "$GITHUB_REPOSITORY" --source "$TARGET_BRANCH" \
             --target "$RELEASE_TARGET_BRANCH" --milestone "$RELEASE_MILESTONE" \

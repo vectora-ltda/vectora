@@ -131,6 +131,9 @@ def test_release_please_requires_candidates_and_uses_canonical_branches() -> Non
     assert "fromdateiso8601" in content
     assert "latest_tag_epoch" in content
     assert "steps.release-candidates.outputs.has_candidates == 'true'" in content
+    assert "Rename generated Release Please branch by version" in content
+    assert 'target="release/${major}.${minor}"' in content
+    assert 'target="release/${version}"' in content
     assert "utils/select_release_pr.py" in content
     assert '--head "$TARGET_BRANCH"' in content
     assert 'headRefName == f"release/{suffix}"' not in content
