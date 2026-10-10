@@ -152,3 +152,5 @@ jobs:
           GITHUB_EVENT_PATH: ${{ github.event_path }}
           CURRENT_RELEASE_MILESTONE: ${{ steps.assign-milestone.outputs.current_milestone || github.event.pull_request.milestone.title }}
           CURRENT_PR_BASE: ${{ steps.assign-milestone.outputs.current_base || github.event.pull_request.base.ref }}
+          CURRENT_PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          CURRENT_PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
