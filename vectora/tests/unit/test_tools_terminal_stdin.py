@@ -92,3 +92,16 @@ async def test_terminal_without_command_or_stdin_input_returns_error(_workspace)
     result = await terminal(ctx=ctx_from_config(_config(_workspace.id, "t2")))
 
     assert result.startswith("Error:")
+
+
+@pytest.mark.asyncio
+async def test_terminal_accepts_output_line_larger_than_asyncio_limit(_workspace):
+    """Saída sem newline dentro do limite do StreamReader não quebra o tool."""
+    script = "print('x' * 200000, end='')"
+    command = f'{sys.executable} -c "{script}"'
+
+    result = await terminal(
+        command=command, ctx=ctx_from_config(_config(_workspace.id, "large-line"))
+    )
+
+    assert len(result) == 200000

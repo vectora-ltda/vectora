@@ -928,14 +928,32 @@ async def _drain_terminal_output(
         async def _stream(stream: asyncio.StreamReader | None) -> None:
             if stream is None:
                 return
-            while True:
-                raw = await stream.readline()
-                if not raw:
-                    break
-                line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+            pending = bytearray()
+
+            def append_line(raw_line: bytes) -> None:
+                line = raw_line.decode("utf-8", errors="replace").rstrip("\r")
                 output_lines.append(line)
                 emit_terminal_line(line)
                 last_activity[0] = time.monotonic()
+
+            while True:
+                # Do not use readline(): a command can emit a single very
+                # large line (for example a minified JSON response or a
+                # serialized diff), which exceeds asyncio's 64 KiB stream
+                # limit and raises LimitOverrunError. Chunked reads preserve
+                # streaming while allowing arbitrarily long logical lines.
+                raw = await stream.read(64 * 1024)
+                if not raw:
+                    break
+                pending.extend(raw)
+                while True:
+                    newline = pending.find(b"\n")
+                    if newline < 0:
+                        break
+                    append_line(bytes(pending[:newline]))
+                    del pending[: newline + 1]
+            if pending:
+                append_line(bytes(pending))
 
         stdout_task = asyncio.ensure_future(_stream(proc.stdout))
         stderr_task = asyncio.ensure_future(_stream(proc.stderr))
