@@ -77,7 +77,7 @@ def test_node_catalog_covers_every_non_subagent_tool() -> None:
 
     registered = {tool.name for tool in TOOL_REGISTRY.all()}
     catalog = {tool.name for tool in ALL_TOOLS}
-    assert registered - catalog == {"ask_parent_agent"}
+    assert registered - catalog == {"ask_parent_agent", "delegate_to_subagent"}
 
 
 def test_every_tool_group_resolves_to_registered_tools() -> None:
