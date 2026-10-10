@@ -38,6 +38,12 @@ class HeadPayload(BaseModel):
     repo: RepositoryPayload | None = None
 
 
+# ``from __future__ import annotations`` defers the nested model annotation.
+# Rebuild this leaf model explicitly because ``main`` constructs a replacement
+# head when GitHub provides the current branch through environment variables.
+HeadPayload.model_rebuild()
+
+
 class BasePayload(BaseModel):
     """Identidade da branch base de uma pull request."""
 
