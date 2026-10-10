@@ -71,6 +71,11 @@ export function BrowserSettingsForm({
       totalBytes: number;
     }>
   >([]);
+  useEffect(() => {
+    // Keep drafts aligned when another surface changes the persisted value.
+    // oxlint-disable-next-line react/set-state-in-effect
+    setZoomDraft(String(zoomPercent));
+  }, [zoomPercent]);
   const desktopBrowser =
     typeof window !== "undefined" ? window.vectora?.browserView : undefined;
   const browserRuntime = getBrowserRuntime(Boolean(desktopBrowser));
@@ -185,8 +190,14 @@ export function BrowserSettingsForm({
               onChange={(event) => setZoomDraft(event.target.value)}
               onBlur={() => {
                 const value = Number(zoomDraft);
-                if (Number.isFinite(value)) setZoomPercent(value);
-                else setZoomDraft(String(zoomPercent));
+                if (!Number.isFinite(value)) {
+                  setZoomDraft(String(zoomPercent));
+                  return;
+                }
+                setZoomPercent(value);
+                setZoomDraft(
+                  String(useSettingsStore.getState().browserZoomPercent),
+                );
               }}
               onKeyDown={(event) => {
                 if (event.key === "Enter") event.currentTarget.blur();
