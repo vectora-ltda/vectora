@@ -51,6 +51,7 @@ import {
   type TodoItem,
 } from "@/lib/stores/workbench-store";
 import { m } from "@/lib/paraglide/messages";
+import { useSettingsStore } from "@/lib/stores/settings-store";
 
 async function fetchArtifacts(threadId: string): Promise<PlanItem[]> {
   const qs = new URLSearchParams({ session_id: threadId });
@@ -173,6 +174,7 @@ export function PlanTab({ threadId, onOpenPlanDocument }: PlanTabProps) {
   // ao trocar de thread permitia que uma resposta antiga e uma nova usassem
   // o mesmo epoch para o mesmo slug.
   const contentRequestEpoch = useRef(new Map<string, number>());
+  const autoExpandedThreadsRef = useRef(new Set<string>());
   const activeThreadRef = useRef(threadId);
   useEffect(() => {
     activeThreadRef.current = threadId;
@@ -184,6 +186,8 @@ export function PlanTab({ threadId, onOpenPlanDocument }: PlanTabProps) {
   const contentsBySlug = useWorkbenchStore(
     (s) => s.getPlan(threadId).contentsBySlug,
   );
+  const planAutoExpand = useSettingsStore((s) => s.planAutoExpand);
+  const planSort = useSettingsStore((s) => s.planSort);
 
   const setPlanItems = useWorkbenchStore((s) => s.setPlanItems);
   const togglePlanOpenSlug = useWorkbenchStore((s) => s.togglePlanOpenSlug);
@@ -226,10 +230,13 @@ export function PlanTab({ threadId, onOpenPlanDocument }: PlanTabProps) {
             },
           ]
         : [];
-    return [...todosEntry, ...artifactEntries].toSorted(
-      (a, b) => b.timestamp - a.timestamp,
-    );
-  }, [items, todos]);
+    return [...todosEntry, ...artifactEntries].toSorted((a, b) => {
+      if (a.item && b.item && planSort === "title") {
+        return a.item.title.localeCompare(b.item.title);
+      }
+      return b.timestamp - a.timestamp;
+    });
+  }, [items, todos, planSort]);
 
   const handleAccordionChange = useCallback(
     (next: string[]) => {
@@ -321,6 +328,16 @@ export function PlanTab({ threadId, onOpenPlanDocument }: PlanTabProps) {
       onOpenPlanDocument,
     ],
   );
+
+  useEffect(() => {
+    if (!planAutoExpand || entries.length === 0) return;
+    const first = entries[0]?.slug;
+    if (!first || autoExpandedThreadsRef.current.has(threadId)) return;
+    autoExpandedThreadsRef.current.add(threadId);
+    if (!openSlugs.includes(first)) {
+      handleAccordionChange([...openSlugs, first]);
+    }
+  }, [entries, handleAccordionChange, openSlugs, planAutoExpand, threadId]);
 
   // Estado de loading inicial: ainda não fetchamos uma única vez.
   const initialLoading = fetchedAt === 0;
