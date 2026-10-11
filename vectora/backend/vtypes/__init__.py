@@ -9,6 +9,15 @@ from backend.vtypes.browser import (
     NetworkProfileName,
 )
 from backend.vtypes.context import VectoraContext, ctx_from_config
+from backend.vtypes.context_graph import (
+    GraphConfidence,
+    GraphDocument,
+    GraphEdge,
+    GraphFileType,
+    GraphHyperedge,
+    GraphNode,
+    GraphRelation,
+)
 from backend.vtypes.contracts import (
     ApprovalMetadata,
     ChangedFile,
@@ -36,6 +45,12 @@ from backend.vtypes.message import (
     text_message,
 )
 from backend.vtypes.plan import BlockKind, DecompositionNode, KanbanCard, KanbanStatus
+from backend.vtypes.providers import (
+    ProviderDownloadProgress,
+    ProviderKind,
+    ProviderModel,
+)
+from backend.vtypes.questions import QuestionStatus, StructuredQuestionRecord
 from backend.vtypes.safe_root import SafeRoot
 from backend.vtypes.session import SessionMetadata
 from backend.vtypes.shell import ShellState, TerminalCommand, TerminalResult
@@ -58,6 +73,13 @@ __all__ = [
     "GitLogSnapshot",
     "GitOperationSnapshot",
     "GitStatusSnapshot",
+    "GraphConfidence",
+    "GraphDocument",
+    "GraphEdge",
+    "GraphFileType",
+    "GraphHyperedge",
+    "GraphNode",
+    "GraphRelation",
     "JsonObject",
     "JsonValue",
     "KanbanCard",
@@ -66,9 +88,14 @@ __all__ = [
     "MessageRole",
     "NetworkProfile",
     "NetworkProfileName",
+    "ProviderDownloadProgress",
+    "ProviderKind",
+    "ProviderModel",
+    "QuestionStatus",
     "SafeRoot",
     "SessionMetadata",
     "ShellState",
+    "StructuredQuestionRecord",
     "TerminalCommand",
     "TerminalResult",
     "ToolCall",
