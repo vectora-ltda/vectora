@@ -54,6 +54,7 @@ from backend.vtypes.questions import QuestionStatus, StructuredQuestionRecord
 from backend.vtypes.safe_root import SafeRoot
 from backend.vtypes.session import SessionMetadata
 from backend.vtypes.shell import ShellState, TerminalCommand, TerminalResult
+from backend.vtypes.storage import HealthResult, QueueTask
 from backend.vtypes.workspace import Workspace
 
 __all__ = [
@@ -80,6 +81,7 @@ __all__ = [
     "GraphHyperedge",
     "GraphNode",
     "GraphRelation",
+    "HealthResult",
     "JsonObject",
     "JsonValue",
     "KanbanCard",
@@ -92,6 +94,7 @@ __all__ = [
     "ProviderKind",
     "ProviderModel",
     "QuestionStatus",
+    "QueueTask",
     "SafeRoot",
     "SessionMetadata",
     "ShellState",
