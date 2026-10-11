@@ -19,7 +19,10 @@ afterEach(() => {
 
 function installBridge() {
   let handler:
-    | ((viewId: number, event: { type: string; url?: string }) => void)
+    | ((
+        viewId: number,
+        event: { type: string; url?: string; errorDescription?: string },
+      ) => void)
     | undefined;
   const bridge = {
     createView: vi.fn(async () => 7),
@@ -42,7 +45,8 @@ function installBridge() {
   });
   return {
     bridge,
-    emit: (event: { type: string; url?: string }) => handler?.(7, event),
+    emit: (event: { type: string; url?: string; errorDescription?: string }) =>
+      handler?.(7, event),
   };
 }
 
@@ -198,5 +202,41 @@ describe("useBrowserSettingsView", () => {
     expect(result.current.status).toBe("failed");
     expect(native.bridge.destroyView).toHaveBeenCalledWith(7);
     vi.useRealTimers();
+  });
+
+  it("does not confirm an unlisted Chromium settings route", async () => {
+    const native = installBridge();
+    const ref = containerRef();
+    const { result } = renderHook(() =>
+      useBrowserSettingsView({
+        profileId: "profile-1",
+        open: true,
+        containerRef: ref,
+      }),
+    );
+    await waitFor(() => expect(native.bridge.createView).toHaveBeenCalled());
+    await act(async () => {
+      native.emit({ type: "navigated", url: "chrome://settings/flags" });
+    });
+    expect(result.current.status).toBe("creating");
+  });
+
+  it("shows a failure and destroys the view after loadFailed", async () => {
+    const native = installBridge();
+    const ref = containerRef();
+    const { result } = renderHook(() =>
+      useBrowserSettingsView({
+        profileId: "profile-1",
+        open: true,
+        containerRef: ref,
+      }),
+    );
+    await waitFor(() => expect(native.bridge.createView).toHaveBeenCalled());
+    await act(async () => {
+      native.emit({ type: "loadFailed", errorDescription: "blocked" });
+    });
+    expect(result.current.status).toBe("failed");
+    expect(result.current.errorMessage).toBe("blocked");
+    expect(native.bridge.destroyView).toHaveBeenCalledWith(7);
   });
 });

@@ -590,7 +590,7 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
     await waitFor(() => expect(bridge.clearProfileData).toHaveBeenCalledOnce());
   });
 
-  it("abre as configurações nativas do perfil em uma view dedicada", async () => {
+  it("abre as configurações do perfil no formulário do Vectora", async () => {
     const bridge = mockBrowserView();
     mockFetch({ configurations: [] });
     render(<BrowserTab threadId="desktop-settings-panel" />);
@@ -599,8 +599,14 @@ describe("BrowserTab — caminho desktop (WebContentsView real via window.vector
     fireEvent.click(screen.getByTestId("browser-settings-btn"));
     await screen.findByTestId("browser-settings-panel");
 
-    await waitFor(() => expect(bridge.createView).toHaveBeenCalledTimes(2));
-    expect(bridge.navigate).toHaveBeenCalledWith(2, "chrome://settings");
+    expect(
+      screen.getByText("workbench_browser_settings_local_notice"),
+    ).toBeTruthy();
+    expect(bridge.createView).toHaveBeenCalledTimes(1);
+    expect(bridge.navigate).not.toHaveBeenCalledWith(
+      expect.any(Number),
+      "chrome://settings",
+    );
   });
 
   it("trocar de workspace sem sessão cria a WebContentsView nativa e navega nela", async () => {

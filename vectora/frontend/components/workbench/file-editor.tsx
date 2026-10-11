@@ -25,8 +25,8 @@ import { useMonacoTheme } from "@/lib/monaco/use-monaco-theme";
 import { godotEditorOptions } from "@/lib/monaco/editor-options";
 import {
   formatEditorText,
+  hasBlockingDiagnostics,
   lintEditorText,
-  normalizeEditorText,
 } from "@/lib/editor-services";
 import {
   editorBuffers,
@@ -57,6 +57,9 @@ export function FileEditor({
   const editorLinterEnabled = useSettingsStore((s) => s.editorLinterEnabled);
   const editorLintOnType = useSettingsStore((s) => s.editorLintOnType);
   const editorLintOnSave = useSettingsStore((s) => s.editorLintOnSave);
+  const editorLintWarningsAsErrors = useSettingsStore(
+    (s) => s.editorLintWarningsAsErrors,
+  );
   const editorInlineSuggestions = useSettingsStore(
     (s) => s.editorInlineSuggestions,
   );
@@ -95,8 +98,6 @@ export function FileEditor({
   const [saving, setSaving] = useState(false);
   const shaRef = useRef<string | null>(null);
   const requestEpochRef = useRef(0);
-  const localEditRevisionRef = useRef(0);
-  const localEditsPendingRef = useRef(false);
   const saveRef = useRef<() => Promise<void>>(async () => undefined);
   const autoSaveModeRef = useRef(autoSaveMode);
   const key = editorKey(workspaceId, path);
@@ -105,20 +106,23 @@ export function FileEditor({
   const diagnostics = useMemo(
     () =>
       editorLinterEnabled && editorLintOnType
-        ? lintEditorText(path, value)
+        ? lintEditorText(path, value, {
+            warningsAsErrors: editorLintWarningsAsErrors,
+          })
         : [],
-    [editorLintOnType, editorLinterEnabled, path, value],
+    [
+      editorLintOnType,
+      editorLintWarningsAsErrors,
+      editorLinterEnabled,
+      path,
+      value,
+    ],
   );
   const readOnly =
     file?.kind === "binary" || file?.truncated || file?.sha256 == null;
   const exceedsSizeLimit =
     file?.size !== undefined && file.size > editorMaxFileSizeMb * 1024 * 1024;
   const editorReadOnly = readOnly || exceedsSizeLimit;
-  const editorCommandStateRef = useRef({
-    editorFormatterEnabled,
-    editorReadOnly,
-    path,
-  });
 
   useEffect(() => {
     if (media) return;
@@ -141,8 +145,6 @@ export function FileEditor({
     fetchFile(workspaceId, path)
       .then((data) => {
         if (cancelled || requestEpoch !== requestEpochRef.current) return;
-        if (data?.content !== undefined)
-          data = { ...data, content: normalizeEditorText(data.content) };
         setFile(data);
         setValue(data?.content ?? "");
         shaRef.current = data?.sha256 ?? null;
@@ -165,31 +167,15 @@ export function FileEditor({
 
   useEffect(() => {
     if (!editorFileWatcherEnabled || media || editorReadOnly || dirty) return;
-    let cancelled = false;
     const timer = window.setInterval(() => {
-      if (localEditsPendingRef.current) return;
-      const editRevision = localEditRevisionRef.current;
       void fetchFile(workspaceId, path).then((latest) => {
-        if (
-          cancelled ||
-          localEditsPendingRef.current ||
-          editRevision !== localEditRevisionRef.current ||
-          !latest ||
-          latest.sha256 === shaRef.current
-        )
-          return;
-        if (latest.content !== undefined)
-          latest = { ...latest, content: normalizeEditorText(latest.content) };
-        localEditsPendingRef.current = false;
+        if (!latest || latest.sha256 === shaRef.current || dirty) return;
         setFile(latest);
         setValue(latest.content ?? "");
         shaRef.current = latest.sha256 ?? null;
       });
     }, 3000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
+    return () => window.clearInterval(timer);
   }, [
     dirty,
     editorFileWatcherEnabled,
@@ -206,22 +192,21 @@ export function FileEditor({
         ? formatEditorText(path, value)
         : value;
     if (editorLinterEnabled && editorLintOnSave) {
-      const saveDiagnostics = lintEditorText(path, contentToSave);
-      if (
-        saveDiagnostics.some((diagnostic) => diagnostic.severity === "error")
-      ) {
+      const saveDiagnostics = lintEditorText(path, contentToSave, {
+        warningsAsErrors: editorLintWarningsAsErrors,
+      });
+      if (hasBlockingDiagnostics(saveDiagnostics, editorLintWarningsAsErrors)) {
         useToastStore.getState().error(m.workbench_files_lint_save_error());
         return;
       }
     }
-    const normalizedContent = normalizeEditorText(contentToSave);
-    contentToSave = normalizedContent;
+    contentToSave = contentToSave.replace(/\r\n|\r|\n/g, "\n");
     if (editorEndOfLine === "crlf")
       contentToSave = contentToSave.replace(/\n/g, "\r\n");
     if (editorEncoding === "utf8bom" && !contentToSave.startsWith("\ufeff")) {
       contentToSave = `\ufeff${contentToSave}`;
     }
-    if (normalizedContent !== value) setValue(normalizedContent);
+    if (contentToSave !== value) setValue(contentToSave);
     setSaving(true);
     const result = await apiUpdateFile(
       workspaceId,
@@ -231,14 +216,11 @@ export function FileEditor({
     );
     setSaving(false);
     if (result.ok) {
-      localEditsPendingRef.current = false;
       shaRef.current = result.sha256;
-      setFile((prev) =>
-        prev ? { ...prev, content: normalizedContent } : prev,
-      );
+      setFile((prev) => (prev ? { ...prev, content: contentToSave } : prev));
       editorBuffers.set(key, {
-        file: { ...file, content: normalizedContent },
-        value: normalizedContent,
+        file: { ...file, content: contentToSave },
+        value: contentToSave,
         sha256: result.sha256,
       });
       return;
@@ -257,6 +239,7 @@ export function FileEditor({
     editorFormatterEnabled,
     editorFormatOnSave,
     editorLintOnSave,
+    editorLintWarningsAsErrors,
     editorLinterEnabled,
     file,
     key,
@@ -270,12 +253,7 @@ export function FileEditor({
   useEffect(() => {
     saveRef.current = handleSave;
     autoSaveModeRef.current = autoSaveMode;
-    editorCommandStateRef.current = {
-      editorFormatterEnabled,
-      editorReadOnly,
-      path,
-    };
-  }, [autoSaveMode, editorFormatterEnabled, editorReadOnly, handleSave, path]);
+  }, [autoSaveMode, handleSave]);
 
   const handleSaveAs = useCallback(
     async (targetPath: string) => {
@@ -342,9 +320,8 @@ export function FileEditor({
       editor.addCommand(
         monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF,
         () => {
-          const state = editorCommandStateRef.current;
-          if (!state.editorFormatterEnabled || state.editorReadOnly) return;
-          const next = formatEditorText(state.path, editor.getValue());
+          if (!editorFormatterEnabled || editorReadOnly) return;
+          const next = formatEditorText(path, editor.getValue());
           if (next !== editor.getValue()) editor.setValue(next);
         },
       );
@@ -391,13 +368,7 @@ export function FileEditor({
           value={value}
           language={language}
           theme={monacoTheme}
-          onChange={(v) => {
-            const nextValue = v ?? "";
-            localEditRevisionRef.current += 1;
-            localEditsPendingRef.current =
-              file?.content !== undefined && nextValue !== file.content;
-            setValue(nextValue);
-          }}
+          onChange={(v) => setValue(v ?? "")}
           onMount={handleMount}
           options={godotEditorOptions(
             monacoFontSize,

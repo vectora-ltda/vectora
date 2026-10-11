@@ -5,6 +5,33 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { useSettingsOverlayStore } from "@/lib/stores/settings-overlay-store";
 
 const CONFIRMATION_TIMEOUT_MS = 8_000;
+const NATIVE_SETTINGS_ROUTES = new Set([
+  "/",
+  "/appearance",
+  "/clearbrowserdata",
+  "/downloads",
+  "/languages",
+  "/onstartup",
+  "/passwords",
+  "/privacy",
+  "/search",
+  "/security",
+  "/sitedata",
+]);
+
+function isConfirmedSettingsUrl(rawUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl.trim());
+    const path = url.pathname.toLowerCase().replace(/\/+$/, "") || "/";
+    return (
+      url.protocol === "chrome:" &&
+      url.hostname.toLowerCase() === "settings" &&
+      NATIVE_SETTINGS_ROUTES.has(path)
+    );
+  } catch {
+    return false;
+  }
+}
 
 export type BrowserSettingsViewStatus = "creating" | "confirmed" | "failed";
 
@@ -81,10 +108,7 @@ export function useBrowserSettingsView({
         setViewId(createdId);
         unsubscribe = bridge.onEvent((eventViewId, event) => {
           if (eventViewId !== createdId) return;
-          if (
-            event.type === "navigated" &&
-            event.url.startsWith("chrome://settings")
-          ) {
+          if (event.type === "navigated" && isConfirmedSettingsUrl(event.url)) {
             if (timer) clearTimeout(timer);
             setStatus("confirmed");
           } else if (event.type === "loadFailed") {

@@ -44,6 +44,14 @@ export type UiMode = "assistant" | "ide" | "kanban";
 export type FontFamily = string;
 export type EditorAutoSaveMode = "off" | "afterDelay" | "onFocusChange";
 
+export interface BrowserProfileSettings {
+  allowPopups: boolean;
+  zoomPercent: number;
+  permissionMode: "allow" | "deny";
+  originPermissions: Record<string, "allow" | "deny">;
+  searchEngine: "duckduckgo" | "google" | "bing";
+}
+
 /** Presets de UI Scale exibidos no seletor — percentuais, não pixels; 100 =
  *  tamanho base (`FONT_SCALE_BASE_PX`). */
 export const UI_SCALE_PRESETS = [90, 100, 110, 125, 150, 175] as const;
@@ -163,6 +171,8 @@ export interface SettingsState {
   editorLintOnType: boolean;
   /** Valida o conteúdo antes de persistir o arquivo. */
   editorLintOnSave: boolean;
+  /** Bloqueia salvamento quando o linter emitir warnings. */
+  editorLintWarningsAsErrors: boolean;
   editorInlineSuggestions: boolean;
   editorBreadcrumbs: boolean;
   editorConfirmDelete: boolean;
@@ -223,6 +233,8 @@ export interface SettingsState {
   browserPermissionMode: "allow" | "deny";
   browserOriginPermissions: Record<string, "allow" | "deny">;
   browserSearchEngine: "duckduckgo" | "google" | "bing";
+  /** Preferências do Browser isoladas por perfil Electron/sessão. */
+  browserProfileSettings: Record<string, BrowserProfileSettings>;
   /** Tamanho da fonte do terminal em pixels. */
   terminalFontSize: number;
   /** Número de linhas mantidas no scrollback do terminal. */
@@ -268,6 +280,7 @@ export interface SettingsState {
   setEditorLinterEnabled: (v: boolean) => void;
   setEditorLintOnType: (v: boolean) => void;
   setEditorLintOnSave: (v: boolean) => void;
+  setEditorLintWarningsAsErrors: (v: boolean) => void;
   setEditorInlineSuggestions: (v: boolean) => void;
   setEditorBreadcrumbs: (v: boolean) => void;
   setEditorConfirmDelete: (v: boolean) => void;
@@ -310,6 +323,11 @@ export interface SettingsState {
   setBrowserSearchEngine: (v: "duckduckgo" | "google" | "bing") => void;
   setBrowserOriginPermission: (origin: string, mode: "allow" | "deny") => void;
   removeBrowserOriginPermission: (origin: string) => void;
+  setBrowserProfileSettings: (
+    profileId: string,
+    changes: Partial<BrowserProfileSettings>,
+  ) => void;
+  resetBrowserProfileSettings: (profileId: string) => void;
   setTerminalFontSize: (v: number) => void;
   setTerminalScrollback: (v: number) => void;
   setTerminalCursorBlink: (v: boolean) => void;
@@ -497,6 +515,7 @@ const DEFAULTS = {
   editorLinterEnabled: true,
   editorLintOnType: true,
   editorLintOnSave: true,
+  editorLintWarningsAsErrors: true,
   editorInlineSuggestions: true,
   editorBreadcrumbs: true,
   editorConfirmDelete: true,
@@ -538,6 +557,7 @@ const DEFAULTS = {
   browserPermissionMode: "deny" as "allow" | "deny",
   browserOriginPermissions: {},
   browserSearchEngine: "duckduckgo" as "duckduckgo" | "google" | "bing",
+  browserProfileSettings: {} as Record<string, BrowserProfileSettings>,
   terminalFontSize: 13,
   terminalScrollback: 5000,
   terminalCursorBlink: true,
@@ -705,6 +725,8 @@ export const useSettingsStore = create<SettingsState>()(
       setEditorLinterEnabled: (v) => set({ editorLinterEnabled: v }),
       setEditorLintOnType: (v) => set({ editorLintOnType: v }),
       setEditorLintOnSave: (v) => set({ editorLintOnSave: v }),
+      setEditorLintWarningsAsErrors: (v) =>
+        set({ editorLintWarningsAsErrors: v }),
       setEditorInlineSuggestions: (v) => set({ editorInlineSuggestions: v }),
       setEditorBreadcrumbs: (v) => set({ editorBreadcrumbs: v }),
       setEditorConfirmDelete: (v) => set({ editorConfirmDelete: v }),
@@ -778,6 +800,29 @@ export const useSettingsStore = create<SettingsState>()(
           const next = { ...state.browserOriginPermissions };
           delete next[origin];
           return { browserOriginPermissions: next };
+        }),
+      setBrowserProfileSettings: (profileId, changes) =>
+        set((state) => {
+          const current = getBrowserProfileSettings(state, profileId);
+          return {
+            browserProfileSettings: {
+              ...state.browserProfileSettings,
+              [profileId]: {
+                ...current,
+                ...changes,
+                originPermissions: {
+                  ...current.originPermissions,
+                  ...changes.originPermissions,
+                },
+              },
+            },
+          };
+        }),
+      resetBrowserProfileSettings: (profileId) =>
+        set((state) => {
+          const next = { ...state.browserProfileSettings };
+          delete next[profileId];
+          return { browserProfileSettings: next };
         }),
       setTerminalFontSize: (v) =>
         set({ terminalFontSize: Math.max(8, Math.min(32, Math.round(v))) }),
@@ -876,6 +921,7 @@ export const useSettingsStore = create<SettingsState>()(
         editorLinterEnabled: state.editorLinterEnabled,
         editorLintOnType: state.editorLintOnType,
         editorLintOnSave: state.editorLintOnSave,
+        editorLintWarningsAsErrors: state.editorLintWarningsAsErrors,
         editorInlineSuggestions: state.editorInlineSuggestions,
         editorBreadcrumbs: state.editorBreadcrumbs,
         editorConfirmDelete: state.editorConfirmDelete,
@@ -917,6 +963,7 @@ export const useSettingsStore = create<SettingsState>()(
         browserPermissionMode: state.browserPermissionMode,
         browserOriginPermissions: state.browserOriginPermissions,
         browserSearchEngine: state.browserSearchEngine,
+        browserProfileSettings: state.browserProfileSettings,
         terminalFontSize: state.terminalFontSize,
         terminalScrollback: state.terminalScrollback,
         terminalCursorBlink: state.terminalCursorBlink,
@@ -924,6 +971,39 @@ export const useSettingsStore = create<SettingsState>()(
     },
   ),
 );
+
+export function getBrowserProfileSettings(
+  state: Pick<
+    SettingsState,
+    | "browserProfileSettings"
+    | "browserAllowPopups"
+    | "browserZoomPercent"
+    | "browserPermissionMode"
+    | "browserOriginPermissions"
+    | "browserSearchEngine"
+  >,
+  profileId: string | null | undefined,
+): BrowserProfileSettings {
+  if (profileId) {
+    const profile = state.browserProfileSettings[profileId];
+    if (profile) {
+      return {
+        allowPopups: profile.allowPopups,
+        zoomPercent: profile.zoomPercent,
+        permissionMode: profile.permissionMode,
+        originPermissions: { ...profile.originPermissions },
+        searchEngine: profile.searchEngine,
+      };
+    }
+  }
+  return {
+    allowPopups: state.browserAllowPopups,
+    zoomPercent: state.browserZoomPercent,
+    permissionMode: state.browserPermissionMode,
+    originPermissions: { ...state.browserOriginPermissions },
+    searchEngine: state.browserSearchEngine,
+  };
+}
 
 /**
  * Re-hidrata o store com a chave específica do usuário.

@@ -696,6 +696,28 @@ class TestRunBuildStatus:
         assert s.error == "extração falhou"
 
     @pytest.mark.asyncio
+    async def test_degraded_result_writes_partial_status_and_index_error(
+        self, tmp_path
+    ):
+        result = MagicMock()
+        result.error = None
+        result.status = "degraded"
+        result.node_count = 11
+        result.edge_count = 13
+        result.index_error = "Índice semântico indisponível"
+
+        async def degraded(*a, **k):
+            return result
+
+        s = await self._run(tmp_path, degraded)
+        assert s is not None
+        assert s.status == "degraded"
+        assert s.partial is True
+        assert s.node_count == 11
+        assert s.edge_count == 13
+        assert s.error == "Índice semântico indisponível"
+
+    @pytest.mark.asyncio
     async def test_paused_preserva_step_do_ultimo_on_progress(self, tmp_path):
         """Ao pausar por quota, step/step_total do último on_progress devem
         aparecer no status paused (para o frontend mostrar x/y passos)."""

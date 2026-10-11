@@ -25,7 +25,10 @@ import { Input } from "@/components/ui/input";
 import { useChatInputStore } from "@/lib/stores/chat-input-store";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { useSettingsOverlayStore } from "@/lib/stores/settings-overlay-store";
-import { useSettingsStore } from "@/lib/stores/settings-store";
+import {
+  getBrowserProfileSettings,
+  useSettingsStore,
+} from "@/lib/stores/settings-store";
 import { useWorkbenchStore } from "@/lib/stores/workbench-store";
 import { useBrowserSettingsController } from "@/lib/stores/browser-settings-controller";
 import { m as msg } from "@/lib/paraglide/messages";
@@ -159,15 +162,6 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
   const consumeBrowserSettingsRequest = useBrowserSettingsController(
     (s) => s.consumePendingOpen,
   );
-  const allowPopups = useSettingsStore((s) => s.browserAllowPopups);
-  const browserZoomPercent = useSettingsStore((s) => s.browserZoomPercent);
-  const browserPermissionMode = useSettingsStore(
-    (s) => s.browserPermissionMode,
-  );
-  const browserOriginPermissions = useSettingsStore(
-    (s) => s.browserOriginPermissions,
-  );
-  const browserSearchEngine = useSettingsStore((s) => s.browserSearchEngine);
 
   // Presente só no desktop Electron — quando ausente, cai no `<iframe>` de
   // fallback abaixo (sujeito a X-Frame-Options, único caminho possível fora
@@ -230,6 +224,23 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
       "default"
     );
   });
+  const allowPopups = useSettingsStore(
+    (s) => getBrowserProfileSettings(s, profileId).allowPopups,
+  );
+  const browserZoomPercent = useSettingsStore(
+    (s) => getBrowserProfileSettings(s, profileId).zoomPercent,
+  );
+  const browserPermissionMode = useSettingsStore(
+    (s) => getBrowserProfileSettings(s, profileId).permissionMode,
+  );
+  const browserOriginPermissions = useSettingsStore(
+    (s) =>
+      s.browserProfileSettings[profileId]?.originPermissions ??
+      s.browserOriginPermissions,
+  );
+  const browserSearchEngine = useSettingsStore(
+    (s) => getBrowserProfileSettings(s, profileId).searchEngine,
+  );
   const hydratedSessionKeyRef = useRef<string | null>(sessionKey);
   const previousSessionKeyRef = useRef(sessionKey);
   const tabsRef = useRef(tabs);

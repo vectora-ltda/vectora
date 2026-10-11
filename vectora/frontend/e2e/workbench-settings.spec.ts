@@ -94,4 +94,22 @@ test.describe("settings das workbenches", () => {
       expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth);
     }
   });
+
+  test("abre as quatro superfícies Vectora e sinaliza Browser indisponível na web", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 360, height: 900 });
+    await openWorkbenchesSettings(page);
+    const dialog = page.getByRole("dialog");
+    for (const id of ["context_graph", "storage", "terminal", "git"]) {
+      const section = dialog.locator(`#workbench-settings-${id}`);
+      await section.locator("summary").click();
+      await expect(section.locator('[data-surface-mode="form"]')).toBeVisible();
+    }
+    const browser = dialog.locator("#workbench-settings-browser");
+    await browser.locator("summary").click();
+    await expect(
+      browser.locator('[data-surface-mode="unavailable"]'),
+    ).toBeVisible();
+  });
 });

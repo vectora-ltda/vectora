@@ -1,20 +1,28 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { GraphCanvas, darkTheme, lightTheme } from "reagraph";
 import type { GraphEdge, GraphNode } from "reagraph";
 import { Loader2, Search, Waypoints, X } from "lucide-react";
 
 import type {
   GraphQueryResult,
+  RawGraphCommunity,
   RawGraphData,
   RawGraphLink,
   RawGraphNode,
 } from "@/lib/hooks/use-context-graph";
 import { useIsDark } from "@/lib/hooks/use-is-dark";
+import {
+  CONTEXT_GRAPH_PANEL_DEFAULT_WIDTH,
+  CONTEXT_GRAPH_PANEL_MAX_WIDTH,
+  CONTEXT_GRAPH_PANEL_MIN_WIDTH,
+  useContextGraphSettingsStore,
+} from "@/lib/stores/context-graph-settings-store";
 import { m } from "@/lib/paraglide/messages";
 
 interface ContextGraphViewerProps {
+  workspaceId?: string | null;
   fetchGraphData: () => Promise<RawGraphData | null>;
   pathBetween: (
     source: string,
@@ -47,12 +55,15 @@ function communityColor(cid: number | null | undefined): string {
 
 interface CommunityInfo {
   id: number;
+  key: string;
   name: string;
   count: number;
   color: string;
+  cohesion?: number;
 }
 
 export function ContextGraphViewer({
+  workspaceId = null,
   fetchGraphData,
   pathBetween,
   onExplainNode,
@@ -64,6 +75,12 @@ export function ContextGraphViewer({
   const isDark = useIsDark();
   const graphTheme = useMemo(() => {
     const baseTheme = isDark ? darkTheme : lightTheme;
+    const cssBackground =
+      typeof document !== "undefined"
+        ? getComputedStyle(document.documentElement)
+            .getPropertyValue("--background")
+            .trim()
+        : "";
     return {
       ...baseTheme,
       // Reagraph owns the WebGL canvas and does not inherit the workbench
@@ -71,10 +88,21 @@ export function ContextGraphViewer({
       // back to the browser's white canvas when the app is in dark mode.
       canvas: {
         ...baseTheme.canvas,
-        background: isDark ? "#1E2026" : "#ffffff",
+        background: cssBackground || (isDark ? "#1E2026" : "#ffffff"),
       },
     };
   }, [isDark]);
+  const communityPanelWidth = useContextGraphSettingsStore(
+    (state) =>
+      (workspaceId ? state.communityPanelWidths[workspaceId] : undefined) ??
+      CONTEXT_GRAPH_PANEL_DEFAULT_WIDTH,
+  );
+  const setCommunityPanelWidth = useContextGraphSettingsStore(
+    (state) => state.setCommunityPanelWidth,
+  );
+  const resizeStartRef = useRef<number | null>(null);
+  const resizeWidthRef = useRef(communityPanelWidth);
+  const [resizing, setResizing] = useState(false);
   const [data, setData] = useState<RawGraphData | null>(null);
   const [loading, setLoading] = useState(true);
   const [hiddenCommunities, setHiddenCommunities] = useState<Set<number>>(
@@ -104,8 +132,15 @@ export function ContextGraphViewer({
 
   const rawNodes = useMemo(() => data?.nodes ?? [], [data]);
   const rawLinks = useMemo(() => data?.links ?? [], [data]);
+  const metadataCommunities = data?.communities;
 
   const communities = useMemo<CommunityInfo[]>(() => {
+    if (metadataCommunities?.length) {
+      return metadataCommunities.map((community: RawGraphCommunity) => ({
+        ...community,
+        color: communityColor(community.id),
+      }));
+    }
     const counts = new Map<number, { name: string; count: number }>();
     for (const n of rawNodes) {
       if (n.community == null) continue;
@@ -121,11 +156,12 @@ export function ContextGraphViewer({
       .toSorted((a, b) => a[0] - b[0])
       .map(([id, v]) => ({
         id,
+        key: `community-${id}`,
         name: v.name,
         count: v.count,
         color: communityColor(id),
       }));
-  }, [rawNodes]);
+  }, [metadataCommunities, rawNodes]);
 
   const searchNorm = search.trim().toLowerCase();
   const matchedIds = useMemo(() => {
@@ -181,10 +217,73 @@ export function ContextGraphViewer({
     communities.length > 0 && hiddenCommunities.size === communities.length;
   const noneHidden = hiddenCommunities.size === 0;
 
+  useEffect(() => {
+    resizeWidthRef.current = communityPanelWidth;
+  }, [communityPanelWidth]);
+
+  useEffect(() => {
+    if (!resizing) return;
+    const handlePointerMove = (event: PointerEvent) => {
+      if (resizeStartRef.current == null || !workspaceId) return;
+      const next = resizeStartRef.current - event.clientX;
+      const width = Math.max(
+        CONTEXT_GRAPH_PANEL_MIN_WIDTH,
+        Math.min(CONTEXT_GRAPH_PANEL_MAX_WIDTH, next),
+      );
+      resizeWidthRef.current = width;
+      setCommunityPanelWidth(workspaceId, width);
+    };
+    const stopResize = () => {
+      resizeStartRef.current = null;
+      setResizing(false);
+    };
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", stopResize, { once: true });
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", stopResize);
+    };
+  }, [resizing, setCommunityPanelWidth, workspaceId]);
+
+  function handlePanelResizeStart(event: React.PointerEvent<HTMLDivElement>) {
+    if (!workspaceId) return;
+    event.preventDefault();
+    resizeStartRef.current = event.clientX + communityPanelWidth;
+    setResizing(true);
+  }
+
+  function handlePanelResizeKeyDown(
+    event: React.KeyboardEvent<HTMLDivElement>,
+  ) {
+    if (!workspaceId) return;
+    const step = event.shiftKey ? 40 : 10;
+    let next = communityPanelWidth;
+    if (event.key === "ArrowLeft") next -= step;
+    else if (event.key === "ArrowRight") next += step;
+    else if (event.key === "Home") next = CONTEXT_GRAPH_PANEL_MIN_WIDTH;
+    else if (event.key === "End") next = CONTEXT_GRAPH_PANEL_MAX_WIDTH;
+    else return;
+    event.preventDefault();
+    setCommunityPanelWidth(workspaceId, next);
+  }
+
   const pathNodeIds = useMemo(
     () => pathResult?.nodes.map((n) => n.id) ?? [],
     [pathResult],
   );
+  const selectedNeighbors = useMemo(() => {
+    if (!selected) return [];
+    const nodeById = new Map(rawNodes.map((node) => [node.id, node]));
+    const neighborIds = new Set<string>();
+    for (const link of rawLinks) {
+      if (link.source === selected.id) neighborIds.add(link.target);
+      if (link.target === selected.id) neighborIds.add(link.source);
+    }
+    return [...neighborIds]
+      .map((id) => nodeById.get(id))
+      .filter((node): node is RawGraphNode => Boolean(node))
+      .slice(0, 8);
+  }, [rawLinks, rawNodes, selected]);
 
   function togglePathMode() {
     setPathMode((v) => !v);
@@ -343,7 +442,12 @@ export function ContextGraphViewer({
             </div>
             {selected.source_file && (
               <p className="text-muted-foreground truncate">
-                {selected.source_file}
+                {m.graph_node_source({ source: selected.source_file })}
+              </p>
+            )}
+            {selected.file_type && (
+              <p className="text-muted-foreground">
+                {m.graph_node_type({ type: selected.file_type })}
               </p>
             )}
             {selected.community_name && (
@@ -356,6 +460,26 @@ export function ContextGraphViewer({
                 />
                 {selected.community_name}
               </p>
+            )}
+            <p className="text-muted-foreground">
+              {m.graph_node_degree({ count: selectedNeighbors.length })}
+            </p>
+            {selectedNeighbors.length > 0 && (
+              <div data-testid="graph-node-neighbors" className="space-y-0.5">
+                <p className="font-medium text-foreground">
+                  {m.graph_node_neighbors()}
+                </p>
+                {selectedNeighbors.map((neighbor) => (
+                  <button
+                    key={neighbor.id}
+                    type="button"
+                    className="block max-w-full truncate text-left text-muted-foreground hover:text-foreground"
+                    onClick={() => setSelected(neighbor)}
+                  >
+                    {neighbor.label ?? neighbor.id}
+                  </button>
+                ))}
+              </div>
             )}
             <div className="flex gap-2 pt-1">
               <button
@@ -382,43 +506,61 @@ export function ContextGraphViewer({
       {/* Painel de comunidades — mesma paleta/estrutura do exportador HTML,
           portada pro componente nativo. */}
       {communities.length > 0 && (
-        <div className="w-44 shrink-0 border-l border-border/40 overflow-y-auto px-2.5 py-2">
-          <label className="flex items-center gap-1.5 text-xs font-medium mb-1.5 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={noneHidden}
-              ref={(el) => {
-                if (el) el.indeterminate = !noneHidden && !allHidden;
-              }}
-              onChange={toggleSelectAll}
-              className="accent-[var(--color-primary)]"
-            />
-            {m.graph_communities_select_all()}
-          </label>
-          <div className="space-y-1">
-            {communities.map((c) => (
-              <label
-                key={c.id}
-                className="flex items-center gap-1.5 text-xs cursor-pointer select-none"
-              >
-                <input
-                  type="checkbox"
-                  checked={!hiddenCommunities.has(c.id)}
-                  onChange={() => toggleCommunity(c.id)}
-                  className="accent-[var(--color-primary)]"
-                />
-                <span
-                  className="h-2 w-2 rounded-full shrink-0"
-                  style={{ backgroundColor: c.color }}
-                />
-                <span className="truncate flex-1 text-foreground">
-                  {c.name}
-                </span>
-                <span className="text-muted-foreground/60">{c.count}</span>
-              </label>
-            ))}
+        <>
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-valuemin={CONTEXT_GRAPH_PANEL_MIN_WIDTH}
+            aria-valuemax={CONTEXT_GRAPH_PANEL_MAX_WIDTH}
+            aria-valuenow={communityPanelWidth}
+            aria-label={m.graph_communities_resize()}
+            data-testid="graph-community-resizer"
+            tabIndex={workspaceId ? 0 : -1}
+            onPointerDown={handlePanelResizeStart}
+            onKeyDown={handlePanelResizeKeyDown}
+            className={`w-1 shrink-0 cursor-col-resize border-l border-border/40 bg-transparent hover:bg-primary/40 focus-visible:bg-primary/60 ${resizing ? "bg-primary/50" : ""}`}
+          />
+          <div
+            className="shrink-0 overflow-y-auto px-2.5 py-2 bg-background"
+            style={{ width: communityPanelWidth }}
+          >
+            <label className="flex items-center gap-1.5 text-xs font-medium mb-1.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={noneHidden}
+                ref={(el) => {
+                  if (el) el.indeterminate = !noneHidden && !allHidden;
+                }}
+                onChange={toggleSelectAll}
+                className="accent-[var(--color-primary)]"
+              />
+              {m.graph_communities_select_all()}
+            </label>
+            <div className="space-y-1">
+              {communities.map((c) => (
+                <label
+                  key={c.id}
+                  className="flex items-center gap-1.5 text-xs cursor-pointer select-none"
+                >
+                  <input
+                    type="checkbox"
+                    checked={!hiddenCommunities.has(c.id)}
+                    onChange={() => toggleCommunity(c.id)}
+                    className="accent-[var(--color-primary)]"
+                  />
+                  <span
+                    className="h-2 w-2 rounded-full shrink-0"
+                    style={{ backgroundColor: c.color }}
+                  />
+                  <span className="truncate flex-1 text-foreground">
+                    {c.name}
+                  </span>
+                  <span className="text-muted-foreground/60">{c.count}</span>
+                </label>
+              ))}
+            </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );

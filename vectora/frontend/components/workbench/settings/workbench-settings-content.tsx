@@ -5,14 +5,9 @@ import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { m } from "@/lib/paraglide/messages";
 import type {
   WorkbenchSettingsContext,
-  WorkbenchSettingsCapability,
   WorkbenchSettingsDescriptor,
   ResolvedSurfaceMode,
 } from "@/lib/types/workbench-settings";
-import {
-  getBrowserCapabilityMatrix,
-  getBrowserRuntime,
-} from "@/lib/browser-capability-matrix";
 import { resolveBrowserSurfaceMode } from "@/lib/browser-capabilities";
 
 interface WorkbenchSettingsContentProps {
@@ -35,6 +30,17 @@ function EmptyState({ children }: { children: string }) {
   );
 }
 
+/** Resolve o identificador do dono da configuração sem misturar escopos. */
+export function getWorkbenchSettingsScopeKey(
+  scope: WorkbenchSettingsDescriptor["scope"],
+  context: Pick<WorkbenchSettingsContext, "threadId" | "workspaceId">,
+): string | null {
+  if (scope === "user" || scope === "instance") return scope;
+  if (scope === "workspace") return context.workspaceId;
+  if (!context.threadId) return null;
+  return `${context.workspaceId ?? "global"}:${context.threadId}`;
+}
+
 /** Resolves a declared surface against runtime capabilities without hiding web fallbacks. */
 export function resolveWorkbenchSettingsSurfaceMode(
   descriptor: WorkbenchSettingsDescriptor,
@@ -44,28 +50,7 @@ export function resolveWorkbenchSettingsSurfaceMode(
   if (declared !== "native-view") return declared;
   const hasNativeBrowser =
     typeof window !== "undefined" && Boolean(window.vectora?.browserView);
-  if (descriptor.id === "browser-settings" && !hasNativeBrowser) {
-    return "form";
-  }
   return resolveBrowserSurfaceMode(declared, hasNativeBrowser);
-}
-
-/** Resolve declared capabilities against the actual desktop/web runtime. */
-export function resolveWorkbenchSettingsCapabilities(
-  descriptor: WorkbenchSettingsDescriptor,
-  hasDesktopBridge: boolean,
-): readonly WorkbenchSettingsCapability[] {
-  if (descriptor.workbench !== "browser") return descriptor.capabilities;
-
-  const statuses = new Map<string, "available" | "unavailable">(
-    getBrowserCapabilityMatrix(getBrowserRuntime(hasDesktopBridge)).map(
-      (capability) => [capability.id, capability.status] as const,
-    ),
-  );
-  return descriptor.capabilities.map((capability) => ({
-    ...capability,
-    status: statuses.get(capability.id) ?? "unavailable",
-  }));
 }
 
 /** Renderiza o conteúdo de um descriptor com as regras comuns de escopo. */
@@ -86,22 +71,26 @@ export function WorkbenchSettingsContent({
     context,
   );
   if (resolvedSurface === "unavailable") {
-    return <EmptyState>{m.workbench_settings_unavailable()}</EmptyState>;
+    return (
+      <div data-surface-mode="unavailable">
+        <EmptyState>{m.workbench_settings_unavailable()}</EmptyState>
+      </div>
+    );
   }
 
-  const resolvedCapabilities = resolveWorkbenchSettingsCapabilities(
-    descriptor,
-    typeof window !== "undefined" && Boolean(window.vectora?.browserView),
-  );
+  const scopeKey = getWorkbenchSettingsScopeKey(descriptor.scope, context);
+  if (!scopeKey) {
+    return <EmptyState>{m.workbench_settings_missing_session()}</EmptyState>;
+  }
 
   const Component = descriptor.Component;
   return (
     <div
       className="flex min-w-0 w-full flex-col gap-3 p-4"
+      data-testid="workbench-settings-content"
       data-surface-mode={resolvedSurface}
-      data-capability-status={resolvedCapabilities
-        .map((capability) => `${capability.id}:${capability.status}`)
-        .join(",")}
+      data-settings-scope={descriptor.scope}
+      data-settings-scope-key={scopeKey}
     >
       <div className="flex min-w-0 flex-col gap-1">
         <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -133,7 +122,7 @@ export function WorkbenchSettingsContent({
         <Suspense
           fallback={<EmptyState>{m.workbench_settings_loading()}</EmptyState>}
         >
-          <Component {...context} />
+          <Component {...context} scopeKey={scopeKey} />
         </Suspense>
       </ErrorBoundary>
     </div>
