@@ -14,7 +14,7 @@
  * dispara fetch só para contar):
  *   - terminal: número de PTYs abertos na sessão
  *   - files: número de arquivos fixados
- *   - diff: `+N -M` quando há mudanças
+ *   - git: `+N -M` quando há mudanças
  *   - plan: número de artifacts na sessão
  *
  * Antes de hidratar, o badge fica vazio (consistente com `useHydrated`) para
@@ -89,7 +89,7 @@ const TAB_ICON: Record<
 > = {
   terminal: TerminalSquare,
   files: FolderTree,
-  diff: GitCompare,
+  git: GitCompare,
   plan: FileText,
   browser: MonitorPlay,
   storage: Brain,
@@ -119,7 +119,7 @@ function useTabBadge(
       return terminals.length > 0 ? String(terminals.length) : null;
     case "files":
       return pinned > 0 ? String(pinned) : null;
-    case "diff":
+    case "git":
       // Sem chip de +N −M: o contador de diff poluía mais do que ajudava;
       // o ponto âmbar de "pending" continua sinalizando mudanças.
       return null;
@@ -154,8 +154,8 @@ function NavTabButton({
   const pending = useWorkbenchStore((s) =>
     tab === "files"
       ? Boolean(s.pending[workspaceId]?.files)
-      : tab === "diff"
-        ? Boolean(s.pending[workspaceId]?.diff)
+      : tab === "git"
+        ? Boolean(s.pending[workspaceId]?.git)
         : false,
   );
   const showPending = hydrated && pending && !active;
@@ -352,7 +352,7 @@ export function WorkbenchContent({
           {activeTab === "files" && (
             <FilesTab threadId={threadId} onAddToContext={onAddToContext} />
           )}
-          {activeTab === "diff" && (
+          {activeTab === "git" && (
             <GitTab
               threadId={threadId}
               onOpenCommitDetails={onOpenCommitDetails}
