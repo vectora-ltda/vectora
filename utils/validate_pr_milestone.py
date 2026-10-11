@@ -176,9 +176,7 @@ def _is_internal_head(
     """Confirma a identidade completa do repositório do head da PR."""
     head = pull_request.head
     repository = event.repository
-    repository_name = (repository.full_name if repository else None) or os.environ.get(
-        "GITHUB_REPOSITORY"
-    )
+    repository_name = repository.full_name if repository else None
     if head is None or repository_name is None:
         return False
     head_repo = head.repo.full_name if head.repo else None
