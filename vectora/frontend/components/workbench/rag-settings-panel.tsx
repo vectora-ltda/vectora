@@ -596,7 +596,10 @@ function EmbedModelPicker({
   useEffect(() => {
     // A resposta do provider substitui a lista; não limpamos estado
     // sincronamente no efeito para evitar uma renderização em cascata.
+    // Network loading updates state asynchronously after the effect starts.
+    // oxlint-disable-next-line react/set-state-in-effect
     if (provider === "ollama") void loadOllama();
+    // oxlint-disable-next-line react/set-state-in-effect
     else void searchOpenRouter("");
   }, [provider, loadOllama, searchOpenRouter]);
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToastStore } from "@/lib/stores/toast-store";
 import { resolveBrowserProfileId } from "@/lib/browser-profile";
@@ -18,18 +18,11 @@ export function BrowserSettingsForm({
 }: BrowserSettingsFormProps) {
   const [clearProfileError, setClearProfileError] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
-  const [zoomDraft, setZoomDraft] = useState(() =>
-    String(useSettingsStore.getState().browserZoomPercent),
-  );
+  const [zoomDraft, setZoomDraft] = useState<string | null>(null);
   const allowPopups = useSettingsStore((s) => s.browserAllowPopups);
   const zoomPercent = useSettingsStore((s) => s.browserZoomPercent);
   const setAllowPopups = useSettingsStore((s) => s.setBrowserAllowPopups);
   const setZoomPercent = useSettingsStore((s) => s.setBrowserZoomPercent);
-  useEffect(() => {
-    // Keep drafts aligned when another surface changes the persisted value.
-    // oxlint-disable-next-line react/set-state-in-effect
-    setZoomDraft(String(zoomPercent));
-  }, [zoomPercent]);
   const desktopBrowser =
     typeof window !== "undefined" ? window.vectora?.browserView : undefined;
   const profileId =
@@ -71,18 +64,16 @@ export function BrowserSettingsForm({
               min={25}
               max={500}
               step={5}
-              value={zoomDraft}
+              value={zoomDraft ?? String(zoomPercent)}
               onChange={(event) => setZoomDraft(event.target.value)}
               onBlur={() => {
                 const value = Number(zoomDraft);
                 if (!Number.isFinite(value)) {
-                  setZoomDraft(String(zoomPercent));
+                  setZoomDraft(null);
                   return;
                 }
                 setZoomPercent(value);
-                setZoomDraft(
-                  String(useSettingsStore.getState().browserZoomPercent),
-                );
+                setZoomDraft(null);
               }}
               onKeyDown={(event) => {
                 if (event.key === "Enter") event.currentTarget.blur();

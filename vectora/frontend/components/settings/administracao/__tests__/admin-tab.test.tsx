@@ -58,6 +58,11 @@ function mockAdminFetch(): void {
   );
 }
 
+function renderSafeRoots(): void {
+  mockAdminFetch();
+  render(<SafeRootsPanel />);
+}
+
 beforeEach(() => {
   overwriteGetLocale(() => "pt");
 });
@@ -95,11 +100,6 @@ describe("SystemPanel — Configuração", () => {
 });
 
 describe("SafeRootsPanel — seletor nativo de pasta", () => {
-  function renderSafeRoots() {
-    mockAdminFetch();
-    render(<SafeRootsPanel />);
-  }
-
   it("com bridge do desktop: o botão aparece e a pasta escolhida preenche o campo", async () => {
     const pickDirectory = vi.fn(async () => "/home/teste/projetos");
     vi.stubGlobal("vectora", { pickDirectory });
