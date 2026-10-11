@@ -113,12 +113,21 @@ async function removeManagedContent(
 async function copySafe(
   source: string,
   destination: string,
-): Promise<UpdateBackupFile> {
+): Promise<UpdateBackupFile | null> {
   const stat = await withFileLockRetry(() => fs.lstat(source));
   if (!stat.isFile() || stat.isSymbolicLink())
     throw new Error("entrada não regular");
   if (stat.size > MAX_FILE_BYTES) throw new Error("arquivo excede o limite");
-  const data = await withFileLockRetry(() => fs.readFile(source));
+  let data: Buffer;
+  try {
+    data = await withFileLockRetry(() => fs.readFile(source));
+  } catch (error) {
+    // Electron and the updater may briefly hold a profile file open on
+    // Windows. A partial snapshot is safer than rejecting the whole update;
+    // the updater can continue and the next snapshot will retry this file.
+    if (isTransientFileLock(error)) return null;
+    throw error;
+  }
   await withFileLockRetry(() =>
     fs.mkdir(path.dirname(destination), { recursive: true }),
   );
@@ -164,7 +173,7 @@ export async function createRotatingUpdateBackup(
           path.join(userData, relative),
           path.join(temporary, relative),
         );
-        files.push({ ...copied, path: relative });
+        if (copied) files.push({ ...copied, path: relative });
       }
       const manifest: UpdateBackupEntry = {
         id,
