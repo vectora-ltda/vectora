@@ -103,6 +103,11 @@ import {
   startElectronCdpProxy,
   waitForElectronCdpTarget,
 } from "./electron-cdp-proxy.js";
+import {
+  resolveRuntimeProfile,
+  runtimeHome as resolveRuntimeHome,
+  runtimeUserDataName,
+} from "./runtime-profile.js";
 
 // O backend conecta ao mesmo Chromium do Electron via CDP. O endpoint fica
 // restrito ao loopback e é herdado pelo processo backend supervisionado. Em
@@ -176,6 +181,20 @@ interface UpdateStatus {
 // que não é o nome do produto. setName() força %APPDATA%\vectora\ sem
 // precisar renomear o pacote. Chamado antes de qualquer path ser resolvido.
 app.setName("vectora");
+
+// Keep development and packaged instances isolated while sharing the selected
+// runtime profile with the supervised backend.
+const safeRuntimeProfile = resolveRuntimeProfile(process.env, app.isPackaged);
+app.setPath(
+  "userData",
+  path.join(app.getPath("appData"), runtimeUserDataName(safeRuntimeProfile)),
+);
+const runtimeHome = resolveRuntimeHome(
+  process.env,
+  safeRuntimeProfile,
+  os.homedir(),
+);
+if (!process.env.VECTORA_HOME) process.env.VECTORA_HOME = runtimeHome;
 
 let backend: ChildProcess | null = null;
 let backendPort: number | null = null;
@@ -320,7 +339,7 @@ const _MAX_LOG_LINES = 60;
 
 // Arquivo que persiste o PID do sidecar backend entre sessões. Permite matar
 // processo órfão deixado por crash do Electron sem disparar before-quit.
-const _BACKEND_PID_FILE = path.join(os.homedir(), ".vectora", "backend.pid");
+const _BACKEND_PID_FILE = path.join(runtimeHome, "backend.pid");
 
 async function killStaleBackend(): Promise<void> {
   try {
@@ -357,7 +376,7 @@ protocol.registerSchemesAsPrivileged([
  */
 function backendTransport(): http.RequestOptions {
   if (process.platform !== "win32") {
-    return { socketPath: path.join(os.homedir(), ".vectora", "vectora.sock") };
+    return { socketPath: path.join(runtimeHome, "vectora.sock") };
   }
   if (backendPipePath) {
     return { socketPath: backendPipePath };
@@ -385,7 +404,7 @@ const _cookieStore = new Map<string, string>();
 // nenhuma, o login era perdido a cada restart do app. Grava um arquivo local
 // (criptografado via safeStorage — DPAPI no Windows/Keychain no macOS — quando
 // disponível) em vez de depender do cookie jar do Chromium.
-const _SESSION_STORE_FILE = path.join(os.homedir(), ".vectora", "session.dat");
+const _SESSION_STORE_FILE = path.join(runtimeHome, "session.dat");
 
 function persistCookieStore(): void {
   try {
@@ -551,6 +570,8 @@ async function startBackend(): Promise<void> {
   );
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    VECTORA_RUNTIME_PROFILE: safeRuntimeProfile,
+    VECTORA_HOME: runtimeHome,
     VECTORA_PORT: String(backendPort),
     VECTORA_DESKTOP: "1",
     VECTORA_DESKTOP_BRIDGE_TOKEN: desktopBridgeToken,
@@ -559,8 +580,12 @@ async function startBackend(): Promise<void> {
   const exePath = backendPath(process.env, process.platform, _resourcesPath());
   backend = spawnBackendProcess(exePath, ["start"], env);
   if (backend.pid) {
+    const backendPid = backend.pid;
     fs.promises
-      .writeFile(_BACKEND_PID_FILE, String(backend.pid), "utf-8")
+      .mkdir(path.dirname(_BACKEND_PID_FILE), { recursive: true })
+      .then(() =>
+        fs.promises.writeFile(_BACKEND_PID_FILE, String(backendPid), "utf-8"),
+      )
       .catch(() => {});
   }
   const pipeParser = new IpcPipeParser();
@@ -868,6 +893,30 @@ async function isAutoUpdateEnabled(): Promise<boolean> {
   return prefs?.autoUpdateEnabled !== false;
 }
 
+/** Resolve release notes from the authenticated backend when the package has none. */
+async function fetchPackagedChangelog(
+  fallback: string,
+  expectedVersion: string,
+): Promise<string> {
+  const packaged = fallback.trim();
+  if (packaged) return packaged;
+  try {
+    const payload = await fetchBackendJson<{
+      notes?: string;
+      version?: string;
+    }>(
+      backendTransport(),
+      "/api/updates/changelog",
+      _cookieStore.size > 0 ? { cookie: buildCookieHeader(_cookieStore) } : {},
+    );
+    if (payload?.version !== expectedVersion) return "";
+    return payload.notes?.trim() || "";
+  } catch (error) {
+    console.warn("[updater] não foi possível carregar o changelog", error);
+    return fallback;
+  }
+}
+
 /**
  * Registra os listeners do `electron-updater` e propaga o estado pro
  * renderer via `vectora:update-status` (consumido em `UpdateBanner`,
@@ -882,7 +931,7 @@ function setupAutoUpdater(): void {
 
   let latestStatus: UpdateStatus = { state: "not-available" };
 
-  const broadcast = (status: UpdateStatus) => {
+  const broadcast = (status: Partial<UpdateStatus>) => {
     latestStatus = { ...latestStatus, ...status };
     mainWindow?.webContents.send("vectora:update-status", latestStatus);
   };
@@ -908,6 +957,9 @@ function setupAutoUpdater(): void {
       );
     });
     broadcast({ state: "available", message: info.version, changelog: notes });
+    void fetchPackagedChangelog(notes, info.version).then((changelog) => {
+      if (changelog && changelog !== notes) broadcast({ changelog });
+    });
     void startUpdateDownload().catch((error: unknown) => {
       broadcast({
         state: "error",
