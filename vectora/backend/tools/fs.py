@@ -253,7 +253,7 @@ async def _run_hooks_and_autocommit(path: Path, root: Path, ws: Any) -> str:
         category="filesystem",
         destructive=True,
         icon="file-edit",
-        invalidates=["files", "diff"],
+        invalidates=["files", "git"],
     )
 )
 async def file_edit(
@@ -359,7 +359,7 @@ async def file_edit(
         category="filesystem",
         destructive=True,
         icon="file-plus",
-        invalidates=["files", "diff"],
+        invalidates=["files", "git"],
     )
 )
 async def file_write(file_path: str, content: str, ctx: ToolContext) -> str:
@@ -651,7 +651,7 @@ async def _drain_terminal_output(
         category="filesystem",
         destructive=True,
         icon="terminal",
-        invalidates=["files", "diff"],
+        invalidates=["files", "git"],
     )
 )
 async def terminal(

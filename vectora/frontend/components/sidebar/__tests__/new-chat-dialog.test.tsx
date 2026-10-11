@@ -33,6 +33,8 @@ vi.mock("@/lib/paraglide/messages", () => ({
 }));
 
 vi.mock("@/lib/stores/workspaces-store", () => {
+  // The mock factory is intentionally local because Vitest hoists vi.mock.
+  // oxlint-disable-next-line unicorn/consistent-function-scoping
   const store = (sel: (s: unknown) => unknown) =>
     sel({
       workspaces: mockWorkspaces,
