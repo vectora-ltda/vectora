@@ -420,6 +420,7 @@
   "input_new_line_hint": "new line",
   "input_placeholder": "Ask me anything...",
   "input_queued": "Queued",
+  "input_run_queued_now": "Run now",
   "input_send": "Send message",
   "input_send_hint": "to send",
   "input_stop": "Stop",
