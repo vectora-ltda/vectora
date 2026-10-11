@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 from backend.engine.guardrails import LoopCapConfig, TurnBudget
@@ -47,6 +47,7 @@ from backend.engine.stream_events import (
 )
 from backend.engine.tool_batch import _is_tool_error, execute_tool_batch
 from backend.services.context_compaction import compact_messages
+from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import ContentBlock, MessageRole, ToolCall, VMessage
 
 _REPEATED_CALL_THRESHOLD = 3
@@ -267,7 +268,7 @@ async def run_conversation(
             max_tokens=config.max_tokens,
         ):
             if chunk.usage:
-                stream_usage = dict(chunk.usage)
+                stream_usage = cast("dict[str, int]", dict(chunk.usage))
             if chunk.delta_text:
                 partes_texto.append(chunk.delta_text)
                 await emit(MessageChunk(content=chunk.delta_text))
@@ -398,21 +399,24 @@ async def run_conversation(
                     approval_args = dict(approval_metadata)
                 args_json = json.dumps(approval_args, ensure_ascii=False)
                 raw_options = pendente.args.get("options", [])
-                options = (
-                    [
-                        {
-                            "label": str(item.get("label") or item["value"]),
-                            "value": str(item["value"]),
-                        }
-                        for item in raw_options
-                        if isinstance(item, dict) and item.get("value")
-                    ]
-                    if isinstance(raw_options, list)
-                    else []
-                )
+                options: list[ToolOption] = []
+                if isinstance(raw_options, list):
+                    for item in raw_options:
+                        if not isinstance(item, dict):
+                            continue
+                        raw_value = item.get("value")
+                        if not raw_value:
+                            continue
+                        raw_label = item.get("label") or raw_value
+                        options.append(
+                            {"label": str(raw_label), "value": str(raw_value)}
+                        )
+                raw_priority = pendente.args.get("approval_priority", 0)
                 try:
-                    priority = max(
-                        0, min(100, int(pendente.args.get("approval_priority", 0)))
+                    priority = (
+                        max(0, min(100, int(raw_priority)))
+                        if isinstance(raw_priority, (int, float, str))
+                        else 0
                     )
                 except (TypeError, ValueError):
                     priority = 0

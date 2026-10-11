@@ -21,6 +21,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 from backend.llm.anthropic.client import AnthropicClient, AnthropicResponseError
+from backend.vtypes.contracts import UsageSnapshot
 from backend.vtypes.message import (
     ContentBlock,
     MessageRole,
@@ -147,7 +148,7 @@ def _to_anthropic_messages(messages: list[VMessage]) -> tuple[str | None, list[d
     return system, traduzidas
 
 
-def _usage_metadata(usage: dict | None) -> dict[str, int] | None:
+def _usage_metadata(usage: dict | None) -> UsageSnapshot | None:
     if not usage:
         return None
     entrada = int(usage.get("input_tokens") or 0)

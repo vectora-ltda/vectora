@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import MessageRole
 
 if TYPE_CHECKING:
@@ -313,7 +314,7 @@ class ApprovalGate:
         tool_call_id: str,
         args: dict[str, Any],
         reasoning: str | None = None,
-        options: list[dict[str, str]] | None = None,
+        options: list[ToolOption] | None = None,
         priority: int = 0,
         expires_at: str | None = None,
         approval_metadata: dict[str, Any] | None = None,

@@ -28,6 +28,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 from backend.llm.cohere.client import CohereClient, CohereResponseError
+from backend.vtypes.contracts import UsageSnapshot
 from backend.vtypes.message import (
     ContentBlock,
     MessageRole,
@@ -139,7 +140,7 @@ def _parse_tool_calls(bruto: list) -> list[ToolCall]:
     return chamadas
 
 
-def _usage_metadata(usage: dict | None) -> dict[str, int] | None:
+def _usage_metadata(usage: dict | None) -> UsageSnapshot | None:
     if not usage:
         return None
     tokens = usage.get("tokens") or {}

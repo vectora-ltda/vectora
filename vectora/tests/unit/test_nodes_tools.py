@@ -138,7 +138,7 @@ def test_all_tools_count() -> None:
     # A mensagem lista os nomes: só o número não diz *qual* tool entrou ou
     # sumiu, e a contagem já ficou defasada em silêncio uma vez por isso.
     nomes = sorted(t.name for t in ALL_TOOLS)
-    assert len(ALL_TOOLS) == 187, f"tools registradas: {nomes}"
+    assert len(ALL_TOOLS) == 188, f"tools registradas: {nomes}"
 
 
 def test_all_tools_sem_nome_duplicado() -> None:

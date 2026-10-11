@@ -15,6 +15,7 @@ import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import VMessage
 
 if TYPE_CHECKING:
@@ -666,7 +667,7 @@ class PostgresSessionStore:
         tool_call_id: str,
         args: dict[str, Any],
         reasoning: str | None = None,
-        options: list[dict[str, str]] | None = None,
+        options: list[ToolOption] | None = None,
         priority: int = 0,
         expires_at: str | None = None,
     ) -> None:
@@ -715,7 +716,7 @@ class PostgresSessionStore:
         decision: str,
         selection: str | None,
         decided_by: str | None,
-        options: list[dict[str, str]],
+        options: list[ToolOption],
         priority: int,
         expires_at: str | None,
     ) -> None:

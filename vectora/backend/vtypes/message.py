@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Literal
 
+from backend.vtypes.contracts import JsonObject, UsageSnapshot
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,7 +34,7 @@ class ToolCall:
 
     id: str
     name: str
-    args: dict[str, Any]
+    args: JsonObject
 
 
 @dataclass(slots=True)
@@ -178,6 +180,6 @@ class VMessageChunk:
     delta_reasoning: str | None = None
     tool_call_chunks: list[ToolCallChunk] = field(default_factory=list)
     finish_reason: str | None = None
-    usage: dict[str, int] | None = None
+    usage: UsageSnapshot | None = None
     """`{"input_tokens", "output_tokens", "total_tokens"}` — mesmo shape que
     os 5 chat clients nativos já preenchem hoje."""

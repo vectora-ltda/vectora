@@ -26,6 +26,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 from backend.llm.google.client import GoogleGenAIClient, GoogleGenAIResponseError
+from backend.vtypes.contracts import UsageSnapshot
 from backend.vtypes.message import (
     ContentBlock,
     MessageRole,
@@ -215,7 +216,7 @@ def _parse_candidate_parts(parts: list) -> tuple[str, list[ToolCall]]:
     return "".join(texto_partes), chamadas
 
 
-def _usage_metadata(usage: dict | None) -> dict[str, int] | None:
+def _usage_metadata(usage: dict | None) -> UsageSnapshot | None:
     if not usage:
         return None
     entrada = int(usage.get("promptTokenCount") or 0)

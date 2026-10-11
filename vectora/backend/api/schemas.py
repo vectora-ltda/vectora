@@ -16,6 +16,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from backend.vtypes.contracts import ToolOption
 from backend.vtypes.permission import PermissionMode
 
 # ---------------------------------------------------------------------------
@@ -420,7 +421,7 @@ class HITLEvent(BaseModel):
     #: nunca decide sozinha, só marca a sugestão como reconhecida. O HITL
     #: pausa igual; o humano confirma com um clique a menos.
     pre_approved: bool = False
-    options: list[dict[str, str]] = []
+    options: list[ToolOption] = []
     priority: int = 0
     expires_at: str | None = None
 

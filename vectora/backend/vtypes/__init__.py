@@ -2,6 +2,14 @@ from __future__ import annotations
 
 from backend.vtypes.agents import MemoryEntry, UIMetrics
 from backend.vtypes.context import VectoraContext, ctx_from_config
+from backend.vtypes.contracts import (
+    ApprovalMetadata,
+    ChangedFile,
+    JsonObject,
+    JsonValue,
+    ToolOption,
+    UsageSnapshot,
+)
 from backend.vtypes.documents import ArtifactMetadata, Document
 from backend.vtypes.message import (
     ContentBlock,
@@ -17,16 +25,22 @@ from backend.vtypes.session import SessionMetadata
 from backend.vtypes.workspace import Workspace
 
 __all__ = [
+    "ApprovalMetadata",
     "ArtifactMetadata",
+    "ChangedFile",
     "ContentBlock",
     "Document",
+    "JsonObject",
+    "JsonValue",
     "MemoryEntry",
     "MessageRole",
     "SafeRoot",
     "SessionMetadata",
     "ToolCall",
     "ToolCallChunk",
+    "ToolOption",
     "UIMetrics",
+    "UsageSnapshot",
     "VMessage",
     "VMessageChunk",
     "VectoraContext",
