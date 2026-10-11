@@ -1,4 +1,4 @@
-"""Testes da atualizaÃ§Ã£o automÃ¡tica das linhas de release."""
+"""Testes da atualização automática das linhas de release."""
 
 from __future__ import annotations
 

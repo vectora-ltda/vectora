@@ -1,4 +1,4 @@
-"""Calcula e aplica a prÃ³xima rotaÃ§Ã£o das linhas de release."""
+"""Calcula e aplica a próxima rotação das linhas de release."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ SEMVER_TAG: re.Pattern[str] = re.compile(
 
 
 class Rotation(TypedDict):
-    """Metadados necessÃ¡rios para rotacionar as linhas de release ativas."""
+    """Metadados necessários para rotacionar as linhas de release ativas."""
 
     release_tag: str
     release_version: str
@@ -31,7 +31,7 @@ class Rotation(TypedDict):
 
 
 class OpenPullRequest(TypedDict):
-    """Metadados relevantes de uma pull request aberta durante a rotaÃ§Ã£o."""
+    """Metadados relevantes de uma pull request aberta durante a rotação."""
 
     number: int
     base_branch: str
@@ -39,7 +39,7 @@ class OpenPullRequest(TypedDict):
 
 
 class RotationOperation(TypedDict):
-    """Uma operaÃ§Ã£o determinÃ­stica executada pelo workflow de rotaÃ§Ã£o do GitHub."""
+    """Uma operação determinística executada pelo workflow de rotação do GitHub."""
 
     kind: Literal[
         "create_branch",
@@ -153,7 +153,7 @@ def rotation_for_release(
 
 
 def rotated_config(config: ReleaseLines, rotation: Rotation) -> ReleaseLines:
-    """Monta a prÃ³xima configuraÃ§Ã£o sem alterar o mapeamento carregado."""
+    """Monta a próxima configuração sem alterar o mapeamento carregado."""
     return ReleaseLines(
         development={
             "branch": rotation["development_branch"],
@@ -171,7 +171,7 @@ def rotated_config(config: ReleaseLines, rotation: Rotation) -> ReleaseLines:
 
 
 def write_rotated_config(path: Path, config: ReleaseLines, rotation: Rotation) -> None:
-    """Persiste a prÃ³xima configuraÃ§Ã£o das linhas de release como JSON formatado."""
+    """Persiste a próxima configuração das linhas de release como JSON formatado."""
     path.write_text(
         json.dumps(rotated_config(config, rotation).model_dump(), indent=2) + "\n",
         encoding="utf-8",
@@ -194,7 +194,7 @@ def _event_values(event_path: Path) -> tuple[str, str | None]:
 
 
 def main() -> int:
-    """Imprime as saÃ­das do GitHub Actions e opcionalmente atualiza o arquivo de configuraÃ§Ã£o."""
+    """Imprime as saídas do GitHub Actions e opcionalmente atualiza o arquivo de configuração."""
     if len(sys.argv) not in (2, 4) or (len(sys.argv) == 4 and sys.argv[2] != "--write"):
         print(
             "usage: rotate_release_lines.py EVENT_JSON [--write CONFIG_PATH]",

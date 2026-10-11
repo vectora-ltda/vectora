@@ -303,7 +303,7 @@ def test_release_please_pr_is_exempt_with_controlled_source_and_label() -> None:
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=None,
-        head="release-please-0.3",
+        head=f"release-please-{DEVELOPMENT_MILESTONE}",
         labels=["autorelease: pending"],
     )
     assert validator.validate_pull_request(event) == []
@@ -328,7 +328,7 @@ def test_release_branch_promotion_from_another_repo_is_rejected() -> None:
         head_repo="attacker/vectora",
     )
     errors = validator.validate_pull_request(event)
-    assert errors and "0.2.x" in errors[0]
+    assert errors and MAINTENANCE_MILESTONE in errors[0]
 
 
 def test_empty_release_branch_does_not_use_promotion_exception() -> None:
@@ -339,7 +339,7 @@ def test_empty_release_branch_does_not_use_promotion_exception() -> None:
         head="release/",
     )
     errors = validator.validate_pull_request(event)
-    assert errors and "0.2.x" in errors[0]
+    assert errors and MAINTENANCE_MILESTONE in errors[0]
 
 
 def test_release_please_pr_from_another_repo_is_rejected() -> None:
@@ -347,7 +347,7 @@ def test_release_please_pr_from_another_repo_is_rejected() -> None:
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=None,
-        head="release-please-0.3",
+        head=f"release-please-{DEVELOPMENT_MILESTONE}",
         labels=["autorelease: pending"],
         head_repo="attacker/vectora",
     )
@@ -360,7 +360,7 @@ def test_release_please_pr_without_pending_label_is_rejected() -> None:
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=None,
-        head="release-please-0.3",
+        head=f"release-please-{DEVELOPMENT_MILESTONE}",
     )
     errors = validator.validate_pull_request(event)
     assert errors and "milestone" in errors[0]
@@ -371,7 +371,7 @@ def test_release_please_lookalike_branch_is_rejected() -> None:
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=None,
-        head="release-please-0.3-lookalike",
+        head=f"release-please-{DEVELOPMENT_MILESTONE}-lookalike",
         labels=["autorelease: pending"],
     )
     errors = validator.validate_pull_request(event)
@@ -383,7 +383,7 @@ def test_release_please_minor_targeting_development_is_rejected() -> None:
     event = _event(
         base=DEVELOPMENT_BRANCH,
         milestone=None,
-        head="release-please-0.3",
+        head=f"release-please-{DEVELOPMENT_MILESTONE}",
         labels=["autorelease: pending"],
     )
     errors = validator.validate_pull_request(event)
@@ -407,7 +407,7 @@ def test_release_please_patch_branch_is_exempt_on_maintenance_line() -> None:
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=None,
-        head="release-please-0.2.1",
+        head=f"release-please-{MAINTENANCE_MILESTONE.removesuffix('.x')}.1",
         labels=["autorelease: pending"],
     )
     assert validator.validate_pull_request(event) == []
