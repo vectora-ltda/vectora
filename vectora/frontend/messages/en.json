@@ -93,6 +93,7 @@
   "input_send_hint": "to send",
   "input_new_line_hint": "new line",
   "input_queued": "Queued",
+  "input_run_queued_now": "Run now",
   "chat_input_no_vision_warning": "The selected model can't process images — switch models or remove the attachment before sending.",
   "chat_structured_paste_title": "Structured content pasted",
   "chat_structured_paste_description": "Choose how to insert this large JSON or YAML content.",

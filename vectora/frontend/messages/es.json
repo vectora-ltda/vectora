@@ -93,6 +93,7 @@
   "input_send_hint": "para enviar",
   "input_new_line_hint": "nueva línea",
   "input_queued": "En cola",
+  "input_run_queued_now": "Ejecutar ahora",
   "chat_input_no_vision_warning": "El modelo seleccionado no procesa imágenes — cambia de modelo o elimina el archivo adjunto antes de enviar.",
   "chat_structured_paste_title": "Contenido estructurado pegado",
   "chat_structured_paste_description": "Elige cómo insertar este JSON o YAML grande.",

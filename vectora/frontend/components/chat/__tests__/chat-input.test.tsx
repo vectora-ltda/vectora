@@ -207,6 +207,23 @@ describe("ChatInput", () => {
     expect(screen.getByText("segunda na fila")).toBeTruthy();
   });
 
+  it("permite executar imediatamente uma mensagem enfileirada", () => {
+    const onRunQueuedNow = vi.fn();
+    render(
+      <ChatInput
+        {...baseProps({
+          queuedMessages: [{ id: "q1", content: "primeira na fila" }],
+          onRunQueuedNow,
+        })}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: m.input_run_queued_now() }),
+    );
+    expect(onRunQueuedNow).toHaveBeenCalledWith("q1");
+  });
+
   it("sem mensagens enfileiradas não renderiza a fila", () => {
     render(<ChatInput {...baseProps({ queuedMessages: [] })} />);
     expect(screen.queryByText(/na fila/)).toBeNull();

@@ -1105,6 +1105,36 @@ export function ChatInterface({
     abort();
   }, [uiDispatch, abort]);
 
+  const handleRunQueuedNow = useCallback(
+    (messageId: string) => {
+      const queuedIndex = messageQueueRef.current.findIndex(
+        (message) => message.userMessage.id === messageId,
+      );
+      if (queuedIndex < 0) return;
+
+      const [selectedMessage] = messageQueueRef.current.splice(queuedIndex, 1);
+      if (!selectedMessage) return;
+      messageQueueRef.current.unshift(selectedMessage);
+      setQueuedMessagesDisplay((current) => {
+        const selected = current.find((message) => message.id === messageId);
+        if (!selected) return current;
+        return [
+          selected,
+          ...current.filter((message) => message.id !== messageId),
+        ];
+      });
+
+      // Aborta o turno atual; quando o stream terminar, o processador normal
+      // da fila remove o próximo item, que agora é o selecionado.
+      if (uiState.isLoading || uiState.isRegenerating) {
+        void handleStop();
+      } else {
+        processQueueRef.current();
+      }
+    },
+    [handleStop, uiState.isLoading, uiState.isRegenerating],
+  );
+
   const handleRegenerate = useCallback(async () => {
     if (uiState.isLoading || uiState.isRegenerating) return;
 
@@ -1417,6 +1447,7 @@ export function ChatInterface({
           onVoiceToggle={toggleVoiceListening}
           voiceError={voiceError}
           queuedMessages={queuedMessagesDisplay}
+          onRunQueuedNow={handleRunQueuedNow}
           modelId={agentConfig?.model}
           tokensUsed={contextTokens}
           agentConfig={agentConfig}
