@@ -61,7 +61,7 @@ jobs:
           PREVIOUS_DEVELOPMENT_BRANCH: ${{ steps.rotation.outputs.previous_development_branch }}
           RELEASE_TAG: ${{ steps.rotation.outputs.release_tag }}
         with:
-          github-token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          github-token: ${{ github.token }}
           script: |
             const {
               STABLE_BRANCH,
