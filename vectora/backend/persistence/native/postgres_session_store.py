@@ -205,7 +205,10 @@ class PostgresSessionStore:
                 "INSERT INTO vectora_native_sessions (thread_id, user_id, workspace_id, "
                 "parent_thread_id, mode, permission_mode, created_at, updated_at) "
                 "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) "
-                "ON CONFLICT (thread_id) DO NOTHING",
+                "ON CONFLICT (thread_id) DO UPDATE SET "
+                "workspace_id = COALESCE(EXCLUDED.workspace_id, vectora_native_sessions.workspace_id), "
+                "mode = EXCLUDED.mode, permission_mode = EXCLUDED.permission_mode, "
+                "updated_at = EXCLUDED.updated_at",
                 thread_id,
                 user_id,
                 workspace_id,
@@ -225,6 +228,31 @@ class PostgresSessionStore:
                 mode,
                 permission_mode,
             )
+
+    async def get_session(
+        self, thread_id: str, *, user_id: str | None = None
+    ) -> dict[str, Any] | None:
+        """Retorna metadados nativos para reidratar um HITL após restart."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT thread_id, user_id, workspace_id, parent_thread_id, mode, "
+                "permission_mode, created_at, updated_at "
+                "FROM vectora_native_sessions WHERE thread_id = $1",
+                thread_id,
+            )
+        if row is None or (user_id is not None and row["user_id"] != user_id):
+            return None
+        return {
+            "thread_id": row["thread_id"],
+            "user_id": row["user_id"],
+            "workspace_id": row["workspace_id"],
+            "parent_thread_id": row["parent_thread_id"],
+            "mode": row["mode"],
+            "permission_mode": row["permission_mode"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
 
     async def append_message(
         self,

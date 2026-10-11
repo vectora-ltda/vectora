@@ -58,6 +58,20 @@ class TestCreateSession:
 
         assert total == 1
 
+    async def test_segundo_turno_atualiza_modo_de_permissao(self, store: SessionStore):
+        await store.create_session(
+            "thread-1", user_id="alice", workspace_id="ws-1", permission_mode="ask"
+        )
+        await store.create_session(
+            "thread-1", user_id="alice", workspace_id="ws-1", permission_mode="bypass"
+        )
+
+        session = await store.get_session("thread-1", user_id="alice")
+
+        assert session is not None
+        assert session["permission_mode"] == "bypass"
+        assert session["workspace_id"] == "ws-1"
+
 
 class TestAppendMessageEGetHistory:
     def test_persistencia_de_imagem_nao_grava_base64(self) -> None:

@@ -204,9 +204,13 @@ class SessionStore:
         async with self._pool.acquire() as conn:
             try:
                 await conn.execute(
-                    "INSERT OR IGNORE INTO sessions (thread_id, user_id, workspace_id, "
+                    "INSERT INTO sessions (thread_id, user_id, workspace_id, "
                     "parent_thread_id, mode, permission_mode, created_at, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(thread_id) DO UPDATE SET "
+                    "workspace_id = COALESCE(excluded.workspace_id, sessions.workspace_id), "
+                    "mode = excluded.mode, permission_mode = excluded.permission_mode, "
+                    "updated_at = excluded.updated_at",
                     (
                         thread_id,
                         user_id,
