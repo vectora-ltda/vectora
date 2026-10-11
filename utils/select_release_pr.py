@@ -6,7 +6,7 @@ import argparse
 import json
 import re
 import sys
-from typing import ClassVar, Literal
+from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
@@ -45,7 +45,6 @@ def select_release_pr(
     source: str,
     target: str,
     milestone: str,
-    phase: Literal["generated", "versioned"],
 ) -> ReleasePullRequest | None:
     """Exige identidade exata da linha e rejeita seleções ambíguas."""
     minor = re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)", milestone)
@@ -66,15 +65,8 @@ def select_release_pr(
             continue
         if (minor is not None) != (version[2] == "0"):
             continue
-        if phase == "generated":
-            legacy_heads = {
-                f"release-please--branches--{branch}"
-                for branch in (source, source.replace("/", "%2F"))
-            }
-            matches = pr.baseRefName == source and pr.headRefName in legacy_heads
-        else:
-            suffix = series if minor is not None else f"{series}.{version[2]}"
-            matches = pr.baseRefName == target and pr.headRefName == f"release/{suffix}"
+        suffix = series if minor is not None else f"{series}.{version[2]}"
+        matches = pr.baseRefName == target and pr.headRefName == f"release/{suffix}"
         if matches:
             candidates.append(pr)
     if len(candidates) > 1:
@@ -89,7 +81,6 @@ def main() -> int:
     parser.add_argument("--source", required=True)
     parser.add_argument("--target", required=True)
     parser.add_argument("--milestone", required=True)
-    parser.add_argument("--phase", choices=("generated", "versioned"), required=True)
     args = parser.parse_args()
     try:
         prs = TypeAdapter(list[ReleasePullRequest]).validate_json(sys.stdin.read())
@@ -99,7 +90,6 @@ def main() -> int:
             source=args.source,
             target=args.target,
             milestone=args.milestone,
-            phase=args.phase,
         )
     except ValueError as exc:
         print(f"Invalid release PR selection: {exc}", file=sys.stderr)
