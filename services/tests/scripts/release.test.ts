@@ -170,9 +170,8 @@ describe("MANIFEST_ARCHES", () => {
     expect(MANIFEST_ARCHES.linux).toEqual(["x64", "arm64"]);
   });
 
-  it("mac só publica manifesto em arm64 (Intel descontinuado, par de erro)", () => {
-    expect(MANIFEST_ARCHES.mac).toEqual(["arm64"]);
-    expect(MANIFEST_ARCHES.mac).not.toContain("x64");
+  it("mac publica manifesto em x64 e arm64", () => {
+    expect(MANIFEST_ARCHES.mac).toEqual(["x64", "arm64"]);
   });
 });
 
