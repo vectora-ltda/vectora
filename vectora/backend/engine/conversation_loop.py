@@ -703,9 +703,9 @@ async def resume_conversation(
                     is_error=True,
                 )
             else:
-                from backend.engine.hitl import REQUIRE_APPROVAL
+                from backend.engine.hitl import _tool_requires_approval
 
-                if tc.name in REQUIRE_APPROVAL:
+                if _tool_requires_approval(tc.name):
                     resultado = VMessage(
                         role=MessageRole.TOOL,
                         content=[
