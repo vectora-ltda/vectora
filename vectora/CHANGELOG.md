@@ -8,6 +8,8 @@ Esta seção reúne as alterações da linha 0.3 identificadas por milestone e j
 
 ### Alterações aprovadas e integradas
 
+Os itens desta seção são listados abaixo.
+
 - Corrige a política de bases empilhadas e permite validação controlada de PRs sobre branches `stack/*` ([#315](https://github.com/vectora-ltda/vectora/pull/315)).
 - Promove e sincroniza a linha de manutenção `release/0.2` com a base estável ([#306](https://github.com/vectora-ltda/vectora/pull/306), [#297](https://github.com/vectora-ltda/vectora/pull/297), [#296](https://github.com/vectora-ltda/vectora/pull/296)).
 - Estabiliza a seleção de branches versionadas do Release Please e evita releases vazias ([#299](https://github.com/vectora-ltda/vectora/pull/299)).
