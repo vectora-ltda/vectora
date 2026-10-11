@@ -1,12 +1,7 @@
 // @vitest-environment jsdom
 /**
- * Bug reportado ao vivo: o painel "Configurações do RAG" abria como uma
- * coluna extra ao lado do botão de engrenagem (dentro da MESMA linha flex
- * da busca), forçando a linha a estourar a largura da workbench — porque
- * `RagSettingsPanel` (Fragment com [botão, painel]) era colocado inteiro
- * dentro do `<div className="flex items-center ...">` que também continha
- * a busca. O painel precisa ser um IRMÃO abaixo dessa linha, com largura
- * cheia — nunca um item dela.
+ * Regressão de layout: as configurações devem abrir pelo host modal
+ * responsivo, sem transformar a linha de busca em uma coluna extra.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
@@ -87,7 +82,7 @@ describe("MemoryTab — layout do painel de configurações do RAG", () => {
     expect(btn.parentElement).toBe(input.parentElement?.parentElement);
   });
 
-  it("painel aberto NÃO é filho da linha do botão+busca — ocupa a largura cheia abaixo", async () => {
+  it("painel aberto usa o host modal responsivo fora da linha de busca", async () => {
     render(<MemoryTab threadId="t1" />);
 
     const btn = await screen.findByTestId("rag-settings-btn");
@@ -97,7 +92,7 @@ describe("MemoryTab — layout do painel de configurações do RAG", () => {
 
     const panel = await waitFor(() => screen.getByTestId("rag-settings-panel"));
     expect(row.contains(panel)).toBe(false);
-    // Irmão da linha (mesmo pai), não descendente dela.
-    expect(panel.parentElement).toBe(row.parentElement);
+    expect(panel).toHaveAttribute("role", "dialog");
+    expect(panel).toHaveClass("overflow-hidden");
   });
 });

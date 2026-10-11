@@ -901,7 +901,7 @@ async def git_branch(
         category="git",
         destructive=True,
         icon="git-branch",
-        invalidates=["files", "diff"],
+        invalidates=["files", "git"],
     )
 )
 async def git_checkout(
@@ -937,7 +937,7 @@ async def git_checkout(
         category="git",
         destructive=True,
         icon="git-commit",
-        invalidates=["diff"],
+        invalidates=["git"],
     )
 )
 async def git_commit(
@@ -982,7 +982,7 @@ async def git_commit(
         category="git",
         destructive=True,
         icon="git-commit",
-        invalidates=["diff", "history"],
+        invalidates=["git", "history"],
     )
 )
 async def git_squash(
@@ -1022,7 +1022,7 @@ async def git_squash(
         category="git",
         destructive=True,
         icon="git-commit",
-        invalidates=["diff", "history"],
+        invalidates=["git", "history"],
     )
 )
 async def git_reorder(
@@ -1050,7 +1050,7 @@ async def git_reorder(
         category="git",
         destructive=True,
         icon="git-commit",
-        invalidates=["diff", "history"],
+        invalidates=["git", "history"],
     )
 )
 async def git_cherry_pick(
@@ -1107,7 +1107,7 @@ async def git_fetch(
         category="git",
         destructive=True,
         icon="git-merge",
-        invalidates=["files", "diff", "history"],
+        invalidates=["files", "git", "history"],
     )
 )
 async def git_merge(
@@ -1140,7 +1140,7 @@ async def git_merge(
         category="git",
         destructive=True,
         icon="git-commit",
-        invalidates=["files", "diff", "history"],
+        invalidates=["files", "git", "history"],
     )
 )
 async def git_revert(
@@ -1212,7 +1212,7 @@ async def git_compare(
         category="git",
         destructive=True,
         icon="git-merge",
-        invalidates=["files", "diff"],
+        invalidates=["files", "git"],
     )
 )
 async def git_resolve_conflict(
@@ -1320,7 +1320,7 @@ async def git_push(
         category="git",
         destructive=True,
         icon="download-cloud",
-        invalidates=["files", "diff"],
+        invalidates=["files", "git"],
     )
 )
 async def git_pull(
@@ -1350,7 +1350,7 @@ async def git_pull(
         category="git",
         destructive=False,
         icon="layers",
-        invalidates=["diff"],
+        invalidates=["git"],
     )
 )
 async def git_stash(
@@ -1443,7 +1443,7 @@ async def git_worktree(
         category="git",
         destructive=False,
         icon="plus-circle",
-        invalidates=["diff"],
+        invalidates=["git"],
     )
 )
 async def git_stage(
@@ -1473,7 +1473,7 @@ async def git_stage(
         category="git",
         destructive=False,
         icon="minus-circle",
-        invalidates=["diff"],
+        invalidates=["git"],
     )
 )
 async def git_unstage(
@@ -1501,7 +1501,7 @@ async def git_unstage(
         category="git",
         destructive=True,
         icon="undo-2",
-        invalidates=["diff", "files"],
+        invalidates=["git", "files"],
     )
 )
 async def git_discard(

@@ -34,9 +34,13 @@ class HeadPayload(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
 
     ref: str = ""
+    label: str = ""
     repo: RepositoryPayload | None = None
 
 
+# ``from __future__ import annotations`` defers the nested model annotation.
+# Rebuild this leaf model explicitly because ``main`` constructs a replacement
+# head when GitHub provides the current branch through environment variables.
 HeadPayload.model_rebuild()
 
 
@@ -92,6 +96,7 @@ type EventPayload = PullRequestEvent | dict[str, object]
 
 _VEXT_TOKEN = re.compile(r"(?<![A-Za-z0-9])vext(?![A-Za-z0-9])", re.IGNORECASE)
 _STACK_BASE = re.compile(r"^stack/[a-z0-9][a-z0-9-]*$")
+_CONTRACTS_BASE = "feat/contratos-workbenches"
 _RELEASE_BRANCH = re.compile(r"^release/.+$")
 
 
@@ -199,6 +204,19 @@ def _is_release_branch_pr(
     )
 
 
+def _is_internal_head(
+    event: PullRequestEvent, pull_request: PullRequestPayload
+) -> bool:
+    """Confirma a identidade completa do repositório do head da PR."""
+    head = pull_request.head
+    repository = event.repository
+    repository_name = repository.full_name if repository else None
+    if head is None or repository_name is None:
+        return False
+    head_repo = head.repo.full_name if head.repo else None
+    return head_repo == repository_name
+
+
 def _is_vext_pr(pull_request: PullRequestPayload) -> bool:
     """Identifica títulos e branches VEXT para diagnósticos claros de validação."""
     head_ref = pull_request.head.ref if pull_request.head else ""
@@ -218,6 +236,10 @@ def validate_pull_request(event: EventPayload) -> list[str]:
     errors: list[str] = []
     base = pull_request.base.ref if pull_request.base else ""
     if _is_release_please_pr(parsed_event, pull_request) or _is_release_branch_pr(
+        parsed_event, pull_request
+    ):
+        return []
+    if (_STACK_BASE.fullmatch(base) or base == _CONTRACTS_BASE) and _is_internal_head(
         parsed_event, pull_request
     ):
         return []
