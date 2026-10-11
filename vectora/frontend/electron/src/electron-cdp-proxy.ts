@@ -42,19 +42,21 @@ export async function waitForElectronCdpTarget(
                 // the Electron product. Validate both fields so a healthy
                 // Electron endpoint is not rejected and the authenticated
                 // proxy can start for the backend.
-                const browser =
+                const browserProduct =
                   typeof payload.Browser === "string" ? payload.Browser : "";
                 const userAgent =
                   typeof payload["User-Agent"] === "string"
                     ? payload["User-Agent"]
                     : "";
                 if (
-                  !`${browser} ${userAgent}`.toLowerCase().includes("electron")
+                  !`${browserProduct} ${userAgent}`
+                    .toLowerCase()
+                    .includes("electron")
                 ) {
                   reject(new Error("a porta CDP não pertence ao Electron"));
                   return;
                 }
-                resolve(`${browser} ${userAgent}`.trim());
+                resolve(`${browserProduct} ${userAgent}`.trim());
               } catch (error) {
                 reject(error);
               }

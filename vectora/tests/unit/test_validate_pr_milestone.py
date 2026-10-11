@@ -202,6 +202,16 @@ def test_contracts_stack_base_is_accepted_without_release_milestone() -> None:
     )
 
 
+def test_internal_feature_base_is_accepted_without_release_milestone() -> None:
+    """Aceita uma revisão interna empilhada sobre uma branch de feature."""
+    assert (
+        validator.validate_pull_request(
+            _event(base="feat/llm-workbench-integration", milestone=None)
+        )
+        == []
+    )
+
+
 @pytest.mark.parametrize("head_repo", ["fork/vectora", None])
 def test_stacked_fork_pr_does_not_bypass_release_milestone(
     head_repo: str | None,
@@ -219,6 +229,18 @@ def test_contract_stack_fork_does_not_bypass_release_milestone(base: str) -> Non
     """Bases empilhadas não liberam PRs de forks."""
     errors = validator.validate_pull_request(
         _event(base=base, milestone=None, head_repo="fork/vectora")
+    )
+    assert errors and "base declarada" in errors[0]
+
+
+def test_internal_feature_base_fork_does_not_bypass_release_milestone() -> None:
+    """Uma PR de fork não herda a isenção das bases internas."""
+    errors = validator.validate_pull_request(
+        _event(
+            base="feat/llm-workbench-integration",
+            milestone=None,
+            head_repo="fork/vectora",
+        )
     )
     assert errors and "base declarada" in errors[0]
 

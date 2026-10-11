@@ -95,8 +95,10 @@ PullRequestEvent.model_rebuild()
 type EventPayload = PullRequestEvent | dict[str, object]
 
 _VEXT_TOKEN = re.compile(r"(?<![A-Za-z0-9])vext(?![A-Za-z0-9])", re.IGNORECASE)
-_STACK_BASE = re.compile(r"^stack/[a-z0-9][a-z0-9-]*$")
-_CONTRACTS_BASE = "feat/contratos-workbenches"
+_INTERNAL_BASE = re.compile(
+    r"^(?:build|chore|ci|docs|feat|fix|perf|refactor|stack|sync|test)/"
+    r"[a-z0-9][a-z0-9-]*$"
+)
 _RELEASE_BRANCH = re.compile(r"^release/.+$")
 _FORBIDDEN_CODEX_BRANCH = re.compile(r"^codex/")
 
@@ -214,9 +216,7 @@ def validate_pull_request(event: EventPayload) -> list[str]:
         ]
     if _is_release_branch_pr(parsed_event, pull_request):
         return []
-    if (_STACK_BASE.fullmatch(base) or base == _CONTRACTS_BASE) and _is_internal_head(
-        parsed_event, pull_request
-    ):
+    if _INTERNAL_BASE.fullmatch(base) and _is_internal_head(parsed_event, pull_request):
         return []
     line = _line_for_base(base)
     if line is None:

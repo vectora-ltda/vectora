@@ -287,7 +287,7 @@ export class DmrOperations {
       );
       if (this.isCancelled(item)) return;
       this.manifest.models[item.reference] = {
-        ...(this.manifest.models[item.reference] ?? {}),
+        ...this.manifest.models[item.reference],
         reference: item.reference,
         source: "docker-model-runner",
         state: "prepared",
@@ -326,7 +326,7 @@ export class DmrOperations {
       );
       if (this.isCancelled(item)) return;
       this.manifest.models[item.reference] = {
-        ...(this.manifest.models[item.reference] ?? {}),
+        ...this.manifest.models[item.reference],
         reference: item.reference,
         contextSize,
         source: "docker-model-runner",

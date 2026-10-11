@@ -115,9 +115,9 @@ def test_release_please_scopes_pr_body_to_current_release_notes() -> None:
 
     assert "utils/prepare_release_pr_body.py" in content
     assert "vectora/CHANGELOG.md" in content
-    assert 'gh pr edit "$existing" --repo "$GITHUB_REPOSITORY"' in content
+    assert 'gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY"' in content
     assert '--body-file "$RUNNER_TEMP/release-pr-body.md"' in content
-    assert 'gh pr create --repo "$GITHUB_REPOSITORY"' in content
+    assert 'gh pr list --repo "$GITHUB_REPOSITORY"' in content
 
 
 def test_release_please_requires_candidates_and_uses_canonical_branches() -> None:
@@ -131,11 +131,11 @@ def test_release_please_requires_candidates_and_uses_canonical_branches() -> Non
     assert "fromdateiso8601" in content
     assert "latest_tag_epoch" in content
     assert "steps.release-candidates.outputs.has_candidates == 'true'" in content
-    assert "utils/release_plan.py" in content
-    assert 'git push origin "$SOURCE_SHA:refs/heads/$RELEASE_BRANCH"' in content
-    assert 'release_branch="release/$next_version"' in content
-    assert "release-please--" in content
-    assert 'gh pr edit "$existing"' in content
+    assert "utils/select_release_pr.py" in content
+    assert 'git push origin "HEAD:$RELEASE_BRANCH"' in content
+    assert "steps.release-line.outputs.release_target_branch" in content
+    assert "release-please--" not in content
+    assert 'gh pr edit "$PR_NUMBER"' in content
     assert "googleapis/release-please-action" not in content
     assert (
         'git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"'

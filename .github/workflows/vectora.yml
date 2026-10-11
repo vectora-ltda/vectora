@@ -344,6 +344,7 @@ jobs:
           EOF
       - name: Integration tests
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           VECTORA_TEST_POSTGRES_DSN: postgresql://vectora:vectora@localhost:5432/vectora_test
           VECTORA_TEST_REDIS_URL: redis://localhost:6379/0
           VECTORA_TEST_QDRANT_URL: http://localhost:6333
