@@ -25,6 +25,33 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+def _log_decision(
+    tool_name: str,
+    ctx: ToolContext,
+    *,
+    decision: bool,
+    mode: str,
+    reason: str,
+) -> None:
+    """Registra a decisão efetiva do gate com contexto auditável."""
+    logger.info(
+        "hitl.decision tool=%s decision=%s mode=%s reason=%s",
+        tool_name,
+        decision,
+        mode,
+        reason,
+        extra={
+            "tool_name": tool_name,
+            "decision": decision,
+            "mode": mode,
+            "reason": reason,
+            "thread_id": ctx.thread_id,
+            "workspace_id": ctx.workspace_id,
+        },
+    )
+
+
 #: Tools destrutivas candidatas a pausar o loop para aprovação.
 REQUIRE_APPROVAL: frozenset[str] = frozenset(
     {
@@ -160,7 +187,15 @@ def should_require_approval(
 ) -> bool:
     """Predicate único do HITL nativo — mesma assinatura que `run_conversation`
     já aceita opcionalmente em `should_require_approval`."""
+    mode = ctx.permission_mode or "ask"
     if _is_self_kanban_update(ctx, tool_name, args):
+        _log_decision(
+            tool_name,
+            ctx,
+            decision=False,
+            mode=mode,
+            reason="self_kanban_update",
+        )
         return False
     if tool_name in {"generate_image", "text_to_speech", "generate_video"}:
         # O limiar é definido pelo backend autenticado no contexto. Ausência
@@ -183,23 +218,50 @@ def should_require_approval(
                     units=estimate.units,
                     result="auto_approved",
                 )
+                _log_decision(
+                    tool_name,
+                    ctx,
+                    decision=False,
+                    mode=mode,
+                    reason="media_below_threshold",
+                )
                 return False
             # Custos acima do limiar exigem aprovação em qualquer modo,
             # inclusive `auto` e `bypass`.
+            _log_decision(
+                tool_name,
+                ctx,
+                decision=True,
+                mode=mode,
+                reason="media_above_threshold",
+            )
             return True
         # Sem um limiar confiável, falha fechada: o custo deve ser
         # apresentado ao usuário antes da execução.
+        _log_decision(
+            tool_name,
+            ctx,
+            decision=True,
+            mode=mode,
+            reason="media_threshold_unavailable",
+        )
         return True
     if tool_name in _JAILED_BYPASS_TOOLS and _workspace_is_jailed(ctx.workspace_id):
+        _log_decision(
+            tool_name,
+            ctx,
+            decision=False,
+            mode=mode,
+            reason="workspace_jailed",
+        )
         return False
-    mode = ctx.permission_mode or "ask"
     decision = _mode_should_interrupt(mode, tool_name, history)
-    logger.info(
-        "hitl.decision tool=%s decision=%s mode=%s",
+    _log_decision(
         tool_name,
-        decision,
-        mode,
-        extra={"tool_name": tool_name, "decision": decision, "mode": mode},
+        ctx,
+        decision=decision,
+        mode=mode,
+        reason="policy",
     )
     return decision
 
