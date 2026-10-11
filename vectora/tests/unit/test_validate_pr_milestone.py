@@ -298,15 +298,18 @@ def test_maintenance_rejects_minor() -> None:
     assert errors and MAINTENANCE_MILESTONE in errors[0]
 
 
-def test_release_please_pr_is_exempt_with_controlled_source_and_label() -> None:
-    """Isenta a branch versionada de desenvolvimento com origem confiável."""
+def test_noncanonical_release_pr_is_rejected_even_with_controlled_source_and_label() -> (
+    None
+):
+    """Exige a branch release/* oficial, sem exceções para nomes internos."""
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=None,
-        head="release-please-0.3",
+        head="release-0.3",
         labels=["autorelease: pending"],
     )
-    assert validator.validate_pull_request(event) == []
+    errors = validator.validate_pull_request(event)
+    assert errors and "milestone" in errors[0]
 
 
 def test_release_branch_promotion_to_master_is_exempt() -> None:
@@ -342,12 +345,12 @@ def test_empty_release_branch_does_not_use_promotion_exception() -> None:
     assert errors and "0.2.x" in errors[0]
 
 
-def test_release_please_pr_from_another_repo_is_rejected() -> None:
+def test_noncanonical_release_pr_from_another_repo_is_rejected() -> None:
     """Rejeita uma branch de release criada a partir de outro repositório."""
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=None,
-        head="release-please-0.3",
+        head="release-0.3",
         labels=["autorelease: pending"],
         head_repo="attacker/vectora",
     )
@@ -355,62 +358,51 @@ def test_release_please_pr_from_another_repo_is_rejected() -> None:
     assert errors and "milestone" in errors[0]
 
 
-def test_release_please_pr_without_pending_label_is_rejected() -> None:
+def test_noncanonical_release_pr_without_pending_label_is_rejected() -> None:
     """Exige o label controlado para isentar uma PR automática de release."""
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=None,
-        head="release-please-0.3",
+        head="release-0.3",
     )
     errors = validator.validate_pull_request(event)
     assert errors and "milestone" in errors[0]
 
 
-def test_release_please_lookalike_branch_is_rejected() -> None:
+def test_noncanonical_release_lookalike_branch_is_rejected() -> None:
     """Rejeita branches que apenas se parecem com o formato automático."""
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=None,
-        head="release-please-0.3-lookalike",
+        head="release-0.3-lookalike",
         labels=["autorelease: pending"],
     )
     errors = validator.validate_pull_request(event)
     assert errors and "milestone" in errors[0]
 
 
-def test_release_please_minor_targeting_development_is_rejected() -> None:
+def test_noncanonical_release_minor_targeting_development_is_rejected() -> None:
     """Rejeita a minor quando ela ainda aponta para a branch de desenvolvimento."""
     event = _event(
         base=DEVELOPMENT_BRANCH,
         milestone=None,
-        head="release-please-0.3",
+        head="release-0.3",
         labels=["autorelease: pending"],
     )
     errors = validator.validate_pull_request(event)
     assert errors and "milestone" in errors[0]
 
 
-def test_legacy_release_please_branch_retargeted_to_maintenance_is_rejected() -> None:
-    """Rejeita o formato legado redirecionado à linha de manutenção."""
+def test_noncanonical_release_patch_branch_is_rejected_on_maintenance_line() -> None:
+    """Rejeita a branch interna do Release Please na linha de manutenção."""
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=None,
-        head=f"release-please--branches--{DEVELOPMENT_BRANCH}--components--vectora",
+        head="release-0.2.1",
         labels=["autorelease: pending"],
     )
     errors = validator.validate_pull_request(event)
     assert errors and "milestone" in errors[0]
-
-
-def test_release_please_patch_branch_is_exempt_on_maintenance_line() -> None:
-    """Isenta uma branch de patch versionada na linha de manutenção."""
-    event = _event(
-        base=MAINTENANCE_BRANCH,
-        milestone=None,
-        head="release-please-0.2.1",
-        labels=["autorelease: pending"],
-    )
-    assert validator.validate_pull_request(event) == []
 
 
 def test_unsupported_base_is_rejected() -> None:
