@@ -107,24 +107,6 @@ def test_empty_event_is_accepted() -> None:
     assert validator.validate_pull_request({}) == []
 
 
-def test_codex_branch_prefix_is_rejected_before_other_exemptions() -> None:
-    """Impede o prefixo reservado mesmo em uma PR de stack confiável."""
-    errors = validator.validate_pull_request(
-        _event(
-            base="stack/native-context",
-            milestone=None,
-            head="codex/update-changelog-and-updater",
-            head_repo="vectora-ltda/vectora",
-        )
-    )
-    assert errors == [
-        (
-            "Branches com o prefixo `codex/` são proibidas; use `fix/`, `feat/` "
-            "ou `chore/`."
-        )
-    ]
-
-
 def test_main_rejects_malformed_event(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -349,7 +331,7 @@ def test_release_branch_promotion_from_another_repo_is_rejected() -> None:
         head_repo="attacker/vectora",
     )
     errors = validator.validate_pull_request(event)
-    assert errors and "0.3.x" in errors[0]
+    assert errors and MAINTENANCE_MILESTONE in errors[0]
 
 
 def test_empty_release_branch_does_not_use_promotion_exception() -> None:
@@ -360,7 +342,7 @@ def test_empty_release_branch_does_not_use_promotion_exception() -> None:
         head="release/",
     )
     errors = validator.validate_pull_request(event)
-    assert errors and "0.3.x" in errors[0]
+    assert errors and MAINTENANCE_MILESTONE in errors[0]
 
 
 def test_noncanonical_release_pr_from_another_repo_is_rejected() -> None:

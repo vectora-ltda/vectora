@@ -1,0 +1,95 @@
+name: GitHub live access contracts
+
+on:
+  push:
+    branches: [master, "release/**"]
+    paths:
+      - "vectora/backend/tools/**"
+      - "vectora/tests/unit/test_tools_github_live.py"
+      - "vectora/tests/integration/test_workbench_live_dispatch.py"
+      - ".github/workflows/github-live.yml"
+      - ".github/actions/setup-uv/**"
+  pull_request:
+    branches: [master, "release/**"]
+    paths:
+      - "vectora/backend/tools/**"
+      - "vectora/tests/unit/test_tools_github_live.py"
+      - "vectora/tests/integration/test_workbench_live_dispatch.py"
+      - ".github/workflows/github-live.yml"
+      - ".github/actions/setup-uv/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: vectora
+
+env:
+  PYTHON_VERSION: "3.13"
+
+jobs:
+  public:
+    name: Public GitHub access without token
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-uv
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Exercise public REST and web routes
+        env:
+          GITHUB_TOKEN: ""
+          GH_TOKEN: ""
+        run: >-
+          uv run pytest tests/unit/test_tools_github_live.py -m live
+          -k "publico or repos_publicos" -v --timeout=120
+
+  authenticated:
+    name: Authenticated GitHub access with native token
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-uv
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Exercise REST, web and gh CLI routes
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          uv run pytest tests/unit/test_tools_github_live.py -m live
+          -k "com_token_real or cli_pr_view" -v --timeout=120
+
+  native-dispatch:
+    name: Native agent Workbench dispatch contracts
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-uv
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Exercise real GitHub HTTP, web fetch and shell via ToolSpec
+        env:
+          GITHUB_TOKEN: ""
+          GH_TOKEN: ""
+        run: >-
+          uv run pytest tests/integration/test_workbench_live_dispatch.py
+          -m live -k "not authenticated" -v --timeout=180
+
+  native-dispatch-authenticated:
+    name: Native agent authenticated Workbench dispatch
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-uv
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Exercise native GitHub dispatch with workflow token
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          uv run pytest tests/integration/test_workbench_live_dispatch.py
+          -m live -k authenticated -v --timeout=180

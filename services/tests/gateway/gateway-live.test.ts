@@ -9,9 +9,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-const liveEnabled =
-  process.env.VECTORA_LIVE_SERVICES === "1" &&
-  Boolean(process.env.GATEWAY_HEALTH_TOKEN);
+const liveEnabled = process.env.VECTORA_LIVE_SERVICES === "1";
 
 describe.skipIf(!liveEnabled)("gateway Cloudflare — contrato live", () => {
   it("retorna health JSON pelo endpoint público", async () => {

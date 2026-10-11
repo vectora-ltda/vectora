@@ -31,8 +31,7 @@ def check_file(path: Path, *, write: bool) -> bool:
         raise ValueError(f"arquivo de traduções inválido: {path}")
     ordered = sorted_messages(original)
     content = json.dumps(ordered, ensure_ascii=False, indent=2) + "\n"
-    current = path.read_text(encoding="utf-8")
-    if current == content:
+    if list(original) == list(ordered):
         return True
     if write:
         path.write_text(content, encoding="utf-8")

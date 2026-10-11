@@ -346,7 +346,8 @@ AbilitySystem_repo/
 
 # WIP isolado fora do src/
 /.wip/
-.vectora/
+!.vectora/
+.vectora/*
 /desktop/dist-electron
 /desktop/build-resources
 
