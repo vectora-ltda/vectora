@@ -32,7 +32,7 @@ jobs:
     name: Validate release milestone
     runs-on: ubuntu-24.04
     steps:
-      # Usa a revisão confiável que contém este workflow e sua configuração.
+      # Usa a revisão confiável que contém este workflow e a configuração.
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.workflow_sha }}
@@ -141,9 +141,8 @@ jobs:
             );
             core.setOutput("current_base", refreshedPullRequest.data.base.ref);
 
-      # pull_request_target can redact head fields from the event environment
-      # when the source is a stacked branch. Resolve authoritative metadata
-      # through the trusted GitHub API before running the validator.
+      # pull_request_target can redact head fields from stacked pull requests.
+      # Resolve the authoritative head through the trusted GitHub API.
       - name: Resolve current pull request head
         id: pull-request-head
         uses: actions/github-script@v8
@@ -151,23 +150,13 @@ jobs:
           github-token: ${{ github.token }}
           script: |
             const { owner, repo } = context.repo;
-            try {
-              const pull = await github.rest.pulls.get({
-                owner,
-                repo,
-                pull_number: context.issue.number,
-              });
-              const headRepo = pull.data.head.repo?.full_name || "";
-              core.setOutput("ref", pull.data.head.ref || "");
-              core.setOutput("repo", headRepo);
-              if (!headRepo) {
-                core.warning("The pull request head repository is unavailable.");
-              }
-            } catch (error) {
-              core.warning(
-                `Could not resolve pull request head through the API: ${String(error)}`,
-              );
-            }
+            const pull = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: context.issue.number,
+            });
+            core.setOutput("ref", pull.data.head.ref || "");
+            core.setOutput("repo", pull.data.head.repo?.full_name || "");
 
       - uses: ./.github/actions/setup-uv
         with:
