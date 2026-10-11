@@ -107,6 +107,24 @@ def test_empty_event_is_accepted() -> None:
     assert validator.validate_pull_request({}) == []
 
 
+def test_codex_branch_prefix_is_rejected_before_other_exemptions() -> None:
+    """Impede o prefixo reservado mesmo em uma PR de stack confiável."""
+    errors = validator.validate_pull_request(
+        _event(
+            base="stack/native-context",
+            milestone=None,
+            head="codex/update-changelog-and-updater",
+            head_repo="vectora-ltda/vectora",
+        )
+    )
+    assert errors == [
+        (
+            "Branches com o prefixo `codex/` são proibidas; use `fix/`, `feat/` "
+            "ou `chore/`."
+        )
+    ]
+
+
 def test_main_rejects_malformed_event(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
