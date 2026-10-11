@@ -167,56 +167,6 @@ def _is_release_branch_pr(
     )
 
 
-def _is_internal_head(
-    event: PullRequestEvent, pull_request: PullRequestPayload
-) -> bool:
-    """Confirma a identidade completa do repositório do head da PR."""
-    head = pull_request.head
-    repository = event.repository
-    repository_name = (repository.full_name if repository else None) or os.environ.get(
-        "GITHUB_REPOSITORY"
-    )
-    if head is None or repository_name is None:
-        return False
-    head_repo = head.repo.full_name if head.repo else None
-    return head_repo == repository_name
-
-
-def _is_forbidden_codex_branch(pull_request: PullRequestPayload) -> bool:
-    """Rejeita branches de trabalho com o prefixo reservado ``codex/``."""
-    head_ref = pull_request.head.ref if pull_request.head else ""
-    return _FORBIDDEN_CODEX_BRANCH.match(head_ref) is not None
-
-
-def _is_release_branch_pr(
-    event: PullRequestEvent, pull_request: PullRequestPayload
-) -> bool:
-    """Aceita promoções internas de branches release/* para a base master."""
-    base = pull_request.base.ref if pull_request.base else ""
-    head = pull_request.head
-    head_ref = head.ref if head else ""
-    head_repo = head.repo.full_name if head and head.repo else None
-    repository = event.repository
-    return bool(
-        base == _release_lines().maintenance.branch
-        and _RELEASE_BRANCH.fullmatch(head_ref) is not None
-        and head_repo == (repository.full_name if repository else None)
-    )
-
-
-def _is_internal_head(
-    event: PullRequestEvent, pull_request: PullRequestPayload
-) -> bool:
-    """Confirma a identidade completa do repositório do head da PR."""
-    head = pull_request.head
-    repository = event.repository
-    repository_name = repository.full_name if repository else None
-    if head is None or repository_name is None:
-        return False
-    head_repo = head.repo.full_name if head.repo else None
-    return head_repo == repository_name
-
-
 def _is_vext_pr(pull_request: PullRequestPayload) -> bool:
     """Identifica títulos e branches VEXT para diagnósticos claros de validação."""
     head_ref = pull_request.head.ref if pull_request.head else ""
@@ -235,9 +185,7 @@ def validate_pull_request(event: EventPayload) -> list[str]:
 
     errors: list[str] = []
     base = pull_request.base.ref if pull_request.base else ""
-    if _is_release_please_pr(parsed_event, pull_request) or _is_release_branch_pr(
-        parsed_event, pull_request
-    ):
+    if _is_release_branch_pr(parsed_event, pull_request):
         return []
     if (_STACK_BASE.fullmatch(base) or base == _CONTRACTS_BASE) and _is_internal_head(
         parsed_event, pull_request
