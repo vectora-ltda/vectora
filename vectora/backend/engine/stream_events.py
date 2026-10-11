@@ -108,6 +108,8 @@ class HitlRequested:
     tool_name: str
     args_json: str
     interrupt_id: str
+    permission_mode: str = "ask"
+    workspace_id: str = ""
     reasoning: str = ""
     affected_paths: list[str] = field(default_factory=list)
     diff_preview: str = ""

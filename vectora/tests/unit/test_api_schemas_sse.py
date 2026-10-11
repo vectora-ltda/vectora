@@ -121,9 +121,13 @@ class TestHITLEvent:
             tool_name="file_write",
             args_json='{"path": "/tmp/x"}',
             interrupt_id="int-1",
+            permission_mode="ask",
+            workspace_id="ws-1",
         )
         assert e.tool_name == "file_write"
         assert e.interrupt_id == "int-1"
+        assert e.permission_mode == "ask"
+        assert e.workspace_id == "ws-1"
 
 
 class TestMessageBreakEvent:

@@ -407,6 +407,8 @@ class HITLEvent(BaseModel):
     tool_name: str
     args_json: str
     interrupt_id: str
+    permission_mode: str = "ask"
+    workspace_id: str = ""
     reasoning: str = ""
     affected_paths: list[str] = []
     diff_preview: str = ""

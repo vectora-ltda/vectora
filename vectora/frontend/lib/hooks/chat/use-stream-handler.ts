@@ -1117,7 +1117,10 @@ async function handleEvent(
             affectedPaths: event.affected_paths,
             permissionMode: event.permission_mode,
             preApproved: event.pre_approved,
-            workspaceId: useWorkspacesStore.getState().active_id ?? undefined,
+            workspaceId:
+              event.workspace_id ??
+              useWorkspacesStore.getState().active_id ??
+              undefined,
             options: event.options,
             priority: event.priority,
             expiresAt: event.expires_at,

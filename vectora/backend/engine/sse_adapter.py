@@ -100,6 +100,8 @@ def _to_payload(event: EngineEvent) -> schemas.StreamChatEventPayload:  # noqa: 
             tool_name=event.tool_name,
             args_json=event.args_json,
             interrupt_id=event.interrupt_id,
+            permission_mode=event.permission_mode,
+            workspace_id=event.workspace_id,
             reasoning=event.reasoning,
             affected_paths=event.affected_paths,
             diff_preview=event.diff_preview,

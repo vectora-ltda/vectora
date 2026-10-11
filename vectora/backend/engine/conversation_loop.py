@@ -434,6 +434,8 @@ async def run_conversation(
                         tool_name=pendente.name,
                         args_json=args_json,
                         interrupt_id=interrupt_id,
+                        permission_mode=ctx.permission_mode or "ask",
+                        workspace_id=ctx.workspace_id,
                         options=options,
                         priority=priority,
                         expires_at=str(expires_at) if expires_at else None,
