@@ -29,7 +29,7 @@ let snapshotQueue: Promise<void> = Promise.resolve();
 function isTransientFileLock(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const code = (error as { code?: unknown }).code;
-  return code === "EBUSY" || code === "EPERM";
+  return code === "EBUSY" || code === "EPERM" || code === "EACCES";
 }
 
 export async function withFileLockRetry<T>(
