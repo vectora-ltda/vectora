@@ -4,25 +4,21 @@ from __future__ import annotations
 
 import io
 import sys
-from typing import Literal
 
 import pytest
 import select_release_pr as selector
 from select_release_pr import ReleasePullRequest, select_release_pr
 
 
-def _pr(version: str, *, generated: bool = False) -> ReleasePullRequest:
+def _pr(version: str) -> ReleasePullRequest:
     """Cria uma resposta do CLI para a minor ou o patch em master."""
     minor = version.endswith(".0")
-    source = "release/0.3" if minor else "master"
     suffix = "0.3" if minor else version
     return ReleasePullRequest.model_validate(
         {
             "number": 3 if minor else 20,
-            "baseRefName": source if generated else "master",
-            "headRefName": f"release-please--branches--{source}--components--vectora"
-            if generated
-            else f"release-please-{suffix}",
+            "baseRefName": "master",
+            "headRefName": f"release/{suffix}",
             "headRefOid": "a" * 40,
             "headRepository": {"nameWithOwner": "vectora-ltda/vectora"},
             "labels": [{"name": "autorelease: pending"}],
@@ -31,15 +27,12 @@ def _pr(version: str, *, generated: bool = False) -> ReleasePullRequest:
     )
 
 
-@pytest.mark.parametrize("phase", ["generated", "versioned"])
 @pytest.mark.parametrize("minor", [False, True])
-def test_parallel_lines_are_isolated(
-    phase: Literal["generated", "versioned"], minor: bool
-) -> None:
+def test_parallel_lines_are_isolated(minor: bool) -> None:
     """A PR mais recente do patch não é selecionada durante a minor e vice-versa."""
     prs = [
-        _pr("0.3.0", generated=phase == "generated"),
-        _pr("0.2.1", generated=phase == "generated"),
+        _pr("0.3.0"),
+        _pr("0.2.1"),
     ]
     result = select_release_pr(
         prs,
@@ -47,7 +40,6 @@ def test_parallel_lines_are_isolated(
         source="release/0.3" if minor else "master",
         target="master",
         milestone="0.3" if minor else "0.2.x",
-        phase=phase,
     )
     assert result == prs[0 if minor else 1]
 
@@ -56,7 +48,7 @@ def test_parallel_lines_are_isolated(
     "field,value",
     [
         ("baseRefName", "release/0.2"),
-        ("headRefName", "release-please-0.3-lookalike"),
+        ("headRefName", "release-0.3-lookalike"),
         ("headRepository", {"nameWithOwner": "attacker/vectora"}),
         ("headRepository", None),
         ("labels", []),
@@ -75,7 +67,6 @@ def test_untrusted_pr_is_ignored(field: str, value: object) -> None:
             source="release/0.3",
             target="master",
             milestone="0.3",
-            phase="versioned",
         )
         is None
     )
@@ -90,15 +81,12 @@ def test_duplicate_release_prs_fail_closed() -> None:
             source="master",
             target="master",
             milestone="0.2.x",
-            phase="versioned",
         )
 
 
-def test_generated_head_must_match_source() -> None:
-    """A base correta não autoriza uma branch gerada para outra linha."""
-    pr = _pr("0.3.0", generated=True).model_copy(
-        update={"headRefName": "release-please--branches--master--components--vectora"}
-    )
+def test_noncanonical_release_head_is_not_a_versioned_release_pr() -> None:
+    """Somente a branch canônica da linha pode virar a PR oficial."""
+    pr = _pr("0.3.0").model_copy(update={"headRefName": "release-0.3"})
     assert (
         select_release_pr(
             [pr],
@@ -106,7 +94,6 @@ def test_generated_head_must_match_source() -> None:
             source="release/0.3",
             target="master",
             milestone="0.3",
-            phase="generated",
         )
         is None
     )
@@ -129,8 +116,6 @@ def test_cli_rejects_malformed_json(
             "master",
             "--milestone",
             "0.2.x",
-            "--phase",
-            "versioned",
         ],
     )
     monkeypatch.setattr(sys, "stdin", io.StringIO("{}"))
