@@ -7,6 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  act,
   render,
   screen,
   cleanup,
@@ -133,14 +134,20 @@ describe("WorkspaceTrustDialog — reload e nova pasta", () => {
     fireEvent.click(screen.getByTitle("New folder"));
     const input = await screen.findByPlaceholderText("Folder name");
     fireEvent.change(input, { target: { value: "minha-pasta" } });
-    fireEvent.click(screen.getByText("Create"));
+    await act(async () => {
+      fireEvent.click(screen.getByText("Create"));
+      await Promise.resolve();
+    });
 
     await waitFor(() =>
       expect(screen.getByDisplayValue(createdPath as string)).toBeTruthy(),
     );
     // Formulário fecha após sucesso.
     expect(screen.queryByPlaceholderText("Folder name")).toBeNull();
-    fireEvent.click(screen.getByTestId("workspace-trust-confirm-btn"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("workspace-trust-confirm-btn"));
+      await Promise.resolve();
+    });
     await waitFor(() =>
       expect(createSpy).toHaveBeenCalledWith(createdPath, {
         trust: true,

@@ -11,9 +11,30 @@ import {
   cleanup,
   fireEvent,
   waitFor,
+  within,
 } from "@testing-library/react";
 
-import { RagSettingsPanel } from "../rag-settings-panel";
+import {
+  RagCollectionsSection,
+  RagSettingsButton,
+  RagSettingsForm,
+  RagSettingsPanel,
+  useRagSettings,
+} from "../rag-settings-panel";
+
+function TestRagSettingsPanel() {
+  const state = useRagSettings();
+  return (
+    <>
+      <RagSettingsButton open={state.open} onToggle={state.toggle} />
+      {state.open ? (
+        <div data-testid="rag-settings-panel">
+          <RagSettingsForm {...state} />
+        </div>
+      ) : null}
+    </>
+  );
+}
 
 const FETCH = vi.fn();
 
@@ -24,6 +45,14 @@ function jsonRes(body: unknown, ok = true) {
       headers: { "Content-Type": "application/json" },
     }),
   );
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
 }
 
 beforeEach(() => {
@@ -37,6 +66,125 @@ afterEach(() => {
 });
 
 describe("RagSettingsPanel", () => {
+  it("mantém a exclusão de coleções fora do formulário e exige confirmação", async () => {
+    const deleteCollection = vi.fn().mockResolvedValue(undefined);
+    render(
+      <RagCollectionsSection
+        collections={[{ name: "articles", count: 3 }]}
+        collectionsStatus="ready"
+        loadCollections={vi.fn().mockResolvedValue(undefined)}
+        deleteCollection={deleteCollection}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete collection" }));
+    expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    expect(deleteCollection).not.toHaveBeenCalled();
+    const confirmButton = within(screen.getByRole("alertdialog"))
+      .getAllByRole("button")
+      .find((button) => button.textContent === "Delete collection");
+    expect(confirmButton).toBeDefined();
+    fireEvent.click(confirmButton!);
+    await waitFor(() =>
+      expect(deleteCollection).toHaveBeenCalledWith("articles"),
+    );
+  });
+
+  it("ignora uma listagem antiga que termina depois de atualizar e excluir", async () => {
+    const firstLoad = deferred<Response>();
+    const refresh = deferred<Response>();
+    const deleteRequest = deferred<Response>();
+    let listCalls = 0;
+    FETCH.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/rag/collections") && init?.method === "DELETE")
+        return deleteRequest.promise;
+      if (url.includes("/rag/collections")) {
+        listCalls += 1;
+        return listCalls === 1 ? firstLoad.promise : refresh.promise;
+      }
+      return jsonRes({});
+    });
+
+    render(<RagSettingsPanel />);
+    fireEvent.click(screen.getByTestId("rag-settings-btn"));
+    firstLoad.resolve(
+      await jsonRes({ collections: [{ name: "articles", count: 3 }] }),
+    );
+    expect(await screen.findByText("articles")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("rag-collections-refresh"));
+    fireEvent.click(screen.getByRole("button", { name: "Delete collection" }));
+    fireEvent.click(
+      within(screen.getByRole("alertdialog"))
+        .getAllByRole("button")
+        .find((button) => button.textContent === "Delete collection")!,
+    );
+    deleteRequest.resolve(await jsonRes({ ok: true }));
+    await waitFor(() => expect(screen.queryByText("articles")).toBeNull());
+
+    refresh.resolve(
+      await jsonRes({ collections: [{ name: "articles", count: 3 }] }),
+    );
+    await waitFor(() => expect(screen.queryByText("articles")).toBeNull());
+  });
+
+  it("desabilita exclusão duplicada enquanto a requisição está pendente", async () => {
+    const deleteRequest = deferred<Response>();
+    let deleteCalls = 0;
+    FETCH.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/rag/settings")) return jsonRes({});
+      if (url.includes("/rag/collections") && init?.method === "DELETE") {
+        deleteCalls += 1;
+        return deleteRequest.promise;
+      }
+      if (url.includes("/rag/collections"))
+        return jsonRes({ collections: [{ name: "articles", count: 3 }] });
+      return jsonRes({});
+    });
+
+    render(<RagSettingsPanel />);
+    fireEvent.click(screen.getByTestId("rag-settings-btn"));
+    const deleteButton = await screen.findByRole("button", {
+      name: "Delete collection",
+    });
+    fireEvent.click(deleteButton);
+    fireEvent.click(
+      within(screen.getByRole("alertdialog"))
+        .getAllByRole("button")
+        .find((button) => button.textContent === "Delete collection")!,
+    );
+
+    expect(deleteButton).toBeDisabled();
+    expect(deleteCalls).toBe(1);
+    deleteRequest.resolve(await jsonRes({ ok: true }));
+    await waitFor(() => expect(screen.queryByText("articles")).toBeNull());
+  });
+
+  it("ignora uma resposta de carregamento anterior à última atualização", async () => {
+    const firstLoad = deferred<Response>();
+    let listCalls = 0;
+    FETCH.mockImplementation((url: string) => {
+      if (url.includes("/rag/collections")) {
+        listCalls += 1;
+        return listCalls === 1
+          ? firstLoad.promise
+          : jsonRes({ collections: [{ name: "newer", count: 1 }] });
+      }
+      return jsonRes({});
+    });
+
+    render(<RagSettingsPanel />);
+    fireEvent.click(screen.getByTestId("rag-settings-btn"));
+    fireEvent.click(screen.getByTestId("rag-collections-refresh"));
+    expect(await screen.findByText("newer")).toBeInTheDocument();
+    firstLoad.resolve(
+      await jsonRes({ collections: [{ name: "stale", count: 1 }] }),
+    );
+
+    await waitFor(() => expect(screen.queryByText("stale")).toBeNull());
+    expect(screen.getByText("newer")).toBeInTheDocument();
+  });
+
   it("o gear abre o painel e carrega settings + coleções", async () => {
     FETCH.mockImplementation((url: string) => {
       if (url.includes("/rag/settings"))
@@ -52,7 +200,7 @@ describe("RagSettingsPanel", () => {
       return jsonRes({});
     });
 
-    render(<RagSettingsPanel />);
+    render(<TestRagSettingsPanel />);
     expect(screen.queryByTestId("rag-settings-panel")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("rag-settings-btn"));
@@ -84,7 +232,7 @@ describe("RagSettingsPanel", () => {
       return jsonRes({});
     });
 
-    render(<RagSettingsPanel />);
+    render(<TestRagSettingsPanel />);
     fireEvent.click(screen.getByTestId("rag-settings-btn"));
     await waitFor(() =>
       expect(screen.getByTestId("rag-settings-panel")).toBeInTheDocument(),
@@ -137,7 +285,7 @@ describe("RagSettingsPanel", () => {
       return jsonRes({});
     });
 
-    render(<RagSettingsPanel />);
+    render(<TestRagSettingsPanel />);
     fireEvent.click(screen.getByTestId("rag-settings-btn"));
     await waitFor(() =>
       expect(screen.getByTestId("rag-settings-panel")).toBeInTheDocument(),
@@ -200,7 +348,7 @@ describe("RagSettingsPanel", () => {
       return jsonRes({});
     });
 
-    render(<RagSettingsPanel />);
+    render(<TestRagSettingsPanel />);
     fireEvent.click(screen.getByTestId("rag-settings-btn"));
     await waitFor(() =>
       expect(screen.getByTestId("rag-settings-panel")).toBeInTheDocument(),
@@ -240,7 +388,7 @@ describe("RagSettingsPanel", () => {
       return jsonRes({});
     });
 
-    render(<RagSettingsPanel />);
+    render(<TestRagSettingsPanel />);
     fireEvent.click(screen.getByTestId("rag-settings-btn"));
     await waitFor(() =>
       expect(screen.getByTestId("rag-settings-panel")).toBeInTheDocument(),
@@ -276,7 +424,7 @@ describe("RagSettingsPanel", () => {
       return jsonRes({});
     });
 
-    render(<RagSettingsPanel />);
+    render(<TestRagSettingsPanel />);
     fireEvent.click(screen.getByTestId("rag-settings-btn"));
     await waitFor(() =>
       expect(screen.getByTestId("rag-settings-panel")).toBeInTheDocument(),
@@ -304,7 +452,7 @@ describe("RagSettingsPanel", () => {
       return jsonRes({});
     });
 
-    render(<RagSettingsPanel />);
+    render(<TestRagSettingsPanel />);
     fireEvent.click(screen.getByTestId("rag-settings-btn"));
     await waitFor(() =>
       expect(screen.getByTestId("rag-settings-panel")).toBeInTheDocument(),

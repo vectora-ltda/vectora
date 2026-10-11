@@ -8,7 +8,7 @@
  * (trechos da base de conhecimento + resultados web) em pílulas expansíveis.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Brain,
@@ -29,6 +29,7 @@ import { MarkdownView } from "@/components/workbench/markdown-view";
 import { Switch } from "@/components/ui/switch";
 import { WorkspaceTrustDialog } from "@/components/sidebar/workspace-trust-dialog";
 import {
+  RagCollectionsSection,
   RagSettingsButton,
   useRagSettings,
 } from "@/components/workbench/rag-settings-panel";
@@ -179,40 +180,40 @@ interface WorkspaceRagCollection {
  * indexado no workspace ATIVO, independente de `ragCitations` da thread. */
 function useWorkspaceRagSummary(workspaceId: string | undefined) {
   const [collections, setCollections] = useState<WorkspaceRagCollection[]>([]);
+  const requestId = useRef(0);
 
-  useEffect(() => {
+  const refresh = useCallback(async () => {
+    const currentRequest = ++requestId.current;
     if (!workspaceId) {
-      // Sincroniza com o fetch abaixo — sem workspace não há resumo a
-      // buscar.
-      // oxlint-disable-next-line react/set-state-in-effect
       setCollections([]);
       return;
     }
-    let alive = true;
-    void (async () => {
-      try {
-        const res = await fetch(
-          `/rag/workspace-summary?workspace_id=${encodeURIComponent(workspaceId)}`,
-        );
-        if (!res.ok || !alive) return;
-        const data = (await res.json()) as {
-          collections?: WorkspaceRagCollection[];
-        };
-        if (alive) {
-          setCollections(
-            Array.isArray(data.collections) ? data.collections : [],
-          );
-        }
-      } catch {
-        if (alive) setCollections([]);
+    try {
+      const res = await fetch(
+        `/rag/workspace-summary?workspace_id=${encodeURIComponent(workspaceId)}`,
+      );
+      if (!res.ok || currentRequest !== requestId.current) return;
+      const data = (await res.json()) as {
+        collections?: WorkspaceRagCollection[];
+      };
+      if (currentRequest === requestId.current) {
+        setCollections(Array.isArray(data.collections) ? data.collections : []);
       }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [workspaceId]);
+    } catch {
+      if (currentRequest === requestId.current) setCollections([]);
+    }
+  }, [requestId, workspaceId]);
 
-  return collections;
+  useEffect(() => {
+    // Sincronização intencional do resumo persistido no workspace.
+    // oxlint-disable-next-line react/set-state-in-effect
+    void refresh();
+    return () => {
+      requestId.current += 1;
+    };
+  }, [refresh, requestId]);
+
+  return { collections, refresh };
 }
 
 interface JourneyFact {
@@ -518,9 +519,22 @@ export function MemoryTab({ threadId }: MemoryTabProps) {
   const [messages] = useThreadMessages(threadId);
   const activeWorkspaceId = useWorkspacesStore((s) => s.getActive()?.id);
   const jobs = useRagJobsStore((s) => s.jobs);
-  const workspaceSummary = useWorkspaceRagSummary(activeWorkspaceId);
-  const search = useRagSearch(activeWorkspaceId);
   const ragSettings = useRagSettings();
+  const deleteRagCollection = ragSettings.deleteCollection;
+  const workspaceSummary = useWorkspaceRagSummary(activeWorkspaceId);
+  const {
+    collections: workspaceCollections,
+    refresh: refreshWorkspaceSummary,
+  } = workspaceSummary;
+  const deleteCollection = useCallback(
+    async (name: string) => {
+      const deleted = await deleteRagCollection(name);
+      if (deleted) await refreshWorkspaceSummary();
+      return deleted;
+    },
+    [deleteRagCollection, refreshWorkspaceSummary],
+  );
+  const search = useRagSearch(activeWorkspaceId);
   const [unifiedTypeFilter, setUnifiedTypeFilter] = useState<UnifiedHitType[]>(
     [],
   );
@@ -584,7 +598,7 @@ export function MemoryTab({ threadId }: MemoryTabProps) {
 
   const hasActivity = ragJobs.length > 0 || activeWeb.length > 0;
   const isEmpty = !hasActivity && rag.length === 0 && web.length === 0;
-  const indexedInWorkspace = workspaceSummary.reduce(
+  const indexedInWorkspace = workspaceCollections.reduce(
     (total, c) => total + c.count,
     0,
   );
@@ -724,6 +738,12 @@ export function MemoryTab({ threadId }: MemoryTabProps) {
         />
         <div className="flex-1 space-y-4 overflow-auto px-3 py-3">
           <BucketsPanel />
+          <RagCollectionsSection
+            collections={ragSettings.collections}
+            collectionsStatus={ragSettings.collectionsStatus}
+            loadCollections={ragSettings.loadCollections}
+            deleteCollection={deleteCollection}
+          />
           <JourneyPanel />
           {unifiedSection}
           {searchSection}
@@ -769,6 +789,12 @@ export function MemoryTab({ threadId }: MemoryTabProps) {
       />
       <div className="flex-1 space-y-4 overflow-auto px-3 pb-3 pt-3">
         <BucketsPanel />
+        <RagCollectionsSection
+          collections={ragSettings.collections}
+          collectionsStatus={ragSettings.collectionsStatus}
+          loadCollections={ragSettings.loadCollections}
+          deleteCollection={deleteCollection}
+        />
         <JourneyPanel />
         {unifiedSection}
         {searchSection}

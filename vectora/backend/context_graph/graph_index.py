@@ -4,15 +4,19 @@ Indexa nós do grafo de contexto no LanceDB para busca semântica. Chamado pelo
 pipeline após to_json (Passo 9). Permite que graph_query use vector_search +
 expansão de vizinhança em vez de substring simples (GraphRAG completo).
 
-Fallback silencioso: se LanceDB ou embeddings não estiverem disponíveis,
-as funções retornam 0/[] sem quebrar o pipeline.
+O modo padrão continua defensivo para buscas opcionais. O pipeline de build
+usa o modo estrito para que uma falha de embeddings seja exibida como build
+degradado, em vez de ser reportada como sucesso completo.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from lancedb.db import AsyncConnection
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +24,29 @@ _COLLECTION = "context_graph_nodes"
 _EMBED_BATCH = 64
 
 
-async def _get_db() -> Any:
+async def _list_table_names(db: AsyncConnection) -> list[str]:
+    """Lista tabelas sem usar a API LanceDB depreciada ``table_names``."""
+    list_tables = getattr(db, "list_tables", None)
+    if list_tables is None:
+        return list(await db.table_names())
+    page_token: str | None = None
+    names: list[str] = []
+    seen_tokens: set[str] = set()
+    while True:
+        response = await db.list_tables(page_token=page_token)
+        if not isinstance(response.tables, list):
+            # Compatibilidade com conexões antigas e doubles de testes.
+            return list(await db.table_names())
+        names.extend(response.tables)
+        page_token = response.page_token
+        if page_token is None:
+            return names
+        if page_token in seen_tokens:
+            raise RuntimeError("LanceDB repetiu o token de paginação de tabelas")
+        seen_tokens.add(page_token)
+
+
+async def _get_db() -> AsyncConnection:
     """Retorna conexão LanceDB (reutiliza o settings.lancedb_dir do Vectora)."""
     import lancedb  # type: ignore[import-not-found]
 
@@ -68,11 +94,12 @@ async def index_graph_nodes(
     graph_data: dict,
     *,
     collection: str = _COLLECTION,
+    strict: bool = False,
 ) -> int:
     """Indexa nós do grafo no LanceDB para busca semântica.
 
-    Retorna número de nós indexados. Retorna 0 silenciosamente se LanceDB ou
-    embeddings não estiverem disponíveis.
+    Retorna número de nós indexados. Com ``strict=True``, falhas de LanceDB ou
+    embeddings são propagadas para o pipeline marcar o build como degradado.
     """
     nodes: list[dict] = graph_data.get("nodes", [])
     if not nodes:
@@ -82,6 +109,10 @@ async def index_graph_nodes(
         texts = [_node_text(n) for n in nodes]
         vectors = await _embed_texts(texts)
         if not vectors or len(vectors) != len(nodes):
+            if strict:
+                raise RuntimeError(
+                    "embeddings indisponíveis ou quantidade de vetores inválida"
+                )
             return 0
 
         rows = [
@@ -105,7 +136,7 @@ async def index_graph_nodes(
             return 0
 
         db = await _get_db()
-        existing = await db.table_names()
+        existing = await _list_table_names(db)
         if collection in existing:
             table = await db.open_table(collection)
             await table.add(rows)
@@ -120,11 +151,15 @@ async def index_graph_nodes(
         )
         return len(rows)
 
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "context_graph: falha ao indexar nós no LanceDB",
             extra={"workspace_id": workspace_id},
         )
+        if strict:
+            raise RuntimeError(
+                "falha ao indexar nós do Context Graph no LanceDB"
+            ) from exc
         return 0
 
 
@@ -145,7 +180,7 @@ async def search_graph_nodes(
             return []
 
         db = await _get_db()
-        existing = await db.table_names()
+        existing = await _list_table_names(db)
         if collection not in existing:
             return []
 
@@ -181,6 +216,8 @@ async def search_graph_nodes(
 async def purge_graph_index(
     workspace_id: str,
     collection: str = _COLLECTION,
+    *,
+    strict: bool = False,
 ) -> None:
     """Remove todos os nós do workspace do índice vetorial.
 
@@ -188,7 +225,7 @@ async def purge_graph_index(
     """
     try:
         db = await _get_db()
-        existing = await db.table_names()
+        existing = await _list_table_names(db)
         if collection not in existing:
             return
 
@@ -208,8 +245,10 @@ async def purge_graph_index(
             workspace_id,
             extra={"workspace_id": workspace_id},
         )
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "context_graph: falha ao purgar índice",
             extra={"workspace_id": workspace_id},
         )
+        if strict:
+            raise RuntimeError("falha ao purgar índice do Context Graph") from exc

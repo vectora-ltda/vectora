@@ -4,44 +4,51 @@ export interface EditorDiagnostic {
   severity: "error" | "warning";
 }
 
-/** Monaco buffers use LF and no BOM; encoding belongs exclusively to disk serialization. */
-export function normalizeEditorText(text: string): string {
-  return text.replace(/^\ufeff/, "").replace(/\r\n|\r/g, "\n");
+export interface EditorServiceOptions {
+  warningsAsErrors?: boolean;
 }
 
 /** Deterministic local formatter used by the Files workbench. */
 export function formatEditorText(path: string, text: string): string {
-  text = normalizeEditorText(text);
   const extension = path.toLowerCase().split(".").pop();
   if (extension === "json" || extension === "jsonc") {
-    const errors: ParseError[] = [];
-    parse(text, errors, {
-      disallowComments: extension === "json",
-      allowTrailingComma: extension === "jsonc",
-    });
-    if (errors.length) return text;
-    return `${applyEdits(text, format(text, undefined, { tabSize: 2, insertSpaces: true, eol: "\n" })).trimEnd()}\n`;
+    try {
+      return `${JSON.stringify(JSON.parse(text), null, 2)}\n`;
+    } catch {
+      return text;
+    }
   }
-  return text
+  const normalized = text
     .replace(/\r\n/g, "\n")
     .split("\n")
     .map((line) => line.replace(/[ \t]+$/g, ""))
     .join("\n");
+  const extensionNeedsFinalNewline = ["md", "markdown", "yaml", "yml"].includes(
+    extension ?? "",
+  );
+  return extensionNeedsFinalNewline && !normalized.endsWith("\n")
+    ? `${normalized}\n`
+    : normalized;
 }
 
 /** Lightweight diagnostics that run without a language server. */
-export function lintEditorText(path: string, text: string): EditorDiagnostic[] {
+export function lintEditorText(
+  path: string,
+  text: string,
+  options: EditorServiceOptions = {},
+): EditorDiagnostic[] {
   const diagnostics: EditorDiagnostic[] = [];
   const extension = path.toLowerCase().split(".").pop();
   if (extension === "json" || extension === "jsonc") {
-    const errors: ParseError[] = [];
-    parse(text, errors, {
-      disallowComments: extension === "json",
-      allowTrailingComma: extension === "jsonc",
-    });
-    for (const error of errors) {
+    try {
+      JSON.parse(text);
+    } catch (error) {
       diagnostics.push({
-        line: Math.max(1, text.slice(0, error.offset).split("\n").length),
+        line: Math.max(
+          1,
+          text.slice(0, (error as SyntaxError).message.length).split("\n")
+            .length,
+        ),
         message: "JSON inválido",
         severity: "error",
       });
@@ -56,6 +63,72 @@ export function lintEditorText(path: string, text: string): EditorDiagnostic[] {
       });
     }
   });
-  return diagnostics;
+  if (["js", "jsx", "ts", "tsx", "mjs", "cjs"].includes(extension ?? "")) {
+    const stack: Array<{ token: string; line: number }> = [];
+    const pairs: Record<string, string> = { "}": "{", ")": "(", "]": "[" };
+    text.split("\n").forEach((line, index) => {
+      const stripped = line.replace(/(['"`])(?:\\.|(?!\1).)*\1/g, "");
+      for (const token of stripped) {
+        if (["{", "(", "["].includes(token)) {
+          stack.push({ token, line: index + 1 });
+        } else if (token in pairs) {
+          const open = stack.pop();
+          if (!open || open.token !== pairs[token]) {
+            diagnostics.push({
+              line: index + 1,
+              message: `Delimitador ${token} sem par correspondente`,
+              severity: "error",
+            });
+          }
+        }
+      }
+    });
+    for (const open of stack) {
+      diagnostics.push({
+        line: open.line,
+        message: `Delimitador ${open.token} sem fechamento`,
+        severity: "error",
+      });
+    }
+  }
+  if (["md", "markdown"].includes(extension ?? "")) {
+    text.split("\n").forEach((line, index) => {
+      if (/^#{1,6}[^ #]/.test(line)) {
+        diagnostics.push({
+          line: index + 1,
+          message: "Título Markdown precisa de um espaço após #",
+          severity: "warning",
+        });
+      }
+    });
+  }
+  if (["yaml", "yml"].includes(extension ?? "")) {
+    text.split("\n").forEach((line, index) => {
+      if (/^\s*[^#\s][^:]*$/.test(line) && line.trim() !== "-") {
+        diagnostics.push({
+          line: index + 1,
+          message: "Entrada YAML precisa de ':' ou marcador de lista",
+          severity: "error",
+        });
+      }
+    });
+  }
+  return options.warningsAsErrors
+    ? diagnostics.map((diagnostic) =>
+        diagnostic.severity === "warning"
+          ? { ...diagnostic, severity: "error" }
+          : diagnostic,
+      )
+    : diagnostics;
 }
-import { applyEdits, format, parse, type ParseError } from "jsonc-parser";
+
+export function hasBlockingDiagnostics(
+  diagnostics: readonly EditorDiagnostic[],
+  warningsAsErrors: boolean,
+): boolean {
+  return diagnostics.some(
+    (diagnostic) =>
+      diagnostic.severity === "error" ||
+      (warningsAsErrors && diagnostic.severity === "warning"),
+  );
+}

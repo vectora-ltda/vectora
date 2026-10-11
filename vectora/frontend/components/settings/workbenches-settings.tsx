@@ -1,7 +1,7 @@
 "use client";
 
 import { WorkbenchSettingsPage } from "@/components/workbench/settings/workbench-settings-page";
-import { WORKBENCH_SETTINGS } from "@/components/workbench/settings/workbench-settings-registry";
+import { ALL_WORKBENCH_SETTINGS } from "@/components/workbench/settings/workbench-settings-registry";
 import { useActiveWorkbenchContextStore } from "@/lib/stores/active-workbench-context-store";
 
 /** Categoria global que apresenta os mesmos descriptors das workbenches. */
@@ -15,7 +15,7 @@ export function WorkbenchesSettings() {
   );
   return (
     <WorkbenchSettingsPage
-      descriptors={WORKBENCH_SETTINGS}
+      descriptors={ALL_WORKBENCH_SETTINGS}
       context={{
         threadId,
         workspaceId,

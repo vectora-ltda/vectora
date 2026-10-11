@@ -288,6 +288,13 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
         onChange={settings.setEditorLintOnSave}
       />
       <Toggle
+        id="files-lint-warnings-as-errors"
+        label={m.workbench_files_lint_warnings_as_errors()}
+        help={m.workbench_files_lint_warnings_as_errors_help()}
+        checked={settings.editorLintWarningsAsErrors}
+        onChange={settings.setEditorLintWarningsAsErrors}
+      />
+      <Toggle
         id="files-inline-suggestions"
         label={m.workbench_files_inline_suggestions()}
         help={m.workbench_files_inline_suggestions_help()}
