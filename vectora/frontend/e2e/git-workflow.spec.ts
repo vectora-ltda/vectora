@@ -69,10 +69,10 @@ test.describe("fluxo Git via UI (workspace real)", () => {
     });
 
     // Troca para a aba Git — a mudança precisa aparecer (untracked).
-    await page.getByTestId("workbench-nav-diff").click();
+    await page.getByTestId("workbench-nav-git").click();
     await expect(page.getByTestId("workbench-tab-content")).toHaveAttribute(
       "data-tab",
-      "diff",
+      "git",
     );
     await expect(page.getByText(NEW_FILE_NAME).first()).toBeVisible({
       timeout: 30_000,
@@ -91,7 +91,7 @@ test.describe("fluxo Git via UI (workspace real)", () => {
       timeout: 10_000,
     });
 
-    await page.getByTestId("workbench-nav-diff").click();
+    await page.getByTestId("workbench-nav-git").click();
     const fileRow = page.getByText(NEW_FILE_NAME).first();
     await expect(fileRow).toBeVisible({ timeout: 30_000 });
 
@@ -121,7 +121,7 @@ test.describe("fluxo Git via UI (workspace real)", () => {
     await createInput.fill(NEW_FILE_NAME);
     await createInput.press("Enter");
 
-    await page.getByTestId("workbench-nav-diff").click();
+    await page.getByTestId("workbench-nav-git").click();
     await expect(page.getByText(NEW_FILE_NAME).first()).toBeVisible({
       timeout: 30_000,
     });
