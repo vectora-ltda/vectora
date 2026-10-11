@@ -454,6 +454,8 @@ function DmrSection() {
   }, []);
 
   useEffect(() => {
+    // External status synchronization intentionally updates local form state.
+    // oxlint-disable-next-line react/set-state-in-effect
     void refresh();
   }, [refresh]);
 
