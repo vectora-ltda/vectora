@@ -160,6 +160,21 @@ def _is_release_branch_pr(
     )
 
 
+def _is_internal_head(
+    event: PullRequestEvent, pull_request: PullRequestPayload
+) -> bool:
+    """Confirma a identidade completa do repositório do head da PR."""
+    head = pull_request.head
+    repository = event.repository
+    repository_name = (repository.full_name if repository else None) or os.environ.get(
+        "GITHUB_REPOSITORY"
+    )
+    if head is None or repository_name is None:
+        return False
+    head_repo = head.repo.full_name if head.repo else None
+    return head_repo == repository_name
+
+
 def _is_forbidden_codex_branch(pull_request: PullRequestPayload) -> bool:
     """Rejeita branches de trabalho com o prefixo reservado ``codex/``."""
     head_ref = pull_request.head.ref if pull_request.head else ""
