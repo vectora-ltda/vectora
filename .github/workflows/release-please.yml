@@ -1,9 +1,9 @@
 name: Release Please
 
-# Cada linha de release ÃƒÂ© calculada a partir do branch confiÃƒÂ¡vel. A PR de
-# release atualiza manifesto e changelog; a tag sÃƒÂ³ ÃƒÂ© criada pelo pipeline do
-# app depois que a distribuiÃƒÂ§ÃƒÂ£o termina com sucesso. Essa tag dispara este
-# workflow para preparar a prÃƒÂ³xima versÃƒÂ£o.
+# Cada linha de release é calculada a partir do branch confiável. A PR de
+# release atualiza manifesto e changelog; a tag só é criada pelo pipeline do
+# app depois que a distribuição termina com sucesso. Essa tag dispara este
+# workflow para preparar a próxima versão.
 
 on:
   push:
@@ -24,8 +24,8 @@ permissions:
 
 jobs:
   release-please:
-    # O push que mescla uma PR de release aguarda o build/distribuiÃƒÂ§ÃƒÂ£o do app.
-    # A tag criada por vectora.yml ÃƒÂ© o evento que libera esta automaÃƒÂ§ÃƒÂ£o.
+    # O push que mescla uma PR de release aguarda o build/distribuição do app.
+    # A tag criada por vectora.yml é o evento que libera esta automação.
     if: >-
       github.event_name == 'push' &&
       (startsWith(github.ref, 'refs/tags/v') ||
@@ -82,10 +82,10 @@ jobs:
             config_file="$(jq -er ".${line_key}.release_please_config" .github/release-lines.json)"
             manifest_file="$(jq -er ".${line_key}.release_please_manifest" .github/release-lines.json)"
             if [[ "$config_file" == /* || "$config_file" == *..* || "$manifest_file" == /* || "$manifest_file" == *..* ]]; then
-              echo "::error::Os caminhos do Release Please devem ser relativos e nÃƒÂ£o podem subir diretÃƒÂ³rios." >&2
+              echo "::error::Os caminhos do Release Please devem ser relativos e não podem subir diretórios." >&2
               exit 1
             fi
-            test -f "$config_file" || { echo "::error::ConfiguraÃƒÂ§ÃƒÂ£o ausente: $config_file" >&2; exit 1; }
+            test -f "$config_file" || { echo "::error::Configuração ausente: $config_file" >&2; exit 1; }
             test -f "$manifest_file" || { echo "::error::Manifesto ausente: $manifest_file" >&2; exit 1; }
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
