@@ -13,4 +13,6 @@ export interface UpdateBackupEntry {
   bytes: number;
   sha256: string;
   files: readonly UpdateBackupFile[];
+  /** Files locked by the OS and intentionally omitted from this snapshot. */
+  skipped?: readonly string[];
 }
