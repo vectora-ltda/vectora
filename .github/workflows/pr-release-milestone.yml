@@ -32,10 +32,10 @@ jobs:
     name: Validate release milestone
     runs-on: ubuntu-24.04
     steps:
-      # Usa a revisão confiável mais recente da branch base e sua configuração.
+      # Usa a revisão confiável que contém este workflow e sua configuração.
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.base.ref }}
+          ref: ${{ github.workflow_sha }}
           persist-credentials: false
       - name: Assign release milestone from base branch
         id: assign-milestone
