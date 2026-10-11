@@ -20,6 +20,7 @@ import {
   GitPullRequest,
   Loader2,
   RefreshCw,
+  Settings2,
 } from "lucide-react";
 import { useCallback, useState } from "react";
 
@@ -50,6 +51,7 @@ export function GitToolbar({
   onOpenWorktrees,
   onOpenPR,
   onChanged,
+  onOpenSettings,
   operation,
 }: {
   workspaceId: string;
@@ -60,6 +62,7 @@ export function GitToolbar({
   onOpenWorktrees: () => void;
   onOpenPR: (head: string) => void;
   onChanged: () => void;
+  onOpenSettings?: () => void;
   operation?: GitOpsSnapshot | null;
 }) {
   const [creating, setCreating] = useState(false);
@@ -270,6 +273,17 @@ export function GitToolbar({
             </div>
           )}
         </div>
+
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          aria-label={m.settings_category_git()}
+          title={m.settings_category_git()}
+          className="ml-auto rounded-md p-1.5 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+          data-testid="git-settings-btn"
+        >
+          <Settings2 className="h-3.5 w-3.5" />
+        </button>
 
         {/* PR */}
         <Tooltip>

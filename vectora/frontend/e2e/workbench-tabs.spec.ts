@@ -25,7 +25,7 @@ const PROMPT = "Responda apenas com a palavra: pronto";
 // Abas sempre disponíveis (sem depender do flag enableFeaturesBeta).
 const CORE_TABS = [
   "files",
-  "diff",
+  "git",
   "plan",
   "tasks",
   "browser",
@@ -80,14 +80,14 @@ test.describe("troca de aba do workbench", () => {
   test("trocar rapidamente entre 3+ abas mantém header e conteúdo sempre sincronizados", async ({
     page,
   }) => {
-    // Sequência que expôs o bug ao vivo: Arquivos → Git (diff) → Plano,
+    // Sequência que expôs o bug ao vivo: Arquivos → Git → Plano,
     // repetida com mais abas para não depender de timing específico.
     const sequence = [
       "files",
-      "diff",
+      "git",
       "plan",
       "tasks",
-      "diff",
+      "git",
       "files",
       "storage",
       "context_graph",

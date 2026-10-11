@@ -118,11 +118,11 @@ export function FilesTab({ threadId, onAddToContext }: FilesTabProps) {
   const showSkeleton = !rootEntriesLoaded && !!wsId;
 
   // Badges M/A/D na árvore: join client-side com o diff porcelain.
-  const diffSummary = useWorkbenchStore((s) => s.getDiff(wsId).summary);
+  const diffSummary = useWorkbenchStore((s) => s.getGit(wsId).summary);
   const diffFetchedAt = useWorkbenchStore(
-    (s) => s.getDiff(wsId).summaryFetchedAt,
+    (s) => s.getGit(wsId).summaryFetchedAt,
   );
-  const setDiffSummary = useWorkbenchStore((s) => s.setDiffSummary);
+  const setGitSummary = useWorkbenchStore((s) => s.setGitSummary);
   const clearPending = useWorkbenchStore((s) => s.clearPending);
 
   // Abrir/revalidar a aba consome a pendência de atualização; diffFetchedAt
@@ -145,7 +145,7 @@ export function FilesTab({ threadId, onAddToContext }: FilesTabProps) {
     revalidate: async () => {
       if (!wsId) return;
       const data = await fetchDiffSummary(wsId);
-      if (data) setDiffSummary(wsId, data);
+      if (data) setGitSummary(wsId, data);
     },
     skip: !wsId,
   });

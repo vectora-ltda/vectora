@@ -36,12 +36,21 @@ export type VectoraBrowserViewEvent =
   | { type: "titleUpdated"; title: string }
   | { type: "faviconUpdated"; favicon: string }
   | { type: "loadingChanged"; isLoading: boolean }
+  | { type: "popupRequested"; url: string }
+  | { type: "escapePressed" }
   | {
       type: "loadFailed";
       errorCode: number;
       errorDescription: string;
       url: string;
     };
+export type VectoraBrowserViewKind = "tab";
+export interface VectoraBrowserViewOptions {
+  profileId: string;
+  kind: VectoraBrowserViewKind;
+  allowPopups?: boolean;
+  zoomPercent?: number;
+}
 
 export interface VectoraVscodeThemeFile {
   extensionId: string;
@@ -99,7 +108,7 @@ export interface VectoraDesktopBridge {
    * própria) — presente só no desktop; sem isso, a aba Browser cai no
    * `<iframe>` de fallback (sujeito a X-Frame-Options). */
   browserView?: {
-    createView: (profileId?: string) => Promise<number>;
+    createView: (options: VectoraBrowserViewOptions) => Promise<number>;
     destroyView: (viewId: number) => void;
     navigate: (
       viewId: number,
@@ -111,6 +120,8 @@ export interface VectoraDesktopBridge {
     stop: (viewId: number) => void;
     setBounds: (viewId: number, bounds: VectoraViewBounds) => void;
     setVisible: (viewId: number, visible: boolean) => void;
+    setZoom?: (viewId: number, percent: number) => void;
+    setAllowPopups?: (viewId: number, allowPopups: boolean) => void;
     clearProfileData: (profileId?: string) => Promise<void>;
     onEvent: (
       handler: (viewId: number, event: VectoraBrowserViewEvent) => void,
