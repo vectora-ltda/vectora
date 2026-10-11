@@ -91,7 +91,10 @@ PullRequestEvent.model_rebuild()
 type EventPayload = PullRequestEvent | dict[str, object]
 
 _VEXT_TOKEN = re.compile(r"(?<![A-Za-z0-9])vext(?![A-Za-z0-9])", re.IGNORECASE)
-_STACK_BASE = re.compile(r"^stack/[a-z0-9][a-z0-9-]*$")
+_INTERNAL_BASE = re.compile(
+    r"^(?:build|chore|ci|docs|feat|fix|perf|refactor|stack|sync|test)/"
+    r"[a-z0-9][a-z0-9-]*$"
+)
 _RELEASE_BRANCH = re.compile(r"^release/.+$")
 _FORBIDDEN_CODEX_BRANCH = re.compile(r"^codex/")
 
@@ -163,6 +166,18 @@ def _is_release_branch_pr(
     )
 
 
+def _is_internal_head(
+    event: PullRequestEvent, pull_request: PullRequestPayload
+) -> bool:
+    """Confirma que uma PR empilhada vem do repositório principal."""
+    head = pull_request.head
+    head_repo = head.repo.full_name if head and head.repo else None
+    repository_name = (
+        event.repository.full_name if event.repository else None
+    ) or os.environ.get("GITHUB_REPOSITORY")
+    return bool(head_repo and repository_name and head_repo == repository_name)
+
+
 def _is_forbidden_codex_branch(pull_request: PullRequestPayload) -> bool:
     """Rejeita branches de trabalho com o prefixo reservado ``codex/``."""
     head_ref = pull_request.head.ref if pull_request.head else ""
@@ -193,6 +208,8 @@ def validate_pull_request(event: EventPayload) -> list[str]:
             "ou `chore/`."
         ]
     if _is_release_branch_pr(parsed_event, pull_request):
+        return []
+    if _INTERNAL_BASE.fullmatch(base) and _is_internal_head(parsed_event, pull_request):
         return []
     line = _line_for_base(base)
     if line is None:
