@@ -1,8 +1,3 @@
-import { configureBrowserDownload } from "./browser-download.js";
-import {
-  BrowserCredentialStore,
-  type BrowserCredentialRecord,
-} from "./browser-credentials.js";
 /**
  * Vectora Desktop — main process.
  *
@@ -64,6 +59,7 @@ import {
 import {
   BrowserViewManager,
   clearBrowserSessionData,
+  resolveBrowserPermissionMode,
   type BrowserViewKind,
   type BrowserDataClearOptions,
   type ManagedView,
@@ -72,16 +68,11 @@ import {
 import type { BrowserCookie, BrowserDownloadEvent } from "./preload.js";
 import {
   isValidBrowserUrl,
-  isValidOriginPermissions,
   isValidBrowserViewKind,
   isValidProfileId,
   isValidViewBounds,
   isValidViewId,
 } from "./browser-ipc-validation.js";
-
-function browserOwnerId(event: unknown): number {
-  return (event as { sender?: { id?: number } }).sender?.id ?? -1;
-}
 
 import { computeDefaultWindowSize } from "./window-size.js";
 import {
@@ -224,12 +215,31 @@ function getBrowserViewManager(): BrowserViewManager {
         configuredBrowserDownloadSessions.add(browserSession);
         browserSession.on("will-download", (_event, item) => {
           const id = randomUUID();
-          configureBrowserDownload(item, app.getPath("downloads"), (event) => {
+          const safeName = path.basename(item.getFilename()) || "download";
+          item.setSavePath(path.join(app.getPath("downloads"), safeName));
+          const publish = (state: BrowserDownloadEvent["state"]) => {
             mainWindow?.webContents.send("vectora:browser-download", {
-              ...event,
               id,
               profileId,
+              filename: safeName,
+              state,
+              receivedBytes: item.getReceivedBytes(),
+              totalBytes: item.getTotalBytes(),
             } satisfies BrowserDownloadEvent);
+          };
+          publish("progressing");
+          item.on("updated", () => {
+            const state = item.isPaused() ? "interrupted" : "progressing";
+            publish(state);
+          });
+          item.once("done", (_doneEvent, state) => {
+            publish(
+              state === "completed"
+                ? "completed"
+                : state === "cancelled"
+                  ? "cancelled"
+                  : "interrupted",
+            );
           });
         });
       }
@@ -241,8 +251,11 @@ function getBrowserViewManager(): BrowserViewManager {
           session: browserSession,
         },
       });
-      const permissionMode = options.permissionMode ?? "deny";
-      browserPermissionModes.set(profileId, permissionMode);
+      const permissionMode = resolveBrowserPermissionMode(
+        browserPermissionModes,
+        profileId,
+        options.permissionMode,
+      );
       browserSession.setPermissionRequestHandler?.(
         (webContents, _permission, callback) => {
           let origin = "";
@@ -300,12 +313,6 @@ function getBrowserViewManager(): BrowserViewManager {
           new Map(Object.entries(originPermissions)),
         );
       }
-    },
-    setOriginPermissions: (profileId, originPermissions) => {
-      browserOriginPermissions.set(
-        profileId,
-        new Map(Object.entries(originPermissions)),
-      );
     },
   });
   return browserViewManager;
@@ -399,13 +406,59 @@ const _cookieStore = new Map<string, string>();
 // disponível) em vez de depender do cookie jar do Chromium.
 const _SESSION_STORE_FILE = path.join(os.homedir(), ".vectora", "session.dat");
 
-/** Lazily resolve userData after Electron initialization. */
-let credentialStore: BrowserCredentialStore | undefined;
-function browserCredentials(): BrowserCredentialStore {
-  return (credentialStore ??= new BrowserCredentialStore(
-    path.join(app.getPath("userData"), "browser-credentials"),
-    safeStorage,
-  ));
+interface BrowserCredentialRecord {
+  id: string;
+  origin: string;
+  username: string;
+  password: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function browserCredentialFile(profileId: string): string {
+  return path.join(
+    app.getPath("userData"),
+    "browser-credentials",
+    `${profileId}.dat`,
+  );
+}
+
+async function readBrowserCredentials(
+  profileId: string,
+): Promise<BrowserCredentialRecord[]> {
+  try {
+    const raw = await fs.promises.readFile(browserCredentialFile(profileId));
+    if (!safeStorage.isEncryptionAvailable()) return [];
+    const parsed = JSON.parse(safeStorage.decryptString(raw)) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is BrowserCredentialRecord => {
+          const value = item as Partial<BrowserCredentialRecord>;
+          return (
+            typeof value.id === "string" &&
+            typeof value.origin === "string" &&
+            typeof value.username === "string" &&
+            typeof value.password === "string"
+          );
+        })
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeBrowserCredentials(
+  profileId: string,
+  records: BrowserCredentialRecord[],
+): Promise<void> {
+  if (!safeStorage.isEncryptionAvailable())
+    throw new Error("armazenamento seguro indisponível");
+  const file = browserCredentialFile(profileId);
+  await fs.promises.mkdir(path.dirname(file), { recursive: true });
+  await fs.promises.writeFile(
+    file,
+    safeStorage.encryptString(JSON.stringify(records)),
+    { mode: 0o600 },
+  );
 }
 
 function publicCredential(record: BrowserCredentialRecord) {
@@ -977,6 +1030,9 @@ function scheduleAutoUpdateChecks(): void {
 // IPC handlers (responde ao preload bridge)
 // ---------------------------------------------------------------------------
 
+const browserOwnerId = (event: unknown): number =>
+  (event as { sender?: { id?: number } }).sender?.id ?? -1;
+
 function registerIpc(): void {
   ipcMain.handle("vectora:open-external", (_event, url: string) =>
     shell.openExternal(url),
@@ -1159,8 +1215,17 @@ function registerIpc(): void {
       throw new Error("permissionMode inválido");
     }
     if (originPermissions !== undefined) {
-      if (!isValidOriginPermissions(originPermissions))
-        throw new Error("originPermissions invalid");
+      if (!originPermissions || typeof originPermissions !== "object") {
+        throw new Error("originPermissions inválido");
+      }
+      for (const [origin, mode] of Object.entries(originPermissions)) {
+        if (
+          !/^https?:\/\/[^/]+$/.test(origin) ||
+          (mode !== "allow" && mode !== "deny")
+        ) {
+          throw new Error("originPermissions inválido");
+        }
+      }
       browserOriginPermissions.set(
         profileId,
         new Map(Object.entries(originPermissions)),
@@ -1189,7 +1254,7 @@ function registerIpc(): void {
     (event, viewId: number, url: string) => {
       if (!isTrustedBrowserSender(event))
         return { ok: false, error: "origem IPC inválida" };
-      if (!isValidViewId(viewId) || !isValidBrowserUrl(url)) {
+      if (!isValidViewId(viewId) || typeof url !== "string") {
         return { ok: false, error: "argumentos inválidos" };
       }
       return getBrowserViewManager().navigate(
@@ -1244,7 +1309,6 @@ function registerIpc(): void {
         throw new Error("profileId inválido");
       }
       if (
-        !options ||
         typeof options !== "object" ||
         typeof options.storage !== "boolean" ||
         typeof options.cache !== "boolean" ||
@@ -1253,9 +1317,17 @@ function registerIpc(): void {
       ) {
         throw new Error("opções de limpeza inválidas");
       }
-      if (options.credentials)
-        await browserCredentials().clear(profileId ?? "default");
-      await getBrowserViewManager().clearData(profileId, options);
+      const ownerId = browserOwnerId(event);
+      if (
+        profileId !== undefined &&
+        !getBrowserViewManager().profileBelongsToOwner(profileId, ownerId)
+      ) {
+        throw new Error("perfil não pertence ao remetente");
+      }
+      await getBrowserViewManager().clearData(profileId, options, ownerId);
+      if (options.credentials) {
+        await writeBrowserCredentials(profileId ?? "default", []);
+      }
     },
   );
   ipcMain.handle(
@@ -1268,7 +1340,15 @@ function registerIpc(): void {
       ) {
         throw new Error("perfil inválido");
       }
-      return (await browserCredentials().list(profileId)).map(publicCredential);
+      if (
+        !getBrowserViewManager().profileBelongsToOwner(
+          profileId,
+          browserOwnerId(event),
+        )
+      ) {
+        throw new Error("perfil não pertence ao remetente");
+      }
+      return (await readBrowserCredentials(profileId)).map(publicCredential);
     },
   );
   ipcMain.handle(
@@ -1294,11 +1374,35 @@ function registerIpc(): void {
       ) {
         throw new Error("credencial inválida");
       }
-      const record = await browserCredentials().save(profileId, {
-        origin,
-        username,
-        password,
-      });
+      if (
+        !getBrowserViewManager().profileBelongsToOwner(
+          profileId,
+          browserOwnerId(event),
+        )
+      ) {
+        throw new Error("perfil não pertence ao remetente");
+      }
+      const records = await readBrowserCredentials(profileId);
+      const now = new Date().toISOString();
+      const existing = records.find(
+        (record) => record.origin === origin && record.username === username,
+      );
+      const record: BrowserCredentialRecord = existing
+        ? { ...existing, password, updatedAt: now }
+        : {
+            id: randomUUID(),
+            origin,
+            username,
+            password,
+            createdAt: now,
+            updatedAt: now,
+          };
+      await writeBrowserCredentials(
+        profileId,
+        existing
+          ? records.map((item) => (item.id === record.id ? record : item))
+          : [...records, record],
+      );
       return publicCredential(record);
     },
   );
@@ -1314,7 +1418,19 @@ function registerIpc(): void {
         typeof id !== "string"
       )
         throw new Error("credencial inválida");
-      await browserCredentials().delete(profileId, id);
+      if (
+        !getBrowserViewManager().profileBelongsToOwner(
+          profileId,
+          browserOwnerId(event),
+        )
+      ) {
+        throw new Error("perfil não pertence ao remetente");
+      }
+      const records = await readBrowserCredentials(profileId);
+      await writeBrowserCredentials(
+        profileId,
+        records.filter((record) => record.id !== id),
+      );
     },
   );
   ipcMain.handle(
@@ -1326,6 +1442,14 @@ function registerIpc(): void {
         !isValidProfileId(profileId)
       ) {
         throw new Error("perfil inválido");
+      }
+      if (
+        !getBrowserViewManager().profileBelongsToOwner(
+          profileId,
+          browserOwnerId(event),
+        )
+      ) {
+        throw new Error("perfil não pertence ao remetente");
       }
       const cookies = await session
         .fromPartition(`persist:browser-${profileId}`)
@@ -1360,6 +1484,14 @@ function registerIpc(): void {
         name.length === 0
       ) {
         throw new Error("cookie inválido");
+      }
+      if (
+        !getBrowserViewManager().profileBelongsToOwner(
+          profileId,
+          browserOwnerId(event),
+        )
+      ) {
+        throw new Error("perfil não pertence ao remetente");
       }
       await session
         .fromPartition(`persist:browser-${profileId}`)
@@ -1417,11 +1549,6 @@ function registerIpc(): void {
           browserOwnerId(event),
         );
       }
-      if (
-        policy.originPermissions !== undefined &&
-        !isValidOriginPermissions(policy.originPermissions)
-      )
-        return;
       if (policy.permissionMode !== undefined) {
         if (
           policy.permissionMode !== "allow" &&
@@ -1431,12 +1558,6 @@ function registerIpc(): void {
         getBrowserViewManager().setPermissionMode(
           viewId,
           policy.permissionMode,
-          policy.originPermissions,
-          browserOwnerId(event),
-        );
-      } else if (policy.originPermissions !== undefined) {
-        getBrowserViewManager().setOriginPermissions(
-          viewId,
           policy.originPermissions,
           browserOwnerId(event),
         );

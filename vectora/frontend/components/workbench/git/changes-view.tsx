@@ -16,7 +16,6 @@ import {
   ChevronRight,
   GitCommit,
   Loader2,
-  Settings2,
   UserPlus,
 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
@@ -160,11 +159,9 @@ function DiffGroup({
 export function ChangesView({
   workspaceId,
   summary,
-  onOpenSettings,
 }: {
   workspaceId: string;
   summary: DiffSummary;
-  onOpenSettings?: () => void;
 }) {
   const invalidateGit = useWorkbenchStore((s) => s.invalidateGit);
   const setGitFileSelection = useWorkbenchStore((s) => s.setGitFileSelection);
@@ -603,15 +600,6 @@ export function ChangesView({
                 </div>
               </div>
             )}
-            <button
-              type="button"
-              title={m.workbench_git_settings()}
-              aria-label={m.workbench_git_settings()}
-              onClick={() => onOpenSettings?.()}
-              className="rounded p-1 hover:bg-muted/50"
-            >
-              <Settings2 className="h-3.5 w-3.5" />
-            </button>
           </div>
         </div>
         <button

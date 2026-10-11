@@ -260,7 +260,7 @@ export function XtermView({
       resizeObsRef.current = null;
       themeObsRef.current = null;
     };
-  }, [terminalId, threadId, workspaceId]);
+  }, [cursorBlink, fontSize, scrollback, terminalId, threadId, workspaceId]);
 
   return (
     <div

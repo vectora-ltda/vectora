@@ -199,6 +199,24 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
       </div>
       <div className="flex items-center justify-between gap-3">
         <div>
+          <Label htmlFor="files-max-size">
+            {m.workbench_files_max_size_label()}
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            {m.workbench_files_max_size_help()}
+          </p>
+        </div>
+        <DraftNumberInput
+          id="files-max-size"
+          value={settings.editorMaxFileSizeMb}
+          onCommit={settings.setEditorMaxFileSizeMb}
+          min={1}
+          max={100}
+          className="w-24"
+        />
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <div>
           <Label htmlFor="files-font-family">
             {m.workbench_files_font_label()}
           </Label>
@@ -268,6 +286,13 @@ export function FileSystemSettingsForm(_context: WorkbenchSettingsContext) {
         help={m.workbench_files_lint_on_save_help()}
         checked={settings.editorLintOnSave}
         onChange={settings.setEditorLintOnSave}
+      />
+      <Toggle
+        id="files-lint-warnings-as-errors"
+        label={m.workbench_files_lint_warnings_as_errors()}
+        help={m.workbench_files_lint_warnings_as_errors_help()}
+        checked={settings.editorLintWarningsAsErrors}
+        onChange={settings.setEditorLintWarningsAsErrors}
       />
       <Toggle
         id="files-inline-suggestions"

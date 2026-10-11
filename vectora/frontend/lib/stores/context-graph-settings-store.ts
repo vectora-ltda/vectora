@@ -19,13 +19,20 @@ export const ALL_GRAPH_FILE_TYPES: GraphFileType[] = [
 
 export type GraphMode = "semantic" | "ast";
 
+export const CONTEXT_GRAPH_PANEL_MIN_WIDTH = 180;
+export const CONTEXT_GRAPH_PANEL_DEFAULT_WIDTH = 280;
+export const CONTEXT_GRAPH_PANEL_MAX_WIDTH = 480;
+
 interface ContextGraphSettingsState {
   /** Tipos a indexar. Vazio = todos (default). */
   fileTypes: GraphFileType[];
   /** "semantic" (AST + LLM) ou "ast" (só estrutura, sem LLM). */
   mode: GraphMode;
+  /** Largura do painel de comunidades, indexada por workspace. */
+  communityPanelWidths: Record<string, number>;
   toggleFileType: (t: GraphFileType) => void;
   setMode: (m: GraphMode) => void;
+  setCommunityPanelWidth: (workspaceId: string, width: number) => void;
 }
 
 export const useContextGraphSettingsStore = create<ContextGraphSettingsState>()(
@@ -34,6 +41,7 @@ export const useContextGraphSettingsStore = create<ContextGraphSettingsState>()(
       // Default explícito = todos os tipos (o usuário desmarca o que não quer).
       fileTypes: [...ALL_GRAPH_FILE_TYPES],
       mode: "semantic",
+      communityPanelWidths: {},
       toggleFileType: (t) =>
         set((s) => ({
           fileTypes: s.fileTypes.includes(t)
@@ -41,6 +49,16 @@ export const useContextGraphSettingsStore = create<ContextGraphSettingsState>()(
             : [...s.fileTypes, t],
         })),
       setMode: (m) => set({ mode: m }),
+      setCommunityPanelWidth: (workspaceId, width) =>
+        set((state) => ({
+          communityPanelWidths: {
+            ...state.communityPanelWidths,
+            [workspaceId]: Math.max(
+              CONTEXT_GRAPH_PANEL_MIN_WIDTH,
+              Math.min(CONTEXT_GRAPH_PANEL_MAX_WIDTH, Math.round(width)),
+            ),
+          },
+        })),
     }),
     {
       name: "vectora-context-graph-settings",

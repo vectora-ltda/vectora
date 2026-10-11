@@ -7,6 +7,7 @@ export interface GraphStatus {
     | "not_built"
     | "running"
     | "done"
+    | "degraded"
     | "error"
     | "unknown"
     | "queued"
@@ -46,9 +47,18 @@ export interface RawGraphLink {
   [key: string]: unknown;
 }
 
+export interface RawGraphCommunity {
+  id: number;
+  key: string;
+  name: string;
+  count: number;
+  cohesion?: number;
+}
+
 export interface RawGraphData {
   nodes: RawGraphNode[];
   links: RawGraphLink[];
+  communities?: RawGraphCommunity[];
   hyperedges?: unknown[];
 }
 
@@ -104,7 +114,7 @@ export function useContextGraph(workspaceId: string | null | undefined) {
 
   useEffect(() => {
     // oxlint-disable-next-line react/set-state-in-effect
-    if (status.status === "done") fetchReport();
+    if (status.status === "done" || status.status === "degraded") fetchReport();
   }, [status.status, fetchReport]);
 
   useEffect(() => {

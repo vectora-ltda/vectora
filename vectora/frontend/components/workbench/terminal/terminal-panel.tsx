@@ -11,6 +11,7 @@ import {
   Plug,
   Plus,
   RefreshCcw,
+  Settings2,
   ShieldCheck,
   TerminalSquare,
   X,
@@ -33,6 +34,8 @@ import { Switch } from "@/components/ui/switch";
 import { apiFsCreateFile } from "@/components/workbench/files/files-api";
 import { apiUpdateFile, fetchFile } from "@/lib/api/fs-files";
 import { useSettingsStore } from "@/lib/stores/settings-store";
+import { WorkbenchSettingsSurface } from "@/components/workbench/settings/workbench-settings-surface";
+import { terminalSettings } from "@/components/workbench/settings/workbench-settings-registry";
 
 interface SandboxStatus {
   enabled: boolean;
@@ -447,9 +450,8 @@ export function TerminalPanel({ threadId }: TerminalPanelProps) {
   const terminalFontSize = useSettingsStore((s) => s.terminalFontSize);
   const terminalScrollback = useSettingsStore((s) => s.terminalScrollback);
   const terminalCursorBlink = useSettingsStore((s) => s.terminalCursorBlink);
-  const { status: sandboxStatus, refetch: refetchSandboxStatus } =
-    useSandboxStatus(workspace?.id);
-  const [sandboxDialogOpen, setSandboxDialogOpen] = useState(false);
+  const { status: sandboxStatus } = useSandboxStatus(workspace?.id);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Abre 1 terminal automaticamente quando o painel monta sem nenhum.
   // Lê o store inline (não a captura reativa) — Strict Mode roda effects
@@ -492,22 +494,33 @@ export function TerminalPanel({ threadId }: TerminalPanelProps) {
     });
   };
 
+  // Keep the active terminal discoverable while avoiding a row of repeated
+  // labels. The tab strip remains horizontally scrollable only when the
+  // compact icon-only tabs themselves no longer fit.
+  const compactTabs = terminals.length >= 5;
+
   return (
     <div className="h-full flex flex-col bg-sidebar">
       {/* Tabs + ações */}
-      <div className="flex items-center gap-1 bg-sidebar border-b border-border/60 px-2 py-1 overflow-x-auto">
+      <div className="flex items-center gap-1 overflow-x-auto bg-sidebar border-b border-border/60 px-2 py-1">
         {terminals.map((term) => (
           <button
             key={term.id}
             onClick={() => setActive(threadId, term.id)}
-            className={`group flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-md text-xs select-none transition-colors shrink-0 ${
+            aria-label={term.title}
+            title={term.title}
+            className={`group flex items-center gap-1.5 rounded-md py-1 text-xs select-none transition-colors shrink-0 ${
               term.id === active?.id
                 ? "bg-muted text-foreground"
                 : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
             }`}
           >
             <TerminalSquare className="w-3.5 h-3.5" />
-            <span className="truncate max-w-[120px]">{term.title}</span>
+            {term.id === active?.id && !compactTabs && (
+              <span className="max-w-[120px] truncate whitespace-nowrap">
+                {term.title}
+              </span>
+            )}
             <span
               role="button"
               tabIndex={0}
@@ -528,7 +541,25 @@ export function TerminalPanel({ threadId }: TerminalPanelProps) {
         >
           <Plus className="w-3.5 h-3.5" />
         </button>
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+          className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 shrink-0"
+          title={m.terminal_title()}
+          aria-label={m.terminal_title()}
+          data-testid="terminal-settings-btn"
+        >
+          <Settings2 className="w-3.5 h-3.5" />
+        </button>
       </div>
+
+      <WorkbenchSettingsSurface
+        descriptor={terminalSettings}
+        context={{ threadId, workspaceId: workspace?.id ?? null }}
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        testId="terminal-workbench-settings-panel"
+      />
 
       {/* Indicador dinâmico: sandboxed (informativo) vs sem sandbox (aviso,
           acionável via dialog de diagnóstico). sandboxStatus === null
@@ -546,22 +577,12 @@ export function TerminalPanel({ threadId }: TerminalPanelProps) {
           <button
             type="button"
             className="underline underline-offset-2 hover:text-amber-500 shrink-0"
-            onClick={() => setSandboxDialogOpen(true)}
+            onClick={() => setSettingsOpen(true)}
           >
             {m.terminal_sandbox_configure_link()}
           </button>
         </div>
       )}
-      {workspace && (
-        <SandboxSettingsForm
-          workspaceId={workspace.id}
-          diagnostic={sandboxStatus?.diagnostic ?? null}
-          open={sandboxDialogOpen}
-          onOpenChange={setSandboxDialogOpen}
-          onInitDone={refetchSandboxStatus}
-        />
-      )}
-
       {/* Body — só renderiza o terminal ativo (poupa CPU; estado fica no PTY) */}
       <div className="flex-1 relative">
         {terminals.map((term) => (

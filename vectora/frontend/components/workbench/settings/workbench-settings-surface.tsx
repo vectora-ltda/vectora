@@ -28,7 +28,9 @@ export function WorkbenchSettingsSurface({
 }: WorkbenchSettingsSurfaceProps) {
   const resolvedContext: WorkbenchSettingsContext = {
     ...context,
+    open,
     presentation: "workbench",
+    onRequestClose: () => onOpenChange(false),
   };
   const bodyMode =
     descriptor.surface.workbench === "native-view" ? "fill" : "scroll";

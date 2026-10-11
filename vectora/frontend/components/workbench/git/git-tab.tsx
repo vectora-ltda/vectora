@@ -318,6 +318,8 @@ export function GitTab({
       cancelled = true;
       window.clearInterval(timer);
     };
+    // The store action is stable for the lifetime of this workbench.
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies
   }, [autoFetchEnabled, autoFetchIntervalSeconds, invalidateGit, wsId]);
 
   const handleChanged = useCallback(() => {
@@ -466,11 +468,7 @@ export function GitTab({
             onOpenPR={handleOpenPR}
           />
         ) : view === "changes" ? (
-          <ChangesView
-            workspaceId={wsId}
-            summary={summary}
-            onOpenSettings={() => setSettingsOpen(true)}
-          />
+          <ChangesView workspaceId={wsId} summary={summary} />
         ) : (
           <HistoryView
             workspaceId={wsId}

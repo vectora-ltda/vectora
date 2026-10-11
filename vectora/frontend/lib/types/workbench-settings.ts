@@ -24,6 +24,12 @@ export type ResolvedSurfaceMode = WorkbenchSettingsSurfaceMode | "unavailable";
 export type WorkbenchSettingsCapabilityStatus =
   "available" | "unavailable" | "planned";
 
+export interface WorkbenchSettingsCapability {
+  id: string;
+  status: WorkbenchSettingsCapabilityStatus;
+  description?: () => string;
+}
+
 export interface WorkbenchSettingsSection {
   id: string;
   title: () => string;
@@ -31,18 +37,18 @@ export interface WorkbenchSettingsSection {
   scope?: WorkbenchSettingsScope;
 }
 
-export interface WorkbenchSettingsCapability {
-  id: string;
-  status: WorkbenchSettingsCapabilityStatus;
-  description?: () => string;
-}
-
 export interface WorkbenchSettingsContext {
   threadId: string | null;
   workspaceId: string | null;
+  /** Chave estável do dono da configuração resolvida pelo host. */
+  scopeKey?: string;
   /** Perfil Chromium resolvido para a sessão da Browser Workbench. */
   browserProfileId?: string | null;
   presentation: WorkbenchSettingsPresentation;
+  /** Indica se a superfície de workbench está visível. */
+  open?: boolean;
+  /** Fecha a superfície atual quando uma view nativa solicita fechamento. */
+  onRequestClose?: () => void;
 }
 
 /** Contrato único para uma seção de configurações de workbench. */

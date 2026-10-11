@@ -62,10 +62,17 @@ async def build_knowledge_graph(
         result = await build_workspace_graph(ctx.workspace_id, model=model, mode=mode)
         if result.error:
             return f"Erro no build do grafo: {result.error}"
+        # Test doubles and older pipeline result objects may not expose this
+        # optional field. Only a real non-empty message represents degraded
+        # indexing; truthy mocks must not hide the normal graph summary.
+        if isinstance(result.index_error, str) and result.index_error:
+            return f"Build do grafo concluído com degradação: {result.index_error}"
 
         lines = [
             f"Grafo construído: {result.node_count} nós, {result.edge_count} arestas."
         ]
+        if result.index_error:
+            lines.append(f"Aviso: {result.index_error}")
         if result.god_nodes:
             lines.append(
                 f"God nodes (mais conectados): {', '.join(result.god_nodes[:5])}."
@@ -105,10 +112,16 @@ async def graph_update(ctx: ToolContext, model: str = "") -> str:
         )
         if result.error:
             return f"Erro na atualização do grafo: {result.error}"
+        if isinstance(result.index_error, str) and result.index_error:
+            return (
+                f"Atualização do grafo concluída com degradação: {result.index_error}"
+            )
 
         lines = [
             f"Grafo atualizado: {result.node_count} nós, {result.edge_count} arestas."
         ]
+        if result.index_error:
+            lines.append(f"Aviso: {result.index_error}")
         if result.god_nodes:
             lines.append(f"God nodes: {', '.join(result.god_nodes[:5])}.")
         return "\n".join(lines)

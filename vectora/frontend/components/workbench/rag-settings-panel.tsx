@@ -8,13 +8,9 @@
  * (/rag/collections) com botão de apagar. Caso de uso paralelo ao Context Graph:
  * usar o RAG para código enquanto o grafo cuida dos markdowns.
  *
- * `useRagSettings` centraliza o estado; `RagSettingsButton` (gatilho inline,
- * ex.: ao lado da busca) e `RagSettingsSlidePanel` (conteúdo modal)
- * são exportados separados para o consumidor controlar onde cada um entra no
- * layout — o painel precisa ocupar a largura total da workbench numa linha
- * própria abaixo do gatilho, nunca dividir espaço com ele na mesma linha
- * flex (senão o conteúdo do formulário força a linha a estourar a largura).
- * `RagSettingsPanel` compõe os dois com o hook embutido, para uso standalone.
+ * `useRagSettings` centraliza o estado; `RagSettingsButton` é o gatilho
+ * inline ao lado da busca. O conteúdo é renderizado em um bloco expansível
+ * no mesmo contexto da workbench, sem diálogo aninhado.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -25,7 +21,7 @@ import {
   type GraphFileType,
 } from "@/lib/stores/context-graph-settings-store";
 import { useToastStore } from "@/lib/stores/toast-store";
-import { WorkbenchDialog } from "@/components/workbench/workbench-dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { m } from "@/lib/paraglide/messages";
 
 interface RagSettings {
@@ -91,31 +87,30 @@ export function useRagSettings({
     "idle" | "loading" | "ready" | "error"
   >("idle");
   const [patching, setPatching] = useState(false);
-  const collectionRequestRef = useRef(0);
-  const collectionGenerationRef = useRef(0);
-  const patchQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const collectionsRequest = useRef(0);
+  const patchQueue = useRef<Promise<void>>(Promise.resolve());
   const settingsRef = useRef(settings);
-  const pendingPatchesRef = useRef(0);
-  const pendingDeleteRef = useRef<string | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const pendingPatches = useRef(0);
 
   const loadCollections = useCallback(async () => {
-    const requestId = ++collectionRequestRef.current;
-    const generation = collectionGenerationRef.current;
+    const requestId = ++collectionsRequest.current;
+    // The hook owns this fetch lifecycle; this state update mirrors the request.
+    // oxlint-disable-next-line react/set-state-in-effect
     setCollectionsStatus("loading");
     try {
       const res = await fetch("/rag/collections");
-      if (requestId !== collectionRequestRef.current) return;
+      if (requestId !== collectionsRequest.current) return;
       if (!res.ok) {
         setCollectionsStatus("error");
         return;
       }
       const data = (await res.json()) as { collections?: Collection[] };
-      if (generation !== collectionGenerationRef.current) return;
+      if (requestId !== collectionsRequest.current) return;
       setCollections(Array.isArray(data.collections) ? data.collections : []);
       setCollectionsStatus("ready");
     } catch {
-      setCollectionsStatus("error");
+      if (requestId === collectionsRequest.current)
+        setCollectionsStatus("error");
     }
   }, []);
 
@@ -141,7 +136,8 @@ export function useRagSettings({
         if (alive) setSettingsStatus("error");
       }
     })();
-    // Busca coleções RAG no backend (rede) ao abrir o painel, não estado derivado.
+    // Load collections only when the settings workbench is visible so the
+    // panel does not expose a stale loading state before it is opened.
     // oxlint-disable-next-line react/set-state-in-effect
     void loadCollections();
     return () => {
@@ -150,7 +146,7 @@ export function useRagSettings({
   }, [open, loadCollections]);
 
   const patch = useCallback((changes: Partial<RagSettings>) => {
-    pendingPatchesRef.current += 1;
+    pendingPatches.current += 1;
     setPatching(true);
     const run = async () => {
       const previous = settingsRef.current;
@@ -178,36 +174,34 @@ export function useRagSettings({
         setSettings(previous);
         useToastStore.getState().error(m.workbench_settings_error());
       } finally {
-        pendingPatchesRef.current -= 1;
-        if (pendingPatchesRef.current === 0) setPatching(false);
+        pendingPatches.current -= 1;
+        if (pendingPatches.current === 0) setPatching(false);
       }
     };
-    const queued = patchQueueRef.current.then(run, run);
-    patchQueueRef.current = queued.catch(() => undefined);
+    const queued = patchQueue.current.then(run, run);
+    patchQueue.current = queued.catch(() => undefined);
     return queued;
   }, []);
 
   const deleteCollection = useCallback(async (name: string) => {
-    if (!window.confirm(m.rag_collection_delete_confirm({ name }))) return;
-    if (pendingDeleteRef.current === name) return;
-    pendingDeleteRef.current = name;
-    setPendingDelete(name);
     try {
       const res = await fetch(`/rag/collections/${encodeURIComponent(name)}`, {
         method: "DELETE",
       });
       if (res.ok) {
-        collectionGenerationRef.current += 1;
+        // Invalida GETs iniciados antes da exclusão para que uma resposta
+        // atrasada não restaure a coleção removida.
+        collectionsRequest.current += 1;
         setCollections((c) => c.filter((x) => x.name !== name));
+        setCollectionsStatus("ready");
+        return true;
       } else {
         useToastStore.getState().error(m.rag_collection_delete());
       }
     } catch {
       useToastStore.getState().error(m.rag_collection_delete());
-    } finally {
-      pendingDeleteRef.current = null;
-      setPendingDelete(null);
     }
+    return false;
   }, []);
 
   return {
@@ -222,7 +216,6 @@ export function useRagSettings({
     patch,
     loadCollections,
     deleteCollection,
-    pendingDelete,
   };
 }
 
@@ -249,6 +242,115 @@ export function RagSettingsButton({
   );
 }
 
+/** Compatibilidade para consumidores que ainda montam o painel completo. */
+export function RagSettingsPanel() {
+  const state = useRagSettings();
+  return (
+    <>
+      <RagSettingsButton open={state.open} onToggle={state.toggle} />
+      {state.open && (
+        <div data-testid="rag-settings-panel">
+          <RagSettingsForm {...state} />
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Ações das coleções ficam fora do conteúdo persistente de configurações. */
+export function RagCollectionsSection({
+  collections,
+  collectionsStatus,
+  loadCollections,
+  deleteCollection,
+}: Pick<
+  RagSettingsState,
+  "collections" | "collectionsStatus" | "loadCollections" | "deleteCollection"
+>) {
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [deletingCollection, setDeletingCollection] = useState<string | null>(
+    null,
+  );
+  return (
+    <section className="border-t border-border/60 pt-2">
+      <div className="flex items-center justify-between">
+        <p className="font-medium text-foreground">
+          {m.rag_collections_title()}
+        </p>
+        <button
+          type="button"
+          data-testid="rag-collections-refresh"
+          onClick={() => void loadCollections()}
+          aria-label={m.workbench_files_refresh()}
+          className="text-muted-foreground hover:text-foreground"
+        >
+          <RefreshCw className="h-3 w-3" />
+        </button>
+      </div>
+      {collectionsStatus === "loading" ? (
+        <p className="mt-1 text-[10px] text-muted-foreground">
+          {m.workbench_settings_loading()}
+        </p>
+      ) : collectionsStatus === "error" ? (
+        <p className="mt-1 text-[10px] text-destructive">
+          {m.workbench_settings_error()}
+        </p>
+      ) : collections.length === 0 ? (
+        <p className="mt-1 text-[10px] text-muted-foreground">
+          {m.rag_collections_empty()}
+        </p>
+      ) : (
+        <ul className="mt-1 space-y-1">
+          {collections.map((collection) => (
+            <li
+              key={collection.name}
+              className="flex items-center justify-between gap-2 rounded border border-border/60 px-2 py-1"
+            >
+              <span className="min-w-0 truncate text-foreground">
+                {collection.name}
+                {collection.count != null && (
+                  <span className="ml-1 text-[10px] text-muted-foreground">
+                    {m.rag_collection_count({ n: collection.count })}
+                  </span>
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPendingDelete(collection.name)}
+                disabled={deletingCollection === collection.name}
+                aria-label={m.rag_collection_delete()}
+                title={m.rag_collection_delete()}
+                className="shrink-0 text-muted-foreground hover:text-destructive"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={m.rag_collection_delete()}
+        description={`${m.rag_collection_delete_confirm({ name: pendingDelete ?? "" })} ${m.workbench_settings_instance_warning()}`}
+        confirmLabel={m.rag_collection_delete()}
+        variant="destructive"
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={async () => {
+          const name = pendingDelete;
+          setPendingDelete(null);
+          if (!name) return;
+          setDeletingCollection(name);
+          try {
+            await deleteCollection(name);
+          } finally {
+            setDeletingCollection(null);
+          }
+        }}
+      />
+    </section>
+  );
+}
+
 export function RagSettingsForm({
   open,
   close,
@@ -257,10 +359,10 @@ export function RagSettingsForm({
   patch,
   loadCollections,
   deleteCollection,
-  pendingDelete,
   settingsStatus,
   collectionsStatus,
   patching,
+  showCollections = true,
 }: Pick<
   RagSettingsState,
   | "open"
@@ -270,11 +372,10 @@ export function RagSettingsForm({
   | "patch"
   | "loadCollections"
   | "deleteCollection"
-  | "pendingDelete"
   | "settingsStatus"
   | "collectionsStatus"
   | "patching"
->) {
+> & { showCollections?: boolean }) {
   if (settingsStatus === "loading" || settingsStatus === "idle") {
     return (
       <p className="p-4 text-xs text-muted-foreground">
@@ -402,108 +503,15 @@ export function RagSettingsForm({
         </div>
       </div>
 
-      {/* Coleções */}
-      <div className="border-t border-border/60 pt-2">
-        <div className="flex items-center justify-between">
-          <p className="font-medium text-foreground">
-            {m.rag_collections_title()}
-          </p>
-          <button
-            onClick={() => void loadCollections()}
-            aria-label={m.workbench_files_refresh()}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <RefreshCw className="h-3 w-3" />
-          </button>
-        </div>
-        {collectionsStatus === "loading" ? (
-          <p className="mt-1 text-[10px] text-muted-foreground">
-            {m.workbench_settings_loading()}
-          </p>
-        ) : collectionsStatus === "error" ? (
-          <p className="mt-1 text-[10px] text-destructive">
-            {m.workbench_settings_error()}
-          </p>
-        ) : collections.length === 0 ? (
-          <p className="mt-1 text-[10px] text-muted-foreground">
-            {m.rag_collections_empty()}
-          </p>
-        ) : (
-          <ul className="mt-1 space-y-1">
-            {collections.map((c) => (
-              <li
-                key={c.name}
-                className="flex items-center justify-between gap-2 rounded border border-border/60 px-2 py-1"
-              >
-                <span className="min-w-0 truncate text-foreground">
-                  {c.name}
-                  {c.count != null && (
-                    <span className="ml-1 text-[10px] text-muted-foreground">
-                      {m.rag_collection_count({ n: c.count })}
-                    </span>
-                  )}
-                </span>
-                <button
-                  onClick={() => void deleteCollection(c.name)}
-                  disabled={pendingDelete === c.name}
-                  aria-label={m.rag_collection_delete()}
-                  title={m.rag_collection_delete()}
-                  className="shrink-0 text-muted-foreground hover:text-destructive"
-                >
-                  <Trash2 className="h-3 w-3" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      {showCollections ? (
+        <RagCollectionsSection
+          collections={collections}
+          collectionsStatus={collectionsStatus}
+          loadCollections={loadCollections}
+          deleteCollection={deleteCollection}
+        />
+      ) : null}
     </div>
-  );
-}
-
-export function RagSettingsSlidePanel(
-  props: Pick<
-    RagSettingsState,
-    | "open"
-    | "close"
-    | "settings"
-    | "collections"
-    | "patch"
-    | "loadCollections"
-    | "deleteCollection"
-  >,
-) {
-  const formProps = {
-    ...props,
-    settingsStatus: "ready" as const,
-    collectionsStatus: "ready" as const,
-    patching: false,
-    pendingDelete: null,
-  };
-  return (
-    <WorkbenchDialog
-      open={props.open}
-      onOpenChange={(open) => {
-        if (!open) props.close();
-      }}
-      title={m.rag_settings_title()}
-      description={m.rag_settings_title()}
-      testId="rag-settings-panel"
-    >
-      <RagSettingsForm {...formProps} />
-    </WorkbenchDialog>
-  );
-}
-
-/** Composição standalone (botão + painel juntos) — para uso fora de layouts
- * que precisem posicionar os dois em linhas separadas (ver `MemoryTab`). */
-export function RagSettingsPanel() {
-  const state = useRagSettings();
-  return (
-    <>
-      <RagSettingsButton open={state.open} onToggle={state.toggle} />
-      <RagSettingsSlidePanel {...state} />
-    </>
   );
 }
 

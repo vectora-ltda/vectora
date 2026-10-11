@@ -18,6 +18,7 @@ import {
   Trash2,
   ExternalLink,
   ListTodo,
+  Settings2,
 } from "lucide-react";
 
 import {
@@ -33,6 +34,8 @@ import { WorkbenchDialog } from "@/components/workbench/workbench-dialog";
 import { m } from "@/lib/paraglide/messages";
 import { useSettingsStore } from "@/lib/stores/settings-store";
 import { useToastStore } from "@/lib/stores/toast-store";
+import { WorkbenchSettingsSurface } from "@/components/workbench/settings/workbench-settings-surface";
+import { tasksSettings } from "@/components/workbench/settings/workbench-settings-registry";
 
 interface DraftState {
   kind: BackgroundKind;
@@ -199,6 +202,7 @@ export function TasksTab({ threadId }: { threadId: string }) {
   } = useBackgroundTasks(threadId);
 
   const [showForm, setShowForm] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [draft, setDraft] = useState<DraftState>(EMPTY_DRAFT);
   const [submitting, setSubmitting] = useState(false);
 
@@ -277,7 +281,24 @@ export function TasksTab({ threadId }: { threadId: string }) {
           <Plus className="w-3 h-3" />
           {m.background_new_task()}
         </button>
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+          className="ml-2 flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+          aria-label={m.workbench_tab_tasks()}
+          data-testid="tasks-settings-btn"
+        >
+          <Settings2 className="h-3.5 w-3.5" />
+        </button>
       </div>
+
+      <WorkbenchSettingsSurface
+        descriptor={tasksSettings}
+        context={{ threadId, workspaceId: workspace?.id ?? null }}
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        testId="tasks-settings-panel"
+      />
 
       <WorkbenchDialog
         open={showForm}

@@ -24,6 +24,7 @@ import {
   Pencil,
   RefreshCw,
   Search,
+  Settings2,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -79,6 +80,8 @@ import { FileHistoryPanel } from "./file-history-panel";
 import { SearchResultGroup } from "./search-result-group";
 import { DirNode, type CreatingState } from "./dir-node";
 import { PinnedSection } from "./pinned-section";
+import { WorkbenchSettingsSurface } from "@/components/workbench/settings/workbench-settings-surface";
+import { filesSettings } from "@/components/workbench/settings/workbench-settings-registry";
 
 // ---------------------------------------------------------------------------
 // FilesTab principal
@@ -111,6 +114,7 @@ export function FilesTab({ threadId, onAddToContext }: FilesTabProps) {
   const openWindow = useWindowsStore((s) => s.open);
   const uiMode = useSettingsStore((s) => s.uiMode);
   const confirmDelete = useSettingsStore((s) => s.editorConfirmDelete);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // aria-busy: verdadeiro enquanto a raiz ainda não chegou do servidor.
   const rootEntriesLoaded = useWorkbenchStore(
@@ -589,6 +593,21 @@ export function FilesTab({ threadId, onAddToContext }: FilesTabProps) {
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              onClick={() => setSettingsOpen(true)}
+              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+              aria-label={m.workbench_tab_files()}
+              data-testid="files-settings-btn"
+            >
+              <Settings2 className="w-3.5 h-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {m.workbench_tab_files()}
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
               onClick={() => handleRequestCreate("dir", "")}
               className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
               aria-label={m.tooltip_files_new_folder()}
@@ -661,6 +680,13 @@ export function FilesTab({ threadId, onAddToContext }: FilesTabProps) {
           </TooltipContent>
         </Tooltip>
       </div>
+      <WorkbenchSettingsSurface
+        descriptor={filesSettings}
+        context={{ threadId, workspaceId: wsId || null }}
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        testId="files-settings-panel"
+      />
 
       {/* Filtro de nomes ou busca em conteúdo */}
       {searchMode ? (
