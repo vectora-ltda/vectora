@@ -158,7 +158,7 @@ def test_cohere_not_available_without_api_key(monkeypatch):
         assert "cohere" not in providers
 
 
-def test_available_providers_includes_configured_local_runtimes():
+def test_available_providers_includes_configured_local_runtimes() -> None:
     settings = Settings()
     object.__setattr__(settings, "ollama_base_url", "http://127.0.0.1:11434")
     object.__setattr__(settings, "llamacpp_base_url", "http://127.0.0.1:18080/v1")

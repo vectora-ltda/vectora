@@ -28,6 +28,7 @@ from backend.vtypes.message import (
     ToolCallChunk,
     VMessage,
     VMessageChunk,
+    coerce_json_object,
 )
 
 if TYPE_CHECKING:
@@ -163,7 +164,7 @@ def _parse_output_items(output: list) -> tuple[str, list[ToolCall]]:
         elif tipo == "function_call":
             args_texto = item.get("arguments") or "{}"
             try:
-                args = json.loads(args_texto)
+                args = coerce_json_object(json.loads(args_texto), raw=args_texto)
             except (json.JSONDecodeError, TypeError):
                 # JSON inválido do modelo é um caso real, não hipotético —
                 # a tool call entra mesmo assim (preserva o texto já gerado

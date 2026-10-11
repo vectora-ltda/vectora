@@ -207,7 +207,8 @@ class PostgresSessionStore:
                 "parent_thread_id, mode, permission_mode, created_at, updated_at) "
                 "VALUES ($1, $2, $3, $4, $5, $6, $7, $8) "
                 "ON CONFLICT (thread_id) DO UPDATE SET "
-                "workspace_id = COALESCE(EXCLUDED.workspace_id, vectora_native_sessions.workspace_id), "
+                "workspace_id = CASE WHEN EXCLUDED.mode = 'chat' "
+                "THEN EXCLUDED.workspace_id ELSE COALESCE(EXCLUDED.workspace_id, vectora_native_sessions.workspace_id) END, "
                 "mode = EXCLUDED.mode, permission_mode = EXCLUDED.permission_mode, "
                 "updated_at = EXCLUDED.updated_at",
                 thread_id,

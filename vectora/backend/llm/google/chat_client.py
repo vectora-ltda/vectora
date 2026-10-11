@@ -34,6 +34,7 @@ from backend.vtypes.message import (
     ToolCallChunk,
     VMessage,
     VMessageChunk,
+    coerce_json_object,
 )
 
 if TYPE_CHECKING:
@@ -211,7 +212,11 @@ def _parse_candidate_parts(parts: list) -> tuple[str, list[ToolCall]]:
             fc = parte["functionCall"]
             nome = fc.get("name", "")
             chamadas.append(
-                ToolCall(id=f"{nome}_call", name=nome, args=fc.get("args") or {})
+                ToolCall(
+                    id=f"{nome}_call",
+                    name=nome,
+                    args=coerce_json_object(fc.get("args") or {}),
+                )
             )
     return "".join(texto_partes), chamadas
 

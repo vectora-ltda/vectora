@@ -29,6 +29,7 @@ from backend.vtypes.message import (
     ToolCallChunk,
     VMessage,
     VMessageChunk,
+    coerce_json_object,
 )
 
 if TYPE_CHECKING:
@@ -224,7 +225,7 @@ class AnthropicChatClient:
                     ToolCall(
                         id=bloco.get("id") or "",
                         name=bloco.get("name", ""),
-                        args=bloco.get("input") or {},
+                        args=coerce_json_object(bloco.get("input") or {}),
                     )
                 )
 

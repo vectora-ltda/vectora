@@ -871,16 +871,13 @@ export function ChatInterface({
 
   // Process queue when AI finishes responding
   useEffect(() => {
-    const wasLoading = prevIsLoadingRef.current;
     const isCurrentlyLoading = uiState.isLoading || uiState.isRegenerating;
 
-    // When loading finishes and there are queued messages, process them
-    if (
-      wasLoading &&
-      !isCurrentlyLoading &&
-      messageQueueRef.current.length > 0
-    ) {
-      processQueue();
+    // A queue may be promoted while a regeneration is active. Once the
+    // active stream is idle, always drain the selected item; the focus effect
+    // updates prevIsLoadingRef before this effect runs.
+    if (!isCurrentlyLoading && messageQueueRef.current.length > 0) {
+      processQueueRef.current();
     }
   }, [uiState.isLoading, uiState.isRegenerating, processQueue]);
 
@@ -1124,8 +1121,8 @@ export function ChatInterface({
         ];
       });
 
-      // Aborta o turno atual; quando o stream terminar, o processador normal
-      // da fila remove o próximo item, que agora é o selecionado.
+      // Aborta o turno atual; quando o stream terminar, o efeito da fila
+      // remove o próximo item, que agora é o selecionado.
       if (uiState.isLoading || uiState.isRegenerating) {
         void handleStop();
       } else {

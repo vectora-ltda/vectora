@@ -186,7 +186,7 @@ Linux/macOS) connected to the workspace. Multiple simultaneous terminals per
 session. Badge shows the number of active PTYs.
 
 Agents have the same terminal contract through tools. To open an interactive
-PTY visible in the Workbench, call `open_terminal`; it returns a terminal id.
+PTY visible in the Workbench, call `open_terminal`; it returns a terminal id. Immediately call `attach_terminal` with that id before reading or writing.
 To use a PTY already
 opened by the user, call `list_terminals`, select the terminal belonging to
 the current workspace, call `attach_terminal`, and then use `read_terminal`

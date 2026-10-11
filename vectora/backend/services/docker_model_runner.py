@@ -282,7 +282,12 @@ async def run_docker_model(
         process.kill()
         await process.wait()
         raise RuntimeError("operação Docker Model Runner excedeu o timeout") from exc
-    output = (stdout + b"\n" + stderr)[:MAX_OUTPUT_BYTES]
+    if process.returncode:
+        output = stderr[-MAX_OUTPUT_BYTES:]
+        if stdout and len(output) < MAX_OUTPUT_BYTES:
+            output = stdout[-(MAX_OUTPUT_BYTES - len(output)) :] + b"\n" + output
+    else:
+        output = (stdout + b"\n" + stderr)[-MAX_OUTPUT_BYTES:]
     text = output.decode("utf-8", errors="replace")
     if process.returncode:
         raise RuntimeError(
@@ -555,7 +560,7 @@ async def _run_job(job: DmrJob) -> None:
                 **await inspect_model(job.reference),
             }
         except (OSError, RuntimeError, ValueError):
-            job.metadata = {}
+            logger.debug("dmr: inspect indisponível", exc_info=True)
         job.status = "completed"
         await _set_job_progress(job, "completed", 100)
     except asyncio.CancelledError:

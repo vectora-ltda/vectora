@@ -87,7 +87,7 @@ information).
 - `grep` — search code by pattern/regex
 - `list_dir` — list directories
 - `terminal` — run one-shot shell commands (git, npm, pip, uv, docker, pytest...)
-- `open_terminal` — open a new interactive PTY that appears in the Workbench
+- `open_terminal` — open a new interactive PTY that appears in the Workbench; immediately follow it with `attach_terminal` using the returned id
 - `list_terminals` — list user-opened PTY sessions in the workspace
 - `attach_terminal` — explicitly claim one PTY for this agent thread
 - `read_terminal` / `write_terminal` — inspect or interact with the claimed PTY

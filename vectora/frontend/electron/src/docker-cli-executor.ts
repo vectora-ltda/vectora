@@ -8,6 +8,7 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import killTree from "tree-kill";
 
 export const MAX_OUTPUT_BYTES = 64 * 1024;
 export const DEFAULT_TIMEOUT_MS = 120_000;
@@ -100,6 +101,16 @@ function appendLimited(
   return Buffer.concat([current, chunk]).subarray(0, MAX_OUTPUT_BYTES);
 }
 
+function terminateProcessTree(child: ChildProcess): boolean {
+  if (!child.pid) return child.kill();
+  try {
+    killTree(child.pid);
+    return true;
+  } catch {
+    return child.kill();
+  }
+}
+
 /** Executa somente operações DMR permitidas e rastreia cancelamento por ID. */
 export class DockerCliExecutor {
   private readonly active = new Map<string, ChildProcess>();
@@ -139,11 +150,11 @@ export class DockerCliExecutor {
         callback();
       };
       const abort = (): void => {
-        child.kill();
+        terminateProcessTree(child);
         finish(() => reject(new Error("operação Docker cancelada")));
       };
       const timer = setTimeout(() => {
-        child.kill();
+        terminateProcessTree(child);
         finish(() => reject(new Error("operação Docker excedeu o timeout")));
       }, timeoutMs);
 
@@ -171,11 +182,12 @@ export class DockerCliExecutor {
   }
 
   cancel(operationId: string): boolean {
-    return this.active.get(operationId)?.kill() ?? false;
+    const child = this.active.get(operationId);
+    return child ? terminateProcessTree(child) : false;
   }
 
   dispose(): void {
-    for (const child of this.active.values()) child.kill();
+    for (const child of this.active.values()) terminateProcessTree(child);
     this.active.clear();
   }
 }

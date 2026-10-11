@@ -209,7 +209,8 @@ class SessionStore:
                     "parent_thread_id, mode, permission_mode, created_at, updated_at) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
                     "ON CONFLICT(thread_id) DO UPDATE SET "
-                    "workspace_id = COALESCE(excluded.workspace_id, sessions.workspace_id), "
+                    "workspace_id = CASE WHEN excluded.mode = 'chat' "
+                    "THEN excluded.workspace_id ELSE COALESCE(excluded.workspace_id, sessions.workspace_id) END, "
                     "mode = excluded.mode, permission_mode = excluded.permission_mode, "
                     "updated_at = excluded.updated_at",
                     (

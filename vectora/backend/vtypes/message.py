@@ -13,9 +13,20 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Literal
 
+from pydantic import TypeAdapter, ValidationError
+
 from backend.vtypes.contracts import JsonObject, UsageSnapshot
 
 logger = logging.getLogger(__name__)
+
+
+def coerce_json_object(value: object, *, raw: object | None = None) -> JsonObject:
+    """Normalize provider tool arguments to the object shape tools require."""
+    try:
+        return TypeAdapter(JsonObject).validate_python(value)
+    except ValidationError:
+        pass
+    return {"_parse_error": str(raw if raw is not None else value)}
 
 
 class MessageRole(StrEnum):
@@ -142,7 +153,11 @@ class VMessage:
                     for b in data.get("content", [])
                 ],
                 tool_calls=[
-                    ToolCall(id=tc["id"], name=tc["name"], args=tc["args"])
+                    ToolCall(
+                        id=tc["id"],
+                        name=tc["name"],
+                        args=coerce_json_object(tc["args"]),
+                    )
                     for tc in data.get("tool_calls", [])
                 ],
                 tool_call_id=data.get("tool_call_id"),

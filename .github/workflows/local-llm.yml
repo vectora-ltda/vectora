@@ -93,6 +93,7 @@ jobs:
             > "$RUNNER_TEMP/llama-server.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/llama-server.pid"
           for attempt in {1..60}; do
+            echo "Waiting for llama.cpp readiness (attempt ${attempt}/60)..."
             if curl --fail --silent http://127.0.0.1:18080/health >/dev/null; then
               exit 0
             fi

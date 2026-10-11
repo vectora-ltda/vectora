@@ -28,6 +28,7 @@ from backend.vtypes.message import (
     ToolCallChunk,
     VMessage,
     VMessageChunk,
+    coerce_json_object,
 )
 
 if TYPE_CHECKING:
@@ -90,7 +91,7 @@ def _parse_tool_calls(bruto: list) -> list[ToolCall]:
             ToolCall(
                 id=item.get("id") or "",
                 name=funcao.get("name", ""),
-                args=args if isinstance(args, dict) else {},
+                args=coerce_json_object(args),
             )
         )
     return chamadas

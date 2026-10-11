@@ -112,9 +112,12 @@ async def _restore_thread_runtime(
             candidate = await get_session(thread_id, user_id=user_id)
             if isinstance(candidate, dict):
                 session = candidate
-    except Exception:
-        # Falhar ao reidratar não pode abrir o gate: o modo seguro é ask.
+    except Exception as exc:
         logger.exception("api/chat: falha ao reidratar contexto do HITL")
+        raise HTTPException(
+            status_code=503,
+            detail="Não foi possível restaurar o contexto da aprovação pendente",
+        ) from exc
 
     if permission_mode is None:
         permission_mode = str((session or {}).get("permission_mode") or "ask")

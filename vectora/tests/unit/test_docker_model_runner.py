@@ -275,8 +275,15 @@ async def test_run_model_configures_context_before_detached_start(
 
 @pytest.mark.asyncio
 async def test_model_job_reports_completion_and_keeps_output(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from backend.settings import settings
+
+    monkeypatch.setattr(settings, "vectora_home", tmp_path)
+    dmr._jobs.clear()
+    dmr._job_tasks.clear()
+    dmr._jobs_loaded = False
     calls: list[tuple[str, ...]] = []
 
     async def fake_run(*args: str, command_timeout: float = 120.0) -> str:
@@ -308,8 +315,16 @@ async def test_model_job_reports_completion_and_keeps_output(
 
 @pytest.mark.asyncio
 async def test_model_job_fails_when_readiness_inference_fails(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from backend.settings import settings
+
+    monkeypatch.setattr(settings, "vectora_home", tmp_path)
+    dmr._jobs.clear()
+    dmr._job_tasks.clear()
+    dmr._jobs_loaded = False
+
     async def fake_run(*args: str, command_timeout: float = 120.0) -> str:
         return "ok"
 

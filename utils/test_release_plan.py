@@ -24,6 +24,20 @@ def test_breaking_change_uses_minor_before_one() -> None:
     assert plan.next_version == "0.4.0"
 
 
+def test_breaking_change_footer_uses_major_after_one() -> None:
+    plan = calculate_plan(
+        "1.3.0",
+        [
+            Commit(
+                subject="feat: change release contract",
+                body="BREAKING CHANGE: callers must provide a workspace",
+            )
+        ],
+    )
+    assert plan.next_version == "2.0.0"
+    assert plan.breaking_entries == ["feat: change release contract"]
+
+
 def test_non_release_commits_do_not_create_plan() -> None:
     plan = calculate_plan("0.3.0", [Commit(subject="docs: explain release flow")])
     assert plan.next_version == "0.3.0"

@@ -39,4 +39,5 @@ class BrowserNetworkEntry(TypedDict):
     url: str
     method: str
     resource_type: str
-    status: int | None
+    status: int | Literal["failed"] | None
+    error: NotRequired[str]

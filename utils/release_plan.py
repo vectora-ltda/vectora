@@ -18,6 +18,7 @@ class Commit(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     subject: str = Field(min_length=1)
+    body: str = ""
 
 
 class ReleasePlan(BaseModel):
@@ -29,6 +30,7 @@ class ReleasePlan(BaseModel):
     next_version: str
     bump: Literal["none", "patch", "minor", "major"]
     entries: list[str]
+    breaking_entries: list[str] = []
 
 
 VERSION_RE = re.compile(
@@ -43,7 +45,7 @@ def _bump_kind(commit: Commit) -> str | None:
     match = HEADER_RE.fullmatch(commit.subject.strip())
     if match is None:
         return None
-    if match.group("breaking"):
+    if match.group("breaking") or re.search(r"(?m)^BREAKING[ -]CHANGE:\s", commit.body):
         return "major"
     kind = match.group("kind")
     if kind == "feat":
@@ -102,11 +104,15 @@ def calculate_plan(
     entries = [
         commit.subject.strip() for commit in commits if _bump_kind(commit) is not None
     ]
+    breaking_entries = [
+        commit.subject.strip() for commit in commits if _bump_kind(commit) == "major"
+    ]
     return ReleasePlan(
         current_version=current_version,
         next_version=next_version,
         bump=bump,
         entries=entries,
+        breaking_entries=breaking_entries,
     )
 
 
@@ -156,12 +162,17 @@ def apply_plan(
     if plan.bump == "none":
         return
     features = [entry for entry in plan.entries if entry.startswith("feat")]
+    breaking = plan.breaking_entries
     fixes = [entry for entry in plan.entries if entry.startswith(("fix", "perf"))]
     lines = [
         f"## [{plan.next_version}] (" + str(date.today()) + ")",
         "",
     ]
-    for title, entries in (("Features", features), ("Bug Fixes", fixes)):
+    for title, entries in (
+        ("⚠ BREAKING CHANGES", breaking),
+        ("Features", features),
+        ("Bug Fixes", fixes),
+    ):
         if entries:
             lines.extend([f"### {title}", ""])
             lines.extend(f"- {entry}" for entry in entries)
