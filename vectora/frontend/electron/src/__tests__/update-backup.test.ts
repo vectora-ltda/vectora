@@ -34,7 +34,7 @@ describe("update backups", () => {
     expect(attempts).toBe(3);
   });
 
-  it("propaga erros permanentes de permissão sem classificá-los como bloqueio", async () => {
+  it("retries transient permission locks before surfacing the error", async () => {
     const permissionError = Object.assign(new Error("permission denied"), {
       code: "EACCES",
     });
@@ -43,7 +43,7 @@ describe("update backups", () => {
       .mockRejectedValue(permissionError);
 
     await expect(withFileLockRetry(operation)).rejects.toBe(permissionError);
-    expect(operation).toHaveBeenCalledOnce();
+    expect(operation).toHaveBeenCalledTimes(5);
   });
 
   it("continues downloading when the optional backup rejects", async () => {
