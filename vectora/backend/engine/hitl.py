@@ -195,7 +195,10 @@ def should_require_approval(
     mode = ctx.permission_mode or "ask"
     decision = _mode_should_interrupt(mode, tool_name, history)
     logger.info(
-        "hitl.decision",
+        "hitl.decision tool=%s decision=%s mode=%s",
+        tool_name,
+        decision,
+        mode,
         extra={"tool_name": tool_name, "decision": decision, "mode": mode},
     )
     return decision

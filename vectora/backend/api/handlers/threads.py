@@ -24,6 +24,7 @@ import contextlib
 import json
 import logging
 import os
+import sqlite3
 import stat
 import uuid
 from datetime import UTC, datetime
@@ -920,19 +921,39 @@ async def mark_thread_read(thread_id: str, request: Request) -> dict[str, int | 
     await _assert_owns_thread(thread_id, request)
     user_id = _user_id(request)
     db = await _get_db()
-    async with db.execute(
-        "SELECT message_count FROM vectora_sessions WHERE thread_id = ?", (thread_id,)
-    ) as cur:
-        row = await cur.fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Thread não encontrada")
-    await db.execute(
-        "INSERT INTO thread_read_cursors(thread_id, user_id, read_count) VALUES (?, ?, ?) "
-        "ON CONFLICT(thread_id, user_id) DO UPDATE SET read_count = "
-        "MAX(thread_read_cursors.read_count, excluded.read_count)",
-        (thread_id, user_id, int(row[0])),
-    )
-    await db.commit()
+    for attempt in range(5):
+        try:
+            async with db.execute(
+                "SELECT message_count FROM vectora_sessions WHERE thread_id = ?",
+                (thread_id,),
+            ) as cur:
+                row = await cur.fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="Thread não encontrada")
+            await db.execute(
+                "INSERT INTO thread_read_cursors(thread_id, user_id, read_count) VALUES (?, ?, ?) "
+                "ON CONFLICT(thread_id, user_id) DO UPDATE SET read_count = "
+                "MAX(thread_read_cursors.read_count, excluded.read_count)",
+                (thread_id, user_id, int(row[0])),
+            )
+            await db.commit()
+            break
+        except sqlite3.OperationalError as exc:
+            await db.rollback()
+            locked = "locked" in str(exc).lower()
+            if not locked or attempt == 4:
+                raise
+            delay = 0.05 * (2**attempt)
+            logger.warning(
+                "thread_read_write_locked_retry",
+                extra={
+                    "thread_id": thread_id,
+                    "user_id": user_id,
+                    "attempt": attempt + 1,
+                    "delay_seconds": delay,
+                },
+            )
+            await asyncio.sleep(delay)
     return {"thread_id": thread_id, "unread_count": 0}
 
 

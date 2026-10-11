@@ -76,6 +76,18 @@ class TestGetNativeAgent:
         assert "delegate_to_subagent" not in nomes
         assert agent.subagent_catalog == {}
 
+    async def test_native_agent_catalog_matches_node_contract(self):
+        """O dispatch em produção não pode perder tools entre node e agente."""
+        from backend.nodes.tools import ALL_TOOL_NAMES, CHAT_TOOL_NAMES
+
+        code_agent = await af.get_native_agent(user_id="contract", chat_mode=False)
+        code_names = {tool.name for tool in code_agent.tool_registry.all()}
+        assert code_names == {*ALL_TOOL_NAMES, "delegate_to_subagent"}
+
+        chat_agent = await af.get_native_agent(user_id="contract-chat", chat_mode=True)
+        chat_names = {tool.name for tool in chat_agent.tool_registry.all()}
+        assert chat_names == set(CHAT_TOOL_NAMES)
+
     async def test_cache_por_user_chat_mode_workspace(self):
         a1 = await af.get_native_agent(user_id="alice", chat_mode=False)
         a2 = await af.get_native_agent(user_id="alice", chat_mode=False)

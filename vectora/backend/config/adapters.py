@@ -82,8 +82,9 @@ class ConfigTomlAdapter:
 
 class RegisteredModelsTableAdapter:
     """Envolve as tabelas SQLite ad hoc de modelos registrados por gateway do
-    `provider_routing` (``ollama_registered_models`` / ``openrouter_registered_models``
-    / ``nine_router_registered_models``). Reusa o resolver de DB e as funções
+    `provider_routing` (``ollama_registered_models`` /
+    ``llamacpp_registered_models`` / ``openrouter_registered_models`` /
+    ``nine_router_registered_models``). Reusa o resolver de DB e as funções
     internas do handler — não duplica a lógica de tabela.
     """
 
