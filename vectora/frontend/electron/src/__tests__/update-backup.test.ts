@@ -85,9 +85,7 @@ describe("update backups", () => {
     for (let index = 0; index < 6; index += 1) {
       await createRotatingUpdateBackup(userData, backups, `0.1.${index}`);
     }
-    const entries = await import("../update-backup.js").then(
-      ({ listUpdateBackups }) => listUpdateBackups(backups),
-    );
+    const entries = await listUpdateBackups(backups);
     expect(entries).toHaveLength(5);
   });
 
@@ -237,7 +235,6 @@ describe("update backups", () => {
     const entry = await createRotatingUpdateBackup(userData, backups, "0.1.0");
     await writeFile(path.join(userData, "stale.json"), "remove");
 
-    const { listUpdateBackups } = await import("../update-backup.js");
     expect(await listUpdateBackups(backups)).toHaveLength(1);
     await restoreUpdateBackup(entry, userData, backups);
 
