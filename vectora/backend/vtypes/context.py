@@ -16,7 +16,9 @@ sem transformação extra.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
+
+from backend.vtypes.permission import PermissionMode
 
 
 @dataclass
@@ -33,8 +35,8 @@ class VectoraContext:
     workspace_id: str = ""
     """ID do workspace ativo na sessão."""
 
-    permission_mode: str = "ask"
-    """Modo de permissão: 'ask' | 'accept_edits' | 'auto' | 'bypass' | 'plan'."""
+    permission_mode: PermissionMode = "ask"
+    """Modo de permissão aceito pelo contrato API/UI."""
 
     org_id: str = ""
     """ID da organização (multi-tenant). Vazio em modo single-user."""
@@ -99,7 +101,7 @@ def ctx_from_config(config: dict | None) -> VectoraContext:
     return VectoraContext(
         user_id=str(c.get("user_id") or "local"),
         workspace_id=str(c.get("workspace_id") or ""),
-        permission_mode=str(c.get("permission_mode") or "ask"),
+        permission_mode=cast("PermissionMode", str(c.get("permission_mode") or "ask")),
         org_id=str(c.get("org_id") or ""),
         locale=str(c.get("language") or c.get("locale") or ""),
         model=str(c.get("model") or ""),

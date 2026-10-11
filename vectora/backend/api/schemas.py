@@ -16,6 +16,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from backend.vtypes.permission import PermissionMode
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -36,7 +38,9 @@ class ChatConfig(BaseModel):
         False  # modo Chat: conversacional puro, sem workspace/tools de dev
     )
     custom_system_prompt: str = ""  # instrução personalizada por usuário
-    permission_mode: str = "ask"  # ask|accept_edits|plan|auto|bypass
+    # ``""`` permanece como sentinela de compatibilidade: o handler omite o
+    # campo do configurable e deixa a sessão escolher o modo persistido.
+    permission_mode: PermissionMode | Literal[""] = "ask"
     reasoning_effort: str = ""  # low|medium|high|max (vazio = default do modelo)
     context_max_tokens: int | None = Field(default=None, ge=1)
     context_compaction_enabled: bool = True

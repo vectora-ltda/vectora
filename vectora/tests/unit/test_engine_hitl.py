@@ -56,6 +56,23 @@ class TestShouldRequireApproval:
             is True
         )
 
+    def test_toda_tool_marcada_como_destrutiva_no_registry_pede_aprovacao(self):
+        """O metadata do registry é a segunda metade do contrato HITL.
+
+        O teste importa o catálogo nativo inteiro para impedir que uma nova
+        tool destrutiva seja adicionada sem entrar automaticamente na política
+        de aprovação.
+        """
+        import backend.nodes.tools  # registra as tools nativas
+        from backend.tools.registry import TOOL_REGISTRY
+
+        destrutivas = [spec for spec in TOOL_REGISTRY.all() if spec.extras.destructive]
+        assert destrutivas
+        assert all(
+            should_require_approval(spec.name, _ctx(permission_mode="ask"), {}, [])
+            for spec in destrutivas
+        )
+
     def test_modo_desconhecido_cai_no_comportamento_mais_restritivo_de_ask(self):
         ctx = _ctx(permission_mode="modo-invalido")
         assert should_require_approval("file_write", ctx, {}, []) is True

@@ -162,7 +162,7 @@ def _plan_mode_ja_passou_neste_turno(history: list[VMessage]) -> bool:
 
 def _mode_should_interrupt(mode: str, tool_name: str, history: list[VMessage]) -> bool:
     """Política canônica dos 5 modos — fonte única de verdade do HITL nativo."""
-    requires_approval = tool_name in REQUIRE_APPROVAL
+    requires_approval = _tool_requires_approval(tool_name)
     always_interrupt = tool_name in _ALWAYS_INTERRUPT
     if mode in _NON_INTERRUPTING_MODES:
         decision = False
@@ -177,6 +177,31 @@ def _mode_should_interrupt(mode: str, tool_name: str, history: list[VMessage]) -
     else:
         decision = True  # "ask" ou desconhecido → mais restritivo
     return requires_approval and (always_interrupt or decision)
+
+
+def _tool_requires_approval(tool_name: str) -> bool:
+    """Resolve the approval candidate from the canonical tool metadata.
+
+    ``REQUIRE_APPROVAL`` remains a compatibility fallback for tools that are
+    intentionally resolved before their native module is imported. Once a
+    tool is registered, ``ToolExtras.destructive`` is the authoritative
+    contract shared by the registry, batching policy, UI metadata and HITL.
+    This prevents a newly added destructive tool from silently bypassing the
+    approval gate just because somebody forgot to update a second name list.
+    """
+    if tool_name in REQUIRE_APPROVAL:
+        return True
+    try:
+        from backend.tools.registry import TOOL_REGISTRY
+
+        spec = TOOL_REGISTRY.get(tool_name)
+    except Exception:
+        logger.debug(
+            "hitl: unable to resolve tool metadata",
+            extra={"tool_name": tool_name},
+        )
+        return False
+    return spec is not None and spec.extras.destructive
 
 
 def should_require_approval(

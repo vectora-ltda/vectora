@@ -56,6 +56,12 @@ def test_permission_mode_empty_string_omitted():
     assert "permission_mode" not in cfg
 
 
+def test_permission_mode_rejeita_valor_fora_do_contrato():
+    """A API não deve aceitar modos que o motor não sabe interpretar."""
+    with pytest.raises(ValueError):
+        ChatConfig.model_validate({"permission_mode": "modo-invalido"})
+
+
 # ---------------------------------------------------------------------------
 # R4 — reasoning_effort
 # ---------------------------------------------------------------------------
