@@ -14,7 +14,7 @@
  * dispara fetch só para contar):
  *   - terminal: número de PTYs abertos na sessão
  *   - files: número de arquivos fixados
- *   - diff: `+N -M` quando há mudanças
+ *   - git: `+N -M` quando há mudanças
  *   - plan: número de artifacts na sessão
  *
  * Antes de hidratar, o badge fica vazio (consistente com `useHydrated`) para
@@ -32,9 +32,7 @@ import {
   Radar,
   Waypoints,
   Library,
-  Package,
 } from "lucide-react";
-import { useEffect } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useWorkspaceWatcher } from "@/lib/hooks/use-workspace-watcher";
 import { useHydrated } from "@/lib/hooks/use-hydrated";
@@ -58,13 +56,10 @@ import { MemoryTab } from "./tabs/memory-tab";
 import { TasksTab } from "./tabs/tasks-tab";
 import { ContextGraphTab } from "./tabs/context-graph-tab";
 import { LibraryTab } from "./tabs/library-tab";
+import type { GitCommitDetailsState } from "./git/history-view";
+import type { PlanItem } from "@/lib/stores/workbench-store";
 import { m } from "@/lib/paraglide/messages";
 import { mDyn } from "@/lib/i18n-dyn";
-import {
-  NATIVE_EXTENSION_IDS,
-  useLibraryStore,
-  type VextExtension,
-} from "@/lib/stores/library-store";
 import { ColumnHeader } from "@/components/layout/column-header";
 import { RailToggleButton } from "@/components/layout/rail-toggle-button";
 import {
@@ -74,6 +69,14 @@ import {
 
 interface WorkbenchPanelProps {
   threadId: string;
+  /** Abre os detalhes de um commit no canvas compartilhado. */
+  onOpenCommitDetails?: (details: GitCommitDetailsState) => void;
+  onOpenPlanDocument?: (
+    item: PlanItem,
+    content: string | null,
+    error?: string,
+    phase?: "open" | "update",
+  ) => void;
   /** Injetar @path no chat ao clicar no botão @ de um arquivo/pasta. */
   onAddToContext?: (path: string) => void;
   /** Inserir texto no composer (god nodes/perguntas sugeridas do Context Graph). */
@@ -86,7 +89,7 @@ const TAB_ICON: Record<
 > = {
   terminal: TerminalSquare,
   files: FolderTree,
-  diff: GitCompare,
+  git: GitCompare,
   plan: FileText,
   browser: MonitorPlay,
   storage: Brain,
@@ -94,19 +97,6 @@ const TAB_ICON: Record<
   context_graph: Waypoints,
   library: Library,
 };
-
-function ExtensionWorkbench({ extension }: { extension: VextExtension }) {
-  if (!extension.frontend_entrypoint) return null;
-  return (
-    <iframe
-      title={extension.name}
-      src={`/vext/${encodeURIComponent(extension.id)}/frontend`}
-      sandbox="allow-scripts"
-      className="h-full w-full border-0 bg-background"
-      data-testid={`vext-workbench-${extension.id}`}
-    />
-  );
-}
 
 /** Lê o cache do workbench-store e devolve o texto do chip por aba. */
 function useTabBadge(
@@ -129,7 +119,7 @@ function useTabBadge(
       return terminals.length > 0 ? String(terminals.length) : null;
     case "files":
       return pinned > 0 ? String(pinned) : null;
-    case "diff":
+    case "git":
       // Sem chip de +N −M: o contador de diff poluía mais do que ajudava;
       // o ponto âmbar de "pending" continua sinalizando mudanças.
       return null;
@@ -164,8 +154,8 @@ function NavTabButton({
   const pending = useWorkbenchStore((s) =>
     tab === "files"
       ? Boolean(s.pending[workspaceId]?.files)
-      : tab === "diff"
-        ? Boolean(s.pending[workspaceId]?.diff)
+      : tab === "git"
+        ? Boolean(s.pending[workspaceId]?.git)
         : false,
   );
   const showPending = hydrated && pending && !active;
@@ -235,36 +225,9 @@ export function WorkbenchNavBar({
   const workspace = useWorkspacesStore((s) => s.getActive());
   const wsId = workspace?.id ?? "";
   const activeTab = useWorkbenchStore((s) => s.getActiveTab(threadId));
-  const activeExtension = useWorkbenchStore((s) =>
-    s.getActiveExtension?.(threadId),
-  );
   const isOpen = useWorkbenchStore((s) => s.isOpen(threadId));
   const selectTab = useWorkbenchStore((s) => s.selectTab);
   const setPanelOpen = useWorkbenchStore((s) => s.setPanelOpen);
-  const selectExtension = useWorkbenchStore((s) => s.selectExtension);
-  const extensionItems = useLibraryStore((s) => s.extensionItems);
-  const extensionInstalledIds = useLibraryStore((s) => s.extensionInstalledIds);
-  const ensureExtensionsLoaded = useLibraryStore(
-    (s) => s.ensureExtensionsLoaded,
-  );
-  useEffect(() => {
-    void ensureExtensionsLoaded();
-  }, [ensureExtensionsLoaded]);
-  const workbenchExtensions = extensionItems.filter(
-    (item) =>
-      extensionInstalledIds.has(item.id) &&
-      !item.native &&
-      !NATIVE_EXTENSION_IDS.has(item.id) &&
-      item.frontend_entrypoint &&
-      item.contributions?.workbench?.some(
-        (contribution) => contribution.entrypoint,
-      ),
-  );
-  useEffect(() => {
-    if (activeExtension && !extensionInstalledIds.has(activeExtension)) {
-      useWorkbenchStore.getState().clearExtension(threadId);
-    }
-  }, [activeExtension, extensionInstalledIds, threadId]);
 
   return (
     <div
@@ -298,32 +261,12 @@ export function WorkbenchNavBar({
           <NavTabButton
             key={tab}
             tab={tab}
-            active={hydrated && isOpen && !activeExtension && tab === activeTab}
+            active={hydrated && isOpen && tab === activeTab}
             threadId={threadId}
             workspaceId={wsId}
             hydrated={hydrated}
             onSelect={() => selectTab(threadId, tab)}
           />
-        ))}
-        {workbenchExtensions.map((extension) => (
-          <Tooltip key={extension.id}>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => selectExtension(threadId, extension.id)}
-                data-testid={`workbench-nav-extension-${extension.id}`}
-                aria-label={extension.name}
-                className={`relative flex items-center justify-center w-8 h-8 rounded-md transition-colors ${
-                  activeExtension === extension.id && isOpen
-                    ? "bg-muted text-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                }`}
-              >
-                <Package className="w-4 h-4" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">{extension.name}</TooltipContent>
-          </Tooltip>
         ))}
       </div>
     </div>
@@ -340,6 +283,8 @@ export function WorkbenchNavBar({
  */
 export function WorkbenchContent({
   threadId,
+  onOpenCommitDetails,
+  onOpenPlanDocument,
   onAddToContext,
   onSendPrompt,
   side = "right",
@@ -348,26 +293,12 @@ export function WorkbenchContent({
   const workspace = useWorkspacesStore((s) => s.getActive());
   const wsId = workspace?.id ?? "";
   const activeTab = useWorkbenchStore((s) => s.getActiveTab(threadId));
-  const activeExtension = useWorkbenchStore((s) =>
-    s.getActiveExtension?.(threadId),
-  );
   const setPanelOpen = useWorkbenchStore((s) => s.setPanelOpen);
-  const extensionItems = useLibraryStore((s) => s.extensionItems);
-  const extensionInstalledIds = useLibraryStore((s) => s.extensionInstalledIds);
-  const ensureExtensionsLoaded = useLibraryStore(
-    (s) => s.ensureExtensionsLoaded,
-  );
   const ActiveIcon = TAB_ICON[activeTab];
   const reducedMotion = useReducedMotion();
 
   // A.17 — file watcher SSE: dispara markPending quando arquivos mudam
   useWorkspaceWatcher(wsId || undefined);
-  useEffect(() => {
-    void ensureExtensionsLoaded();
-  }, [ensureExtensionsLoaded]);
-  const extension = activeExtension
-    ? extensionItems.find((item) => item.id === activeExtension)
-    : undefined;
 
   return (
     <div
@@ -382,7 +313,7 @@ export function WorkbenchContent({
           data-active-tab={activeTab}
         >
           <ActiveIcon className="w-4 h-4 text-muted-foreground" />
-          {extension?.name ?? mDyn(`workbench.tab.${activeTab}`)}
+          {mDyn(`workbench.tab.${activeTab}`)}
         </span>
         <div className="flex items-center gap-1">
           <Tooltip>
@@ -409,7 +340,7 @@ export function WorkbenchContent({
           só a entrada anima. */}
       <div className="flex-1 min-h-0 overflow-hidden relative">
         <motion.div
-          key={activeExtension ?? activeTab}
+          key={activeTab}
           initial={reducedMotion ? false : { opacity: 0, x: 6 }}
           animate={{ opacity: 1, x: 0 }}
           transition={reducedMotion ? { duration: 0 } : PANEL_TRANSITION}
@@ -417,36 +348,35 @@ export function WorkbenchContent({
           data-testid="workbench-tab-content"
           data-tab={activeTab}
         >
-          {extension ? (
-            <ExtensionWorkbench extension={extension} />
-          ) : (
-            <>
-              {activeTab === "terminal" && (
-                <TerminalPanel threadId={threadId} />
-              )}
-              {activeTab === "files" && (
-                <FilesTab threadId={threadId} onAddToContext={onAddToContext} />
-              )}
-              {activeTab === "diff" && <GitTab threadId={threadId} />}
-              {activeTab === "plan" && <PlanTab threadId={threadId} />}
-              {activeTab === "browser" && (
-                <BrowserTab
-                  key={`${wsId}:${threadId}`}
-                  threadId={threadId}
-                  visible={visible}
-                />
-              )}
-              {activeTab === "storage" && <MemoryTab threadId={threadId} />}
-              {activeTab === "tasks" && <TasksTab threadId={threadId} />}
-              {activeTab === "context_graph" && (
-                <ContextGraphTab
-                  threadId={threadId}
-                  onSendPrompt={onSendPrompt}
-                />
-              )}
-              {activeTab === "library" && <LibraryTab threadId={threadId} />}
-            </>
+          {activeTab === "terminal" && <TerminalPanel threadId={threadId} />}
+          {activeTab === "files" && (
+            <FilesTab threadId={threadId} onAddToContext={onAddToContext} />
           )}
+          {activeTab === "git" && (
+            <GitTab
+              threadId={threadId}
+              onOpenCommitDetails={onOpenCommitDetails}
+            />
+          )}
+          {activeTab === "plan" && (
+            <PlanTab
+              threadId={threadId}
+              onOpenPlanDocument={onOpenPlanDocument}
+            />
+          )}
+          {activeTab === "browser" && (
+            <BrowserTab
+              key={`${wsId}:${threadId}`}
+              threadId={threadId}
+              visible={visible}
+            />
+          )}
+          {activeTab === "storage" && <MemoryTab threadId={threadId} />}
+          {activeTab === "tasks" && <TasksTab threadId={threadId} />}
+          {activeTab === "context_graph" && (
+            <ContextGraphTab threadId={threadId} onSendPrompt={onSendPrompt} />
+          )}
+          {activeTab === "library" && <LibraryTab threadId={threadId} />}
         </motion.div>
       </div>
     </div>

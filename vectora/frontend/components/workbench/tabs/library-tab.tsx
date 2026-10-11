@@ -2,12 +2,12 @@
 
 /**
  * LibraryTab — 3 seções fecháveis (MCP, Skills, Memory Buckets) com busca
- * e filtros toggle por categoria. A busca é client-side sobre os itens já
+ * e seleção única de categoria. A busca é client-side sobre os itens já
  * carregados de cada seção, sem endpoint agregado.
  */
 
 import { Archive, Package, Puzzle, Search, Sparkles } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState, type KeyboardEvent } from "react";
 
 import {
   Accordion,
@@ -16,6 +16,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { m } from "@/lib/paraglide/messages";
+import { useSettingsStore } from "@/lib/stores/settings-store";
 import { McpSection } from "./library-mcp-section";
 import { MemoryBucketsSection } from "./library-memory-buckets-section";
 import { SkillsSection } from "./library-skills-section";
@@ -26,8 +27,7 @@ interface LibraryTabProps {
 }
 
 type LibraryFilter = "mcp" | "skills" | "memory" | "extensions";
-
-const ALL_FILTERS: LibraryFilter[] = ["mcp", "skills", "memory", "extensions"];
+const LIBRARY_SECTIONS = ["mcp", "skills", "memory", "extensions"] as const;
 
 /** Item genérico de qualquer seção — cada seção monta a lista completa a
  * partir do seu próprio backend; a busca/filtro aqui só precisa do nome
@@ -39,24 +39,34 @@ export interface LibraryItem {
 }
 
 function FilterPill({
+  value,
   label,
   active,
-  onToggle,
+  onSelect,
+  onKeyDown,
+  tabIndex,
 }: {
   label: string;
+  value: string;
   active: boolean;
-  onToggle: () => void;
+  onSelect: () => void;
+  onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void;
+  tabIndex: number;
 }) {
   return (
     <button
       type="button"
-      onClick={onToggle}
-      aria-pressed={active}
-      aria-label={label.startsWith("Memory") ? "Memory" : undefined}
-      className={`text-xs px-2.5 py-1 rounded-full transition-colors ${
+      role="tab"
+      aria-selected={active}
+      aria-controls={`library-panel-${value}`}
+      id={`library-tab-${value}`}
+      tabIndex={tabIndex}
+      onClick={onSelect}
+      onKeyDown={onKeyDown}
+      className={`h-6 rounded-[5px] px-2.5 py-1 text-xs transition-colors ${
         active
-          ? "bg-primary/15 text-primary"
-          : "bg-muted text-muted-foreground hover:text-foreground hover:bg-muted/80"
+          ? "bg-[#d4d4d4]/15 text-[#d4d4d4]"
+          : "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground"
       }`}
     >
       {label}
@@ -79,174 +89,232 @@ function LibrarySearchBox({
         value={query}
         onChange={(e) => onChange(e.target.value)}
         placeholder={m.library_search_placeholder()}
-        className="w-full rounded-lg border border-border/60 bg-card/30 py-1.5 pl-7 pr-2.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+        className="h-8 w-full rounded-md border border-[#2a2a2a]/60 bg-[#252525]/30 py-2 pl-8 pr-2.5 text-xs text-foreground placeholder:text-muted-foreground shadow-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
       />
     </div>
-  );
-}
-
-function SectionEmptyState({ label }: { label: string }) {
-  return (
-    <p className="py-4 text-xs text-muted-foreground text-center">{label}</p>
   );
 }
 
 export function LibraryTab({ threadId }: LibraryTabProps) {
   void threadId;
   const [query, setQuery] = useState("");
-  const [activeFilters, setActiveFilters] = useState<Set<LibraryFilter>>(
-    new Set(ALL_FILTERS),
+  const [activeSection, setActiveSection] = useState<LibraryFilter>();
+  const showSkills = useSettingsStore((s) => s.libraryShowSkills);
+  const showMcp = useSettingsStore((s) => s.libraryShowMcp);
+  const visibleSections = useMemo(
+    () => [
+      ...(showMcp ? (["mcp"] as const) : []),
+      ...(showSkills ? (["skills"] as const) : []),
+      "memory" as const,
+      "extensions" as const,
+    ],
+    [showMcp, showSkills],
   );
+  const effectiveSection =
+    activeSection && visibleSections.includes(activeSection)
+      ? activeSection
+      : undefined;
+  const rovingTabSection = effectiveSection ?? visibleSections[0];
 
-  const toggleFilter = (filter: LibraryFilter) => {
-    setActiveFilters((prev) => {
-      const next = new Set(prev);
-      if (next.has(filter)) {
-        next.delete(filter);
-      } else {
-        next.add(filter);
+  const handleSectionKeyDown = useCallback(
+    (
+      event: KeyboardEvent<HTMLButtonElement>,
+      value: (typeof LIBRARY_SECTIONS)[number],
+    ) => {
+      if (
+        ![
+          "ArrowRight",
+          "ArrowDown",
+          "ArrowLeft",
+          "ArrowUp",
+          "Home",
+          "End",
+        ].includes(event.key)
+      ) {
+        return;
       }
-      return next;
-    });
-  };
-
-  // MCP, Skills e Memory vivem em subcomponentes próprios, que reportam a
-  // contagem filtrada de volta via onCountChange.
-  const [mcpCount, setMcpCount] = useState(0);
-  const handleMcpCountChange = useCallback((count: number) => {
-    setMcpCount(count);
-  }, []);
-
-  const [skillsCount, setSkillsCount] = useState(0);
-  const handleSkillsCountChange = useCallback((count: number) => {
-    setSkillsCount(count);
-  }, []);
-
-  const [memoryCount, setMemoryCount] = useState(0);
-  const handleMemoryCountChange = useCallback((count: number) => {
-    setMemoryCount(count);
-  }, []);
-  const [extensionCount, setExtensionCount] = useState(0);
-  const handleExtensionCountChange = useCallback(
-    (count: number) => setExtensionCount(count),
-    [],
+      event.preventDefault();
+      const index = visibleSections.indexOf(value);
+      const nextIndex =
+        event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? visibleSections.length - 1
+            : (index +
+                (event.key === "ArrowLeft" || event.key === "ArrowUp"
+                  ? -1
+                  : 1) +
+                visibleSections.length) %
+              visibleSections.length;
+      const next = document.getElementById(
+        `library-tab-${visibleSections[nextIndex]}`,
+      );
+      if (next instanceof HTMLButtonElement) {
+        next.focus();
+        setActiveSection(visibleSections[nextIndex]);
+      }
+    },
+    [visibleSections],
   );
-
-  const noFiltersActive = activeFilters.size === 0;
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="p-3 space-y-2 border-b border-border/60">
+    <div className="flex h-full flex-col bg-[#181818]">
+      <div className="flex min-h-[86px] flex-col gap-2.5 border-b border-[#2a2a2a]/60 p-2.5">
         <LibrarySearchBox query={query} onChange={setQuery} />
-        <div className="flex flex-wrap gap-1.5">
+        <div
+          className="flex min-w-0 flex-wrap items-start gap-2.5"
+          role="tablist"
+        >
+          {showMcp ? (
+            <FilterPill
+              value="mcp"
+              label={m.library_filter_mcp()}
+              active={effectiveSection === "mcp"}
+              onSelect={() => setActiveSection("mcp")}
+              onKeyDown={(event) => handleSectionKeyDown(event, "mcp")}
+              tabIndex={rovingTabSection === "mcp" ? 0 : -1}
+            />
+          ) : null}
+          {showSkills ? (
+            <FilterPill
+              value="skills"
+              label={m.library_filter_skills()}
+              active={effectiveSection === "skills"}
+              onSelect={() => setActiveSection("skills")}
+              onKeyDown={(event) => handleSectionKeyDown(event, "skills")}
+              tabIndex={rovingTabSection === "skills" ? 0 : -1}
+            />
+          ) : null}
           <FilterPill
-            label={m.library_filter_mcp()}
-            active={activeFilters.has("mcp")}
-            onToggle={() => toggleFilter("mcp")}
-          />
-          <FilterPill
-            label={m.library_filter_skills()}
-            active={activeFilters.has("skills")}
-            onToggle={() => toggleFilter("skills")}
-          />
-          <FilterPill
+            value="memory"
             label={m.library_filter_memory_buckets()}
-            active={activeFilters.has("memory")}
-            onToggle={() => toggleFilter("memory")}
+            active={effectiveSection === "memory"}
+            onSelect={() => setActiveSection("memory")}
+            onKeyDown={(event) => handleSectionKeyDown(event, "memory")}
+            tabIndex={rovingTabSection === "memory" ? 0 : -1}
           />
           <FilterPill
+            value="extensions"
             label={m.library_filter_extensions()}
-            active={activeFilters.has("extensions")}
-            onToggle={() => toggleFilter("extensions")}
+            active={effectiveSection === "extensions"}
+            onSelect={() => setActiveSection("extensions")}
+            onKeyDown={(event) => handleSectionKeyDown(event, "extensions")}
+            tabIndex={rovingTabSection === "extensions" ? 0 : -1}
           />
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto min-h-0">
-        {noFiltersActive ? (
-          <SectionEmptyState label={m.library_empty_no_filters()} />
-        ) : (
-          <Accordion
-            type="multiple"
-            defaultValue={["mcp", "skills", "memory"]}
-            className="px-1"
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <Accordion
+          type="single"
+          collapsible
+          value={effectiveSection ?? ""}
+          onValueChange={(value) =>
+            setActiveSection((value || undefined) as LibraryFilter | undefined)
+          }
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
+          {showMcp ? (
+            <AccordionItem
+              value="mcp"
+              className="shrink-0 border-b-0 data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:flex-col"
+            >
+              <AccordionTrigger className="min-h-[49px] gap-2 px-2.5 py-3.5 hover:no-underline">
+                <span className="flex min-w-0 items-center gap-2">
+                  <Puzzle className="size-3.5 shrink-0 text-muted-foreground" />
+                  <span className="truncate text-sm leading-5">
+                    {m.library_section_mcp()}
+                  </span>
+                </span>
+              </AccordionTrigger>
+              <AccordionContent
+                id="library-panel-mcp"
+                role="tabpanel"
+                aria-labelledby="library-tab-mcp"
+                containerClassName="data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:overflow-hidden"
+                className="h-full overflow-y-auto pb-2 pl-2 pr-1"
+              >
+                <McpSection query={query} threadId={threadId} />
+              </AccordionContent>
+            </AccordionItem>
+          ) : null}
+
+          {showSkills ? (
+            <AccordionItem
+              value="skills"
+              className="shrink-0 border-b-0 data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:flex-col"
+            >
+              <AccordionTrigger className="min-h-[49px] gap-2 px-2.5 py-3.5 hover:no-underline">
+                <span className="flex min-w-0 items-center gap-2">
+                  <Sparkles className="size-3.5 shrink-0 text-muted-foreground" />
+                  <span className="truncate text-sm leading-5">
+                    {m.library_section_skills()}
+                  </span>
+                </span>
+              </AccordionTrigger>
+              <AccordionContent
+                id="library-panel-skills"
+                role="tabpanel"
+                aria-labelledby="library-tab-skills"
+                containerClassName="data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:overflow-hidden"
+                className="h-full overflow-y-auto pb-2 pl-2 pr-1"
+              >
+                <SkillsSection query={query} />
+              </AccordionContent>
+            </AccordionItem>
+          ) : null}
+
+          <AccordionItem
+            value="memory"
+            className="shrink-0 border-b-0 data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:flex-col"
           >
-            {activeFilters.has("mcp") && (
-              <AccordionItem value="mcp">
-                <AccordionTrigger>
-                  <span className="flex items-center gap-2 min-w-0">
-                    <Puzzle className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                    <span className="truncate">
-                      {m.library_section_mcp()} ({mcpCount})
-                    </span>
-                  </span>
-                </AccordionTrigger>
-                <AccordionContent>
-                  <McpSection
-                    query={query}
-                    onCountChange={handleMcpCountChange}
-                  />
-                </AccordionContent>
-              </AccordionItem>
-            )}
-
-            {activeFilters.has("skills") && (
-              <AccordionItem value="skills">
-                <AccordionTrigger>
-                  <span className="flex items-center gap-2 min-w-0">
-                    <Sparkles className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                    <span className="truncate">
-                      {m.library_section_skills()} ({skillsCount})
-                    </span>
-                  </span>
-                </AccordionTrigger>
-                <AccordionContent>
-                  <SkillsSection
-                    query={query}
-                    onCountChange={handleSkillsCountChange}
-                  />
-                </AccordionContent>
-              </AccordionItem>
-            )}
-
-            {activeFilters.has("memory") && (
-              <AccordionItem value="memory">
-                <AccordionTrigger>
-                  <span className="flex items-center gap-2 min-w-0">
-                    <Archive className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                    <span className="truncate">
-                      {m.library_section_memory_buckets()} ({memoryCount})
-                    </span>
-                  </span>
-                </AccordionTrigger>
-                <AccordionContent>
-                  <MemoryBucketsSection
-                    query={query}
-                    onCountChange={handleMemoryCountChange}
-                  />
-                </AccordionContent>
-              </AccordionItem>
-            )}
-            {activeFilters.has("extensions") && (
-              <AccordionItem value="extensions">
-                <AccordionTrigger>
-                  <span className="flex items-center gap-2 min-w-0">
-                    <Package className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                    <span className="truncate">
-                      {m.library_section_extensions()} ({extensionCount})
-                    </span>
-                  </span>
-                </AccordionTrigger>
-                <AccordionContent>
-                  <ExtensionsSection
-                    query={query}
-                    onCountChange={handleExtensionCountChange}
-                  />
-                </AccordionContent>
-              </AccordionItem>
-            )}
-          </Accordion>
-        )}
+            <AccordionTrigger className="min-h-[49px] gap-2 px-2.5 py-3.5 hover:no-underline">
+              <span className="flex min-w-0 items-center gap-2">
+                <Archive className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="truncate text-sm leading-5">
+                  {m.library_section_memory_buckets()}
+                </span>
+              </span>
+            </AccordionTrigger>
+            <AccordionContent
+              id="library-panel-memory"
+              role="tabpanel"
+              aria-labelledby="library-tab-memory"
+              containerClassName="data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:overflow-hidden"
+              className="h-full overflow-y-auto pb-2 pl-2 pr-1"
+            >
+              <MemoryBucketsSection
+                query={query}
+                onCountChange={() => undefined}
+              />
+            </AccordionContent>
+          </AccordionItem>
+          <AccordionItem
+            value="extensions"
+            className="shrink-0 border-b-0 data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:flex-col"
+          >
+            <AccordionTrigger className="min-h-[49px] gap-2 px-2.5 py-3.5 hover:no-underline">
+              <span className="flex min-w-0 items-center gap-2">
+                <Package className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="truncate text-sm leading-5">
+                  {m.library_section_extensions()}
+                </span>
+              </span>
+            </AccordionTrigger>
+            <AccordionContent
+              id="library-panel-extensions"
+              role="tabpanel"
+              aria-labelledby="library-tab-extensions"
+              containerClassName="data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:overflow-hidden"
+              className="h-full overflow-y-auto pb-2 pl-2 pr-1"
+            >
+              <ExtensionsSection
+                query={query}
+                onCountChange={() => undefined}
+              />
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
       </div>
     </div>
   );

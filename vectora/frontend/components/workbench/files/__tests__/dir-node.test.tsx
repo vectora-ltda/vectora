@@ -92,6 +92,10 @@ function baseProps() {
   };
 }
 
+function subDirProps() {
+  return { ...baseProps(), path: "sub", name: "sub", depth: 1 };
+}
+
 beforeEach(() => {
   filesState.expandedDirs = [];
   filesState.entriesByDir = {};
@@ -153,42 +157,33 @@ describe("DirNode — raiz (depth=0)", () => {
 });
 
 describe("DirNode — subpasta (depth>0)", () => {
-  function subProps() {
-    return {
-      ...baseProps(),
-      path: "sub",
-      name: "sub",
-      depth: 1,
-    };
-  }
-
   it("renderiza o cabeçalho como treeitem com aria-expanded", () => {
-    render(<DirNode {...subProps()} />);
+    render(<DirNode {...subDirProps()} />);
     const el = document.querySelector("[role='treeitem']");
     expect(el).not.toBeNull();
     expect(el?.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("colapsada (não expandida), não busca nem renderiza entries", () => {
-    render(<DirNode {...subProps()} />);
+    render(<DirNode {...subDirProps()} />);
     expect(screen.queryByTestId("skeleton")).toBeNull();
   });
 
   it("clicar no nome da pasta chama toggleExpanded com workspaceId e path", () => {
-    render(<DirNode {...subProps()} />);
+    render(<DirNode {...subDirProps()} />);
     fireEvent.click(screen.getByText("sub"));
     expect(mockToggleExpanded).toHaveBeenCalledWith("ws1", "sub");
   });
 
   it("expandida via store: mostra spinner de carregamento (sem skeleton, que é só na raiz)", () => {
     filesState.expandedDirs = ["sub"];
-    render(<DirNode {...subProps()} />);
+    render(<DirNode {...subDirProps()} />);
     expect(document.querySelector(".animate-spin")).not.toBeNull();
   });
 
   it("pressionar Delete no treeitem chama onDelete com path/name; Shift+Delete marca permanente", () => {
     const onDelete = vi.fn();
-    render(<DirNode {...subProps()} onDelete={onDelete} />);
+    render(<DirNode {...subDirProps()} onDelete={onDelete} />);
     const el = document.querySelector("[role='treeitem']") as HTMLElement;
     fireEvent.keyDown(el, { key: "Delete" });
     expect(onDelete).toHaveBeenCalledWith("sub", "sub", false);
@@ -206,12 +201,8 @@ function dt(data: Record<string, string> = {}) {
 }
 
 describe("DirNode — drag-and-drop", () => {
-  function subProps() {
-    return { ...baseProps(), path: "sub", name: "sub", depth: 1 };
-  }
-
   it("é arrastável e grava o próprio path no dataTransfer", () => {
-    render(<DirNode {...subProps()} />);
+    render(<DirNode {...subDirProps()} />);
     const el = document.querySelector("[role='treeitem']")!;
     expect(el).toHaveAttribute("draggable", "true");
 
@@ -225,7 +216,7 @@ describe("DirNode — drag-and-drop", () => {
 
   it("soltar um item arrastado chama onMoveInto(sourcePath, path desta pasta)", () => {
     const onMoveInto = vi.fn();
-    render(<DirNode {...subProps()} onMoveInto={onMoveInto} />);
+    render(<DirNode {...subDirProps()} onMoveInto={onMoveInto} />);
     const el = document.querySelector("[role='treeitem']")!;
 
     fireEvent.drop(el, {
@@ -236,7 +227,7 @@ describe("DirNode — drag-and-drop", () => {
 
   it("erro/borda: drop sem dado do MIME esperado (drag externo do SO) não chama onMoveInto", () => {
     const onMoveInto = vi.fn();
-    render(<DirNode {...subProps()} onMoveInto={onMoveInto} />);
+    render(<DirNode {...subDirProps()} onMoveInto={onMoveInto} />);
     const el = document.querySelector("[role='treeitem']")!;
 
     fireEvent.drop(el, { dataTransfer: dt({}) });
@@ -244,7 +235,7 @@ describe("DirNode — drag-and-drop", () => {
   });
 
   it("dragOver com o MIME certo sinaliza dropEffect='move' (feedback visual)", () => {
-    render(<DirNode {...subProps()} />);
+    render(<DirNode {...subDirProps()} />);
     const el = document.querySelector("[role='treeitem']")!;
     const dataTransfer = dt({ "application/x-vectora-fs-path": "x" });
 
