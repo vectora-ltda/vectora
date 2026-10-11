@@ -27,7 +27,9 @@ import os
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
+
+from backend.vtypes.browser import BrowserConsoleEntry, BrowserNetworkEntry, BrowserTab
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +48,12 @@ class TabState:
 
     page: Any
     cdp: Any
-    console_log: deque = field(default_factory=lambda: deque(maxlen=_LOG_MAXLEN))
-    network_log: deque = field(default_factory=lambda: deque(maxlen=_LOG_MAXLEN))
+    console_log: deque[BrowserConsoleEntry] = field(
+        default_factory=lambda: deque(maxlen=_LOG_MAXLEN)
+    )
+    network_log: deque[BrowserNetworkEntry] = field(
+        default_factory=lambda: deque(maxlen=_LOG_MAXLEN)
+    )
     dialog_policy: dict[str, Any] | None = None
     _request_entries: dict[int, dict[str, Any]] = field(default_factory=dict)
 
@@ -93,7 +99,7 @@ def _register_page_listeners(tab: TabState) -> None:
                 "resource_type": request.resource_type,
                 "status": None,
             }
-            tab.network_log.append(entry)
+            tab.network_log.append(cast("BrowserNetworkEntry", entry))
             tab._request_entries[id(request)] = entry
         except Exception:
             logger.debug("browser_session: falha ao capturar network request")
@@ -233,7 +239,7 @@ async def get_browser_page(workspace_id: str, tab_id: str | None = None) -> Any:
         raise
 
 
-async def list_tabs(workspace_id: str) -> list[dict[str, Any]]:
+async def list_tabs(workspace_id: str) -> list[BrowserTab]:
     """Lista as abas da sessão, com a URL atual e qual está ativa."""
     session = _sessions.get(workspace_id)
     if session is None:
