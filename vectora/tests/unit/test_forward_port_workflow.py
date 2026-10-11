@@ -353,6 +353,14 @@ def test_release_workflows_pin_ubuntu_runner() -> None:
         assert "ubuntu-latest" not in content
 
 
+def test_milestone_workflow_uses_trusted_workflow_revision() -> None:
+    """Evita ler uma configuração rotacionada da branch de release da PR."""
+    content = (WORKFLOW.parent / "pr-release-milestone.yml").read_text(encoding="utf-8")
+
+    assert "ref: ${{ github.workflow_sha }}" in content
+    assert "ref: ${{ github.event.pull_request.base.ref }}" not in content
+
+
 def test_app_and_edge_workflows_cobrem_todas_as_linhas_de_manutencao() -> None:
     """Evita que uma nova linha release/* fique sem validação de CI."""
     for name in ("edge.yml", "vectora.yml"):
