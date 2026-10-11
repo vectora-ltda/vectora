@@ -118,8 +118,10 @@ def test_codex_branch_prefix_is_rejected_before_other_exemptions() -> None:
         )
     )
     assert errors == [
-        "Branches com o prefixo `codex/` são proibidas; use `fix/`, `feat/` "
-        "ou `chore/`."
+        (
+            "Branches com o prefixo `codex/` são proibidas; use `fix/`, `feat/` "
+            "ou `chore/`."
+        )
     ]
 
 

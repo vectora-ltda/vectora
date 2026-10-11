@@ -458,7 +458,7 @@ async def test_fetch_catalog_descarta_cache_mcp_legado_e_atualiza(monkeypatch):
             return {"entries": refreshed}
 
     class Client:
-        async def __aenter__(self) -> "Client":
+        async def __aenter__(self) -> Client:
             return self
 
         async def __aexit__(self, *_args: object) -> None:
