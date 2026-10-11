@@ -37,6 +37,9 @@ class HeadPayload(BaseModel):
     repo: RepositoryPayload | None = None
 
 
+HeadPayload.model_rebuild()
+
+
 class BasePayload(BaseModel):
     """Identidade da branch base de uma pull request."""
 
@@ -89,6 +92,10 @@ type EventPayload = PullRequestEvent | dict[str, object]
 
 _VEXT_TOKEN = re.compile(r"(?<![A-Za-z0-9])vext(?![A-Za-z0-9])", re.IGNORECASE)
 _STACK_BASE = re.compile(r"^stack/[a-z0-9][a-z0-9-]*$")
+_INTERNAL_BASE = re.compile(
+    r"^(?:build|chore|ci|docs|feat|fix|perf|refactor|stack|sync|test)/"
+    r"[a-z0-9][a-z0-9-]*$"
+)
 _RELEASE_BRANCH = re.compile(r"^release/.+$")
 _FORBIDDEN_CODEX_BRANCH = re.compile(r"^codex/")
 
@@ -160,6 +167,21 @@ def _is_release_branch_pr(
     )
 
 
+def _is_internal_head(
+    event: PullRequestEvent, pull_request: PullRequestPayload
+) -> bool:
+    """Confirma a identidade completa do repositório do head da PR."""
+    head = pull_request.head
+    repository = event.repository
+    repository_name = (repository.full_name if repository else None) or os.environ.get(
+        "GITHUB_REPOSITORY"
+    )
+    if head is None or repository_name is None:
+        return False
+    head_repo = head.repo.full_name if head.repo else None
+    return head_repo == repository_name
+
+
 def _is_forbidden_codex_branch(pull_request: PullRequestPayload) -> bool:
     """Rejeita branches de trabalho com o prefixo reservado ``codex/``."""
     head_ref = pull_request.head.ref if pull_request.head else ""
@@ -191,12 +213,8 @@ def validate_pull_request(event: EventPayload) -> list[str]:
         ]
     if _is_release_branch_pr(parsed_event, pull_request):
         return []
-    if _STACK_BASE.fullmatch(base):
-        head = pull_request.head
-        head_repo = head.repo.full_name if head and head.repo else None
-        repository = parsed_event.repository
-        if repository and head_repo == repository.full_name:
-            return []
+    if _INTERNAL_BASE.fullmatch(base) and _is_internal_head(parsed_event, pull_request):
+        return []
     line = _line_for_base(base)
     if line is None:
         configured_bases = ", ".join(
@@ -247,6 +265,10 @@ def main() -> int:
         return 2
     current_milestone = os.environ.get("CURRENT_RELEASE_MILESTONE")
     current_base = os.environ.get("CURRENT_PR_BASE")
+    current_head = os.environ.get("CURRENT_PR_HEAD_REF") or os.environ.get(
+        "GITHUB_HEAD_REF"
+    )
+    current_head_repo = os.environ.get("CURRENT_PR_HEAD_REPO")
     if payload.pull_request is not None:
         # GitHub Actions expande outputs ausentes para uma string vazia. Nesse
         # caso, preserve a milestone recebida no evento em vez de substituí-la
@@ -255,6 +277,19 @@ def main() -> int:
             payload.pull_request.milestone = MilestonePayload(title=current_milestone)
         if current_base:
             payload.pull_request.base = BasePayload(ref=current_base)
+        if current_head:
+            event_head_repo = (
+                payload.pull_request.head.repo.full_name
+                if payload.pull_request.head and payload.pull_request.head.repo
+                else None
+            )
+            validated_head_repo = current_head_repo or event_head_repo
+            payload.pull_request.head = HeadPayload(
+                ref=current_head,
+                repo=RepositoryPayload(full_name=validated_head_repo)
+                if validated_head_repo
+                else None,
+            )
     errors = validate_pull_request(payload)
     if errors:
         for error in errors:
