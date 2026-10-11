@@ -349,7 +349,7 @@ def test_release_branch_promotion_from_another_repo_is_rejected() -> None:
         head_repo="attacker/vectora",
     )
     errors = validator.validate_pull_request(event)
-    assert errors and "0.2.x" in errors[0]
+    assert errors and MAINTENANCE_MILESTONE in errors[0]
 
 
 def test_empty_release_branch_does_not_use_promotion_exception() -> None:
@@ -360,7 +360,7 @@ def test_empty_release_branch_does_not_use_promotion_exception() -> None:
         head="release/",
     )
     errors = validator.validate_pull_request(event)
-    assert errors and "0.2.x" in errors[0]
+    assert errors and MAINTENANCE_MILESTONE in errors[0]
 
 
 def test_noncanonical_release_pr_from_another_repo_is_rejected() -> None:
