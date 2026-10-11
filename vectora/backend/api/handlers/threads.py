@@ -92,6 +92,7 @@ from backend.api.schemas import (
 )
 from backend.persistence.thread_activity import get_remote_activity
 from backend.rbac.device_id import validate_device_id
+from backend.vtypes.permission import PERMISSION_MODES, PermissionMode
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +134,7 @@ async def revoke_current_device(
 
 _db_conn: Any = None
 _db_conn_lock: asyncio.Lock = asyncio.Lock()
+_db_write_lock: asyncio.Lock = asyncio.Lock()
 
 # Serializa `reconcile_vectora_sessions` contra `delete_thread` — as duas
 # compartilham a mesma conexão `_db_conn`, então sem essa exclusão mútua a
@@ -923,9 +925,8 @@ async def mark_thread_read(thread_id: str, request: Request) -> dict[str, int | 
     # Serialize this short transaction with the other users of the shared
     # handler connection. This keeps rollback scoped to our transaction and
     # avoids undoing an unrelated pending write.
-    async with _db_conn_lock:
-        db = await _get_db()
-        await db.executescript("PRAGMA busy_timeout=30000; PRAGMA journal_mode=WAL;")
+    db = await _get_db()
+    async with _db_write_lock:
         for attempt in range(5):
             try:
                 async with db.execute(
@@ -2042,13 +2043,16 @@ async def thread_pending_interrupt(
         return PendingInterruptResponse(interrupt=None)
 
     session = None
-    permission_mode = "ask"
+    permission_mode: PermissionMode = "ask"
     resolved_workspace_id = workspace_id or ""
     if request is not None:
         session_store = await _get_session_store()
         session = await session_store.get_session(thread_id, user_id=_user_id(request))
         if isinstance(session, dict):
-            permission_mode = str(session.get("permission_mode") or "ask")
+            candidate_mode = str(session.get("permission_mode") or "ask")
+            permission_mode = (
+                candidate_mode if candidate_mode in PERMISSION_MODES else "ask"
+            )
             resolved_workspace_id = str(session.get("workspace_id") or "")
 
     pre_approved = False

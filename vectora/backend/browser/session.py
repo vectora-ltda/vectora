@@ -29,7 +29,14 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, cast
 
-from backend.vtypes.browser import BrowserConsoleEntry, BrowserNetworkEntry, BrowserTab
+from backend.vtypes.browser import (
+    BrowserConsoleEntry,
+    BrowserNetworkEntry,
+    BrowserTab,
+    validate_browser_console_entry,
+    validate_browser_network_entry,
+    validate_browser_tab,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +93,9 @@ def _register_page_listeners(tab: TabState) -> None:
 
     def _on_console(msg: Any) -> None:
         try:
-            tab.console_log.append({"type": msg.type, "text": msg.text})
+            entry: BrowserConsoleEntry = {"type": msg.type, "text": msg.text}
+            validate_browser_console_entry(entry)
+            tab.console_log.append(entry)
         except Exception:
             logger.debug("browser_session: falha ao capturar console log")
 
@@ -99,7 +108,9 @@ def _register_page_listeners(tab: TabState) -> None:
                 "resource_type": request.resource_type,
                 "status": None,
             }
-            tab.network_log.append(cast("BrowserNetworkEntry", entry))
+            network_entry = cast("BrowserNetworkEntry", entry)
+            validate_browser_network_entry(network_entry)
+            tab.network_log.append(network_entry)
             tab._request_entries[id(request)] = entry
         except Exception:
             logger.debug("browser_session: falha ao capturar network request")
@@ -118,6 +129,7 @@ def _register_page_listeners(tab: TabState) -> None:
             if entry is not None:
                 entry["status"] = "failed"
                 entry["error"] = getattr(request.failure, "error_text", None)
+                validate_browser_network_entry(cast("BrowserNetworkEntry", entry))
         except Exception:
             logger.debug("browser_session: falha ao capturar falha de request")
 
@@ -245,10 +257,16 @@ async def list_tabs(workspace_id: str) -> list[BrowserTab]:
     if session is None:
         return []
     active = session["active_tab_id"]
-    return [
-        {"tab_id": tid, "url": tab.page.url, "active": tid == active}
-        for tid, tab in session["tabs"].items()
-    ]
+    tabs: list[BrowserTab] = []
+    for tid, tab in session["tabs"].items():
+        entry: BrowserTab = {
+            "tab_id": tid,
+            "url": tab.page.url,
+            "active": tid == active,
+        }
+        validate_browser_tab(entry)
+        tabs.append(entry)
+    return tabs
 
 
 async def new_tab(workspace_id: str, url: str | None = None) -> str:

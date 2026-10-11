@@ -82,16 +82,17 @@ def _parse_tool_calls(bruto: list) -> list[ToolCall]:
     for item in bruto or []:
         funcao = item.get("function") or {}
         args = funcao.get("arguments")
+        raw = args if isinstance(args, str) else None
         if isinstance(args, str):
             try:
                 args = json.loads(args)
             except json.JSONDecodeError:
-                args = {}
+                args = None
         chamadas.append(
             ToolCall(
                 id=item.get("id") or "",
                 name=funcao.get("name", ""),
-                args=coerce_json_object(args),
+                args=coerce_json_object(args, raw=raw),
             )
         )
     return chamadas

@@ -154,6 +154,13 @@ def _parse_event(event: EventPayload) -> PullRequestEvent | None:
         return None
 
 
+def _repository_name(event: PullRequestEvent) -> str | None:
+    """Resolve the trusted repository name from the event or Actions env."""
+    return (event.repository.full_name if event.repository else None) or os.environ.get(
+        "GITHUB_REPOSITORY"
+    )
+
+
 def _is_release_branch_pr(
     event: PullRequestEvent, pull_request: PullRequestPayload
 ) -> bool:
@@ -162,11 +169,10 @@ def _is_release_branch_pr(
     head = pull_request.head
     head_ref = head.ref if head else ""
     head_repo = head.repo.full_name if head and head.repo else None
-    repository = event.repository
     return bool(
         base == _release_lines().maintenance.branch
         and _RELEASE_BRANCH.fullmatch(head_ref) is not None
-        and head_repo == (repository.full_name if repository else None)
+        and head_repo == _repository_name(event)
     )
 
 
@@ -175,10 +181,7 @@ def _is_internal_head(
 ) -> bool:
     """Confirma a identidade completa do repositório do head da PR."""
     head = pull_request.head
-    repository = event.repository
-    repository_name = (repository.full_name if repository else None) or os.environ.get(
-        "GITHUB_REPOSITORY"
-    )
+    repository_name = _repository_name(event)
     if head is None or repository_name is None:
         return False
     head_repo = head.repo.full_name if head.repo else None

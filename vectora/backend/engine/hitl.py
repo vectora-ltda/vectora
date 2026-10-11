@@ -197,11 +197,11 @@ def _tool_requires_approval(tool_name: str) -> bool:
 
         spec = TOOL_REGISTRY.get(tool_name)
     except Exception:
-        logger.debug(
+        logger.warning(
             "hitl: unable to resolve tool metadata",
             extra={"tool_name": tool_name},
         )
-        return False
+        return True
     return spec is not None and spec.extras.destructive
 
 

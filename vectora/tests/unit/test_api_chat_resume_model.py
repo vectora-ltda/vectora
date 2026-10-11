@@ -56,7 +56,9 @@ def _fake_session_store() -> AsyncMock:
 
 class TestResumeChatUsesSameNativeAgentAsStreamChat:
     @pytest.mark.asyncio
-    async def test_resume_reidrata_modo_e_workspace_persistidos_apos_restart(self):
+    async def test_resume_reidrata_modo_e_workspace_persistidos_apos_restart(
+        self,
+    ) -> None:
         """O resume não pode voltar a ``ask`` nem perder o PTY após restart."""
         import backend.api.handlers.chat as chat_mod
 

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Literal, NotRequired, TypedDict
 
+from pydantic import TypeAdapter
+
 NetworkProfileName = Literal["offline", "slow-3g", "fast-3g"]
 
 
@@ -40,4 +42,24 @@ class BrowserNetworkEntry(TypedDict):
     method: str
     resource_type: str
     status: int | Literal["failed"] | None
-    error: NotRequired[str]
+    error: NotRequired[str | None]
+
+
+_BROWSER_TAB_ADAPTER = TypeAdapter(BrowserTab)
+_BROWSER_CONSOLE_ENTRY_ADAPTER = TypeAdapter(BrowserConsoleEntry)
+_BROWSER_NETWORK_ENTRY_ADAPTER = TypeAdapter(BrowserNetworkEntry)
+
+
+def validate_browser_tab(value: BrowserTab) -> None:
+    """Validate a tab payload before exposing it to a caller."""
+    _BROWSER_TAB_ADAPTER.validate_python(value)
+
+
+def validate_browser_console_entry(value: BrowserConsoleEntry) -> None:
+    """Validate a console event before storing it in the ring buffer."""
+    _BROWSER_CONSOLE_ENTRY_ADAPTER.validate_python(value)
+
+
+def validate_browser_network_entry(value: BrowserNetworkEntry) -> None:
+    """Validate a network event before storing it in the ring buffer."""
+    _BROWSER_NETWORK_ENTRY_ADAPTER.validate_python(value)

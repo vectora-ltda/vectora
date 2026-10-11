@@ -22,7 +22,7 @@ import os
 import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -67,6 +67,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+class _SessionStore(Protocol):
+    async def get_session(
+        self, thread_id: str, *, user_id: str | None = None
+    ) -> dict[str, object] | None: ...
+
+
 _CHAT_PERSISTED_HEADER = "X-Vectora-Chat-Persisted"
 
 #: permission_mode do último turno de cada thread — resume_chat (HITL) precisa
@@ -91,7 +98,7 @@ _thread_usage_event_ids: dict[str, str] = {}
 async def _restore_thread_runtime(
     thread_id: str,
     user_id: str,
-    session_store: Any,
+    session_store: _SessionStore,
 ) -> tuple[str, dict[str, Any]]:
     """Reidrata o contexto necessário para retomar um HITL após restart.
 
@@ -105,7 +112,7 @@ async def _restore_thread_runtime(
     if permission_mode is not None and selector:
         return permission_mode, selector
 
-    session: dict[str, Any] | None = None
+    session: dict[str, object] | None = None
     try:
         get_session = getattr(session_store, "get_session", None)
         if get_session is not None:

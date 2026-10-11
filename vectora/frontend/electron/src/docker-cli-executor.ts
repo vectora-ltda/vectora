@@ -104,7 +104,9 @@ function appendLimited(
 function terminateProcessTree(child: ChildProcess): boolean {
   if (!child.pid) return child.kill();
   try {
-    killTree(child.pid);
+    killTree(child.pid, "SIGTERM", (error) => {
+      if (error) child.kill();
+    });
     return true;
   } catch {
     return child.kill();

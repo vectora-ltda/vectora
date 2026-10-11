@@ -193,6 +193,7 @@ jobs:
             echo "enabled=true"
             echo "branch=$release_branch"
             echo "version=$next_version"
+            echo "current_version=$current_version"
           } >> "$GITHUB_OUTPUT"
 
       - name: Create canonical release branch
@@ -224,13 +225,16 @@ jobs:
         if: steps.release-plan.outputs.enabled == 'true'
         env:
           RELEASE_MILESTONE: ${{ steps.release-line.outputs.release_milestone }}
+          PLAN_CURRENT_VERSION: ${{ steps.release-plan.outputs.current_version }}
+          SOURCE_SHA: ${{ github.sha }}
           RELEASE_MANIFEST: ${{ startsWith(github.ref, 'refs/tags/v') && '.release-please-manifest.maintenance.json' || (github.ref_name == steps.release-line.outputs.development_branch && '.release-please-manifest.development.json' || '.release-please-manifest.maintenance.json') }}
         shell: bash
         run: |
           set -euo pipefail
           bump_flag=""
           [[ "$RELEASE_MILESTONE" == *.x ]] && bump_flag="--bump-patch-for-minor-pre-major"
-          current_version="$(jq -er '.["."]' "$RELEASE_MANIFEST")"
+          git reset --hard "$SOURCE_SHA"
+          current_version="$PLAN_CURRENT_VERSION"
           uv run --project vectora python utils/release_plan.py \
             --current-version "$current_version" \
             --commits-json "$RUNNER_TEMP/release-commits.json" \
@@ -251,14 +255,12 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet; then
-            echo "Release branch is already up to date."
-          else
+          if ! git diff --quiet; then
             git add "$RELEASE_MANIFEST" vectora/CHANGELOG.md vectora/pyproject.toml vectora/frontend/package.json services/package.json company/package.json vectora/uv.lock
             git commit -m "chore(master): release $RELEASE_VERSION"
-            git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-            git push origin "HEAD:$RELEASE_BRANCH"
           fi
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force-with-lease origin "HEAD:$RELEASE_BRANCH"
 
       - name: Create or update canonical release PR
         if: steps.release-plan.outputs.enabled == 'true'
