@@ -68,16 +68,13 @@ def select_release_pr(
             continue
         if phase == "generated":
             legacy_heads = {
-                f"release-please--branches--{branch}--components--vectora"
+                f"release-please--branches--{branch}"
                 for branch in (source, source.replace("/", "%2F"))
             }
             matches = pr.baseRefName == source and pr.headRefName in legacy_heads
         else:
             suffix = series if minor is not None else f"{series}.{version[2]}"
-            matches = (
-                pr.baseRefName == target
-                and pr.headRefName == f"release-please-{suffix}"
-            )
+            matches = pr.baseRefName == target and pr.headRefName == f"release/{suffix}"
         if matches:
             candidates.append(pr)
     if len(candidates) > 1:

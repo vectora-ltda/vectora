@@ -131,6 +131,7 @@ def test_release_please_requires_candidates_and_uses_versioned_branches() -> Non
     assert "Rename generated Release Please branch by version" in content
     assert 'target="release/${major}.${minor}"' in content
     assert 'target="release/${version}"' in content
+    assert '--head "$target"' in content
     assert "utils/select_release_pr.py" in content
     assert '--phase generated <<< "$prs"' in content
     assert '--phase versioned <<< "$prs"' in content

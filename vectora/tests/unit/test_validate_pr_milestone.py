@@ -245,15 +245,16 @@ def test_maintenance_rejects_minor() -> None:
     assert errors and MAINTENANCE_MILESTONE in errors[0]
 
 
-def test_release_please_pr_is_exempt_with_controlled_source_and_label() -> None:
-    """Isenta a branch versionada de desenvolvimento com origem confiável."""
+def test_release_please_pr_is_rejected_even_with_controlled_source_and_label() -> None:
+    """Exige a branch release/* oficial, sem exceções para nomes internos."""
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=None,
         head="release-please-0.3",
         labels=["autorelease: pending"],
     )
-    assert validator.validate_pull_request(event) == []
+    errors = validator.validate_pull_request(event)
+    assert errors and "milestone" in errors[0]
 
 
 def test_release_branch_promotion_to_master_is_exempt() -> None:
@@ -342,22 +343,23 @@ def test_legacy_release_please_branch_retargeted_to_maintenance_is_rejected() ->
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=None,
-        head=f"release-please--branches--{DEVELOPMENT_BRANCH}--components--vectora",
+        head=f"release-please--branches--{DEVELOPMENT_BRANCH}",
         labels=["autorelease: pending"],
     )
     errors = validator.validate_pull_request(event)
     assert errors and "milestone" in errors[0]
 
 
-def test_release_please_patch_branch_is_exempt_on_maintenance_line() -> None:
-    """Isenta uma branch de patch versionada na linha de manutenção."""
+def test_release_please_patch_branch_is_rejected_on_maintenance_line() -> None:
+    """Rejeita a branch interna do Release Please na linha de manutenção."""
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=None,
         head="release-please-0.2.1",
         labels=["autorelease: pending"],
     )
-    assert validator.validate_pull_request(event) == []
+    errors = validator.validate_pull_request(event)
+    assert errors and "milestone" in errors[0]
 
 
 def test_unsupported_base_is_rejected() -> None:

@@ -20,9 +20,9 @@ def _pr(version: str, *, generated: bool = False) -> ReleasePullRequest:
         {
             "number": 3 if minor else 20,
             "baseRefName": source if generated else "master",
-            "headRefName": f"release-please--branches--{source}--components--vectora"
+            "headRefName": f"release-please--branches--{source}"
             if generated
-            else f"release-please-{suffix}",
+            else f"release/{suffix}",
             "headRefOid": "a" * 40,
             "headRepository": {"nameWithOwner": "vectora-ltda/vectora"},
             "labels": [{"name": "autorelease: pending"}],
@@ -97,7 +97,7 @@ def test_duplicate_release_prs_fail_closed() -> None:
 def test_generated_head_must_match_source() -> None:
     """A base correta não autoriza uma branch gerada para outra linha."""
     pr = _pr("0.3.0", generated=True).model_copy(
-        update={"headRefName": "release-please--branches--master--components--vectora"}
+        update={"headRefName": "release-please--branches--master"}
     )
     assert (
         select_release_pr(
@@ -107,6 +107,22 @@ def test_generated_head_must_match_source() -> None:
             target="master",
             milestone="0.3",
             phase="generated",
+        )
+        is None
+    )
+
+
+def test_legacy_release_please_head_is_not_a_versioned_release_pr() -> None:
+    """O namespace interno do Release Please não pode virar a PR oficial."""
+    pr = _pr("0.3.0").model_copy(update={"headRefName": "release-please-0.3"})
+    assert (
+        select_release_pr(
+            [pr],
+            repository="vectora-ltda/vectora",
+            source="release/0.3",
+            target="master",
+            milestone="0.3",
+            phase="versioned",
         )
         is None
     )
