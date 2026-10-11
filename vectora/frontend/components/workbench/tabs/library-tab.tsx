@@ -7,7 +7,7 @@
  */
 
 import { Archive, Puzzle, Search, Sparkles } from "lucide-react";
-import { useCallback, useState, type KeyboardEvent } from "react";
+import { useCallback, useMemo, useState, type KeyboardEvent } from "react";
 
 import {
   Accordion,
@@ -16,6 +16,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { m } from "@/lib/paraglide/messages";
+import { useSettingsStore } from "@/lib/stores/settings-store";
 import { McpSection } from "./library-mcp-section";
 import { MemoryBucketsSection } from "./library-memory-buckets-section";
 import { SkillsSection } from "./library-skills-section";
@@ -97,6 +98,21 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
   void threadId;
   const [query, setQuery] = useState("");
   const [activeSection, setActiveSection] = useState<LibraryFilter>();
+  const showSkills = useSettingsStore((s) => s.libraryShowSkills);
+  const showMcp = useSettingsStore((s) => s.libraryShowMcp);
+  const visibleSections = useMemo(
+    () => [
+      ...(showMcp ? (["mcp"] as const) : []),
+      ...(showSkills ? (["skills"] as const) : []),
+      "memory" as const,
+    ],
+    [showMcp, showSkills],
+  );
+  const effectiveSection =
+    activeSection && visibleSections.includes(activeSection)
+      ? activeSection
+      : undefined;
+  const rovingTabSection = effectiveSection ?? visibleSections[0];
 
   const handleSectionKeyDown = useCallback(
     (
@@ -116,27 +132,27 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
         return;
       }
       event.preventDefault();
-      const index = LIBRARY_SECTIONS.indexOf(value);
+      const index = visibleSections.indexOf(value);
       const nextIndex =
         event.key === "Home"
           ? 0
           : event.key === "End"
-            ? LIBRARY_SECTIONS.length - 1
+            ? visibleSections.length - 1
             : (index +
                 (event.key === "ArrowLeft" || event.key === "ArrowUp"
                   ? -1
                   : 1) +
-                LIBRARY_SECTIONS.length) %
-              LIBRARY_SECTIONS.length;
+                visibleSections.length) %
+              visibleSections.length;
       const next = document.getElementById(
-        `library-tab-${LIBRARY_SECTIONS[nextIndex]}`,
+        `library-tab-${visibleSections[nextIndex]}`,
       );
       if (next instanceof HTMLButtonElement) {
         next.focus();
-        setActiveSection(LIBRARY_SECTIONS[nextIndex]);
+        setActiveSection(visibleSections[nextIndex]);
       }
     },
-    [],
+    [visibleSections],
   );
 
   return (
@@ -147,31 +163,33 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
           className="flex min-w-0 flex-wrap items-start gap-2.5"
           role="tablist"
         >
-          <FilterPill
-            value="mcp"
-            label={m.library_filter_mcp()}
-            active={activeSection === "mcp"}
-            onSelect={() => setActiveSection("mcp")}
-            onKeyDown={(event) => handleSectionKeyDown(event, "mcp")}
-            tabIndex={
-              activeSection === "mcp" || activeSection === undefined ? 0 : -1
-            }
-          />
-          <FilterPill
-            value="skills"
-            label={m.library_filter_skills()}
-            active={activeSection === "skills"}
-            onSelect={() => setActiveSection("skills")}
-            onKeyDown={(event) => handleSectionKeyDown(event, "skills")}
-            tabIndex={activeSection === "skills" ? 0 : -1}
-          />
+          {showMcp ? (
+            <FilterPill
+              value="mcp"
+              label={m.library_filter_mcp()}
+              active={effectiveSection === "mcp"}
+              onSelect={() => setActiveSection("mcp")}
+              onKeyDown={(event) => handleSectionKeyDown(event, "mcp")}
+              tabIndex={rovingTabSection === "mcp" ? 0 : -1}
+            />
+          ) : null}
+          {showSkills ? (
+            <FilterPill
+              value="skills"
+              label={m.library_filter_skills()}
+              active={effectiveSection === "skills"}
+              onSelect={() => setActiveSection("skills")}
+              onKeyDown={(event) => handleSectionKeyDown(event, "skills")}
+              tabIndex={rovingTabSection === "skills" ? 0 : -1}
+            />
+          ) : null}
           <FilterPill
             value="memory"
             label={m.library_filter_memory_buckets()}
-            active={activeSection === "memory"}
+            active={effectiveSection === "memory"}
             onSelect={() => setActiveSection("memory")}
             onKeyDown={(event) => handleSectionKeyDown(event, "memory")}
-            tabIndex={activeSection === "memory" ? 0 : -1}
+            tabIndex={rovingTabSection === "memory" ? 0 : -1}
           />
         </div>
       </div>
@@ -180,57 +198,61 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
         <Accordion
           type="single"
           collapsible
-          value={activeSection ?? ""}
+          value={effectiveSection ?? ""}
           onValueChange={(value) =>
             setActiveSection((value || undefined) as LibraryFilter | undefined)
           }
           className="flex min-h-0 flex-1 flex-col overflow-hidden"
         >
-          <AccordionItem
-            value="mcp"
-            className="shrink-0 border-b-0 data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:flex-col"
-          >
-            <AccordionTrigger className="min-h-[49px] gap-2 px-2.5 py-3.5 hover:no-underline">
-              <span className="flex min-w-0 items-center gap-2">
-                <Puzzle className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="truncate text-sm leading-5">
-                  {m.library_section_mcp()}
-                </span>
-              </span>
-            </AccordionTrigger>
-            <AccordionContent
-              id="library-panel-mcp"
-              role="tabpanel"
-              aria-labelledby="library-tab-mcp"
-              containerClassName="data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:overflow-hidden"
-              className="h-full overflow-y-auto pb-2 pl-2 pr-1"
+          {showMcp ? (
+            <AccordionItem
+              value="mcp"
+              className="shrink-0 border-b-0 data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:flex-col"
             >
-              <McpSection query={query} threadId={threadId} />
-            </AccordionContent>
-          </AccordionItem>
+              <AccordionTrigger className="min-h-[49px] gap-2 px-2.5 py-3.5 hover:no-underline">
+                <span className="flex min-w-0 items-center gap-2">
+                  <Puzzle className="size-3.5 shrink-0 text-muted-foreground" />
+                  <span className="truncate text-sm leading-5">
+                    {m.library_section_mcp()}
+                  </span>
+                </span>
+              </AccordionTrigger>
+              <AccordionContent
+                id="library-panel-mcp"
+                role="tabpanel"
+                aria-labelledby="library-tab-mcp"
+                containerClassName="data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:overflow-hidden"
+                className="h-full overflow-y-auto pb-2 pl-2 pr-1"
+              >
+                <McpSection query={query} threadId={threadId} />
+              </AccordionContent>
+            </AccordionItem>
+          ) : null}
 
-          <AccordionItem
-            value="skills"
-            className="shrink-0 border-b-0 data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:flex-col"
-          >
-            <AccordionTrigger className="min-h-[49px] gap-2 px-2.5 py-3.5 hover:no-underline">
-              <span className="flex min-w-0 items-center gap-2">
-                <Sparkles className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="truncate text-sm leading-5">
-                  {m.library_section_skills()}
-                </span>
-              </span>
-            </AccordionTrigger>
-            <AccordionContent
-              id="library-panel-skills"
-              role="tabpanel"
-              aria-labelledby="library-tab-skills"
-              containerClassName="data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:overflow-hidden"
-              className="h-full overflow-y-auto pb-2 pl-2 pr-1"
+          {showSkills ? (
+            <AccordionItem
+              value="skills"
+              className="shrink-0 border-b-0 data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:flex-col"
             >
-              <SkillsSection query={query} />
-            </AccordionContent>
-          </AccordionItem>
+              <AccordionTrigger className="min-h-[49px] gap-2 px-2.5 py-3.5 hover:no-underline">
+                <span className="flex min-w-0 items-center gap-2">
+                  <Sparkles className="size-3.5 shrink-0 text-muted-foreground" />
+                  <span className="truncate text-sm leading-5">
+                    {m.library_section_skills()}
+                  </span>
+                </span>
+              </AccordionTrigger>
+              <AccordionContent
+                id="library-panel-skills"
+                role="tabpanel"
+                aria-labelledby="library-tab-skills"
+                containerClassName="data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:overflow-hidden"
+                className="h-full overflow-y-auto pb-2 pl-2 pr-1"
+              >
+                <SkillsSection query={query} />
+              </AccordionContent>
+            </AccordionItem>
+          ) : null}
 
           <AccordionItem
             value="memory"

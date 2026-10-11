@@ -30,6 +30,7 @@ export type SettingsCategoryId =
   | "skills"
   | "tool_policy"
   | "hitl_allowlist"
+  | "workbenches"
   | "admin_users"
   | "admin_tools"
   | "admin_saferoots"
