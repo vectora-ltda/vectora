@@ -8,7 +8,7 @@ import os
 import shutil
 import tempfile
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,7 +40,7 @@ class VextInstallStore:
         self.lock_path: Path = self.root / ".install.lock"
 
     @contextmanager
-    def _lock(self) -> Iterator[None]:
+    def _lock(self) -> Generator[None, None, None]:
         """Serialize publication and activation across processes."""
         self.root.mkdir(parents=True, exist_ok=True)
         handle = self.lock_path.open("a+b")
