@@ -38,6 +38,7 @@ export function migrateSplitSize(
   splitSize: unknown,
   fromVersion: number,
 ): unknown {
+  if (splitSize === undefined) return SPLIT_SIZE_DEFAULT;
   if (fromVersion < 1 && typeof splitSize === "number" && splitSize <= 100) {
     return LEGACY_SPLIT_SIZE_DEFAULT;
   }
