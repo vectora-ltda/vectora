@@ -115,9 +115,8 @@ def test_release_please_scopes_pr_body_to_current_release_notes() -> None:
 
     assert "utils/prepare_release_pr_body.py" in content
     assert "vectora/CHANGELOG.md" in content
-    assert 'gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY"' in content
+    assert 'gh pr edit "$existing" --repo "$GITHUB_REPOSITORY"' in content
     assert '--body-file "$RUNNER_TEMP/release-pr-body.md"' in content
-    assert 'gh pr list --repo "$GITHUB_REPOSITORY"' in content
 
 
 def test_release_please_requires_candidates_and_uses_canonical_branches() -> None:
@@ -131,11 +130,9 @@ def test_release_please_requires_candidates_and_uses_canonical_branches() -> Non
     assert "fromdateiso8601" in content
     assert "latest_tag_epoch" in content
     assert "steps.release-candidates.outputs.has_candidates == 'true'" in content
-    assert "utils/select_release_pr.py" in content
-    assert 'git push origin "HEAD:$RELEASE_BRANCH"' in content
-    assert "steps.release-line.outputs.release_target_branch" in content
-    assert "release-please--" not in content
-    assert 'gh pr edit "$PR_NUMBER"' in content
+    assert 'gh pr create --repo "$GITHUB_REPOSITORY"' in content
+    assert "RELEASE_BRANCH: ${{ steps.release-plan.outputs.branch }}" in content
+    assert 'headRefName == f"release/{suffix}"' not in content
     assert "googleapis/release-please-action" not in content
     assert (
         'git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"'
@@ -273,7 +270,7 @@ def test_release_mutations_are_serialized_and_leased() -> None:
     """Protege as duas linhas que publicam em master contra gravações cruzadas."""
     content = (WORKFLOW.parent / "release-please.yml").read_text(encoding="utf-8")
     assert "group: release-please-${{ github.repository }}" in content
-    assert 'git push origin "HEAD:$RELEASE_BRANCH"' in content
+    assert 'git push --force-with-lease origin "HEAD:$RELEASE_BRANCH"' in content
     assert 'git push --force-with-lease="refs/heads/$target:$target_sha"' not in content
     assert 'git push --force-with-lease="refs/heads/$source:$source_sha"' not in content
     assert "skip-github-release: true" not in content
