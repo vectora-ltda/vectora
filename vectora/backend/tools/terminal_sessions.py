@@ -176,11 +176,8 @@ async def close_terminal(terminal_id: str, ctx: ToolContext = _DEFAULT_CONTEXT) 
     session = pty_registry.get(terminal_id)
     if session is None or (
         ctx is not _DEFAULT_CONTEXT
-        and pty_registry.resolve_for_context(
-            terminal_id,
-            user_id=ctx.user_id,
-            thread_id=ctx.thread_id,
-            workspace_id=ctx.workspace_id,
+        and pty_registry.resolve_for_user_workspace(
+            terminal_id, user_id=ctx.user_id, workspace_id=ctx.workspace_id
         )
         is None
     ):
@@ -209,11 +206,8 @@ async def read_terminal(
     """Lê incrementalmente a saída retida de um terminal desta sessão."""
     if not terminal_id:
         return json.dumps({"status": "error", "code": "terminal_required"})
-    session = pty_registry.resolve_for_context(
-        terminal_id,
-        user_id=ctx.user_id,
-        thread_id=ctx.thread_id,
-        workspace_id=ctx.workspace_id,
+    session = pty_registry.resolve_for_user_workspace(
+        terminal_id, user_id=ctx.user_id, workspace_id=ctx.workspace_id
     )
     if session is None:
         code = (
@@ -255,6 +249,7 @@ async def write_terminal(
     terminal_id: str,
     input_data: str,
     request_id: str = "",
+    submit: bool = True,
     ctx: ToolContext = _DEFAULT_CONTEXT,
 ) -> str:
     """Escreve entrada no terminal compartilhado.
@@ -266,14 +261,16 @@ async def write_terminal(
     """
     if not terminal_id or not input_data:
         return json.dumps({"status": "error", "code": "input_required"})
+    if submit and not input_data.endswith(("\r", "\n")):
+        # xterm emits CR for Enter.  Sending it explicitly is essential for
+        # agent-authored commands: writing text alone only leaves it at the
+        # shell prompt and never executes it.
+        input_data += "\r"
     if len(input_data.encode("utf-8")) > 8192:
         return json.dumps({"status": "error", "code": "input_too_large"})
     request_id = request_id.strip() or f"agent-write-{uuid.uuid4().hex}"
-    session = pty_registry.resolve_for_context(
-        terminal_id,
-        user_id=ctx.user_id,
-        thread_id=ctx.thread_id,
-        workspace_id=ctx.workspace_id,
+    session = pty_registry.resolve_for_user_workspace(
+        terminal_id, user_id=ctx.user_id, workspace_id=ctx.workspace_id
     )
     if session is None:
         code = (

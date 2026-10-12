@@ -275,7 +275,25 @@ async def new_tab(workspace_id: str, url: str | None = None) -> str:
     if not has_browser_session(workspace_id):
         await get_browser_page(workspace_id)
     session = _sessions[workspace_id]
-    page = await session["context"].new_page()
+    try:
+        page = await session["context"].new_page()
+    except Exception as exc:
+        # Electron's embedded BrowserView CDP endpoint intentionally omits
+        # Target.createTarget. Playwright raises here even though the already
+        # visible BrowserView is perfectly usable. Reuse that target rather
+        # than making every browser tool fail and falling back to GitHub tools.
+        message = str(exc).lower()
+        if "target.createTarget" not in message and "not supported" not in message:
+            raise
+        tab_id = session["active_tab_id"]
+        page = session["tabs"][tab_id].page
+        if url:
+            await page.goto(url, wait_until="domcontentloaded")
+        logger.info(
+            "electron_browser_tab_reused",
+            extra={"workspace_id": workspace_id, "tab_id": tab_id},
+        )
+        return tab_id
     if url:
         await page.goto(url, wait_until="domcontentloaded")
     tab = await _create_tab_state(page)
@@ -292,21 +310,31 @@ async def close_tab(workspace_id: str, tab_id: str) -> bool:
     session = _sessions.get(workspace_id)
     if session is None:
         return False
-    tab = session["tabs"].pop(tab_id, None)
+    tab = session["tabs"].get(tab_id)
     if tab is None:
         return False
+    last_tab = len(session["tabs"]) == 1
+    if last_tab:
+        # Keep the BrowserView target alive: closing the only Electron target
+        # cannot be repaired through CDP because Target.createTarget is not
+        # implemented. Reset it to a blank document and assign a fresh logical
+        # id instead.
+        try:
+            await tab.page.goto("about:blank", wait_until="domcontentloaded")
+        except Exception:
+            logger.debug("browser_session: falha ao resetar última aba %s", tab_id)
+        session["tabs"].pop(tab_id, None)
+        blank_id = uuid.uuid4().hex[:12]
+        session["tabs"][blank_id] = tab
+        session["active_tab_id"] = blank_id
+        return True
+    session["tabs"].pop(tab_id, None)
     try:
         await tab.page.close()
     except Exception:
         logger.debug("browser_session: falha ao fechar aba %s", tab_id)
 
-    if not session["tabs"]:
-        blank_page = await session["context"].new_page()
-        blank_tab = await _create_tab_state(blank_page)
-        blank_id = uuid.uuid4().hex[:12]
-        session["tabs"][blank_id] = blank_tab
-        session["active_tab_id"] = blank_id
-    elif session["active_tab_id"] == tab_id:
+    if session["active_tab_id"] == tab_id:
         session["active_tab_id"] = next(iter(session["tabs"]))
     return True
 

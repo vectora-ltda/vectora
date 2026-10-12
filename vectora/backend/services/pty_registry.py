@@ -48,6 +48,29 @@ class PtyRegistry:
             return None
         return session
 
+    def resolve_for_user_workspace(
+        self, terminal_id: str, *, user_id: str, workspace_id: str
+    ) -> PtySession | None:
+        """Resolve a live PTY shared by the user across agent/UI threads.
+
+        A terminal is owned by the user and workspace, while ``thread_id`` is
+        only the currently attached conversation.  Keeping those concerns
+        separate lets the UI reconnect to a PTY opened by the agent (and lets
+        the agent continue using one opened by the user) without weakening
+        cross-user/workspace isolation.
+        """
+        if not terminal_id or not workspace_id:
+            return None
+        session = self._sessions.get(terminal_id)
+        if session is None:
+            return None
+        if (
+            getattr(session, "user_id", "local") != user_id
+            or session.workspace_id != workspace_id
+        ):
+            return None
+        return session
+
     def list_for_context(
         self, *, user_id: str, thread_id: str, workspace_id: str
     ) -> list[PtySession]:

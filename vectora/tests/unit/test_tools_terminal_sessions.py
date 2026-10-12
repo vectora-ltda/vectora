@@ -257,11 +257,50 @@ class TestInteractiveTerminalTools:
             )["status"]
             == "accepted"
         )
+        # A PTY is shared by the user/workspace, so a UI thread can reconnect
+        # after the agent attached it to its own conversation.
+        session = pty_registry.get("t1")
+        assert session is not None
+        setattr(
+            session,
+            "read_since",
+            lambda _cursor, _limit: {
+                "data": b"ok",
+                "cursor": 2,
+                "alive": True,
+                "truncated": False,
+                "has_more": False,
+            },
+        )
         assert (
             json.loads(
                 await read_terminal(
                     "t1", ctx=ToolContext(thread_id="thr-2", workspace_id="ws-1")
                 )
-            )["code"]
-            == "not_found"
+            )["status"]
+            == "ok"
         )
+
+    @pytest.mark.asyncio
+    async def test_write_submit_envia_enter_explicitamente(self) -> None:
+        class Session:
+            user_id = "local"
+            terminal_id = "t-submit"
+            thread_id = "thr-1"
+            workspace_id = "ws-1"
+
+            def consume_rate_limit(self):
+                return None
+
+            def write_input(self, data, _request_id):
+                assert data == b"echo pronto\r"
+                return {"status": "accepted", "terminal_id": self.terminal_id}
+
+        pty_registry.add(Session())  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        result = await write_terminal(
+            "t-submit",
+            "echo pronto",
+            submit=True,
+            ctx=ToolContext(thread_id="thr-agent", workspace_id="ws-1"),
+        )
+        assert json.loads(result)["status"] == "accepted"

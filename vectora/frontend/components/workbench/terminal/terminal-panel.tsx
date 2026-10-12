@@ -367,20 +367,53 @@ export function TerminalPanel({ threadId }: TerminalPanelProps) {
     useSandboxStatus(workspace?.id);
   const [sandboxDialogOpen, setSandboxDialogOpen] = useState(false);
 
-  // Abre 1 terminal automaticamente quando o painel monta sem nenhum.
-  // Lê o store inline (não a captura reativa) — Strict Mode roda effects
-  // 2× em dev e a captura levaria a abrir 2 shells.
+  // Reusa primeiro uma PTY já aberta no workspace (pelo usuário ou pelo
+  // agente). Criar uma aba antes dessa consulta causava duas shells na mesma
+  // Workbench: a UI não via a thread do agente e abria outra sessão.
   useEffect(() => {
-    const current = useTerminalsStore.getState().list(threadId);
-    if (current.length === 0 && workspace?.trusted) {
-      open(threadId, {
-        id: newId(),
-        title: m.terminal_tab_default(),
-        workspaceId: workspace.id,
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!workspace?.trusted) return;
+    let stopped = false;
+    const ensureTerminal = async () => {
+      const current = useTerminalsStore.getState().list(threadId);
+      if (current.length > 0) return;
+      try {
+        const params = new URLSearchParams({
+          thread_id: threadId,
+          workspace_id: workspace.id,
+        });
+        const response = await fetch(
+          `/vectora.terminal.v1/list?${params.toString()}`,
+          { credentials: "include" },
+        );
+        const payload = response.ok
+          ? ((await response.json()) as {
+              terminals?: Array<{ terminal_id?: string; alive?: boolean }>;
+            })
+          : null;
+        const existing = payload?.terminals?.find(
+          (terminal) => terminal.terminal_id && terminal.alive,
+        );
+        if (stopped) return;
+        open(threadId, {
+          id: existing?.terminal_id ?? newId(),
+          title: existing ? "Shared terminal" : m.terminal_tab_default(),
+          workspaceId: workspace.id,
+        });
+      } catch {
+        if (!stopped) {
+          open(threadId, {
+            id: newId(),
+            title: m.terminal_tab_default(),
+            workspaceId: workspace.id,
+          });
+        }
+      }
+    };
+    void ensureTerminal();
+    return () => {
+      stopped = true;
+    };
+  }, [open, threadId, workspace?.id, workspace?.trusted]);
 
   // O agente também pode abrir PTYs. Sincroniza o registry do backend para
   // que essas sessões apareçam como abas nesta mesma Workbench, inclusive

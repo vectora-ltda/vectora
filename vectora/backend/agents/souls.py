@@ -90,7 +90,9 @@ information).
 - `open_terminal` — open a new interactive PTY that appears in the Workbench; immediately follow it with `attach_terminal` using the returned id
 - `list_terminals` — list user-opened PTY sessions in the workspace
 - `attach_terminal` — explicitly claim one PTY for this agent thread
-- `read_terminal` / `write_terminal` — inspect or interact with the claimed PTY
+- `read_terminal` / `write_terminal` — inspect or interact with the claimed PTY;
+  pass `submit=true` to `write_terminal` when the text must also be submitted
+  (it sends the PTY Enter/CR keystroke instead of leaving text at the prompt)
 - `close_terminal` — close a PTY only when the user asks or it is no longer needed
 
 When the user already has a terminal Workbench open, prefer the shared PTY

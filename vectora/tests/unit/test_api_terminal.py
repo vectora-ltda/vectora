@@ -50,7 +50,7 @@ def _clean_registry():
 
 
 @pytest.mark.asyncio
-async def test_list_route_filters_user_workspace_and_thread() -> None:
+async def test_list_route_filters_user_and_workspace_but_shares_threads() -> None:
     pty_registry.add(
         _session(
             "owned",
@@ -88,7 +88,10 @@ async def test_list_route_filters_user_workspace_and_thread() -> None:
         _request("alice"), thread_id="thread-1", workspace_id="workspace-1"
     )
 
-    assert [item["terminal_id"] for item in result["terminals"]] == ["owned"]
+    assert [item["terminal_id"] for item in result["terminals"]] == [
+        "owned",
+        "other-thread",
+    ]
 
 
 @pytest.mark.asyncio
@@ -96,11 +99,10 @@ async def test_list_route_filters_user_workspace_and_thread() -> None:
     ("user_id", "thread_id", "workspace_id"),
     [
         ("bob", "thread-1", "workspace-1"),
-        ("alice", "thread-2", "workspace-1"),
         ("alice", "thread-1", "workspace-2"),
     ],
 )
-async def test_close_route_rejects_context_mismatch(
+async def test_close_route_rejects_user_or_workspace_mismatch(
     user_id: str, thread_id: str, workspace_id: str
 ) -> None:
     pty_registry.add(

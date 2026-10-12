@@ -190,7 +190,8 @@ PTY visible in the Workbench, call `open_terminal`; it returns a terminal id. Im
 To use a PTY already
 opened by the user, call `list_terminals`, select the terminal belonging to
 the current workspace, call `attach_terminal`, and then use `read_terminal`
-and `write_terminal` with that terminal id. Use the one-shot `terminal` tool
+and `write_terminal` with that terminal id. Set `submit=true` when a command
+must be executed immediately after writing it. Use the one-shot `terminal` tool
 when no shared interactive session is needed; after `attach_terminal`, the
 `terminal` tool also routes commands to that same PTY. Never claim that HITL
 is required unless the stream actually emits a pending approval. In
