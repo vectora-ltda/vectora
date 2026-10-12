@@ -394,13 +394,17 @@ export function TerminalPanel({ threadId }: TerminalPanelProps) {
           (terminal) => terminal.terminal_id && terminal.alive,
         );
         if (stopped) return;
+        if (useTerminalsStore.getState().list(threadId).length > 0) return;
         open(threadId, {
           id: existing?.terminal_id ?? newId(),
-          title: existing ? "Shared terminal" : m.terminal_tab_default(),
+          title: existing ? m.terminal_tab_shared() : m.terminal_tab_default(),
           workspaceId: workspace.id,
         });
       } catch {
-        if (!stopped) {
+        if (
+          !stopped &&
+          useTerminalsStore.getState().list(threadId).length === 0
+        ) {
           open(threadId, {
             id: newId(),
             title: m.terminal_tab_default(),

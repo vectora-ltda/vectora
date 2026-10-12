@@ -280,20 +280,15 @@ async def new_tab(workspace_id: str, url: str | None = None) -> str:
     except Exception as exc:
         # Electron's embedded BrowserView CDP endpoint intentionally omits
         # Target.createTarget. Playwright raises here even though the already
-        # visible BrowserView is perfectly usable. Reuse that target rather
-        # than making every browser tool fail and falling back to GitHub tools.
+        # visible BrowserView is usable, but it is not a new tab. Never report
+        # reuse as successful creation or navigate it behind the caller's back.
         message = str(exc).lower()
         if "target.createTarget" not in message and "not supported" not in message:
             raise
-        tab_id = session["active_tab_id"]
-        page = session["tabs"][tab_id].page
-        if url:
-            await page.goto(url, wait_until="domcontentloaded")
-        logger.info(
-            "electron_browser_tab_reused",
-            extra={"workspace_id": workspace_id, "tab_id": tab_id},
-        )
-        return tab_id
+        raise RuntimeError(
+            "O Browser Workbench não suporta criar uma nova aba via CDP; "
+            "selecione uma aba existente ou abra uma nova aba no Electron."
+        ) from exc
     if url:
         await page.goto(url, wait_until="domcontentloaded")
     tab = await _create_tab_state(page)
@@ -323,6 +318,11 @@ async def close_tab(workspace_id: str, tab_id: str) -> bool:
             await tab.page.goto("about:blank", wait_until="domcontentloaded")
         except Exception:
             logger.debug("browser_session: falha ao resetar última aba %s", tab_id)
+            return False
+        tab.console_log.clear()
+        tab.network_log.clear()
+        tab._request_entries.clear()
+        tab.dialog_policy = None
         session["tabs"].pop(tab_id, None)
         blank_id = uuid.uuid4().hex[:12]
         session["tabs"][blank_id] = tab

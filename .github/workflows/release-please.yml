@@ -194,6 +194,7 @@ jobs:
             echo "branch=$release_branch"
             echo "version=$next_version"
             echo "current_version=$current_version"
+            echo "target_branch=$TARGET_BRANCH"
           } >> "$GITHUB_OUTPUT"
 
       - name: Create canonical release branch
@@ -226,6 +227,8 @@ jobs:
         env:
           RELEASE_MILESTONE: ${{ steps.release-line.outputs.release_milestone }}
           PLAN_CURRENT_VERSION: ${{ steps.release-plan.outputs.current_version }}
+          RELEASE_BRANCH: ${{ steps.release-plan.outputs.branch }}
+          TARGET_BRANCH: ${{ steps.release-plan.outputs.target_branch }}
           SOURCE_SHA: ${{ github.sha }}
           RELEASE_MANIFEST: ${{ startsWith(github.ref, 'refs/tags/v') && '.release-please-manifest.maintenance.json' || (github.ref_name == steps.release-line.outputs.development_branch && '.release-please-manifest.development.json' || '.release-please-manifest.maintenance.json') }}
         shell: bash
@@ -233,7 +236,9 @@ jobs:
           set -euo pipefail
           bump_flag=""
           [[ "$RELEASE_MILESTONE" == *.x ]] && bump_flag="--bump-patch-for-minor-pre-major"
-          git reset --hard "$SOURCE_SHA"
+          if [[ "$RELEASE_BRANCH" != "$TARGET_BRANCH" ]]; then
+            git reset --hard "$SOURCE_SHA"
+          fi
           current_version="$PLAN_CURRENT_VERSION"
           uv run --project vectora python utils/release_plan.py \
             --current-version "$current_version" \
@@ -247,6 +252,7 @@ jobs:
         if: steps.release-plan.outputs.enabled == 'true'
         env:
           RELEASE_BRANCH: ${{ steps.release-plan.outputs.branch }}
+          TARGET_BRANCH: ${{ steps.release-plan.outputs.target_branch }}
           RELEASE_VERSION: ${{ steps.release-plan.outputs.version }}
           RELEASE_MANIFEST: ${{ startsWith(github.ref, 'refs/tags/v') && '.release-please-manifest.maintenance.json' || (github.ref_name == steps.release-line.outputs.development_branch && '.release-please-manifest.development.json' || '.release-please-manifest.maintenance.json') }}
           GH_TOKEN: ${{ github.token }}
@@ -260,7 +266,16 @@ jobs:
             git commit -m "chore(master): release $RELEASE_VERSION"
           fi
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git push --force-with-lease origin "HEAD:$RELEASE_BRANCH"
+          if [[ "$RELEASE_BRANCH" == "$TARGET_BRANCH" ]]; then
+            git push origin "HEAD:$RELEASE_BRANCH"
+          else
+            expected_sha="$(git ls-remote origin "refs/heads/$RELEASE_BRANCH" | awk '{print $1}')"
+            if [[ -z "$expected_sha" ]]; then
+              git push origin "HEAD:$RELEASE_BRANCH"
+            else
+              git push --force-with-lease="refs/heads/$RELEASE_BRANCH:$expected_sha" origin "HEAD:$RELEASE_BRANCH"
+            fi
+          fi
 
       - name: Create or update canonical release PR
         if: steps.release-plan.outputs.enabled == 'true'

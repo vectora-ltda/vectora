@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from backend.llm.openrouter.client import OpenRouterClient, OpenRouterResponseError
 from backend.vtypes.contracts import UsageSnapshot
@@ -46,6 +46,12 @@ _ROLE_POR_TIPO = {
     MessageRole.ASSISTANT: "assistant",
     MessageRole.TOOL: "tool",
 }
+
+
+class _UsagePayload(TypedDict, total=False):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
 
 
 def _to_openrouter_content(content: list[ContentBlock]) -> str | list[dict]:
@@ -129,7 +135,7 @@ def _parse_tool_call_chunks(bruto: list) -> list[ToolCallChunk]:
     return pedacos
 
 
-def _usage_metadata(usage: dict | None) -> UsageSnapshot | None:
+def _usage_metadata(usage: _UsagePayload | None) -> UsageSnapshot | None:
     if not usage:
         return None
     entrada = int(usage.get("prompt_tokens") or 0)

@@ -56,7 +56,7 @@ class TestShouldRequireApproval:
             is True
         )
 
-    def test_toda_tool_marcada_como_destrutiva_no_registry_pede_aprovacao(self):
+    def test_toda_tool_marcada_como_destrutiva_no_registry_pede_aprovacao(self) -> None:
         """O metadata do registry é a segunda metade do contrato HITL.
 
         O teste importa o catálogo nativo inteiro para impedir que uma nova

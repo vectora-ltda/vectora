@@ -1,7 +1,7 @@
 name: PR Checks
 
-# Roda em todo PR contra uma linha de desenvolvimento suportada: aplica labels automáticas por conventional
-# commit/path (.github/labeler.yml) e valida que o TÍTULO do PR segue
+# Roda em todo PR contra uma linha de desenvolvimento suportada e valida que
+# o TÍTULO do PR segue
 # Conventional Commits — o título vira o commit de squash-merge, que
 # release-please.yml lê pra decidir o bump de versão e a seção do
 # CHANGELOG.md. Um título malformado quebra essa automação em silêncio, daí
@@ -49,33 +49,6 @@ jobs:
           utils/test_rotate_release_lines.py
           utils/test_prepare_release_line_config.py
           utils/test_select_release_line.py
-
-  labeler:
-    name: Label PR
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      # A action oficial roda em Node e não precisa construir um container
-      # Alpine no Docker Hub, evitando falhas transitórias de rate limit.
-      - uses: actions/labeler@v6
-        with:
-          repo-token: ${{ github.token }}
-      - name: Apply Conventional Commit labels
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const title = context.payload.pull_request.title;
-            const body = context.payload.pull_request.body || "";
-            const labels = new Set();
-            if (/BREAKING CHANGE|^[^:]+!:/.test(`${title}\n${body}`)) labels.add("breaking-change");
-            const match = title.match(/^(feat|fix|docs|perf|ci|chore|test|build|style|refactor)(?:\([^)]*\))?!?:/);
-            const byKind = { feat: "enhancement", fix: "bug", docs: "documentation", perf: "performance", ci: "ci", chore: "chore", test: "chore", build: "chore", style: "chore", refactor: "chore" };
-            if (match) labels.add(byKind[match[1]]);
-            if (labels.size) {
-              await github.rest.issues.addLabels({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, labels: [...labels] });
-            }
 
   commitlint:
     name: Verify PR title (Conventional Commits)

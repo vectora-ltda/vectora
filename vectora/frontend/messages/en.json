@@ -1292,6 +1292,7 @@
   "terminal_sandbox_init_button": "Enable sandbox for this folder",
   "terminal_sandbox_init_error": "Could not create vectora.toml.",
   "terminal_tab_default": "shell",
+  "terminal_tab_shared": "shared shell",
   "terminal_title": "Terminal",
   "terminal_toggle": "Toggle terminal",
   "terminal_untrusted_hint": "The terminal only opens in folders you marked as trusted.",

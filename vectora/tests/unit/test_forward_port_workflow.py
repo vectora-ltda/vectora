@@ -270,7 +270,11 @@ def test_release_mutations_are_serialized_and_leased() -> None:
     """Protege as duas linhas que publicam em master contra gravações cruzadas."""
     content = (WORKFLOW.parent / "release-please.yml").read_text(encoding="utf-8")
     assert "group: release-please-${{ github.repository }}" in content
-    assert 'git push --force-with-lease origin "HEAD:$RELEASE_BRANCH"' in content
+    assert (
+        'git push --force-with-lease="refs/heads/$RELEASE_BRANCH:$expected_sha"'
+        in content
+    )
+    assert 'git push origin "HEAD:$RELEASE_BRANCH"' in content
     assert 'git push --force-with-lease="refs/heads/$target:$target_sha"' not in content
     assert 'git push --force-with-lease="refs/heads/$source:$source_sha"' not in content
     assert "skip-github-release: true" not in content

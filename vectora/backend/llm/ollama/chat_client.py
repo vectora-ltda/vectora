@@ -92,7 +92,7 @@ def _parse_tool_calls(bruto: list) -> list[ToolCall]:
             ToolCall(
                 id=item.get("id") or "",
                 name=funcao.get("name", ""),
-                args=coerce_json_object(args, raw=raw),
+                args=coerce_json_object(args or {}, raw=raw),
             )
         )
     return chamadas

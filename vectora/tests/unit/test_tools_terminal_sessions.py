@@ -114,7 +114,7 @@ class TestListTerminals:
             thread_id = "thr-1"
             workspace_id = "ws-1"
 
-            def consume_rate_limit(self):
+            def consume_rate_limit(self) -> float | None:
                 return None
 
             def write_input(self, data, request_id):
@@ -189,7 +189,7 @@ class TestInteractiveTerminalTools:
             thread_id = "thr-1"
             workspace_id = "ws-1"
 
-            def consume_rate_limit(self):
+            def consume_rate_limit(self) -> float | None:
                 return None
 
             def read_since(self, cursor, max_bytes):
@@ -289,10 +289,10 @@ class TestInteractiveTerminalTools:
             thread_id = "thr-1"
             workspace_id = "ws-1"
 
-            def consume_rate_limit(self):
+            def consume_rate_limit(self) -> float | None:
                 return None
 
-            def write_input(self, data, _request_id):
+            def write_input(self, data: bytes, _request_id: str) -> dict[str, str]:
                 assert data == b"echo pronto\r"
                 return {"status": "accepted", "terminal_id": self.terminal_id}
 

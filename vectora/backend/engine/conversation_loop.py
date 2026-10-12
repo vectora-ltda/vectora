@@ -27,6 +27,7 @@ vocabulário nativo.
 from __future__ import annotations
 
 import json
+import math
 import time
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, cast
@@ -413,11 +414,15 @@ async def run_conversation(
                         )
                 raw_priority = pendente.args.get("approval_priority", 0)
                 try:
-                    priority = (
-                        max(0, min(100, int(raw_priority)))
-                        if isinstance(raw_priority, (int, float, str))
-                        else 0
-                    )
+                    if isinstance(raw_priority, (int, float, str)):
+                        numeric_priority = float(raw_priority)
+                        priority = (
+                            max(0, min(100, int(numeric_priority)))
+                            if math.isfinite(numeric_priority)
+                            else 0
+                        )
+                    else:
+                        priority = 0
                 except (TypeError, ValueError):
                     priority = 0
                 expires_at = pendente.args.get("approval_expires_at")

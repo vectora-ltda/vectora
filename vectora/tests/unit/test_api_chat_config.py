@@ -39,10 +39,10 @@ def test_optional_fields_absent_by_default():
 # ---------------------------------------------------------------------------
 
 
-def test_permission_mode_default_is_ask():
-    """ChatConfig default traz permission_mode='ask' → presente no configurable."""
+def test_permission_mode_default_is_empty_sentinel():
+    """O modo ausente fica vazio para permitir reidratar a sessão persistida."""
     cfg = _build_configurable(ChatConfig(), "t", "u")
-    assert cfg["permission_mode"] == "ask"
+    assert "permission_mode" not in cfg
 
 
 def test_permission_mode_passthrough():

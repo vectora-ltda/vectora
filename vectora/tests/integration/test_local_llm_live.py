@@ -13,7 +13,7 @@ from typing import Final
 import httpx
 import pytest
 
-pytestmark = [pytest.mark.local_llm, pytest.mark.asyncio]
+pytestmark = [pytest.mark.local_llm, pytest.mark.asyncio, pytest.mark.live]
 
 _BASE_URL: Final[str] = os.environ.get(
     "VECTORA_LOCAL_LLM_BASE_URL", "http://127.0.0.1:18080/v1"

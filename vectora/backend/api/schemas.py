@@ -41,7 +41,7 @@ class ChatConfig(BaseModel):
     custom_system_prompt: str = ""  # instrução personalizada por usuário
     # ``""`` permanece como sentinela de compatibilidade: o handler omite o
     # campo do configurable e deixa a sessão escolher o modo persistido.
-    permission_mode: PermissionMode | Literal[""] = "ask"
+    permission_mode: PermissionMode | Literal[""] = ""
     reasoning_effort: str = ""  # low|medium|high|max (vazio = default do modelo)
     context_max_tokens: int | None = Field(default=None, ge=1)
     context_compaction_enabled: bool = True

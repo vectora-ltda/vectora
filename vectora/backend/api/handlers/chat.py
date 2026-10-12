@@ -925,8 +925,7 @@ async def stream_chat(
     # closure `run` abaixo). O permission_mode NÃO afeta o cache (HITL
     # dinâmico via ToolContext.permission_mode); guardamos o modo do turno
     # só para o resume reidratar o mesmo contexto (ver resume_chat).
-    permission_mode = configurable.get("permission_mode", "ask")
-    _thread_permission_mode[thread_id] = permission_mode
+    permission_mode = configurable.get("permission_mode")
     selected_model = configurable.get("model", "")
     _thread_graph_selector[thread_id] = {
         "model": selected_model,
@@ -962,6 +961,15 @@ async def stream_chat(
     except Exception as exc:
         logger.exception("api/chat: erro ao inicializar o motor nativo")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not permission_mode:
+        try:
+            persisted = await session_store.get_session(thread_id, user_id=user_id)
+        except Exception:
+            persisted = None
+        permission_mode = str((persisted or {}).get("permission_mode") or "ask")
+    configurable["permission_mode"] = permission_mode
+    _thread_permission_mode[thread_id] = permission_mode
 
     await session_store.create_session(
         thread_id,

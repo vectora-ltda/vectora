@@ -1103,13 +1103,15 @@ async def terminal(
         user_id=ctx.user_id,
         workspace_id=ctx.workspace_id,
     )
-    if shared_sessions:
-        if len(shared_sessions) > 1:
-            return (
-                "Error: há mais de um terminal compartilhado nesta thread; "
-                "use `write_terminal` com o terminal_id explícito."
-            )
-        session = shared_sessions[0]
+    session = next(
+        (
+            candidate
+            for candidate in shared_sessions
+            if candidate.thread_id == ctx.thread_id
+        ),
+        None,
+    )
+    if session is not None:
         request_id = f"agent-terminal-{uuid.uuid4().hex}"
         result = session.write_input((command + "\n").encode("utf-8"), request_id)
         logger.info(

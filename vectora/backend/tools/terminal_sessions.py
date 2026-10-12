@@ -249,8 +249,9 @@ async def write_terminal(
     terminal_id: str,
     input_data: str,
     request_id: str = "",
-    submit: bool = True,
     ctx: ToolContext = _DEFAULT_CONTEXT,
+    *,
+    submit: bool = True,
 ) -> str:
     """Escreve entrada no terminal compartilhado.
 
