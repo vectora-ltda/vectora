@@ -111,7 +111,7 @@ async def test_terminal_reuses_attached_workbench_pty(monkeypatch, _workspace):
     session = SharedSession()
     monkeypatch.setattr(
         pty_registry,
-        "list_for_context",
+        "list_for_user_workspace",
         lambda **_kwargs: [session],
     )
     result = await terminal(

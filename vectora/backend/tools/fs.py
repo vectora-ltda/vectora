@@ -1099,9 +1099,8 @@ async def terminal(
     # variáveis) do shell que o usuário abriu.
     from backend.services.pty_registry import pty_registry
 
-    shared_sessions = pty_registry.list_for_context(
+    shared_sessions = pty_registry.list_for_user_workspace(
         user_id=ctx.user_id,
-        thread_id=ctx.thread_id,
         workspace_id=ctx.workspace_id,
     )
     if shared_sessions:
