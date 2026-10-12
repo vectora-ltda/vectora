@@ -29,7 +29,9 @@ let snapshotQueue: Promise<void> = Promise.resolve();
 function isTransientFileLock(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const code = (error as { code?: unknown }).code;
-  return code === "EBUSY" || code === "EPERM" || code === "EACCES";
+  // EACCES also represents a permanent ACL failure. Retrying it would hide
+  // an incomplete backup, so only OS-level busy/operation locks are transient.
+  return code === "EBUSY" || code === "EPERM";
 }
 
 function isSkippableFileLock(error: unknown): boolean {

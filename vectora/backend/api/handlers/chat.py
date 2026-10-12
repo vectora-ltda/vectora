@@ -966,8 +966,15 @@ async def stream_chat(
         try:
             candidate = await session_store.get_session(thread_id, user_id=user_id)
             persisted = candidate if isinstance(candidate, dict) else None
-        except Exception:
-            persisted = None
+        except Exception as exc:
+            logger.exception(
+                "api/chat: falha ao restaurar permission_mode da sessão",
+                extra={"thread_id": thread_id, "user_id": user_id},
+            )
+            raise HTTPException(
+                status_code=503,
+                detail="Não foi possível restaurar o contexto da sessão",
+            ) from exc
         permission_mode = str((persisted or {}).get("permission_mode") or "ask")
     configurable["permission_mode"] = permission_mode
     _thread_permission_mode[thread_id] = permission_mode
