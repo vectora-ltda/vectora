@@ -964,7 +964,8 @@ async def stream_chat(
 
     if not permission_mode:
         try:
-            persisted = await session_store.get_session(thread_id, user_id=user_id)
+            candidate = await session_store.get_session(thread_id, user_id=user_id)
+            persisted = candidate if isinstance(candidate, dict) else None
         except Exception:
             persisted = None
         permission_mode = str((persisted or {}).get("permission_mode") or "ask")
