@@ -89,8 +89,8 @@ async def test_list_route_filters_user_and_workspace_but_shares_threads() -> Non
     )
 
     assert [item["terminal_id"] for item in result["terminals"]] == [
-        "owned",
         "other-thread",
+        "owned",
     ]
 
 
