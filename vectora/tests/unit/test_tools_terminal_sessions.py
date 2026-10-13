@@ -82,7 +82,9 @@ class TestListTerminals:
             ctx=ToolContext(thread_id="thr-1", workspace_id="ws-1")
         )
         data = json.loads(result)
-        assert [t["terminal_id"] for t in data["terminals"]] == ["t1", "t2"]
+        # The most recently attached PTY is preferred by shared terminal
+        # routing, so listing uses the same deterministic order.
+        assert [t["terminal_id"] for t in data["terminals"]] == ["t2", "t1"]
 
     @pytest.mark.asyncio
     async def test_attach_vincula_terminal_de_outra_thread(self) -> None:
