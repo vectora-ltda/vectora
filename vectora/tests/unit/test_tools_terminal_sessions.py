@@ -82,7 +82,9 @@ class TestListTerminals:
             ctx=ToolContext(thread_id="thr-1", workspace_id="ws-1")
         )
         data = json.loads(result)
-        assert [t["terminal_id"] for t in data["terminals"]] == ["t1", "t2"]
+        # The most recently attached PTY is preferred by shared terminal
+        # routing, so listing uses the same deterministic order.
+        assert [t["terminal_id"] for t in data["terminals"]] == ["t2", "t1"]
 
     @pytest.mark.asyncio
     async def test_attach_vincula_terminal_de_outra_thread(self) -> None:
@@ -114,7 +116,7 @@ class TestListTerminals:
             thread_id = "thr-1"
             workspace_id = "ws-1"
 
-            def consume_rate_limit(self):
+            def consume_rate_limit(self) -> float | None:
                 return None
 
             def write_input(self, data, request_id):
@@ -189,7 +191,7 @@ class TestInteractiveTerminalTools:
             thread_id = "thr-1"
             workspace_id = "ws-1"
 
-            def consume_rate_limit(self):
+            def consume_rate_limit(self) -> float | None:
                 return None
 
             def read_since(self, cursor, max_bytes):
@@ -257,11 +259,50 @@ class TestInteractiveTerminalTools:
             )["status"]
             == "accepted"
         )
+        # A PTY is shared by the user/workspace, so a UI thread can reconnect
+        # after the agent attached it to its own conversation.
+        session = pty_registry.get("t1")
+        assert session is not None
+        setattr(
+            session,
+            "read_since",
+            lambda _cursor, _limit: {
+                "data": b"ok",
+                "cursor": 2,
+                "alive": True,
+                "truncated": False,
+                "has_more": False,
+            },
+        )
         assert (
             json.loads(
                 await read_terminal(
                     "t1", ctx=ToolContext(thread_id="thr-2", workspace_id="ws-1")
                 )
-            )["code"]
-            == "not_found"
+            )["status"]
+            == "ok"
         )
+
+    @pytest.mark.asyncio
+    async def test_write_submit_envia_enter_explicitamente(self) -> None:
+        class Session:
+            user_id = "local"
+            terminal_id = "t-submit"
+            thread_id = "thr-1"
+            workspace_id = "ws-1"
+
+            def consume_rate_limit(self) -> float | None:
+                return None
+
+            def write_input(self, data: bytes, _request_id: str) -> dict[str, str]:
+                assert data == b"echo pronto\r"
+                return {"status": "accepted", "terminal_id": self.terminal_id}
+
+        pty_registry.add(Session())  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+        result = await write_terminal(
+            "t-submit",
+            "echo pronto",
+            submit=True,
+            ctx=ToolContext(thread_id="thr-agent", workspace_id="ws-1"),
+        )
+        assert json.loads(result)["status"] == "accepted"

@@ -26,6 +26,7 @@ from backend.browser.session import (
 )
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
+from backend.vtypes.browser import NetworkProfile
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ def _workspace_id(ctx: ToolContext) -> str:
 
 #: Perfis de `Network.emulateNetworkConditions` (CDP) — latência em ms,
 #: throughput em bytes/s. "offline" zera o throughput.
-_NETWORK_PROFILES: dict[str, dict[str, Any]] = {
+_NETWORK_PROFILES: dict[str, NetworkProfile] = {
     "offline": {
         "offline": True,
         "latency": 0,

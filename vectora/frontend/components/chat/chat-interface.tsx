@@ -871,16 +871,13 @@ export function ChatInterface({
 
   // Process queue when AI finishes responding
   useEffect(() => {
-    const wasLoading = prevIsLoadingRef.current;
     const isCurrentlyLoading = uiState.isLoading || uiState.isRegenerating;
 
-    // When loading finishes and there are queued messages, process them
-    if (
-      wasLoading &&
-      !isCurrentlyLoading &&
-      messageQueueRef.current.length > 0
-    ) {
-      processQueue();
+    // A queue may be promoted while a regeneration is active. Once the
+    // active stream is idle, always drain the selected item; the focus effect
+    // updates prevIsLoadingRef before this effect runs.
+    if (!isCurrentlyLoading && messageQueueRef.current.length > 0) {
+      processQueueRef.current();
     }
   }, [uiState.isLoading, uiState.isRegenerating, processQueue]);
 
@@ -1104,6 +1101,36 @@ export function ChatInterface({
     // ainda não tivesse produzido nenhum token.
     abort();
   }, [uiDispatch, abort]);
+
+  const handleRunQueuedNow = useCallback(
+    (messageId: string) => {
+      const queuedIndex = messageQueueRef.current.findIndex(
+        (message) => message.userMessage.id === messageId,
+      );
+      if (queuedIndex < 0) return;
+
+      const [selectedMessage] = messageQueueRef.current.splice(queuedIndex, 1);
+      if (!selectedMessage) return;
+      messageQueueRef.current.unshift(selectedMessage);
+      setQueuedMessagesDisplay((current) => {
+        const selected = current.find((message) => message.id === messageId);
+        if (!selected) return current;
+        return [
+          selected,
+          ...current.filter((message) => message.id !== messageId),
+        ];
+      });
+
+      // Aborta o turno atual; quando o stream terminar, o efeito da fila
+      // remove o próximo item, que agora é o selecionado.
+      if (uiState.isLoading || uiState.isRegenerating) {
+        void handleStop();
+      } else {
+        processQueueRef.current();
+      }
+    },
+    [handleStop, uiState.isLoading, uiState.isRegenerating],
+  );
 
   const handleRegenerate = useCallback(async () => {
     if (uiState.isLoading || uiState.isRegenerating) return;
@@ -1417,6 +1444,7 @@ export function ChatInterface({
           onVoiceToggle={toggleVoiceListening}
           voiceError={voiceError}
           queuedMessages={queuedMessagesDisplay}
+          onRunQueuedNow={handleRunQueuedNow}
           modelId={agentConfig?.model}
           tokensUsed={contextTokens}
           agentConfig={agentConfig}

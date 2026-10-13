@@ -156,6 +156,7 @@ register_tool_group(
         ),
         tool_names=[
             "terminal",
+            "open_terminal",
             "list_terminals",
             "attach_terminal",
             "read_terminal",

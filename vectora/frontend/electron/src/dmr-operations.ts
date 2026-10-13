@@ -5,6 +5,8 @@ import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   DockerCliExecutor,
+  validateContextSize,
+  validateModelReference,
   type DockerCommandResult,
 } from "./docker-cli-executor.js";
 
@@ -253,28 +255,34 @@ export class DmrOperations {
   }
 
   async prepare(reference: string): Promise<DmrOperation> {
+    const validatedReference = validateModelReference(reference);
     await this.loadManifest();
-    const item = this.createOperation("prepare", reference);
+    const item = this.createOperation("prepare", validatedReference);
     return this.queue(item, () => this.runPrepare(item));
   }
 
   async start(reference: string, contextSize?: number): Promise<DmrOperation> {
+    const validatedReference = validateModelReference(reference);
+    const validatedContextSize =
+      contextSize === undefined ? undefined : validateContextSize(contextSize);
     await this.loadManifest();
-    const item = this.createOperation("start", reference);
-    return this.queue(item, () => this.runStart(item, contextSize));
+    const item = this.createOperation("start", validatedReference);
+    return this.queue(item, () => this.runStart(item, validatedContextSize));
   }
 
   async stop(reference: string): Promise<DmrOperation> {
+    const validatedReference = validateModelReference(reference);
     await this.loadManifest();
-    const item = this.createOperation("stop", reference);
+    const item = this.createOperation("stop", validatedReference);
     return this.queue(item, () => this.runStop(item));
   }
 
   async remove(reference: string, confirmed: boolean): Promise<DmrOperation> {
     if (!confirmed)
       throw new Error("remoção do modelo exige confirmação explícita");
+    const validatedReference = validateModelReference(reference);
     await this.loadManifest();
-    const item = this.createOperation("remove", reference);
+    const item = this.createOperation("remove", validatedReference);
     return this.queue(item, () => this.runRemove(item));
   }
 

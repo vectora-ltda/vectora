@@ -65,6 +65,7 @@ from pydantic import BaseModel, Field
 
 from backend.api.handlers.admin import require_admin
 from backend.settings import CapabilityState, settings
+from backend.vtypes.providers import ProviderModel
 
 logger = logging.getLogger(__name__)
 
@@ -191,12 +192,12 @@ class OllamaDiscoveryResponse(BaseModel):
 
 class OpenAICompatibleDiscoveryResponse(BaseModel):
     reachable: bool
-    models: list[dict[str, str]]
+    models: list[ProviderModel]
 
 
 class LlamaCppConnectionTestResponse(BaseModel):
     status: str
-    models: list[dict[str, str]] = []
+    models: list[ProviderModel] = []
     detail: str | None = None
 
 

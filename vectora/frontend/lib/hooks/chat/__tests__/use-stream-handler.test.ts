@@ -358,6 +358,8 @@ describe("useStreamHandler.processStream", () => {
           tool_name: "file_write",
           args_json: "{}",
           interrupt_id: "int-1",
+          permission_mode: "ask",
+          workspace_id: "ws-from-event",
         } as StreamEvent;
       })(),
     );
@@ -369,6 +371,8 @@ describe("useStreamHandler.processStream", () => {
     expect(window.localStorage.getItem("vectora:streaming:t1")).toBeNull();
     const assistant = messages.find((m) => m.id === "a1");
     expect(assistant?.hitlPending?.toolName).toBe("file_write");
+    expect(assistant?.hitlPending?.permissionMode).toBe("ask");
+    expect(assistant?.hitlPending?.workspaceId).toBe("ws-from-event");
   });
 
   it("message_break mantém bolha única e concatena segmentos com separador", async () => {

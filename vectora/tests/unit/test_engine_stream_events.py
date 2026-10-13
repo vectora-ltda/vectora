@@ -161,6 +161,8 @@ class TestParidadeComOSchemaPydantic:
                 tool_name="file_write",
                 args_json="{}",
                 interrupt_id="int-1",
+                permission_mode="bypass",
+                workspace_id="ws-1",
                 affected_paths=["a.py"],
             )
         )
@@ -169,6 +171,8 @@ class TestParidadeComOSchemaPydantic:
                 tool_name="file_write",
                 args_json="{}",
                 interrupt_id="int-1",
+                permission_mode="bypass",
+                workspace_id="ws-1",
                 affected_paths=["a.py"],
             )
         )

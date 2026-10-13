@@ -16,6 +16,7 @@ import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, TypedDict
 
+from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import VMessage
 
 if TYPE_CHECKING:
@@ -204,9 +205,14 @@ class SessionStore:
         async with self._pool.acquire() as conn:
             try:
                 await conn.execute(
-                    "INSERT OR IGNORE INTO sessions (thread_id, user_id, workspace_id, "
+                    "INSERT INTO sessions (thread_id, user_id, workspace_id, "
                     "parent_thread_id, mode, permission_mode, created_at, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(thread_id) DO UPDATE SET "
+                    "workspace_id = CASE WHEN excluded.mode = 'chat' "
+                    "THEN excluded.workspace_id ELSE COALESCE(excluded.workspace_id, sessions.workspace_id) END, "
+                    "mode = excluded.mode, permission_mode = excluded.permission_mode, "
+                    "updated_at = excluded.updated_at",
                     (
                         thread_id,
                         user_id,
@@ -740,7 +746,7 @@ class SessionStore:
         tool_call_id: str,
         args: dict[str, Any],
         reasoning: str | None = None,
-        options: list[dict[str, str]] | None = None,
+        options: list[ToolOption] | None = None,
         priority: int = 0,
         expires_at: str | None = None,
     ) -> None:
@@ -785,7 +791,7 @@ class SessionStore:
         decision: str,
         selection: str | None,
         decided_by: str | None,
-        options: list[dict[str, str]],
+        options: list[ToolOption],
         priority: int,
         expires_at: str | None,
     ) -> None:

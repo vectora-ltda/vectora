@@ -28,6 +28,7 @@ from backend.vtypes.message import (
     ToolCallChunk,
     VMessage,
     VMessageChunk,
+    coerce_json_object,
 )
 
 if TYPE_CHECKING:
@@ -39,6 +40,8 @@ _ROLE_POR_TIPO = {
     MessageRole.ASSISTANT: "assistant",
     MessageRole.TOOL: "tool",
 }
+
+_INVALID: object = object()
 
 
 def _split_conteudo(msg: VMessage) -> tuple[str, list[str]]:
@@ -81,16 +84,19 @@ def _parse_tool_calls(bruto: list) -> list[ToolCall]:
     for item in bruto or []:
         funcao = item.get("function") or {}
         args = funcao.get("arguments")
+        raw = args if isinstance(args, str) else None
         if isinstance(args, str):
             try:
                 args = json.loads(args)
             except json.JSONDecodeError:
-                args = {}
+                args = _INVALID
+        elif args is None:
+            args = {}
         chamadas.append(
             ToolCall(
                 id=item.get("id") or "",
                 name=funcao.get("name", ""),
-                args=args if isinstance(args, dict) else {},
+                args=coerce_json_object(args, raw=raw),
             )
         )
     return chamadas

@@ -88,6 +88,8 @@ export interface Message {
     affectedPaths?: string[];
     /** Modo de permissão ativo (default/yolo/…). */
     permissionMode?: string;
+    /** Workspace que originou a aprovação. */
+    workspaceId?: string;
     options?: Array<{ label: string; value: string }>;
     priority?: number;
     expiresAt?: string | null;

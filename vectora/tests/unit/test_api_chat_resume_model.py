@@ -56,6 +56,42 @@ def _fake_session_store() -> AsyncMock:
 
 class TestResumeChatUsesSameNativeAgentAsStreamChat:
     @pytest.mark.asyncio
+    async def test_resume_reidrata_modo_e_workspace_persistidos_apos_restart(
+        self,
+    ) -> None:
+        """O resume não pode voltar a ``ask`` nem perder o PTY após restart."""
+        import backend.api.handlers.chat as chat_mod
+
+        thread_id = "thread-persisted-hitl"
+        chat_mod._thread_permission_mode.pop(thread_id, None)
+        chat_mod._thread_graph_selector.pop(thread_id, None)
+        session_store = AsyncMock()
+        session_store.get_session = AsyncMock(
+            return_value={
+                "permission_mode": "bypass",
+                "workspace_id": "workspace-terminal",
+                "mode": "code",
+            }
+        )
+
+        mode, selector = await chat_mod._restore_thread_runtime(
+            thread_id,
+            "alice",
+            session_store,
+        )
+
+        assert mode == "bypass"
+        assert selector == {
+            "chat_mode": False,
+            "workspace_id": "workspace-terminal",
+        }
+        assert chat_mod._thread_permission_mode[thread_id] == "bypass"
+        assert chat_mod._thread_graph_selector[thread_id] == selector
+
+        chat_mod._thread_permission_mode.pop(thread_id, None)
+        chat_mod._thread_graph_selector.pop(thread_id, None)
+
+    @pytest.mark.asyncio
     async def test_resume_chat_repassa_model_chat_mode_e_workspace_do_turno_original(
         self,
     ) -> None:

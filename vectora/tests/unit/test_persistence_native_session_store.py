@@ -31,7 +31,9 @@ async def store(tmp_path):
 
 
 class TestCreateSession:
-    async def test_cria_sessao_com_campos_obrigatorios(self, store: SessionStore):
+    async def test_cria_sessao_com_campos_obrigatorios(
+        self, store: SessionStore
+    ) -> None:
         await store.create_session("thread-1", user_id="alice")
 
         async with store._pool.acquire() as conn:
@@ -44,7 +46,9 @@ class TestCreateSession:
         assert row is not None
         assert tuple(row) == ("alice", "chat", "ask")
 
-    async def test_criar_duas_vezes_a_mesma_thread_nao_falha(self, store: SessionStore):
+    async def test_criar_duas_vezes_a_mesma_thread_nao_falha(
+        self, store: SessionStore
+    ) -> None:
         await store.create_session("thread-1", user_id="alice")
         await store.create_session("thread-1", user_id="alice")  # idempotente
 
@@ -57,6 +61,22 @@ class TestCreateSession:
             (total,) = fetched
 
         assert total == 1
+
+    async def test_segundo_turno_atualiza_modo_de_permissao(
+        self, store: SessionStore
+    ) -> None:
+        await store.create_session(
+            "thread-1", user_id="alice", workspace_id="ws-1", permission_mode="ask"
+        )
+        await store.create_session(
+            "thread-1", user_id="alice", workspace_id="ws-1", permission_mode="bypass"
+        )
+
+        session = await store.get_session("thread-1", user_id="alice")
+
+        assert session is not None
+        assert session["permission_mode"] == "bypass"
+        assert session["workspace_id"] == "ws-1"
 
 
 class TestAppendMessageEGetHistory:

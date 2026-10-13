@@ -22,7 +22,7 @@ import os
 import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -67,6 +67,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+class _SessionStore(Protocol):
+    async def get_session(
+        self, thread_id: str, *, user_id: str | None = None
+    ) -> dict[str, object] | None: ...
+
+
 _CHAT_PERSISTED_HEADER = "X-Vectora-Chat-Persisted"
 
 #: permission_mode do último turno de cada thread — resume_chat (HITL) precisa
@@ -86,6 +93,53 @@ _thread_graph_selector: dict[str, dict[str, Any]] = {}
 # Stable usage event for the current turn, retained across an interrupted HITL
 # run so ResumeChat can finalize it without double counting.
 _thread_usage_event_ids: dict[str, str] = {}
+
+
+async def _restore_thread_runtime(
+    thread_id: str,
+    user_id: str,
+    session_store: _SessionStore,
+) -> tuple[str, dict[str, Any]]:
+    """Reidrata o contexto necessário para retomar um HITL após restart.
+
+    O cache em memória acelera o caminho comum, mas não é uma fonte de
+    verdade: o backend pode reiniciar entre a interrupção e a decisão humana.
+    Nesse caso, ``sessions`` preserva o modo de permissão e o workspace que
+    determinam tanto o gate quanto a resolução do PTY compartilhado.
+    """
+    permission_mode = _thread_permission_mode.get(thread_id)
+    selector = dict(_thread_graph_selector.get(thread_id, {}))
+    if permission_mode is not None and selector:
+        return permission_mode, selector
+
+    session: dict[str, object] | None = None
+    try:
+        get_session = getattr(session_store, "get_session", None)
+        if get_session is not None:
+            candidate = await get_session(thread_id, user_id=user_id)
+            if isinstance(candidate, dict):
+                session = candidate
+    except Exception as exc:
+        logger.exception("api/chat: falha ao reidratar contexto do HITL")
+        raise HTTPException(
+            status_code=503,
+            detail="Não foi possível restaurar o contexto da aprovação pendente",
+        ) from exc
+
+    if permission_mode is None:
+        permission_mode = str((session or {}).get("permission_mode") or "ask")
+        _thread_permission_mode[thread_id] = permission_mode
+
+    if not selector and session is not None:
+        workspace_id = str(session.get("workspace_id") or "")
+        selector = {
+            "chat_mode": session.get("mode") == "chat",
+            "workspace_id": workspace_id or None,
+        }
+        _thread_graph_selector[thread_id] = selector
+
+    return permission_mode, selector
+
 
 # ---------------------------------------------------------------------------
 # F1 — Helpers de attachments multimodais
@@ -871,8 +925,7 @@ async def stream_chat(
     # closure `run` abaixo). O permission_mode NÃO afeta o cache (HITL
     # dinâmico via ToolContext.permission_mode); guardamos o modo do turno
     # só para o resume reidratar o mesmo contexto (ver resume_chat).
-    permission_mode = configurable.get("permission_mode", "ask")
-    _thread_permission_mode[thread_id] = permission_mode
+    permission_mode = configurable.get("permission_mode")
     selected_model = configurable.get("model", "")
     _thread_graph_selector[thread_id] = {
         "model": selected_model,
@@ -882,6 +935,21 @@ async def stream_chat(
         "context_compaction_enabled": request.config.context_compaction_enabled,
     }
     try:
+        session_store = await agent_factory.get_session_store()
+        if not permission_mode:
+            try:
+                candidate = await session_store.get_session(thread_id, user_id=user_id)
+                persisted = candidate if isinstance(candidate, dict) else None
+            except Exception as exc:
+                logger.exception(
+                    "api/chat: falha ao restaurar permission_mode da sessão",
+                    extra={"thread_id": thread_id, "user_id": user_id},
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail="Não foi possível restaurar o contexto da sessão",
+                ) from exc
+            permission_mode = str((persisted or {}).get("permission_mode") or "ask")
         project_root = None
         if workspace_id:
             from backend.workspace.workspace import workspace_registry
@@ -904,10 +972,14 @@ async def stream_chat(
             project_root=project_root,
             runtime_id=thread_id,
         )
-        session_store = await agent_factory.get_session_store()
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("api/chat: erro ao inicializar o motor nativo")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    configurable["permission_mode"] = permission_mode
+    _thread_permission_mode[thread_id] = permission_mode
 
     await session_store.create_session(
         thread_id,
@@ -1180,14 +1252,20 @@ async def resume_chat(
         from backend.persistence.thread_activity import record_activity
 
         await record_activity(resume_user_id, resume_device_id, request.thread_id)
-    permission_mode = _thread_permission_mode.get(request.thread_id, "ask")
+    pending_store = await agent_factory.get_session_store()
+    permission_mode, persisted_selector = await _restore_thread_runtime(
+        request.thread_id,
+        resume_user_id,
+        pending_store,
+    )
     selector = _thread_graph_selector.get(request.thread_id, {})
+    if not selector:
+        selector = persisted_selector
     selector_model = str(selector.get("model", "") or "")
     selector_chat_mode = bool(selector.get("chat_mode", False))
     selector_workspace_id = selector.get("workspace_id")
     selector_context_max_tokens = selector.get("context_max_tokens")
     selector_compaction_enabled = bool(selector.get("context_compaction_enabled", True))
-    pending_store = await agent_factory.get_session_store()
     pending = await pending_store.get_pending_approval(request.thread_id)
     if pending is None or pending["interrupt_id"] != request.interrupt_id:
         raise HTTPException(

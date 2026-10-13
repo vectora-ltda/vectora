@@ -24,6 +24,7 @@ import contextlib
 import json
 import logging
 import os
+import sqlite3
 import stat
 import uuid
 from datetime import UTC, datetime
@@ -91,6 +92,7 @@ from backend.api.schemas import (
 )
 from backend.persistence.thread_activity import get_remote_activity
 from backend.rbac.device_id import validate_device_id
+from backend.vtypes.permission import PERMISSION_MODES, PermissionMode
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +134,7 @@ async def revoke_current_device(
 
 _db_conn: Any = None
 _db_conn_lock: asyncio.Lock = asyncio.Lock()
+_db_write_lock: asyncio.Lock = asyncio.Lock()
 
 # Serializa `reconcile_vectora_sessions` contra `delete_thread` — as duas
 # compartilham a mesma conexão `_db_conn`, então sem essa exclusão mútua a
@@ -919,20 +922,44 @@ async def mark_thread_read(thread_id: str, request: Request) -> dict[str, int | 
     """Confirma a leitura da thread de modo idempotente e por usuário."""
     await _assert_owns_thread(thread_id, request)
     user_id = _user_id(request)
+    # Serialize this short transaction with the other users of the shared
+    # handler connection. This keeps rollback scoped to our transaction and
+    # avoids undoing an unrelated pending write.
     db = await _get_db()
-    async with db.execute(
-        "SELECT message_count FROM vectora_sessions WHERE thread_id = ?", (thread_id,)
-    ) as cur:
-        row = await cur.fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Thread não encontrada")
-    await db.execute(
-        "INSERT INTO thread_read_cursors(thread_id, user_id, read_count) VALUES (?, ?, ?) "
-        "ON CONFLICT(thread_id, user_id) DO UPDATE SET read_count = "
-        "MAX(thread_read_cursors.read_count, excluded.read_count)",
-        (thread_id, user_id, int(row[0])),
-    )
-    await db.commit()
+    async with _db_write_lock:
+        for attempt in range(5):
+            try:
+                async with db.execute(
+                    "SELECT message_count FROM vectora_sessions WHERE thread_id = ?",
+                    (thread_id,),
+                ) as cur:
+                    row = await cur.fetchone()
+                if row is None:
+                    raise HTTPException(status_code=404, detail="Thread não encontrada")
+                await db.execute(
+                    "INSERT INTO thread_read_cursors(thread_id, user_id, read_count) VALUES (?, ?, ?) "
+                    "ON CONFLICT(thread_id, user_id) DO UPDATE SET read_count = "
+                    "MAX(thread_read_cursors.read_count, excluded.read_count)",
+                    (thread_id, user_id, int(row[0])),
+                )
+                await db.commit()
+                break
+            except sqlite3.OperationalError as exc:
+                await db.rollback()
+                locked = "locked" in str(exc).lower()
+                if not locked or attempt == 4:
+                    raise
+                delay = 0.05 * (2**attempt)
+                logger.warning(
+                    "thread_read_write_locked_retry",
+                    extra={
+                        "thread_id": thread_id,
+                        "user_id": user_id,
+                        "attempt": attempt + 1,
+                        "delay_seconds": delay,
+                    },
+                )
+                await asyncio.sleep(delay)
     return {"thread_id": thread_id, "unread_count": 0}
 
 
@@ -2015,12 +2042,25 @@ async def thread_pending_interrupt(
     if pending is None:
         return PendingInterruptResponse(interrupt=None)
 
+    session = None
+    permission_mode: PermissionMode = "ask"
+    resolved_workspace_id = workspace_id or ""
+    if request is not None:
+        session_store = await _get_session_store()
+        session = await session_store.get_session(thread_id, user_id=_user_id(request))
+        if isinstance(session, dict):
+            candidate_mode = str(session.get("permission_mode") or "ask")
+            permission_mode = (
+                candidate_mode if candidate_mode in PERMISSION_MODES else "ask"
+            )
+            resolved_workspace_id = str(session.get("workspace_id") or "")
+
     pre_approved = False
     with contextlib.suppress(Exception):
         from backend.services.smart_approval import evaluate_command
 
         pre_approved = await evaluate_command(
-            pending["tool_name"], pending["args"], workspace_id=workspace_id or ""
+            pending["tool_name"], pending["args"], workspace_id=resolved_workspace_id
         )
 
     return PendingInterruptResponse(
@@ -2028,6 +2068,8 @@ async def thread_pending_interrupt(
             tool_name=pending["tool_name"],
             args_json=json.dumps(pending["args"]),
             interrupt_id=pending["interrupt_id"],
+            permission_mode=permission_mode,
+            workspace_id=resolved_workspace_id,
             pre_approved=pre_approved,
             options=pending.get("options", []),
             priority=int(pending.get("priority", 0)),

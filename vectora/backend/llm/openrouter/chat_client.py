@@ -23,9 +23,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from backend.llm.openrouter.client import OpenRouterClient, OpenRouterResponseError
+from backend.vtypes.contracts import UsageSnapshot
 from backend.vtypes.message import (
     ContentBlock,
     MessageRole,
@@ -33,6 +34,7 @@ from backend.vtypes.message import (
     ToolCallChunk,
     VMessage,
     VMessageChunk,
+    coerce_json_object,
 )
 
 if TYPE_CHECKING:
@@ -44,6 +46,12 @@ _ROLE_POR_TIPO = {
     MessageRole.ASSISTANT: "assistant",
     MessageRole.TOOL: "tool",
 }
+
+
+class _UsagePayload(TypedDict, total=False):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
 
 
 def _to_openrouter_content(content: list[ContentBlock]) -> str | list[dict]:
@@ -105,7 +113,7 @@ def _parse_tool_calls(bruto: list) -> list[ToolCall]:
         nome = funcao.get("name", "")
         args_texto = funcao.get("arguments") or "{}"
         try:
-            args = json.loads(args_texto)
+            args = coerce_json_object(json.loads(args_texto), raw=args_texto)
         except (json.JSONDecodeError, TypeError):
             args = {"_parse_error": args_texto}
         chamadas.append(ToolCall(id=item.get("id") or "", name=nome, args=args))
@@ -127,7 +135,7 @@ def _parse_tool_call_chunks(bruto: list) -> list[ToolCallChunk]:
     return pedacos
 
 
-def _usage_metadata(usage: dict | None) -> dict[str, int] | None:
+def _usage_metadata(usage: _UsagePayload | None) -> UsageSnapshot | None:
     if not usage:
         return None
     entrada = int(usage.get("prompt_tokens") or 0)

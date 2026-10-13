@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import pytest
 import sort_translation_keys
 from sort_translation_keys import check_file, sorted_messages
 
@@ -21,7 +22,9 @@ def test_check_file_detects_and_repairs_order(tmp_path: Path) -> None:
     assert list(json.loads(path.read_text(encoding="utf-8"))) == ["a", "z"]
 
 
-def test_main_checks_all_paths_after_first_failure(tmp_path: Path, monkeypatch) -> None:
+def test_main_checks_all_paths_after_first_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     first = tmp_path / "first.json"
     second = tmp_path / "second.json"
     first.write_text(json.dumps({"z": 1, "a": 2}), encoding="utf-8")

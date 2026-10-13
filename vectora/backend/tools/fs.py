@@ -47,6 +47,17 @@ from backend.vtypes.documents import VALID_ARTIFACT_TYPES
 logger = logging.getLogger(__name__)
 
 
+def _terminal_submit_suffix() -> str:
+    """Return the line terminator that submits input in the target PTY.
+
+    ConPTY/pywinpty treats carriage return as the Enter key. Sending only
+    ``\n`` can leave an agent-authored command rendered at the PowerShell
+    prompt without executing it, even though the PTY write itself succeeds.
+    POSIX PTYs use line feed for the same operation.
+    """
+    return "\r" if platform.system() == "Windows" else "\n"
+
+
 def _delete_confined(path: Path, root: Path) -> None:
     """Revalida o caminho imediatamente antes da remoção.
 
@@ -1099,35 +1110,46 @@ async def terminal(
     # variáveis) do shell que o usuário abriu.
     from backend.services.pty_registry import pty_registry
 
-    shared_sessions = pty_registry.list_for_context(
+    shared_sessions = pty_registry.list_for_user_workspace(
         user_id=ctx.user_id,
-        thread_id=ctx.thread_id,
         workspace_id=ctx.workspace_id,
     )
-    if shared_sessions:
-        if len(shared_sessions) > 1:
-            return (
-                "Error: há mais de um terminal compartilhado nesta thread; "
-                "use `write_terminal` com o terminal_id explícito."
-            )
-        session = shared_sessions[0]
+    session = next(
+        (
+            candidate
+            for candidate in shared_sessions
+            if candidate.thread_id == ctx.thread_id
+        ),
+        None,
+    )
+    if session is not None:
         request_id = f"agent-terminal-{uuid.uuid4().hex}"
-        result = session.write_input((command + "\n").encode("utf-8"), request_id)
+        submit_suffix = _terminal_submit_suffix()
+        payload = (command + submit_suffix).encode("utf-8")
+        result = session.write_input(payload, request_id)
         logger.info(
             "terminal_shared_command_dispatched",
             extra={
                 "command": command,
+                "command_bytes": len(payload),
+                "submit_suffix": repr(submit_suffix),
                 "terminal_id": session.terminal_id,
                 "thread_id": ctx.thread_id,
                 "workspace_id": ctx.workspace_id,
                 "status": result.get("status"),
+                "result_code": result.get("code"),
             },
         )
         return json.dumps(
             {
                 **result,
                 "shared": True,
-                "message": "Comando enviado ao terminal da Workbench; use read_terminal para ler a saída.",
+                "message": (
+                    "Comando enviado e submetido ao terminal da Workbench; use "
+                    "read_terminal para ler a saída."
+                    if result.get("status") == "accepted"
+                    else "Não foi possível submeter o comando ao terminal da Workbench."
+                ),
             },
             ensure_ascii=False,
         )

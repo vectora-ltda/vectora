@@ -27,7 +27,16 @@ import os
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
+
+from backend.vtypes.browser import (
+    BrowserConsoleEntry,
+    BrowserNetworkEntry,
+    BrowserTab,
+    validate_browser_console_entry,
+    validate_browser_network_entry,
+    validate_browser_tab,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +55,12 @@ class TabState:
 
     page: Any
     cdp: Any
-    console_log: deque = field(default_factory=lambda: deque(maxlen=_LOG_MAXLEN))
-    network_log: deque = field(default_factory=lambda: deque(maxlen=_LOG_MAXLEN))
+    console_log: deque[BrowserConsoleEntry] = field(
+        default_factory=lambda: deque(maxlen=_LOG_MAXLEN)
+    )
+    network_log: deque[BrowserNetworkEntry] = field(
+        default_factory=lambda: deque(maxlen=_LOG_MAXLEN)
+    )
     dialog_policy: dict[str, Any] | None = None
     _request_entries: dict[int, dict[str, Any]] = field(default_factory=dict)
 
@@ -80,7 +93,9 @@ def _register_page_listeners(tab: TabState) -> None:
 
     def _on_console(msg: Any) -> None:
         try:
-            tab.console_log.append({"type": msg.type, "text": msg.text})
+            entry: BrowserConsoleEntry = {"type": msg.type, "text": msg.text}
+            validate_browser_console_entry(entry)
+            tab.console_log.append(entry)
         except Exception:
             logger.debug("browser_session: falha ao capturar console log")
 
@@ -93,7 +108,9 @@ def _register_page_listeners(tab: TabState) -> None:
                 "resource_type": request.resource_type,
                 "status": None,
             }
-            tab.network_log.append(entry)
+            network_entry = cast("BrowserNetworkEntry", entry)
+            validate_browser_network_entry(network_entry)
+            tab.network_log.append(network_entry)
             tab._request_entries[id(request)] = entry
         except Exception:
             logger.debug("browser_session: falha ao capturar network request")
@@ -112,6 +129,7 @@ def _register_page_listeners(tab: TabState) -> None:
             if entry is not None:
                 entry["status"] = "failed"
                 entry["error"] = getattr(request.failure, "error_text", None)
+                validate_browser_network_entry(cast("BrowserNetworkEntry", entry))
         except Exception:
             logger.debug("browser_session: falha ao capturar falha de request")
 
@@ -233,16 +251,22 @@ async def get_browser_page(workspace_id: str, tab_id: str | None = None) -> Any:
         raise
 
 
-async def list_tabs(workspace_id: str) -> list[dict[str, Any]]:
+async def list_tabs(workspace_id: str) -> list[BrowserTab]:
     """Lista as abas da sessão, com a URL atual e qual está ativa."""
     session = _sessions.get(workspace_id)
     if session is None:
         return []
     active = session["active_tab_id"]
-    return [
-        {"tab_id": tid, "url": tab.page.url, "active": tid == active}
-        for tid, tab in session["tabs"].items()
-    ]
+    tabs: list[BrowserTab] = []
+    for tid, tab in session["tabs"].items():
+        entry: BrowserTab = {
+            "tab_id": tid,
+            "url": tab.page.url,
+            "active": tid == active,
+        }
+        validate_browser_tab(entry)
+        tabs.append(entry)
+    return tabs
 
 
 async def new_tab(workspace_id: str, url: str | None = None) -> str:
@@ -251,7 +275,20 @@ async def new_tab(workspace_id: str, url: str | None = None) -> str:
     if not has_browser_session(workspace_id):
         await get_browser_page(workspace_id)
     session = _sessions[workspace_id]
-    page = await session["context"].new_page()
+    try:
+        page = await session["context"].new_page()
+    except Exception as exc:
+        # Electron's embedded BrowserView CDP endpoint intentionally omits
+        # Target.createTarget. Playwright raises here even though the already
+        # visible BrowserView is usable, but it is not a new tab. Never report
+        # reuse as successful creation or navigate it behind the caller's back.
+        message = str(exc).lower()
+        if "target.createtarget" not in message and "not supported" not in message:
+            raise
+        raise RuntimeError(
+            "O Browser Workbench não suporta criar uma nova aba via CDP; "
+            "selecione uma aba existente ou abra uma nova aba no Electron."
+        ) from exc
     if url:
         await page.goto(url, wait_until="domcontentloaded")
     tab = await _create_tab_state(page)
@@ -268,21 +305,36 @@ async def close_tab(workspace_id: str, tab_id: str) -> bool:
     session = _sessions.get(workspace_id)
     if session is None:
         return False
-    tab = session["tabs"].pop(tab_id, None)
+    tab = session["tabs"].get(tab_id)
     if tab is None:
         return False
+    last_tab = len(session["tabs"]) == 1
+    if last_tab:
+        # Keep the BrowserView target alive: closing the only Electron target
+        # cannot be repaired through CDP because Target.createTarget is not
+        # implemented. Reset it to a blank document and assign a fresh logical
+        # id instead.
+        try:
+            await tab.page.goto("about:blank", wait_until="domcontentloaded")
+        except Exception:
+            logger.debug("browser_session: falha ao resetar última aba %s", tab_id)
+            return False
+        tab.console_log.clear()
+        tab.network_log.clear()
+        tab._request_entries.clear()
+        tab.dialog_policy = None
+        session["tabs"].pop(tab_id, None)
+        blank_id = uuid.uuid4().hex[:12]
+        session["tabs"][blank_id] = tab
+        session["active_tab_id"] = blank_id
+        return True
+    session["tabs"].pop(tab_id, None)
     try:
         await tab.page.close()
     except Exception:
         logger.debug("browser_session: falha ao fechar aba %s", tab_id)
 
-    if not session["tabs"]:
-        blank_page = await session["context"].new_page()
-        blank_tab = await _create_tab_state(blank_page)
-        blank_id = uuid.uuid4().hex[:12]
-        session["tabs"][blank_id] = blank_tab
-        session["active_tab_id"] = blank_id
-    elif session["active_tab_id"] == tab_id:
+    if session["active_tab_id"] == tab_id:
         session["active_tab_id"] = next(iter(session["tabs"]))
     return True
 

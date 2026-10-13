@@ -3465,7 +3465,11 @@ async def workspace_events(workspace_id: str, request: Request) -> StreamingResp
         return StreamingResponse(_not_found(), media_type="text/event-stream")
 
     cwd_path = Path(ws.cwd).expanduser().resolve()
-    if not await asyncio.to_thread(cwd_path.is_dir):
+    try:
+        cwd_available = await asyncio.to_thread(cwd_path.is_dir)
+    except OSError:
+        cwd_available = False
+    if not cwd_available:
 
         async def _workspace_unavailable() -> AsyncGenerator[str]:
             yield (
