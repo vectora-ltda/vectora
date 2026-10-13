@@ -57,7 +57,7 @@ def test_list_for_thread_filters():
     assert {s.terminal_id for s in reg.list_for_thread("t1")} == {"a", "b"}
 
 
-def test_list_for_user_workspace_prioriza_anexo_mais_recente():
+def test_list_for_user_workspace_prioriza_anexo_mais_recente() -> None:
     reg = PtyRegistry()
     older = _FakeSession("older", thread_id="shared")
     newer = _FakeSession("newer", thread_id="shared")

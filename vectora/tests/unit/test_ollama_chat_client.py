@@ -144,7 +144,9 @@ class TestConversaoDeMensagens:
 
 class TestToolCalling:
     @pytest.mark.parametrize("arguments", [[], 0, "not-json"])
-    def test_argumentos_falsos_ou_json_invalido_viram_parse_error(self, arguments):
+    def test_argumentos_falsos_ou_json_invalido_viram_parse_error(
+        self, arguments: list[object] | int | str
+    ) -> None:
         calls = _parse_tool_calls(
             [{"function": {"name": "somar", "arguments": arguments}}]
         )

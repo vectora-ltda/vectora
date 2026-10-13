@@ -126,8 +126,11 @@ class TestParadaNormal:
         assert [m.text() for m in historico] == ["olá!"]
 
     async def test_resposta_vazia_emite_erro_diagnosticavel(
-        self, session_store, ctx, caplog
-    ):
+        self,
+        session_store: SessionStore,
+        ctx: ToolContext,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
         client = _ScriptedChatClient([[]])
         eventos: list[EngineEvent] = []
 
@@ -157,8 +160,8 @@ class TestParadaNormal:
         assert any(record.message == "llm_empty_response" for record in caplog.records)
         assert any(
             record.message == "llm_turn_finished"
-            and record.text_chars == 0
-            and record.chunk_count == 0
+            and getattr(record, "text_chars", None) == 0
+            and getattr(record, "chunk_count", None) == 0
             for record in caplog.records
         )
 
