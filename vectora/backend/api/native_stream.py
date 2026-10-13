@@ -37,7 +37,12 @@ from backend.api.schemas import (
     encode_event,
 )
 from backend.engine.sse_adapter import to_sse_line
-from backend.engine.stream_events import HitlRequested, MessageChunk, SubagentOutput
+from backend.engine.stream_events import (
+    ErrorSignal,
+    HitlRequested,
+    MessageChunk,
+    SubagentOutput,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable
@@ -205,6 +210,19 @@ def stream_engine_events(
         run_error: BaseException | None = None
         stopped_reason = "stop"
         turn_files_payload: list[dict[str, object]] = []
+        event_count = 0
+        message_chunk_count = 0
+        streamed_content_chars = 0
+
+        logger.info(
+            "native_stream_started",
+            extra={
+                "thread_id": thread_id,
+                "workspace_id": workspace_id or "",
+                "run_id": resolved_run_id,
+                "user_id": user_id or "",
+            },
+        )
 
         async def on_event(event: EngineEvent) -> None:
             await queue.put(event)
@@ -320,7 +338,11 @@ def stream_engine_events(
                 if event is _SENTINEL:
                     break
 
+                event_count += 1
+
                 if isinstance(event, MessageChunk):
+                    message_chunk_count += 1
+                    streamed_content_chars += len(event.content)
                     accumulated_partial_content += event.content
                     now = time.monotonic()
                     if now - last_kv_flush > 0.5:
@@ -346,6 +368,17 @@ def stream_engine_events(
                         )
                         pre = False
                     event = replace(event, pre_approved=pre)
+
+                if isinstance(event, ErrorSignal):
+                    logger.warning(
+                        "native_stream_event_error",
+                        extra={
+                            "thread_id": thread_id,
+                            "run_id": resolved_run_id,
+                            "code": event.code,
+                            "message_length": len(event.message),
+                        },
+                    )
 
                 if (
                     isinstance(event, SubagentOutput)
@@ -398,6 +431,20 @@ def stream_engine_events(
             yield encode_event(ErrorEvent(message=friendly, code=code))
 
         finally:
+            logger.info(
+                "native_stream_finished",
+                extra={
+                    "thread_id": thread_id,
+                    "workspace_id": workspace_id or "",
+                    "run_id": resolved_run_id,
+                    "stopped_reason": stopped_reason,
+                    "event_count": event_count,
+                    "message_chunk_count": message_chunk_count,
+                    "streamed_content_chars": streamed_content_chars,
+                    "run_error_type": type(run_error).__name__ if run_error else "",
+                    "disconnected": disconnected,
+                },
+            )
             unregister_terminal_output_callback()
             if not term_task.done():
                 term_task.cancel()

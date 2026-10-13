@@ -52,3 +52,36 @@ class TestErroDeExecucaoFicaLogado:
             and "boom: provider explodiu de verdade" in str(rec.exc_info[1])
             for rec in caplog.records
         )
+
+    async def test_evento_de_resposta_vazia_fica_logado_com_codigo(self, caplog):
+        async def _run_com_resposta_vazia(on_event) -> str:
+            from backend.engine.stream_events import ErrorSignal, MessageBreak
+
+            await on_event(
+                ErrorSignal(
+                    code="EMPTY_MODEL_RESPONSE",
+                    message="O provedor não retornou texto.",
+                )
+            )
+            await on_event(MessageBreak())
+            return "stop"
+
+        with caplog.at_level("WARNING", logger="backend.api.native_stream"):
+            events = [
+                _parse(sse)
+                async for sse in stream_engine_events(
+                    _run_com_resposta_vazia, thread_id="t-empty"
+                )
+            ]
+
+        assert any(
+            event["type"] == "error" and event["code"] == "EMPTY_MODEL_RESPONSE"
+            for event in events
+        )
+        record = next(
+            record
+            for record in caplog.records
+            if record.message == "native_stream_event_error"
+        )
+        assert record.code == "EMPTY_MODEL_RESPONSE"
+        assert record.message_length > 0
