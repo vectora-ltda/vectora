@@ -156,7 +156,7 @@ def _plan_mode_ja_passou_neste_turno(history: list[VMessage]) -> bool:
             last_user_idx = idx
 
     for msg in history[last_user_idx + 1 :]:
-        if msg.role == MessageRole.TOOL and (msg.name or "") in REQUIRE_APPROVAL:
+        if msg.role == MessageRole.TOOL and _tool_requires_approval(msg.name or ""):
             return True
     return False
 

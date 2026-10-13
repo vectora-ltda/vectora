@@ -102,6 +102,7 @@ async def test_terminal_reuses_attached_workbench_pty(monkeypatch, _workspace):
 
     class SharedSession:
         terminal_id = "workbench-terminal"
+        thread_id = "shared-thread"
 
         def write_input(self, data, request_id):
             self.data = data

@@ -37,7 +37,7 @@ jobs:
             const body = context.payload.pull_request.body || "";
             const managed = new Set(["breaking-change", "enhancement", "bug", "documentation", "performance", "ci", "chore"]);
             const desired = new Set();
-            if (/BREAKING CHANGE|^[^:]+!:/.test(`${title}\n${body}`)) desired.add("breaking-change");
+            if (/BREAKING CHANGE/.test(body) || /^[a-z]+(?:\([^)]*\))?!:/.test(title)) desired.add("breaking-change");
             const match = title.match(/^(feat|fix|docs|perf|ci|chore|test|build|style|refactor)(?:\([^)]*\))?!?:/);
             const byKind = { feat: "enhancement", fix: "bug", docs: "documentation", perf: "performance", ci: "ci", chore: "chore", test: "chore", build: "chore", style: "chore", refactor: "chore" };
             if (match) desired.add(byKind[match[1]]);

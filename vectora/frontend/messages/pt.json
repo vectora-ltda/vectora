@@ -1291,6 +1291,7 @@
   "terminal_sandbox_editor_title": "Editar vectora.toml",
   "terminal_sandbox_init_button": "Habilitar sandbox nesta pasta",
   "terminal_sandbox_init_error": "Não foi possível criar o vectora.toml.",
+  "terminal_tab_agent": "shell do agente",
   "terminal_tab_default": "shell",
   "terminal_tab_shared": "shell compartilhado",
   "terminal_title": "Terminal",

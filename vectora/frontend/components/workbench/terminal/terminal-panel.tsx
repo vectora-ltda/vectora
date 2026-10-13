@@ -451,7 +451,7 @@ export function TerminalPanel({ threadId }: TerminalPanelProps) {
           }
           open(threadId, {
             id: terminal.terminal_id,
-            title: "Agent terminal",
+            title: m.terminal_tab_agent(),
             workspaceId: workspace.id,
           });
           known.add(terminal.terminal_id);

@@ -57,6 +57,18 @@ def test_list_for_thread_filters():
     assert {s.terminal_id for s in reg.list_for_thread("t1")} == {"a", "b"}
 
 
+def test_list_for_user_workspace_prioriza_anexo_mais_recente():
+    reg = PtyRegistry()
+    older = _FakeSession("older", thread_id="shared")
+    newer = _FakeSession("newer", thread_id="shared")
+    reg.add(older)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+    reg.add(newer)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
+
+    sessions = reg.list_for_user_workspace(user_id="u1", workspace_id="ws1")
+
+    assert [session.terminal_id for session in sessions] == ["newer", "older"]
+
+
 def test_resolve_for_context_requires_thread_and_workspace():
     reg = PtyRegistry()
     session = _FakeSession("a", thread_id="t1", workspace_id="ws1")

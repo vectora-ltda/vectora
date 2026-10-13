@@ -935,6 +935,21 @@ async def stream_chat(
         "context_compaction_enabled": request.config.context_compaction_enabled,
     }
     try:
+        session_store = await agent_factory.get_session_store()
+        if not permission_mode:
+            try:
+                candidate = await session_store.get_session(thread_id, user_id=user_id)
+                persisted = candidate if isinstance(candidate, dict) else None
+            except Exception as exc:
+                logger.exception(
+                    "api/chat: falha ao restaurar permission_mode da sessão",
+                    extra={"thread_id": thread_id, "user_id": user_id},
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail="Não foi possível restaurar o contexto da sessão",
+                ) from exc
+            permission_mode = str((persisted or {}).get("permission_mode") or "ask")
         project_root = None
         if workspace_id:
             from backend.workspace.workspace import workspace_registry
@@ -957,25 +972,12 @@ async def stream_chat(
             project_root=project_root,
             runtime_id=thread_id,
         )
-        session_store = await agent_factory.get_session_store()
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("api/chat: erro ao inicializar o motor nativo")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    if not permission_mode:
-        try:
-            candidate = await session_store.get_session(thread_id, user_id=user_id)
-            persisted = candidate if isinstance(candidate, dict) else None
-        except Exception as exc:
-            logger.exception(
-                "api/chat: falha ao restaurar permission_mode da sessão",
-                extra={"thread_id": thread_id, "user_id": user_id},
-            )
-            raise HTTPException(
-                status_code=503,
-                detail="Não foi possível restaurar o contexto da sessão",
-            ) from exc
-        permission_mode = str((persisted or {}).get("permission_mode") or "ask")
     configurable["permission_mode"] = permission_mode
     _thread_permission_mode[thread_id] = permission_mode
 

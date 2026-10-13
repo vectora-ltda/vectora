@@ -165,7 +165,11 @@ jobs:
           else
             git log --format='%s%x1f%b%x1e' "$source_ref" | jq -R -s 'split("\u001e") | map(select(length > 0)) | map({subject: (split("\u001f")[0]), body: (split("\u001f")[1] // "")})' > "$RUNNER_TEMP/release-commits.json"
           fi
-          current_version="$(jq -er '.["."]' "$([ "$TARGET_BRANCH" = "$DEVELOPMENT_BRANCH" ] && echo .release-please-manifest.development.json || echo .release-please-manifest.maintenance.json)")"
+          if [[ -n "$latest_tag" ]]; then
+            current_version="$(git show "$latest_tag:$RELEASE_MANIFEST" | jq -er '.["."]')"
+          else
+            current_version="$(jq -er '.["."]' "$RELEASE_MANIFEST")"
+          fi
           bump_flag=""
           [[ "$RELEASE_MILESTONE" == *.x ]] && bump_flag="--bump-patch-for-minor-pre-major"
           uv run --project vectora python utils/release_plan.py \

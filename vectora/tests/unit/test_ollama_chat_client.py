@@ -12,7 +12,7 @@ import json
 import httpx
 import pytest
 
-from backend.llm.ollama.chat_client import OllamaChatClient
+from backend.llm.ollama.chat_client import OllamaChatClient, _parse_tool_calls
 from backend.llm.ollama.client import OllamaClient, OllamaResponseError
 from backend.tools.registry import ToolExtras, vtool
 from backend.vtypes.message import (
@@ -143,6 +143,16 @@ class TestConversaoDeMensagens:
 
 
 class TestToolCalling:
+    @pytest.mark.parametrize("arguments", [[], 0, "not-json"])
+    def test_argumentos_falsos_ou_json_invalido_viram_parse_error(self, arguments):
+        calls = _parse_tool_calls(
+            [{"function": {"name": "somar", "arguments": arguments}}]
+        )
+
+        assert calls[0].args["_parse_error"]
+        if isinstance(arguments, str):
+            assert calls[0].args["_parse_error"] == arguments
+
     async def test_tool_spec_vira_schema_no_payload(self):
         capturado: dict = {}
 
