@@ -1223,6 +1223,7 @@ def _action_help(target, source, env):
 
   Build
     scons frontend         só o build do frontend (vectora/frontend/dist/)
+    scons install          instala dependências do frontend e o binário do Electron
     scons docker           sobe infraestrutura (PostgreSQL, Redis, Qdrant)
 
   Qualidade
@@ -1419,6 +1420,7 @@ def _action_build_chat_and_electron(target, source, env):
 
 
 _cmd("frontend", _action_build_chat_and_electron)
+_cmd("install", _action_install_desktop)
 
 _build_chat    = _node("build-chat",      _action_build_chat)
 # O binário nats-server precisa estar em vectora/resources/ ANTES tanto do
