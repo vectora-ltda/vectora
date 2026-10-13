@@ -443,3 +443,11 @@ class TestAuthMiddlewareIntegration:
             "/auth/me", headers={"Authorization": f"Bearer {raw_token_2}"}
         )
         assert r_revogado.status_code == 401
+
+
+def test_vext_routes_are_private() -> None:
+    """VEXT lifecycle endpoints must be classified as authenticated API routes."""
+    from backend.api.middleware.auth import _is_public_route
+
+    assert _is_public_route("/vext/installed") is False
+    assert _is_public_route("/vext/example/activate", "POST") is False

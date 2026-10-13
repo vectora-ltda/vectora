@@ -13,20 +13,14 @@ export interface MCPConnector {
   id: string;
   name: string;
   description: string;
+  readme?: string;
+  icon?: string | null;
   install_cmd: string;
   env_vars: string[];
   homepage: string;
   category: string;
   vectora_verified: boolean;
   icon_url?: string | null;
-  publisher?: string | null;
-  publisher_url?: string | null;
-  stars_count?: number;
-  downloads_count?: number;
-  runtime_hint?: string | null;
-  package_identifier?: string | null;
-  transport?: string;
-  server_url?: string | null;
   trust_state?:
     | "vectora_verified"
     | "publisher_signed"
@@ -42,13 +36,12 @@ export interface CatalogSkill {
   name: string;
   description: string;
   source: string;
-  package_name?: string | null;
   vectora_verified?: boolean;
   verified?: boolean;
   catalog_source?: string;
   trust_state?: MCPConnector["trust_state"];
   trust_reason?: string;
-  publisher?: string | null;
+  publisher?: string;
   signature_status?: string;
 }
 
@@ -76,17 +69,86 @@ export interface MemoryBucket {
   verified: boolean;
   downloads_count: number;
   license?: string;
-  publisher?: string | null;
+}
+
+export interface VextExtension {
+  id: string;
+  name: string;
+  description: string;
+  publisher: string;
+  icon?: string | null;
+  native?: boolean;
+  version: string;
+  runtime: "node" | "python" | "none";
+  platforms: string | string[];
+  permissions: string;
+  digest: string;
+  status: "published" | "installed";
+  frontend_entrypoint?: string | null;
+  backend_entrypoint?: string | null;
+  contributions?: {
+    workbench?: Array<{
+      id: string;
+      title: string;
+      icon?: string;
+      entrypoint?: string;
+    }>;
+    shortcuts?: Array<{
+      id: string;
+      title: string;
+      keybinding?: string;
+      command: string;
+    }>;
+    footer?: Array<{ id: string; title: string; entrypoint?: string }>;
+    [key: string]: unknown;
+  };
 }
 
 export interface CatalogStatus {
   source: "mcp" | "skills";
-  status: "ready" | "unavailable" | "disabled" | "never";
+  status: "never" | "ready" | "disabled" | "unavailable";
   last_synced_at: string | null;
   error: string | null;
 }
 
 const TTL_MS = 5 * 60 * 1000;
+
+export const NATIVE_EXTENSION_IDS = new Set(["github", "gitlab"]);
+function extensionDescription(key: string, fallback: string): string {
+  const message = (m as unknown as Record<string, unknown>)[key];
+  return typeof message === "function" ? (message as () => string)() : fallback;
+}
+
+const EXTENSION_DESCRIPTIONS: Record<string, string> = {
+  eslint: extensionDescription(
+    "library_extension_desc_eslint",
+    "Run ESLint diagnostics for the current workspace and inspect actionable fixes.",
+  ),
+  oxlint: extensionDescription(
+    "library_extension_desc_oxlint",
+    "Run Oxlint diagnostics for the current workspace and inspect actionable fixes.",
+  ),
+  precommit: extensionDescription(
+    "library_extension_desc_precommit",
+    "Run the workspace pre-commit hooks and inspect their reported changes.",
+  ),
+  prettier: extensionDescription(
+    "library_extension_desc_prettier",
+    "Format workspace files with the configured Prettier settings.",
+  ),
+  pyright: extensionDescription(
+    "library_extension_desc_pyright",
+    "Run Pyright diagnostics for Python files in the current workspace.",
+  ),
+  ruff: extensionDescription(
+    "library_extension_desc_ruff",
+    "Run Ruff diagnostics and formatting for Python files in the current workspace.",
+  ),
+  ty: extensionDescription(
+    "library_extension_desc_ty",
+    "Run Ty diagnostics for Python files in the current workspace.",
+  ),
+};
 
 async function fetchMcpRegistry(q: string): Promise<MCPConnector[]> {
   const qs = q ? `?${new URLSearchParams({ q })}` : "";
@@ -102,23 +164,10 @@ async function fetchMcpInstalledIds(): Promise<Set<string>> {
   return new Set((data.servers ?? []).map((s) => s.name));
 }
 
-async function fetchCatalogStatus(
-  source: "mcp" | "skills",
-): Promise<CatalogStatus> {
-  const path =
-    source === "mcp" ? "/mcp/registry/status" : "/skills/catalog/status";
-  try {
-    const res = await fetch(path);
-    if (!res.ok) throw new Error(`Erro ${res.status}`);
-    return (await res.json()) as CatalogStatus;
-  } catch {
-    return {
-      source,
-      status: "unavailable",
-      last_synced_at: null,
-      error: "status unavailable",
-    };
-  }
+async function fetchMcpStatus(): Promise<CatalogStatus> {
+  const res = await fetch("/mcp/registry/status");
+  if (!res.ok) throw new Error(`Erro ${res.status}`);
+  return res.json() as Promise<CatalogStatus>;
 }
 
 async function fetchSkillsCatalog(q: string): Promise<CatalogSkill[]> {
@@ -126,23 +175,102 @@ async function fetchSkillsCatalog(q: string): Promise<CatalogSkill[]> {
   const res = await fetch(`/skills/catalog${qs}`);
   if (!res.ok) throw new Error(`Erro ${res.status}`);
   const data = (await res.json()) as { entries?: CatalogSkill[] };
-  return (data.entries ?? []).filter((skill) => {
-    if (skill.catalog_source === "local") return true;
-    const packageName = skill.package_name?.toLowerCase() ?? "";
-    const id = skill.id.toLowerCase();
-    return (
-      !packageName.startsWith("@vectora/") &&
-      !id.startsWith("vectora/") &&
-      !id.startsWith("vectora-")
-    );
-  });
+  return data.entries ?? [];
+}
+
+async function fetchSkillsStatus(): Promise<CatalogStatus> {
+  const res = await fetch("/skills/catalog/status");
+  if (!res.ok) throw new Error(`Erro ${res.status}`);
+  return res.json() as Promise<CatalogStatus>;
 }
 
 async function fetchMemoryCatalog(q: string): Promise<MemoryBucket[]> {
   const qs = q ? `?${new URLSearchParams({ q })}` : "";
-  const res = await fetch(`/memory-buckets/catalog${qs}`);
+  const res = await fetch(`/rag-library/catalog${qs}`);
   if (!res.ok) throw new Error(`Erro ${res.status}`);
   return res.json();
+}
+
+async function fetchExtensionsCatalog(q: string): Promise<VextExtension[]> {
+  const qs = q ? `?${new URLSearchParams({ q })}` : "";
+  const res = await fetch(`/registry/extensions${qs}`);
+  if (!res.ok) throw new Error(`Erro ${res.status}`);
+  const data = (await res.json()) as { entries?: VextExtension[] };
+  return data.entries ?? [];
+}
+
+async function fetchInstalledExtensions(): Promise<{
+  ids: Set<string>;
+  items: VextExtension[];
+}> {
+  const res = await fetch("/vext/installed");
+  if (!res.ok) throw new Error(`Erro ${res.status}`);
+  const data = (await res.json()) as {
+    extensions?: {
+      id: string;
+      version: string;
+      active?: boolean;
+      manifest?: {
+        name?: string;
+        description?: string;
+        icon?: string | null;
+        publisher?: string;
+        native?: boolean;
+        runtime?: VextExtension["runtime"];
+        platforms?: string[];
+        permissions?: string[];
+        integrity?: string | null;
+        frontend_entrypoint?: string | null;
+        backend_entrypoint?: string | null;
+        contributions?: Record<string, unknown>;
+      };
+    }[];
+  };
+  const active = (data.extensions ?? []).filter(
+    (item) => item.active !== false,
+  );
+  return {
+    ids: new Set(active.map((item) => item.id)),
+    items: active.map((item) => ({
+      id: item.id,
+      name: item.manifest?.name ?? item.id,
+      description:
+        item.manifest?.description ?? EXTENSION_DESCRIPTIONS[item.id] ?? "",
+      icon: item.manifest?.icon
+        ? `/vext/${encodeURIComponent(item.id)}/icon`
+        : undefined,
+      publisher:
+        item.manifest?.publisher === "official"
+          ? "Vectora"
+          : (item.manifest?.publisher ?? "local"),
+      native: item.manifest?.native ?? false,
+      version: item.version,
+      runtime: item.manifest?.runtime ?? "none",
+      platforms: Array.isArray(item.manifest?.platforms)
+        ? item.manifest.platforms.join(", ")
+        : (item.manifest?.platforms ?? "any"),
+      permissions: item.manifest?.permissions?.join(", ") ?? "",
+      digest: item.manifest?.integrity ?? "",
+      status: "installed",
+      frontend_entrypoint: item.manifest?.frontend_entrypoint,
+      backend_entrypoint: item.manifest?.backend_entrypoint,
+      contributions: item.manifest
+        ?.contributions as VextExtension["contributions"],
+    })),
+  };
+}
+
+async function installExtensionArtifact(
+  extension: VextExtension,
+): Promise<void> {
+  const downloadUrl = `/registry/extensions/${encodeURIComponent(extension.id)}/download/${encodeURIComponent(extension.version)}`;
+  const response = await fetch(downloadUrl);
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  const bytes = await response.blob();
+  const form = new FormData();
+  form.append("artifact", bytes, `${extension.id}-${extension.version}.vext`);
+  const install = await fetch("/vext/install", { method: "POST", body: form });
+  if (!install.ok) throw new Error(`Erro ${install.status}`);
 }
 
 interface LibraryStoreState {
@@ -167,20 +295,30 @@ interface LibraryStoreState {
   memoryQuery: string;
   memoryError: string | null;
 
+  extensionItems: VextExtension[];
+  extensionLoading: boolean;
+  extensionFetchedAt: number | null;
+  extensionQuery: string;
+  extensionError: string | null;
+  extensionInstalledIds: Set<string>;
+  extensionInstallingId: string | null;
+
   ensureMcpLoaded: (q?: string) => Promise<void>;
   invalidateMcp: () => void;
   ensureSkillsLoaded: (q?: string) => Promise<void>;
   invalidateSkills: () => void;
   ensureMemoryLoaded: (q?: string) => Promise<void>;
   invalidateMemory: () => void;
+  ensureExtensionsLoaded: (q?: string) => Promise<void>;
+  refreshInstalledExtensions: () => Promise<void>;
+  invalidateExtensions: () => void;
+  installExtension: (extension: VextExtension) => Promise<void>;
+  uninstallExtension: (extensionId: string) => Promise<void>;
 }
 
 function isFresh(fetchedAt: number | null): boolean {
   return fetchedAt !== null && Date.now() - fetchedAt < TTL_MS;
 }
-
-let memoryRequest: Promise<void> | null = null;
-let queuedMemoryQuery: string | null = null;
 
 export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   mcpItems: [],
@@ -213,34 +351,43 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
   memoryFetchedAt: null,
   memoryQuery: "",
   memoryError: null,
+  extensionItems: [],
+  extensionLoading: false,
+  extensionFetchedAt: null,
+  extensionQuery: "",
+  extensionError: null,
+  extensionInstalledIds: new Set(),
+  extensionInstallingId: null,
 
   ensureMcpLoaded: async (q = "") => {
     const s = get();
     if (s.mcpLoading || (isFresh(s.mcpFetchedAt) && s.mcpQuery === q)) return;
     set({ mcpLoading: true });
-    const [catalogResult, installedResult, status] = await Promise.all([
-      fetchMcpRegistry(q).then(
-        (items) => ({ ok: true as const, items }),
-        (error) => ({ ok: false as const, error }),
-      ),
-      fetchMcpInstalledIds().then(
-        (installedIds) => ({ ok: true as const, installedIds }),
-        () => ({ ok: false as const, installedIds: new Set<string>() }),
-      ),
-      fetchCatalogStatus("mcp"),
-    ]);
-    if (catalogResult.ok && installedResult.ok) {
+    try {
+      const items = await fetchMcpRegistry(q);
+      const installedIds = await fetchMcpInstalledIds();
+      const status = await fetchMcpStatus().catch(() => get().mcpStatus);
       set({
-        mcpItems: catalogResult.items,
-        mcpInstalledIds: installedResult.installedIds,
+        mcpItems: items,
+        mcpInstalledIds: installedIds,
         mcpFetchedAt: Date.now(),
         mcpQuery: q,
         mcpError: null,
+        mcpStatus: status,
       });
-    } else {
-      set({ mcpError: m.library_mcp_error_search() });
+    } catch {
+      set({
+        mcpError: m.library_mcp_error_search(),
+        mcpStatus: {
+          source: "mcp",
+          status: "unavailable",
+          last_synced_at: null,
+          error: m.library_mcp_error_search(),
+        },
+      });
+    } finally {
+      set({ mcpLoading: false });
     }
-    set({ mcpStatus: status, mcpLoading: false });
   },
 
   invalidateMcp: () => set({ mcpFetchedAt: null }),
@@ -250,59 +397,153 @@ export const useLibraryStore = create<LibraryStoreState>((set, get) => ({
     if (s.skillsLoading || (isFresh(s.skillsFetchedAt) && s.skillsQuery === q))
       return;
     set({ skillsLoading: true });
-    const [catalogResult, status] = await Promise.all([
-      fetchSkillsCatalog(q).then(
-        (items) => ({ ok: true as const, items }),
-        (error) => ({ ok: false as const, error }),
-      ),
-      fetchCatalogStatus("skills"),
-    ]);
-    if (catalogResult.ok) {
+    try {
+      const [items, status] = await Promise.all([
+        fetchSkillsCatalog(q),
+        fetchSkillsStatus().catch(() => get().skillsStatus),
+      ]);
       set({
-        skillsItems: catalogResult.items,
+        skillsItems: items.filter(
+          (item) =>
+            !item.id.startsWith("vectora-") || item.catalog_source === "local",
+        ),
         skillsFetchedAt: Date.now(),
         skillsQuery: q,
         skillsError: null,
+        skillsStatus: status,
       });
-    } else {
-      set({ skillsError: m.library_skills_catalog_error_search() });
+    } catch {
+      set({
+        skillsError: m.library_skills_catalog_error_search(),
+        skillsStatus: {
+          source: "skills",
+          status: "unavailable",
+          last_synced_at: null,
+          error: m.library_skills_catalog_error_search(),
+        },
+      });
+    } finally {
+      set({ skillsLoading: false });
     }
-    set({ skillsStatus: status, skillsLoading: false });
   },
 
   invalidateSkills: () => set({ skillsFetchedAt: null }),
 
   ensureMemoryLoaded: async (q = "") => {
     const s = get();
-    if (s.memoryLoading) {
-      queuedMemoryQuery = q;
+    if (s.memoryLoading || (isFresh(s.memoryFetchedAt) && s.memoryQuery === q))
       return;
-    }
-    if (isFresh(s.memoryFetchedAt) && s.memoryQuery === q) return;
     set({ memoryLoading: true });
-    memoryRequest = (async () => {
-      try {
-        const items = await fetchMemoryCatalog(q);
-        set({
-          memoryItems: items,
-          memoryFetchedAt: Date.now(),
-          memoryQuery: q,
-          memoryError: null,
-        });
-      } catch {
-        set({ memoryError: m.library_memory_buckets_error_search() });
-      } finally {
-        set({ memoryLoading: false });
-        const nextQuery = queuedMemoryQuery;
-        queuedMemoryQuery = null;
-        memoryRequest = null;
-        if (nextQuery !== null && nextQuery !== q) {
-          void get().ensureMemoryLoaded(nextQuery);
-        }
-      }
-    })();
-    await memoryRequest;
+    try {
+      const items = await fetchMemoryCatalog(q);
+      set({
+        memoryItems: items,
+        memoryFetchedAt: Date.now(),
+        memoryQuery: q,
+        memoryError: null,
+      });
+    } catch {
+      set({ memoryError: m.library_memory_buckets_error_search() });
+    } finally {
+      set({ memoryLoading: false });
+    }
   },
 
   invalidateMemory: () => set({ memoryFetchedAt: null }),
+
+  ensureExtensionsLoaded: async (q = "") => {
+    const s = get();
+    if (
+      s.extensionLoading ||
+      (isFresh(s.extensionFetchedAt) && s.extensionQuery === q)
+    )
+      return;
+    set({ extensionLoading: true });
+    try {
+      const [catalogResult, installedResult] = await Promise.allSettled([
+        fetchExtensionsCatalog(q),
+        fetchInstalledExtensions(),
+      ]);
+      const catalog =
+        catalogResult.status === "fulfilled" ? catalogResult.value : [];
+      const installed =
+        installedResult.status === "fulfilled"
+          ? installedResult.value
+          : { ids: get().extensionInstalledIds, items: [] };
+      const byId = new Map<string, VextExtension>();
+      for (const item of catalog) byId.set(item.id, item);
+      for (const item of installed.items) byId.set(item.id, item);
+      set({
+        extensionItems: [...byId.values()],
+        extensionInstalledIds: installed.ids,
+        extensionFetchedAt: Date.now(),
+        extensionQuery: q,
+        extensionError:
+          catalogResult.status === "rejected" && installed.items.length === 0
+            ? m.library_extensions_error_search()
+            : null,
+      });
+    } catch {
+      set({ extensionError: m.library_extensions_error_search() });
+    } finally {
+      set({ extensionLoading: false });
+    }
+  },
+
+  refreshInstalledExtensions: async () => {
+    try {
+      const installed = await fetchInstalledExtensions();
+      set((state) => {
+        const byId = new Map<string, VextExtension>();
+        for (const item of state.extensionItems) byId.set(item.id, item);
+        for (const item of installed.items) byId.set(item.id, item);
+        return {
+          extensionInstalledIds: installed.ids,
+          extensionItems: [...byId.values()],
+        };
+      });
+    } catch {
+      // The catalog remains usable when the local lifecycle endpoint is unavailable.
+    }
+  },
+
+  invalidateExtensions: () => set({ extensionFetchedAt: null }),
+
+  installExtension: async (extension) => {
+    set({ extensionInstallingId: extension.id });
+    try {
+      await installExtensionArtifact(extension);
+      set((state) => ({
+        extensionInstalledIds: new Set(state.extensionInstalledIds).add(
+          extension.id,
+        ),
+      }));
+    } catch {
+      set({ extensionError: m.library_extensions_error_install() });
+    } finally {
+      set({ extensionInstallingId: null });
+    }
+  },
+
+  uninstallExtension: async (extensionId) => {
+    set({ extensionInstallingId: extensionId });
+    try {
+      const response = await fetch(`/vext/${encodeURIComponent(extensionId)}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) throw new Error(`Erro ${response.status}`);
+      set((state) => ({
+        extensionInstalledIds: new Set(
+          [...state.extensionInstalledIds].filter((id) => id !== extensionId),
+        ),
+        extensionItems: state.extensionItems.filter(
+          (item) => !(item.id === extensionId && item.status === "installed"),
+        ),
+      }));
+    } catch {
+      set({ extensionError: m.library_extensions_error_uninstall() });
+    } finally {
+      set({ extensionInstallingId: null });
+    }
+  },
 }));
