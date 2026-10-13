@@ -482,6 +482,7 @@ async def _run_subagent_once(
         status = "error"
 
     if not texto and status != "running":
+        status = "error"
         texto = (
             f"Error: subagente '{spec.name}' terminou sem resposta textual "
             f"(stopped_reason={resultado.stopped_reason})."

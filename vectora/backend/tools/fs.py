@@ -1145,8 +1145,10 @@ async def terminal(
                 **result,
                 "shared": True,
                 "message": (
-                    "Comando enviado e submetido ao terminal da Workbench; "
-                    "use read_terminal para ler a saída."
+                    "Comando enviado e submetido ao terminal da Workbench; use "
+                    "read_terminal para ler a saída."
+                    if result.get("status") == "accepted"
+                    else "Não foi possível submeter o comando ao terminal da Workbench."
                 ),
             },
             ensure_ascii=False,

@@ -393,6 +393,56 @@ async def run_conversation(
             tool_calls=tool_calls_for_history,
             finish_reason="tool_calls" if tool_calls else "stop",
         )
+
+        # Do not persist an assistant tool-call message when the repetition
+        # guard is about to stop the loop.  Persisting it would leave pending
+        # calls in the session history without matching tool results, causing
+        # the next run to replay an incomplete turn.
+        if tool_calls:
+            assinaturas_atual = frozenset(_call_signature(tc) for tc in tool_calls)
+            if assinaturas_atual == assinaturas_anteriores:
+                repeticoes_seguidas += 1
+            else:
+                repeticoes_seguidas = 1
+            assinaturas_anteriores = assinaturas_atual
+            if repeticoes_seguidas == _REPEATED_CALL_THRESHOLD:
+                nomes = ", ".join(sorted({tc.name for tc in tool_calls}))
+                await emit(
+                    ErrorSignal(
+                        code="TOOL_CALL_REPEATED",
+                        message=(
+                            f"Mesma tool call ({nomes}) repetida "
+                            f"{_REPEATED_CALL_THRESHOLD}x seguidas com argumentos "
+                            "idênticos — possível loop preso."
+                        ),
+                    )
+                )
+            if repeticoes_seguidas >= _REPEATED_CALL_HARD_LIMIT:
+                nomes = ", ".join(sorted({tc.name for tc in tool_calls}))
+                mensagem = (
+                    f"Execução interrompida: a mesma chamada ({nomes}) foi repetida "
+                    f"{repeticoes_seguidas} vezes sem progresso."
+                )
+                logger.error(
+                    "tool_call_loop_stopped",
+                    extra={
+                        "thread_id": thread_id,
+                        "iteration": _iteracao + 1,
+                        "tool_names": nomes,
+                        "repetitions": repeticoes_seguidas,
+                    },
+                )
+                await emit(ErrorSignal(code="TOOL_CALL_REPEATED", message=mensagem))
+                await emit(MessageBreak())
+                return LoopResult(
+                    stopped_reason="loop_cap_exceeded",
+                    final_message=None,
+                    usage=last_usage,
+                    usage_models=tuple(sorted(usage_models)),
+                    usage_records=tuple(usage_records),
+                    tool_names=tuple(sorted(observed_tools)),
+                )
+
         parent_id = await session_store.append_message(
             thread_id, assistant_msg, parent_message_id=parent_id, run_id=config.run_id
         )
@@ -401,49 +451,6 @@ async def run_conversation(
         if not tool_calls:
             return LoopResult(
                 stopped_reason="stop",
-                final_message=assistant_msg,
-                usage=last_usage,
-                usage_models=tuple(sorted(usage_models)),
-                usage_records=tuple(usage_records),
-                tool_names=tuple(sorted(observed_tools)),
-            )
-
-        assinaturas_atual = frozenset(_call_signature(tc) for tc in tool_calls)
-        if assinaturas_atual == assinaturas_anteriores:
-            repeticoes_seguidas += 1
-        else:
-            repeticoes_seguidas = 1
-        assinaturas_anteriores = assinaturas_atual
-        if repeticoes_seguidas == _REPEATED_CALL_THRESHOLD:
-            nomes = ", ".join(sorted({tc.name for tc in tool_calls}))
-            await emit(
-                ErrorSignal(
-                    code="TOOL_CALL_REPEATED",
-                    message=(
-                        f"Mesma tool call ({nomes}) repetida "
-                        f"{_REPEATED_CALL_THRESHOLD}x seguidas com argumentos "
-                        "idênticos — possível loop preso."
-                    ),
-                )
-            )
-        if repeticoes_seguidas >= _REPEATED_CALL_HARD_LIMIT:
-            nomes = ", ".join(sorted({tc.name for tc in tool_calls}))
-            mensagem = (
-                f"Execução interrompida: a mesma chamada ({nomes}) foi repetida "
-                f"{repeticoes_seguidas} vezes sem progresso."
-            )
-            logger.error(
-                "tool_call_loop_stopped",
-                extra={
-                    "thread_id": thread_id,
-                    "iteration": _iteracao + 1,
-                    "tool_names": nomes,
-                    "repetitions": repeticoes_seguidas,
-                },
-            )
-            await emit(ErrorSignal(code="TOOL_CALL_REPEATED", message=mensagem))
-            return LoopResult(
-                stopped_reason="loop_cap_exceeded",
                 final_message=assistant_msg,
                 usage=last_usage,
                 usage_models=tuple(sorted(usage_models)),

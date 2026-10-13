@@ -558,6 +558,11 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
     """
     import uvicorn
 
+    if force_web:
+        # `vectora web` always exposes TCP, even when launched from an Electron
+        # parent that left the desktop transport marker in the environment.
+        os.environ.pop("VECTORA_DESKTOP", None)
+
     # `vectora web` keeps the HTTP server and omits only the Python tray. The
     # Electron sidecar remains enabled so its bundled Chromium is the single
     # browser runtime used by the Browser Workbench and the CDP client.

@@ -41,7 +41,7 @@ _ROLE_POR_TIPO = {
     MessageRole.TOOL: "tool",
 }
 
-_INVALID = object()
+_INVALID: object = object()
 
 
 def _split_conteudo(msg: VMessage) -> tuple[str, list[str]]:

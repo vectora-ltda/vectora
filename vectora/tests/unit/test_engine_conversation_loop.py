@@ -280,7 +280,7 @@ class TestGuardrailDeRepeticao:
         assert not any(e.code == "TOOL_CALL_REPEATED" for e in sinais2)
 
     async def test_loop_de_tool_repetida_e_interrompido_com_diagnostico(
-        self, session_store, ctx
+        self, session_store: SessionStore, ctx: ToolContext
     ) -> None:
         @vtool(extras=ToolExtras())
         async def buscar(query: str, ctx: ToolContext) -> str:
@@ -325,6 +325,12 @@ class TestGuardrailDeRepeticao:
             event.code == "TOOL_CALL_REPEATED"
             for event in eventos
             if isinstance(event, ErrorSignal)
+        )
+        historico = await session_store.get_history("thread-repeated-hard-limit")
+        assert len(historico) == 10
+        assert all(
+            message.role is not MessageRole.ASSISTANT or message.tool_calls
+            for message in historico
         )
 
 

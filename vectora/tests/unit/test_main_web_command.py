@@ -101,6 +101,36 @@ def test_force_web_preserva_tcp_e_pula_bandeja() -> None:
     mock_asyncio_run.assert_called_once()
 
 
+def test_force_web_remove_marcador_desktop_herdado() -> None:
+    """`vectora web` ignora VECTORA_DESKTOP herdado e mantém transporte TCP."""
+    args = argparse.Namespace(
+        host="127.0.0.1",
+        port=8080,
+        ssl_certfile=None,
+        ssl_keyfile=None,
+    )
+    inherited_env = dict(os.environ)
+    inherited_env["VECTORA_DESKTOP"] = "1"
+    inherited_env.pop("VECTORA_HEADLESS", None)
+    with (
+        patch.dict(os.environ, inherited_env, clear=True),
+        patch("uvicorn.Config", return_value=MagicMock()),
+        patch("uvicorn.Server", return_value=MagicMock()),
+        patch("backend.api.server.create_app", return_value=MagicMock()),
+        patch(
+            "backend.services.electron_sidecar.should_spawn_electron",
+            return_value=False,
+        ),
+        patch("asyncio.run"),
+        patch("os._exit"),
+    ):
+        from backend.main import _run_start
+
+        _run_start(args, force_web=True)
+
+    assert "VECTORA_DESKTOP" not in os.environ
+
+
 def test_start_sem_force_web_sobe_bandeja_quando_nao_headless() -> None:
     """Sem force_web (`vectora start`), o caminho normal chama run_server_with_tray."""
     args = argparse.Namespace(
