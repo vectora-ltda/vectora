@@ -91,7 +91,6 @@ PullRequestEvent.model_rebuild()
 type EventPayload = PullRequestEvent | dict[str, object]
 
 _VEXT_TOKEN = re.compile(r"(?<![A-Za-z0-9])vext(?![A-Za-z0-9])", re.IGNORECASE)
-_STACK_BASE = re.compile(r"^stack/[a-z0-9][a-z0-9-]*$")
 _INTERNAL_BASE = re.compile(
     r"^(?:build|chore|ci|docs|feat|fix|perf|refactor|stack|sync|test)/"
     r"[a-z0-9][a-z0-9-]*$"
@@ -170,16 +169,13 @@ def _is_release_branch_pr(
 def _is_internal_head(
     event: PullRequestEvent, pull_request: PullRequestPayload
 ) -> bool:
-    """Confirma a identidade completa do repositório do head da PR."""
+    """Confirma que uma PR empilhada vem do repositório principal."""
     head = pull_request.head
-    repository = event.repository
-    repository_name = (repository.full_name if repository else None) or os.environ.get(
-        "GITHUB_REPOSITORY"
-    )
-    if head is None or repository_name is None:
-        return False
-    head_repo = head.repo.full_name if head.repo else None
-    return head_repo == repository_name
+    head_repo = head.repo.full_name if head and head.repo else None
+    repository_name = (
+        event.repository.full_name if event.repository else None
+    ) or os.environ.get("GITHUB_REPOSITORY")
+    return bool(head_repo and repository_name and head_repo == repository_name)
 
 
 def _is_forbidden_codex_branch(pull_request: PullRequestPayload) -> bool:
