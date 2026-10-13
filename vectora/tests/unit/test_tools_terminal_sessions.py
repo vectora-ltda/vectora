@@ -263,17 +263,17 @@ class TestInteractiveTerminalTools:
         # after the agent attached it to its own conversation.
         session = pty_registry.get("t1")
         assert session is not None
-        setattr(
-            session,
-            "read_since",
-            lambda _cursor, _limit: {
+
+        def read_since(_cursor: int, _limit: int) -> dict[str, object]:
+            return {
                 "data": b"ok",
                 "cursor": 2,
                 "alive": True,
                 "truncated": False,
                 "has_more": False,
-            },
-        )
+            }
+
+        setattr(session, "read_since", read_since)  # noqa: B010
         assert (
             json.loads(
                 await read_terminal(
