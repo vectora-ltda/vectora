@@ -233,6 +233,7 @@ def stream_engine_events(
                 stopped_reason = await run(on_event)
             except BaseException as exc:
                 run_error = exc
+                stopped_reason = "error"
             finally:
                 changes = await asyncio.to_thread(finalize, turn_snapshot)
                 turn_files_payload.extend(encode_turn_files(changes))

@@ -104,6 +104,7 @@ class PtyRegistry:
             for s in self._sessions.values()
             if getattr(s, "user_id", "local") == user_id
             and s.workspace_id == workspace_id
+            and bool(getattr(s, "is_alive", lambda: True)())
         ]
         return sorted(
             sessions,

@@ -58,6 +58,9 @@ aviso de possível loop preso — inspirado na detecção de repetição do
 hermes-agent (`agent/tool_guardrails.py`), sem a classificação
 idempotente/mutante dele: aqui é só sinal, o LLM/HITL decide o resto."""
 
+_REPEATED_CALL_HARD_LIMIT = 6
+"""Limite de segurança antes de encerrar uma chamada de tool presa."""
+
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
@@ -422,6 +425,30 @@ async def run_conversation(
                         "idênticos — possível loop preso."
                     ),
                 )
+            )
+        if repeticoes_seguidas >= _REPEATED_CALL_HARD_LIMIT:
+            nomes = ", ".join(sorted({tc.name for tc in tool_calls}))
+            mensagem = (
+                f"Execução interrompida: a mesma chamada ({nomes}) foi repetida "
+                f"{repeticoes_seguidas} vezes sem progresso."
+            )
+            logger.error(
+                "tool_call_loop_stopped",
+                extra={
+                    "thread_id": thread_id,
+                    "iteration": _iteracao + 1,
+                    "tool_names": nomes,
+                    "repetitions": repeticoes_seguidas,
+                },
+            )
+            await emit(ErrorSignal(code="TOOL_CALL_REPEATED", message=mensagem))
+            return LoopResult(
+                stopped_reason="loop_cap_exceeded",
+                final_message=assistant_msg,
+                usage=last_usage,
+                usage_models=tuple(sorted(usage_models)),
+                usage_records=tuple(usage_records),
+                tool_names=tuple(sorted(observed_tools)),
             )
 
         if should_require_approval is not None:

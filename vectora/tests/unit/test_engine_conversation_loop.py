@@ -276,6 +276,54 @@ class TestGuardrailDeRepeticao:
         sinais2 = [e for e in eventos2 if isinstance(e, ErrorSignal)]
         assert not any(e.code == "TOOL_CALL_REPEATED" for e in sinais2)
 
+    async def test_loop_de_tool_repetida_e_interrompido_com_diagnostico(
+        self, session_store, ctx
+    ) -> None:
+        @vtool(extras=ToolExtras())
+        async def buscar(query: str, ctx: ToolContext) -> str:
+            """Busca usada para simular uma tool que não produz progresso."""
+            return "resultado"
+
+        registry = ToolRegistry()
+        _register(registry, "buscar")
+        chamadas = [
+            [
+                _tool_call_chunk(
+                    index=0,
+                    id=f"call_{i}",
+                    name="buscar",
+                    args='{"query":"x"}',
+                )
+            ]
+            for i in range(6)
+        ]
+        client = _ScriptedChatClient(chamadas)
+        eventos: list[EngineEvent] = []
+
+        await session_store.create_session(
+            "thread-repeated-hard-limit", user_id=ctx.user_id
+        )
+
+        async def on_event(event: EngineEvent) -> None:
+            eventos.append(event)
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-repeated-hard-limit",
+            config=LoopConfig(),
+            on_event=on_event,
+        )
+
+        assert resultado.stopped_reason == "loop_cap_exceeded"
+        assert any(
+            event.code == "TOOL_CALL_REPEATED"
+            for event in eventos
+            if isinstance(event, ErrorSignal)
+        )
+
 
 class TestToolCallsSequenciais:
     async def test_chama_tool_depois_para_no_turno_seguinte(self, session_store, ctx):

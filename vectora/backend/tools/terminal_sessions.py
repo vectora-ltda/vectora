@@ -262,7 +262,6 @@ async def write_terminal(
     """
     if not terminal_id or not input_data:
         return json.dumps({"status": "error", "code": "input_required"})
-    original_input = input_data
     submit_suffix = ""
     if submit and not input_data.endswith(("\r", "\n")):
         # xterm emits CR for Enter.  Sending it explicitly is essential for
@@ -304,7 +303,6 @@ async def write_terminal(
             "submit": submit,
             "submit_suffix": repr(submit_suffix),
             "input_bytes": len(payload),
-            "input_preview": original_input[:200],
             "status": result.get("status"),
             "result_code": result.get("code"),
         },

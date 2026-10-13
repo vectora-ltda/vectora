@@ -109,7 +109,13 @@ class ToolSpec:
             result_status = "error" if result.lstrip().startswith("Error:") else "ok"
             logger.info(
                 "tool_invocation_completed",
-                extra={"tool": self.name, "status": result_status},
+                extra={
+                    "tool": self.name,
+                    "status": result_status,
+                    "result_type": type(result).__name__,
+                    "result_chars": len(result),
+                    "result_is_error": result_status == "error",
+                },
             )
             return result
         except Exception as exc:
