@@ -183,7 +183,7 @@ def _build_parser() -> argparse.ArgumentParser:
   vectora start                        sobe backend + SPA (fullstack)
   vectora start --headless             servidor headless (VPS/systemd)
   vectora start --port 9000            porta customizada
-  vectora web                          webapp puro — sem Electron, sem bandeja
+  vectora web                          webapp com Electron/Chromium, sem bandeja
 
   vectora config                       mostra configuração completa
   vectora config keys                  wizard: API keys + LLM provider

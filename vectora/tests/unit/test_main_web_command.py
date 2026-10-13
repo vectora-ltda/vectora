@@ -127,8 +127,7 @@ def test_force_web_remove_marcador_desktop_herdado() -> None:
         from backend.main import _run_start
 
         _run_start(args, force_web=True)
-
-    assert "VECTORA_DESKTOP" not in os.environ
+        assert "VECTORA_DESKTOP" not in os.environ
 
 
 def test_start_sem_force_web_sobe_bandeja_quando_nao_headless() -> None:

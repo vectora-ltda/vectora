@@ -245,7 +245,7 @@ async def run_conversation(
     emit = on_event or _noop_event
     tools = tool_registry.all()
     parent_id = await session_store.get_branch_head_id(thread_id)
-    assinaturas_anteriores: frozenset[tuple[str, str]] | None = None
+    assinaturas_anteriores: tuple[tuple[str, str], ...] | None = None
     repeticoes_seguidas = 0
     turn_budget = TurnBudget(config=config.loop_caps)
     last_usage: dict[str, int] | None = None
@@ -399,7 +399,7 @@ async def run_conversation(
         # calls in the session history without matching tool results, causing
         # the next run to replay an incomplete turn.
         if tool_calls:
-            assinaturas_atual = frozenset(_call_signature(tc) for tc in tool_calls)
+            assinaturas_atual = tuple(_call_signature(tc) for tc in tool_calls)
             if assinaturas_atual == assinaturas_anteriores:
                 repeticoes_seguidas += 1
             else:
