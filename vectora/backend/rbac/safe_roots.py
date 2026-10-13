@@ -10,7 +10,7 @@ import os
 import tempfile
 import time
 from _thread import RLock as RLockType
-from collections.abc import Iterator
+from collections.abc import Generator
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import RLock
@@ -94,7 +94,7 @@ class SafeRootRegistry:
         self._loaded = True
 
     @contextlib.contextmanager
-    def _file_lock(self) -> Iterator[None]:
+    def _file_lock(self) -> Generator[None]:
         """Serialize transactions across registry instances and processes."""
         target = _safe_roots_file()
         lock_file = target.with_name(f"{target.name}.lock")
@@ -191,7 +191,7 @@ class SafeRootRegistry:
                 stream.close()
 
     @contextlib.contextmanager
-    def _locked(self) -> Iterator[None]:
+    def _locked(self) -> Generator[None]:
         """Run a transaction against a freshly loaded snapshot."""
         with self._lock:
             with self._file_lock():

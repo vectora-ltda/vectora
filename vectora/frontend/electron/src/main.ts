@@ -59,9 +59,32 @@ import {
 import {
   BrowserViewManager,
   clearBrowserSessionData,
+  type BrowserViewKind,
   type ManagedView,
   type ViewBounds,
 } from "./browser-view-manager.js";
+import {
+  isValidBrowserUrl,
+  isValidBrowserViewKind,
+  isValidProfileId,
+  isValidViewBounds,
+  isValidViewId,
+} from "./browser-ipc-validation.js";
+
+function browserOwnerId(event: unknown): number {
+  return (event as { sender?: { id?: number } }).sender?.id ?? -1;
+}
+
+function isTrustedBrowserSender(event: unknown): boolean {
+  const candidate = event as {
+    sender?: unknown;
+    senderFrame?: { url?: string } | null;
+  };
+  return (
+    candidate.sender === mainWindow?.webContents &&
+    (candidate.senderFrame?.url ?? "").startsWith(`${APP_SCHEME}://`)
+  );
+}
 
 import { computeDefaultWindowSize } from "./window-size.js";
 import {
@@ -74,6 +97,11 @@ import {
   restoreUpdateBackup,
 } from "./update-backup.js";
 import { startUpdateDownload as startUpdateDownloadAfterBackup } from "./updater-download.js";
+import {
+  resolveRuntimeProfile,
+  runtimeHome as resolveRuntimeHome,
+  runtimeUserDataName,
+} from "./runtime-profile.js";
 
 const ELECTRON_RESTART_EXIT_CODE = 42;
 
@@ -115,6 +143,24 @@ interface UpdateStatus {
 // que não é o nome do produto. setName() força %APPDATA%\vectora\ sem
 // precisar renomear o pacote. Chamado antes de qualquer path ser resolvido.
 app.setName("vectora");
+
+// O Electron mantém o lock de instância e o perfil Chromium dentro de
+// `userData`. A versão instalada e o Electron de desenvolvimento precisam de
+// perfis distintos para poderem coexistir na mesma máquina. O backend recebe
+// o mesmo perfil por `VECTORA_RUNTIME_PROFILE`/`VECTORA_HOME`, isolando também
+// banco, socket, PID e armazenamento do NATS.
+const safeRuntimeProfile = resolveRuntimeProfile(process.env, app.isPackaged);
+app.setPath(
+  "userData",
+  path.join(app.getPath("appData"), runtimeUserDataName(safeRuntimeProfile)),
+);
+
+const runtimeHome = resolveRuntimeHome(
+  process.env,
+  safeRuntimeProfile,
+  os.homedir(),
+);
+if (!process.env.VECTORA_HOME) process.env.VECTORA_HOME = runtimeHome;
 
 let backend: ChildProcess | null = null;
 let backendPort: number | null = null;
@@ -186,15 +232,25 @@ async function rollbackPendingUpdate(): Promise<boolean> {
 function getBrowserViewManager(): BrowserViewManager {
   if (browserViewManager) return browserViewManager;
   browserViewManager = new BrowserViewManager({
-    createView: (profileId = "default") =>
-      new WebContentsView({
+    createView: (
+      profileId = "default",
+      _kind: BrowserViewKind = "tab",
+      options = {},
+    ) => {
+      const view = new WebContentsView({
         webPreferences: {
           contextIsolation: true,
           sandbox: true,
           nodeIntegration: false,
           session: session.fromPartition(`persist:browser-${profileId}`),
         },
-      }) as unknown as ManagedView,
+      });
+      if (options.zoomPercent !== undefined) {
+        const factor = Math.max(0.25, Math.min(5, options.zoomPercent / 100));
+        view.webContents.setZoomLevel(Math.log(factor) / Math.log(1.2));
+      }
+      return view as unknown as ManagedView;
+    },
     attach: (view) => {
       mainWindow?.contentView.addChildView(view as unknown as WebContentsView);
     },
@@ -235,7 +291,7 @@ const _MAX_LOG_LINES = 60;
 
 // Arquivo que persiste o PID do sidecar backend entre sessões. Permite matar
 // processo órfão deixado por crash do Electron sem disparar before-quit.
-const _BACKEND_PID_FILE = path.join(os.homedir(), ".vectora", "backend.pid");
+const _BACKEND_PID_FILE = path.join(runtimeHome, "backend.pid");
 
 async function killStaleBackend(): Promise<void> {
   try {
@@ -270,9 +326,10 @@ protocol.registerSchemesAsPrivileged([
  * - Windows: named pipe (\\.\pipe\vectora-<pid>) lido de stdout via VECTORA_IPC_PIPE
  * - Fallback Windows (sem pipe ainda pronto): TCP loopback
  */
+/** Build the IPC transport for the currently isolated runtime profile. */
 function backendTransport(): http.RequestOptions {
   if (process.platform !== "win32") {
-    return { socketPath: path.join(os.homedir(), ".vectora", "vectora.sock") };
+    return { socketPath: path.join(runtimeHome, "vectora.sock") };
   }
   if (backendPipePath) {
     return { socketPath: backendPipePath };
@@ -300,7 +357,7 @@ const _cookieStore = new Map<string, string>();
 // nenhuma, o login era perdido a cada restart do app. Grava um arquivo local
 // (criptografado via safeStorage — DPAPI no Windows/Keychain no macOS — quando
 // disponível) em vez de depender do cookie jar do Chromium.
-const _SESSION_STORE_FILE = path.join(os.homedir(), ".vectora", "session.dat");
+const _SESSION_STORE_FILE = path.join(runtimeHome, "session.dat");
 
 function persistCookieStore(): void {
   try {
@@ -438,6 +495,7 @@ function pingBackend(): Promise<boolean> {
 const _resourcesPath = (): string =>
   process.resourcesPath || path.join(__dirname, "..");
 
+/** Start or connect to the backend owned by this Electron profile. */
 async function startBackend(): Promise<void> {
   // Modo backend-primário em dev: quando o backend Python já é o processo
   // primário (`uv run vectora start` rodado direto, fora do Electron) e se
@@ -461,6 +519,8 @@ async function startBackend(): Promise<void> {
   );
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    VECTORA_RUNTIME_PROFILE: safeRuntimeProfile,
+    VECTORA_HOME: runtimeHome,
     VECTORA_PORT: String(backendPort),
     VECTORA_DESKTOP: "1",
     VECTORA_DESKTOP_BRIDGE_TOKEN: desktopBridgeToken,
@@ -469,8 +529,12 @@ async function startBackend(): Promise<void> {
   const exePath = backendPath(process.env, process.platform, _resourcesPath());
   backend = spawnBackendProcess(exePath, ["start"], env);
   if (backend.pid) {
+    const backendPid = backend.pid;
     fs.promises
-      .writeFile(_BACKEND_PID_FILE, String(backend.pid), "utf-8")
+      .mkdir(path.dirname(_BACKEND_PID_FILE), { recursive: true })
+      .then(() =>
+        fs.promises.writeFile(_BACKEND_PID_FILE, String(backendPid), "utf-8"),
+      )
       .catch(() => {});
   }
   const pipeParser = new IpcPipeParser();
@@ -778,6 +842,30 @@ async function isAutoUpdateEnabled(): Promise<boolean> {
   return prefs?.autoUpdateEnabled !== false;
 }
 
+/** Resolve changelog notes from the packaged manifest, using the authenticated backend as fallback. */
+async function fetchPackagedChangelog(
+  fallback: string,
+  expectedVersion: string,
+): Promise<string> {
+  const packaged = fallback.trim();
+  if (packaged) return packaged;
+  try {
+    const payload = await fetchBackendJson<{
+      notes?: string;
+      version?: string;
+    }>(
+      backendTransport(),
+      "/api/updates/changelog",
+      _cookieStore.size > 0 ? { cookie: buildCookieHeader(_cookieStore) } : {},
+    );
+    if (payload?.version !== expectedVersion) return "";
+    return payload.notes?.trim() || "";
+  } catch (error) {
+    console.warn("[updater] não foi possível carregar o changelog", error);
+    return fallback;
+  }
+}
+
 /**
  * Registra os listeners do `electron-updater` e propaga o estado pro
  * renderer via `vectora:update-status` (consumido em `UpdateBanner`,
@@ -786,13 +874,14 @@ async function isAutoUpdateEnabled(): Promise<boolean> {
  * (`vectora:check-for-update`, ver `registerIpc()`) também precisa desses
  * listeners pra a UI mostrar o resultado.
  */
+/** Register updater events and expose their merged status to the renderer. */
 function setupAutoUpdater(): void {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
   let latestStatus: UpdateStatus = { state: "not-available" };
 
-  const broadcast = (status: UpdateStatus) => {
+  const broadcast = (status: Partial<UpdateStatus>) => {
     latestStatus = { ...latestStatus, ...status };
     mainWindow?.webContents.send("vectora:update-status", latestStatus);
   };
@@ -818,6 +907,13 @@ function setupAutoUpdater(): void {
       );
     });
     broadcast({ state: "available", message: info.version, changelog: notes });
+    void fetchPackagedChangelog(notes, info.version).then((changelog) => {
+      if (changelog && changelog !== notes) {
+        // Atualiza somente as notas. Preserva `downloading`/`downloaded` caso
+        // a resposta do backend chegue depois do progresso do download.
+        broadcast({ changelog });
+      }
+    });
     void startUpdateDownload().catch((error: unknown) => {
       broadcast({
         state: "error",
@@ -1004,44 +1100,134 @@ function registerIpc(): void {
   // Browser real da aba Browser (ver getBrowserViewManager) — comandos
   // invoke/handle (resposta esperada) + eventos fire-and-forget, mesmo
   // padrão do restante deste arquivo.
-  ipcMain.handle("vectora:browser-create-view", (_event, profileId?: string) =>
-    getBrowserViewManager().createView(profileId),
-  );
-  ipcMain.on("vectora:browser-destroy-view", (_event, viewId: number) => {
-    getBrowserViewManager().destroyView(viewId);
+  ipcMain.handle("vectora:browser-create-view", (event, options: unknown) => {
+    if (!isTrustedBrowserSender(event)) throw new Error("origem IPC inválida");
+    if (!options || typeof options !== "object")
+      throw new Error("opções inválidas");
+    const { profileId, kind, allowPopups, zoomPercent } = options as Partial<{
+      profileId: string;
+      kind: BrowserViewKind;
+      allowPopups: boolean;
+      zoomPercent: number;
+    }>;
+    if (typeof profileId !== "string" || !isValidProfileId(profileId)) {
+      throw new Error("profileId inválido");
+    }
+    if (!isValidBrowserViewKind(kind)) throw new Error("kind inválido");
+    if (allowPopups !== undefined && typeof allowPopups !== "boolean") {
+      throw new Error("allowPopups inválido");
+    }
+    if (
+      zoomPercent !== undefined &&
+      (typeof zoomPercent !== "number" || !Number.isFinite(zoomPercent))
+    ) {
+      throw new Error("zoomPercent inválido");
+    }
+    return getBrowserViewManager().createView(
+      profileId,
+      kind,
+      browserOwnerId(event),
+      { allowPopups, zoomPercent },
+    );
+  });
+  ipcMain.on("vectora:browser-destroy-view", (event, viewId: number) => {
+    if (!isTrustedBrowserSender(event)) return;
+    if (!isValidViewId(viewId)) return;
+    getBrowserViewManager().destroyView(viewId, browserOwnerId(event));
   });
   ipcMain.handle(
     "vectora:browser-navigate",
-    (_event, viewId: number, url: string) =>
-      getBrowserViewManager().navigate(viewId, url),
+    (event, viewId: number, url: string) => {
+      if (!isTrustedBrowserSender(event))
+        return { ok: false, error: "origem IPC inválida" };
+      if (!isValidViewId(viewId) || !isValidBrowserUrl(url)) {
+        return { ok: false, error: "argumentos inválidos" };
+      }
+      return getBrowserViewManager().navigate(
+        viewId,
+        url,
+        browserOwnerId(event),
+      );
+    },
   );
-  ipcMain.on("vectora:browser-go-back", (_event, viewId: number) => {
-    getBrowserViewManager().goBack(viewId);
+  ipcMain.on("vectora:browser-go-back", (event, viewId: number) => {
+    if (!isTrustedBrowserSender(event)) return;
+    if (!isValidViewId(viewId)) return;
+    getBrowserViewManager().goBack(viewId, browserOwnerId(event));
   });
-  ipcMain.on("vectora:browser-go-forward", (_event, viewId: number) => {
-    getBrowserViewManager().goForward(viewId);
+  ipcMain.on("vectora:browser-go-forward", (event, viewId: number) => {
+    if (!isTrustedBrowserSender(event)) return;
+    if (!isValidViewId(viewId)) return;
+    getBrowserViewManager().goForward(viewId, browserOwnerId(event));
   });
-  ipcMain.on("vectora:browser-reload", (_event, viewId: number) => {
-    getBrowserViewManager().reload(viewId);
+  ipcMain.on("vectora:browser-reload", (event, viewId: number) => {
+    if (!isTrustedBrowserSender(event)) return;
+    if (!isValidViewId(viewId)) return;
+    getBrowserViewManager().reload(viewId, browserOwnerId(event));
   });
-  ipcMain.on("vectora:browser-stop", (_event, viewId: number) => {
-    getBrowserViewManager().stop(viewId);
+  ipcMain.on("vectora:browser-stop", (event, viewId: number) => {
+    if (!isTrustedBrowserSender(event)) return;
+    if (!isValidViewId(viewId)) return;
+    getBrowserViewManager().stop(viewId, browserOwnerId(event));
   });
   ipcMain.on(
     "vectora:browser-set-bounds",
-    (_event, viewId: number, bounds: ViewBounds) => {
-      getBrowserViewManager().setBounds(viewId, bounds);
+    (event, viewId: number, bounds: ViewBounds) => {
+      if (!isTrustedBrowserSender(event)) return;
+      if (!isValidViewId(viewId) || !isValidViewBounds(bounds)) return;
+      getBrowserViewManager().setBounds(viewId, bounds, browserOwnerId(event));
     },
   );
   ipcMain.handle(
     "vectora:browser-clear-profile-data",
-    (_event, profileId?: string) =>
-      getBrowserViewManager().clearData(profileId),
+    (event, profileId?: string) => {
+      if (!isTrustedBrowserSender(event))
+        throw new Error("origem IPC inválida");
+      if (profileId !== undefined && !isValidProfileId(profileId)) {
+        throw new Error("profileId inválido");
+      }
+      return getBrowserViewManager().clearData(profileId);
+    },
   );
   ipcMain.on(
     "vectora:browser-set-visible",
-    (_event, viewId: number, visible: boolean) => {
-      getBrowserViewManager().setVisible(viewId, visible);
+    (event, viewId: number, visible: boolean) => {
+      if (!isTrustedBrowserSender(event)) return;
+      if (!isValidViewId(viewId) || typeof visible !== "boolean") return;
+      getBrowserViewManager().setVisible(
+        viewId,
+        visible,
+        browserOwnerId(event),
+      );
+    },
+  );
+  ipcMain.on(
+    "vectora:browser-set-zoom",
+    (event, viewId: number, percent: number) => {
+      if (!isTrustedBrowserSender(event)) return;
+      if (
+        !isValidViewId(viewId) ||
+        typeof percent !== "number" ||
+        !Number.isFinite(percent)
+      )
+        return;
+      getBrowserViewManager().setZoomPercent(
+        viewId,
+        percent,
+        browserOwnerId(event),
+      );
+    },
+  );
+  ipcMain.on(
+    "vectora:browser-set-allow-popups",
+    (event, viewId: number, allowPopups: boolean) => {
+      if (!isTrustedBrowserSender(event)) return;
+      if (!isValidViewId(viewId) || typeof allowPopups !== "boolean") return;
+      getBrowserViewManager().setAllowPopups(
+        viewId,
+        allowPopups,
+        browserOwnerId(event),
+      );
     },
   );
 

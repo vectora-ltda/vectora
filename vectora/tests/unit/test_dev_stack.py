@@ -43,7 +43,7 @@ def test_nenhum_servico_sem_credencial() -> None:
     """Auth em todos os serviços, mesmo em dev — Redis com senha na URL
     (mesmo formato do Postgres) e Qdrant com API key."""
     assert "redis://:" in DEFAULT_REDIS_URL  # senha embutida (redis://:senha@host)
-    assert DEFAULT_QDRANT_API_KEY
+    assert DEFAULT_QDRANT_API_KEY == "vectora"
     redis = next(s for s in SERVICES if s.name == "vectora-redis")
     assert "--requirepass" in redis.command
     qdrant = next(s for s in SERVICES if s.name == "vectora-qdrant")

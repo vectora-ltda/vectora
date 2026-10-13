@@ -5,12 +5,9 @@ import { Loader2, RefreshCw, X, Settings2, Waypoints } from "lucide-react";
 
 import { useContextGraph } from "@/lib/hooks/use-context-graph";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
-import {
-  useContextGraphSettingsStore,
-  ALL_GRAPH_FILE_TYPES,
-  type GraphFileType,
-} from "@/lib/stores/context-graph-settings-store";
-import { WorkbenchSlidePanel } from "@/components/workbench/workbench-slide-panel";
+import { useContextGraphSettingsStore } from "@/lib/stores/context-graph-settings-store";
+import { WorkbenchSettingsSurface } from "@/components/workbench/settings/workbench-settings-surface";
+import { contextGraphSettings } from "@/components/workbench/settings/workbench-settings-registry";
 import { ContextGraphViewer } from "@/components/workbench/tabs/context-graph-viewer";
 import { m } from "@/lib/paraglide/messages";
 
@@ -51,8 +48,6 @@ export function ContextGraphTab({
   const [showSettings, setShowSettings] = useState(false);
   const fileTypes = useContextGraphSettingsStore((s) => s.fileTypes);
   const graphMode = useContextGraphSettingsStore((s) => s.mode);
-  const toggleFileType = useContextGraphSettingsStore((s) => s.toggleFileType);
-  const setGraphMode = useContextGraphSettingsStore((s) => s.setMode);
 
   const isBuilt = status.status === "done";
   const isRunning = status.status === "running" || status.status === "queued";
@@ -141,79 +136,19 @@ export function ContextGraphTab({
         </button>
       </div>
 
-      {/* Configurações do grafo — painel deslizante (base compartilhada). */}
-      <WorkbenchSlidePanel
+      <WorkbenchSettingsSurface
+        descriptor={contextGraphSettings}
+        context={{ threadId, workspaceId }}
         open={showSettings}
-        onClose={() => setShowSettings(false)}
-        title={m.graph_settings_title()}
+        onOpenChange={setShowSettings}
         testId="graph-settings-panel"
-      >
-        <div className="space-y-3 text-xs">
-          <div>
-            <p className="font-medium text-foreground">
-              {m.graph_settings_filetypes()}
-            </p>
-            <p className="mt-0.5 text-[10px] text-muted-foreground">
-              {m.graph_settings_filetypes_help()}
-            </p>
-            <div className="mt-1.5 space-y-1">
-              {ALL_GRAPH_FILE_TYPES.map((t: GraphFileType) => (
-                <label
-                  key={t}
-                  className="flex items-center gap-2 cursor-pointer select-none"
-                >
-                  <input
-                    type="checkbox"
-                    checked={fileTypes.includes(t)}
-                    onChange={() => toggleFileType(t)}
-                    className="accent-[var(--color-primary)]"
-                  />
-                  <span className="text-foreground">
-                    {t === "code"
-                      ? m.graph_filetype_code()
-                      : t === "document"
-                        ? m.graph_filetype_document()
-                        : m.graph_filetype_paper()}
-                  </span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <p className="font-medium text-foreground">
-              {m.graph_settings_mode()}
-            </p>
-            <div className="mt-1.5 space-y-1">
-              {(["semantic", "ast"] as const).map((mo) => (
-                <label
-                  key={mo}
-                  className="flex items-center gap-2 cursor-pointer select-none"
-                >
-                  <input
-                    type="radio"
-                    name="graph-mode"
-                    checked={graphMode === mo}
-                    onChange={() => setGraphMode(mo)}
-                    className="accent-[var(--color-primary)]"
-                  />
-                  <span className="text-foreground">
-                    {mo === "semantic"
-                      ? m.graph_mode_semantic()
-                      : m.graph_mode_ast()}
-                  </span>
-                </label>
-              ))}
-            </div>
-          </div>
-        </div>
-      </WorkbenchSlidePanel>
+      />
 
       <div className="flex-1 min-h-0 flex flex-col">
         {/* Status: error */}
         {status.status === "error" && (
           <div className="overflow-y-auto px-3 py-2 text-sm text-destructive">
-            {status.error ?? "Erro desconhecido"}
+            {status.error ?? m.workbench_settings_unknown_error()}
           </div>
         )}
 
@@ -343,10 +278,10 @@ export function ContextGraphTab({
             {/* Métricas — faixa compacta acima do grafo */}
             <div className="flex gap-4 text-xs text-muted-foreground px-3 py-1.5 border-b border-border/40 shrink-0">
               {status.node_count != null && (
-                <span>{status.node_count} nós</span>
+                <span>{m.graph_nodes_count({ n: status.node_count })}</span>
               )}
               {status.edge_count != null && (
-                <span>{status.edge_count} arestas</span>
+                <span>{m.graph_edges_count({ n: status.edge_count })}</span>
               )}
             </div>
 

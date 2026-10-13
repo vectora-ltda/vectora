@@ -29,8 +29,10 @@ import {
 import { useWebhookEvents } from "@/lib/hooks/use-webhook-events";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { Switch } from "@/components/ui/switch";
-import { WorkbenchSlidePanel } from "@/components/workbench/workbench-slide-panel";
+import { WorkbenchDialog } from "@/components/workbench/workbench-dialog";
 import { m } from "@/lib/paraglide/messages";
+import { useSettingsStore } from "@/lib/stores/settings-store";
+import { useToastStore } from "@/lib/stores/toast-store";
 
 interface DraftState {
   kind: BackgroundKind;
@@ -184,6 +186,7 @@ async function resolveRun(
 export function TasksTab({ threadId }: { threadId: string }) {
   const navigate = useNavigate();
   const workspace = useWorkspacesStore((s) => s.getActive());
+  const taskNotifications = useSettingsStore((s) => s.taskNotifications);
   const {
     tasks,
     runs,
@@ -202,9 +205,14 @@ export function TasksTab({ threadId }: { threadId: string }) {
   // Revalida ao receber um evento de run em segundo plano via SSE.
   const onWebhook = useCallback(
     (evt: { provider: string }) => {
-      if (evt.provider === "background") void refetch();
+      if (evt.provider === "background") {
+        void refetch();
+        if (taskNotifications) {
+          useToastStore.getState().info(m.background_tasks_title());
+        }
+      }
     },
-    [refetch],
+    [refetch, taskNotifications],
   );
   useWebhookEvents(onWebhook);
 
@@ -271,13 +279,14 @@ export function TasksTab({ threadId }: { threadId: string }) {
         </button>
       </div>
 
-      <WorkbenchSlidePanel
+      <WorkbenchDialog
         open={showForm}
-        onClose={() => setShowForm(false)}
+        onOpenChange={setShowForm}
         title={m.background_new_task()}
+        description={m.background_new_task()}
         testId="tasks-form-panel"
       >
-        <div className="space-y-2">
+        <div className="min-w-0 space-y-2 p-4">
           <div className="flex gap-2">
             <select
               value={draft.kind}
@@ -374,7 +383,7 @@ export function TasksTab({ threadId }: { threadId: string }) {
             </button>
           </div>
         </div>
-      </WorkbenchSlidePanel>
+      </WorkbenchDialog>
 
       {allEmpty ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-3 p-4 text-center">

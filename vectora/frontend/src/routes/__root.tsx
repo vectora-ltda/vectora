@@ -25,6 +25,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { NetworkStatusBanner } from "@/components/layout/network-status-banner";
 import { UpdateBanner } from "@/components/layout/update-banner";
 import { TitleBar } from "@/components/layout/title-bar";
+import { useActiveWorkbenchContextStore } from "@/lib/stores/active-workbench-context-store";
 
 const PUBLIC_PATH_PREFIXES = ["/auth/", "/share/", "/onboarding"];
 
@@ -266,6 +267,7 @@ function RootComponent() {
     if (workspaceUserRef.current !== userId) {
       workspaceUserRef.current = userId;
       store.resetForUser();
+      useActiveWorkbenchContextStore.getState().clear();
     }
     if (!privateRoute) return;
     void store.hydrate();
