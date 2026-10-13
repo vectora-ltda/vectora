@@ -20,6 +20,9 @@ Uso (PowerShell / cmd, a partir da raiz do monorepo):
     scons clean         → remove outputs de build
 
 Pré-requisitos: uv, pnpm, nuitka (incluído no uv.lock), Hugo (extended) no PATH
+O runtime de produção usa exclusivamente o Chromium distribuído pelo pacote
+Electron. Playwright é somente o cliente CDP do backend; os browsers baixados
+por `playwright install` pertencem aos testes E2E e não são empacotados.
 Instalar SCons: pip install scons (ou uv add --dev scons)
 
 Subprojetos cobertos por lint e tests:
