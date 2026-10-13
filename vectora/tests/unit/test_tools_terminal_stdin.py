@@ -15,7 +15,7 @@ import pytest
 
 from backend.services.pty_registry import pty_registry
 from backend.tools.context import ctx_from_config
-from backend.tools.fs import _pending_terminal, terminal
+from backend.tools.fs import _pending_terminal, _terminal_submit_suffix, terminal
 from backend.workspace.workspace import WorkspaceRegistry
 
 
@@ -121,7 +121,14 @@ async def test_terminal_reuses_attached_workbench_pty(monkeypatch, _workspace):
     )
     data = json.loads(result)
     assert data["shared"] is True
-    assert session.data == b"git status\n"
+    expected_suffix = b"\r" if sys.platform == "win32" else b"\n"
+    assert session.data == b"git status" + expected_suffix
+
+
+def test_shared_terminal_uses_enter_for_windows_pty(monkeypatch) -> None:
+    """ConPTY receives CR so a dispatched command is actually submitted."""
+    monkeypatch.setattr("backend.tools.fs.platform.system", lambda: "Windows")
+    assert _terminal_submit_suffix() == "\r"
 
 
 @pytest.mark.asyncio
