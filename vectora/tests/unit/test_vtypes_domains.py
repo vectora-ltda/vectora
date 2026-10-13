@@ -7,6 +7,7 @@ from typing import get_type_hints
 from backend.vtypes.browser import BrowserTab, NetworkProfile
 from backend.vtypes.plan import DecompositionNode, KanbanCard
 from backend.vtypes.shell import TerminalCommand, TerminalResult
+from backend.vtypes.storage import HealthResult, QueueTask
 
 
 def test_plan_contracts_require_agent_facing_fields() -> None:
@@ -30,3 +31,9 @@ def test_shell_contracts_keep_command_and_result_distinct() -> None:
     """Entrada de shell e resultado não devem compartilhar campos implícitos."""
     assert "command" in get_type_hints(TerminalCommand)
     assert {"status", "state"} <= set(get_type_hints(TerminalResult))
+
+
+def test_storage_contracts_keep_health_and_queue_shapes_explicit() -> None:
+    """Todos os backends compartilham o mesmo resultado de saúde."""
+    assert set(get_type_hints(HealthResult)) == {"ok", "error"}
+    assert {"id", "kind", "payload"} <= set(get_type_hints(QueueTask))
