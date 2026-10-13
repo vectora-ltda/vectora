@@ -41,6 +41,8 @@ _ROLE_POR_TIPO = {
     MessageRole.TOOL: "tool",
 }
 
+_INVALID = object()
+
 
 def _split_conteudo(msg: VMessage) -> tuple[str, list[str]]:
     """Devolve `(texto, imagens_base64_puras)` — o prefixo
@@ -87,12 +89,14 @@ def _parse_tool_calls(bruto: list) -> list[ToolCall]:
             try:
                 args = json.loads(args)
             except json.JSONDecodeError:
-                args = None
+                args = _INVALID
+        elif args is None:
+            args = {}
         chamadas.append(
             ToolCall(
                 id=item.get("id") or "",
                 name=funcao.get("name", ""),
-                args=coerce_json_object(args or {}, raw=raw),
+                args=coerce_json_object(args, raw=raw),
             )
         )
     return chamadas

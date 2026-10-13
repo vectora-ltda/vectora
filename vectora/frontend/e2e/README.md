@@ -26,7 +26,9 @@ sentido com a stack inteira de pé:
 
 1. **Backend rodando** em `http://127.0.0.1:8080` com uma chave de provider
    configurada (ex.: `GOOGLE_API_KEY`) — os testes exercitam o LLM real.
-2. **Browsers do Playwright** instalados (uma vez):
+2. **Browser de teste do Playwright** instalado (uma vez). Isso é usado apenas
+   pela suíte E2E e não é o Chromium do app distribuído; em produção o Vectora
+   usa o Chromium que vem dentro do Electron:
    ```
    pnpm --dir frontend exec playwright install chromium
    ```

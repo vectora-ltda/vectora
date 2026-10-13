@@ -17,6 +17,7 @@ import logging
 import pytest
 
 from backend.api.native_stream import stream_engine_events
+from backend.engine.stream_events import ErrorSignal, EventSink, MessageBreak
 
 
 def _parse(sse: str) -> dict:
@@ -33,7 +34,9 @@ class TestErroDeExecucaoFicaLogado:
         precisa aparecer no log, com o traceback, não só a mensagem
         amigável classificada."""
 
-        async def _run_que_falha(on_event) -> str:
+        async def _run_que_falha(
+            on_event: EventSink,
+        ) -> str:
             raise RuntimeError("boom: provider explodiu de verdade")
 
         with caplog.at_level(logging.ERROR, logger="backend.api.native_stream"):
@@ -52,3 +55,38 @@ class TestErroDeExecucaoFicaLogado:
             and "boom: provider explodiu de verdade" in str(rec.exc_info[1])
             for rec in caplog.records
         )
+
+    async def test_evento_de_resposta_vazia_fica_logado_com_codigo(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        async def _run_com_resposta_vazia(
+            on_event: EventSink,
+        ) -> str:
+            await on_event(
+                ErrorSignal(
+                    code="EMPTY_MODEL_RESPONSE",
+                    message="O provedor não retornou texto.",
+                )
+            )
+            await on_event(MessageBreak())
+            return "stop"
+
+        with caplog.at_level("WARNING", logger="backend.api.native_stream"):
+            events = [
+                _parse(sse)
+                async for sse in stream_engine_events(
+                    _run_com_resposta_vazia, thread_id="t-empty"
+                )
+            ]
+
+        assert any(
+            event["type"] == "error" and event["code"] == "EMPTY_MODEL_RESPONSE"
+            for event in events
+        )
+        record = next(
+            record
+            for record in caplog.records
+            if record.message == "native_stream_event_error"
+        )
+        assert getattr(record, "code", None) == "EMPTY_MODEL_RESPONSE"
+        assert getattr(record, "message_length", 0) > 0

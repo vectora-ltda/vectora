@@ -27,6 +27,7 @@ vocabulário nativo.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import time
 from dataclasses import dataclass, field, replace
@@ -56,6 +57,11 @@ _REPEATED_CALL_THRESHOLD = 3
 aviso de possível loop preso — inspirado na detecção de repetição do
 hermes-agent (`agent/tool_guardrails.py`), sem a classificação
 idempotente/mutante dele: aqui é só sinal, o LLM/HITL decide o resto."""
+
+_REPEATED_CALL_HARD_LIMIT = 6
+"""Limite de segurança antes de encerrar uma chamada de tool presa."""
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -260,6 +266,23 @@ async def run_conversation(
 
         partes_texto: list[str] = []
         tool_call_chunks_por_indice: dict[int, dict[str, Any]] = {}
+        chunk_count = 0
+        text_chunk_count = 0
+        reasoning_chars = 0
+        tool_chunk_count = 0
+        finish_reasons: list[str] = []
+
+        logger.info(
+            "llm_turn_started",
+            extra={
+                "thread_id": thread_id,
+                "run_id": config.run_id or "",
+                "iteration": _iteracao + 1,
+                "history_messages": len(historico),
+                "tool_count": len(tools),
+                "model": str(getattr(chat_client, "last_model_id", "") or ""),
+            },
+        )
 
         stream_usage: dict[str, int] | None = None
         async for chunk in chat_client.astream(
@@ -268,11 +291,18 @@ async def run_conversation(
             temperature=config.temperature,
             max_tokens=config.max_tokens,
         ):
+            chunk_count += 1
+            if chunk.finish_reason:
+                finish_reasons.append(str(chunk.finish_reason))
             if chunk.usage:
                 stream_usage = cast("dict[str, int]", dict(chunk.usage))
             if chunk.delta_text:
+                text_chunk_count += 1
                 partes_texto.append(chunk.delta_text)
                 await emit(MessageChunk(content=chunk.delta_text))
+
+            reasoning_chars += len(chunk.delta_reasoning or "")
+            tool_chunk_count += len(chunk.tool_call_chunks)
 
             for tc_chunk in chunk.tool_call_chunks:
                 acumulado = tool_call_chunks_por_indice.setdefault(
@@ -302,6 +332,57 @@ async def run_conversation(
         texto_final = "".join(partes_texto)
         tool_calls = _resolve_tool_calls(tool_call_chunks_por_indice)
         observed_tools.update(tc.name for tc in tool_calls if tc.name)
+
+        logger.info(
+            "llm_turn_finished",
+            extra={
+                "thread_id": thread_id,
+                "run_id": config.run_id or "",
+                "iteration": _iteracao + 1,
+                "model": str(getattr(chat_client, "last_model_id", "") or ""),
+                "chunk_count": chunk_count,
+                "text_chunk_count": text_chunk_count,
+                "text_chars": len(texto_final),
+                "reasoning_chars": reasoning_chars,
+                "tool_chunk_count": tool_chunk_count,
+                "tool_call_count": len(tool_calls),
+                "finish_reasons": ",".join(finish_reasons),
+                "usage_present": stream_usage is not None,
+            },
+        )
+
+        if not texto_final and not tool_calls:
+            logger.warning(
+                "llm_empty_response",
+                extra={
+                    "thread_id": thread_id,
+                    "run_id": config.run_id or "",
+                    "iteration": _iteracao + 1,
+                    "model": str(getattr(chat_client, "last_model_id", "") or ""),
+                    "chunk_count": chunk_count,
+                    "reasoning_chars": reasoning_chars,
+                    "finish_reasons": ",".join(finish_reasons),
+                },
+            )
+            await emit(
+                ErrorSignal(
+                    code="EMPTY_MODEL_RESPONSE",
+                    message=(
+                        "O provedor LLM encerrou o stream sem retornar texto "
+                        "ou uma chamada de ferramenta. Tente novamente ou "
+                        "troque o modelo."
+                    ),
+                )
+            )
+            await emit(MessageBreak())
+            return LoopResult(
+                stopped_reason="stop",
+                final_message=None,
+                usage=last_usage,
+                usage_models=tuple(sorted(usage_models)),
+                usage_records=tuple(usage_records),
+                tool_names=tuple(sorted(observed_tools)),
+            )
 
         tool_calls_for_history = [_sanitize_tool_call(tc, ctx) for tc in tool_calls]
         assistant_msg = VMessage(
@@ -344,6 +425,30 @@ async def run_conversation(
                         "idênticos — possível loop preso."
                     ),
                 )
+            )
+        if repeticoes_seguidas >= _REPEATED_CALL_HARD_LIMIT:
+            nomes = ", ".join(sorted({tc.name for tc in tool_calls}))
+            mensagem = (
+                f"Execução interrompida: a mesma chamada ({nomes}) foi repetida "
+                f"{repeticoes_seguidas} vezes sem progresso."
+            )
+            logger.error(
+                "tool_call_loop_stopped",
+                extra={
+                    "thread_id": thread_id,
+                    "iteration": _iteracao + 1,
+                    "tool_names": nomes,
+                    "repetitions": repeticoes_seguidas,
+                },
+            )
+            await emit(ErrorSignal(code="TOOL_CALL_REPEATED", message=mensagem))
+            return LoopResult(
+                stopped_reason="loop_cap_exceeded",
+                final_message=assistant_msg,
+                usage=last_usage,
+                usage_models=tuple(sorted(usage_models)),
+                usage_records=tuple(usage_records),
+                tool_names=tuple(sorted(observed_tools)),
             )
 
         if should_require_approval is not None:

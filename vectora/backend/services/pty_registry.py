@@ -20,10 +20,17 @@ class PtyRegistry:
     def __init__(self) -> None:
         self._sessions: dict[str, PtySession] = {}
         self._closed: dict[str, tuple[str, str, str]] = {}
+        self._attachment_order: dict[str, int] = {}
+        self._next_attachment_order = 0
+
+    def _mark_attached(self, terminal_id: str) -> None:
+        self._next_attachment_order += 1
+        self._attachment_order[terminal_id] = self._next_attachment_order
 
     def add(self, session: PtySession) -> None:
         self._closed.pop(session.terminal_id, None)
         self._sessions[session.terminal_id] = session
+        self._mark_attached(session.terminal_id)
 
     def get(self, terminal_id: str) -> PtySession | None:
         return self._sessions.get(terminal_id)
@@ -92,12 +99,18 @@ class PtyRegistry:
         """Lista sessões do usuário no workspace, independente da thread."""
         if not workspace_id:
             return []
-        return [
+        sessions = [
             s
             for s in self._sessions.values()
             if getattr(s, "user_id", "local") == user_id
             and s.workspace_id == workspace_id
+            and bool(getattr(s, "is_alive", lambda: True)())
         ]
+        return sorted(
+            sessions,
+            key=lambda session: self._attachment_order.get(session.terminal_id, 0),
+            reverse=True,
+        )
 
     def claim_for_context(
         self,
@@ -124,6 +137,7 @@ class PtyRegistry:
         ):
             return None
         session.thread_id = thread_id
+        self._mark_attached(session.terminal_id)
         return session
 
     def close(self, terminal_id: str) -> bool:
@@ -135,6 +149,7 @@ class PtyRegistry:
             session.thread_id,
             session.workspace_id,
         )
+        self._attachment_order.pop(terminal_id, None)
         session.close()
         return True
 
@@ -152,6 +167,7 @@ class PtyRegistry:
             except Exception:
                 logger.debug("pty_registry: erro ao encerrar %s", sid)
         self._sessions.clear()
+        self._attachment_order.clear()
 
 
 #: Instância global usada pelo handler WS e pelo lifespan do servidor.

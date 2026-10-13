@@ -53,13 +53,6 @@ def test_workbench_catalogs_are_registered_without_duplicates() -> None:
             )
 
 
-def test_workbench_catalogs_are_exposed_to_code_agent() -> None:
-    """O agente de código recebe exatamente as tools da superfície nativa."""
-    # A construção é síncrona no contrato público, mas o factory é async para
-    # carregar catálogo/ABAC; o teste async abaixo valida a instância real.
-    assert _workbench_specs()
-
-
 @pytest.mark.asyncio
 async def test_every_workbench_tool_is_in_native_agent_registry() -> None:
     agent = await get_native_agent(user_id="tool-contract-matrix", chat_mode=False)

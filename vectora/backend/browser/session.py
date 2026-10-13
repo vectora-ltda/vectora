@@ -283,7 +283,7 @@ async def new_tab(workspace_id: str, url: str | None = None) -> str:
         # visible BrowserView is usable, but it is not a new tab. Never report
         # reuse as successful creation or navigate it behind the caller's back.
         message = str(exc).lower()
-        if "target.createTarget" not in message and "not supported" not in message:
+        if "target.createtarget" not in message and "not supported" not in message:
             raise
         raise RuntimeError(
             "O Browser Workbench não suporta criar uma nova aba via CDP; "

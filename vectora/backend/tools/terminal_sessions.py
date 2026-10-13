@@ -262,11 +262,13 @@ async def write_terminal(
     """
     if not terminal_id or not input_data:
         return json.dumps({"status": "error", "code": "input_required"})
+    submit_suffix = ""
     if submit and not input_data.endswith(("\r", "\n")):
         # xterm emits CR for Enter.  Sending it explicitly is essential for
         # agent-authored commands: writing text alone only leaves it at the
         # shell prompt and never executes it.
-        input_data += "\r"
+        submit_suffix = "\r"
+        input_data += submit_suffix
     if len(input_data.encode("utf-8")) > 8192:
         return json.dumps({"status": "error", "code": "input_too_large"})
     request_id = request_id.strip() or f"agent-write-{uuid.uuid4().hex}"
@@ -290,9 +292,22 @@ async def write_terminal(
         return json.dumps(
             {"status": "error", "code": "rate_limited", "retry_after": retry_after}
         )
-    return json.dumps(
-        session.write_input(input_data.encode("utf-8"), request_id), ensure_ascii=False
+    payload = input_data.encode("utf-8")
+    result = session.write_input(payload, request_id)
+    logger.info(
+        "write_terminal_dispatched",
+        extra={
+            "terminal_id": terminal_id,
+            "thread_id": ctx.thread_id,
+            "workspace_id": ctx.workspace_id,
+            "submit": submit,
+            "submit_suffix": repr(submit_suffix),
+            "input_bytes": len(payload),
+            "status": result.get("status"),
+            "result_code": result.get("code"),
+        },
     )
+    return json.dumps(result, ensure_ascii=False)
 
 
 __all__ = [

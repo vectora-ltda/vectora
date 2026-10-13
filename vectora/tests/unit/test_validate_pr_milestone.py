@@ -240,7 +240,14 @@ def test_stacked_fork_pr_does_not_bypass_release_milestone(
     assert "base declarada" in errors[0]
 
 
-@pytest.mark.parametrize("base", ["stack/base-contracts", "feat/contratos-workbenches"])
+@pytest.mark.parametrize(
+    "base",
+    [
+        "stack/base-contracts",
+        "feat/contratos-workbenches",
+        "feat/llm-workbench-integration",
+    ],
+)
 def test_contract_stack_fork_does_not_bypass_release_milestone(base: str) -> None:
     """Bases empilhadas não liberam PRs de forks."""
     errors = validator.validate_pull_request(

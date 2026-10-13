@@ -165,7 +165,25 @@ jobs:
           else
             git log --format='%s%x1f%b%x1e' "$source_ref" | jq -R -s 'split("\u001e") | map(select(length > 0)) | map({subject: (split("\u001f")[0]), body: (split("\u001f")[1] // "")})' > "$RUNNER_TEMP/release-commits.json"
           fi
-          current_version="$(jq -er '.["."]' "$([ "$TARGET_BRANCH" = "$DEVELOPMENT_BRANCH" ] && echo .release-please-manifest.development.json || echo .release-please-manifest.maintenance.json)")"
+          if [[ -n "$latest_tag" ]]; then
+            current_version=""
+            if git cat-file -e "$latest_tag:$RELEASE_MANIFEST" 2>/dev/null; then
+              current_version="$(git show "$latest_tag:$RELEASE_MANIFEST" | jq -er '.["."] // empty')" || true
+            fi
+            if [[ -z "$current_version" ]] && git cat-file -e "$latest_tag:.release-please-manifest.json" 2>/dev/null; then
+              current_version="$(git show "$latest_tag:.release-please-manifest.json" | jq -er '.vectora // empty')" || true
+            fi
+            if [[ -z "$current_version" ]]; then
+              echo "::error::Nenhum manifesto de release válido foi encontrado na tag $latest_tag." >&2
+              exit 1
+            fi
+          else
+            current_version="$(jq -er '.["."]' "$RELEASE_MANIFEST")"
+          fi
+          if [[ ! "$current_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Versão inválida no manifesto de release: $current_version" >&2
+            exit 1
+          fi
           bump_flag=""
           [[ "$RELEASE_MILESTONE" == *.x ]] && bump_flag="--bump-patch-for-minor-pre-major"
           uv run --project vectora python utils/release_plan.py \
