@@ -1,9 +1,8 @@
-"""Testes — `vectora web` (webapp puro, sem Electron/bandeja).
+"""Testes — `vectora web` (webapp com Electron/Chromium, sem bandeja Python).
 
 Cobre o parser do subcomando `web`, o dispatch em `run()` e o comportamento
-de `_run_start(force_web=True)`: registra VECTORA_HEADLESS, nunca chama
-`run_server_with_tray` (só `asyncio.run(server.serve())` direto) — ao
-contrário de `vectora start`, que sobe a bandeja quando há display.
+de `_run_start(force_web=True)`: mantém o transporte TCP e permite o Electron
+sidecar, mas nunca chama `run_server_with_tray`.
 """
 
 from __future__ import annotations
@@ -50,8 +49,8 @@ def test_run_despacha_web_com_force_web_true() -> None:
     assert kwargs.get("force_web") is True
 
 
-def test_force_web_seta_headless_e_pula_bandeja() -> None:
-    """force_web=True registra VECTORA_HEADLESS e nunca chama run_server_with_tray."""
+def test_force_web_preserva_tcp_e_pula_bandeja() -> None:
+    """force_web=True mantém TCP e nunca chama run_server_with_tray."""
     args = argparse.Namespace(
         host="0.0.0.0",  # noqa: S104
         port=8080,
@@ -97,7 +96,7 @@ def test_force_web_seta_headless_e_pula_bandeja() -> None:
             )
         )
 
-    assert env_captured[0] == ("1", None, None)
+    assert env_captured[0] == (None, None, None)
     mock_tray.assert_not_called()
     mock_asyncio_run.assert_called_once()
 
