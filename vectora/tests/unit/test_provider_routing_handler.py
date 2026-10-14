@@ -25,6 +25,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from backend.api.handlers.provider_routing import (
@@ -198,6 +199,28 @@ class TestOllamaDiscovery:
         body = resp.json()
         assert body["reachable"] is False
         assert body["models"] == []
+
+    @pytest.mark.asyncio
+    async def test_install_ollama_applies_global_deadline(self, monkeypatch):
+        from backend.api.handlers import provider_routing
+
+        monkeypatch.setattr(
+            provider_routing,
+            "OLLAMA_INSTALL_TOTAL_TIMEOUT_SECONDS",
+            0.001,
+        )
+
+        async def never_finishes(_):
+            await asyncio.sleep(60)
+
+        monkeypatch.setattr(
+            provider_routing, "_install_ollama_runtime_impl", never_finishes
+        )
+
+        with pytest.raises(HTTPException) as error:
+            await provider_routing.install_ollama_runtime(None)
+        assert error.value.status_code == 504
+        assert "prazo total" in str(error.value.detail)
 
     def test_host_reachable_returns_models(self, client):
         mock_response = MagicMock()

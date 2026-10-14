@@ -79,6 +79,9 @@ OLLAMA_WINGET_TIMEOUT_SECONDS = 120.0
 OLLAMA_DOWNLOAD_TIMEOUT_SECONDS = 600.0
 OLLAMA_INSTALLER_TIMEOUT_SECONDS = 600.0
 OLLAMA_STARTUP_TIMEOUT_SECONDS = 60.0
+# Bounds the complete wizard operation (winget/download/install/start/readiness)
+# instead of allowing each phase timeout to accumulate without a global limit.
+OLLAMA_INSTALL_TOTAL_TIMEOUT_SECONDS = 900.0
 
 
 def _require_provider_admin(request: Request) -> None:
@@ -715,8 +718,7 @@ async def ollama_runtime_status() -> OllamaRuntimeStatus:
     )
 
 
-@router.post("/ollama/runtime/install", dependencies=[DesktopBridge])
-async def install_ollama_runtime(_: ProviderAdmin) -> OllamaRuntimeStatus:
+async def _install_ollama_runtime_impl(_: ProviderAdmin) -> OllamaRuntimeStatus:
     """Instala e inicia Ollama sem exigir comandos manuais no terminal.
 
     O instalador é executado pelo Vectora via winget, quando necessário. Depois
@@ -812,6 +814,20 @@ async def install_ollama_runtime(_: ProviderAdmin) -> OllamaRuntimeStatus:
         version=version,
         state="running",
     )
+
+
+@router.post("/ollama/runtime/install", dependencies=[DesktopBridge])
+async def install_ollama_runtime(_: ProviderAdmin) -> OllamaRuntimeStatus:
+    """Run the complete Ollama wizard under one cancellable deadline."""
+    try:
+        async with asyncio.timeout(OLLAMA_INSTALL_TOTAL_TIMEOUT_SECONDS):
+            return await _install_ollama_runtime_impl(_)
+    except TimeoutError as exc:
+        logger.warning("ollama: instalação excedeu o deadline total")
+        raise HTTPException(
+            status_code=504,
+            detail="instalação do Ollama excedeu o prazo total da operação",
+        ) from exc
 
 
 @router.get("/ollama/registered")
