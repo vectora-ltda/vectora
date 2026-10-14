@@ -1590,6 +1590,12 @@ class TestLlamaCppConfiguration:
     async def test_runtime_status_reads_installed_manifest(self, tmp_path, monkeypatch):
         from backend.settings import settings
 
+        # Keep this assertion independent from provider-configuration tests
+        # that run before it and may leave an external URL in the shared
+        # settings singleton.  An installed manifest without an active
+        # process is a managed runtime that is currently unavailable.
+        monkeypatch.setattr(settings, "llamacpp_base_url", None)
+        monkeypatch.setenv("LLAMACPP_MODE", "managed")
         root = tmp_path / "tools" / "llama.cpp"
         root.mkdir(parents=True)
         (root / "runtime-manifest.json").write_text(
