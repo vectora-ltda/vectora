@@ -38,7 +38,9 @@ def _docker_executable() -> str:
     path_candidate = shutil.which("docker")
     if path_candidate:
         path = Path(path_candidate).expanduser()
-        if path.is_file():
+        # ``shutil.which`` can return a relative path when PATH itself contains
+        # a relative entry. Never execute a candidate relative to cwd.
+        if path.is_absolute() and path.is_file():
             return str(path.resolve())
 
     candidates: list[Path] = [Path.home() / ".docker" / "bin" / "docker.exe"]

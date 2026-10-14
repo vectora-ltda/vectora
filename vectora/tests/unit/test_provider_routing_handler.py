@@ -150,12 +150,18 @@ def clean_llamacpp_config():
     """Isola as configurações e variáveis de ambiente do llama.cpp."""
     from backend.settings import settings
 
-    keys = ("LLAMACPP_BASE_URL", "LLAMACPP_MODEL", "LLAMACPP_API_KEY")
+    keys = (
+        "LLAMACPP_BASE_URL",
+        "LLAMACPP_MODEL",
+        "LLAMACPP_API_KEY",
+        "LLAMACPP_MODE",
+    )
     original_env = {key: os.environ.get(key) for key in keys}
     original = (
         settings.llamacpp_base_url,
         settings.llamacpp_model,
         settings.llamacpp_api_key,
+        os.environ.get("LLAMACPP_MODE"),
     )
     for key in keys:
         os.environ.pop(key, None)

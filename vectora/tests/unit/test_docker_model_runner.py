@@ -29,6 +29,17 @@ def test_docker_executable_prefers_absolute_path_entry(
     assert dmr._docker_executable() == str(executable.resolve())
 
 
+def test_docker_executable_rejects_relative_path_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    executable = tmp_path / "docker.exe"
+    executable.write_bytes(b"")
+    monkeypatch.setattr(dmr.shutil, "which", lambda _: "docker.exe")
+    monkeypatch.setattr(dmr.sys, "platform", "linux")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "missing-home")
+    assert dmr._docker_executable() == "docker"
+
+
 def test_docker_executable_discovers_windows_installation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
