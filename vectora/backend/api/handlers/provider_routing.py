@@ -61,6 +61,7 @@ from datetime import UTC, datetime
 from functools import wraps
 from pathlib import Path
 from typing import Annotated, Any, Literal, ParamSpec, TypeVar
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -1775,6 +1776,13 @@ async def start_installed_huggingface_model(
         raise HTTPException(status_code=502, detail=detail) from last_runtime_error
     if started_runtime_id != active_id:
         await _write_text_atomic(active_path, started_runtime_id)
+    # The wizard owns this managed endpoint. Persist the actual port used by
+    # the sidecar so a previous external/old port cannot make discovery and
+    # chat report a false "unreachable" state after restart.
+    managed_base_url = f"http://127.0.0.1:{body.port}/v1"
+    object.__setattr__(settings, "llamacpp_base_url", managed_base_url)
+    _set_env_key(_env_file(), "LLAMACPP_BASE_URL", managed_base_url)
+    os.environ["LLAMACPP_BASE_URL"] = managed_base_url
     tag = body.alias or str(manifest.get("alias") or model_entry["filename"])
     parameters: dict[str, str | int | float | bool | None] = {
         "alias": body.alias,
@@ -1864,9 +1872,18 @@ async def restore_managed_llamacpp() -> bool:
         parameters = {}
     if not isinstance(parameters, dict):
         parameters = {}
+    configured_port = 18080
+    if settings.llamacpp_base_url:
+        try:
+            parsed_url = urlparse(settings.llamacpp_base_url)
+            if parsed_url.hostname in {"127.0.0.1", "localhost"} and parsed_url.port:
+                configured_port = parsed_url.port
+        except ValueError:
+            pass
     request = HuggingFaceStartRequest(
         repo_id=repo_id,
         filename=filename,
+        port=configured_port,
         alias=parameters.get("alias")
         if isinstance(parameters.get("alias"), str)
         else row[0],
