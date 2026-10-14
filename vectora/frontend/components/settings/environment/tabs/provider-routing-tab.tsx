@@ -1684,7 +1684,12 @@ function OllamaSection() {
 
       <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/20 px-3 py-2 text-xs">
         <span>
-          Ollama: {runtime?.state === "running" ? "em execução" : runtime?.installed ? "instalado" : "não instalado"}
+          Ollama:{" "}
+          {runtime?.state === "running"
+            ? "em execução"
+            : runtime?.installed
+              ? "instalado"
+              : "não instalado"}
           {runtime?.version ? ` (${runtime.version})` : ""}
         </span>
         {runtime?.state !== "running" && (
@@ -1697,7 +1702,9 @@ function OllamaSection() {
             {installingRuntime ? (
               <Loader2 className="mr-1.5 size-3.5 animate-spin" />
             ) : null}
-            {installingRuntime ? "Instalando Ollama…" : "Instalar/iniciar Ollama"}
+            {installingRuntime
+              ? "Instalando Ollama…"
+              : "Instalar/iniciar Ollama"}
           </Button>
         )}
       </div>
@@ -2854,7 +2861,7 @@ function LlamaCppSection() {
 
 export function ProviderRoutingTab() {
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 [&_button]:!h-8 [&_button]:!px-3 [&_button]:!text-sm">
       <OllamaSection />
       <DmrSection />
       <HuggingFaceCatalogSection />
