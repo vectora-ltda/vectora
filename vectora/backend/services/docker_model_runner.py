@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import shutil
+import sys
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,29 +35,33 @@ MODEL_REFERENCE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/@:+-]{0,255}$")
 
 def _docker_executable() -> str:
     """Resolve Docker Desktop's CLI even when it is not on the GUI process PATH."""
-    candidates = (
-        shutil.which("docker"),
-        str(Path.home() / ".docker" / "bin" / "docker.exe"),
-        str(
-            Path(os.environ.get("PROGRAMFILES", ""))
-            / "Docker"
-            / "Docker"
-            / "resources"
-            / "bin"
-            / "docker.exe"
-        ),
-        str(
-            Path(os.environ.get("LOCALAPPDATA", ""))
-            / "Programs"
-            / "DockerDesktop"
-            / "resources"
-            / "bin"
-            / "docker.exe"
-        ),
-    )
+    path_candidate = shutil.which("docker")
+    if path_candidate:
+        path = Path(path_candidate).expanduser()
+        if path.is_file():
+            return str(path.resolve())
+
+    candidates: list[Path] = [Path.home() / ".docker" / "bin" / "docker.exe"]
+    if sys.platform == "win32":
+        for variable, suffix in (
+            (
+                "PROGRAMFILES",
+                ("Docker", "Docker", "resources", "bin", "docker.exe"),
+            ),
+            (
+                "LOCALAPPDATA",
+                ("Programs", "DockerDesktop", "resources", "bin", "docker.exe"),
+            ),
+        ):
+            raw_base = os.environ.get(variable, "").strip()
+            if raw_base:
+                base = Path(raw_base).expanduser()
+                if base.is_absolute():
+                    candidates.append(base.joinpath(*suffix))
+
     for candidate in candidates:
-        if candidate and Path(candidate).is_file():
-            return candidate
+        if candidate.is_absolute() and candidate.is_file():
+            return str(candidate.resolve())
     return "docker"
 
 

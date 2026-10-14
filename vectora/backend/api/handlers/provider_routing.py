@@ -75,6 +75,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/provider-routing", tags=["provider-routing"])
 
+OLLAMA_WINGET_TIMEOUT_SECONDS = 120.0
+OLLAMA_DOWNLOAD_TIMEOUT_SECONDS = 600.0
+OLLAMA_INSTALLER_TIMEOUT_SECONDS = 600.0
+OLLAMA_STARTUP_TIMEOUT_SECONDS = 60.0
+
 
 def _require_provider_admin(request: Request) -> None:
     """Autoriza mutações de configuração e runtime do provider."""
@@ -569,21 +574,22 @@ async def discover_ollama_models() -> OllamaDiscoveryResponse:
 
 def _ollama_executable() -> Path | None:
     """Localiza o executável sem depender de um PATH específico do Windows."""
-    candidates = [
-        shutil.which("ollama"),
-        str(
-            Path(os.environ.get("LOCALAPPDATA", ""))
-            / "Programs"
-            / "Ollama"
-            / "ollama.exe"
-        ),
-        str(Path(os.environ.get("PROGRAMFILES", "")) / "Ollama" / "ollama.exe"),
-    ]
+    candidates: list[Path] = []
+    path_candidate = shutil.which("ollama")
+    if path_candidate:
+        candidates.append(Path(path_candidate).expanduser())
+    for variable, suffix in (
+        ("LOCALAPPDATA", ("Programs", "Ollama", "ollama.exe")),
+        ("PROGRAMFILES", ("Ollama", "ollama.exe")),
+    ):
+        raw_base = os.environ.get(variable, "").strip()
+        if raw_base:
+            base = Path(raw_base).expanduser()
+            if base.is_absolute():
+                candidates.append(base.joinpath(*suffix))
     for candidate in candidates:
-        if candidate:
-            path = Path(candidate).expanduser()
-            if path.is_file():
-                return path.resolve()
+        if candidate.is_absolute() and candidate.is_file():
+            return candidate.resolve()
     return None
 
 
@@ -597,22 +603,34 @@ async def _install_ollama_from_official_release() -> Path | None:
         installer.replace(partial)
     timeout = httpx.Timeout(connect=30.0, read=30.0, write=30.0, pool=30.0)
     try:
-        offset = partial.stat().st_size if partial.exists() else 0
-        headers = {"Range": f"bytes={offset}-"} if offset else None
-        async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
-            async with client.stream(
-                "GET",
-                "https://github.com/ollama/ollama/releases/latest/download/OllamaSetup.exe",
-                headers=headers,
-            ) as response:
-                response.raise_for_status()
-                resumed = offset > 0 and response.status_code == 206
-                if not resumed:
-                    offset = 0
-                with partial.open("ab" if resumed else "wb") as handle:
-                    async for chunk in response.aiter_bytes(1024 * 1024):
-                        handle.write(chunk)
-        partial.replace(installer)
+        async with asyncio.timeout(OLLAMA_DOWNLOAD_TIMEOUT_SECONDS):
+            offset = partial.stat().st_size if partial.exists() else 0
+            headers = {"Range": f"bytes={offset}-"} if offset else None
+            async with httpx.AsyncClient(
+                follow_redirects=True, timeout=timeout
+            ) as client:
+                async with client.stream(
+                    "GET",
+                    "https://github.com/ollama/ollama/releases/latest/download/OllamaSetup.exe",
+                    headers=headers,
+                ) as response:
+                    response.raise_for_status()
+                    resumed = offset > 0 and response.status_code == 206
+                    if not resumed:
+                        offset = 0
+                    with partial.open("ab" if resumed else "wb") as handle:
+                        async for chunk in response.aiter_bytes(1024 * 1024):
+                            handle.write(chunk)
+            partial.replace(installer)
+    except asyncio.CancelledError:
+        logger.info("ollama: download oficial cancelado; parcial preservado")
+        raise
+    except TimeoutError as exc:
+        logger.warning("ollama: download oficial excedeu o prazo total")
+        raise HTTPException(
+            status_code=504,
+            detail="download oficial do Ollama excedeu o prazo total",
+        ) from exc
     except (OSError, httpx.HTTPError) as exc:
         with suppress(OSError):
             partial.unlink()
@@ -628,7 +646,23 @@ async def _install_ollama_from_official_release() -> Path | None:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
-    output, _ = await asyncio.wait_for(process.communicate(), timeout=600)
+    try:
+        output, _ = await asyncio.wait_for(
+            process.communicate(), timeout=OLLAMA_INSTALLER_TIMEOUT_SECONDS
+        )
+    except asyncio.CancelledError:
+        with suppress(ProcessLookupError):
+            process.kill()
+        await process.wait()
+        raise
+    except TimeoutError as exc:
+        with suppress(ProcessLookupError):
+            process.kill()
+        await process.wait()
+        raise HTTPException(
+            status_code=504,
+            detail="instalador oficial do Ollama excedeu o prazo total",
+        ) from exc
     if process.returncode != 0:
         detail = output.decode(errors="replace")[-2000:]
         raise HTTPException(
@@ -711,8 +745,15 @@ async def install_ollama_runtime(_: ProviderAdmin) -> OllamaRuntimeStatus:
             stderr=asyncio.subprocess.STDOUT,
         )
         try:
-            completed = await asyncio.wait_for(process.communicate(), timeout=120)
+            completed = await asyncio.wait_for(
+                process.communicate(), timeout=OLLAMA_WINGET_TIMEOUT_SECONDS
+            )
             output = completed[0]
+        except asyncio.CancelledError:
+            with suppress(ProcessLookupError):
+                process.kill()
+            await process.wait()
+            raise
         except TimeoutError:
             with suppress(ProcessLookupError):
                 process.kill()
@@ -737,18 +778,29 @@ async def install_ollama_runtime(_: ProviderAdmin) -> OllamaRuntimeStatus:
     if not reachable:
         env = os.environ.copy()
         env["OLLAMA_MODELS"] = str(settings.vectora_home / "models" / "ollama")
-        await asyncio.create_subprocess_exec(
+        server_process = await asyncio.create_subprocess_exec(
             str(executable),
             "serve",
             env=env,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
-        for _attempt in range(60):
-            await asyncio.sleep(1)
-            reachable, version = await _ollama_http_status()
-            if reachable:
-                break
+        try:
+            async with asyncio.timeout(OLLAMA_STARTUP_TIMEOUT_SECONDS):
+                while True:
+                    await asyncio.sleep(1)
+                    reachable, version = await _ollama_http_status()
+                    if reachable:
+                        break
+        except TimeoutError:
+            with suppress(ProcessLookupError):
+                server_process.kill()
+            await server_process.wait()
+        except asyncio.CancelledError:
+            with suppress(ProcessLookupError):
+                server_process.kill()
+            await server_process.wait()
+            raise
     if not reachable:
         raise HTTPException(
             status_code=502, detail="Ollama foi instalado, mas não iniciou o servidor"

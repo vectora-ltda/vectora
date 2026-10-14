@@ -289,6 +289,20 @@ def test_voyage_key_independent_from_cohere(monkeypatch):
 class TestConfiguredLlmProviders:
     """configured_llm_providers: só providers com credencial (model selector)."""
 
+    @pytest.fixture(autouse=True)
+    def isolate_local_provider_environment(self, monkeypatch):
+        """Não deixe runtimes locais do host vazarem para estes contratos."""
+        for key in (
+            "LLAMACPP_BASE_URL",
+            "LLAMACPP_MODEL",
+            "LLAMACPP_API_KEY",
+            "DMR_BASE_URL",
+            "DMR_MODEL",
+            "DMR_CONTRACT",
+        ):
+            monkeypatch.delenv(key, raising=False)
+        monkeypatch.setenv("LLAMACPP_MODE", "external")
+
     def test_only_configured_providers_listed(self):
         s = Settings()
         s.google_api_key = "g-key"
@@ -297,6 +311,8 @@ class TestConfiguredLlmProviders:
         s.cohere_api_key = "c-key"
         s.openrouter_api_key = None
         s.ollama_base_url = None
+        s.llamacpp_base_url = None
+        s.dmr_base_url = None
         assert s.configured_llm_providers() == ["google-genai", "cohere"]
 
     def test_no_keys_returns_empty(self):
@@ -307,6 +323,8 @@ class TestConfiguredLlmProviders:
         s.cohere_api_key = None
         s.openrouter_api_key = None
         s.ollama_base_url = None
+        s.llamacpp_base_url = None
+        s.dmr_base_url = None
         # COHERE_API_KEY do ambiente pode existir; isola para o caso vazio.
         import os as _os
 
@@ -325,6 +343,8 @@ class TestConfiguredLlmProviders:
         s.cohere_api_key = None
         s.openrouter_api_key = None
         s.ollama_base_url = None
+        s.llamacpp_base_url = None
+        s.dmr_base_url = None
         import os as _os
 
         prev = _os.environ.pop("COHERE_API_KEY", None)
@@ -342,6 +362,8 @@ class TestConfiguredLlmProviders:
         s.cohere_api_key = None
         s.openrouter_api_key = None
         s.ollama_base_url = "http://localhost:11434"
+        s.llamacpp_base_url = None
+        s.dmr_base_url = None
         import os as _os
 
         prev = _os.environ.pop("COHERE_API_KEY", None)

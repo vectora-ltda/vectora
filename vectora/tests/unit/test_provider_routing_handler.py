@@ -1596,6 +1596,10 @@ class TestLlamaCppConfiguration:
         # process is a managed runtime that is currently unavailable.
         monkeypatch.setattr(settings, "llamacpp_base_url", None)
         monkeypatch.setenv("LLAMACPP_MODE", "managed")
+        monkeypatch.setattr(
+            "backend.services.llamacpp_sidecar.llamacpp_status",
+            lambda: {"running": False, "persisted_pid": None, "stale_state": False},
+        )
         root = tmp_path / "tools" / "llama.cpp"
         root.mkdir(parents=True)
         (root / "runtime-manifest.json").write_text(
@@ -1621,6 +1625,10 @@ class TestLlamaCppConfiguration:
         monkeypatch.setattr(settings, "vectora_home", tmp_path)
         monkeypatch.setattr(settings, "llamacpp_base_url", "http://127.0.0.1:8080/v1")
         monkeypatch.setenv("LLAMACPP_MODE", "external")
+        monkeypatch.setattr(
+            "backend.services.llamacpp_sidecar.llamacpp_status",
+            lambda: {"running": False, "persisted_pid": None, "stale_state": False},
+        )
 
         status = await llamacpp_runtime_status()
 

@@ -19,6 +19,58 @@ import pytest
 from backend.services import docker_model_runner as dmr
 
 
+def test_docker_executable_prefers_absolute_path_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    executable = tmp_path / "Docker Desktop" / "docker.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"")
+    monkeypatch.setattr(dmr.shutil, "which", lambda _: str(executable))
+    assert dmr._docker_executable() == str(executable.resolve())
+
+
+def test_docker_executable_discovers_windows_installation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    executable = tmp_path / "Docker" / "Docker" / "resources" / "bin" / "docker.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"")
+    monkeypatch.setattr(dmr.shutil, "which", lambda _: None)
+    monkeypatch.setattr(dmr.sys, "platform", "win32")
+    monkeypatch.setenv("PROGRAMFILES", str(tmp_path))
+    monkeypatch.setenv("LOCALAPPDATA", "")
+    assert dmr._docker_executable() == str(executable.resolve())
+
+
+def test_docker_executable_ignores_empty_relative_windows_bases(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    relative = tmp_path / "Docker" / "Docker" / "resources" / "bin" / "docker.exe"
+    relative.parent.mkdir(parents=True)
+    relative.write_bytes(b"")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(dmr.shutil, "which", lambda _: None)
+    monkeypatch.setattr(dmr.sys, "platform", "win32")
+    monkeypatch.setenv("PROGRAMFILES", "")
+    monkeypatch.setenv("LOCALAPPDATA", "")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "missing-home")
+    assert dmr._docker_executable() == "docker"
+
+
+def test_docker_executable_does_not_probe_windows_bases_on_non_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    executable = (
+        tmp_path / "Programs" / "DockerDesktop" / "resources" / "bin" / "docker.exe"
+    )
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"")
+    monkeypatch.setattr(dmr.shutil, "which", lambda _: None)
+    monkeypatch.setattr(dmr.sys, "platform", "linux")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    assert dmr._docker_executable() == "docker"
+
+
 def test_validate_model_reference_rejects_command_injection() -> None:
     assert dmr.validate_model_reference("hf.co/Qwen/Qwen3-0.6B") == (
         "hf.co/Qwen/Qwen3-0.6B"
