@@ -62,6 +62,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Annotated, Any, Literal, ParamSpec, TypeVar
 
+import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -585,6 +586,47 @@ def _ollama_executable() -> Path | None:
     return None
 
 
+async def _install_ollama_from_official_release() -> Path | None:
+    """Download and run the official Ollama installer when winget stalls."""
+    tools_dir = settings.vectora_home / "tools" / "ollama"
+    tools_dir.mkdir(parents=True, exist_ok=True)
+    installer = tools_dir / "OllamaSetup.exe"
+    timeout = httpx.Timeout(connect=30.0, read=30.0, write=30.0, pool=30.0)
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
+            async with client.stream(
+                "GET",
+                "https://github.com/ollama/ollama/releases/latest/download/OllamaSetup.exe",
+            ) as response:
+                response.raise_for_status()
+                with installer.open("wb") as handle:
+                    async for chunk in response.aiter_bytes(1024 * 1024):
+                        handle.write(chunk)
+    except (OSError, httpx.HTTPError) as exc:
+        with suppress(OSError):
+            installer.unlink()
+        logger.exception("ollama: download oficial falhou")
+        raise HTTPException(
+            status_code=502,
+            detail=f"download oficial do Ollama falhou: {exc}",
+        ) from exc
+    process = await asyncio.create_subprocess_exec(
+        str(installer),
+        "/SILENT",
+        "/NORESTART",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    output, _ = await asyncio.wait_for(process.communicate(), timeout=600)
+    if process.returncode != 0:
+        detail = output.decode(errors="replace")[-2000:]
+        raise HTTPException(
+            status_code=502,
+            detail=f"instalação oficial do Ollama falhou: {detail}",
+        )
+    return await asyncio.to_thread(_ollama_executable)
+
+
 async def _ollama_http_status() -> tuple[bool, str | None]:
     import httpx
 
@@ -657,13 +699,23 @@ async def install_ollama_runtime(_: ProviderAdmin) -> OllamaRuntimeStatus:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
-        output, _ = await asyncio.wait_for(process.communicate(), timeout=900)
-        if process.returncode not in {0, 1602}:
-            detail = output.decode(errors="replace")[-2000:]
-            raise HTTPException(
-                status_code=502, detail=f"instalação do Ollama falhou: {detail}"
-            )
-        executable = await asyncio.to_thread(_ollama_executable)
+        try:
+            output, _ = await asyncio.wait_for(process.communicate(), timeout=120)
+        except TimeoutError:
+            with suppress(ProcessLookupError):
+                process.kill()
+            await process.wait()
+            logger.warning("ollama: winget excedeu 120s; usando release oficial")
+            executable = await _install_ollama_from_official_release()
+        else:
+            if process.returncode != 0:
+                detail = output.decode(errors="replace")[-2000:]
+                logger.warning(
+                    "ollama: winget falhou; usando release oficial: %s", detail
+                )
+                executable = await _install_ollama_from_official_release()
+        if executable is None:
+            executable = await asyncio.to_thread(_ollama_executable)
     if executable is None:
         raise HTTPException(
             status_code=502, detail="O instalador terminou sem localizar ollama.exe"
