@@ -232,14 +232,53 @@ class TestOllamaDiscovery:
         process.kill = MagicMock()
         process.wait = AsyncMock()
 
-        async def hangs():
-            await asyncio.sleep(60)
-
-        process.communicate = AsyncMock(side_effect=hangs)
+        process.communicate = AsyncMock(side_effect=TimeoutError)
         await provider_routing._terminate_ollama_process(process)
 
         process.kill.assert_called_once_with()
         process.wait.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_ollama_cleanup_returns_when_both_waits_hang(self, monkeypatch):
+        from backend.api.handlers import provider_routing
+
+        monkeypatch.setattr(provider_routing, "OLLAMA_CLEANUP_TIMEOUT_SECONDS", 0.01)
+        process = MagicMock()
+        process.kill = MagicMock()
+
+        async def hangs():
+            await asyncio.sleep(60)
+
+        process.communicate = AsyncMock(side_effect=TimeoutError)
+        process.wait = AsyncMock(side_effect=hangs)
+        await provider_routing._terminate_ollama_process(process)
+        process.kill.assert_called_once_with()
+        process.wait.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_install_ollama_serializes_concurrent_requests(self, monkeypatch):
+        from backend.api.handlers import provider_routing
+
+        monkeypatch.setattr(provider_routing, "OLLAMA_INSTALL_TOTAL_TIMEOUT_SECONDS", 1)
+        active = 0
+        maximum = 0
+
+        async def serialized(_):
+            nonlocal active, maximum
+            active += 1
+            maximum = max(maximum, active)
+            await asyncio.sleep(0.01)
+            active -= 1
+            return "done"
+
+        monkeypatch.setattr(
+            provider_routing, "_install_ollama_runtime_impl", serialized
+        )
+        await asyncio.gather(
+            provider_routing.install_ollama_runtime(None),
+            provider_routing.install_ollama_runtime(None),
+        )
+        assert maximum == 1
 
     @pytest.mark.asyncio
     async def test_ollama_resume_rejects_mismatched_content_range(
