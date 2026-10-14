@@ -710,7 +710,8 @@ async def install_ollama_runtime(_: ProviderAdmin) -> OllamaRuntimeStatus:
             stderr=asyncio.subprocess.STDOUT,
         )
         try:
-            output, _ = await asyncio.wait_for(process.communicate(), timeout=120)
+            completed = await asyncio.wait_for(process.communicate(), timeout=120)
+            output = completed[0]
         except TimeoutError:
             with suppress(ProcessLookupError):
                 process.kill()
@@ -742,7 +743,7 @@ async def install_ollama_runtime(_: ProviderAdmin) -> OllamaRuntimeStatus:
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
-        for _ in range(60):
+        for _attempt in range(60):
             await asyncio.sleep(1)
             reachable, version = await _ollama_http_status()
             if reachable:
