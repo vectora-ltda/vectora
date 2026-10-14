@@ -591,20 +591,30 @@ async def _install_ollama_from_official_release() -> Path | None:
     tools_dir = settings.vectora_home / "tools" / "ollama"
     tools_dir.mkdir(parents=True, exist_ok=True)
     installer = tools_dir / "OllamaSetup.exe"
+    partial = installer.with_suffix(".exe.part")
+    if installer.exists() and not partial.exists():
+        installer.replace(partial)
     timeout = httpx.Timeout(connect=30.0, read=30.0, write=30.0, pool=30.0)
     try:
+        offset = partial.stat().st_size if partial.exists() else 0
+        headers = {"Range": f"bytes={offset}-"} if offset else None
         async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
             async with client.stream(
                 "GET",
                 "https://github.com/ollama/ollama/releases/latest/download/OllamaSetup.exe",
+                headers=headers,
             ) as response:
                 response.raise_for_status()
-                with installer.open("wb") as handle:
+                resumed = offset > 0 and response.status_code == 206
+                if not resumed:
+                    offset = 0
+                with partial.open("ab" if resumed else "wb") as handle:
                     async for chunk in response.aiter_bytes(1024 * 1024):
                         handle.write(chunk)
+        partial.replace(installer)
     except (OSError, httpx.HTTPError) as exc:
         with suppress(OSError):
-            installer.unlink()
+            partial.unlink()
         logger.exception("ollama: download oficial falhou")
         raise HTTPException(
             status_code=502,
