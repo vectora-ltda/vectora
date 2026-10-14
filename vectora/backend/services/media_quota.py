@@ -91,6 +91,30 @@ class MediaQuota:
         self.database.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(self.database)
         connection.execute("PRAGMA busy_timeout = 5000")
+        # Media tools can be invoked before the general migration runner (for
+        # example by a freshly spawned worker or an isolated test database).
+        # Keep their small local schema self-healing so an empty SQLite file
+        # cannot turn a tool call into ``no such table``.
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS media_quota_usage (
+                user_id TEXT NOT NULL,
+                period TEXT NOT NULL,
+                used_units INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (user_id, period)
+            );
+            CREATE TABLE IF NOT EXISTS media_quota_reservations (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                period TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                units INTEGER NOT NULL,
+                state TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            """
+        )
+        connection.commit()
         return connection
 
     @staticmethod
