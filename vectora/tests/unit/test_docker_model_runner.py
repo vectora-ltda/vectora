@@ -64,6 +64,7 @@ async def test_docker_host_info_reports_runtime_and_gpu_capabilities(
         return Process()
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", create)
+    monkeypatch.setattr(dmr, "_docker_executable", lambda: "docker")
     info = await dmr.docker_host_info()
 
     assert info["architecture"] == "aarch64"
@@ -233,6 +234,7 @@ async def test_run_docker_model_uses_exec_without_shell(
         return Process()
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", create)
+    monkeypatch.setattr(dmr, "_docker_executable", lambda: "docker")
     output = await dmr.run_docker_model("pull", "hf.co/Qwen/Qwen3-0.6B")
     assert output == "ok\n"
     assert calls == [(("docker", "model", "pull", "hf.co/Qwen/Qwen3-0.6B"), False)]

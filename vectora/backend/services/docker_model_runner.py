@@ -11,7 +11,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
+import shutil
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,6 +30,34 @@ MAX_PERSISTED_JOBS: Final[int] = 50
 COMMAND_TIMEOUT_SECONDS: Final[float] = 120.0
 INFO_TIMEOUT_SECONDS: Final[float] = 10.0
 MODEL_REFERENCE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/@:+-]{0,255}$")
+
+
+def _docker_executable() -> str:
+    """Resolve Docker Desktop's CLI even when it is not on the GUI process PATH."""
+    candidates = (
+        shutil.which("docker"),
+        str(Path.home() / ".docker" / "bin" / "docker.exe"),
+        str(
+            Path(os.environ.get("PROGRAMFILES", ""))
+            / "Docker"
+            / "Docker"
+            / "resources"
+            / "bin"
+            / "docker.exe"
+        ),
+        str(
+            Path(os.environ.get("LOCALAPPDATA", ""))
+            / "Programs"
+            / "DockerDesktop"
+            / "resources"
+            / "bin"
+            / "docker.exe"
+        ),
+    )
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return candidate
+    return "docker"
 
 
 @dataclass(frozen=True)
@@ -266,7 +296,7 @@ async def run_docker_model(
     if any("\x00" in arg for arg in args):
         raise ValueError("argumento Docker inválido")
     process = await asyncio.create_subprocess_exec(
-        "docker",
+        _docker_executable(),
         "model",
         *args,
         stdout=asyncio.subprocess.PIPE,
@@ -299,7 +329,7 @@ async def run_docker_model(
 async def docker_host_info() -> dict[str, object]:
     """Obtém capacidades do host Docker sem executar shell arbitrário."""
     process = await asyncio.create_subprocess_exec(
-        "docker",
+        _docker_executable(),
         "info",
         "--format",
         "{{json .}}",
