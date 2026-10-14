@@ -64,7 +64,9 @@ def _docker_executable() -> str:
     for candidate in candidates:
         if candidate.is_absolute() and candidate.is_file():
             return str(candidate.resolve())
-    return "docker"
+    raise FileNotFoundError(
+        "Docker CLI não encontrado em um caminho absoluto confiável"
+    )
 
 
 @dataclass(frozen=True)

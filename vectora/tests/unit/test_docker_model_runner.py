@@ -37,7 +37,8 @@ def test_docker_executable_rejects_relative_path_entry(
     monkeypatch.setattr(dmr.shutil, "which", lambda _: "docker.exe")
     monkeypatch.setattr(dmr.sys, "platform", "linux")
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "missing-home")
-    assert dmr._docker_executable() == "docker"
+    with pytest.raises(FileNotFoundError, match="caminho absoluto"):
+        dmr._docker_executable()
 
 
 def test_docker_executable_discovers_windows_installation(
@@ -65,7 +66,8 @@ def test_docker_executable_ignores_empty_relative_windows_bases(
     monkeypatch.setenv("PROGRAMFILES", "")
     monkeypatch.setenv("LOCALAPPDATA", "")
     monkeypatch.setattr(Path, "home", lambda: tmp_path / "missing-home")
-    assert dmr._docker_executable() == "docker"
+    with pytest.raises(FileNotFoundError, match="caminho absoluto"):
+        dmr._docker_executable()
 
 
 def test_docker_executable_does_not_probe_windows_bases_on_non_windows(
@@ -79,7 +81,8 @@ def test_docker_executable_does_not_probe_windows_bases_on_non_windows(
     monkeypatch.setattr(dmr.shutil, "which", lambda _: None)
     monkeypatch.setattr(dmr.sys, "platform", "linux")
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
-    assert dmr._docker_executable() == "docker"
+    with pytest.raises(FileNotFoundError, match="caminho absoluto"):
+        dmr._docker_executable()
 
 
 def test_validate_model_reference_rejects_command_injection() -> None:

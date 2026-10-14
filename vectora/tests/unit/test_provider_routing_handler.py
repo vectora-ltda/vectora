@@ -20,6 +20,7 @@ import os
 import zipfile
 from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -239,6 +240,80 @@ class TestOllamaDiscovery:
 
         process.kill.assert_called_once_with()
         process.wait.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_ollama_resume_rejects_mismatched_content_range(
+        self, monkeypatch, tmp_path
+    ):
+        from backend.api.handlers import provider_routing
+        from backend.settings import settings
+
+        original_home = settings.vectora_home
+        object.__setattr__(settings, "vectora_home", Path(tmp_path))
+        installer = Path(tmp_path) / "tools" / "ollama" / "OllamaSetup.exe"
+        partial = installer.with_suffix(".exe.part")
+        partial.parent.mkdir(parents=True)
+        partial.write_bytes(b"abc")
+        Path(f"{partial}.json").write_text(
+            json.dumps(
+                {
+                    "tag": "v1",
+                    "url": "https://github.com/ollama/ollama/releases/download/v1/OllamaSetup.exe",
+                    "size": 4,
+                }
+            )
+        )
+
+        class Response:
+            status_code = 206
+            headers = {"content-range": "bytes 0-3/4"}
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "tag_name": "v1",
+                    "assets": [
+                        {
+                            "name": "OllamaSetup.exe",
+                            "browser_download_url": "https://github.com/ollama/ollama/releases/download/v1/OllamaSetup.exe",
+                            "size": 4,
+                        }
+                    ],
+                }
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+            async def aiter_bytes(self, _chunk_size):
+                yield b"d"
+
+        class Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+            async def get(self, _url):
+                return Response()
+
+            def stream(self, _method, _url, headers=None):
+                return Response()
+
+        monkeypatch.setattr(provider_routing.httpx, "AsyncClient", lambda **_: Client())
+
+        with pytest.raises(HTTPException) as error:
+            await provider_routing._install_ollama_from_official_release()
+
+        assert error.value.status_code == 502
+        assert not partial.exists()
+        assert not Path(f"{partial}.json").exists()
+        object.__setattr__(settings, "vectora_home", original_home)
 
     def test_host_reachable_returns_models(self, client):
         mock_response = MagicMock()
