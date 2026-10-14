@@ -15,6 +15,7 @@ Valida:
 from __future__ import annotations
 
 import os
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -49,6 +50,25 @@ class TestModelsProviders:
         assert body["tool_incompatible_models"] == sorted(
             TOOL_CALLING_INCOMPATIBLE_MODELS
         )
+
+
+@pytest.mark.asyncio
+async def test_ollama_runtime_status_reports_missing_runtime(monkeypatch):
+    """O wizard precisa distinguir Ollama ausente de um servidor parado."""
+    from backend.api.handlers import provider_routing
+
+    monkeypatch.setattr(provider_routing, "_ollama_executable", lambda: None)
+    monkeypatch.setattr(
+        provider_routing,
+        "_ollama_http_status",
+        AsyncMock(return_value=(False, None)),
+    )
+
+    status = await provider_routing.ollama_runtime_status()
+
+    assert status.installed is False
+    assert status.reachable is False
+    assert status.state == "missing"
 
     def test_registered_ollama_model_appears_in_dynamic_models(self, client):
         tag = "providers-test-tag"

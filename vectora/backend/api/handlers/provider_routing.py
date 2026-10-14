@@ -2,6 +2,8 @@
 
 Endpoints (exigem auth via middleware):
     GET    /provider-routing/ollama/models                  — descoberta via {base_url}/api/tags
+    GET    /provider-routing/ollama/runtime/status             — estado do runtime local
+    POST   /provider-routing/ollama/runtime/install            — instala/inicia o runtime
     GET    /provider-routing/ollama/registered               — modelos Ollama registrados
     POST   /provider-routing/ollama/registered                — registra um modelo (tag)
     DELETE /provider-routing/ollama/registered/{model_id}     — remove
@@ -188,6 +190,17 @@ def _validate_redirect_host(
 class OllamaDiscoveryResponse(BaseModel):
     reachable: bool
     models: list[OllamaModelInfo]
+
+
+class OllamaRuntimeStatus(BaseModel):
+    """Estado observável do runtime Ollama gerenciado pelo Vectora."""
+
+    installed: bool
+    executable: str | None = None
+    reachable: bool
+    version: str | None = None
+    state: Literal["missing", "installed", "running", "error"]
+    detail: str | None = None
 
 
 class OpenAICompatibleDiscoveryResponse(BaseModel):
@@ -550,6 +563,139 @@ async def discover_ollama_models() -> OllamaDiscoveryResponse:
         if m.get("name")
     ]
     return OllamaDiscoveryResponse(reachable=True, models=models)
+
+
+def _ollama_executable() -> Path | None:
+    """Localiza o executável sem depender de um PATH específico do Windows."""
+    candidates = [
+        shutil.which("ollama"),
+        str(
+            Path(os.environ.get("LOCALAPPDATA", ""))
+            / "Programs"
+            / "Ollama"
+            / "ollama.exe"
+        ),
+        str(Path(os.environ.get("PROGRAMFILES", "")) / "Ollama" / "ollama.exe"),
+    ]
+    for candidate in candidates:
+        if candidate:
+            path = Path(candidate).expanduser()
+            if path.is_file():
+                return path.resolve()
+    return None
+
+
+async def _ollama_http_status() -> tuple[bool, str | None]:
+    import httpx
+
+    base_url = (settings.ollama_base_url or "http://127.0.0.1:11434").rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=3) as client:
+            response = await client.get(f"{base_url}/api/version")
+            response.raise_for_status()
+            payload = response.json()
+        version = payload.get("version") if isinstance(payload, dict) else None
+        return True, str(version) if version else None
+    except Exception:
+        return False, None
+
+
+@router.get("/ollama/runtime/status")
+async def ollama_runtime_status() -> OllamaRuntimeStatus:
+    executable = await asyncio.to_thread(_ollama_executable)
+    reachable, version = await _ollama_http_status()
+    if reachable:
+        return OllamaRuntimeStatus(
+            installed=executable is not None,
+            executable=str(executable) if executable else None,
+            reachable=True,
+            version=version,
+            state="running",
+        )
+    if executable is not None:
+        return OllamaRuntimeStatus(
+            installed=True,
+            executable=str(executable),
+            reachable=False,
+            state="installed",
+            detail="Ollama está instalado, mas o servidor ainda não está respondendo.",
+        )
+    return OllamaRuntimeStatus(
+        installed=False,
+        reachable=False,
+        state="missing",
+        detail="Ollama ainda não foi instalado neste dispositivo.",
+    )
+
+
+@router.post("/ollama/runtime/install", dependencies=[DesktopBridge])
+async def install_ollama_runtime(_: ProviderAdmin) -> OllamaRuntimeStatus:
+    """Instala e inicia Ollama sem exigir comandos manuais no terminal.
+
+    O instalador é executado pelo Vectora via winget, quando necessário. Depois
+    disso o processo ``ollama serve`` é iniciado com o diretório de modelos
+    configurado pelo usuário. O endpoint só retorna sucesso quando ``/api/version``
+    responde, evitando registrar um runtime que ainda não está utilizável.
+    """
+    executable = await asyncio.to_thread(_ollama_executable)
+    if executable is None:
+        winget = await asyncio.to_thread(shutil.which, "winget")
+        if winget is None:
+            raise HTTPException(
+                status_code=501,
+                detail="winget não está disponível para instalar o Ollama automaticamente",
+            )
+        process = await asyncio.create_subprocess_exec(
+            winget,
+            "install",
+            "--id",
+            "Ollama.Ollama",
+            "--exact",
+            "--silent",
+            "--accept-package-agreements",
+            "--accept-source-agreements",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        output, _ = await asyncio.wait_for(process.communicate(), timeout=900)
+        if process.returncode not in {0, 1602}:
+            detail = output.decode(errors="replace")[-2000:]
+            raise HTTPException(
+                status_code=502, detail=f"instalação do Ollama falhou: {detail}"
+            )
+        executable = await asyncio.to_thread(_ollama_executable)
+    if executable is None:
+        raise HTTPException(
+            status_code=502, detail="O instalador terminou sem localizar ollama.exe"
+        )
+
+    reachable, version = await _ollama_http_status()
+    if not reachable:
+        env = os.environ.copy()
+        env["OLLAMA_MODELS"] = str(settings.vectora_home / "models" / "ollama")
+        await asyncio.create_subprocess_exec(
+            str(executable),
+            "serve",
+            env=env,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        for _ in range(60):
+            await asyncio.sleep(1)
+            reachable, version = await _ollama_http_status()
+            if reachable:
+                break
+    if not reachable:
+        raise HTTPException(
+            status_code=502, detail="Ollama foi instalado, mas não iniciou o servidor"
+        )
+    return OllamaRuntimeStatus(
+        installed=True,
+        executable=str(executable),
+        reachable=True,
+        version=version,
+        state="running",
+    )
 
 
 @router.get("/ollama/registered")

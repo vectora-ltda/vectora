@@ -32,6 +32,15 @@ interface OllamaModelInfo {
   modified_at: string | null;
 }
 
+interface OllamaRuntimeStatus {
+  installed: boolean;
+  executable?: string | null;
+  reachable: boolean;
+  version?: string | null;
+  state: "missing" | "installed" | "running" | "error";
+  detail?: string | null;
+}
+
 interface RegisteredModel {
   id: string;
   tag: string;
@@ -167,6 +176,23 @@ async function discoverModels(): Promise<{
   const res = await fetch("/provider-routing/ollama/models");
   if (!res.ok) throw new Error(`Erro ${res.status}`);
   return res.json();
+}
+
+async function fetchOllamaRuntimeStatus(): Promise<OllamaRuntimeStatus> {
+  const response = await fetch("/provider-routing/ollama/runtime/status");
+  if (!response.ok) throw new Error(`Erro ${response.status}`);
+  return (await response.json()) as OllamaRuntimeStatus;
+}
+
+async function installOllamaRuntime(): Promise<OllamaRuntimeStatus> {
+  const response = await fetch("/provider-routing/ollama/runtime/install", {
+    method: "POST",
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || `Erro ${response.status}`);
+  }
+  return (await response.json()) as OllamaRuntimeStatus;
 }
 
 async function discoverLlamaCppModels(): Promise<{
@@ -1544,6 +1570,16 @@ function OllamaSection() {
   const [registeringTag, setRegisteringTag] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [runtime, setRuntime] = useState<OllamaRuntimeStatus | null>(null);
+  const [installingRuntime, setInstallingRuntime] = useState(false);
+
+  const loadRuntime = useCallback(async () => {
+    try {
+      setRuntime(await fetchOllamaRuntimeStatus());
+    } catch {
+      setRuntime(null);
+    }
+  }, []);
 
   const loadRegistered = useCallback(async () => {
     setLoadingRegistered(true);
@@ -1561,7 +1597,28 @@ function OllamaSection() {
     // uso correto de efeito, ver justificativa em use-context-graph.ts.
     // oxlint-disable-next-line react/set-state-in-effect
     void loadRegistered();
-  }, [loadRegistered]);
+    void loadRuntime();
+  }, [loadRegistered, loadRuntime]);
+
+  const handleInstallRuntime = async () => {
+    setInstallingRuntime(true);
+    setError(null);
+    try {
+      setRuntime(await installOllamaRuntime());
+      const data = await discoverModels();
+      setReachable(data.reachable);
+      setDiscovered(data.models);
+    } catch (installError) {
+      setError(
+        installError instanceof Error
+          ? installError.message
+          : "Não foi possível instalar o Ollama",
+      );
+      await loadRuntime();
+    } finally {
+      setInstallingRuntime(false);
+    }
+  };
 
   const handleDiscover = async () => {
     setDiscovering(true);
@@ -1624,6 +1681,26 @@ function OllamaSection() {
           {error}
         </p>
       )}
+
+      <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/20 px-3 py-2 text-xs">
+        <span>
+          Ollama: {runtime?.state === "running" ? "em execução" : runtime?.installed ? "instalado" : "não instalado"}
+          {runtime?.version ? ` (${runtime.version})` : ""}
+        </span>
+        {runtime?.state !== "running" && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void handleInstallRuntime()}
+            disabled={installingRuntime}
+          >
+            {installingRuntime ? (
+              <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+            ) : null}
+            {installingRuntime ? "Instalando Ollama…" : "Instalar/iniciar Ollama"}
+          </Button>
+        )}
+      </div>
 
       {/* Descoberta */}
       <div className="space-y-2">
