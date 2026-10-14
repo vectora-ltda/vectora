@@ -492,10 +492,19 @@ async def test_dmr_live_pull_run_and_infer_when_explicitly_enabled() -> None:
         assert result.reachable, result.detail
         assert result.contract in {"openai", "ollama"}
         candidates = set(result.models)
-        model = (
-            reference if reference in candidates else reference.removeprefix("hf.co/")
+        expected = reference.removeprefix("hf.co/").removeprefix("docker.io/")
+
+        def matches_reference(candidate: str) -> bool:
+            normalized = candidate.removeprefix("docker.io/")
+            return (
+                normalized == expected or normalized.removesuffix(":latest") == expected
+            )
+
+        model = next(
+            (candidate for candidate in candidates if matches_reference(candidate)),
+            None,
         )
-        assert model in candidates, result.models
+        assert model is not None, result.models
         assert await dmr.probe_dmr_inference(base_url, result.contract, model), (
             "DMR não concluiu uma inferência real"
         )
