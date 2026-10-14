@@ -562,6 +562,10 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
         # `vectora web` always exposes TCP, even when launched from an Electron
         # parent that left the desktop transport marker in the environment.
         os.environ.pop("VECTORA_DESKTOP", None)
+        # Electron remains available as a hidden Chromium/Node sidecar for
+        # browser workbench and CDP, but must never present the desktop app
+        # window when the operator explicitly selected the web command.
+        os.environ["VECTORA_WEB_MODE"] = "1"
 
     # `vectora web` keeps the HTTP server and omits only the Python tray. The
     # Electron sidecar remains enabled so its bundled Chromium is the single

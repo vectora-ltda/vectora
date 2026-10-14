@@ -854,6 +854,33 @@ async def test_llamacpp_connection() -> LlamaCppConnectionTestResponse:
 
 async def list_registered_llamacpp_models() -> list[RegisteredModel]:
     """Modelos llama.cpp selecionados para o seletor global."""
+    registered = await _list_registered("llamacpp_registered_models")
+    # Older wizard runs persisted the integrity confirmation before the
+    # registry insert. Reconcile that durable evidence on read so a restart or
+    # a crashed final request cannot make an installed model disappear from
+    # the selector.
+    if registered:
+        return registered
+    db = await _get_db()
+    await _ensure_llamacpp_confirmation_table(db)
+    async with db.execute(
+        "SELECT tag, confirmed_at FROM llamacpp_model_confirmations "
+        "ORDER BY confirmed_at"
+    ) as cur:
+        rows = await cur.fetchall()
+    for tag, created_at in rows:
+        if not isinstance(tag, str) or not tag.strip():
+            continue
+        try:
+            await db.execute(
+                "INSERT INTO llamacpp_registered_models (id, tag, created_at) "
+                "VALUES (?, ?, ?)",
+                (str(uuid.uuid4()), tag.strip(), str(created_at)),
+            )
+        except Exception as exc:
+            if "UNIQUE" not in str(exc).upper():
+                raise
+    await db.commit()
     return await _list_registered("llamacpp_registered_models")
 
 
@@ -1799,6 +1826,66 @@ async def start_installed_huggingface_model(
         "model_tag": tag,
         "confirmed": True,
     }
+
+
+async def restore_managed_llamacpp() -> bool:
+    """Restore the latest wizard-confirmed llama.cpp model, if available.
+
+    This is intentionally best-effort and is called during server startup. It
+    reuses the same validation path as the wizard, so a stale/deleted model or
+    runtime is ignored instead of starting an arbitrary executable.
+    """
+    from backend.services.llamacpp_sidecar import llamacpp_status
+
+    if llamacpp_status().get("running"):
+        return False
+    db = await _get_db()
+    await _ensure_llamacpp_confirmation_table(db)
+    async with db.execute(
+        "SELECT tag, model_path, parameters FROM llamacpp_model_confirmations "
+        "ORDER BY confirmed_at DESC LIMIT 1"
+    ) as cur:
+        row = await cur.fetchone()
+    if not row or not isinstance(row[1], str):
+        return False
+    model_path = Path(row[1]).resolve()
+    models_root = (settings.vectora_home / "models" / "huggingface").resolve()
+    try:
+        relative = model_path.relative_to(models_root)
+    except ValueError:
+        return False
+    if len(relative.parts) < 3 or not model_path.is_file():
+        return False
+    repo_id = "/".join(relative.parts[:2])
+    filename = relative.name
+    try:
+        parameters = json.loads(row[2])
+    except (TypeError, json.JSONDecodeError):
+        parameters = {}
+    if not isinstance(parameters, dict):
+        parameters = {}
+    request = HuggingFaceStartRequest(
+        repo_id=repo_id,
+        filename=filename,
+        alias=parameters.get("alias")
+        if isinstance(parameters.get("alias"), str)
+        else row[0],
+        ctx_size=parameters.get("ctx_size")
+        if isinstance(parameters.get("ctx_size"), int)
+        else None,
+        n_gpu_layers=parameters.get("n_gpu_layers")
+        if isinstance(parameters.get("n_gpu_layers"), int)
+        else None,
+        threads=parameters.get("threads")
+        if isinstance(parameters.get("threads"), int)
+        else None,
+        parallel=parameters.get("parallel")
+        if isinstance(parameters.get("parallel"), int)
+        else None,
+        jinja=parameters.get("jinja") is True,
+    )
+    await start_installed_huggingface_model(request, None)
+    return True
 
 
 @router.post("/llamacpp/sidecar/stop", dependencies=[DesktopBridge])

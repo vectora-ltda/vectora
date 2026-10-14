@@ -268,6 +268,24 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
         except Exception as exc:
             logger.warning("api/server: falha ao subir sidecar Electron: %s", exc)
 
+    # Restores the last model selected through the provider wizard after a
+    # web/backend restart.  The wizard persists a signed confirmation for the
+    # managed model; without this step the selector still has a valid model,
+    # but the first chat fails with "sidecar ... não está em execução".
+    if os.getenv("LLAMACPP_MODE", "external") == "managed":
+        try:
+            from backend.api.handlers.provider_routing import (
+                restore_managed_llamacpp,
+            )
+
+            restored = await restore_managed_llamacpp()
+            if restored:
+                logger.info(
+                    "api/server: sidecar llama.cpp restaurado pelo perfil ativo"
+                )
+        except Exception as exc:
+            logger.warning("api/server: não foi possível restaurar llama.cpp: %s", exc)
+
     # Validação de licença: uma no boot (não-bloqueante) + revalidação a cada
     # 6h (TTL do cache). O launcher CLI valida antes do uvicorn, mas deploys
     # via docker/uvicorn direto não passam pelo launcher — sem este loop o

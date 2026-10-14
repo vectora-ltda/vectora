@@ -689,10 +689,12 @@ async function waitForBackend(): Promise<void> {
 // Window
 // ---------------------------------------------------------------------------
 
-function createWindow(): void {
+function createWindow(options: { visible?: boolean } = {}): void {
   if (mainWindow) {
-    mainWindow.show();
-    mainWindow.focus();
+    if (options.visible !== false) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
     return;
   }
   if (backendPort === null && !backendPipePath)
@@ -703,6 +705,7 @@ function createWindow(): void {
   const { width, height } = computeDefaultWindowSize(
     screen.getPrimaryDisplay().workAreaSize,
   );
+  const visible = options.visible !== false;
   mainWindow = new BrowserWindow({
     width,
     height,
@@ -737,7 +740,7 @@ function createWindow(): void {
   // Carrega a SPA pela origem IPC — zero porta TCP exposta (UDS em Linux/macOS).
   void mainWindow.loadURL(`${APP_SCHEME}://app/`);
   mainWindow.once("ready-to-show", () => {
-    mainWindow?.show();
+    if (visible) mainWindow?.show();
     if (pendingDeepLink) {
       mainWindow?.webContents.send("vectora:deep-link", pendingDeepLink);
       pendingDeepLink = null;
@@ -1379,7 +1382,7 @@ app.on("second-instance", (_event, argv) => {
     mainWindow.show();
     mainWindow.focus();
   } else {
-    createWindow();
+    createWindow({ visible: process.env.VECTORA_WEB_MODE !== "1" });
   }
 });
 
@@ -1412,8 +1415,11 @@ app.whenReady().then(async () => {
     await startBackend();
     await waitForBackend();
     await clearPendingUpdate();
-    createWindow();
-    createTray();
+    const webMode = process.env.VECTORA_WEB_MODE === "1";
+    // In `vectora web`, keep a hidden renderer alive so BrowserViews/CDP use
+    // the bundled Chromium, but leave the visible UI to the user's browser.
+    createWindow({ visible: !webMode });
+    if (!webMode) createTray();
     setupAutoUpdater();
     if (await isAutoUpdateEnabled()) {
       scheduleAutoUpdateChecks();
