@@ -44,7 +44,7 @@ def _get_browser() -> Any:
             headers = electron_cdp_headers()
             if headers:
                 _browser = _playwright.chromium.connect_over_cdp(
-                    endpoint, headers=list(headers.items())
+                    endpoint, headers=headers
                 )
             else:
                 _browser = _playwright.chromium.connect_over_cdp(endpoint)
