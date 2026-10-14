@@ -222,6 +222,24 @@ class TestOllamaDiscovery:
         assert error.value.status_code == 504
         assert "prazo total" in str(error.value.detail)
 
+    @pytest.mark.asyncio
+    async def test_ollama_cleanup_kills_and_waits_with_own_deadline(self, monkeypatch):
+        from backend.api.handlers import provider_routing
+
+        monkeypatch.setattr(provider_routing, "OLLAMA_CLEANUP_TIMEOUT_SECONDS", 0.001)
+        process = MagicMock()
+        process.kill = MagicMock()
+        process.wait = AsyncMock()
+
+        async def hangs():
+            await asyncio.sleep(60)
+
+        process.communicate = AsyncMock(side_effect=hangs)
+        await provider_routing._terminate_ollama_process(process)
+
+        process.kill.assert_called_once_with()
+        process.wait.assert_awaited_once()
+
     def test_host_reachable_returns_models(self, client):
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()

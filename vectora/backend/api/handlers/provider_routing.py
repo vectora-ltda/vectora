@@ -79,6 +79,7 @@ OLLAMA_WINGET_TIMEOUT_SECONDS = 120.0
 OLLAMA_DOWNLOAD_TIMEOUT_SECONDS = 600.0
 OLLAMA_INSTALLER_TIMEOUT_SECONDS = 600.0
 OLLAMA_STARTUP_TIMEOUT_SECONDS = 60.0
+OLLAMA_CLEANUP_TIMEOUT_SECONDS = 10.0
 # Bounds the complete wizard operation (winget/download/install/start/readiness)
 # instead of allowing each phase timeout to accumulate without a global limit.
 OLLAMA_INSTALL_TOTAL_TIMEOUT_SECONDS = 900.0
@@ -602,29 +603,86 @@ async def _install_ollama_from_official_release() -> Path | None:
     tools_dir.mkdir(parents=True, exist_ok=True)
     installer = tools_dir / "OllamaSetup.exe"
     partial = installer.with_suffix(".exe.part")
+    partial_metadata = Path(f"{partial}.json")
     if installer.exists() and not partial.exists():
         installer.replace(partial)
     timeout = httpx.Timeout(connect=30.0, read=30.0, write=30.0, pool=30.0)
     try:
         async with asyncio.timeout(OLLAMA_DOWNLOAD_TIMEOUT_SECONDS):
-            offset = partial.stat().st_size if partial.exists() else 0
-            headers = {"Range": f"bytes={offset}-"} if offset else None
             async with httpx.AsyncClient(
                 follow_redirects=True, timeout=timeout
             ) as client:
+                release = await client.get(
+                    "https://api.github.com/repos/ollama/ollama/releases/latest"
+                )
+                release.raise_for_status()
+                release_payload = release.json()
+                tag = release_payload.get("tag_name")
+                assets = release_payload.get("assets", [])
+                asset = next(
+                    (
+                        item
+                        for item in assets
+                        if item.get("name") == "OllamaSetup.exe"
+                        and item.get("browser_download_url")
+                    ),
+                    None,
+                )
+                if not tag or asset is None:
+                    raise ValueError("release do Ollama não contém OllamaSetup.exe")
+                download_url = str(asset["browser_download_url"])
+                expected_size = asset.get("size")
+                metadata = None
+                if partial_metadata.exists():
+                    try:
+                        metadata = json.loads(partial_metadata.read_text())
+                    except (OSError, ValueError):
+                        metadata = None
+                if metadata != {
+                    "tag": tag,
+                    "url": download_url,
+                    "size": expected_size,
+                }:
+                    with suppress(OSError):
+                        partial.unlink()
+                    with suppress(OSError):
+                        partial_metadata.unlink()
+                offset = partial.stat().st_size if partial.exists() else 0
+                headers = {"Range": f"bytes={offset}-"} if offset else None
                 async with client.stream(
                     "GET",
-                    "https://github.com/ollama/ollama/releases/latest/download/OllamaSetup.exe",
+                    download_url,
                     headers=headers,
                 ) as response:
                     response.raise_for_status()
                     resumed = offset > 0 and response.status_code == 206
                     if not resumed:
                         offset = 0
+                    if resumed:
+                        content_range = response.headers.get("content-range", "")
+                        match = re.fullmatch(r"bytes (\d+)-\d+/(\d+|\*)", content_range)
+                        if not match or int(match.group(1)) != offset:
+                            raise ValueError("Content-Range inválido para retomada")
+                        if (
+                            expected_size is not None
+                            and match.group(2) != "*"
+                            and int(match.group(2)) != int(expected_size)
+                        ):
+                            raise ValueError("tamanho do instalador mudou")
+                    partial_metadata.write_text(
+                        json.dumps(
+                            {"tag": tag, "url": download_url, "size": expected_size}
+                        )
+                    )
                     with partial.open("ab" if resumed else "wb") as handle:
                         async for chunk in response.aiter_bytes(1024 * 1024):
                             handle.write(chunk)
+            if expected_size is not None and partial.stat().st_size != int(
+                expected_size
+            ):
+                raise ValueError("tamanho final do instalador incompatível")
             partial.replace(installer)
+            partial_metadata.unlink(missing_ok=True)
     except asyncio.CancelledError:
         logger.info("ollama: download oficial cancelado; parcial preservado")
         raise
@@ -634,9 +692,11 @@ async def _install_ollama_from_official_release() -> Path | None:
             status_code=504,
             detail="download oficial do Ollama excedeu o prazo total",
         ) from exc
-    except (OSError, httpx.HTTPError) as exc:
+    except (OSError, ValueError, httpx.HTTPError) as exc:
         with suppress(OSError):
             partial.unlink()
+        with suppress(OSError):
+            partial_metadata.unlink()
         logger.exception("ollama: download oficial falhou")
         raise HTTPException(
             status_code=502,
@@ -654,14 +714,10 @@ async def _install_ollama_from_official_release() -> Path | None:
             process.communicate(), timeout=OLLAMA_INSTALLER_TIMEOUT_SECONDS
         )
     except asyncio.CancelledError:
-        with suppress(ProcessLookupError):
-            process.kill()
-        await process.wait()
+        await _terminate_ollama_process(process)
         raise
     except TimeoutError as exc:
-        with suppress(ProcessLookupError):
-            process.kill()
-        await process.wait()
+        await _terminate_ollama_process(process)
         raise HTTPException(
             status_code=504,
             detail="instalador oficial do Ollama excedeu o prazo total",
@@ -673,6 +729,17 @@ async def _install_ollama_from_official_release() -> Path | None:
             detail=f"instalação oficial do Ollama falhou: {detail}",
         )
     return await asyncio.to_thread(_ollama_executable)
+
+
+async def _terminate_ollama_process(process: asyncio.subprocess.Process) -> None:
+    """Terminate an Ollama child without allowing cleanup to hang the request."""
+    with suppress(ProcessLookupError):
+        process.kill()
+    try:
+        await asyncio.wait_for(process.communicate(), OLLAMA_CLEANUP_TIMEOUT_SECONDS)
+    except (TimeoutError, asyncio.IncompleteReadError):
+        with suppress(ProcessLookupError):
+            await asyncio.wait_for(process.wait(), OLLAMA_CLEANUP_TIMEOUT_SECONDS)
 
 
 async def _ollama_http_status() -> tuple[bool, str | None]:
@@ -752,14 +819,10 @@ async def _install_ollama_runtime_impl(_: ProviderAdmin) -> OllamaRuntimeStatus:
             )
             output = completed[0]
         except asyncio.CancelledError:
-            with suppress(ProcessLookupError):
-                process.kill()
-            await process.wait()
+            await _terminate_ollama_process(process)
             raise
         except TimeoutError:
-            with suppress(ProcessLookupError):
-                process.kill()
-            await process.wait()
+            await _terminate_ollama_process(process)
             logger.warning("ollama: winget excedeu 120s; usando release oficial")
             executable = await _install_ollama_from_official_release()
         else:
@@ -795,13 +858,9 @@ async def _install_ollama_runtime_impl(_: ProviderAdmin) -> OllamaRuntimeStatus:
                     if reachable:
                         break
         except TimeoutError:
-            with suppress(ProcessLookupError):
-                server_process.kill()
-            await server_process.wait()
+            await _terminate_ollama_process(server_process)
         except asyncio.CancelledError:
-            with suppress(ProcessLookupError):
-                server_process.kill()
-            await server_process.wait()
+            await _terminate_ollama_process(server_process)
             raise
     if not reachable:
         raise HTTPException(
