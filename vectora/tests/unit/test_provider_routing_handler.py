@@ -260,6 +260,7 @@ class TestOllamaDiscovery:
                     "tag": "v1",
                     "url": "https://github.com/ollama/ollama/releases/download/v1/OllamaSetup.exe",
                     "size": 4,
+                    "digest": None,
                 }
             )
         )
@@ -279,6 +280,7 @@ class TestOllamaDiscovery:
                             "name": "OllamaSetup.exe",
                             "browser_download_url": "https://github.com/ollama/ollama/releases/download/v1/OllamaSetup.exe",
                             "size": 4,
+                            "digest": None,
                         }
                     ],
                 }

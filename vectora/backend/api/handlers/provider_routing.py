@@ -632,6 +632,15 @@ async def _install_ollama_from_official_release() -> Path | None:
                     raise ValueError("release do Ollama não contém OllamaSetup.exe")
                 download_url = str(asset["browser_download_url"])
                 expected_size = asset.get("size")
+                expected_digest = asset.get("digest")
+                if isinstance(expected_digest, str) and expected_digest.startswith(
+                    "sha256:"
+                ):
+                    expected_digest = expected_digest.removeprefix("sha256:")
+                if not isinstance(expected_digest, str) or not re.fullmatch(
+                    r"[0-9a-fA-F]{64}", expected_digest
+                ):
+                    expected_digest = None
                 metadata = None
                 if partial_metadata.exists():
                     try:
@@ -642,6 +651,7 @@ async def _install_ollama_from_official_release() -> Path | None:
                     "tag": tag,
                     "url": download_url,
                     "size": expected_size,
+                    "digest": expected_digest,
                 }:
                     with suppress(OSError):
                         partial.unlink()
@@ -671,16 +681,32 @@ async def _install_ollama_from_official_release() -> Path | None:
                             raise ValueError("tamanho do instalador mudou")
                     partial_metadata.write_text(
                         json.dumps(
-                            {"tag": tag, "url": download_url, "size": expected_size}
+                            {
+                                "tag": tag,
+                                "url": download_url,
+                                "size": expected_size,
+                                "digest": expected_digest,
+                            }
                         )
                     )
+                    digest = hashlib.sha256()
+                    if resumed:
+                        with partial.open("rb") as existing:
+                            while chunk := existing.read(1024 * 1024):
+                                digest.update(chunk)
                     with partial.open("ab" if resumed else "wb") as handle:
                         async for chunk in response.aiter_bytes(1024 * 1024):
                             handle.write(chunk)
+                            digest.update(chunk)
             if expected_size is not None and partial.stat().st_size != int(
                 expected_size
             ):
                 raise ValueError("tamanho final do instalador incompatível")
+            if (
+                expected_digest is not None
+                and digest.hexdigest().lower() != expected_digest.lower()
+            ):
+                raise ValueError("digest do instalador incompatível")
             partial.replace(installer)
             partial_metadata.unlink(missing_ok=True)
     except asyncio.CancelledError:
