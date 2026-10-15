@@ -76,13 +76,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/provider-routing", tags=["provider-routing"])
 
 OLLAMA_WINGET_TIMEOUT_SECONDS = 120.0
-OLLAMA_DOWNLOAD_TIMEOUT_SECONDS = 600.0
+# The official Windows package is currently ~1.6 GB. Keep a finite deadline,
+# but allow slower connections to finish instead of abandoning a resumable
+# download after ten minutes.
+OLLAMA_DOWNLOAD_TIMEOUT_SECONDS = 7_200.0
 OLLAMA_INSTALLER_TIMEOUT_SECONDS = 600.0
 OLLAMA_STARTUP_TIMEOUT_SECONDS = 60.0
 OLLAMA_CLEANUP_TIMEOUT_SECONDS = 10.0
 # Bounds the complete wizard operation (winget/download/install/start/readiness)
 # instead of allowing each phase timeout to accumulate without a global limit.
-OLLAMA_INSTALL_TOTAL_TIMEOUT_SECONDS = 900.0
+OLLAMA_INSTALL_TOTAL_TIMEOUT_SECONDS = 7_500.0
 _OLLAMA_INSTALL_LOCK = asyncio.Lock()
 
 
