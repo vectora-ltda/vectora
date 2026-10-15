@@ -2909,6 +2909,12 @@ async def install_huggingface_model(
                 status_code=409,
                 detail="Ollama não está instalado; inicie o runtime antes de importar o modelo",
             )
+        reachable, _ollama_version = await _ollama_http_status()
+        if not reachable:
+            raise HTTPException(
+                status_code=409,
+                detail="Ollama não está pronto; aguarde o readiness antes de importar o modelo",
+            )
         modelfile = root / f".vectora-{alias}.Modelfile"
         await asyncio.to_thread(
             modelfile.write_text,

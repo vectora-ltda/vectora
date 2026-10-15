@@ -1213,11 +1213,10 @@ class TestLlamaCppAndHuggingFace:
             )
 
     @pytest.mark.asyncio
-    async def test_huggingface_ollama_failure_does_not_publish_manifest(
+    async def test_huggingface_ollama_install_requires_runtime_readiness(
         self, tmp_path, monkeypatch
     ) -> None:
-        from fastapi import HTTPException
-
+        from backend.api.handlers import provider_routing as provider_mod
         from backend.api.handlers.provider_routing import (
             HuggingFaceInstallRequest,
             install_huggingface_model,
@@ -1240,6 +1239,57 @@ class TestLlamaCppAndHuggingFace:
             encoding="utf-8",
         )
         monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        monkeypatch.setattr(provider_mod, "_ollama_executable", lambda: model)
+        monkeypatch.setattr(
+            provider_mod, "_ollama_http_status", AsyncMock(return_value=(False, None))
+        )
+
+        with pytest.raises(HTTPException, match="readiness"):
+            await install_huggingface_model(
+                HuggingFaceInstallRequest(
+                    repo_id="org/model",
+                    revision="abc123",
+                    filename="model.gguf",
+                    provider="ollama",
+                    alias="local-model",
+                ),
+                None,
+            )
+
+        assert not (root / "model-manifest.json").exists()
+
+    @pytest.mark.asyncio
+    async def test_huggingface_ollama_failure_does_not_publish_manifest(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        from fastapi import HTTPException
+
+        from backend.api.handlers import provider_routing as provider_mod
+        from backend.api.handlers.provider_routing import (
+            HuggingFaceInstallRequest,
+            install_huggingface_model,
+        )
+        from backend.settings import settings
+
+        root = tmp_path / "models" / "huggingface" / "org" / "model"
+        root.mkdir(parents=True)
+        model = root / "model.gguf"
+        model.write_bytes(b"weights")
+        model.with_name("model.gguf.source.json").write_text(
+            json.dumps(
+                {
+                    "repo_id": "org/model",
+                    "filename": "model.gguf",
+                    "revision": "abc123",
+                    "sha256": hashlib.sha256(b"weights").hexdigest(),
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        monkeypatch.setattr(
+            provider_mod, "_ollama_http_status", AsyncMock(return_value=(True, "0.1"))
+        )
 
         response = MagicMock()
         response.raise_for_status.side_effect = httpx.HTTPStatusError(
