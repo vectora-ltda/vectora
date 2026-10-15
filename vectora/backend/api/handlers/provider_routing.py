@@ -2691,6 +2691,9 @@ async def download_huggingface_model(
             actual = digest.hexdigest()
             if expected_sha256 and actual.lower() != expected_sha256:
                 await asyncio.to_thread(destination.unlink, missing_ok=True)
+                # O parcial também é inválido: mantê-lo faria a próxima
+                # tentativa retomar bytes corrompidos e falhar novamente.
+                await asyncio.to_thread(partial.unlink, missing_ok=True)
                 await asyncio.to_thread(source_metadata.unlink, missing_ok=True)
                 await asyncio.to_thread(partial_metadata.unlink, missing_ok=True)
                 raise HTTPException(
