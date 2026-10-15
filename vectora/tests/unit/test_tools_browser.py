@@ -27,6 +27,7 @@ class _FakePage:
     def __init__(self) -> None:
         self.url = "about:blank"
         self.goto = AsyncMock(side_effect=self._goto)
+        self.title = AsyncMock(return_value="Example Domain")
         self.screenshot = AsyncMock(return_value=b"fake-png-bytes")
         self.click = AsyncMock()
         self.fill = AsyncMock()
@@ -58,6 +59,7 @@ async def test_browser_navigate_navega_para_url_http(monkeypatch, fake_page):
     fake_page.goto.assert_awaited_once_with(
         "https://example.com", wait_until="domcontentloaded", timeout=15000
     )
+    assert "título: Example Domain" in result
 
 
 @pytest.mark.asyncio

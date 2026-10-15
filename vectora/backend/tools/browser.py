@@ -108,7 +108,20 @@ async def browser_navigate(url: str, ctx: ToolContext) -> str:
                 "status": "ok",
             },
         )
-        return f"[OK] Navegado para {page.url}"
+        # Include a small, bounded page identity in the tool envelope.  This
+        # lets the agent answer a navigation request without hallucinating a
+        # title or requiring a second DOM call merely to identify the page.
+        title = ""
+        title_reader = getattr(page, "title", None)
+        if callable(title_reader):
+            try:
+                title = str(await title_reader())[:300].strip()
+            except Exception:
+                logger.debug(
+                    "browser_navigate: não foi possível ler o título", exc_info=True
+                )
+        title_suffix = f" (título: {title})" if title else ""
+        return f"[OK] Navegado para {page.url}{title_suffix}"
     except Exception:
         logger.exception("browser_navigate failed", extra={"url": url})
         return f"Error: falha ao navegar para {url!r}. Veja logs."
