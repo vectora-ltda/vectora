@@ -1370,7 +1370,11 @@ function registerIpc(): void {
 // Single instance lock — necessário para deep-link no Windows/Linux
 // ---------------------------------------------------------------------------
 
-const gotLock = app.requestSingleInstanceLock();
+// O modo web é um sidecar do backend, não uma sessão interativa do app. Ele
+// pode coexistir com uma instância desktop antiga sem herdar o lock global do
+// Electron e encerrar o servidor HTTP por engano.
+const webSidecarMode = process.env.VECTORA_WEB_MODE === "1";
+const gotLock = webSidecarMode || app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 }
