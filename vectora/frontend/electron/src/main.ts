@@ -1443,6 +1443,10 @@ app.on("window-all-closed", () => {
   // Mantém app vivo no tray em todas plataformas — usuário usa "Sair" no
   // menu ou Cmd+Q (macOS).
   if (process.platform !== "darwin") {
+    // `vectora web` usa o Electron apenas como sidecar oculto para Chromium,
+    // Node e CDP. Não há tray nem janela visível nesse modo, portanto fechar
+    // a janela oculta não pode encerrar o backend web.
+    if (process.env.VECTORA_WEB_MODE === "1") return;
     // No Windows/Linux, sem tray seria zumbi; com tray, fica disponível.
     if (!tray) app.quit();
   }
