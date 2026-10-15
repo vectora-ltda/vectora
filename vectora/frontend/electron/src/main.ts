@@ -690,8 +690,10 @@ async function waitForBackend(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 function createWindow(options: { visible?: boolean } = {}): void {
+  const webMode = process.env.VECTORA_WEB_MODE === "1";
+  const shouldShow = options.visible ?? !webMode;
   if (mainWindow) {
-    if (options.visible !== false) {
+    if (shouldShow) {
       mainWindow.show();
       mainWindow.focus();
     }
@@ -705,7 +707,7 @@ function createWindow(options: { visible?: boolean } = {}): void {
   const { width, height } = computeDefaultWindowSize(
     screen.getPrimaryDisplay().workAreaSize,
   );
-  const visible = options.visible !== false;
+  const visible = shouldShow;
   mainWindow = new BrowserWindow({
     width,
     height,
