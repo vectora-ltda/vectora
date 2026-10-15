@@ -938,6 +938,7 @@ async def _install_ollama_runtime_impl(_: ProviderAdmin) -> OllamaRuntimeStatus:
             "Ollama.Ollama",
             "--exact",
             "--silent",
+            "--disable-interactivity",
             "--accept-package-agreements",
             "--accept-source-agreements",
             stdout=asyncio.subprocess.PIPE,
