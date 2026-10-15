@@ -293,6 +293,20 @@ class TestOllamaDiscovery:
         process.wait.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_ollama_shutdown_stops_only_managed_process(self, monkeypatch):
+        from backend.api.handlers import provider_routing
+
+        process = MagicMock()
+        process.kill = MagicMock()
+        process.communicate = AsyncMock(return_value=(b"", b""))
+        monkeypatch.setattr(provider_routing, "_managed_ollama_process", process)
+
+        await provider_routing.stop_managed_ollama()
+
+        assert provider_routing._managed_ollama_process is None
+        process.kill.assert_called_once_with()
+
+    @pytest.mark.asyncio
     async def test_install_ollama_serializes_concurrent_requests(self, monkeypatch):
         from backend.api.handlers import provider_routing
 

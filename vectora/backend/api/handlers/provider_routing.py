@@ -99,6 +99,7 @@ OllamaInstallPhase = Literal[
     "cancelled",
 ]
 _ollama_install_phase: OllamaInstallPhase = "idle"
+_managed_ollama_process: asyncio.subprocess.Process | None = None
 
 
 def _set_ollama_install_phase(phase: OllamaInstallPhase) -> None:
@@ -932,6 +933,15 @@ async def _terminate_ollama_process(process: asyncio.subprocess.Process) -> None
                 logger.warning("ollama: cleanup expirou sem confirmar o processo")
 
 
+async def stop_managed_ollama() -> None:
+    """Stop only the ``ollama serve`` process started by Vectora's wizard."""
+    global _managed_ollama_process
+    process = _managed_ollama_process
+    _managed_ollama_process = None
+    if process is not None:
+        await _terminate_ollama_process(process)
+
+
 async def _ollama_http_status() -> tuple[bool, str | None]:
     import httpx
 
@@ -1082,6 +1092,8 @@ async def _install_ollama_runtime_impl(_: ProviderAdmin) -> OllamaRuntimeStatus:
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
+        global _managed_ollama_process
+        _managed_ollama_process = server_process
         try:
             async with asyncio.timeout(OLLAMA_STARTUP_TIMEOUT_SECONDS):
                 while True:
@@ -1091,10 +1103,13 @@ async def _install_ollama_runtime_impl(_: ProviderAdmin) -> OllamaRuntimeStatus:
                         break
         except TimeoutError:
             await _terminate_ollama_process(server_process)
+            _managed_ollama_process = None
         except asyncio.CancelledError:
             await _terminate_ollama_process(server_process)
+            _managed_ollama_process = None
             raise
     if not reachable:
+        _managed_ollama_process = None
         raise HTTPException(
             status_code=502, detail="Ollama foi instalado, mas não iniciou o servidor"
         )

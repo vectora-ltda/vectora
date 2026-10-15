@@ -509,6 +509,15 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             )
 
         try:
+            from backend.api.handlers.provider_routing import stop_managed_ollama
+
+            await stop_managed_ollama()
+        except Exception:
+            logger.warning(
+                "api/server: erro ao encerrar Ollama gerenciado", exc_info=True
+            )
+
+        try:
             from backend.services.electron_sidecar import stop_electron_sidecar
 
             await stop_electron_sidecar()
