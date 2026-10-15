@@ -728,16 +728,26 @@ async def _install_ollama_from_official_release() -> Path | None:
                     with suppress(OSError):
                         partial_metadata.unlink()
                     offset = 0
-                headers = {"Range": f"bytes={offset}-"} if offset else None
+                headers = (
+                    {
+                        "Range": f"bytes={offset}-",
+                        "Accept-Encoding": "identity",
+                        "Cache-Control": "no-cache",
+                    }
+                    if offset
+                    else None
+                )
                 async with client.stream(
                     "GET",
                     download_url,
                     headers=headers,
                 ) as response:
                     response.raise_for_status()
-                    resumed = offset > 0 and response.status_code == 206
-                    if not resumed:
-                        offset = 0
+                    if offset > 0 and response.status_code != 206:
+                        raise httpx.HTTPError(
+                            "servidor ignorou Range durante a retomada"
+                        )
+                    resumed = offset > 0
                     if resumed:
                         content_range = response.headers.get("content-range", "")
                         match = re.fullmatch(
@@ -932,6 +942,15 @@ async def _install_ollama_runtime_impl(_: ProviderAdmin) -> OllamaRuntimeStatus:
     """
     _set_ollama_install_phase("detect")
     executable = await asyncio.to_thread(_ollama_executable)
+    if executable is None:
+        # Um partial existente já representa uma instalação iniciada pelo
+        # wizard. Não desperdice o deadline tentando winget novamente: retome
+        # diretamente o release oficial, preservando o offset e o checksum.
+        partial = settings.vectora_home / "tools" / "ollama" / "OllamaSetup.exe.part"
+        if partial.exists():
+            executable = await _install_ollama_from_official_release()
+        else:
+            executable = None
     if executable is None:
         winget = await asyncio.to_thread(shutil.which, "winget")
         if winget is None:
