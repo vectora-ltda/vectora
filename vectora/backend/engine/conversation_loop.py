@@ -262,6 +262,7 @@ async def run_conversation(
                 else _default_context_tokens()
             ),
             enabled=config.context_compaction_enabled,
+            preserve_latest_tool_result=str(ctx.model).startswith("ollama:"),
         )
 
         partes_texto: list[str] = []

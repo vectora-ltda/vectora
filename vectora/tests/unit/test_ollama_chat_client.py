@@ -251,6 +251,43 @@ class TestConversaoDeMensagens:
 
 
 class TestToolCalling:
+    async def test_qwen_apos_resultado_de_tool_forca_resposta_textual(self):
+        capturado: dict = {}
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            capturado.update(json.loads(req.content))
+            return httpx.Response(200, json=_resposta_ok("resultado final"))
+
+        from backend.nodes.tools import ALL_TOOL_SPECS
+
+        mensagens = [
+            text_message(MessageRole.SYSTEM, "instruções"),
+            VMessage(
+                role=MessageRole.ASSISTANT,
+                tool_calls=[
+                    ToolCall(id="call-1", name="web_search", args={"query": "x"})
+                ],
+            ),
+            VMessage(
+                role=MessageRole.TOOL,
+                tool_call_id="call-1",
+                content=[ContentBlock(kind="text", text="resultado")],
+            ),
+        ]
+        client = OllamaChatClient(
+            model="qwen2.5-1.5b-instruct-q2-k-tools:latest",
+            client=OllamaClient(
+                http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
+            ),
+        )
+
+        resultado = await client.agenerate(mensagens, tools=ALL_TOOL_SPECS)
+
+        assert resultado.text() == "resultado final"
+        assert "tools" not in capturado
+        assert capturado["messages"][-1]["role"] == "user"
+        assert "não use ferramentas" in capturado["messages"][-1]["content"]
+
     @pytest.mark.parametrize("arguments", [[], 0, "not-json"])
     def test_argumentos_falsos_ou_json_invalido_viram_parse_error(
         self, arguments: list[object] | int | str

@@ -383,22 +383,23 @@ class OllamaChatClient:
                 str(ollama_messages[0].get("content") or "")
             )
             _compact_tool_results(ollama_messages)
-            if has_tool_result:
+        if has_tool_result and self.model.lower().startswith("qwen"):
+            if ollama_messages and ollama_messages[0]["role"] == "system":
                 ollama_messages[0]["content"] += (
                     "\n\nA ferramenta já retornou um resultado nesta rodada. "
                     "Agora responda ao usuário usando esse resultado; não chame "
                     "nenhuma ferramenta novamente, especialmente com os mesmos argumentos."
                 )
-                # Small Qwen models commonly replay the previous call forever when
-                # tool schemas remain present after a result. Force the next turn
-                # to be a textual answer; the result is still visible in context.
-                payload_tool_specs = []
-                ollama_messages.append(
-                    {
-                        "role": "user",
-                        "content": "Conclua agora usando o resultado retornado; não use ferramentas.",
-                    }
-                )
+            # Small Qwen models commonly replay the previous call forever when
+            # tool schemas remain present after a result. Force the next turn
+            # to be a textual answer; the result is still visible in context.
+            payload_tool_specs = []
+            ollama_messages.append(
+                {
+                    "role": "user",
+                    "content": "Conclua agora usando o resultado retornado; não use ferramentas.",
+                }
+            )
         corpo: dict[str, Any] = {
             "model": self.model,
             "messages": ollama_messages,
