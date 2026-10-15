@@ -130,6 +130,12 @@ class OllamaChatClient:
         }
         if temperature is not None:
             options["temperature"] = temperature
+        elif tools:
+            # Tool calling precisa de baixa aleatoriedade em runtimes locais
+            # leves, mas temperatura zero faz alguns quantizados encerrarem
+            # sem texto nem chamada estruturada. 0.2 mantém o contrato
+            # determinístico o bastante sem cair nesse caminho degenerado.
+            options["temperature"] = 0.2
         corpo["options"] = options
         if tools:
             corpo["tools"] = [t.openai_schema() for t in tools]
