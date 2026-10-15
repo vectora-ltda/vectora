@@ -1602,6 +1602,7 @@ async def get_dmr_status() -> dict[str, object]:
         "models": list(probe.models) if probe else [],
         "managed_models": managed_models,
         "detail": probe.detail if probe else "endpoint ainda não configurado",
+        "status_code": probe.status_code if probe else None,
     }
 
 
@@ -1641,6 +1642,7 @@ async def get_dmr_http_status() -> dict[str, object]:
         "models": list(probe.models),
         "managed_models": managed_models,
         "detail": probe.detail,
+        "status_code": probe.status_code,
     }
 
 

@@ -77,6 +77,7 @@ class DmrProbe:
     contract: str | None
     models: tuple[str, ...]
     detail: str | None = None
+    status_code: int | None = None
 
 
 @dataclass
@@ -404,6 +405,7 @@ async def probe_dmr(
 ) -> DmrProbe:
     """Sonda o contrato OpenAI e depois o contrato Ollama do DMR."""
     base = normalize_base_url(base_url)
+    status_codes: list[int] = []
     async with httpx.AsyncClient(
         timeout=5, follow_redirects=False, transport=transport
     ) as client:
@@ -417,6 +419,7 @@ async def probe_dmr(
                     if isinstance(item, dict) and item.get("id")
                 )
                 return DmrProbe(True, "openai", models)
+            status_codes.append(response.status_code)
         except (httpx.HTTPError, ValueError, json.JSONDecodeError):
             logger.debug("dmr: contrato OpenAI indisponível", exc_info=True)
         try:
@@ -429,9 +432,14 @@ async def probe_dmr(
                     if isinstance(item, dict) and item.get("name")
                 )
                 return DmrProbe(True, "ollama", models)
+            status_codes.append(response.status_code)
         except (httpx.HTTPError, ValueError, json.JSONDecodeError):
             logger.debug("dmr: contrato Ollama indisponível", exc_info=True)
-    return DmrProbe(False, None, (), "Docker Model Runner indisponível")
+    status_code = status_codes[0] if status_codes else None
+    detail = "Docker Model Runner indisponível"
+    if status_code is not None:
+        detail = f"Docker Model Runner respondeu HTTP {status_code}"
+    return DmrProbe(False, None, (), detail, status_code)
 
 
 async def probe_dmr_inference(

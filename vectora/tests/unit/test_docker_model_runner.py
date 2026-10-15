@@ -157,6 +157,18 @@ async def test_probe_prefers_openai_contract() -> None:
 
 
 @pytest.mark.asyncio
+async def test_probe_preserves_http_failure_status_for_diagnostics() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(502, request=request, text="Bad Gateway")
+
+    result = await dmr.probe_dmr(transport=httpx.MockTransport(handler))
+
+    assert result.reachable is False
+    assert result.status_code == 502
+    assert result.detail == "Docker Model Runner respondeu HTTP 502"
+
+
+@pytest.mark.asyncio
 async def test_probe_dmr_inference_supports_openai_and_ollama_contracts() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/chat/completions"):
