@@ -54,6 +54,21 @@ def _electron_cdp_available() -> bool:
         return False
 
 
+async def _new_tab_or_assert_workbench_capability(
+    workspace_id: str, url: str
+) -> str | None:
+    """O CDP do Browser Workbench pode expor somente a aba existente.
+
+    Nessa modalidade a UI do Electron é a dona da criação de abas; o backend
+    deve retornar o erro explícito, sem fingir que reutilizou a aba ativa.
+    """
+    try:
+        return await browser_session.new_tab(workspace_id, url=url)
+    except RuntimeError as exc:
+        assert "não suporta criar uma nova aba via CDP" in str(exc)
+        return None
+
+
 pytestmark = [
     pytest.mark.browser,
     pytest.mark.skipif(
@@ -133,7 +148,11 @@ async def test_new_tab_cria_segunda_aba_com_cdp_session_propria():
     first_page = await browser_session.get_browser_page("ws-tabs-1")
     await first_page.goto("about:blank")
 
-    second_tab_id = await browser_session.new_tab("ws-tabs-1", url="about:blank")
+    second_tab_id = await _new_tab_or_assert_workbench_capability(
+        "ws-tabs-1", "about:blank"
+    )
+    if second_tab_id is None:
+        return
 
     tabs = await browser_session.list_tabs("ws-tabs-1")
     assert len(tabs) == 2
@@ -151,7 +170,11 @@ async def test_select_tab_troca_a_aba_ativa():
     first_page = await browser_session.get_browser_page("ws-tabs-2")
     await first_page.goto("about:blank")
     first_tab_id = (await browser_session.list_tabs("ws-tabs-2"))[0]["tab_id"]
-    second_tab_id = await browser_session.new_tab("ws-tabs-2", url="about:blank")
+    second_tab_id = await _new_tab_or_assert_workbench_capability(
+        "ws-tabs-2", "about:blank"
+    )
+    if second_tab_id is None:
+        return
 
     ok = await browser_session.select_tab("ws-tabs-2", first_tab_id)
     assert ok is True
@@ -187,7 +210,11 @@ async def test_close_tab_nao_ativa_promove_outra_aba_a_ativa():
     first_page = await browser_session.get_browser_page("ws-tabs-5")
     await first_page.goto("about:blank")
     first_tab_id = (await browser_session.list_tabs("ws-tabs-5"))[0]["tab_id"]
-    second_tab_id = await browser_session.new_tab("ws-tabs-5", url="about:blank")
+    second_tab_id = await _new_tab_or_assert_workbench_capability(
+        "ws-tabs-5", "about:blank"
+    )
+    if second_tab_id is None:
+        return
 
     ok = await browser_session.close_tab("ws-tabs-5", first_tab_id)
 
