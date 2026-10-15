@@ -1129,6 +1129,12 @@ async def install_ollama_runtime(_: ProviderAdmin) -> OllamaRuntimeStatus:
     except HTTPException:
         _set_ollama_install_phase("failed")
         raise
+    except Exception:
+        # Any unexpected installer failure must still leave a terminal,
+        # observable state instead of reporting a stale active operation.
+        _set_ollama_install_phase("failed")
+        logger.exception("ollama: falha inesperada durante a instalação")
+        raise
 
 
 @router.get("/ollama/registered")

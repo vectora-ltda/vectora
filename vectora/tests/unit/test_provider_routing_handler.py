@@ -351,6 +351,18 @@ class TestOllamaDiscovery:
         assert provider_routing._ollama_install_phase == "cancelled"
 
     @pytest.mark.asyncio
+    async def test_ollama_unexpected_failure_leaves_failed_phase(self, monkeypatch):
+        from backend.api.handlers import provider_routing
+
+        async def broken(_):
+            raise RuntimeError("falha inesperada")
+
+        monkeypatch.setattr(provider_routing, "_install_ollama_runtime_impl", broken)
+        with pytest.raises(RuntimeError, match="falha inesperada"):
+            await provider_routing.install_ollama_runtime(None)
+        assert provider_routing._ollama_install_phase == "failed"
+
+    @pytest.mark.asyncio
     async def test_ollama_status_exposes_failed_phase_as_error(self, monkeypatch):
         from backend.api.handlers import provider_routing
 
