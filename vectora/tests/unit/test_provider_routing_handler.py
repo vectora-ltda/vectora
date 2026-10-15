@@ -356,6 +356,71 @@ class TestOllamaDiscovery:
         assert not Path(f"{partial}.json").exists()
         object.__setattr__(settings, "vectora_home", original_home)
 
+    @pytest.mark.asyncio
+    async def test_ollama_download_rejects_digest_mismatch_and_cleans_partial(
+        self, monkeypatch, tmp_path
+    ):
+        """A valid-size installer must still match the publisher digest."""
+        from backend.api.handlers import provider_routing
+        from backend.settings import settings
+
+        original_home = settings.vectora_home
+        object.__setattr__(settings, "vectora_home", Path(tmp_path))
+        content = b"installer-bytes"
+        installer = Path(tmp_path) / "tools" / "ollama" / "OllamaSetup.exe"
+
+        class Response:
+            status_code = 200
+            headers: dict[str, str] = {}
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "tag_name": "v1",
+                    "assets": [
+                        {
+                            "name": "OllamaSetup.exe",
+                            "browser_download_url": "https://example.invalid/OllamaSetup.exe",
+                            "size": len(content),
+                            "digest": "sha256:" + ("0" * 64),
+                        }
+                    ],
+                }
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+            async def aiter_bytes(self, _chunk_size):
+                yield content
+
+        class Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+            async def get(self, _url):
+                return Response()
+
+            def stream(self, _method, _url, headers=None):
+                return Response()
+
+        monkeypatch.setattr(provider_routing.httpx, "AsyncClient", lambda **_: Client())
+
+        with pytest.raises(HTTPException, match="digest"):
+            await provider_routing._install_ollama_from_official_release()
+
+        assert not installer.exists()
+        assert not installer.with_suffix(".exe.part").exists()
+        assert not Path(f"{installer.with_suffix('.exe.part')}.json").exists()
+        object.__setattr__(settings, "vectora_home", original_home)
+
     def test_host_reachable_returns_models(self, client):
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
