@@ -26,6 +26,11 @@ from backend.runtime_profile import resolve_runtime_home
 
 logger = logging.getLogger(__name__)
 
+# Values injected by the previous Settings initialization are not operator env.
+# Keep this ledger so repeated initialization does not promote values loaded
+# from a project .env into process-level precedence.
+_LAST_LOADED_ENV_VALUES: dict[str, str] = {}
+
 
 def _default_vectora_home() -> Path:
     """Resolve o diretório base do Vectora a partir de ``VECTORA_HOME``, se setado.
@@ -731,7 +736,12 @@ class Settings(BaseSettings):
         # abaixo mesmo quando eles usam override=True entre si, senão um
         # `.env` de projeto esquecido no filesystem vence silenciosamente um
         # env var que o operador/teste setou de propósito.
+        global _LAST_LOADED_ENV_VALUES
         _operator_env = dict(os.environ)
+        for _key_name, _loaded_value in _LAST_LOADED_ENV_VALUES.items():
+            if _operator_env.get(_key_name) == _loaded_value:
+                _operator_env.pop(_key_name, None)
+                os.environ.pop(_key_name, None)
 
         # Level 5 (lowest): Load embedded defaults.env via setdefault
         try:
@@ -856,6 +866,11 @@ class Settings(BaseSettings):
         # já estava no processo antes desta função rodar — restaura por
         # cima de tudo que foi carregado acima.
         os.environ.update(_operator_env)
+        _LAST_LOADED_ENV_VALUES = {
+            _key_name: os.environ[_key_name]
+            for _key_name in PROVIDER_API_KEY_ENV.values()
+            if _key_name is not None and _key_name in os.environ
+        }
 
     def _initialize_directories(self) -> None:
         """Create all required directories if they don't exist."""
