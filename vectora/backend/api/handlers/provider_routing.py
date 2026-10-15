@@ -649,6 +649,36 @@ async def _install_ollama_from_official_release() -> Path | None:
                     r"[0-9a-fA-F]{64}", expected_digest
                 ):
                     expected_digest = None
+                # GitHub nem sempre expõe ``digest`` no JSON do asset. As
+                # releases do Ollama publicam o mesmo valor no manifesto
+                # sha256sum.txt; consulte-o antes de aceitar um parcial.
+                if expected_digest is None:
+                    checksum_asset = next(
+                        (
+                            item
+                            for item in assets
+                            if item.get("name") == "sha256sum.txt"
+                            and item.get("browser_download_url")
+                        ),
+                        None,
+                    )
+                    if checksum_asset is not None:
+                        checksum_response = await client.get(
+                            str(checksum_asset["browser_download_url"])
+                        )
+                        checksum_response.raise_for_status()
+                        checksum_text = checksum_response.text
+                        for line in checksum_text.splitlines():
+                            fields = line.split()
+                            if (
+                                len(fields) >= 2
+                                and Path(fields[-1].lstrip("*\\")).name
+                                == "OllamaSetup.exe"
+                            ):
+                                candidate = fields[0]
+                                if re.fullmatch(r"[0-9a-fA-F]{64}", candidate):
+                                    expected_digest = candidate
+                                break
                 metadata = None
                 if partial_metadata.exists():
                     try:
