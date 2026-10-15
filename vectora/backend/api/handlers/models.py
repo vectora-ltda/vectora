@@ -26,6 +26,7 @@ async def get_configured_providers() -> dict:
         list_registered_nine_router_models,
         list_registered_ollama_models,
         list_registered_openrouter_models,
+        ollama_runtime_status,
     )
     from backend.settings import (
         AVAILABLE_MODELS,
@@ -36,6 +37,10 @@ async def get_configured_providers() -> dict:
 
     dynamic_models = []
     configured_providers = set(settings.configured_llm_providers())
+    # O runtime gerenciado pode estar ativo mesmo sem uma URL persistida nas
+    # settings (o wizard usa o endpoint local padrão). Nesse caso os modelos
+    # registrados precisam continuar selecionáveis no seletor.
+    ollama_ready = (await ollama_runtime_status()).reachable
     for provider, models in (
         ("ollama", await list_registered_ollama_models()),
         ("openrouter", await list_registered_openrouter_models()),
@@ -50,7 +55,8 @@ async def get_configured_providers() -> dict:
                     "id": model_id,
                     "label": model.tag,
                     "provider": provider,
-                    "available": provider in configured_providers,
+                    "available": provider in configured_providers
+                    or (provider == "ollama" and ollama_ready),
                     "image_capability": state.value,
                 }
             )
