@@ -182,6 +182,43 @@ def clean_llamacpp_config():
 
 
 class TestOllamaDiscovery:
+    def test_ollama_release_tag_persists_and_allows_explicit_override(
+        self, monkeypatch, tmp_path
+    ):
+        from backend.api.handlers import provider_routing
+
+        tools_dir = tmp_path / "tools" / "ollama"
+        tools_dir.mkdir(parents=True)
+        (tools_dir / "release.json").write_text(
+            json.dumps({"tag": "v0.12.3"}), encoding="utf-8"
+        )
+        assert provider_routing._ollama_release_tag(tools_dir) == "v0.12.3"
+
+        monkeypatch.setenv("VECTORA_OLLAMA_RELEASE_TAG", "v0.13.0")
+        assert provider_routing._ollama_release_tag(tools_dir) == "v0.13.0"
+
+        monkeypatch.setenv("VECTORA_OLLAMA_RELEASE_TAG", "../unsafe")
+        with pytest.raises(ValueError, match="inválida"):
+            provider_routing._ollama_release_tag(tools_dir)
+
+    def test_trusted_cli_rejects_relative_path_from_path(self, monkeypatch):
+        from backend.api.handlers import provider_routing
+
+        monkeypatch.setattr(provider_routing.shutil, "which", lambda _: "winget")
+
+        assert provider_routing._trusted_cli_executable("winget") is None
+
+    def test_trusted_cli_accepts_existing_absolute_executable(
+        self, monkeypatch, tmp_path
+    ):
+        from backend.api.handlers import provider_routing
+
+        executable = tmp_path / "winget.exe"
+        executable.write_bytes(b"stub")
+        monkeypatch.setattr(provider_routing.shutil, "which", lambda _: str(executable))
+
+        assert provider_routing._trusted_cli_executable("winget") == executable
+
     def test_host_unreachable_returns_reachable_false_not_500(self, client):
         # Mocka a falha de conexão explicitamente — não depende da ausência
         # de um Ollama real rodando na máquina de dev (ver memória

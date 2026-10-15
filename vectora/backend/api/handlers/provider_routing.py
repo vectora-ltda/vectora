@@ -61,7 +61,7 @@ from datetime import UTC, datetime
 from functools import wraps
 from pathlib import Path
 from typing import Annotated, Any, Literal, ParamSpec, TypeVar
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -620,6 +620,45 @@ def _ollama_executable() -> Path | None:
     return None
 
 
+def _trusted_cli_executable(name: str) -> Path | None:
+    """Resolve a helper CLI without ever delegating a relative name to PATH."""
+    candidate = shutil.which(name)
+    if not candidate:
+        return None
+    path = Path(candidate).expanduser()
+    if not path.is_absolute() or not path.is_file():
+        return None
+    return path.resolve()
+
+
+def _ollama_release_tag(tools_dir: Path) -> str | None:
+    """Return the centrally selected Ollama release tag, when configured.
+
+    The first install may resolve the current official release.  Once resolved,
+    the tag is persisted beside the installer and all subsequent retries use
+    the immutable GitHub tag endpoint instead of moving ``latest``.
+    ``VECTORA_OLLAMA_RELEASE_TAG`` is an explicit operator override for
+    reproducible deployments and CI.
+    """
+    configured = os.environ.get("VECTORA_OLLAMA_RELEASE_TAG", "").strip()
+    if configured:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", configured):
+            raise ValueError("VECTORA_OLLAMA_RELEASE_TAG inválida")
+        return configured
+    manifest = tools_dir / "release.json"
+    try:
+        payload = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return None
+    tag = payload.get("tag") if isinstance(payload, dict) else None
+    return (
+        tag
+        if isinstance(tag, str)
+        and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", tag)
+        else None
+    )
+
+
 async def _install_ollama_from_official_release() -> Path | None:
     """Download and run the official Ollama installer when winget stalls."""
     _set_ollama_install_phase("download")
@@ -639,9 +678,14 @@ async def _install_ollama_from_official_release() -> Path | None:
             async with httpx.AsyncClient(
                 follow_redirects=True, timeout=timeout
             ) as client:
-                release = await client.get(
-                    "https://api.github.com/repos/ollama/ollama/releases/latest"
+                release_tag = _ollama_release_tag(tools_dir)
+                release_endpoint = (
+                    "https://api.github.com/repos/ollama/ollama/releases/tags/"
+                    + quote(release_tag, safe="")
+                    if release_tag
+                    else "https://api.github.com/repos/ollama/ollama/releases/latest"
                 )
+                release = await client.get(release_endpoint)
                 release.raise_for_status()
                 release_payload = release.json()
                 tag = release_payload.get("tag_name")
@@ -705,6 +749,21 @@ async def _install_ollama_from_official_release() -> Path | None:
                                 if re.fullmatch(r"[0-9a-fA-F]{64}", candidate):
                                     expected_digest = candidate
                                 break
+                # Persist the resolved tag before streaming bytes so a failed
+                # transfer retries the exact same release on the next run.
+                (tools_dir / "release.json").write_text(
+                    json.dumps(
+                        {
+                            "tag": tag,
+                            "asset": "OllamaSetup.exe",
+                            "url": download_url,
+                            "size": expected_size,
+                            "digest": expected_digest,
+                        },
+                        sort_keys=True,
+                    ),
+                    encoding="utf-8",
+                )
                 metadata = None
                 if partial_metadata.exists():
                     try:
@@ -966,14 +1025,14 @@ async def _install_ollama_runtime_impl(_: ProviderAdmin) -> OllamaRuntimeStatus:
         else:
             executable = None
     if executable is None:
-        winget = await asyncio.to_thread(shutil.which, "winget")
+        winget = await asyncio.to_thread(_trusted_cli_executable, "winget")
         if winget is None:
             raise HTTPException(
                 status_code=501,
                 detail="winget não está disponível para instalar o Ollama automaticamente",
             )
         process = await asyncio.create_subprocess_exec(
-            winget,
+            str(winget),
             "install",
             "--id",
             "Ollama.Ollama",
@@ -2853,7 +2912,7 @@ async def install_huggingface_model(
                     status_code=502,
                     detail=f"não foi possível importar o modelo no Ollama: {detail[-500:]}",
                 )
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             if process is not None:
                 await _terminate_ollama_process(process)
             raise HTTPException(
