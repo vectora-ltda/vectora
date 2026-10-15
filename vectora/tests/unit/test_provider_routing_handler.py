@@ -471,6 +471,71 @@ class TestOllamaDiscovery:
         object.__setattr__(settings, "vectora_home", original_home)
 
     @pytest.mark.asyncio
+    async def test_ollama_download_preserves_partial_on_transport_error(
+        self, monkeypatch, tmp_path
+    ):
+        """A transient HTTP stream failure must remain resumable."""
+        from backend.api.handlers import provider_routing
+        from backend.settings import settings
+
+        original_home = settings.vectora_home
+        object.__setattr__(settings, "vectora_home", Path(tmp_path))
+        installer = Path(tmp_path) / "tools" / "ollama" / "OllamaSetup.exe"
+
+        class Response:
+            status_code = 200
+            headers: dict[str, str] = {}
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "tag_name": "v1",
+                    "assets": [
+                        {
+                            "name": "OllamaSetup.exe",
+                            "browser_download_url": "https://example.invalid/OllamaSetup.exe",
+                            "size": 100,
+                            "digest": None,
+                        }
+                    ],
+                }
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+            async def aiter_bytes(self, _chunk_size):
+                yield b"partial"
+                raise httpx.ReadError("connection dropped")
+
+        class Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+            async def get(self, _url):
+                return Response()
+
+            def stream(self, _method, _url, headers=None):
+                return Response()
+
+        monkeypatch.setattr(provider_routing.httpx, "AsyncClient", lambda **_: Client())
+
+        with pytest.raises(HTTPException, match="connection dropped"):
+            await provider_routing._install_ollama_from_official_release()
+
+        partial = installer.with_suffix(".exe.part")
+        assert partial.read_bytes() == b"partial"
+        assert Path(f"{partial}.json").exists()
+        object.__setattr__(settings, "vectora_home", original_home)
+
+    @pytest.mark.asyncio
     async def test_ollama_download_reads_digest_manifest_when_asset_omits_digest(
         self, monkeypatch, tmp_path
     ):
