@@ -630,7 +630,10 @@ async def _install_ollama_from_official_release() -> Path | None:
     partial_metadata = Path(f"{partial}.json")
     if installer.exists() and not partial.exists():
         installer.replace(partial)
-    timeout = httpx.Timeout(connect=30.0, read=30.0, write=30.0, pool=30.0)
+    # GitHub pode ficar vários minutos sem enviar um chunk em conexões lentas.
+    # O deadline global continua limitando a operação, mas um read timeout
+    # curto transformaria uma pausa transitória em perda do download parcial.
+    timeout = httpx.Timeout(connect=30.0, read=300.0, write=30.0, pool=30.0)
     try:
         async with asyncio.timeout(OLLAMA_DOWNLOAD_TIMEOUT_SECONDS):
             async with httpx.AsyncClient(
@@ -796,10 +799,15 @@ async def _install_ollama_from_official_release() -> Path | None:
             detail="download oficial do Ollama excedeu o prazo total",
         ) from exc
     except (OSError, ValueError, httpx.HTTPError) as exc:
-        with suppress(OSError):
-            partial.unlink()
-        with suppress(OSError):
-            partial_metadata.unlink()
+        # Falhas de transporte são retomáveis: mantenha o parcial e o
+        # manifesto para que a próxima execução envie Range a partir do
+        # offset já confirmado. Um ValueError indica violação de integridade
+        # (Content-Range/tamanho/digest) e deve limpar o artefato suspeito.
+        if isinstance(exc, (ValueError, OSError)):
+            with suppress(OSError):
+                partial.unlink()
+            with suppress(OSError):
+                partial_metadata.unlink()
         logger.exception("ollama: download oficial falhou")
         raise HTTPException(
             status_code=502,
