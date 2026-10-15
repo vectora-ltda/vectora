@@ -2818,20 +2818,47 @@ async def install_huggingface_model(
     await asyncio.to_thread(root.mkdir, parents=True, exist_ok=True)
     if body.provider == "ollama":
         _set_ollama_install_phase("register")
-        import httpx
-
-        ollama_url = (settings.ollama_base_url or "http://127.0.0.1:11434").rstrip("/")
-        try:
-            async with httpx.AsyncClient(timeout=1800) as client:
-                response = await client.post(
-                    f"{ollama_url}/api/create",
-                    json={"name": alias, "modelfile": f"FROM {files[0]['path']}"},
-                )
-                response.raise_for_status()
-        except httpx.HTTPError as exc:
+        executable = await asyncio.to_thread(_ollama_executable)
+        if executable is None:
             raise HTTPException(
-                status_code=502, detail="não foi possível importar o modelo no Ollama"
+                status_code=409,
+                detail="Ollama não está instalado; inicie o runtime antes de importar o modelo",
+            )
+        modelfile = root / f".vectora-{alias}.Modelfile"
+        await asyncio.to_thread(
+            modelfile.write_text,
+            f"FROM {files[0]['path']}\n",
+            "utf-8",
+        )
+        process: asyncio.subprocess.Process | None = None
+        try:
+            process = await asyncio.create_subprocess_exec(
+                str(executable),
+                "create",
+                alias,
+                "-f",
+                str(modelfile),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), timeout=OLLAMA_INSTALLER_TIMEOUT_SECONDS
+            )
+            if process.returncode != 0:
+                detail = (stderr or stdout).decode("utf-8", errors="replace").strip()
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"não foi possível importar o modelo no Ollama: {detail[-500:]}",
+                )
+        except asyncio.TimeoutError as exc:
+            if process is not None:
+                await _terminate_ollama_process(process)
+            raise HTTPException(
+                status_code=504,
+                detail="a importação do modelo no Ollama excedeu o prazo",
             ) from exc
+        finally:
+            await asyncio.to_thread(modelfile.unlink, missing_ok=True)
     temporary = manifest_path.with_suffix(".tmp")
     await asyncio.to_thread(
         temporary.write_text,
