@@ -421,6 +421,100 @@ class TestOllamaDiscovery:
         assert not Path(f"{installer.with_suffix('.exe.part')}.json").exists()
         object.__setattr__(settings, "vectora_home", original_home)
 
+    @pytest.mark.asyncio
+    async def test_ollama_download_reads_digest_manifest_when_asset_omits_digest(
+        self, monkeypatch, tmp_path
+    ):
+        from backend.api.handlers import provider_routing
+        from backend.settings import settings
+
+        original_home = settings.vectora_home
+        object.__setattr__(settings, "vectora_home", Path(tmp_path))
+        content = b"installer-bytes"
+        digest = hashlib.sha256(content).hexdigest()
+        installer_url = "https://example.invalid/OllamaSetup.exe"
+        checksum_url = "https://example.invalid/sha256sum.txt"
+
+        class Response:
+            status_code = 200
+            headers: dict[str, str] = {}
+
+            def __init__(self, payload=None, text=""):
+                self._payload = payload
+                self.text = text
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return self._payload
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+            async def aiter_bytes(self, _chunk_size):
+                yield content
+
+        class Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+            async def get(self, url):
+                if url.endswith("sha256sum.txt"):
+                    return Response(text=f"{digest} *OllamaSetup.exe\\n")
+                return Response(
+                    payload={
+                        "tag_name": "v1",
+                        "assets": [
+                            {
+                                "name": "OllamaSetup.exe",
+                                "browser_download_url": installer_url,
+                                "size": len(content),
+                                "digest": None,
+                            },
+                            {
+                                "name": "sha256sum.txt",
+                                "browser_download_url": checksum_url,
+                            },
+                        ],
+                    }
+                )
+
+            def stream(self, _method, _url, headers=None):
+                return Response()
+
+        class Process:
+            returncode = 0
+
+            async def communicate(self):
+                return b"", b""
+
+        monkeypatch.setattr(provider_routing.httpx, "AsyncClient", lambda **_: Client())
+        monkeypatch.setattr(
+            provider_routing.asyncio,
+            "create_subprocess_exec",
+            AsyncMock(return_value=Process()),
+        )
+        monkeypatch.setattr(
+            provider_routing,
+            "_ollama_executable",
+            lambda: Path(tmp_path) / "ollama.exe",
+        )
+
+        result = await provider_routing._install_ollama_from_official_release()
+
+        assert result == Path(tmp_path) / "ollama.exe"
+        assert not (
+            Path(tmp_path) / "tools" / "ollama" / "OllamaSetup.exe.part"
+        ).exists()
+        object.__setattr__(settings, "vectora_home", original_home)
+
     def test_host_reachable_returns_models(self, client):
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()
