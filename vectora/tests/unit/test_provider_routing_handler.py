@@ -314,6 +314,22 @@ class TestOllamaDiscovery:
         assert provider_routing._ollama_install_phase == "cancelled"
 
     @pytest.mark.asyncio
+    async def test_ollama_status_exposes_failed_phase_as_error(self, monkeypatch):
+        from backend.api.handlers import provider_routing
+
+        monkeypatch.setattr(provider_routing, "_ollama_install_phase", "failed")
+        monkeypatch.setattr(provider_routing, "_ollama_executable", lambda: None)
+
+        async def unreachable():
+            return False, None
+
+        monkeypatch.setattr(provider_routing, "_ollama_http_status", unreachable)
+        status = await provider_routing.ollama_runtime_status()
+
+        assert status.state == "error"
+        assert status.phase == "failed"
+
+    @pytest.mark.asyncio
     async def test_ollama_resume_rejects_mismatched_content_range(
         self, monkeypatch, tmp_path
     ):

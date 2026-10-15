@@ -874,6 +874,19 @@ async def _ollama_http_status() -> tuple[bool, str | None]:
 async def ollama_runtime_status() -> OllamaRuntimeStatus:
     executable = await asyncio.to_thread(_ollama_executable)
     reachable, version = await _ollama_http_status()
+    if _ollama_install_phase in {"failed", "cancelled"} and not reachable:
+        return OllamaRuntimeStatus(
+            installed=executable is not None,
+            executable=str(executable) if executable else None,
+            reachable=False,
+            state="error",
+            phase=_ollama_install_phase,
+            detail=(
+                "A instalação do Ollama foi cancelada."
+                if _ollama_install_phase == "cancelled"
+                else "A instalação do Ollama falhou."
+            ),
+        )
     if reachable:
         return OllamaRuntimeStatus(
             installed=executable is not None,
