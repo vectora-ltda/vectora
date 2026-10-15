@@ -58,6 +58,7 @@ async def test_ollama_runtime_status_reports_missing_runtime(monkeypatch):
     from backend.api.handlers import provider_routing
 
     monkeypatch.setattr(provider_routing, "_ollama_executable", lambda: None)
+    monkeypatch.setattr(provider_routing, "_ollama_install_phase", "idle")
     monkeypatch.setattr(
         provider_routing,
         "_ollama_http_status",
