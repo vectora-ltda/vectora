@@ -124,9 +124,16 @@ class OllamaChatClient:
             "model": self.model,
             "messages": [_to_ollama_message(m) for m in messages],
         }
+        predict_limit = max_tokens
+        if predict_limit is None:
+            predict_limit = (
+                min(settings.ollama_num_predict, 256)
+                if tools
+                else settings.ollama_num_predict
+            )
         options: dict[str, Any] = {
             "num_ctx": settings.ollama_num_ctx,
-            "num_predict": max_tokens or settings.ollama_num_predict,
+            "num_predict": predict_limit,
         }
         if temperature is not None:
             options["temperature"] = temperature

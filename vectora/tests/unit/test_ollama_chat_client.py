@@ -181,6 +181,7 @@ class TestToolCalling:
 
         assert capturado["tools"][0]["function"]["name"] == "buscar"
         assert capturado["options"]["temperature"] == 0.2
+        assert capturado["options"]["num_predict"] == 256
 
     async def test_tool_call_com_arguments_string_e_desserializada(self):
         """Ollama antigo manda `arguments` como string JSON; o moderno já
