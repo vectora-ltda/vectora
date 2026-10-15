@@ -70,6 +70,27 @@ async def test_ollama_runtime_status_reports_missing_runtime(monkeypatch):
     assert status.reachable is False
     assert status.state == "missing"
 
+
+@pytest.mark.asyncio
+async def test_ollama_runtime_status_reports_active_install(monkeypatch):
+    """Uma instalação em andamento não deve aparecer como runtime ausente."""
+    from backend.api.handlers import provider_routing
+
+    monkeypatch.setattr(provider_routing, "_ollama_executable", lambda: None)
+    monkeypatch.setattr(
+        provider_routing,
+        "_ollama_http_status",
+        AsyncMock(return_value=(False, None)),
+    )
+    monkeypatch.setattr(provider_routing, "_ollama_install_phase", "download")
+
+    status = await provider_routing.ollama_runtime_status()
+
+    assert status.installed is False
+    assert status.reachable is False
+    assert status.state == "installing"
+    assert status.phase == "download"
+
     def test_registered_ollama_model_appears_in_dynamic_models(self, client):
         tag = "providers-test-tag"
         # DB real compartilhada entre execuções (ver threads.py::_get_db) —

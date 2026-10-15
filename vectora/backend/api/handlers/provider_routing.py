@@ -232,7 +232,7 @@ class OllamaRuntimeStatus(BaseModel):
     executable: str | None = None
     reachable: bool
     version: str | None = None
-    state: Literal["missing", "installed", "running", "error"]
+    state: Literal["missing", "installing", "installed", "running", "error"]
     phase: OllamaInstallPhase = "idle"
     detail: str | None = None
 
@@ -922,6 +922,20 @@ async def ollama_runtime_status() -> OllamaRuntimeStatus:
             state="installed",
             phase=_ollama_install_phase,
             detail="Ollama está instalado, mas o servidor ainda não está respondendo.",
+        )
+    if _ollama_install_phase in {
+        "detect",
+        "download",
+        "install",
+        "start",
+        "register",
+    }:
+        return OllamaRuntimeStatus(
+            installed=False,
+            reachable=False,
+            state="installing",
+            phase=_ollama_install_phase,
+            detail="A instalação do Ollama está em andamento.",
         )
     return OllamaRuntimeStatus(
         installed=False,
