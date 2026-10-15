@@ -1,9 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   buildDockerArguments,
+  resolveDockerExecutable,
   validateContextSize,
   validateModelReference,
 } from "../docker-cli-executor.js";
+
+const previousDockerCliPath = process.env.DOCKER_CLI_PATH;
+
+afterEach(() => {
+  if (previousDockerCliPath === undefined) delete process.env.DOCKER_CLI_PATH;
+  else process.env.DOCKER_CLI_PATH = previousDockerCliPath;
+});
 
 describe("Docker Model Runner command contract", () => {
   it("gera somente argumentos do allowlist para pull e start", () => {
@@ -43,5 +54,20 @@ describe("Docker Model Runner command contract", () => {
       "4096",
       "hf.co/Qwen/Qwen3-0.6B",
     ]);
+  });
+
+  it("resolve o CLI por caminho absoluto configurado, sem consultar PATH", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "vectora-docker-"));
+    const executable = path.join(dir, "docker.exe");
+    writeFileSync(executable, "");
+    expect(
+      resolveDockerExecutable({ DOCKER_CLI_PATH: executable, PATH: "" }),
+    ).toBe(path.resolve(executable));
+  });
+
+  it("rejeita configuração relativa em vez de executar pelo diretório atual", () => {
+    expect(() =>
+      resolveDockerExecutable({ DOCKER_CLI_PATH: "docker.exe" }),
+    ).toThrow(/caminho absoluto/);
   });
 });

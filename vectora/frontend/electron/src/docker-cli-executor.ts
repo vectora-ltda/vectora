@@ -8,12 +8,80 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import killTree from "tree-kill";
 
 export const MAX_OUTPUT_BYTES = 64 * 1024;
 export const DEFAULT_TIMEOUT_MS = 120_000;
 
 const MODEL_REFERENCE = /^[A-Za-z0-9][A-Za-z0-9._/@:+-]{0,255}$/;
+
+/**
+ * Resolve Docker Desktop without relying on the Electron process PATH.
+ *
+ * GUI-launched Electron processes commonly inherit a stale or reduced PATH.
+ * Executing the bare `docker` name would then either hit an unrelated binary
+ * or fail even while Docker Desktop is running.  An explicit override is
+ * supported for managed installations; otherwise use only documented
+ * absolute locations for the current platform.
+ */
+export function resolveDockerExecutable(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const configured = env.DOCKER_CLI_PATH?.trim();
+  const candidates: string[] = [];
+  if (configured) {
+    if (!path.isAbsolute(configured)) {
+      throw new Error("DOCKER_CLI_PATH deve ser um caminho absoluto");
+    }
+    candidates.push(configured);
+  }
+
+  if (process.platform === "win32") {
+    const programFiles = env.ProgramW6432 || env.ProgramFiles;
+    const localAppData = env.LOCALAPPDATA;
+    if (programFiles) {
+      candidates.push(
+        path.join(
+          programFiles,
+          "Docker",
+          "Docker",
+          "resources",
+          "bin",
+          "docker.exe",
+        ),
+      );
+    }
+    if (localAppData) {
+      candidates.push(
+        path.join(
+          localAppData,
+          "Programs",
+          "DockerDesktop",
+          "resources",
+          "bin",
+          "docker.exe",
+        ),
+      );
+    }
+  } else {
+    candidates.push("/usr/local/bin/docker", "/usr/bin/docker");
+    candidates.push(
+      path.join(env.HOME || os.homedir(), ".docker", "bin", "docker"),
+    );
+  }
+
+  for (const candidate of candidates) {
+    if (path.isAbsolute(candidate) && existsSync(candidate)) {
+      return path.resolve(candidate);
+    }
+  }
+  throw new Error(
+    "Docker CLI não encontrado em um caminho absoluto; configure DOCKER_CLI_PATH",
+  );
+}
 
 export type DockerOperation =
   | "version"
@@ -126,9 +194,10 @@ export class DockerCliExecutor {
     const operationId = options.operationId ?? randomUUID();
     const args = buildDockerArguments(operation, reference, contextSize);
     const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const executable = resolveDockerExecutable();
 
     return await new Promise<DockerCommandResult>((resolve, reject) => {
-      const child = spawn("docker", args, {
+      const child = spawn(executable, args, {
         shell: false,
         windowsHide: true,
         env: {
