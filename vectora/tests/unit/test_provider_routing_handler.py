@@ -281,6 +281,39 @@ class TestOllamaDiscovery:
         assert maximum == 1
 
     @pytest.mark.asyncio
+    async def test_ollama_install_reports_ready_phase_after_readiness(
+        self, monkeypatch, tmp_path
+    ):
+        """O wizard só publica ``ready`` depois de confirmar o endpoint."""
+        from backend.api.handlers import provider_routing
+
+        executable = tmp_path / "ollama.exe"
+        executable.write_bytes(b"stub")
+        monkeypatch.setattr(provider_routing, "_ollama_executable", lambda: executable)
+
+        async def reachable():
+            return True, "0.1.0-test"
+
+        monkeypatch.setattr(provider_routing, "_ollama_http_status", reachable)
+        result = await provider_routing._install_ollama_runtime_impl(None)
+
+        assert result.state == "running"
+        assert result.phase == "ready"
+        assert provider_routing._ollama_install_phase == "ready"
+
+    @pytest.mark.asyncio
+    async def test_ollama_install_cancelled_phase_is_observable(self, monkeypatch):
+        from backend.api.handlers import provider_routing
+
+        async def cancelled(_):
+            raise asyncio.CancelledError
+
+        monkeypatch.setattr(provider_routing, "_install_ollama_runtime_impl", cancelled)
+        with pytest.raises(asyncio.CancelledError):
+            await provider_routing.install_ollama_runtime(None)
+        assert provider_routing._ollama_install_phase == "cancelled"
+
+    @pytest.mark.asyncio
     async def test_ollama_resume_rejects_mismatched_content_range(
         self, monkeypatch, tmp_path
     ):

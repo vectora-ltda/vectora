@@ -87,6 +87,24 @@ OLLAMA_CLEANUP_TIMEOUT_SECONDS = 10.0
 # instead of allowing each phase timeout to accumulate without a global limit.
 OLLAMA_INSTALL_TOTAL_TIMEOUT_SECONDS = 7_500.0
 _OLLAMA_INSTALL_LOCK = asyncio.Lock()
+OllamaInstallPhase = Literal[
+    "idle",
+    "detect",
+    "download",
+    "install",
+    "start",
+    "ready",
+    "register",
+    "failed",
+    "cancelled",
+]
+_ollama_install_phase: OllamaInstallPhase = "idle"
+
+
+def _set_ollama_install_phase(phase: OllamaInstallPhase) -> None:
+    """Atualiza a fase observável do wizard sem inventar sucesso."""
+    global _ollama_install_phase
+    _ollama_install_phase = phase
 
 
 def _require_provider_admin(request: Request) -> None:
@@ -215,6 +233,7 @@ class OllamaRuntimeStatus(BaseModel):
     reachable: bool
     version: str | None = None
     state: Literal["missing", "installed", "running", "error"]
+    phase: OllamaInstallPhase = "idle"
     detail: str | None = None
 
 
@@ -603,6 +622,7 @@ def _ollama_executable() -> Path | None:
 
 async def _install_ollama_from_official_release() -> Path | None:
     """Download and run the official Ollama installer when winget stalls."""
+    _set_ollama_install_phase("download")
     tools_dir = settings.vectora_home / "tools" / "ollama"
     tools_dir.mkdir(parents=True, exist_ok=True)
     installer = tools_dir / "OllamaSetup.exe"
@@ -792,6 +812,7 @@ async def _install_ollama_from_official_release() -> Path | None:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
+    _set_ollama_install_phase("install")
     try:
         output, _ = await asyncio.wait_for(
             process.communicate(), timeout=OLLAMA_INSTALLER_TIMEOUT_SECONDS
@@ -860,6 +881,7 @@ async def ollama_runtime_status() -> OllamaRuntimeStatus:
             reachable=True,
             version=version,
             state="running",
+            phase=_ollama_install_phase,
         )
     if executable is not None:
         return OllamaRuntimeStatus(
@@ -867,12 +889,14 @@ async def ollama_runtime_status() -> OllamaRuntimeStatus:
             executable=str(executable),
             reachable=False,
             state="installed",
+            phase=_ollama_install_phase,
             detail="Ollama está instalado, mas o servidor ainda não está respondendo.",
         )
     return OllamaRuntimeStatus(
         installed=False,
         reachable=False,
         state="missing",
+        phase=_ollama_install_phase,
         detail="Ollama ainda não foi instalado neste dispositivo.",
     )
 
@@ -885,6 +909,7 @@ async def _install_ollama_runtime_impl(_: ProviderAdmin) -> OllamaRuntimeStatus:
     configurado pelo usuário. O endpoint só retorna sucesso quando ``/api/version``
     responde, evitando registrar um runtime que ainda não está utilizável.
     """
+    _set_ollama_install_phase("detect")
     executable = await asyncio.to_thread(_ollama_executable)
     if executable is None:
         winget = await asyncio.to_thread(shutil.which, "winget")
@@ -933,6 +958,7 @@ async def _install_ollama_runtime_impl(_: ProviderAdmin) -> OllamaRuntimeStatus:
 
     reachable, version = await _ollama_http_status()
     if not reachable:
+        _set_ollama_install_phase("start")
         env = os.environ.copy()
         env["OLLAMA_MODELS"] = str(settings.vectora_home / "models" / "ollama")
         server_process = await asyncio.create_subprocess_exec(
@@ -958,12 +984,14 @@ async def _install_ollama_runtime_impl(_: ProviderAdmin) -> OllamaRuntimeStatus:
         raise HTTPException(
             status_code=502, detail="Ollama foi instalado, mas não iniciou o servidor"
         )
+    _set_ollama_install_phase("ready")
     return OllamaRuntimeStatus(
         installed=True,
         executable=str(executable),
         reachable=True,
         version=version,
         state="running",
+        phase="ready",
     )
 
 
@@ -974,12 +1002,19 @@ async def install_ollama_runtime(_: ProviderAdmin) -> OllamaRuntimeStatus:
         async with _OLLAMA_INSTALL_LOCK:
             async with asyncio.timeout(OLLAMA_INSTALL_TOTAL_TIMEOUT_SECONDS):
                 return await _install_ollama_runtime_impl(_)
+    except asyncio.CancelledError:
+        _set_ollama_install_phase("cancelled")
+        raise
     except TimeoutError as exc:
+        _set_ollama_install_phase("failed")
         logger.warning("ollama: instalação excedeu o deadline total")
         raise HTTPException(
             status_code=504,
             detail="instalação do Ollama excedeu o prazo total da operação",
         ) from exc
+    except HTTPException:
+        _set_ollama_install_phase("failed")
+        raise
 
 
 @router.get("/ollama/registered")
@@ -2727,6 +2762,7 @@ async def install_huggingface_model(
     manifest_path = root / "model-manifest.json"
     await asyncio.to_thread(root.mkdir, parents=True, exist_ok=True)
     if body.provider == "ollama":
+        _set_ollama_install_phase("register")
         import httpx
 
         ollama_url = (settings.ollama_base_url or "http://127.0.0.1:11434").rstrip("/")

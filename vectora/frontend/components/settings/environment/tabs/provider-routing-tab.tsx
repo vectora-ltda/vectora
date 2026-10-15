@@ -38,6 +38,16 @@ interface OllamaRuntimeStatus {
   reachable: boolean;
   version?: string | null;
   state: "missing" | "installed" | "running" | "error";
+  phase?:
+    | "idle"
+    | "detect"
+    | "download"
+    | "install"
+    | "start"
+    | "ready"
+    | "register"
+    | "failed"
+    | "cancelled";
   detail?: string | null;
 }
 
@@ -1691,6 +1701,9 @@ function OllamaSection() {
               ? m.provider_routing_ollama_runtime_installed()
               : m.provider_routing_ollama_runtime_missing()}
           {runtime?.version ? ` (${runtime.version})` : ""}
+          {runtime?.phase && runtime.phase !== "idle"
+            ? ` · ${runtime.phase}`
+            : ""}
         </span>
         {runtime?.state !== "running" && (
           <Button
