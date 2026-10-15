@@ -12,7 +12,12 @@ import json
 import httpx
 import pytest
 
-from backend.llm.ollama.chat_client import OllamaChatClient, _parse_tool_calls
+from backend.llm.ollama.chat_client import (
+    OllamaChatClient,
+    _parse_textual_tool_calls,
+    _parse_tool_calls,
+    _payload_tools,
+)
 from backend.llm.ollama.client import OllamaClient, OllamaResponseError
 from backend.tools.registry import ToolExtras, vtool
 from backend.vtypes.message import (
@@ -43,6 +48,109 @@ def _resposta_ok(texto: str = "Olá", **extra) -> dict:
 
 
 class TestAgenerate:
+    async def test_retries_transient_invalid_tool_json_with_deterministic_temperature(
+        self,
+    ):
+        calls = 0
+
+        def handler(req: httpx.Request):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return httpx.Response(
+                    500,
+                    json={
+                        "error": "invalid tool call arguments: unexpected end of JSON input"
+                    },
+                )
+            payload = _resposta_ok(
+                texto="",
+                message={
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "function": {
+                                "name": "terminal",
+                                "arguments": {"command": "echo ok"},
+                            }
+                        }
+                    ],
+                },
+            )
+            return httpx.Response(200, json=payload)
+
+        from backend.nodes.tools import ALL_TOOL_SPECS
+
+        spec = next(
+            (candidate for candidate in ALL_TOOL_SPECS if candidate.name == "terminal"),
+            None,
+        )
+        assert spec is not None
+        resultado = await _client(handler).agenerate(
+            [text_message(MessageRole.USER, "use terminal")], tools=[spec]
+        )
+
+        assert calls == 2
+        assert resultado.tool_calls[0].name == "terminal"
+
+    def test_parseia_tool_call_textual_do_template_qwen(self):
+        chamadas = _parse_textual_tool_calls(
+            '{{"name": "terminal", "arguments": {"command": "echo ok"}}}'
+        )
+
+        assert len(chamadas) == 1
+        assert chamadas[0].name == "terminal"
+        assert chamadas[0].args == {"command": "echo ok"}
+
+    def test_parseia_variante_qwen_com_chaves_externas_extras(self):
+        chamadas = _parse_textual_tool_calls(
+            '{{"name": "web_search", "arguments": {"query": "Vectora"}}}}'
+        )
+
+        assert [(call.name, call.args) for call in chamadas] == [
+            ("web_search", {"query": "Vectora"})
+        ]
+
+    def test_parseia_tool_call_xml_do_template_qwen(self):
+        chamadas = _parse_textual_tool_calls(
+            '<tool_call>\n{"name":"browser_read_dom","arguments":{}}\n</tool_call>'
+        )
+
+        assert [(call.name, call.args) for call in chamadas] == [
+            ("browser_read_dom", {})
+        ]
+
+    def test_catalogo_ollama_grande_e_compactado_preserva_fluxo_core(self):
+        from backend.nodes.tools import ALL_TOOL_SPECS
+
+        selecionadas, compactado = _payload_tools(ALL_TOOL_SPECS)
+
+        assert compactado is True
+        assert len(selecionadas) < len(ALL_TOOL_SPECS)
+        nomes = {spec.name for spec in selecionadas}
+        assert {"terminal", "web_search", "browser_navigate"} <= nomes
+        assert "open_terminal" not in nomes
+
+    def test_catalogo_pequeno_nao_e_alterado(self):
+        from backend.nodes.tools import ALL_TOOL_SPECS
+
+        selecionadas, compactado = _payload_tools(ALL_TOOL_SPECS[:1])
+
+        assert compactado is False
+        assert selecionadas == ALL_TOOL_SPECS[:1]
+
+    def test_pedido_que_nomeia_tool_reduz_para_schema_nomeado(self):
+        from backend.nodes.tools import ALL_TOOL_SPECS
+
+        selecionadas, compactado = _payload_tools(
+            ALL_TOOL_SPECS,
+            [text_message(MessageRole.USER, "chame browser_read_dom agora")],
+        )
+
+        assert compactado is True
+        assert [spec.name for spec in selecionadas] == ["browser_read_dom"]
+
     async def test_prompt_simples_devolve_conteudo(self):
         def handler(_req):
             return httpx.Response(200, json=_resposta_ok("Olá do Ollama"))
@@ -281,6 +389,45 @@ class TestStreaming:
 
 
 class TestStreamingToolCallsEUsage:
+    async def test_tool_call_textual_no_content_vira_chunk_estruturado(self):
+        corpo = (
+            json.dumps(
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": '{{"name": "terminal", "arguments": '
+                        '{"command": "echo ok"}}}',
+                    },
+                    "done": False,
+                }
+            )
+            + "\n"
+            + json.dumps(
+                {"message": {"role": "assistant", "content": ""}, "done": True}
+            )
+            + "\n"
+        ).encode()
+
+        def handler(_req):
+            return httpx.Response(
+                200, content=corpo, headers={"content-type": "application/x-ndjson"}
+            )
+
+        from backend.nodes.tools import file_read
+
+        chunks = [
+            c
+            async for c in _client(handler).astream(
+                [text_message(MessageRole.USER, "execute")],
+                tools=[file_read],
+            )
+        ]
+
+        calls = [tc for chunk in chunks for tc in chunk.tool_call_chunks]
+        assert [(call.name, json.loads(call.args_fragment)) for call in calls] == [
+            ("terminal", {"command": "echo ok"})
+        ]
+
     async def test_tool_call_sai_completa_num_unico_chunk(self):
         corpo = (
             b'{"message":{"role":"assistant","content":"","tool_calls":'

@@ -2,10 +2,44 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from backend.services.text import text_service
 from backend.vtypes.message import ContentBlock, MessageRole, VMessage
 
 _IMAGE_TOKEN_ESTIMATE = 1_600
+_TOOL_RESULT_CONTEXT_LIMIT = 12_000
+
+
+def _bound_tool_results(messages: list[VMessage]) -> list[VMessage]:
+    """Keep large tool payloads available without evicting their call unit."""
+    bounded: list[VMessage] = []
+    for message in messages:
+        if (
+            message.role is not MessageRole.TOOL
+            or len(message.text()) <= _TOOL_RESULT_CONTEXT_LIMIT
+        ):
+            bounded.append(message)
+            continue
+        remaining = _TOOL_RESULT_CONTEXT_LIMIT
+        blocks: list[ContentBlock] = []
+        for block in message.content:
+            if block.kind != "text" or not block.text:
+                blocks.append(block)
+                continue
+            excerpt = block.text[:remaining]
+            remaining -= len(excerpt)
+            blocks.append(replace(block, text=excerpt))
+            if remaining <= 0:
+                break
+        blocks.append(
+            ContentBlock(
+                kind="text",
+                text="\n[resultado de ferramenta truncado para manter o contexto]",
+            )
+        )
+        bounded.append(replace(message, content=blocks))
+    return bounded
 
 
 def _message_tokens(message: VMessage) -> int:
@@ -68,6 +102,7 @@ def compact_messages(
     """Keep instructions and the newest work within a deterministic budget."""
     if not enabled or max_tokens <= 0 or len(messages) < 2:
         return messages
+    messages = _bound_tool_results(messages)
     if sum(_message_tokens(message) for message in messages) <= max_tokens:
         return messages
 
