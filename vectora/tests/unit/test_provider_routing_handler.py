@@ -536,6 +536,94 @@ class TestOllamaDiscovery:
         object.__setattr__(settings, "vectora_home", original_home)
 
     @pytest.mark.asyncio
+    async def test_ollama_download_rejects_resume_when_server_ignores_range(
+        self, monkeypatch, tmp_path
+    ):
+        """A resumed download must never append a full 200 response."""
+        from backend.api.handlers import provider_routing
+        from backend.settings import settings
+
+        original_home = settings.vectora_home
+        object.__setattr__(settings, "vectora_home", Path(tmp_path))
+        installer = Path(tmp_path) / "tools" / "ollama" / "OllamaSetup.exe"
+        partial = installer.with_suffix(".exe.part")
+        partial.parent.mkdir(parents=True)
+        partial.write_bytes(b"prefix")
+        digest = hashlib.sha256(b"prefixfull-response").hexdigest()
+        partial.with_suffix(partial.suffix + ".json").write_text(
+            json.dumps(
+                {
+                    "tag": "v1",
+                    "url": "https://example.invalid/OllamaSetup.exe",
+                    "size": len(b"prefixfull-response"),
+                    "digest": digest,
+                }
+            )
+        )
+
+        class Response:
+            status_code = 200
+            headers: dict[str, str] = {}
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "tag_name": "v1",
+                    "assets": [
+                        {
+                            "name": "OllamaSetup.exe",
+                            "browser_download_url": "https://example.invalid/OllamaSetup.exe",
+                            "size": len(b"prefixfull-response"),
+                            "digest": digest,
+                        }
+                    ],
+                }
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+            async def aiter_bytes(self, _chunk_size):
+                yield b"full-response"
+
+        class Client:
+            def __init__(self):
+                self.headers = None
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+            async def get(self, _url):
+                return Response()
+
+            def stream(self, _method, _url, headers=None):
+                self.headers = headers
+                return Response()
+
+        http_client = Client()
+        monkeypatch.setattr(
+            provider_routing.httpx, "AsyncClient", lambda **_: http_client
+        )
+
+        with pytest.raises(HTTPException, match="ignorou Range"):
+            await provider_routing._install_ollama_from_official_release()
+
+        assert partial.read_bytes() == b"prefix"
+        assert http_client.headers == {
+            "Range": "bytes=6-",
+            "Accept-Encoding": "identity",
+            "Cache-Control": "no-cache",
+        }
+        object.__setattr__(settings, "vectora_home", original_home)
+
+    @pytest.mark.asyncio
     async def test_ollama_download_reads_digest_manifest_when_asset_omits_digest(
         self, monkeypatch, tmp_path
     ):
