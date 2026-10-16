@@ -51,6 +51,12 @@ class MediaQuota:
 
     def __init__(self, database: Path | None = None) -> None:
         self.database = cast("Path", database or settings.db_file)
+        # Keep the database selected at construction time.  Tests and
+        # workspace workers may temporarily redirect the shared repository by
+        # replacing ``database``; that must not silently opt the repository
+        # into the process-wide Postgres backend.  Postgres is selected only
+        # while the original configured database is still in use.
+        self._configured_database = self.database
 
     def _postgres_enabled(self) -> bool:
         """Indica se o storage completo deve usar Postgres para quota.
@@ -60,7 +66,10 @@ class MediaQuota:
         redirecionado para o Postgres global apenas porque o perfil ativo usa
         storage completo.
         """
-        if self.database != settings.db_file:
+        if (
+            self.database != self._configured_database
+            or self._configured_database != settings.db_file
+        ):
             return False
         try:
             from backend.services.license import get_effective_storage_mode
