@@ -134,6 +134,15 @@ export function ChatInterface({
   const retriedReadCursorRef = useRef<number | null>(null);
   const [, forceReadRetry] = useState(0);
 
+  // These refs belong to one thread only. Reset them before a route switch so
+  // a cursor acknowledged for the previous conversation cannot suppress the
+  // first unread assistant message of the next one.
+  useEffect(() => {
+    lastReadCursorRef.current = 0;
+    inFlightReadCursorRef.current = null;
+    retriedReadCursorRef.current = null;
+  }, [threadId]);
+
   // Confirm only the last assistant message that is actually present in the
   // rendered message store. A response arriving after this effect runs stays
   // unread until the next render, avoiding the server-side latest-message

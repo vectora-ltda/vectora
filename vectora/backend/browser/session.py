@@ -43,6 +43,10 @@ logger = logging.getLogger(__name__)
 _LOG_MAXLEN = 500
 
 _sessions: dict[str, dict[str, Any]] = {}
+# A CDP target is a shared process-global object. Keep an explicit ownership
+# map so a second workspace cannot silently select and navigate the first
+# workspace's BrowserView.
+_page_owners: dict[int, str] = {}
 
 #: Referências às tasks de accept/dismiss de dialog em voo — sem isso o
 #: garbage collector pode coletar a task antes dela rodar (RUF006).
@@ -191,6 +195,15 @@ def _find_agent_page(context: Any) -> Any:
     )
 
 
+def _claim_page(page: Any, workspace_id: str) -> None:
+    owner = _page_owners.get(id(page))
+    if owner is not None and owner != workspace_id:
+        raise RuntimeError(
+            f"A aba do Browser Workbench já pertence ao workspace '{owner}'"
+        )
+    _page_owners[id(page)] = workspace_id
+
+
 async def get_browser_page(workspace_id: str, tab_id: str | None = None) -> Any:
     """Retorna a `Page` da aba resolvida (ativa, se `tab_id` omitido),
     criando o browser (e a primeira aba) sob demanda."""
@@ -231,6 +244,7 @@ async def get_browser_page(workspace_id: str, tab_id: str | None = None) -> Any:
                 page = await context.new_page()
             else:
                 raise
+        _claim_page(page, workspace_id)
         tab = await _create_tab_state(page)
         first_tab_id = uuid.uuid4().hex[:12]
         _sessions[workspace_id] = {
@@ -292,6 +306,7 @@ async def new_tab(workspace_id: str, url: str | None = None) -> str:
     if url:
         await page.goto(url, wait_until="domcontentloaded")
     tab = await _create_tab_state(page)
+    _claim_page(page, workspace_id)
     tab_id = uuid.uuid4().hex[:12]
     session["tabs"][tab_id] = tab
     session["active_tab_id"] = tab_id
@@ -329,6 +344,7 @@ async def close_tab(workspace_id: str, tab_id: str) -> bool:
         session["active_tab_id"] = blank_id
         return True
     session["tabs"].pop(tab_id, None)
+    _page_owners.pop(id(tab.page), None)
     try:
         await tab.page.close()
     except Exception:
@@ -442,6 +458,8 @@ async def close_browser_session(workspace_id: str) -> None:
     session = _sessions.pop(workspace_id, None)
     if session is None:
         return
+    for tab in session.get("tabs", {}).values():
+        _page_owners.pop(id(tab.page), None)
     try:
         if session.get("owns_browser", False):
             await session["browser"].close()

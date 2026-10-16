@@ -45,6 +45,7 @@ class QuotaReservation:
     operation: str
     units: int
     state: QuotaState = "reserved"
+    backend: Literal["sqlite", "postgres"] = "sqlite"
 
 
 class MediaQuota:
@@ -319,6 +320,7 @@ class MediaQuota:
                             operation,
                             existing["units"],
                             "reserved",
+                            "postgres",
                         )
                     elif reactivated_reservation is None:
                         return QuotaReservation(
@@ -328,6 +330,7 @@ class MediaQuota:
                             existing["operation"],
                             existing["units"],
                             existing["state"],
+                            "postgres",
                         )
                 if reactivated_reservation is None:
                     await connection.execute(
@@ -381,7 +384,13 @@ class MediaQuota:
             new_state="reserved",
         )
         return QuotaReservation(
-            idempotency_key, user_id, period, operation, estimate_units
+            idempotency_key,
+            user_id,
+            period,
+            operation,
+            estimate_units,
+            "reserved",
+            "postgres",
         )
 
     def _reserve(
@@ -489,6 +498,7 @@ class MediaQuota:
                     existing[2],
                     existing[3],
                     cast("QuotaState", existing[4]),
+                    "sqlite",
                 )
                 if transition is not None:
                     db.commit()
@@ -545,19 +555,22 @@ class MediaQuota:
     async def finalize(
         self, reservation: QuotaReservation, *, state: QuotaState
     ) -> None:
-        if self._postgres_enabled():
+        # Finalization must follow the backend that created the reservation.
+        # The process-wide setting may change while a tool is running; using
+        # the current setting here could finalize a SQLite reservation against
+        # Postgres (or vice versa) and silently lose the transition.
+        if reservation.backend == "postgres":
             try:
                 await self._finalize_postgres(reservation.id, state)
             except (ConnectionError, OSError, socket.gaierror, TimeoutError):
-                # A reservation may have been created locally after a remote
-                # connection outage. Finalization must follow the same store
-                # instead of turning a successful media tool into an error.
+                # Do not redirect an uncertain remote transaction to another
+                # store. The caller can retry the same idempotent operation.
                 logger.warning(
                     "media_quota: Postgres indisponível na finalização; "
-                    "finalizando SQLite local",
+                    "reserva permanece pendente para retry",
                     exc_info=True,
                 )
-                await asyncio.to_thread(self._finalize, reservation.id, state)
+                raise
         else:
             await asyncio.to_thread(self._finalize, reservation.id, state)
 

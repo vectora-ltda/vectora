@@ -108,21 +108,24 @@ describe("ThreadItem — menu de contexto", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("limpa o contador da thread ativa após confirmar a leitura", async () => {
-    const { markThreadRead } = await import("@/lib/api/vectora-client");
+  it("confirma a seleção e limpa somente a badge local da thread", () => {
+    const onSelect = vi.fn();
     render(
       <ThreadItem
         thread={makeThread({ unread_count: 2 })}
-        isActive
-        onSelect={vi.fn()}
+        isActive={false}
+        onSelect={onSelect}
         onDelete={vi.fn()}
         onRename={vi.fn()}
         onTogglePin={vi.fn()}
       />,
     );
-    await act(async () => undefined);
-    expect(markThreadRead).toHaveBeenCalledWith("t1");
-    expect(queryClient.setQueryData).toHaveBeenCalled();
+    fireEvent.click(screen.getByText("Conversa T1"));
+    expect(onSelect).toHaveBeenCalledWith("t1");
+    expect(queryClient.setQueryData).toHaveBeenCalledWith(
+      ["threads", 100],
+      expect.any(Function),
+    );
   });
 
   it("expõe apenas um indicador, sem exibir a quantidade de mensagens", () => {
@@ -157,60 +160,6 @@ describe("ThreadItem — menu de contexto", () => {
     expect(
       screen.queryByLabelText(/mensagens não lidas/),
     ).not.toBeInTheDocument();
-  });
-
-  it("zera somente a thread correta no updater do cache", async () => {
-    render(
-      <ThreadItem
-        thread={makeThread({ unread_count: 2 })}
-        isActive
-        onSelect={vi.fn()}
-        onDelete={vi.fn()}
-        onRename={vi.fn()}
-        onTogglePin={vi.fn()}
-      />,
-    );
-    await act(async () => undefined);
-
-    const call = vi.mocked(queryClient.setQueryData).mock.calls[0];
-    const updater = call[1] as (data: {
-      threads: { id: string; unread_count?: number }[];
-    }) => { threads: { id: string; unread_count?: number }[] };
-    const updated = updater({
-      threads: [
-        { id: "t1", unread_count: 2 },
-        { id: "t2", unread_count: 4 },
-      ],
-    });
-
-    expect(updated.threads).toEqual([
-      { id: "t1", unread_count: 0 },
-      { id: "t2", unread_count: 4 },
-    ]);
-  });
-
-  it("invalida o cache quando confirmar a leitura falha", async () => {
-    const { markThreadRead } = await import("@/lib/api/vectora-client");
-    vi.mocked(markThreadRead).mockRejectedValueOnce(new Error("offline"));
-    render(
-      <ThreadItem
-        thread={makeThread({ unread_count: 2 })}
-        isActive
-        onSelect={vi.fn()}
-        onDelete={vi.fn()}
-        onRename={vi.fn()}
-        onTogglePin={vi.fn()}
-      />,
-    );
-
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: ["threads", 100],
-    });
   });
 
   it("clicar em 'Fixar' chama onTogglePin com o novo estado", () => {

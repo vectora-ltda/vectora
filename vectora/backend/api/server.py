@@ -357,6 +357,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
     # desatualizada ali — nunca deixa uma conversa real ficar invisível na
     # sidebar por muito mais de 1h, seja qual for a causa da divergência.
     thread_cleanup_task: asyncio.Task[None] | None = None
+    reconcile_runs_task: asyncio.Task[None] | None = None
     try:
         from backend.api.handlers.threads import (
             cleanup_empty_threads,
@@ -403,6 +404,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
                 logger.warning("api/server: falha ao limpar atividade remota: %s", exc)
 
         async def _thread_cleanup_loop() -> None:
+            nonlocal reconcile_runs_task
             # Reconcilia ANTES de limpar: uma thread real com message_count
             # zerado por alguma falha (upsert perdido) e mais velha que o
             # cutoff seria apagada por cleanup_empty_threads antes de
@@ -470,6 +472,12 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             consolidation_task.cancel()
         if thread_cleanup_task is not None:
             thread_cleanup_task.cancel()
+        if reconcile_runs_task is not None:
+            reconcile_runs_task.cancel()
+        for task in (thread_cleanup_task, reconcile_runs_task, consolidation_task):
+            if task is not None:
+                with suppress(asyncio.CancelledError):
+                    await task
         if _gateway_client is not None:
             with suppress(Exception):
                 await _gateway_client.stop()
