@@ -92,70 +92,67 @@ async def test_ollama_runtime_status_reports_active_install(monkeypatch):
     assert status.state == "installing"
     assert status.phase == "download"
 
-    def test_registered_ollama_model_appears_in_dynamic_models(self, client):
-        tag = "providers-test-tag"
-        # DB real compartilhada entre execuções (ver threads.py::_get_db) —
-        # limpa resíduo de uma execução anterior antes de registrar de novo.
-        for existing in client.get("/provider-routing/ollama/registered").json():
-            if existing["tag"] == tag:
-                client.delete(f"/provider-routing/ollama/registered/{existing['id']}")
 
-        create = client.post("/provider-routing/ollama/registered", json={"tag": tag})
-        assert create.status_code == 200
-        model_id = create.json()["id"]
+def test_registered_ollama_model_appears_in_dynamic_models(client):
+    tag = "providers-test-tag"
+    # DB real compartilhada entre execuções (ver threads.py::_get_db) —
+    # limpa resíduo de uma execução anterior antes de registrar de novo.
+    for existing in client.get("/provider-routing/ollama/registered").json():
+        if existing["tag"] == tag:
+            client.delete(f"/provider-routing/ollama/registered/{existing['id']}")
 
-        resp = client.get("/models/providers")
-        assert resp.status_code == 200
-        ids = [m["id"] for m in resp.json()["dynamic_models"]]
-        assert f"ollama:{tag}" in ids
+    create = client.post("/provider-routing/ollama/registered", json={"tag": tag})
+    assert create.status_code == 200
+    model_id = create.json()["id"]
 
-        client.delete(f"/provider-routing/ollama/registered/{model_id}")
+    resp = client.get("/models/providers")
+    assert resp.status_code == 200
+    ids = [m["id"] for m in resp.json()["dynamic_models"]]
+    assert f"ollama:{tag}" in ids
 
-    def test_registered_openrouter_model_appears_alongside_ollama(self, client):
-        ollama_tag = "providers-test-ollama-tag"
-        openrouter_tag = "providers-test-openrouter/model"
-        for existing in client.get("/provider-routing/ollama/registered").json():
-            if existing["tag"] == ollama_tag:
-                client.delete(f"/provider-routing/ollama/registered/{existing['id']}")
-        for existing in client.get("/provider-routing/openrouter/registered").json():
-            if existing["tag"] == openrouter_tag:
-                client.delete(
-                    f"/provider-routing/openrouter/registered/{existing['id']}"
-                )
+    client.delete(f"/provider-routing/ollama/registered/{model_id}")
 
-        ollama_id = client.post(
-            "/provider-routing/ollama/registered", json={"tag": ollama_tag}
-        ).json()["id"]
-        openrouter_id = client.post(
-            "/provider-routing/openrouter/registered", json={"tag": openrouter_tag}
-        ).json()["id"]
 
-        resp = client.get("/models/providers")
-        assert resp.status_code == 200
-        ids = [m["id"] for m in resp.json()["dynamic_models"]]
-        assert f"ollama:{ollama_tag}" in ids
-        assert f"openrouter:{openrouter_tag}" in ids
+def test_registered_openrouter_model_appears_alongside_ollama(client):
+    ollama_tag = "providers-test-ollama-tag"
+    openrouter_tag = "providers-test-openrouter/model"
+    for existing in client.get("/provider-routing/ollama/registered").json():
+        if existing["tag"] == ollama_tag:
+            client.delete(f"/provider-routing/ollama/registered/{existing['id']}")
+    for existing in client.get("/provider-routing/openrouter/registered").json():
+        if existing["tag"] == openrouter_tag:
+            client.delete(f"/provider-routing/openrouter/registered/{existing['id']}")
 
-        client.delete(f"/provider-routing/ollama/registered/{ollama_id}")
-        client.delete(f"/provider-routing/openrouter/registered/{openrouter_id}")
+    ollama_id = client.post(
+        "/provider-routing/ollama/registered", json={"tag": ollama_tag}
+    ).json()["id"]
+    openrouter_id = client.post(
+        "/provider-routing/openrouter/registered", json={"tag": openrouter_tag}
+    ).json()["id"]
 
-    def test_registered_nine_router_model_appears_in_dynamic_models(self, client):
-        tag = "cc/providers-test-model"
-        for existing in client.get("/provider-routing/nine-router/registered").json():
-            if existing["tag"] == tag:
-                client.delete(
-                    f"/provider-routing/nine-router/registered/{existing['id']}"
-                )
+    resp = client.get("/models/providers")
+    assert resp.status_code == 200
+    ids = [m["id"] for m in resp.json()["dynamic_models"]]
+    assert f"ollama:{ollama_tag}" in ids
+    assert f"openrouter:{openrouter_tag}" in ids
 
-        create = client.post(
-            "/provider-routing/nine-router/registered", json={"tag": tag}
-        )
-        assert create.status_code == 200
-        model_id = create.json()["id"]
+    client.delete(f"/provider-routing/ollama/registered/{ollama_id}")
+    client.delete(f"/provider-routing/openrouter/registered/{openrouter_id}")
 
-        resp = client.get("/models/providers")
-        assert resp.status_code == 200
-        ids = [m["id"] for m in resp.json()["dynamic_models"]]
-        assert f"nine_router:{tag}" in ids
 
-        client.delete(f"/provider-routing/nine-router/registered/{model_id}")
+def test_registered_nine_router_model_appears_in_dynamic_models(client):
+    tag = "cc/providers-test-model"
+    for existing in client.get("/provider-routing/nine-router/registered").json():
+        if existing["tag"] == tag:
+            client.delete(f"/provider-routing/nine-router/registered/{existing['id']}")
+
+    create = client.post("/provider-routing/nine-router/registered", json={"tag": tag})
+    assert create.status_code == 200
+    model_id = create.json()["id"]
+
+    resp = client.get("/models/providers")
+    assert resp.status_code == 200
+    ids = [m["id"] for m in resp.json()["dynamic_models"]]
+    assert f"nine_router:{tag}" in ids
+
+    client.delete(f"/provider-routing/nine-router/registered/{model_id}")

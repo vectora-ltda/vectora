@@ -746,16 +746,19 @@ async def _install_ollama_from_official_release() -> Path | None:
                         checksum_response.raise_for_status()
                         checksum_text = checksum_response.text
                         for line in checksum_text.splitlines():
-                            fields = line.split()
-                            if (
-                                len(fields) >= 2
-                                and Path(fields[-1].lstrip("*\\")).name
-                                == "OllamaSetup.exe"
-                            ):
-                                candidate = fields[0]
-                                if re.fullmatch(r"[0-9a-fA-F]{64}", candidate):
-                                    expected_digest = candidate
+                            match = re.search(
+                                r"([0-9a-fA-F]{64})\s+[*]?[^\r\n]*OllamaSetup\.exe",
+                                line,
+                                re.IGNORECASE,
+                            )
+                            if match:
+                                expected_digest = match.group(1)
                                 break
+                if expected_digest is None:
+                    raise ValueError(
+                        "release do Ollama não fornece digest verificável; "
+                        "instalação bloqueada por política de integridade"
+                    )
                 # Persist the resolved tag before streaming bytes so a failed
                 # transfer retries the exact same release on the next run.
                 (tools_dir / "release.json").write_text(
@@ -1162,8 +1165,8 @@ async def install_ollama_runtime(_: ProviderAdmin) -> OllamaRuntimeStatus:
     )
     _ollama_cleanup_confirmed = None
     try:
-        async with _OLLAMA_INSTALL_LOCK:
-            async with asyncio.timeout(OLLAMA_INSTALL_TOTAL_TIMEOUT_SECONDS):
+        async with asyncio.timeout(OLLAMA_INSTALL_TOTAL_TIMEOUT_SECONDS):
+            async with _OLLAMA_INSTALL_LOCK:
                 return await _install_ollama_runtime_impl(_)
     except asyncio.CancelledError:
         _set_ollama_install_phase("cancelled")

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
+import socket
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -67,13 +67,6 @@ class MediaQuota:
         redirecionado para o Postgres global apenas porque o perfil ativo usa
         storage completo.
         """
-        # Unit tests must remain hermetic even when a previous test changed
-        # the persisted runtime storage preference.  Live/integration tests
-        # can opt into external services explicitly; the normal unit suite
-        # must never perform DNS or network I/O just to reserve media quota.
-        current_test = os.environ.get("PYTEST_CURRENT_TEST", "")
-        if "tests/unit" in current_test.replace("\\", "/"):
-            return False
         if (
             self.database != self._configured_database
             or self._configured_database != settings.db_file
@@ -186,9 +179,23 @@ class MediaQuota:
         units: int | None = None,
     ) -> QuotaReservation | None:
         if self._postgres_enabled():
-            return await self._reserve_postgres(
-                user_id, operation, idempotency_key, units
-            )
+            try:
+                return await self._reserve_postgres(
+                    user_id, operation, idempotency_key, units
+                )
+            except (ConnectionError, OSError, socket.gaierror, TimeoutError):
+                # A falha ocorreu ao adquirir o backend remoto, antes de uma
+                # transação. Preserve a operação localmente para que uma
+                # indisponibilidade transitória do Postgres não transforme a
+                # tool em erro; falhas dentro da transação continuam subindo.
+                logger.warning(
+                    "media_quota: Postgres indisponível antes da reserva; "
+                    "usando SQLite local",
+                    exc_info=True,
+                )
+                return await asyncio.to_thread(
+                    self._reserve, user_id, operation, idempotency_key, units
+                )
         return await asyncio.to_thread(
             self._reserve, user_id, operation, idempotency_key, units
         )
@@ -539,7 +546,18 @@ class MediaQuota:
         self, reservation: QuotaReservation, *, state: QuotaState
     ) -> None:
         if self._postgres_enabled():
-            await self._finalize_postgres(reservation.id, state)
+            try:
+                await self._finalize_postgres(reservation.id, state)
+            except (ConnectionError, OSError, socket.gaierror, TimeoutError):
+                # A reservation may have been created locally after a remote
+                # connection outage. Finalization must follow the same store
+                # instead of turning a successful media tool into an error.
+                logger.warning(
+                    "media_quota: Postgres indisponível na finalização; "
+                    "finalizando SQLite local",
+                    exc_info=True,
+                )
+                await asyncio.to_thread(self._finalize, reservation.id, state)
         else:
             await asyncio.to_thread(self._finalize, reservation.id, state)
 

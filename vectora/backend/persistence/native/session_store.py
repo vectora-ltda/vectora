@@ -410,7 +410,11 @@ class SessionStore:
                     "UPDATE sessions SET updated_at = ? WHERE thread_id = ?",
                     (agora, thread_id),
                 )
-                if run_id is not None and role == "assistant":
+                # An assistant message carrying tool calls is an intermediate
+                # step.  Only a final textual/error/cancelled assistant outcome
+                # can close the run; otherwise sequential tools become
+                # impossible to resume after persistence.
+                if run_id is not None and role == "assistant" and not msg.tool_calls:
                     terminal_status = (
                         "failed"
                         if msg.is_error and msg.finish_reason == "failed"
@@ -1019,6 +1023,9 @@ class SessionStore:
                 )
                 await conn.execute(
                     "DELETE FROM messages WHERE thread_id = ?", (thread_id,)
+                )
+                await conn.execute(
+                    "DELETE FROM session_runs WHERE thread_id = ?", (thread_id,)
                 )
                 await conn.execute(
                     "DELETE FROM sessions WHERE thread_id = ?", (thread_id,)

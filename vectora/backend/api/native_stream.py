@@ -286,11 +286,15 @@ def stream_engine_events(
                             resolved_run_id,
                             detail="Provider ainda não iniciado.",
                         )
-                except Exception:
+                except Exception as exc:
                     logger.exception(
                         "native_stream: falha ao registrar início do run",
                         extra={"thread_id": thread_id, "run_id": resolved_run_id},
                     )
+                    raise RuntimeError(
+                        "Não foi possível persistir o início da execução; "
+                        "o provider não será iniciado."
+                    ) from exc
             turn_snapshot = await asyncio.to_thread(
                 capture, workspace_id, thread_id, resolved_run_id
             )
@@ -356,6 +360,31 @@ def stream_engine_events(
                             "native_stream: falha ao persistir arquivos editados",
                             exc_info=True,
                         )
+                # Finalize durable run state from the producer as well as the
+                # SSE consumer.  If the client disconnects, the consumer stops
+                # draining after the sentinel and must not be the only place
+                # that records the provider outcome.
+                if run_error is not None:
+                    code, friendly = classify_stream_error(run_error)
+                    await _persist_terminal_outcome(
+                        thread_id,
+                        resolved_run_id,
+                        status="failed",
+                        detail=f"{code}: {friendly}",
+                    )
+                elif stopped_reason in {"cancelled", "canceled", "aborted"}:
+                    await _persist_terminal_outcome(
+                        thread_id,
+                        resolved_run_id,
+                        status="cancelled",
+                        detail="A execução foi cancelada antes de produzir uma resposta.",
+                    )
+                elif stopped_reason == "stop":
+                    await _update_persisted_run(
+                        resolved_run_id,
+                        status="completed",
+                        detail="Execução concluída.",
+                    )
                 await queue.put(_SENTINEL)
 
         term_queue: asyncio.Queue[str] = asyncio.Queue()

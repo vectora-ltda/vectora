@@ -560,7 +560,7 @@ class TestOllamaDiscovery:
                             "name": "OllamaSetup.exe",
                             "browser_download_url": "https://example.invalid/OllamaSetup.exe",
                             "size": 100,
-                            "digest": None,
+                            "digest": "0" * 64,
                         }
                     ],
                 }

@@ -215,7 +215,7 @@ def _compact_system_prompt(original: str) -> str:
     little room to follow the actual request, so retain the execution and
     safety contract in a short provider-specific form.
     """
-    return (
+    contract = (
         "Você é a Vectora, uma assistente de engenharia. Responda em português "
         "quando o usuário escrever em português.\n\n"
         "Use uma ferramenta quando ela for necessária e nunca afirme que uma ação "
@@ -228,6 +228,11 @@ def _compact_system_prompt(original: str) -> str:
         "fora dele. Se uma ferramenta retornar erro, explique o erro e não repita "
         "a mesma chamada sem alterar os argumentos."
     )
+    # Preserve repository/workspace instructions supplied by the caller.  The
+    # compact contract is an addition for small models, never a replacement for
+    # mandatory system policy.
+    source = original.strip()
+    return f"{source}\n\n{contract}" if source else contract
 
 
 def _compact_tool_results(messages: list[dict]) -> None:
@@ -375,31 +380,11 @@ class OllamaChatClient:
 
         payload_tool_specs, compacted = _payload_tools(tools or [], messages)
         ollama_messages = [_to_ollama_message(m) for m in messages]
-        has_tool_result = any(
-            message.get("role") == "tool" for message in ollama_messages
-        )
         if compacted and ollama_messages and ollama_messages[0]["role"] == "system":
             ollama_messages[0]["content"] = _compact_system_prompt(
                 str(ollama_messages[0].get("content") or "")
             )
             _compact_tool_results(ollama_messages)
-        if has_tool_result and self.model.lower().startswith("qwen"):
-            if ollama_messages and ollama_messages[0]["role"] == "system":
-                ollama_messages[0]["content"] += (
-                    "\n\nA ferramenta já retornou um resultado nesta rodada. "
-                    "Agora responda ao usuário usando esse resultado; não chame "
-                    "nenhuma ferramenta novamente, especialmente com os mesmos argumentos."
-                )
-            # Small Qwen models commonly replay the previous call forever when
-            # tool schemas remain present after a result. Force the next turn
-            # to be a textual answer; the result is still visible in context.
-            payload_tool_specs = []
-            ollama_messages.append(
-                {
-                    "role": "user",
-                    "content": "Conclua agora usando o resultado retornado; não use ferramentas.",
-                }
-            )
         corpo: dict[str, Any] = {
             "model": self.model,
             "messages": ollama_messages,
@@ -503,7 +488,6 @@ class OllamaChatClient:
         )
         proximo_index = 0
         texto_pendente: list[str] = []
-        has_tool_result = any(message.role == MessageRole.TOOL for message in messages)
 
         tentativa = 0
         while True:
@@ -522,11 +506,7 @@ class OllamaChatClient:
                         else:
                             yield VMessageChunk(delta_text=texto)
 
-                    for chamada in (
-                        _parse_tool_calls(mensagem.get("tool_calls") or [])
-                        if not has_tool_result
-                        else []
-                    ):
+                    for chamada in _parse_tool_calls(mensagem.get("tool_calls") or []):
                         # Ollama não fragmenta argumentos de tool call — chega
                         # sempre completo num único chunk, igual ao Gemini.
                         yield VMessageChunk(
@@ -564,9 +544,7 @@ class OllamaChatClient:
 
         if tools and texto_pendente:
             texto = "".join(texto_pendente)
-            chamadas_textuais = (
-                [] if has_tool_result else _parse_textual_tool_calls(texto)
-            )
+            chamadas_textuais = _parse_textual_tool_calls(texto)
             if chamadas_textuais:
                 for chamada in chamadas_textuais:
                     yield VMessageChunk(
@@ -582,9 +560,5 @@ class OllamaChatClient:
                         ]
                     )
                     proximo_index += 1
-            elif has_tool_result and _parse_textual_tool_calls(texto):
-                yield VMessageChunk(
-                    delta_text="A ferramenta já foi executada; use o resultado retornado para concluir."
-                )
             else:
                 yield VMessageChunk(delta_text=texto)

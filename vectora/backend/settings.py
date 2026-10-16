@@ -739,6 +739,9 @@ class Settings(BaseSettings):
         global _LAST_LOADED_ENV_VALUES
         _operator_env = dict(os.environ)
         for _key_name, _loaded_value in _LAST_LOADED_ENV_VALUES.items():
+            # Remove only values that are still exactly the value introduced by
+            # the previous file load.  Values changed by an operator/test are
+            # retained and win over the files below.
             if _operator_env.get(_key_name) == _loaded_value:
                 _operator_env.pop(_key_name, None)
                 os.environ.pop(_key_name, None)

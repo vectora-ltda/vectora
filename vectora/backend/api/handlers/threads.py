@@ -208,6 +208,16 @@ async def _ensure_schema(db: Any) -> None:
             "ALTER TABLE thread_read_cursors ADD COLUMN "
             "read_message_id INTEGER NOT NULL DEFAULT 0"
         )
+    # Backfill the message cursor for rows created by the legacy count-only
+    # implementation.  The cursor points at the Nth assistant message, so old
+    # messages do not reappear as unread after migration.
+    with contextlib.suppress(sqlite3.OperationalError):
+        await db.execute(
+            "UPDATE thread_read_cursors SET read_message_id = COALESCE(("
+            "SELECT id FROM messages m WHERE m.thread_id = thread_read_cursors.thread_id "
+            "AND m.role = 'assistant' ORDER BY id LIMIT 1 OFFSET read_count - 1), 0) "
+            "WHERE read_count > 0 AND read_message_id = 0"
+        )
     from backend.services.usage_insights import usage_insight_store
 
     await usage_insight_store.ensure_schema(db)
@@ -976,10 +986,15 @@ async def list_threads(
 
 class MarkThreadReadRequest(BaseModel):
     thread_id: str
+    read_message_id: int | None = None
 
 
 @router.post("/threads/{thread_id}/read")
-async def mark_thread_read(thread_id: str, request: Request) -> dict[str, int | str]:
+async def mark_thread_read(
+    thread_id: str,
+    request: Request,
+    body: MarkThreadReadRequest | None = None,
+) -> dict[str, int | str]:
     """Confirma a leitura da thread de modo idempotente e por usuário."""
     await _assert_owns_thread(thread_id, request)
     user_id = _user_id(request)
@@ -1011,6 +1026,18 @@ async def mark_thread_read(thread_id: str, request: Request) -> dict[str, int | 
                     )
                 else:
                     latest_assistant = assistant_count
+                if body and body.read_message_id is not None:
+                    requested_cursor = max(0, int(body.read_message_id))
+                    # A client may only acknowledge messages it has actually
+                    # rendered.  Never move the cursor beyond the server's
+                    # current latest message, and derive the count from that
+                    # confirmed cursor rather than from the full thread.
+                    latest_assistant = min(requested_cursor, latest_assistant or 0)
+                    if hasattr(session_store, "count_assistant_messages_after"):
+                        after = await session_store.count_assistant_messages_after(
+                            thread_id, latest_assistant
+                        )
+                        assistant_count = max(0, assistant_count - int(after))
                 await db.execute(
                     "INSERT INTO thread_read_cursors "
                     "(thread_id, user_id, read_count, read_message_id) "

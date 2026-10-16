@@ -374,6 +374,22 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             except Exception as exc:
                 logger.warning("api/server: falha ao reconciliar threads: %s", exc)
 
+        async def _reconcile_runs_safe() -> None:
+            try:
+                from backend.services import agent_factory
+
+                store = await agent_factory.get_session_store()
+                reconcile_runs = getattr(store, "reconcile_abandoned_runs", None)
+                if reconcile_runs is not None:
+                    count = await reconcile_runs(older_than_seconds=900)
+                    if count:
+                        logger.warning(
+                            "api/server: %s execução(ões) abandonada(s) reconciliada(s)",
+                            count,
+                        )
+            except Exception as exc:
+                logger.warning("api/server: falha ao reconciliar runs: %s", exc)
+
         async def _cleanup_safe() -> None:
             try:
                 await cleanup_empty_threads()
@@ -396,6 +412,9 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             # threads fantasma de uma sessão anterior (crash/cancelamento
             # antes do 1º envio) ficavam visíveis por até 1h a cada restart.
             await _reconcile_safe()
+            # Run reconciliation independently so a slow/unavailable native
+            # store cannot block sidebar cleanup at startup.
+            asyncio.create_task(_reconcile_runs_safe())
             await _cleanup_safe()
             await _activity_cleanup_safe()
             while True:

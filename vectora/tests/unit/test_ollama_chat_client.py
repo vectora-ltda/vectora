@@ -251,7 +251,7 @@ class TestConversaoDeMensagens:
 
 
 class TestToolCalling:
-    async def test_qwen_apos_resultado_de_tool_forca_resposta_textual(self):
+    async def test_qwen_preserva_tools_apos_resultado_para_turnos_sequenciais(self):
         capturado: dict = {}
 
         def handler(req: httpx.Request) -> httpx.Response:
@@ -284,9 +284,15 @@ class TestToolCalling:
         resultado = await client.agenerate(mensagens, tools=ALL_TOOL_SPECS)
 
         assert resultado.text() == "resultado final"
-        assert "tools" not in capturado
-        assert capturado["messages"][-1]["role"] == "user"
-        assert "não use ferramentas" in capturado["messages"][-1]["content"]
+        assert "tools" in capturado
+        assert capturado["messages"][-1]["role"] == "tool"
+
+    def test_compactacao_preserva_instrucoes_do_workspace(self):
+        from backend.llm.ollama.chat_client import _compact_system_prompt
+
+        compacted = _compact_system_prompt("REGRA_WORKSPACE_UNICA")
+        assert "REGRA_WORKSPACE_UNICA" in compacted
+        assert "Você é a Vectora" in compacted
 
     @pytest.mark.parametrize("arguments", [[], 0, "not-json"])
     def test_argumentos_falsos_ou_json_invalido_viram_parse_error(
