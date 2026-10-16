@@ -52,9 +52,16 @@ class MediaQuota:
     def __init__(self, database: Path | None = None) -> None:
         self.database = cast("Path", database or settings.db_file)
 
-    @staticmethod
-    def _postgres_enabled() -> bool:
-        """Indica se o storage completo deve usar Postgres para quota."""
+    def _postgres_enabled(self) -> bool:
+        """Indica se o storage completo deve usar Postgres para quota.
+
+        Uma instância criada com um banco explícito é um repositório local
+        independente. Isso é usado por jobs/tests isolados e não deve ser
+        redirecionado para o Postgres global apenas porque o perfil ativo usa
+        storage completo.
+        """
+        if self.database != settings.db_file:
+            return False
         try:
             from backend.services.license import get_effective_storage_mode
 
