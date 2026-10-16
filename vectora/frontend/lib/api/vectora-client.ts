@@ -806,8 +806,8 @@ export async function submitFeedback(
 export async function markThreadRead(
   threadId: string,
   readMessageId?: number,
-): Promise<void> {
-  await postRpc<{ thread_id: string; unread_count: number }>(
+): Promise<{ thread_id: string; unread_count: number }> {
+  return postRpc<{ thread_id: string; unread_count: number }>(
     `/threads/${encodeURIComponent(threadId)}/read`,
     readMessageId === undefined ? {} : { read_message_id: readMessageId },
   );

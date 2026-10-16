@@ -23,9 +23,11 @@ import {
   generateTitle,
   getHistory,
   getThread,
+  markThreadRead,
   type HistoryMessage,
 } from "@/lib/api/vectora-client";
 import { queryClient } from "@/src/router";
+import { threadsQueryKey } from "@/lib/queries/threads";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { useChatInputStore } from "@/lib/stores/chat-input-store";
 import { useThreadMessages } from "@/lib/hooks/chat/use-thread-messages";
@@ -127,6 +129,35 @@ export function ChatInterface({
 
   // Cached por threadId via Zustand — switching back não causa flash vazio.
   const [messages, setMessages] = useThreadMessages(threadId);
+  const lastReadCursorRef = useRef(0);
+
+  // Confirm only the last assistant message that is actually present in the
+  // rendered message store. A response arriving after this effect runs stays
+  // unread until the next render, avoiding the server-side latest-message
+  // race that previously inflated/cleared sidebar badges.
+  useEffect(() => {
+    if (isNewThread || !threadId) return;
+    const cursor = messages.reduce((max, message) => {
+      if (message.role !== "assistant") return max;
+      const id = Number(message.id);
+      return Number.isFinite(id) ? Math.max(max, id) : max;
+    }, 0);
+    if (cursor <= lastReadCursorRef.current) return;
+    lastReadCursorRef.current = cursor;
+    void markThreadRead(threadId, cursor).then(({ unread_count }) => {
+      queryClient.setQueryData<{
+        threads: { id: string; unread_count?: number }[];
+      }>(threadsQueryKey(), (data) =>
+        data
+          ? {
+              threads: data.threads.map((item) =>
+                item.id === threadId ? { ...item, unread_count } : item,
+              ),
+            }
+          : data,
+      );
+    });
+  }, [isNewThread, messages, threadId]);
   const [branchHistoryError, setBranchHistoryError] = useState(false);
 
   // Barra de uso de contexto: estima tokens e deriva pct de uso.

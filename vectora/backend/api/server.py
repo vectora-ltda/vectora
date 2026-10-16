@@ -423,6 +423,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             while True:
                 await asyncio.sleep(3600)
                 await _reconcile_safe()
+                await _reconcile_runs_safe()
                 await _cleanup_safe()
                 await _activity_cleanup_safe()
 

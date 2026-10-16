@@ -334,30 +334,39 @@ async def _stop_process() -> None:
             _process_started_at = None
         return
 
-    async def terminate_process() -> None:
+    async def terminate_process() -> bool:
         process.terminate()
         try:
             await asyncio.wait_for(process.wait(), timeout=5)
+            return True
         except TimeoutError:
             process.kill()
             try:
                 await asyncio.wait_for(process.wait(), timeout=5)
+                return True
             except TimeoutError:
                 logger.warning("llamacpp sidecar did not confirm termination")
+                return False
 
+    terminated = False
     try:
-        await terminate_process()
+        terminated = await terminate_process()
     except asyncio.CancelledError:
         # A cancelled request must not abandon a live sidecar. Finish the
         # termination under shielding, then propagate cancellation to the
         # caller after ownership and persisted state are consistent.
-        await asyncio.shield(terminate_process())
+        terminated = await asyncio.shield(terminate_process())
         raise
     finally:
-        try:
-            await _clear_state()
-        finally:
-            _process = None
-            _process_spec = None
-            _process_options = None
-            _process_started_at = None
+        if terminated:
+            try:
+                await _clear_state()
+            finally:
+                _process = None
+                _process_spec = None
+                _process_options = None
+                _process_started_at = None
+        else:
+            # Preserve the handle and persisted identity so a later cleanup
+            # can retry and diagnostics never claim the sidecar is stopped.
+            await _write_state(process, _process_started_at)
