@@ -12,6 +12,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -39,11 +40,14 @@ def _session_workspaces_root() -> Path:
     """Pasta base dos workspaces criados automaticamente por sessão.
 
     Por padrão mora em ``~/Documents/vectora`` (visível ao usuário no
-    Explorer/Finder). Deriva de ``settings.vectora_home.parent`` em vez de
-    ``Path.home()`` direto para respeitar ``VECTORA_HOME``: quando setado
-    para um diretório isolado (testes), o Documents derivado cai dentro
-    dessa mesma árvore isolada em vez de vazar para o home real.
+    Explorer/Finder). ``VECTORA_WORKSPACES_ROOT`` permite separar essa
+    localização da raiz de runtime (por exemplo, manter o runtime e modelos
+    em um SSD enquanto os workspaces ficam em Documentos). Sem a variável,
+    preservamos o isolamento derivado de ``VECTORA_HOME`` usado pelos testes.
     """
+    configured = os.environ.get("VECTORA_WORKSPACES_ROOT")
+    if configured:
+        return Path(configured).expanduser().resolve()
     return settings.vectora_home.parent / "Documents" / "vectora"
 
 
