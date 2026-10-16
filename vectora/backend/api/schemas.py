@@ -646,6 +646,7 @@ class Thread(BaseModel):
 class HistoryMessage(BaseModel):
     role: str
     content: str
+    message_id: int | None = None
     created_at: str = ""
     # Checkpoint pai (estado do thread imediatamente antes desta mensagem
     # existir) — alvo de fork pra "editar e reenviar"/"regenerar". Vazio

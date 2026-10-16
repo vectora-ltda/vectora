@@ -81,7 +81,6 @@ import { resolveBrowserProfileId } from "@/lib/browser-profile";
 import {
   listThreads,
   getHistory,
-  markThreadRead,
   type Thread as VectoraThread,
 } from "@/lib/api/vectora-client";
 import { queryClient } from "../../router";
@@ -168,30 +167,6 @@ function SessionPage() {
   const pushDraft = useChatInputStore((s) => s.pushDraft);
 
   // A conversa também pode ser aberta por deep-link, restauração de sessão ou
-  // pelo histórico do navegador, sem passar pelo clique do ThreadItem. Marcar
-  // como lida aqui garante que o indicador da sidebar não fique preso nesses
-  // caminhos alternativos. O endpoint é idempotente e o update otimista evita
-  // que o ponto reapareça enquanto a próxima listagem chega.
-  useEffect(() => {
-    if (isNewRoute || !threadId) return;
-    void markThreadRead(threadId)
-      .then(() => {
-        queryClient.setQueryData<{
-          threads: { id: string; unread_count?: number }[];
-        }>(threadsQueryKey(), (data) =>
-          data
-            ? {
-                threads: data.threads.map((item) =>
-                  item.id === threadId ? { ...item, unread_count: 0 } : item,
-                ),
-              }
-            : data,
-        );
-      })
-      .catch(() => {
-        void queryClient.invalidateQueries({ queryKey: threadsQueryKey() });
-      });
-  }, [isNewRoute, threadId]);
   const canvasDocuments = useWindowsStore((s) => s.canvasDocuments);
   const activeCanvasDocumentId = useWindowsStore(
     (s) => s.activeCanvasDocumentId,

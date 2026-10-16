@@ -1032,18 +1032,34 @@ async def mark_thread_read(
                     )
                 else:
                     latest_assistant = assistant_count
-                if body and body.read_message_id is not None:
-                    requested_cursor = max(0, int(body.read_message_id))
-                    # A client may only acknowledge messages it has actually
-                    # rendered.  Never move the cursor beyond the server's
-                    # current latest message, and derive the count from that
-                    # confirmed cursor rather than from the full thread.
-                    latest_assistant = min(requested_cursor, latest_assistant or 0)
-                    if hasattr(session_store, "count_assistant_messages_after"):
-                        after = await session_store.count_assistant_messages_after(
-                            thread_id, latest_assistant
-                        )
-                        assistant_count = max(0, assistant_count - int(after))
+                async with db.execute(
+                    "SELECT read_message_id FROM thread_read_cursors "
+                    "WHERE thread_id = ? AND user_id = ?",
+                    (thread_id, user_id),
+                ) as cur:
+                    cursor_row = await cur.fetchone()
+                stored_cursor = int(cursor_row[0] or 0) if cursor_row else 0
+                requested_cursor = (
+                    max(0, int(body.read_message_id))
+                    if body and body.read_message_id is not None
+                    else stored_cursor
+                )
+                # A client may only acknowledge messages it has actually
+                # rendered. Never move beyond the server's latest ID and
+                # never move backwards. Calls without a cursor are read-only
+                # compatibility calls and cannot clear a newer response.
+                confirmed_cursor = max(
+                    stored_cursor, min(requested_cursor, latest_assistant or 0)
+                )
+                if hasattr(session_store, "count_assistant_messages_after"):
+                    remaining = await session_store.count_assistant_messages_after(
+                        thread_id, confirmed_cursor
+                    )
+                    unread_count = int(remaining or 0)
+                    read_count = max(0, int(assistant_count) - unread_count)
+                else:
+                    unread_count = max(0, int(assistant_count) - stored_cursor)
+                    read_count = max(0, int(assistant_count) - unread_count)
                 await db.execute(
                     "INSERT INTO thread_read_cursors "
                     "(thread_id, user_id, read_count, read_message_id) "
@@ -1051,7 +1067,7 @@ async def mark_thread_read(
                     "read_count = MAX(thread_read_cursors.read_count, excluded.read_count), "
                     "read_message_id = MAX(thread_read_cursors.read_message_id, "
                     "excluded.read_message_id)",
-                    (thread_id, user_id, assistant_count, latest_assistant),
+                    (thread_id, user_id, read_count, confirmed_cursor),
                 )
                 await db.commit()
                 break
@@ -1071,7 +1087,7 @@ async def mark_thread_read(
                     },
                 )
                 await asyncio.sleep(delay)
-    return {"thread_id": thread_id, "unread_count": 0}
+    return {"thread_id": thread_id, "unread_count": unread_count}
 
 
 async def cleanup_empty_threads(max_age_hours: float = 1.0) -> int:
@@ -1392,6 +1408,7 @@ async def get_history(request: GetHistoryRequest) -> GetHistoryResponse:
             HistoryMessage(
                 role=entry.role,
                 content=entry.text,
+                message_id=entry.message_id,
                 checkpoint_id=entry.checkpoint_id,
                 attachments=entry.attachments,
                 edited_files=[file.model_dump() for file in entry.edited_files],
@@ -1902,6 +1919,7 @@ async def get_thread_history_paginated(
         HistoryMessage(
             role=entry.role,
             content=entry.text,
+            message_id=entry.message_id,
             checkpoint_id=entry.checkpoint_id,
             attachments=entry.attachments,
             edited_files=[file.model_dump() for file in entry.edited_files],

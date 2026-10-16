@@ -24,6 +24,8 @@ export interface EditedFile {
 export interface Message {
   // Core properties
   id: string;
+  /** ID numérico persistido; nunca usar o ID visual para cursores de leitura. */
+  persistedMessageId?: number;
   role: "user" | "assistant";
   content: string;
   timestamp: Date;

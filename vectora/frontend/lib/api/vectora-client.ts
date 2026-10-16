@@ -281,6 +281,8 @@ export interface HistoryEditedFile {
 export interface HistoryMessage {
   role: "human" | "assistant";
   content: string;
+  /** ID numérico persistido no SessionStore; separado do ID visual local. */
+  message_id?: number;
   created_at?: string;
   /** Checkpoint pai (estado do thread imediatamente antes desta mensagem
    * existir) — alvo de fork pra "editar e reenviar"/"regenerar". Vazio

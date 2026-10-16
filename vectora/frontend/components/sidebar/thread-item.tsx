@@ -1,14 +1,10 @@
 "use client";
 
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useRef, useState } from "react";
 import { Pin, Trash2 } from "lucide-react";
 import type { Thread } from "@/lib/hooks/threads";
 import { queryClient } from "../../src/router";
-import {
-  getHistory,
-  listThreads,
-  markThreadRead,
-} from "@/lib/api/vectora-client";
+import { getHistory, listThreads } from "@/lib/api/vectora-client";
 import { threadsQueryKey } from "@/lib/queries/threads";
 import { THREAD_FETCH_LIMIT } from "@/lib/constants/features";
 import { m } from "@/lib/paraglide/messages";
@@ -53,29 +49,6 @@ export const ThreadItem = memo(function ThreadItem({
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressClick = useRef(false);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
-
-  useEffect(() => {
-    if (!isActive || !thread.unread_count) return;
-    void markThreadRead(thread.thread_id)
-      .then(() => {
-        queryClient.setQueryData<{
-          threads: { id: string; unread_count?: number }[];
-        }>(threadsQueryKey(), (data) =>
-          data
-            ? {
-                threads: data.threads.map((item) =>
-                  item.id === thread.thread_id
-                    ? { ...item, unread_count: 0 }
-                    : item,
-                ),
-              }
-            : data,
-        );
-      })
-      .catch(() => {
-        void queryClient.invalidateQueries({ queryKey: threadsQueryKey() });
-      });
-  }, [isActive, thread.thread_id, thread.unread_count]);
 
   const cancelLongPress = () => {
     if (longPressTimer.current) clearTimeout(longPressTimer.current);
@@ -179,9 +152,6 @@ export const ThreadItem = memo(function ThreadItem({
           }
         : data,
     );
-    void markThreadRead(thread.thread_id).catch(() => {
-      void queryClient.invalidateQueries({ queryKey: threadsQueryKey() });
-    });
     onSelect(thread.thread_id);
   };
 

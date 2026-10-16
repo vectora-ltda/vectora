@@ -130,6 +130,9 @@ export function ChatInterface({
   // Cached por threadId via Zustand — switching back não causa flash vazio.
   const [messages, setMessages] = useThreadMessages(threadId);
   const lastReadCursorRef = useRef(0);
+  const inFlightReadCursorRef = useRef<number | null>(null);
+  const retriedReadCursorRef = useRef<number | null>(null);
+  const [, forceReadRetry] = useState(0);
 
   // Confirm only the last assistant message that is actually present in the
   // rendered message store. A response arriving after this effect runs stays
@@ -139,25 +142,38 @@ export function ChatInterface({
     if (isNewThread || !threadId) return;
     const cursor = messages.reduce((max, message) => {
       if (message.role !== "assistant") return max;
-      const id = Number(message.id);
-      return Number.isFinite(id) ? Math.max(max, id) : max;
+      const id = message.persistedMessageId;
+      return typeof id === "number" ? Math.max(max, id) : max;
     }, 0);
-    if (cursor <= lastReadCursorRef.current) return;
-    lastReadCursorRef.current = cursor;
-    void markThreadRead(threadId, cursor).then(({ unread_count }) => {
-      queryClient.setQueryData<{
-        threads: { id: string; unread_count?: number }[];
-      }>(threadsQueryKey(), (data) =>
-        data
-          ? {
-              threads: data.threads.map((item) =>
-                item.id === threadId ? { ...item, unread_count } : item,
-              ),
-            }
-          : data,
-      );
-    });
-  }, [isNewThread, messages, threadId]);
+    if (
+      cursor <= lastReadCursorRef.current ||
+      inFlightReadCursorRef.current === cursor
+    )
+      return;
+    inFlightReadCursorRef.current = cursor;
+    void markThreadRead(threadId, cursor)
+      .then(({ unread_count }) => {
+        lastReadCursorRef.current = Math.max(lastReadCursorRef.current, cursor);
+        inFlightReadCursorRef.current = null;
+        queryClient.setQueryData<{
+          threads: { id: string; unread_count?: number }[];
+        }>(threadsQueryKey(), (data) =>
+          data
+            ? {
+                threads: data.threads.map((item) =>
+                  item.id === threadId ? { ...item, unread_count } : item,
+                ),
+              }
+            : data,
+        );
+      })
+      .catch(() => {
+        inFlightReadCursorRef.current = null;
+        if (retriedReadCursorRef.current === cursor) return;
+        retriedReadCursorRef.current = cursor;
+        window.setTimeout(() => forceReadRetry((value) => value + 1), 1000);
+      });
+  }, [forceReadRetry, isNewThread, messages, threadId]);
   const [branchHistoryError, setBranchHistoryError] = useState(false);
 
   // Barra de uso de contexto: estima tokens e deriva pct de uso.
