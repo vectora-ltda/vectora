@@ -94,9 +94,10 @@ class TestDoneEvent:
     def test_basic(self):
         from backend.api.schemas import DoneEvent
 
-        e = DoneEvent(thread_id="t-1")
+        e = DoneEvent(thread_id="t-1", run_id="run-1", message_id=42)
         assert e.thread_id == "t-1"
-        assert e.run_id == ""
+        assert e.run_id == "run-1"
+        assert e.message_id == 42
 
 
 class TestErrorEvent:

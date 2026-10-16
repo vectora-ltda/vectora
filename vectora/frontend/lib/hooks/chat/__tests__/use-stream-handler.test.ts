@@ -69,7 +69,12 @@ describe("useStreamHandler.processStream", () => {
         { type: "token", content: "Olá" },
         { type: "token", content: ", " },
         { type: "token", content: "mundo" },
-        { type: "done", thread_id: "t1", run_id: "run-1" },
+        {
+          type: "done",
+          thread_id: "t1",
+          run_id: "run-1",
+          message_id: 42,
+        },
       ]),
     );
 
@@ -83,6 +88,7 @@ describe("useStreamHandler.processStream", () => {
     expect(assistant?.content).toBe("Olá, mundo");
     expect(assistant?.isThinking).toBe(false);
     expect(assistant?.isError).toBeFalsy();
+    expect(assistant?.persistedMessageId).toBe(42);
   });
 
   it("forkFromCheckpointId presente manda config.fork_from_checkpoint_id; ausente omite (edit/regenerate)", async () => {
