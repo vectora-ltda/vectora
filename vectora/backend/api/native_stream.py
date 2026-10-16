@@ -627,6 +627,26 @@ def stream_engine_events(
                     await run_task
             if not lock_transferred:
                 _release_workspace_lock()
-            yield encode_event(DoneEvent(thread_id=thread_id, run_id=resolved_run_id))
+            persisted_message_id: int | None = None
+            try:
+                from backend.services import agent_factory
+
+                store = await agent_factory.get_session_store()
+                latest_id = getattr(store, "latest_assistant_message_id", None)
+                if latest_id is not None:
+                    persisted_message_id = await latest_id(thread_id)
+            except Exception:
+                logger.debug(
+                    "native_stream: não foi possível obter cursor persistido",
+                    extra={"thread_id": thread_id, "run_id": resolved_run_id},
+                    exc_info=True,
+                )
+            yield encode_event(
+                DoneEvent(
+                    thread_id=thread_id,
+                    run_id=resolved_run_id,
+                    message_id=persisted_message_id,
+                )
+            )
 
     return _gen()

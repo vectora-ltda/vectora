@@ -108,7 +108,7 @@ describe("ThreadItem — menu de contexto", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("confirma a seleção e limpa somente a badge local da thread", () => {
+  it("confirma a seleção sem apagar a badge antes do cursor persistido", () => {
     const onSelect = vi.fn();
     render(
       <ThreadItem
@@ -122,10 +122,7 @@ describe("ThreadItem — menu de contexto", () => {
     );
     fireEvent.click(screen.getByText("Conversa T1"));
     expect(onSelect).toHaveBeenCalledWith("t1");
-    expect(queryClient.setQueryData).toHaveBeenCalledWith(
-      ["threads", 100],
-      expect.any(Function),
-    );
+    expect(queryClient.setQueryData).not.toHaveBeenCalled();
   });
 
   it("expõe apenas um indicador, sem exibir a quantidade de mensagens", () => {

@@ -462,6 +462,7 @@ class ErrorEvent(BaseModel):
 class DoneEvent(BaseModel):
     thread_id: str
     run_id: str = ""
+    message_id: int | None = None
 
 
 class MessageBreakEvent(BaseModel):

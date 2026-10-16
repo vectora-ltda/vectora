@@ -132,7 +132,8 @@ export function ChatInterface({
   const lastReadCursorRef = useRef(0);
   const inFlightReadCursorRef = useRef<number | null>(null);
   const retriedReadCursorRef = useRef<number | null>(null);
-  const [, forceReadRetry] = useState(0);
+  const [readRetry, forceReadRetry] = useState(0);
+  const readRetryTimerRef = useRef<number | null>(null);
 
   // These refs belong to one thread only. Reset them before a route switch so
   // a cursor acknowledged for the previous conversation cannot suppress the
@@ -141,7 +142,21 @@ export function ChatInterface({
     lastReadCursorRef.current = 0;
     inFlightReadCursorRef.current = null;
     retriedReadCursorRef.current = null;
+    if (readRetryTimerRef.current !== null) {
+      window.clearTimeout(readRetryTimerRef.current);
+      readRetryTimerRef.current = null;
+    }
   }, [threadId]);
+
+  useEffect(
+    () => () => {
+      if (readRetryTimerRef.current !== null) {
+        window.clearTimeout(readRetryTimerRef.current);
+        readRetryTimerRef.current = null;
+      }
+    },
+    [],
+  );
 
   // Confirm only the last assistant message that is actually present in the
   // rendered message store. A response arriving after this effect runs stays
@@ -180,9 +195,12 @@ export function ChatInterface({
         inFlightReadCursorRef.current = null;
         if (retriedReadCursorRef.current === cursor) return;
         retriedReadCursorRef.current = cursor;
-        window.setTimeout(() => forceReadRetry((value) => value + 1), 1000);
+        readRetryTimerRef.current = window.setTimeout(() => {
+          readRetryTimerRef.current = null;
+          forceReadRetry((value) => value + 1);
+        }, 1000);
       });
-  }, [forceReadRetry, isNewThread, messages, threadId]);
+  }, [forceReadRetry, isNewThread, messages, readRetry, threadId]);
   const [branchHistoryError, setBranchHistoryError] = useState(false);
 
   // Barra de uso de contexto: estima tokens e deriva pct de uso.

@@ -164,7 +164,12 @@ export type StreamEvent =
       citations: Array<{ index: number; source: string; chunk: string }>;
     }
   | { type: "error"; message: string; code?: string }
-  | { type: "done"; thread_id: string; run_id?: string }
+  | {
+      type: "done";
+      thread_id: string;
+      run_id?: string;
+      message_id?: number | null;
+    }
   | { type: "message_break" }
   | { type: "workbench_invalidate"; tabs: string[]; tool_name?: string }
   | {

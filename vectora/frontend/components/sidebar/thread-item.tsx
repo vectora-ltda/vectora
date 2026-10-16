@@ -137,21 +137,9 @@ export const ThreadItem = memo(function ThreadItem({
   };
 
   const handleSelect = () => {
-    // Limpa a indicação imediatamente e confirma no backend. Em caso de
-    // falha, a invalidação restaura a contagem real na próxima consulta.
-    queryClient.setQueryData<{
-      threads: { id: string; unread_count?: number }[];
-    }>(threadsQueryKey(), (data) =>
-      data
-        ? {
-            threads: data.threads.map((item) =>
-              item.id === thread.thread_id
-                ? { ...item, unread_count: 0 }
-                : item,
-            ),
-          }
-        : data,
-    );
+    // A confirmação de leitura precisa do cursor persistido e acontece no
+    // ChatInterface depois que o histórico foi carregado/renderizado. Não
+    // zerar a badge aqui evita esconder respostas quando o carregamento falha.
     onSelect(thread.thread_id);
   };
 
