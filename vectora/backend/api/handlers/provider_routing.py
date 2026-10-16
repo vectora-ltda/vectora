@@ -43,6 +43,7 @@ de descoberta/validação e da lista de modelos escolhida pelo usuário.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import hashlib
 import hmac
 import json
@@ -100,6 +101,10 @@ OllamaInstallPhase = Literal[
 ]
 _ollama_install_phase: OllamaInstallPhase = "idle"
 _managed_ollama_process: asyncio.subprocess.Process | None = None
+_ollama_cleanup_confirmed: bool | None = None
+_ollama_cleanup_deadline: contextvars.ContextVar[float | None] = contextvars.ContextVar(
+    "ollama_cleanup_deadline", default=None
+)
 
 
 def _set_ollama_install_phase(phase: OllamaInstallPhase) -> None:
@@ -236,6 +241,7 @@ class OllamaRuntimeStatus(BaseModel):
     state: Literal["missing", "installing", "installed", "running", "error"]
     phase: OllamaInstallPhase = "idle"
     detail: str | None = None
+    cleanup_confirmed: bool | None = None
 
 
 class OpenAICompatibleDiscoveryResponse(BaseModel):
@@ -913,24 +919,38 @@ async def _install_ollama_from_official_release() -> Path | None:
     return await asyncio.to_thread(_ollama_executable)
 
 
-async def _terminate_ollama_process(process: asyncio.subprocess.Process) -> None:
-    """Terminate an Ollama child without allowing cleanup to hang the request."""
-    deadline = asyncio.get_running_loop().time() + OLLAMA_CLEANUP_TIMEOUT_SECONDS
+async def _terminate_ollama_process(process: asyncio.subprocess.Process) -> bool:
+    """Terminate an owned Ollama child inside one shared cleanup budget."""
+    global _ollama_cleanup_confirmed
+    loop = asyncio.get_running_loop()
+    deadline = _ollama_cleanup_deadline.get()
+    if deadline is None:
+        deadline = loop.time() + OLLAMA_CLEANUP_TIMEOUT_SECONDS
     with suppress(ProcessLookupError):
         process.kill()
     try:
-        remaining = max(0.0, deadline - asyncio.get_running_loop().time())
-        await asyncio.wait_for(process.communicate(), remaining)
+        remaining = max(0.0, deadline - loop.time())
+        if remaining:
+            await asyncio.wait_for(process.communicate(), remaining)
+        confirmed = process.returncode is not None
+        _ollama_cleanup_confirmed = confirmed
+        return confirmed
     except (TimeoutError, asyncio.IncompleteReadError, OSError):
-        remaining = max(0.0, deadline - asyncio.get_running_loop().time())
+        remaining = max(0.0, deadline - loop.time())
         if remaining <= 0:
             logger.warning("ollama: cleanup expirou sem confirmar o processo")
-            return
+            _ollama_cleanup_confirmed = False
+            return False
         with suppress(ProcessLookupError):
             try:
                 await asyncio.wait_for(process.wait(), remaining)
             except TimeoutError:
                 logger.warning("ollama: cleanup expirou sem confirmar o processo")
+                _ollama_cleanup_confirmed = False
+                return False
+        confirmed = process.returncode is not None
+        _ollama_cleanup_confirmed = confirmed
+        return confirmed
 
 
 async def stop_managed_ollama() -> None:
@@ -973,6 +993,7 @@ async def ollama_runtime_status() -> OllamaRuntimeStatus:
                 if _ollama_install_phase == "cancelled"
                 else "A instalação do Ollama falhou."
             ),
+            cleanup_confirmed=_ollama_cleanup_confirmed,
         )
     if reachable:
         return OllamaRuntimeStatus(
@@ -982,6 +1003,7 @@ async def ollama_runtime_status() -> OllamaRuntimeStatus:
             version=version,
             state="running",
             phase=_ollama_install_phase,
+            cleanup_confirmed=_ollama_cleanup_confirmed,
         )
     if executable is not None:
         return OllamaRuntimeStatus(
@@ -991,6 +1013,7 @@ async def ollama_runtime_status() -> OllamaRuntimeStatus:
             state="installed",
             phase=_ollama_install_phase,
             detail="Ollama está instalado, mas o servidor ainda não está respondendo.",
+            cleanup_confirmed=_ollama_cleanup_confirmed,
         )
     if _ollama_install_phase in {
         "detect",
@@ -1005,6 +1028,7 @@ async def ollama_runtime_status() -> OllamaRuntimeStatus:
             state="installing",
             phase=_ollama_install_phase,
             detail="A instalação do Ollama está em andamento.",
+            cleanup_confirmed=_ollama_cleanup_confirmed,
         )
     return OllamaRuntimeStatus(
         installed=False,
@@ -1012,6 +1036,7 @@ async def ollama_runtime_status() -> OllamaRuntimeStatus:
         state="missing",
         phase=_ollama_install_phase,
         detail="Ollama ainda não foi instalado neste dispositivo.",
+        cleanup_confirmed=_ollama_cleanup_confirmed,
     )
 
 
@@ -1121,12 +1146,21 @@ async def _install_ollama_runtime_impl(_: ProviderAdmin) -> OllamaRuntimeStatus:
         version=version,
         state="running",
         phase="ready",
+        cleanup_confirmed=_ollama_cleanup_confirmed,
     )
 
 
 @router.post("/ollama/runtime/install", dependencies=[DesktopBridge])
 async def install_ollama_runtime(_: ProviderAdmin) -> OllamaRuntimeStatus:
     """Run the complete Ollama wizard under one cancellable deadline."""
+    global _ollama_cleanup_confirmed
+    loop = asyncio.get_running_loop()
+    cleanup_token = _ollama_cleanup_deadline.set(
+        loop.time()
+        + OLLAMA_INSTALL_TOTAL_TIMEOUT_SECONDS
+        + OLLAMA_CLEANUP_TIMEOUT_SECONDS
+    )
+    _ollama_cleanup_confirmed = None
     try:
         async with _OLLAMA_INSTALL_LOCK:
             async with asyncio.timeout(OLLAMA_INSTALL_TOTAL_TIMEOUT_SECONDS):
@@ -1150,6 +1184,8 @@ async def install_ollama_runtime(_: ProviderAdmin) -> OllamaRuntimeStatus:
         _set_ollama_install_phase("failed")
         logger.exception("ollama: falha inesperada durante a instalação")
         raise
+    finally:
+        _ollama_cleanup_deadline.reset(cleanup_token)
 
 
 @router.get("/ollama/registered")

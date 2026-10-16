@@ -130,6 +130,31 @@ class TestSessionRuns:
             assert row is not None
             assert tuple(row) == ("failed", "RUN_ABANDONED")
 
+    async def test_mensagem_assistant_conclui_run_na_mesma_transacao(
+        self, store: SessionStore
+    ) -> None:
+        await store.create_session("thread-complete", user_id="alice")
+        await store.start_run("thread-complete", "run-complete")
+        await store.append_message(
+            "thread-complete",
+            text_message(MessageRole.ASSISTANT, "resposta final"),
+            run_id="run-complete",
+            turn_id="turn-complete",
+        )
+
+        async with store._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT status, partial_text, terminal_at FROM session_runs "
+                "WHERE run_id = ?",
+                ("run-complete",),
+            )
+            row = await cur.fetchone()
+
+        assert row is not None
+        assert row[0] == "completed"
+        assert row[1] == "resposta final"
+        assert row[2]
+
 
 class TestAppendMessageEGetHistory:
     def test_persistencia_de_imagem_nao_grava_base64(self) -> None:

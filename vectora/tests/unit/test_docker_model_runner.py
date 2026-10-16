@@ -25,7 +25,8 @@ def test_docker_executable_prefers_absolute_path_entry(
     executable = tmp_path / "Docker Desktop" / "docker.exe"
     executable.parent.mkdir(parents=True)
     executable.write_bytes(b"")
-    monkeypatch.setattr(dmr.shutil, "which", lambda _: str(executable))
+    monkeypatch.setenv("VECTORA_DOCKER_PATH", str(executable))
+    monkeypatch.setattr(dmr.shutil, "which", lambda _: "docker")
     assert dmr._docker_executable() == str(executable.resolve())
 
 

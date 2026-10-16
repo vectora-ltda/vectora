@@ -34,14 +34,33 @@ MODEL_REFERENCE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/@:+-]{0,255}$")
 
 
 def _docker_executable() -> str:
-    """Resolve Docker Desktop's CLI even when it is not on the GUI process PATH."""
-    path_candidate = shutil.which("docker")
-    if path_candidate:
-        path = Path(path_candidate).expanduser()
-        # ``shutil.which`` can return a relative path when PATH itself contains
-        # a relative entry. Never execute a candidate relative to cwd.
+    """Resolve a trusted Docker CLI without accepting arbitrary PATH entries."""
+    explicit = os.environ.get("VECTORA_DOCKER_PATH", "").strip()
+    if explicit:
+        path = Path(explicit).expanduser()
         if path.is_absolute() and path.is_file():
             return str(path.resolve())
+
+    def trusted(path: Path) -> bool:
+        if not path.is_absolute() or not path.is_file():
+            return False
+        resolved = path.resolve()
+        if sys.platform == "win32":
+            raw_roots = [
+                os.environ.get("PROGRAMFILES", ""),
+                os.environ.get("LOCALAPPDATA", ""),
+            ]
+            roots = [Path(raw).expanduser().resolve() for raw in raw_roots if raw]
+            roots.append((Path.home() / ".docker").resolve())
+            return any(resolved.is_relative_to(root) for root in roots)
+        return any(
+            resolved.is_relative_to(root)
+            for root in (Path("/usr/bin"), Path("/usr/local/bin"), Path("/snap/bin"))
+        )
+
+    path_candidate = shutil.which("docker")
+    if path_candidate and trusted(Path(path_candidate).expanduser()):
+        return str(Path(path_candidate).expanduser().resolve())
 
     candidates: list[Path] = [Path.home() / ".docker" / "bin" / "docker.exe"]
     if sys.platform == "win32":
@@ -62,7 +81,7 @@ def _docker_executable() -> str:
                     candidates.append(base.joinpath(*suffix))
 
     for candidate in candidates:
-        if candidate.is_absolute() and candidate.is_file():
+        if trusted(candidate):
             return str(candidate.resolve())
     raise FileNotFoundError(
         "Docker CLI não encontrado em um caminho absoluto confiável"

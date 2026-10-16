@@ -410,6 +410,26 @@ class SessionStore:
                     "UPDATE sessions SET updated_at = ? WHERE thread_id = ?",
                     (agora, thread_id),
                 )
+                if run_id is not None and role == "assistant":
+                    terminal_status = (
+                        "failed"
+                        if msg.is_error and msg.finish_reason == "failed"
+                        else "cancelled"
+                        if msg.is_error and msg.finish_reason == "cancelled"
+                        else "completed"
+                    )
+                    await conn.execute(
+                        "UPDATE session_runs SET status = ?, updated_at = ?, "
+                        "terminal_at = ?, partial_text = COALESCE(?, partial_text) "
+                        "WHERE run_id = ?",
+                        (
+                            terminal_status,
+                            agora,
+                            agora,
+                            msg.text(),
+                            run_id,
+                        ),
+                    )
                 await conn.commit()
             except Exception:
                 await conn.rollback()
