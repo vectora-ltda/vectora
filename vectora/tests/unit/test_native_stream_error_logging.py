@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import cast
 
 import pytest
 
 from backend.api.native_stream import stream_engine_events
 from backend.engine.stream_events import ErrorSignal, EventSink, MessageBreak
+from backend.vtypes.message import VMessage
 
 
 def _parse(sse: str) -> dict:
@@ -26,6 +28,58 @@ def _parse(sse: str) -> dict:
 
 
 class TestErroDeExecucaoFicaLogado:
+    async def test_run_error_persiste_desfecho_terminal_idempotente(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class _Store:
+            def __init__(self) -> None:
+                self.messages: list[dict[str, object]] = []
+
+            async def get_message_id_by_turn_id(self, thread_id: str, turn_id: str):
+                for message in self.messages:
+                    if message["turn_id"] == turn_id:
+                        return 1
+                return None
+
+            async def get_branch_head_id(self, thread_id: str):
+                return 7
+
+            async def append_message(self, thread_id: str, message, **kwargs):
+                self.messages.append({"message": message, **kwargs})
+                return 8
+
+        store = _Store()
+        from backend.services import agent_factory
+
+        async def _get_store():
+            return store
+
+        monkeypatch.setattr(agent_factory, "get_session_store", _get_store)
+
+        async def _run(on_event: EventSink) -> str:
+            raise RuntimeError("provider indisponível")
+
+        first = [
+            _parse(sse)
+            async for sse in stream_engine_events(
+                _run, thread_id="t-terminal", run_id="run-terminal"
+            )
+        ]
+        second = [
+            _parse(sse)
+            async for sse in stream_engine_events(
+                _run, thread_id="t-terminal", run_id="run-terminal"
+            )
+        ]
+
+        assert any(event["type"] == "error" for event in first)
+        assert any(event["type"] == "error" for event in second)
+        assert len(store.messages) == 1
+        persisted = store.messages[0]
+        assert persisted["turn_id"] == "run-terminal:terminal"
+        assert persisted["run_id"] == "run-terminal"
+        assert cast(VMessage, persisted["message"]).is_error is True
+
     async def test_run_error_gera_error_event_e_loga_o_traceback_real(
         self, caplog: pytest.LogCaptureFixture
     ):

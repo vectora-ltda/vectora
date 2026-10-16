@@ -78,6 +78,23 @@ CREATE TABLE IF NOT EXISTS approval_decisions (
 );
 CREATE INDEX IF NOT EXISTS ix_approval_decisions_thread
     ON approval_decisions(thread_id, decided_at);
+CREATE TABLE IF NOT EXISTS session_runs (
+    run_id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL REFERENCES sessions(thread_id),
+    turn_id TEXT,
+    status TEXT NOT NULL CHECK(status IN
+        ('queued', 'running', 'streaming', 'completed', 'failed', 'cancelled')),
+    detail TEXT,
+    error_code TEXT,
+    partial_text TEXT NOT NULL DEFAULT '',
+    started_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    terminal_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_session_runs_thread_turn
+    ON session_runs(thread_id, turn_id) WHERE turn_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_session_runs_status
+    ON session_runs(status, updated_at);
 """
 
 
@@ -228,6 +245,108 @@ class SessionStore:
             except Exception:
                 await conn.rollback()
                 raise
+
+    async def start_run(
+        self,
+        thread_id: str,
+        run_id: str,
+        *,
+        turn_id: str | None = None,
+        detail: str | None = None,
+    ) -> None:
+        """Persist a run before the provider is invoked.
+
+        The unique `(thread_id, turn_id)` index makes reconnect/retry safe;
+        an already-created run is moved back to ``running`` without creating
+        a second execution record.
+        """
+        await self.setup()
+        now = _now()
+        async with self._pool.acquire() as conn:
+            if turn_id is not None:
+                existing_cur = await conn.execute(
+                    "SELECT run_id FROM session_runs "
+                    "WHERE thread_id = ? AND turn_id = ?",
+                    (thread_id, turn_id),
+                )
+                existing = await existing_cur.fetchone()
+                if existing is not None and str(existing[0]) != run_id:
+                    raise ValueError(
+                        f"turn_id {turn_id!r} já está associado ao run {existing[0]!r}"
+                    )
+            await conn.execute(
+                "INSERT INTO session_runs "
+                "(run_id, thread_id, turn_id, status, detail, started_at, updated_at) "
+                "VALUES (?, ?, ?, 'running', ?, ?, ?) "
+                "ON CONFLICT(run_id) DO UPDATE SET status='running', "
+                "detail=COALESCE(excluded.detail, session_runs.detail), "
+                "updated_at=excluded.updated_at",
+                (run_id, thread_id, turn_id, detail, now, now),
+            )
+            await conn.commit()
+
+    async def update_run(
+        self,
+        run_id: str,
+        *,
+        status: str,
+        detail: str | None = None,
+        error_code: str | None = None,
+        partial_text: str | None = None,
+    ) -> None:
+        """Advance a run state atomically and record its terminal timestamp."""
+        if status not in {
+            "queued",
+            "running",
+            "streaming",
+            "completed",
+            "failed",
+            "cancelled",
+        }:
+            raise ValueError(f"status de run inválido: {status!r}")
+        await self.setup()
+        now = _now()
+        terminal_at = now if status in {"completed", "failed", "cancelled"} else None
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE session_runs SET status = ?, detail = COALESCE(?, detail), "
+                "error_code = COALESCE(?, error_code), "
+                "partial_text = COALESCE(?, partial_text), updated_at = ?, "
+                "terminal_at = COALESCE(?, terminal_at) WHERE run_id = ?",
+                (
+                    status,
+                    detail,
+                    error_code,
+                    partial_text,
+                    now,
+                    terminal_at,
+                    run_id,
+                ),
+            )
+            await conn.commit()
+
+    async def reconcile_abandoned_runs(self, *, older_than_seconds: float) -> int:
+        """Move stale non-terminal runs to an explicit failed state."""
+        await self.setup()
+        from datetime import timedelta
+
+        cutoff = datetime.now(UTC) - timedelta(seconds=older_than_seconds)
+        now = _now()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "UPDATE session_runs SET status='failed', detail=?, "
+                "error_code='RUN_ABANDONED', updated_at=?, terminal_at=? "
+                "WHERE status IN ('queued', 'running', 'streaming') "
+                "AND updated_at < ?",
+                (
+                    "A execução foi encerrada sem confirmação do processo.",
+                    now,
+                    now,
+                    cutoff.isoformat(),
+                ),
+            )
+            await conn.commit()
+        return int(cur.rowcount or 0)
 
     async def append_message(
         self,

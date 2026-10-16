@@ -79,6 +79,58 @@ class TestCreateSession:
         assert session["workspace_id"] == "ws-1"
 
 
+class TestSessionRuns:
+    async def test_run_terminal_e_reconciliacao_sao_idempotentes(
+        self, store: SessionStore
+    ) -> None:
+        await store.create_session("thread-run", user_id="alice")
+        await store.start_run(
+            "thread-run",
+            "run-1",
+            turn_id="turn-1",
+            detail="Provider ainda não iniciado.",
+        )
+        await store.start_run("thread-run", "run-1", turn_id="turn-1")
+        with pytest.raises(ValueError, match="turn_id"):
+            await store.start_run("thread-run", "run-2", turn_id="turn-1")
+        await store.update_run(
+            "run-1", status="failed", error_code="PROVIDER_DOWN", detail="offline"
+        )
+        await store.update_run(
+            "run-1", status="failed", error_code="PROVIDER_DOWN", detail="offline"
+        )
+
+        async with store._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT status, error_code, terminal_at FROM session_runs "
+                "WHERE run_id = ?",
+                ("run-1",),
+            )
+            row = await cur.fetchone()
+
+        assert row is not None
+        assert row[0] == "failed"
+        assert row[1] == "PROVIDER_DOWN"
+        assert row[2]
+
+    async def test_run_abandonado_vira_falha_explicita(
+        self, store: SessionStore
+    ) -> None:
+        await store.create_session("thread-stale", user_id="alice")
+        await store.start_run("thread-stale", "run-stale")
+        changed = await store.reconcile_abandoned_runs(older_than_seconds=-1)
+
+        assert changed == 1
+        async with store._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT status, error_code FROM session_runs WHERE run_id = ?",
+                ("run-stale",),
+            )
+            row = await cur.fetchone()
+            assert row is not None
+            assert tuple(row) == ("failed", "RUN_ABANDONED")
+
+
 class TestAppendMessageEGetHistory:
     def test_persistencia_de_imagem_nao_grava_base64(self) -> None:
         raw = "data:image/png;base64,c2Vuc2l0aXZl"
