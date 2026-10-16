@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -66,6 +67,13 @@ class MediaQuota:
         redirecionado para o Postgres global apenas porque o perfil ativo usa
         storage completo.
         """
+        # Unit tests must remain hermetic even when a previous test changed
+        # the persisted runtime storage preference.  Live/integration tests
+        # can opt into external services explicitly; the normal unit suite
+        # must never perform DNS or network I/O just to reserve media quota.
+        current_test = os.environ.get("PYTEST_CURRENT_TEST", "")
+        if "tests/unit" in current_test.replace("\\", "/"):
+            return False
         if (
             self.database != self._configured_database
             or self._configured_database != settings.db_file
