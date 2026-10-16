@@ -379,11 +379,20 @@ def _row_to_thread(row: tuple) -> Thread:
 
 
 async def _unread_count(thread_id: str, user_id: str) -> int:
+    session_store = await _get_session_store()
+    assistant_count = await session_store.count_assistant_messages(thread_id)
     db = await _get_db()
+    if assistant_count is None:
+        async with db.execute(
+            "SELECT message_count FROM vectora_sessions WHERE thread_id = ?",
+            (thread_id,),
+        ) as cur:
+            legacy_row = await cur.fetchone()
+        assistant_count = int(legacy_row[0]) if legacy_row else 0
     async with db.execute(
-        "SELECT message_count - COALESCE((SELECT read_count FROM thread_read_cursors "
-        "WHERE thread_id = ? AND user_id = ?), 0) FROM vectora_sessions WHERE thread_id = ?",
-        (thread_id, user_id, thread_id),
+        "SELECT ? - COALESCE((SELECT read_count FROM thread_read_cursors "
+        "WHERE thread_id = ? AND user_id = ?), 0)",
+        (assistant_count, thread_id, user_id),
     ) as cur:
         row = await cur.fetchone()
     return max(0, int(row[0])) if row else 0
@@ -825,9 +834,33 @@ async def get_thread(
     ) as cur:
         row = await cur.fetchone()
     if row is None:
-        raise HTTPException(
-            status_code=404, detail=f"Thread {request.thread_id!r} not found"
+        # `sessions.db` é a fonte de verdade do motor. A tabela de metadados
+        # pode ficar defasada durante uma reconciliação ou quando a sidebar
+        # ainda está usando uma resposta cacheada; não transforme isso em um
+        # histórico vazio/404 se a sessão nativa e suas mensagens existem.
+        session_store = await _get_session_store()
+        native = await session_store.get_session(
+            request.thread_id,
+            user_id=(
+                _user_id(http_request)
+                if http_request is not None
+                and getattr(http_request.state, "user", None) is not None
+                else None
+            ),
         )
+        if native is None:
+            raise HTTPException(
+                status_code=404, detail=f"Thread {request.thread_id!r} not found"
+            )
+        thread = Thread(
+            id=str(native["thread_id"]),
+            created_at=native["created_at"],
+            updated_at=native["updated_at"],
+            workspace_id=native["workspace_id"] or "",
+            mode=_normalize_mode(native["mode"]),
+        )
+        thread.unread_count = await _unread_count(thread.id, _user_id(http_request))
+        return thread
     await _assert_owns_thread(request.thread_id, http_request)
     thread = _row_to_thread(row)
     thread.unread_count = await _unread_count(
@@ -929,18 +962,26 @@ async def mark_thread_read(thread_id: str, request: Request) -> dict[str, int | 
     async with _db_write_lock:
         for attempt in range(5):
             try:
-                async with db.execute(
-                    "SELECT message_count FROM vectora_sessions WHERE thread_id = ?",
-                    (thread_id,),
-                ) as cur:
-                    row = await cur.fetchone()
-                if row is None:
-                    raise HTTPException(status_code=404, detail="Thread não encontrada")
+                session_store = await _get_session_store()
+                assistant_count = await session_store.count_assistant_messages(
+                    thread_id
+                )
+                if assistant_count is None:
+                    async with db.execute(
+                        "SELECT message_count FROM vectora_sessions WHERE thread_id = ?",
+                        (thread_id,),
+                    ) as cur:
+                        legacy_row = await cur.fetchone()
+                    if legacy_row is None:
+                        raise HTTPException(
+                            status_code=404, detail="Thread não encontrada"
+                        )
+                    assistant_count = int(legacy_row[0])
                 await db.execute(
                     "INSERT INTO thread_read_cursors(thread_id, user_id, read_count) VALUES (?, ?, ?) "
                     "ON CONFLICT(thread_id, user_id) DO UPDATE SET read_count = "
                     "MAX(thread_read_cursors.read_count, excluded.read_count)",
-                    (thread_id, user_id, int(row[0])),
+                    (thread_id, user_id, assistant_count),
                 )
                 await db.commit()
                 break

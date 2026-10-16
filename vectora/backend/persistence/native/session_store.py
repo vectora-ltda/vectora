@@ -644,6 +644,28 @@ class SessionStore:
             for r in rows
         ]
 
+    async def count_assistant_messages(self, thread_id: str) -> int | None:
+        """Conta somente respostas persistidas do assistente.
+
+        A tabela ``messages`` também guarda mensagens de usuário, tool calls e
+        resultados internos. Esses registros são necessários para reconstruir
+        o histórico, mas não são notificações novas para a sidebar.
+        """
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT COUNT(*), COALESCE(SUM(role = 'assistant'), 0) "
+                "FROM messages WHERE thread_id = ?",
+                (thread_id,),
+            )
+            row = await cur.fetchone()
+        if row is None:
+            return None
+        # A session with no persisted messages is used by a few legacy/import
+        # paths that only maintain the UI counter. Preserve that fallback; a
+        # real user-only conversation has rows and correctly yields zero.
+        return int(row[1]) if int(row[0]) else None
+
     async def list_active_user_ids(self, since_iso: str) -> list[str]:
         """`user_id` distintos com pelo menos uma sessão atualizada desde
         `since_iso` (string ISO comparável lexicograficamente com

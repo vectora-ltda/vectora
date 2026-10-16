@@ -125,7 +125,7 @@ describe("ThreadItem — menu de contexto", () => {
     expect(queryClient.setQueryData).toHaveBeenCalled();
   });
 
-  it("expõe o contador de mensagens não lidas com rótulo localizado", () => {
+  it("expõe apenas um indicador, sem exibir a quantidade de mensagens", () => {
     render(
       <ThreadItem
         thread={makeThread({ unread_count: 3 })}
@@ -137,7 +137,9 @@ describe("ThreadItem — menu de contexto", () => {
       />,
     );
 
-    expect(screen.getByLabelText("3 mensagens não lidas")).toBeInTheDocument();
+    const indicator = screen.getByLabelText("1 mensagens não lidas");
+    expect(indicator).toBeInTheDocument();
+    expect(indicator).toHaveTextContent("");
   });
 
   it("não renderiza contador quando não há mensagens não lidas", () => {

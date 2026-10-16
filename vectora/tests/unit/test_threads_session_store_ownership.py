@@ -29,6 +29,7 @@ from backend.api.schemas import (
 )
 from backend.persistence.native.session_store import SessionStore
 from backend.storage.sqlite.pool import AsyncConnectionPool
+from backend.vtypes.message import MessageRole, text_message
 
 
 def _http_request(user_id: str | None, device_id: str | None = None) -> MagicMock:
@@ -443,6 +444,19 @@ class TestCreateThreadRegistersOwnership:
 
 class TestMarkThreadRead:
     """Garante que o cursor de leitura é isolado, monotônico e idempotente."""
+
+    async def test_usuario_so_nao_gera_notificacao_de_resposta(
+        self, session_store
+    ) -> None:
+        """Tool calls e a mensagem do usuário não viram notificações falsas."""
+        await session_store.create_session("thread-user-only", user_id="alice")
+        await session_store.append_message(
+            "thread-user-only", text_message(MessageRole.USER, "oi")
+        )
+        await th._upsert_session("thread-user-only")
+        await th._increment_message_count("thread-user-only")
+
+        assert await th._unread_count("thread-user-only", "alice") == 0
 
     async def test_cursor_isolado_por_usuario(self, session_store) -> None:
         await session_store.create_session("thread-alice", user_id="alice")

@@ -261,11 +261,10 @@ export const ThreadItem = memo(function ThreadItem({
         <span className="truncate text-[12px] leading-5">{title}</span>
         {thread.unread_count && thread.unread_count > 0 ? (
           <span
-            className="shrink-0 rounded-full bg-primary px-1.5 text-[10px] leading-4 text-primary-foreground"
-            aria-label={m.unread_messages_count({ n: thread.unread_count })}
-          >
-            {thread.unread_count > 99 ? "99+" : thread.unread_count}
-          </span>
+            className="shrink-0 h-2 w-2 rounded-full bg-primary"
+            aria-label={m.unread_messages_count({ n: 1 })}
+            title={m.unread_messages_count({ n: 1 })}
+          />
         ) : null}
       </div>
       <button
