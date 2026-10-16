@@ -805,6 +805,32 @@ class SessionStore:
         # real user-only conversation has rows and correctly yields zero.
         return int(row[1]) if int(row[0]) else None
 
+    async def count_assistant_messages_after(
+        self, thread_id: str, message_id: int
+    ) -> int | None:
+        """Conta respostas assistant posteriores a um cursor confirmado."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT COUNT(*) FROM messages WHERE thread_id = ? "
+                "AND role = 'assistant' AND id > ?",
+                (thread_id, message_id),
+            )
+            row = await cur.fetchone()
+        return int(row[0]) if row is not None else None
+
+    async def latest_assistant_message_id(self, thread_id: str) -> int:
+        """Retorna o cursor monotônico da última resposta assistant."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT COALESCE(MAX(id), 0) FROM messages "
+                "WHERE thread_id = ? AND role = 'assistant'",
+                (thread_id,),
+            )
+            row = await cur.fetchone()
+        return int(row[0] or 0) if row is not None else 0
+
     async def list_active_user_ids(self, since_iso: str) -> list[str]:
         """`user_id` distintos com pelo menos uma sessão atualizada desde
         `since_iso` (string ISO comparável lexicograficamente com

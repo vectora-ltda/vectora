@@ -199,9 +199,15 @@ async def _ensure_schema(db: Any) -> None:
             thread_id TEXT NOT NULL,
             user_id TEXT NOT NULL,
             read_count INTEGER NOT NULL DEFAULT 0,
+            read_message_id INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (thread_id, user_id)
         )
     """)
+    with contextlib.suppress(sqlite3.OperationalError):
+        await db.execute(
+            "ALTER TABLE thread_read_cursors ADD COLUMN "
+            "read_message_id INTEGER NOT NULL DEFAULT 0"
+        )
     from backend.services.usage_insights import usage_insight_store
 
     await usage_insight_store.ensure_schema(db)
@@ -382,6 +388,28 @@ async def _unread_count(thread_id: str, user_id: str) -> int:
     session_store = await _get_session_store()
     assistant_count = await session_store.count_assistant_messages(thread_id)
     db = await _get_db()
+    if assistant_count is not None and hasattr(
+        session_store, "count_assistant_messages_after"
+    ):
+        try:
+            async with db.execute(
+                "SELECT COALESCE((SELECT read_message_id FROM thread_read_cursors "
+                "WHERE thread_id = ? AND user_id = ?), 0)",
+                (thread_id, user_id),
+            ) as cur:
+                cursor_row = await cur.fetchone()
+            return max(
+                0,
+                int(
+                    await session_store.count_assistant_messages_after(
+                        thread_id, int(cursor_row[0] or 0) if cursor_row else 0
+                    )
+                ),
+            )
+        except sqlite3.OperationalError:
+            # Test doubles and legacy deployments may not have the cursor
+            # column yet; preserve the count-based behavior during migration.
+            pass
     if assistant_count is None:
         async with db.execute(
             "SELECT message_count FROM vectora_sessions WHERE thread_id = ?",
@@ -977,11 +1005,20 @@ async def mark_thread_read(thread_id: str, request: Request) -> dict[str, int | 
                             status_code=404, detail="Thread não encontrada"
                         )
                     assistant_count = int(legacy_row[0])
+                if hasattr(session_store, "latest_assistant_message_id"):
+                    latest_assistant = await session_store.latest_assistant_message_id(
+                        thread_id
+                    )
+                else:
+                    latest_assistant = assistant_count
                 await db.execute(
-                    "INSERT INTO thread_read_cursors(thread_id, user_id, read_count) VALUES (?, ?, ?) "
-                    "ON CONFLICT(thread_id, user_id) DO UPDATE SET read_count = "
-                    "MAX(thread_read_cursors.read_count, excluded.read_count)",
-                    (thread_id, user_id, assistant_count),
+                    "INSERT INTO thread_read_cursors "
+                    "(thread_id, user_id, read_count, read_message_id) "
+                    "VALUES (?, ?, ?, ?) ON CONFLICT(thread_id, user_id) DO UPDATE SET "
+                    "read_count = MAX(thread_read_cursors.read_count, excluded.read_count), "
+                    "read_message_id = MAX(thread_read_cursors.read_message_id, "
+                    "excluded.read_message_id)",
+                    (thread_id, user_id, assistant_count, latest_assistant),
                 )
                 await db.commit()
                 break
