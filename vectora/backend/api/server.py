@@ -414,7 +414,10 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             await _reconcile_safe()
             # Run reconciliation independently so a slow/unavailable native
             # store cannot block sidebar cleanup at startup.
-            asyncio.create_task(_reconcile_runs_safe())
+            reconcile_runs_task = asyncio.create_task(_reconcile_runs_safe())
+            reconcile_runs_task.add_done_callback(
+                lambda task: task.exception() if not task.cancelled() else None
+            )
             await _cleanup_safe()
             await _activity_cleanup_safe()
             while True:

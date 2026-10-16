@@ -211,12 +211,19 @@ async def _ensure_schema(db: Any) -> None:
     # Backfill the message cursor for rows created by the legacy count-only
     # implementation.  The cursor points at the Nth assistant message, so old
     # messages do not reappear as unread after migration.
+    # Backfill legacy count-only cursors with a windowed query. The previous
+    # correlated OFFSET expression was rejected by SQLite and left cursors at
+    # zero, making all old replies appear unread after migration.
     with contextlib.suppress(sqlite3.OperationalError):
         await db.execute(
-            "UPDATE thread_read_cursors SET read_message_id = COALESCE(("
-            "SELECT id FROM messages m WHERE m.thread_id = thread_read_cursors.thread_id "
-            "AND m.role = 'assistant' ORDER BY id LIMIT 1 OFFSET read_count - 1), 0) "
-            "WHERE read_count > 0 AND read_message_id = 0"
+            "WITH ranked AS ("
+            " SELECT id, thread_id, ROW_NUMBER() OVER ("
+            "   PARTITION BY thread_id ORDER BY id"
+            " ) AS rn FROM messages WHERE role = 'assistant'"
+            ") UPDATE thread_read_cursors SET read_message_id = COALESCE(("
+            " SELECT ranked.id FROM ranked WHERE ranked.thread_id = thread_read_cursors.thread_id"
+            " AND ranked.rn = thread_read_cursors.read_count"
+            "), 0) WHERE read_count > 0 AND read_message_id = 0"
         )
     from backend.services.usage_insights import usage_insight_store
 
@@ -985,7 +992,6 @@ async def list_threads(
 
 
 class MarkThreadReadRequest(BaseModel):
-    thread_id: str
     read_message_id: int | None = None
 
 

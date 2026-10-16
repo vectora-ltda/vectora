@@ -340,7 +340,10 @@ async def _stop_process() -> None:
             await asyncio.wait_for(process.wait(), timeout=5)
         except TimeoutError:
             process.kill()
-            await process.wait()
+            try:
+                await asyncio.wait_for(process.wait(), timeout=5)
+            except TimeoutError:
+                logger.warning("llamacpp sidecar did not confirm termination")
 
     try:
         await terminate_process()

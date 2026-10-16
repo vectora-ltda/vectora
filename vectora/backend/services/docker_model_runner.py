@@ -50,7 +50,11 @@ def _docker_executable() -> str:
                 os.environ.get("PROGRAMFILES", ""),
                 os.environ.get("LOCALAPPDATA", ""),
             ]
-            roots = [Path(raw).expanduser().resolve() for raw in raw_roots if raw]
+            roots = [
+                Path(raw).expanduser().resolve()
+                for raw in raw_roots
+                if raw and Path(raw).expanduser().is_absolute()
+            ]
             roots.append((Path.home() / ".docker").resolve())
             return any(resolved.is_relative_to(root) for root in roots)
         return any(
