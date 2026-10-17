@@ -2326,9 +2326,11 @@ async def restore_managed_llamacpp() -> bool:
         # contexto, embora a inferência direta do provider funcionasse.  Um
         # parâmetro salvo continua tendo precedência; na ausência dele usamos
         # a janela suportada pelo catálogo atual.
-        ctx_size=parameters.get("ctx_size")
-        if isinstance(parameters.get("ctx_size"), int)
-        else 32768,
+        ctx_size=(
+            max(parameters["ctx_size"], 32768)
+            if isinstance(parameters.get("ctx_size"), int)
+            else 32768
+        ),
         n_gpu_layers=parameters.get("n_gpu_layers")
         if isinstance(parameters.get("n_gpu_layers"), int)
         else None,
