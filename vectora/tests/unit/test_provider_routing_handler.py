@@ -1408,7 +1408,7 @@ class TestLlamaCppAndHuggingFace:
             "port": 18080,
             "alias": None,
             "mmproj": None,
-            "ctx_size": None,
+            "ctx_size": 32768,
             "n_gpu_layers": None,
             "threads": None,
             "parallel": None,

@@ -2186,7 +2186,9 @@ async def start_installed_huggingface_model(
                 port=body.port,
                 alias=body.alias,
                 mmproj=mmproj_path,
-                ctx_size=body.ctx_size,
+                # The managed model route must not fall back to llama-server's
+                # 2048-token default: agent prompts commonly exceed it.
+                ctx_size=body.ctx_size if body.ctx_size is not None else 32768,
                 n_gpu_layers=body.n_gpu_layers,
                 threads=body.threads,
                 parallel=body.parallel,
@@ -2318,9 +2320,15 @@ async def restore_managed_llamacpp() -> bool:
         alias=parameters.get("alias")
         if isinstance(parameters.get("alias"), str)
         else row[0],
+        # GGUFs modernos normalmente declaram uma janela muito maior que o
+        # default de 2048 do llama-server.  Restaurar sem explicitar a janela
+        # fazia o agente enviar prompts completos e receber 400 por excesso de
+        # contexto, embora a inferência direta do provider funcionasse.  Um
+        # parâmetro salvo continua tendo precedência; na ausência dele usamos
+        # a janela suportada pelo catálogo atual.
         ctx_size=parameters.get("ctx_size")
         if isinstance(parameters.get("ctx_size"), int)
-        else None,
+        else 32768,
         n_gpu_layers=parameters.get("n_gpu_layers")
         if isinstance(parameters.get("n_gpu_layers"), int)
         else None,
