@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS session_runs (
     detail TEXT,
     error_code TEXT,
     partial_text TEXT NOT NULL DEFAULT '',
+    provider_model TEXT,
     started_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     terminal_at TEXT
@@ -191,6 +192,13 @@ class SessionStore:
                 except Exception as exc:
                     if "duplicate column name" not in str(exc).lower():
                         raise
+            try:
+                await conn.execute(
+                    "ALTER TABLE session_runs ADD COLUMN provider_model TEXT"
+                )
+            except Exception as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
             columns = await conn.execute_fetchall("PRAGMA table_info(messages)")
             if not any(str(column[1]) == "turn_id" for column in columns):
                 await conn.execute("ALTER TABLE messages ADD COLUMN turn_id TEXT")
@@ -253,6 +261,7 @@ class SessionStore:
         *,
         turn_id: str | None = None,
         detail: str | None = None,
+        provider_model: str | None = None,
     ) -> None:
         """Persist a run before the provider is invoked.
 
@@ -276,12 +285,13 @@ class SessionStore:
                     )
             await conn.execute(
                 "INSERT INTO session_runs "
-                "(run_id, thread_id, turn_id, status, detail, started_at, updated_at) "
-                "VALUES (?, ?, ?, 'running', ?, ?, ?) "
+                "(run_id, thread_id, turn_id, status, detail, provider_model, started_at, updated_at) "
+                "VALUES (?, ?, ?, 'running', ?, ?, ?, ?) "
                 "ON CONFLICT(run_id) DO UPDATE SET status='running', "
                 "detail=COALESCE(excluded.detail, session_runs.detail), "
+                "provider_model=COALESCE(excluded.provider_model, session_runs.provider_model), "
                 "updated_at=excluded.updated_at",
-                (run_id, thread_id, turn_id, detail, now, now),
+                (run_id, thread_id, turn_id, detail, provider_model, now, now),
             )
             await conn.commit()
 
@@ -293,6 +303,7 @@ class SessionStore:
         detail: str | None = None,
         error_code: str | None = None,
         partial_text: str | None = None,
+        provider_model: str | None = None,
     ) -> None:
         """Advance a run state atomically and record its terminal timestamp."""
         if status not in {
@@ -312,6 +323,7 @@ class SessionStore:
                 "UPDATE session_runs SET status = ?, detail = COALESCE(?, detail), "
                 "error_code = COALESCE(?, error_code), "
                 "partial_text = COALESCE(?, partial_text), updated_at = ?, "
+                "provider_model = COALESCE(?, provider_model), "
                 "terminal_at = COALESCE(?, terminal_at) WHERE run_id = ?",
                 (
                     status,
@@ -319,6 +331,7 @@ class SessionStore:
                     error_code,
                     partial_text,
                     now,
+                    provider_model,
                     terminal_at,
                     run_id,
                 ),

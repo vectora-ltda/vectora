@@ -226,6 +226,7 @@ def stream_engine_events(
     http_request: Request | None = None,
     user_id: str | None = None,
     run_id: str | None = None,
+    provider_model: str | None = None,
 ) -> AsyncGenerator[str]:
     """AsyncGenerator SSE a partir de uma chamada ao motor nativo.
 
@@ -285,6 +286,7 @@ def stream_engine_events(
                             thread_id,
                             resolved_run_id,
                             detail="Provider ainda não iniciado.",
+                            provider_model=provider_model,
                         )
                 except Exception as exc:
                     logger.exception(

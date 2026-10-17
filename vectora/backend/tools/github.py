@@ -36,9 +36,11 @@ async def _github_token(ctx: ToolContext | None = None) -> str:
             logger.debug(
                 "github: não foi possível ler o token do usuário", exc_info=True
             )
-    # Com contexto de usuário, ausência de token significa operação anônima;
-    # não herde a credencial global de outro usuário.
-    if ctx is not None:
+    # O runtime multi-tenant não herda uma credencial global por padrão. Os
+    # harnesses autenticados (CI/CLI) podem optar explicitamente por isso via
+    # ``_extra``; essa distinção evita que um token de processo vaze para uma
+    # sessão de usuário diferente.
+    if ctx is not None and not bool(ctx._extra.get("allow_global_credentials")):
         return ""
     return os.environ.get("GITHUB_TOKEN", "").strip()
 

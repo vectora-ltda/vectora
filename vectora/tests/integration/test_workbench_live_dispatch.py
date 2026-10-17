@@ -55,7 +55,10 @@ async def test_agent_dispatches_authenticated_github_with_token() -> None:
         pytest.fail("teste autenticado exige VECTORA_LIVE_GITHUB_TOKEN ou GITHUB_TOKEN")
     result = await _spec("github_fetch_pr_diff").ainvoke(
         {"owner": "vectora-ltda", "repo": "vectora", "pr_number": 319},
-        ToolContext(user_id="live-authenticated"),
+        ToolContext(
+            user_id="live-authenticated",
+            _extra={"allow_global_credentials": True},
+        ),
     )
     payload = json.loads(result)
     assert payload["status"] == "ok"
