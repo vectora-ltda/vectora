@@ -151,9 +151,16 @@ class OpenRouterChatClient:
     """Chat client nativo do OpenRouter — implementa o Protocol
     ``ChatClient``, async-only (CLAUDE.md regra 10)."""
 
-    def __init__(self, model: str, client: OpenRouterClient) -> None:
+    def __init__(
+        self,
+        model: str,
+        client: OpenRouterClient,
+        *,
+        compact_system_prompt: bool = False,
+    ) -> None:
         self.model = model
         self.client = client
+        self.compact_system_prompt = compact_system_prompt
 
     def _payload(
         self,
@@ -167,8 +174,25 @@ class OpenRouterChatClient:
             "model": self.model,
             "messages": [_to_openrouter_message(m) for m in messages],
         }
+        if self.compact_system_prompt:
+            from backend.llm.prompt_projection import compact_small_model_system_prompt
+
+            for message in corpo["messages"]:
+                if message.get("role") == "system" and isinstance(
+                    message.get("content"), str
+                ):
+                    message["content"] = compact_small_model_system_prompt(
+                        message["content"]
+                    )
+                    break
         if temperature is not None:
-            corpo["temperature"] = temperature
+            # Tiny local models often enter a deterministic repetition loop
+            # at temperature 0 when the prompt contains identity/tool rules.
+            # A small floor keeps coding deterministic enough while avoiding
+            # the known ``meu meu meu`` degeneration in DMR SmolLM2.
+            corpo["temperature"] = (
+                max(0.2, temperature) if self.compact_system_prompt else temperature
+            )
         if max_tokens is not None:
             corpo["max_tokens"] = max_tokens
         if tools:

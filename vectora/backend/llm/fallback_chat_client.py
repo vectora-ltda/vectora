@@ -276,6 +276,7 @@ def load_chat_client(model_id: str) -> ChatClient:  # noqa: PLR0911
                     require_api_key=False,
                     include_attribution=False,
                 ),
+                compact_system_prompt=True,
             )
         case _:
             msg = (

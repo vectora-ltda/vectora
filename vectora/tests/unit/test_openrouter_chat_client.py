@@ -68,6 +68,42 @@ class TestAgenerate:
 
 
 class TestConversaoDeMensagens:
+    async def test_projecao_de_prompt_para_modelo_pequeno_preserva_nome(self):
+        capturado: dict = {}
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            capturado.update(json.loads(req.content))
+            return httpx.Response(200, json=_resposta_ok())
+
+        client = _client(handler, compact_system_prompt=True)
+        await client.agenerate(
+            [
+                text_message(
+                    MessageRole.SYSTEM,
+                    "## Identity — Vectora\n" + ("documentação longa " * 200),
+                ),
+                text_message(MessageRole.USER, "Quem é você?"),
+            ]
+        )
+
+        system = capturado["messages"][0]["content"]
+        assert "Nome: Vectora" in system
+        assert len(system) < 1_000
+
+    async def test_modelo_pequeno_aplica_piso_de_temperatura(self):
+        capturado: dict = {}
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            capturado.update(json.loads(req.content))
+            return httpx.Response(200, json=_resposta_ok())
+
+        client = _client(handler, compact_system_prompt=True)
+        await client.agenerate(
+            [text_message(MessageRole.USER, "apresente-se")], temperature=0
+        )
+
+        assert capturado["temperature"] == 0.2
+
     async def test_roles_traduzidos_e_tool_message_carrega_tool_call_id(self):
         capturado: dict = {}
 
