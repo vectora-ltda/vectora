@@ -104,6 +104,7 @@ _RELEASE_PLEASE_PATCH_BRANCH = re.compile(
 )
 _STACK_BASE = re.compile(r"^stack/[a-z0-9][a-z0-9-]*$")
 _CONTRACTS_BASE = "feat/contratos-workbenches"
+_INTERNAL_REVIEW_BASE = "feat/llm-workbench-integration"
 _RELEASE_BRANCH = re.compile(r"^release/.+$")
 
 
@@ -158,6 +159,13 @@ def _parse_event(event: EventPayload) -> PullRequestEvent | None:
         return None
 
 
+def _repository_name(event: PullRequestEvent) -> str | None:
+    """Resolve the trusted repository name from the event or Actions env."""
+    return (event.repository.full_name if event.repository else None) or os.environ.get(
+        "GITHUB_REPOSITORY"
+    )
+
+
 def _labels(pull_request: PullRequestPayload) -> set[str]:
     """Retorna os nomes dos labels do payload validado do evento do GitHub."""
     return {label.name for label in pull_request.labels}
@@ -169,12 +177,12 @@ def _is_release_please_pr(
     """Reconhece uma PR automática de release usando o contexto imutável do repositório."""
     head = pull_request.head
     head_repo = head.repo.full_name if head and head.repo else None
-    repository = event.repository
+    repository_name = _repository_name(event)
     base = pull_request.base.ref if pull_request.base else ""
     head_ref = head.ref if head else ""
-    if head_repo != (
-        repository.full_name if repository else None
-    ) or _RELEASE_PLEASE_LABEL not in _labels(pull_request):
+    if head_repo != repository_name or _RELEASE_PLEASE_LABEL not in _labels(
+        pull_request
+    ):
         return False
     line = _line_for_base(base)
     if line is None:
@@ -203,11 +211,10 @@ def _is_release_branch_pr(
     head = pull_request.head
     head_ref = head.ref if head else ""
     head_repo = head.repo.full_name if head and head.repo else None
-    repository = event.repository
     return bool(
         base == _release_lines().maintenance.branch
         and _RELEASE_BRANCH.fullmatch(head_ref) is not None
-        and head_repo == (repository.full_name if repository else None)
+        and head_repo == _repository_name(event)
     )
 
 
@@ -216,8 +223,7 @@ def _is_internal_head(
 ) -> bool:
     """Confirma a identidade completa do repositório do head da PR."""
     head = pull_request.head
-    repository = event.repository
-    repository_name = repository.full_name if repository else None
+    repository_name = _repository_name(event)
     if head is None or repository_name is None:
         return False
     head_repo = head.repo.full_name if head.repo else None
@@ -246,9 +252,9 @@ def validate_pull_request(event: EventPayload) -> list[str]:
         parsed_event, pull_request
     ):
         return []
-    if (_STACK_BASE.fullmatch(base) or base == _CONTRACTS_BASE) and _is_internal_head(
-        parsed_event, pull_request
-    ):
+    if (
+        _STACK_BASE.fullmatch(base) or base in {_CONTRACTS_BASE, _INTERNAL_REVIEW_BASE}
+    ) and _is_internal_head(parsed_event, pull_request):
         return []
     line = _line_for_base(base)
     if line is None:

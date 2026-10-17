@@ -172,6 +172,32 @@ def test_main_preserves_event_head_repository_when_ref_output_is_set(
     assert validator.main() == 0
 
 
+def test_main_uses_github_repository_when_event_repository_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Aceita uma base interna quando o payload confiável omite repository."""
+    event_path = tmp_path / "event.json"
+    event_path.write_text(
+        json.dumps(
+            {
+                "repository": {},
+                "pull_request": {
+                    "base": {"ref": "feat/llm-workbench-integration"},
+                    "head": {"ref": "feat/llm-workbench-integration-review"},
+                    "milestone": None,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
+    monkeypatch.setenv("GITHUB_REPOSITORY", "vectora-ltda/vectora")
+    monkeypatch.setenv("CURRENT_PR_HEAD_REF", "feat/llm-workbench-integration-review")
+    monkeypatch.setenv("CURRENT_PR_HEAD_REPO", "vectora-ltda/vectora")
+
+    assert validator.main() == 0
+
+
 def test_master_feature_pr_is_accepted() -> None:
     """Aceita uma feature na base de desenvolvimento com sua milestone."""
     assert (
@@ -214,7 +240,14 @@ def test_stacked_fork_pr_does_not_bypass_release_milestone(
     assert "base declarada" in errors[0]
 
 
-@pytest.mark.parametrize("base", ["stack/base-contracts", "feat/contratos-workbenches"])
+@pytest.mark.parametrize(
+    "base",
+    [
+        "stack/base-contracts",
+        "feat/contratos-workbenches",
+        "feat/llm-workbench-integration",
+    ],
+)
 def test_contract_stack_fork_does_not_bypass_release_milestone(base: str) -> None:
     """Bases empilhadas não liberam PRs de forks."""
     errors = validator.validate_pull_request(

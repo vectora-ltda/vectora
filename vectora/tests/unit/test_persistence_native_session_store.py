@@ -31,7 +31,9 @@ async def store(tmp_path):
 
 
 class TestCreateSession:
-    async def test_cria_sessao_com_campos_obrigatorios(self, store: SessionStore):
+    async def test_cria_sessao_com_campos_obrigatorios(
+        self, store: SessionStore
+    ) -> None:
         await store.create_session("thread-1", user_id="alice")
 
         async with store._pool.acquire() as conn:
@@ -44,7 +46,9 @@ class TestCreateSession:
         assert row is not None
         assert tuple(row) == ("alice", "chat", "ask")
 
-    async def test_criar_duas_vezes_a_mesma_thread_nao_falha(self, store: SessionStore):
+    async def test_criar_duas_vezes_a_mesma_thread_nao_falha(
+        self, store: SessionStore
+    ) -> None:
         await store.create_session("thread-1", user_id="alice")
         await store.create_session("thread-1", user_id="alice")  # idempotente
 
@@ -57,6 +61,99 @@ class TestCreateSession:
             (total,) = fetched
 
         assert total == 1
+
+    async def test_segundo_turno_atualiza_modo_de_permissao(
+        self, store: SessionStore
+    ) -> None:
+        await store.create_session(
+            "thread-1", user_id="alice", workspace_id="ws-1", permission_mode="ask"
+        )
+        await store.create_session(
+            "thread-1", user_id="alice", workspace_id="ws-1", permission_mode="bypass"
+        )
+
+        session = await store.get_session("thread-1", user_id="alice")
+
+        assert session is not None
+        assert session["permission_mode"] == "bypass"
+        assert session["workspace_id"] == "ws-1"
+
+
+class TestSessionRuns:
+    async def test_run_terminal_e_reconciliacao_sao_idempotentes(
+        self, store: SessionStore
+    ) -> None:
+        await store.create_session("thread-run", user_id="alice")
+        await store.start_run(
+            "thread-run",
+            "run-1",
+            turn_id="turn-1",
+            detail="Provider ainda não iniciado.",
+        )
+        await store.start_run("thread-run", "run-1", turn_id="turn-1")
+        with pytest.raises(ValueError, match="turn_id"):
+            await store.start_run("thread-run", "run-2", turn_id="turn-1")
+        await store.update_run(
+            "run-1", status="failed", error_code="PROVIDER_DOWN", detail="offline"
+        )
+        await store.update_run(
+            "run-1", status="failed", error_code="PROVIDER_DOWN", detail="offline"
+        )
+
+        async with store._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT status, error_code, terminal_at FROM session_runs "
+                "WHERE run_id = ?",
+                ("run-1",),
+            )
+            row = await cur.fetchone()
+
+        assert row is not None
+        assert row[0] == "failed"
+        assert row[1] == "PROVIDER_DOWN"
+        assert row[2]
+
+    async def test_run_abandonado_vira_falha_explicita(
+        self, store: SessionStore
+    ) -> None:
+        await store.create_session("thread-stale", user_id="alice")
+        await store.start_run("thread-stale", "run-stale")
+        changed = await store.reconcile_abandoned_runs(older_than_seconds=-1)
+
+        assert changed == 1
+        async with store._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT status, error_code FROM session_runs WHERE run_id = ?",
+                ("run-stale",),
+            )
+            row = await cur.fetchone()
+            assert row is not None
+            assert tuple(row) == ("failed", "RUN_ABANDONED")
+
+    async def test_mensagem_assistant_conclui_run_na_mesma_transacao(
+        self, store: SessionStore
+    ) -> None:
+        await store.create_session("thread-complete", user_id="alice")
+        await store.start_run("thread-complete", "run-complete")
+        await store.append_message(
+            "thread-complete",
+            text_message(MessageRole.ASSISTANT, "resposta final"),
+            run_id="run-complete",
+            turn_id="turn-complete",
+        )
+
+        async with store._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT status, partial_text, terminal_at FROM session_runs "
+                "WHERE run_id = ?",
+                ("run-complete",),
+            )
+            row = await cur.fetchone()
+
+        assert row is not None
+        assert row[0] == "completed"
+        assert row[1] == "resposta final"
+        assert row[2]
 
 
 class TestAppendMessageEGetHistory:

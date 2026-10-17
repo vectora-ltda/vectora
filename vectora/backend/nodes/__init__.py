@@ -13,8 +13,12 @@ _FS_NAMES = frozenset(
         "grep",
         "list_dir",
         "terminal",
+        "open_terminal",
         "create_artifact",
         "list_terminals",
+        "attach_terminal",
+        "read_terminal",
+        "write_terminal",
         "close_terminal",
     }
 )

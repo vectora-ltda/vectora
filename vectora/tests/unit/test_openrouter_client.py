@@ -31,7 +31,7 @@ def _client(handler) -> OpenRouterClient:
 
 class TestAuthEHeaders:
     @pytest.mark.asyncio
-    async def test_manda_bearer_e_headers_de_atribuicao(self):
+    async def test_manda_bearer_e_headers_de_atribuicao(self) -> None:
         capturado: dict[str, str] = {}
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -52,6 +52,28 @@ class TestAuthEHeaders:
         rende um 401 confuso lá na frente, longe da causa."""
         with pytest.raises(OpenRouterAuthError, match="OPENROUTER_API_KEY"):
             OpenRouterClient(api_key="")
+
+    @pytest.mark.asyncio
+    async def test_chave_opcional_omite_autorizacao_e_atribuicao(self) -> None:
+        capturado: dict[str, str] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            capturado.update(request.headers)
+            return httpx.Response(200, json={"ok": True})
+
+        client = OpenRouterClient(
+            api_key="",
+            base_url="http://127.0.0.1:8080/v1",
+            http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+            require_api_key=False,
+            include_attribution=False,
+        )
+        async with client:
+            await client.post_json("/chat/completions", {"model": "x"})
+
+        assert "authorization" not in capturado
+        assert "http-referer" not in capturado
+        assert "x-title" not in capturado
 
 
 class TestMapeamentoDeErro:

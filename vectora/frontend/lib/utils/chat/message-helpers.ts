@@ -99,6 +99,9 @@ export const historyMessageToMessage = (
 
   return {
     id,
+    ...(hist.message_id !== undefined
+      ? { persistedMessageId: hist.message_id }
+      : {}),
     role: hist.role === "human" ? "user" : "assistant",
     content: hist.content,
     timestamp: hist.created_at ? new Date(hist.created_at) : new Date(),

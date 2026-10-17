@@ -7,9 +7,94 @@ Supports multiple log levels, file rotation, and console output.
 import json
 import logging
 import os
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+_LOG_EXTRA_FIELDS: frozenset[str] = frozenset(
+    {
+        "tool",
+        "command",
+        "url",
+        "endpoint",
+        "operation",
+        "repo",
+        "owner",
+        "pr_number",
+        "issue_number",
+        "workspace_id",
+        "thread_id",
+        "tab_id",
+        "transport",
+        "exit_code",
+        "output_length",
+        "status",
+        "passed",
+        "argument_keys",
+        "provider",
+        "topic",
+        "query",
+        "error",
+    }
+)
+_SECRET_KEY_RE = re.compile(
+    r"(?:token|secret|password|passwd|authorization|api[_-]?key|private[_-]?key|signature)",
+    re.IGNORECASE,
+)
+_COMMAND_SECRET_RE = re.compile(
+    r"(?i)(--?(?:token|password|api[-_]?key|secret))(?:\s+|=)([^\s'\"]+)"
+    r"|(\b(?:GH_TOKEN|GITHUB_TOKEN|OPENAI_API_KEY|TAVILY_API_KEY)\s*=)([^\s'\"]+)"
+    r"|(Authorization:\s*Bearer\s+)([^\s'\"]+)"
+)
+
+
+def _redact_url(value: str) -> str:
+    """Remove credential-like query parameters while preserving the URL target."""
+    try:
+        parts = urlsplit(value)
+        query = [
+            (key, "[REDACTED]" if _SECRET_KEY_RE.search(key) else item)
+            for key, item in parse_qsl(parts.query, keep_blank_values=True)
+        ]
+        return urlunsplit(
+            (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
+        )
+    except ValueError:
+        return value
+
+
+def _safe_log_value(key: str, value: Any) -> Any:
+    """Return an allowlisted, bounded log value without credentials."""
+    if value is None:
+        return None
+    if _SECRET_KEY_RE.search(key):
+        return "[REDACTED]"
+    if isinstance(value, str):
+        result = _redact_url(value) if key in {"url", "endpoint"} else value
+        result = _COMMAND_SECRET_RE.sub(
+            lambda match: (
+                (match.group(1) or match.group(3) or match.group(5) or "")
+                + "[REDACTED]"
+            ),
+            result,
+        )
+        return result[:300]
+    if isinstance(value, (int, float, bool)):
+        return value
+    if isinstance(value, (list, tuple, set)):
+        return [_safe_log_value(key, item) for item in list(value)[:20]]
+    return str(value)[:300]
+
+
+def _structured_extras(record: logging.LogRecord) -> dict[str, Any]:
+    """Select safe structured context; arbitrary LogRecord extras are excluded."""
+    return {
+        key: _safe_log_value(key, getattr(record, key))
+        for key in _LOG_EXTRA_FIELDS
+        if hasattr(record, key)
+    }
 
 
 class JSONFormatter(logging.Formatter):
@@ -40,6 +125,8 @@ class JSONFormatter(logging.Formatter):
         if hasattr(record, "routing_decision"):
             log_obj["routing_decision"] = record.routing_decision
 
+        log_obj.update(_structured_extras(record))
+
         return json.dumps(log_obj, ensure_ascii=False)
 
 
@@ -53,6 +140,13 @@ class TextFormatter(logging.Formatter):
             prefix += f"thread={record.thread_id:>3} | "
 
         msg = record.getMessage()
+        extras = _structured_extras(record)
+        if extras:
+            rendered = " ".join(
+                f"{key}={json.dumps(value, ensure_ascii=False)}"
+                for key, value in sorted(extras.items())
+            )
+            msg += f" | {rendered}"
         if record.exc_info:
             msg += "\n" + self.formatException(record.exc_info)
 

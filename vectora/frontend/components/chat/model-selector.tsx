@@ -158,7 +158,11 @@ export function ModelSelector({
     if (fallback) onChange(fallback);
   }, [codeMode, toolIncompatibleModels, value, visibleModels, onChange]);
 
-  const activeLabel = getModelDisplayName(value as ModelOption) || value;
+  const getDisplayLabel = (model: string) =>
+    dynamicModels.find((dynamicModel) => dynamicModel.id === model)?.label ??
+    (getModelDisplayName(model as ModelOption) || model);
+
+  const activeLabel = getDisplayLabel(value);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -223,7 +227,7 @@ export function ModelSelector({
               )}
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-medium text-foreground">
-                  {getModelDisplayName(model)}
+                  {getDisplayLabel(model)}
                 </span>
               </span>
             </button>

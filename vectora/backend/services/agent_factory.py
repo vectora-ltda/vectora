@@ -862,6 +862,7 @@ async def aget_thread_messages_with_files(
             role=cast("Literal['human', 'assistant']", item[0]),
             text=item[1],
             checkpoint_id=item[2],
+            message_id=int(item[2]) if item[2].isdigit() else None,
             attachments=item[3],
             edited_files=files_for_checkpoint(item[2]),
         )

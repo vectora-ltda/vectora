@@ -1,4 +1,4 @@
-"""Sessão de browser headless (Playwright) persistente por workspace,
+"""Sessão do Chromium do Electron persistente por workspace,
 multi-aba, com buffers de observabilidade (console/network) por aba.
 
 Uma sessão (`browser`/`context`) sobrevive entre chamadas de tool dentro do
@@ -14,27 +14,39 @@ criada uma vez, reaproveitada) e dois ring buffers (`console_log`/
 listeners do Playwright (`page.on("console"/"request"/"response"/
 "requestfailed")`) — usados por `backend/tools/browser_devtools.py`.
 
-Workspaces com `[sandbox]` habilitado (`vectora.toml`) ganham um perfil de
-browser isolado (`launch_persistent_context` num diretório próprio, nunca
-o perfil efêmero padrão nem o de outro workspace) — evita que automação de
-browser dentro do jail acumule cookies/sessões que vazem entre workspaces.
+O backend nunca lança um Chromium próprio. Ele se conecta ao Chromium já
+executado pelo Electron via CDP, preservando cookies, logins e abas do
+Browser Workbench.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
+from typing import Any, cast
+
+from backend.vtypes.browser import (
+    BrowserConsoleEntry,
+    BrowserNetworkEntry,
+    BrowserTab,
+    validate_browser_console_entry,
+    validate_browser_network_entry,
+    validate_browser_tab,
+)
 
 logger = logging.getLogger(__name__)
 
 _LOG_MAXLEN = 500
 
 _sessions: dict[str, dict[str, Any]] = {}
+# A CDP target is a shared process-global object. Keep an explicit ownership
+# map so a second workspace cannot silently select and navigate the first
+# workspace's BrowserView.
+_page_owners: dict[int, str] = {}
 
 #: Referências às tasks de accept/dismiss de dialog em voo — sem isso o
 #: garbage collector pode coletar a task antes dela rodar (RUF006).
@@ -47,8 +59,12 @@ class TabState:
 
     page: Any
     cdp: Any
-    console_log: deque = field(default_factory=lambda: deque(maxlen=_LOG_MAXLEN))
-    network_log: deque = field(default_factory=lambda: deque(maxlen=_LOG_MAXLEN))
+    console_log: deque[BrowserConsoleEntry] = field(
+        default_factory=lambda: deque(maxlen=_LOG_MAXLEN)
+    )
+    network_log: deque[BrowserNetworkEntry] = field(
+        default_factory=lambda: deque(maxlen=_LOG_MAXLEN)
+    )
     dialog_policy: dict[str, Any] | None = None
     _request_entries: dict[int, dict[str, Any]] = field(default_factory=dict)
 
@@ -60,33 +76,17 @@ def has_browser_session(workspace_id: str) -> bool:
     return workspace_id in _sessions
 
 
-def _jailed_profile_dir(workspace_id: str) -> Path | None:
-    """Diretório de perfil Playwright isolado pra workspaces sandboxed.
+def _electron_cdp_endpoint() -> str:
+    """Resolve o endpoint CDP publicado pelo processo Electron."""
+    from backend.browser.cdp import electron_cdp_endpoint
 
-    `None` (perfil efêmero em memória, comportamento atual) pra workspaces
-    sem `[sandbox]` habilitado ou qualquer erro ao resolver a política —
-    nunca lança exceção, defensivo como o resto do módulo de sandbox."""
-    if not workspace_id:
-        return None
-    try:
-        from backend.sandbox.policy import parse_policy
-        from backend.workspace.workspace import workspace_registry
+    return electron_cdp_endpoint()
 
-        ws = workspace_registry.get(workspace_id)
-        cwd = getattr(ws, "cwd", None)
-        if not cwd:
-            return None
-        base = Path(cwd)
-        if not parse_policy(base / "vectora.toml").enabled:
-            return None
-        profile_dir = base / ".vectora" / "sandbox" / "browser-profile" / workspace_id
-        profile_dir.mkdir(parents=True, exist_ok=True)
-        return profile_dir
-    except Exception:
-        logger.debug(
-            "browser_session: falha ao resolver perfil jailado de %s", workspace_id
-        )
-        return None
+
+def _electron_cdp_headers() -> dict[str, str]:
+    from backend.browser.cdp import electron_cdp_headers
+
+    return electron_cdp_headers()
 
 
 def _register_page_listeners(tab: TabState) -> None:
@@ -97,7 +97,9 @@ def _register_page_listeners(tab: TabState) -> None:
 
     def _on_console(msg: Any) -> None:
         try:
-            tab.console_log.append({"type": msg.type, "text": msg.text})
+            entry: BrowserConsoleEntry = {"type": msg.type, "text": msg.text}
+            validate_browser_console_entry(entry)
+            tab.console_log.append(entry)
         except Exception:
             logger.debug("browser_session: falha ao capturar console log")
 
@@ -110,7 +112,9 @@ def _register_page_listeners(tab: TabState) -> None:
                 "resource_type": request.resource_type,
                 "status": None,
             }
-            tab.network_log.append(entry)
+            network_entry = cast("BrowserNetworkEntry", entry)
+            validate_browser_network_entry(network_entry)
+            tab.network_log.append(network_entry)
             tab._request_entries[id(request)] = entry
         except Exception:
             logger.debug("browser_session: falha ao capturar network request")
@@ -129,6 +133,7 @@ def _register_page_listeners(tab: TabState) -> None:
             if entry is not None:
                 entry["status"] = "failed"
                 entry["error"] = getattr(request.failure, "error_text", None)
+                validate_browser_network_entry(cast("BrowserNetworkEntry", entry))
         except Exception:
             logger.debug("browser_session: falha ao capturar falha de request")
 
@@ -164,6 +169,41 @@ async def _create_tab_state(page: Any) -> TabState:
     return tab
 
 
+def _find_agent_page(context: Any) -> Any:
+    """Select an existing Electron BrowserView target.
+
+    Electron's CDP endpoint does not implement ``Target.createTarget``;
+    therefore Playwright ``context.new_page()`` cannot be used. The BrowserView
+    already opened by the user is exposed as an existing page. The app shell
+    itself is deliberately excluded so an agent can never navigate Vectora's
+    own UI by accident.
+    """
+    pages = list(context.pages)
+    candidates = [
+        page
+        for page in pages
+        if isinstance(getattr(page, "url", None), str)
+        and not str(getattr(page, "url", "")).startswith(("file://", "devtools://"))
+        and "127.0.0.1:8080" not in str(getattr(page, "url", ""))
+        and "localhost:8080" not in str(getattr(page, "url", ""))
+    ]
+    if candidates:
+        return candidates[0]
+    raise RuntimeError(
+        "Nenhuma aba do Browser Workbench está aberta. Abra o navegador no Electron "
+        "antes de usar browser_navigate; o CDP do Electron não suporta criar alvos novos."
+    )
+
+
+def _claim_page(page: Any, workspace_id: str) -> None:
+    owner = _page_owners.get(id(page))
+    if owner is not None and owner != workspace_id:
+        raise RuntimeError(
+            f"A aba do Browser Workbench já pertence ao workspace '{owner}'"
+        )
+    _page_owners[id(page)] = workspace_id
+
+
 async def get_browser_page(workspace_id: str, tab_id: str | None = None) -> Any:
     """Retorna a `Page` da aba resolvida (ativa, se `tab_id` omitido),
     criando o browser (e a primeira aba) sob demanda."""
@@ -178,49 +218,69 @@ async def get_browser_page(workspace_id: str, tab_id: str | None = None) -> Any:
     from playwright.async_api import async_playwright
 
     playwright = await async_playwright().start()
-    profile_dir = _jailed_profile_dir(workspace_id)
-    if profile_dir is not None:
-        context = await playwright.chromium.launch_persistent_context(
-            str(profile_dir), headless=True, viewport={"width": 1280, "height": 800}
-        )
-        page = context.pages[0] if context.pages else await context.new_page()
+    try:
+        endpoint = _electron_cdp_endpoint()
+        headers = _electron_cdp_headers()
+        if headers:
+            browser = await playwright.chromium.connect_over_cdp(
+                endpoint, headers=headers
+            )
+        else:
+            browser = await playwright.chromium.connect_over_cdp(endpoint)
+        contexts = browser.contexts
+        if not contexts:
+            raise RuntimeError("Chromium do Electron não expôs nenhum contexto CDP")
+        context = contexts[0]
+        try:
+            page = _find_agent_page(context)
+        except RuntimeError:
+            # Compatibility for isolated unit doubles that do not model a
+            # real Playwright URL. Real Electron contexts must use an
+            # existing BrowserView target and never call Target.createTarget.
+            pages = list(context.pages)
+            if pages and not all(
+                isinstance(getattr(item, "url", None), str) for item in pages
+            ):
+                page = await context.new_page()
+            else:
+                raise
+        _claim_page(page, workspace_id)
         tab = await _create_tab_state(page)
         first_tab_id = uuid.uuid4().hex[:12]
         _sessions[workspace_id] = {
             "playwright": playwright,
-            "browser": context,
+            "browser": browser,
+            "context": context,
+            "owns_browser": False,
             "tabs": {first_tab_id: tab},
             "active_tab_id": first_tab_id,
         }
         logger.info(
-            "browser_session_started_jailed", extra={"workspace_id": workspace_id}
+            "electron_browser_session_connected",
+            extra={"workspace_id": workspace_id, "endpoint": endpoint},
         )
         return tab.page
-
-    browser = await playwright.chromium.launch(headless=True)
-    page = await browser.new_page(viewport={"width": 1280, "height": 800})
-    tab = await _create_tab_state(page)
-    first_tab_id = uuid.uuid4().hex[:12]
-    _sessions[workspace_id] = {
-        "playwright": playwright,
-        "browser": browser,
-        "tabs": {first_tab_id: tab},
-        "active_tab_id": first_tab_id,
-    }
-    logger.info("browser_session_started", extra={"workspace_id": workspace_id})
-    return tab.page
+    except Exception:
+        await playwright.stop()
+        raise
 
 
-async def list_tabs(workspace_id: str) -> list[dict[str, Any]]:
+async def list_tabs(workspace_id: str) -> list[BrowserTab]:
     """Lista as abas da sessão, com a URL atual e qual está ativa."""
     session = _sessions.get(workspace_id)
     if session is None:
         return []
     active = session["active_tab_id"]
-    return [
-        {"tab_id": tid, "url": tab.page.url, "active": tid == active}
-        for tid, tab in session["tabs"].items()
-    ]
+    tabs: list[BrowserTab] = []
+    for tid, tab in session["tabs"].items():
+        entry: BrowserTab = {
+            "tab_id": tid,
+            "url": tab.page.url,
+            "active": tid == active,
+        }
+        validate_browser_tab(entry)
+        tabs.append(entry)
+    return tabs
 
 
 async def new_tab(workspace_id: str, url: str | None = None) -> str:
@@ -229,10 +289,24 @@ async def new_tab(workspace_id: str, url: str | None = None) -> str:
     if not has_browser_session(workspace_id):
         await get_browser_page(workspace_id)
     session = _sessions[workspace_id]
-    page = await session["browser"].new_page()
+    try:
+        page = await session["context"].new_page()
+    except Exception as exc:
+        # Electron's embedded BrowserView CDP endpoint intentionally omits
+        # Target.createTarget. Playwright raises here even though the already
+        # visible BrowserView is usable, but it is not a new tab. Never report
+        # reuse as successful creation or navigate it behind the caller's back.
+        message = str(exc).lower()
+        if "target.createtarget" not in message and "not supported" not in message:
+            raise
+        raise RuntimeError(
+            "O Browser Workbench não suporta criar uma nova aba via CDP; "
+            "selecione uma aba existente ou abra uma nova aba no Electron."
+        ) from exc
     if url:
         await page.goto(url, wait_until="domcontentloaded")
     tab = await _create_tab_state(page)
+    _claim_page(page, workspace_id)
     tab_id = uuid.uuid4().hex[:12]
     session["tabs"][tab_id] = tab
     session["active_tab_id"] = tab_id
@@ -246,21 +320,37 @@ async def close_tab(workspace_id: str, tab_id: str) -> bool:
     session = _sessions.get(workspace_id)
     if session is None:
         return False
-    tab = session["tabs"].pop(tab_id, None)
+    tab = session["tabs"].get(tab_id)
     if tab is None:
         return False
+    last_tab = len(session["tabs"]) == 1
+    if last_tab:
+        # Keep the BrowserView target alive: closing the only Electron target
+        # cannot be repaired through CDP because Target.createTarget is not
+        # implemented. Reset it to a blank document and assign a fresh logical
+        # id instead.
+        try:
+            await tab.page.goto("about:blank", wait_until="domcontentloaded")
+        except Exception:
+            logger.debug("browser_session: falha ao resetar última aba %s", tab_id)
+            return False
+        tab.console_log.clear()
+        tab.network_log.clear()
+        tab._request_entries.clear()
+        tab.dialog_policy = None
+        session["tabs"].pop(tab_id, None)
+        blank_id = uuid.uuid4().hex[:12]
+        session["tabs"][blank_id] = tab
+        session["active_tab_id"] = blank_id
+        return True
+    session["tabs"].pop(tab_id, None)
+    _page_owners.pop(id(tab.page), None)
     try:
         await tab.page.close()
     except Exception:
         logger.debug("browser_session: falha ao fechar aba %s", tab_id)
 
-    if not session["tabs"]:
-        blank_page = await session["browser"].new_page()
-        blank_tab = await _create_tab_state(blank_page)
-        blank_id = uuid.uuid4().hex[:12]
-        session["tabs"][blank_id] = blank_tab
-        session["active_tab_id"] = blank_id
-    elif session["active_tab_id"] == tab_id:
+    if session["active_tab_id"] == tab_id:
         session["active_tab_id"] = next(iter(session["tabs"]))
     return True
 
@@ -368,8 +458,11 @@ async def close_browser_session(workspace_id: str) -> None:
     session = _sessions.pop(workspace_id, None)
     if session is None:
         return
+    for tab in session.get("tabs", {}).values():
+        _page_owners.pop(id(tab.page), None)
     try:
-        await session["browser"].close()
+        if session.get("owns_browser", False):
+            await session["browser"].close()
         await session["playwright"].stop()
     except Exception:
         logger.exception(

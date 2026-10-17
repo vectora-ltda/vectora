@@ -16,6 +16,7 @@ import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, TypedDict
 
+from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import VMessage
 
 if TYPE_CHECKING:
@@ -77,6 +78,24 @@ CREATE TABLE IF NOT EXISTS approval_decisions (
 );
 CREATE INDEX IF NOT EXISTS ix_approval_decisions_thread
     ON approval_decisions(thread_id, decided_at);
+CREATE TABLE IF NOT EXISTS session_runs (
+    run_id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL REFERENCES sessions(thread_id),
+    turn_id TEXT,
+    status TEXT NOT NULL CHECK(status IN
+        ('queued', 'running', 'streaming', 'completed', 'failed', 'cancelled')),
+    detail TEXT,
+    error_code TEXT,
+    partial_text TEXT NOT NULL DEFAULT '',
+    provider_model TEXT,
+    started_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    terminal_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_session_runs_thread_turn
+    ON session_runs(thread_id, turn_id) WHERE turn_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_session_runs_status
+    ON session_runs(status, updated_at);
 """
 
 
@@ -173,6 +192,13 @@ class SessionStore:
                 except Exception as exc:
                     if "duplicate column name" not in str(exc).lower():
                         raise
+            try:
+                await conn.execute(
+                    "ALTER TABLE session_runs ADD COLUMN provider_model TEXT"
+                )
+            except Exception as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
             columns = await conn.execute_fetchall("PRAGMA table_info(messages)")
             if not any(str(column[1]) == "turn_id" for column in columns):
                 await conn.execute("ALTER TABLE messages ADD COLUMN turn_id TEXT")
@@ -204,9 +230,14 @@ class SessionStore:
         async with self._pool.acquire() as conn:
             try:
                 await conn.execute(
-                    "INSERT OR IGNORE INTO sessions (thread_id, user_id, workspace_id, "
+                    "INSERT INTO sessions (thread_id, user_id, workspace_id, "
                     "parent_thread_id, mode, permission_mode, created_at, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(thread_id) DO UPDATE SET "
+                    "workspace_id = CASE WHEN excluded.mode = 'chat' "
+                    "THEN excluded.workspace_id ELSE COALESCE(excluded.workspace_id, sessions.workspace_id) END, "
+                    "mode = excluded.mode, permission_mode = excluded.permission_mode, "
+                    "updated_at = excluded.updated_at",
                     (
                         thread_id,
                         user_id,
@@ -222,6 +253,113 @@ class SessionStore:
             except Exception:
                 await conn.rollback()
                 raise
+
+    async def start_run(
+        self,
+        thread_id: str,
+        run_id: str,
+        *,
+        turn_id: str | None = None,
+        detail: str | None = None,
+        provider_model: str | None = None,
+    ) -> None:
+        """Persist a run before the provider is invoked.
+
+        The unique `(thread_id, turn_id)` index makes reconnect/retry safe;
+        an already-created run is moved back to ``running`` without creating
+        a second execution record.
+        """
+        await self.setup()
+        now = _now()
+        async with self._pool.acquire() as conn:
+            if turn_id is not None:
+                existing_cur = await conn.execute(
+                    "SELECT run_id FROM session_runs "
+                    "WHERE thread_id = ? AND turn_id = ?",
+                    (thread_id, turn_id),
+                )
+                existing = await existing_cur.fetchone()
+                if existing is not None and str(existing[0]) != run_id:
+                    raise ValueError(
+                        f"turn_id {turn_id!r} já está associado ao run {existing[0]!r}"
+                    )
+            await conn.execute(
+                "INSERT INTO session_runs "
+                "(run_id, thread_id, turn_id, status, detail, provider_model, started_at, updated_at) "
+                "VALUES (?, ?, ?, 'running', ?, ?, ?, ?) "
+                "ON CONFLICT(run_id) DO UPDATE SET status='running', "
+                "detail=COALESCE(excluded.detail, session_runs.detail), "
+                "provider_model=COALESCE(excluded.provider_model, session_runs.provider_model), "
+                "updated_at=excluded.updated_at",
+                (run_id, thread_id, turn_id, detail, provider_model, now, now),
+            )
+            await conn.commit()
+
+    async def update_run(
+        self,
+        run_id: str,
+        *,
+        status: str,
+        detail: str | None = None,
+        error_code: str | None = None,
+        partial_text: str | None = None,
+        provider_model: str | None = None,
+    ) -> None:
+        """Advance a run state atomically and record its terminal timestamp."""
+        if status not in {
+            "queued",
+            "running",
+            "streaming",
+            "completed",
+            "failed",
+            "cancelled",
+        }:
+            raise ValueError(f"status de run inválido: {status!r}")
+        await self.setup()
+        now = _now()
+        terminal_at = now if status in {"completed", "failed", "cancelled"} else None
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE session_runs SET status = ?, detail = COALESCE(?, detail), "
+                "error_code = COALESCE(?, error_code), "
+                "partial_text = COALESCE(?, partial_text), updated_at = ?, "
+                "provider_model = COALESCE(?, provider_model), "
+                "terminal_at = COALESCE(?, terminal_at) WHERE run_id = ?",
+                (
+                    status,
+                    detail,
+                    error_code,
+                    partial_text,
+                    now,
+                    provider_model,
+                    terminal_at,
+                    run_id,
+                ),
+            )
+            await conn.commit()
+
+    async def reconcile_abandoned_runs(self, *, older_than_seconds: float) -> int:
+        """Move stale non-terminal runs to an explicit failed state."""
+        await self.setup()
+        from datetime import timedelta
+
+        cutoff = datetime.now(UTC) - timedelta(seconds=older_than_seconds)
+        now = _now()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "UPDATE session_runs SET status='failed', detail=?, "
+                "error_code='RUN_ABANDONED', updated_at=?, terminal_at=? "
+                "WHERE status IN ('queued', 'running', 'streaming') "
+                "AND updated_at < ?",
+                (
+                    "A execução foi encerrada sem confirmação do processo.",
+                    now,
+                    now,
+                    cutoff.isoformat(),
+                ),
+            )
+            await conn.commit()
+        return int(cur.rowcount or 0)
 
     async def append_message(
         self,
@@ -285,6 +423,30 @@ class SessionStore:
                     "UPDATE sessions SET updated_at = ? WHERE thread_id = ?",
                     (agora, thread_id),
                 )
+                # An assistant message carrying tool calls is an intermediate
+                # step.  Only a final textual/error/cancelled assistant outcome
+                # can close the run; otherwise sequential tools become
+                # impossible to resume after persistence.
+                if run_id is not None and role == "assistant" and not msg.tool_calls:
+                    terminal_status = (
+                        "failed"
+                        if msg.is_error and msg.finish_reason == "failed"
+                        else "cancelled"
+                        if msg.is_error and msg.finish_reason == "cancelled"
+                        else "completed"
+                    )
+                    await conn.execute(
+                        "UPDATE session_runs SET status = ?, updated_at = ?, "
+                        "terminal_at = ?, partial_text = COALESCE(?, partial_text) "
+                        "WHERE run_id = ?",
+                        (
+                            terminal_status,
+                            agora,
+                            agora,
+                            msg.text(),
+                            run_id,
+                        ),
+                    )
                 await conn.commit()
             except Exception:
                 await conn.rollback()
@@ -638,6 +800,54 @@ class SessionStore:
             for r in rows
         ]
 
+    async def count_assistant_messages(self, thread_id: str) -> int | None:
+        """Conta somente respostas persistidas do assistente.
+
+        A tabela ``messages`` também guarda mensagens de usuário, tool calls e
+        resultados internos. Esses registros são necessários para reconstruir
+        o histórico, mas não são notificações novas para a sidebar.
+        """
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT COUNT(*), COALESCE(SUM(role = 'assistant'), 0) "
+                "FROM messages WHERE thread_id = ?",
+                (thread_id,),
+            )
+            row = await cur.fetchone()
+        if row is None:
+            return None
+        # A session with no persisted messages is used by a few legacy/import
+        # paths that only maintain the UI counter. Preserve that fallback; a
+        # real user-only conversation has rows and correctly yields zero.
+        return int(row[1]) if int(row[0]) else None
+
+    async def count_assistant_messages_after(
+        self, thread_id: str, message_id: int
+    ) -> int | None:
+        """Conta respostas assistant posteriores a um cursor confirmado."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT COUNT(*) FROM messages WHERE thread_id = ? "
+                "AND role = 'assistant' AND id > ?",
+                (thread_id, message_id),
+            )
+            row = await cur.fetchone()
+        return int(row[0]) if row is not None else None
+
+    async def latest_assistant_message_id(self, thread_id: str) -> int:
+        """Retorna o cursor monotônico da última resposta assistant."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT COALESCE(MAX(id), 0) FROM messages "
+                "WHERE thread_id = ? AND role = 'assistant'",
+                (thread_id,),
+            )
+            row = await cur.fetchone()
+        return int(row[0] or 0) if row is not None else 0
+
     async def list_active_user_ids(self, since_iso: str) -> list[str]:
         """`user_id` distintos com pelo menos uma sessão atualizada desde
         `since_iso` (string ISO comparável lexicograficamente com
@@ -740,7 +950,7 @@ class SessionStore:
         tool_call_id: str,
         args: dict[str, Any],
         reasoning: str | None = None,
-        options: list[dict[str, str]] | None = None,
+        options: list[ToolOption] | None = None,
         priority: int = 0,
         expires_at: str | None = None,
     ) -> None:
@@ -785,7 +995,7 @@ class SessionStore:
         decision: str,
         selection: str | None,
         decided_by: str | None,
-        options: list[dict[str, str]],
+        options: list[ToolOption],
         priority: int,
         expires_at: str | None,
     ) -> None:
@@ -826,6 +1036,9 @@ class SessionStore:
                 )
                 await conn.execute(
                     "DELETE FROM messages WHERE thread_id = ?", (thread_id,)
+                )
+                await conn.execute(
+                    "DELETE FROM session_runs WHERE thread_id = ?", (thread_id,)
                 )
                 await conn.execute(
                     "DELETE FROM sessions WHERE thread_id = ?", (thread_id,)

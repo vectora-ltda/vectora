@@ -23,9 +23,11 @@ import {
   generateTitle,
   getHistory,
   getThread,
+  markThreadRead,
   type HistoryMessage,
 } from "@/lib/api/vectora-client";
 import { queryClient } from "@/src/router";
+import { threadsQueryKey } from "@/lib/queries/threads";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { useChatInputStore } from "@/lib/stores/chat-input-store";
 import { useThreadMessages } from "@/lib/hooks/chat/use-thread-messages";
@@ -127,6 +129,78 @@ export function ChatInterface({
 
   // Cached por threadId via Zustand — switching back não causa flash vazio.
   const [messages, setMessages] = useThreadMessages(threadId);
+  const lastReadCursorRef = useRef(0);
+  const inFlightReadCursorRef = useRef<number | null>(null);
+  const retriedReadCursorRef = useRef<number | null>(null);
+  const [readRetry, forceReadRetry] = useState(0);
+  const readRetryTimerRef = useRef<number | null>(null);
+
+  // These refs belong to one thread only. Reset them before a route switch so
+  // a cursor acknowledged for the previous conversation cannot suppress the
+  // first unread assistant message of the next one.
+  useEffect(() => {
+    lastReadCursorRef.current = 0;
+    inFlightReadCursorRef.current = null;
+    retriedReadCursorRef.current = null;
+    if (readRetryTimerRef.current !== null) {
+      window.clearTimeout(readRetryTimerRef.current);
+      readRetryTimerRef.current = null;
+    }
+  }, [threadId]);
+
+  useEffect(
+    () => () => {
+      if (readRetryTimerRef.current !== null) {
+        window.clearTimeout(readRetryTimerRef.current);
+        readRetryTimerRef.current = null;
+      }
+    },
+    [],
+  );
+
+  // Confirm only the last assistant message that is actually present in the
+  // rendered message store. A response arriving after this effect runs stays
+  // unread until the next render, avoiding the server-side latest-message
+  // race that previously inflated/cleared sidebar badges.
+  useEffect(() => {
+    if (isNewThread || !threadId) return;
+    const cursor = messages.reduce((max, message) => {
+      if (message.role !== "assistant") return max;
+      const id = message.persistedMessageId;
+      return typeof id === "number" ? Math.max(max, id) : max;
+    }, 0);
+    if (
+      cursor <= lastReadCursorRef.current ||
+      inFlightReadCursorRef.current === cursor
+    )
+      return;
+    inFlightReadCursorRef.current = cursor;
+    void markThreadRead(threadId, cursor)
+      .then(({ unread_count }) => {
+        lastReadCursorRef.current = Math.max(lastReadCursorRef.current, cursor);
+        inFlightReadCursorRef.current = null;
+        queryClient.setQueryData<{
+          threads: { id: string; unread_count?: number }[];
+        }>(threadsQueryKey(), (data) =>
+          data
+            ? {
+                threads: data.threads.map((item) =>
+                  item.id === threadId ? { ...item, unread_count } : item,
+                ),
+              }
+            : data,
+        );
+      })
+      .catch(() => {
+        inFlightReadCursorRef.current = null;
+        if (retriedReadCursorRef.current === cursor) return;
+        retriedReadCursorRef.current = cursor;
+        readRetryTimerRef.current = window.setTimeout(() => {
+          readRetryTimerRef.current = null;
+          forceReadRetry((value) => value + 1);
+        }, 1000);
+      });
+  }, [forceReadRetry, isNewThread, messages, readRetry, threadId]);
   const [branchHistoryError, setBranchHistoryError] = useState(false);
 
   // Barra de uso de contexto: estima tokens e deriva pct de uso.
@@ -871,16 +945,13 @@ export function ChatInterface({
 
   // Process queue when AI finishes responding
   useEffect(() => {
-    const wasLoading = prevIsLoadingRef.current;
     const isCurrentlyLoading = uiState.isLoading || uiState.isRegenerating;
 
-    // When loading finishes and there are queued messages, process them
-    if (
-      wasLoading &&
-      !isCurrentlyLoading &&
-      messageQueueRef.current.length > 0
-    ) {
-      processQueue();
+    // A queue may be promoted while a regeneration is active. Once the
+    // active stream is idle, always drain the selected item; the focus effect
+    // updates prevIsLoadingRef before this effect runs.
+    if (!isCurrentlyLoading && messageQueueRef.current.length > 0) {
+      processQueueRef.current();
     }
   }, [uiState.isLoading, uiState.isRegenerating, processQueue]);
 
@@ -1104,6 +1175,36 @@ export function ChatInterface({
     // ainda não tivesse produzido nenhum token.
     abort();
   }, [uiDispatch, abort]);
+
+  const handleRunQueuedNow = useCallback(
+    (messageId: string) => {
+      const queuedIndex = messageQueueRef.current.findIndex(
+        (message) => message.userMessage.id === messageId,
+      );
+      if (queuedIndex < 0) return;
+
+      const [selectedMessage] = messageQueueRef.current.splice(queuedIndex, 1);
+      if (!selectedMessage) return;
+      messageQueueRef.current.unshift(selectedMessage);
+      setQueuedMessagesDisplay((current) => {
+        const selected = current.find((message) => message.id === messageId);
+        if (!selected) return current;
+        return [
+          selected,
+          ...current.filter((message) => message.id !== messageId),
+        ];
+      });
+
+      // Aborta o turno atual; quando o stream terminar, o efeito da fila
+      // remove o próximo item, que agora é o selecionado.
+      if (uiState.isLoading || uiState.isRegenerating) {
+        void handleStop();
+      } else {
+        processQueueRef.current();
+      }
+    },
+    [handleStop, uiState.isLoading, uiState.isRegenerating],
+  );
 
   const handleRegenerate = useCallback(async () => {
     if (uiState.isLoading || uiState.isRegenerating) return;
@@ -1417,6 +1518,7 @@ export function ChatInterface({
           onVoiceToggle={toggleVoiceListening}
           voiceError={voiceError}
           queuedMessages={queuedMessagesDisplay}
+          onRunQueuedNow={handleRunQueuedNow}
           modelId={agentConfig?.model}
           tokensUsed={contextTokens}
           agentConfig={agentConfig}
