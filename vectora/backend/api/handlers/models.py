@@ -68,6 +68,13 @@ async def get_configured_providers() -> dict:
         probe = await probe_dmr(settings.dmr_base_url)
         dmr = {"reachable": probe.reachable, "models": list(probe.models)}
         dmr_models = dmr["models"]
+        # Keep the configured model selectable while Docker Model Runner is
+        # temporarily unavailable (for example during Docker Desktop boot).
+        # Readiness controls ``available``; it must not erase the user's
+        # fallback configuration.
+        configured_dmr_model = (settings.dmr_model or "").strip()
+        if configured_dmr_model and configured_dmr_model not in dmr_models:
+            dmr_models.append(configured_dmr_model)
         for tag in dmr_models if isinstance(dmr_models, list) else []:
             if isinstance(tag, str) and tag:
                 model_id = f"dmr:{tag}"

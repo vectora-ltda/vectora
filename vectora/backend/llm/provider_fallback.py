@@ -137,6 +137,14 @@ def _provider_has_key(provider: str) -> bool:
         return bool(settings.nine_router_api_key and settings.nine_router_base_url)
     if provider == "dmr":
         return bool(settings.dmr_base_url)
+    if provider == "llamacpp":
+        # llama.cpp pode ser um sidecar gerenciado (com URL descoberta em
+        # runtime) ou um servidor externo configurado pelo usuário. Ambos
+        # são providers locais válidos para a cadeia de fallback.
+        from backend.services.llamacpp_sidecar import llamacpp_status
+
+        status = llamacpp_status()
+        return bool(settings.llamacpp_base_url or status.get("running"))
 
     keymap = {
         "openai": settings.openai_api_key,

@@ -186,6 +186,14 @@ class Settings(BaseSettings):
                QDRANT_URL e REDIS_URL configurados).
     """
 
+    storage_docker_autostart: bool = True
+    """Sobe a stack local de storage quando o modo ``complete`` está ativo.
+
+    O comportamento só é aplicado ao modo completo e usa o executor interno
+    que valida o Docker antes de iniciar os containers. Instalações remotas
+    podem desligá-lo com ``STORAGE_DOCKER_AUTOSTART=false``.
+    """
+
     chat_mode: bool = False
     """Modo chat puro: desativa workspace e tools de filesystem no agente.
 

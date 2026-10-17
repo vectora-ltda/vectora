@@ -182,6 +182,27 @@ async def _license_revalidation_loop() -> None:
         await asyncio.sleep(_LICENSE_REVALIDATE_INTERVAL_S)
 
 
+async def _autostart_storage_stack() -> None:
+    """Garante a infra local antes de aceitar requests do modo completo.
+
+    O Docker é um serviço externo: se o daemon estiver parado, o backend
+    continua subindo e registra o diagnóstico, permitindo usar o modo lite ou
+    corrigir a instalação sem um crash obscuro no startup.
+    """
+    from backend.settings import settings as _storage_settings
+
+    if _storage_settings.storage_mode != "complete":
+        return
+    if not _storage_settings.storage_docker_autostart:
+        logger.info("storage: auto-start Docker desativado por configuração")
+        return
+    from backend.storage.dev_stack import stack_up
+
+    result = await asyncio.to_thread(stack_up)
+    level = logger.info if result.ok else logger.warning
+    level("storage: auto-start Docker: %s", "; ".join(result.messages))
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
     """Startup / shutdown da aplicação.
@@ -196,6 +217,11 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
     não-daemon de libs externas (httpx, aiosqlite) que ignoram cancel.
     """
     logger.info("api/server: startup")
+
+    try:
+        await _autostart_storage_stack()
+    except Exception as exc:
+        logger.warning("storage: auto-start Docker falhou: %s", exc, exc_info=True)
 
     # Telemetria nativa de execução do agente (turnos, tool calls, erros).
     try:

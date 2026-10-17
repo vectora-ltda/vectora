@@ -200,7 +200,14 @@ def stack_up() -> StackResult:
         return result
 
     compose = compose_file()
-    if compose is not None:
+    existing = _existing_containers()
+    # Instalações anteriores do Vectora usavam containers nomeados
+    # ``vectora-*``. Não tente misturar esses containers com os nomes gerados
+    # pelo Compose: as portas entram em conflito e um Redis antigo sem senha
+    # parece saudável, mas não aceita a URL autenticada do Vectora. Reutilize
+    # o caminho ``docker run`` abaixo para validar/recriar a configuração.
+    legacy_stack_present = bool(existing.intersection({s.name for s in SERVICES}))
+    if compose is not None and not legacy_stack_present:
         rc = _run_detached(["docker", "compose", "-f", str(compose), "up", "-d"])
         if rc == 0:
             result.messages.append(f"docker compose up -d ({compose})")
@@ -219,7 +226,6 @@ def stack_up() -> StackResult:
             result.messages.append("docker compose up -d falhou")
         return result
 
-    existing = _existing_containers()
     for spec in SERVICES:
         # Container existente cujo command divergiu do spec (ex.: legado sem
         # --requirepass) é removido para ser recriado com a config atual. O
