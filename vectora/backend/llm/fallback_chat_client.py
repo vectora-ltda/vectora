@@ -95,6 +95,36 @@ async def _candidates(primary_model_id: str, *, has_images: bool) -> list[str]:
     return deduped
 
 
+async def _ensure_managed_llamacpp() -> None:
+    """Start the confirmed managed sidecar before the first local request.
+
+    Startup restoration is best-effort, but a backend can also be started
+    through an alternate entrypoint or the sidecar can exit after boot. The
+    first chat must repair that state instead of selecting a dead endpoint or
+    silently falling through to an unrelated model.
+    """
+    if os.getenv("LLAMACPP_MODE", "external") != "managed":
+        return
+    from backend.services.llamacpp_sidecar import llamacpp_status
+
+    if llamacpp_status().get("running"):
+        return
+    from backend.api.handlers.provider_routing import restore_managed_llamacpp
+
+    try:
+        restored = await restore_managed_llamacpp()
+    except Exception as exc:
+        raise RuntimeError(
+            "O sidecar llama.cpp gerenciado não está disponível e não pôde ser "
+            f"iniciado automaticamente: {exc}"
+        ) from exc
+    if not restored or not llamacpp_status().get("running"):
+        raise RuntimeError(
+            "O modelo llama.cpp está configurado como managed, mas não há "
+            "confirmação válida para iniciar o sidecar."
+        )
+
+
 def load_chat_client(model_id: str) -> ChatClient:  # noqa: PLR0911
     """Resolve `"provider:model"` pro chat client nativo do provider.
 
@@ -296,6 +326,9 @@ class FallbackChatClient:
         self.last_model_id: str | None = None
 
     async def _candidate_ids(self, messages: list[VMessage]) -> list[str]:
+        provider = self.primary_model_id.partition(":")[0].replace("-", "_")
+        if provider == "llamacpp":
+            await _ensure_managed_llamacpp()
         candidatos = await _candidates(
             self.primary_model_id, has_images=_has_images(messages)
         )
