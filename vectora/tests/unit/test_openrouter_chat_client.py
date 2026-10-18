@@ -485,3 +485,34 @@ class TestStreamingToolCallsEUsage:
         assert "Regra: Nunca exclua o arquivo de banco de dados." in sys_msg
         assert "Muitas descrições longas" not in sys_msg
         assert "- `file_read`, `file_edit`" not in sys_msg
+
+    async def test_compact_system_prompt_preserva_secao_apos_tools_e_regras_sem_keywords(
+        self,
+    ):
+        payload_captured = {}
+
+        def handler(req):
+            nonlocal payload_captured
+            payload_captured = json.loads(req.content.decode("utf-8"))
+            return httpx.Response(200, json=_resposta_ok("Ok"))
+
+        client = _client(handler, compact_system_prompt=True)
+        system_text = (
+            "Você é o Vectora assistente.\n"
+            "### Tools\n"
+            "#### 🗂️ Filesystem\n"
+            "- read and write files\n"
+            "### Segurança\n"
+            "Execute testes antes de concluir.\n"
+        )
+        await client.agenerate(
+            [
+                text_message(MessageRole.SYSTEM, system_text),
+                text_message(MessageRole.USER, "olá"),
+            ]
+        )
+
+        sys_msg = payload_captured["messages"][0]["content"]
+        assert "- read and write files" not in sys_msg
+        assert "### Segurança" in sys_msg
+        assert "Execute testes antes de concluir." in sys_msg

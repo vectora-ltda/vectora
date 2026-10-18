@@ -46,10 +46,15 @@ async def test_get_browser_page_conecta_ao_electron_sem_lancar_chromium(
     fake_page.on = MagicMock()
     new_page = MagicMock()
     new_page.on = MagicMock()
+    fake_cdp = MagicMock()
+    fake_cdp.send = AsyncMock(
+        return_value={"targetInfo": {"targetId": "target-jail-electron"}}
+    )
+    fake_cdp.detach = AsyncMock()
     fake_context = SimpleNamespace(
         pages=[fake_page],
         new_page=AsyncMock(return_value=new_page),
-        new_cdp_session=AsyncMock(return_value=MagicMock()),
+        new_cdp_session=AsyncMock(return_value=fake_cdp),
     )
     new_page.context = fake_context
     fake_page.context = fake_context
@@ -88,10 +93,15 @@ async def test_close_session_nao_fecha_chromium_do_electron(
     fake_page.on = MagicMock()
     new_page = MagicMock()
     new_page.on = MagicMock()
+    fake_cdp = MagicMock()
+    fake_cdp.send = AsyncMock(
+        return_value={"targetInfo": {"targetId": "target-jail-electron"}}
+    )
+    fake_cdp.detach = AsyncMock()
     fake_context = SimpleNamespace(
         pages=[fake_page],
         new_page=AsyncMock(return_value=new_page),
-        new_cdp_session=AsyncMock(return_value=MagicMock()),
+        new_cdp_session=AsyncMock(return_value=fake_cdp),
     )
     new_page.context = fake_context
     fake_page.context = fake_context

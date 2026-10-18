@@ -1153,6 +1153,7 @@ async def _install_ollama_runtime_impl(_: ProviderAdmin) -> OllamaRuntimeStatus:
         _ollama_log_task = asyncio.create_task(
             pipe_to_logger(server_process.stdout, logger, prefix="ollama")
         )
+        terminated = False
         try:
             async with asyncio.timeout(OLLAMA_STARTUP_TIMEOUT_SECONDS):
                 while True:
@@ -1161,18 +1162,21 @@ async def _install_ollama_runtime_impl(_: ProviderAdmin) -> OllamaRuntimeStatus:
                     if reachable:
                         break
         except TimeoutError:
+            terminated = True
             confirmed = await _terminate_ollama_process(server_process)
             if confirmed:
                 _managed_ollama_process = None
         except asyncio.CancelledError:
+            terminated = True
             confirmed = await _terminate_ollama_process(server_process)
             if confirmed:
                 _managed_ollama_process = None
             raise
     if not reachable:
-        confirmed = await _terminate_ollama_process(server_process)
-        if confirmed:
-            _managed_ollama_process = None
+        if not terminated:
+            confirmed = await _terminate_ollama_process(server_process)
+            if confirmed:
+                _managed_ollama_process = None
         raise HTTPException(
             status_code=502, detail="Ollama foi instalado, mas não iniciou o servidor"
         )

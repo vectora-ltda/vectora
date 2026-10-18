@@ -175,12 +175,6 @@ async def _create_tab_state(page: Any) -> TabState:
             await cdp.detach()
         raise RuntimeError("Falha ao obter identidade do alvo CDP do Chromium") from exc
 
-    # Permite passar dublês de teste explícitos caso já possuam target_id pré-definido
-    if not target_id:
-        existing = getattr(page, "_target_id", None) or getattr(page, "target_id", None)
-        if isinstance(existing, str) and existing.strip():
-            target_id = existing.strip()
-
     if not target_id:
         with suppress(Exception):
             await cdp.detach()

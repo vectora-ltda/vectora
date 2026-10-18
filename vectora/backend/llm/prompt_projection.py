@@ -39,26 +39,26 @@ def compact_small_model_system_prompt(original: str) -> str:
     in_guideline_block = False
     in_discardable_doc_block = False
 
+    discardable_doc_headers = (
+        "## identity",
+        "### tools",
+        "#### 🗂️ filesystem",
+        "#### 📚 rag and indexing",
+        "#### 🧠 memory",
+        "#### 🌐 browser",
+        "### available workbenches",
+        "### how vectora works",
+        "### tech stack",
+        "### supported llm providers",
+        "### agent architecture",
+        "### general capabilities",
+    )
+
     for line in lines:
         lower = line.lower()
 
         # Identifica blocos de documentação explicitamente descartáveis (catálogo de tools / workbench)
-        if any(
-            doc_header in lower
-            for doc_header in (
-                "### tools",
-                "#### 🗂️ filesystem",
-                "#### 📚 rag and indexing",
-                "#### 🧠 memory",
-                "#### 🌐 browser",
-                "### available workbenches",
-                "### how vectora works",
-                "### tech stack",
-                "### supported llm providers",
-                "### agent architecture",
-                "### general capabilities",
-            )
-        ):
+        if any(doc_header in lower for doc_header in discardable_doc_headers):
             in_discardable_doc_block = True
             in_guideline_block = False
             continue
@@ -82,6 +82,11 @@ def compact_small_model_system_prompt(original: str) -> str:
             in_guideline_block = False
             continue
 
+        # Se encontrar outro cabeçalho Markdown de mesmo nível ou superior (#, ##, ###)
+        # que não seja um dos blocos descartáveis de documentação, fecha o bloco descartável
+        if line.startswith("#"):
+            in_discardable_doc_block = False
+
         if in_guideline_block:
             if line not in extracted_rules and line not in {
                 "<guidelines>",
@@ -89,31 +94,10 @@ def compact_small_model_system_prompt(original: str) -> str:
             }:
                 extracted_rules.append(line)
         elif not in_discardable_doc_block:
-            # Fora dos blocos descartáveis de documentação técnica, captura regras declaradas
-            if any(
-                marker in lower
-                for marker in (
-                    "idioma",
-                    "language",
-                    "responda",
-                    "sempre",
-                    "nunca",
-                    "não",
-                    "not",
-                    "never",
-                    "regra",
-                    "rule",
-                    "workspace",
-                    "projeto",
-                    "solicite",
-                    "aprov",
-                    "arquivo",
-                    "antes de",
-                    "proibido",
-                )
-            ):
-                if line not in extracted_rules:
-                    extracted_rules.append(line)
+            # Fora dos blocos descartáveis de documentação técnica, preserva as regras
+            # e diretrizes sem exigir palavras-chave restritivas
+            if line not in extracted_rules:
+                extracted_rules.append(line)
 
     contract_parts = [
         "Nome: Vectora. Função: assistente de programação.",
