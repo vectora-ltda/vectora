@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from backend.storage.sqlite.pool import AsyncConnectionPool
 
 
 class LedgerEventType:
@@ -155,7 +158,7 @@ def is_event_notifiable(event: ThreadLedgerEvent) -> bool:
 
 
 async def backfill_thread_ledger(
-    pool: Any,
+    pool: AsyncConnectionPool,
     thread_id: str,
     *,
     legacy_read_count: int = 0,
@@ -173,7 +176,17 @@ async def backfill_thread_ledger(
     async with pool.acquire() as conn:
         await conn.execute("BEGIN IMMEDIATE")
         try:
-            # 1. Verificar se já migrou
+            # 1. Verificar se a thread existe em sessions; se não, registrar como sessão legada para satisfazer FK
+            cur_sess = await conn.execute(
+                "SELECT thread_id FROM sessions WHERE thread_id = ?", (thread_id,)
+            )
+            if not await cur_sess.fetchone():
+                await conn.execute(
+                    "INSERT INTO sessions (thread_id, user_id, mode, permission_mode, created_at, updated_at) "
+                    "VALUES (?, ?, 'chat', 'ask', ?, ?) ON CONFLICT(thread_id) DO NOTHING",
+                    (thread_id, user_id or "local", now, now),
+                )
+
             cur_bf = await conn.execute(
                 "SELECT status, migrated_messages, last_seq FROM ledger_backfill WHERE thread_id = ?",
                 (thread_id,),
@@ -300,7 +313,7 @@ async def backfill_thread_ledger(
 
 
 async def ensure_thread_backfilled(
-    pool: Any,
+    pool: AsyncConnectionPool,
     thread_id: str,
     *,
     user_id: str = "",

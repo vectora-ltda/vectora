@@ -50,6 +50,7 @@ from backend.engine.stream_events import (
 from backend.engine.tool_batch import _is_tool_error, execute_tool_batch
 from backend.persistence.native.ledger import (
     LedgerEventType,
+    ThreadLedgerEvent,
     make_run_completed_key,
     make_run_failed_key,
     make_tool_finished_key,
@@ -251,7 +252,6 @@ async def run_conversation(
 
     emit = on_event or _noop_event
     tools = tool_registry.all()
-    store: Any = session_store
     parent_id = await session_store.get_branch_head_id(thread_id)
     assinaturas_anteriores: tuple[tuple[str, str], ...] | None = None
     repeticoes_seguidas = 0
@@ -458,34 +458,52 @@ async def run_conversation(
         await emit(MessageBreak())
 
         if not tool_calls:
-            if hasattr(session_store, "append_ledger_event") and config.run_id:
-                await session_store.append_ledger_event(
-                    thread_id,
-                    event_key=make_run_completed_key(config.run_id),
-                    event_type=LedgerEventType.RUN_COMPLETED,
-                    run_id=config.run_id,
-                    payload={"stopped_reason": "stop"},
-                )
-            if hasattr(session_store, "update_agent_run_status") and config.run_id:
-                from backend.persistence.native.agent_run import AgentRunMetrics
+            if config.run_id:
+                try:
+                    if hasattr(session_store, "append_ledger_event"):
+                        await session_store.append_ledger_event(
+                            thread_id,
+                            event_key=make_run_completed_key(config.run_id),
+                            event_type=LedgerEventType.RUN_COMPLETED,
+                            run_id=config.run_id,
+                            payload={"stopped_reason": "stop"},
+                        )
+                    elif hasattr(session_store, "append_event"):
+                        await session_store.append_event(
+                            thread_id,
+                            ThreadLedgerEvent(
+                                thread_id=thread_id,
+                                event_key=make_run_completed_key(config.run_id),
+                                type=LedgerEventType.RUN_COMPLETED,
+                                run_id=config.run_id,
+                                payload={"stopped_reason": "stop"},
+                            ),
+                        )
+                except Exception:
+                    logger.exception(
+                        "Falha ao registrar RUN_COMPLETED no ledger para thread %s",
+                        thread_id,
+                    )
+                if hasattr(session_store, "update_agent_run_status"):
+                    from backend.persistence.native.agent_run import AgentRunMetrics
 
-                metrics = AgentRunMetrics(
-                    input_tokens=int(
-                        last_usage.get("input_tokens", 0) if last_usage else 0
-                    ),
-                    output_tokens=int(
-                        last_usage.get("output_tokens", 0) if last_usage else 0
-                    ),
-                    total_tokens=int(
-                        last_usage.get("total_tokens", 0) if last_usage else 0
-                    ),
-                )
-                await session_store.update_agent_run_status(
-                    config.run_id,
-                    status="passed",
-                    detail="Execução completada com sucesso.",
-                    metrics=metrics,
-                )
+                    metrics = AgentRunMetrics(
+                        input_tokens=int(
+                            last_usage.get("input_tokens", 0) if last_usage else 0
+                        ),
+                        output_tokens=int(
+                            last_usage.get("output_tokens", 0) if last_usage else 0
+                        ),
+                        total_tokens=int(
+                            last_usage.get("total_tokens", 0) if last_usage else 0
+                        ),
+                    )
+                    await session_store.update_agent_run_status(
+                        config.run_id,
+                        status="passed",
+                        detail="Execução completada com sucesso.",
+                        metrics=metrics,
+                    )
             return LoopResult(
                 stopped_reason="stop",
                 final_message=assistant_msg,
@@ -633,15 +651,35 @@ async def run_conversation(
             tool_started_at[tc.id] = time.monotonic()
             preview = _args_preview(tc.args)
             tool_args_previews[tc.id] = preview
-            if hasattr(session_store, "append_ledger_event"):
-                await store.append_ledger_event(
-                    thread_id,
-                    event_key=make_tool_started_key(config.run_id or "", tc.id),
-                    event_type=LedgerEventType.TOOL_STARTED,
-                    run_id=config.run_id,
-                    tool_call_id=tc.id,
-                    payload={"tool_name": tc.name, "args": tc.args},
-                )
+            if config.run_id:
+                try:
+                    if hasattr(session_store, "append_ledger_event"):
+                        await session_store.append_ledger_event(
+                            thread_id,
+                            event_key=make_tool_started_key(config.run_id, tc.id),
+                            event_type=LedgerEventType.TOOL_STARTED,
+                            run_id=config.run_id,
+                            tool_call_id=tc.id,
+                            payload={"tool_name": tc.name, "args": tc.args},
+                        )
+                    elif hasattr(session_store, "append_event"):
+                        await session_store.append_event(
+                            thread_id,
+                            ThreadLedgerEvent(
+                                thread_id=thread_id,
+                                event_key=make_tool_started_key(config.run_id, tc.id),
+                                type=LedgerEventType.TOOL_STARTED,
+                                run_id=config.run_id,
+                                tool_call_id=tc.id,
+                                payload={"tool_name": tc.name, "args": tc.args},
+                            ),
+                        )
+                except Exception:
+                    logger.exception(
+                        "Falha ao registrar TOOL_STARTED no ledger para tool %s (thread %s)",
+                        tc.name,
+                        thread_id,
+                    )
             await emit(
                 ToolCallStarted(
                     tool_name=tc.name,
@@ -671,18 +709,43 @@ async def run_conversation(
                 thread_id, resultado, parent_message_id=parent_id
             )
             call_id = resultado.tool_call_id or ""
-            if hasattr(session_store, "append_ledger_event"):
-                await session_store.append_ledger_event(
-                    thread_id,
-                    event_key=make_tool_finished_key(config.run_id or "", call_id),
-                    event_type=LedgerEventType.TOOL_FINISHED,
-                    run_id=config.run_id,
-                    tool_call_id=call_id,
-                    payload={
-                        "tool_name": resultado.name,
-                        "is_error": resultado.is_error,
-                    },
-                )
+            if config.run_id and call_id:
+                try:
+                    if hasattr(session_store, "append_ledger_event"):
+                        await session_store.append_ledger_event(
+                            thread_id,
+                            event_key=make_tool_finished_key(config.run_id, call_id),
+                            event_type=LedgerEventType.TOOL_FINISHED,
+                            run_id=config.run_id,
+                            tool_call_id=call_id,
+                            payload={
+                                "tool_name": resultado.name,
+                                "is_error": resultado.is_error,
+                            },
+                        )
+                    elif hasattr(session_store, "append_event"):
+                        await session_store.append_event(
+                            thread_id,
+                            ThreadLedgerEvent(
+                                thread_id=thread_id,
+                                event_key=make_tool_finished_key(
+                                    config.run_id, call_id
+                                ),
+                                type=LedgerEventType.TOOL_FINISHED,
+                                run_id=config.run_id,
+                                tool_call_id=call_id,
+                                payload={
+                                    "tool_name": resultado.name,
+                                    "is_error": resultado.is_error,
+                                },
+                            ),
+                        )
+                except Exception:
+                    logger.exception(
+                        "Falha ao registrar TOOL_FINISHED no ledger para tool_call %s (thread %s)",
+                        call_id,
+                        thread_id,
+                    )
             if (
                 hasattr(session_store, "record_run_evidence")
                 and config.run_id
@@ -732,21 +795,43 @@ async def run_conversation(
                     await emit(TodosUpdated(todos=todos))
 
         if turn_budget.exceeded is not None:
-            if hasattr(session_store, "append_ledger_event") and config.run_id:
-                await session_store.append_ledger_event(
-                    thread_id,
-                    event_key=make_run_failed_key(config.run_id),
-                    event_type=LedgerEventType.RUN_FAILED,
-                    run_id=config.run_id,
-                    payload={"error": f"loop_cap_exceeded: {turn_budget.exceeded}"},
-                )
-            if hasattr(session_store, "update_agent_run_status") and config.run_id:
-                await session_store.update_agent_run_status(
-                    config.run_id,
-                    status="failed",
-                    detail=f"Teto de guardrail excedido: {turn_budget.exceeded}",
-                    error_code="LOOP_CAP_EXCEEDED",
-                )
+            if config.run_id:
+                try:
+                    if hasattr(session_store, "append_ledger_event"):
+                        await session_store.append_ledger_event(
+                            thread_id,
+                            event_key=make_run_failed_key(config.run_id),
+                            event_type=LedgerEventType.RUN_FAILED,
+                            run_id=config.run_id,
+                            payload={
+                                "error": f"loop_cap_exceeded: {turn_budget.exceeded}"
+                            },
+                        )
+                    elif hasattr(session_store, "append_event"):
+                        await session_store.append_event(
+                            thread_id,
+                            ThreadLedgerEvent(
+                                thread_id=thread_id,
+                                event_key=make_run_failed_key(config.run_id),
+                                type=LedgerEventType.RUN_FAILED,
+                                run_id=config.run_id,
+                                payload={
+                                    "error": f"loop_cap_exceeded: {turn_budget.exceeded}"
+                                },
+                            ),
+                        )
+                except Exception:
+                    logger.exception(
+                        "Falha ao registrar RUN_FAILED (loop_cap_exceeded) no ledger para thread %s",
+                        thread_id,
+                    )
+                if hasattr(session_store, "update_agent_run_status"):
+                    await session_store.update_agent_run_status(
+                        config.run_id,
+                        status="failed",
+                        detail=f"Teto de guardrail excedido: {turn_budget.exceeded}",
+                        error_code="LOOP_CAP_EXCEEDED",
+                    )
             await emit(
                 ErrorSignal(
                     code="LOOP_CAP_EXCEEDED",
@@ -765,21 +850,39 @@ async def run_conversation(
                 tool_names=tuple(sorted(observed_tools)),
             )
 
-    if hasattr(session_store, "append_ledger_event") and config.run_id:
-        await session_store.append_ledger_event(
-            thread_id,
-            event_key=make_run_failed_key(config.run_id),
-            event_type=LedgerEventType.RUN_FAILED,
-            run_id=config.run_id,
-            payload={"error": f"recursion_limit: {config.max_iterations}"},
-        )
-    if hasattr(session_store, "update_agent_run_status") and config.run_id:
-        await session_store.update_agent_run_status(
-            config.run_id,
-            status="failed",
-            detail=f"Limite de {config.max_iterations} iterações atingido.",
-            error_code="RECURSION_LIMIT",
-        )
+    if config.run_id:
+        try:
+            if hasattr(session_store, "append_ledger_event"):
+                await session_store.append_ledger_event(
+                    thread_id,
+                    event_key=make_run_failed_key(config.run_id),
+                    event_type=LedgerEventType.RUN_FAILED,
+                    run_id=config.run_id,
+                    payload={"error": f"recursion_limit: {config.max_iterations}"},
+                )
+            elif hasattr(session_store, "append_event"):
+                await session_store.append_event(
+                    thread_id,
+                    ThreadLedgerEvent(
+                        thread_id=thread_id,
+                        event_key=make_run_failed_key(config.run_id),
+                        type=LedgerEventType.RUN_FAILED,
+                        run_id=config.run_id,
+                        payload={"error": f"recursion_limit: {config.max_iterations}"},
+                    ),
+                )
+        except Exception:
+            logger.exception(
+                "Falha ao registrar RUN_FAILED (recursion_limit) no ledger para thread %s",
+                thread_id,
+            )
+        if hasattr(session_store, "update_agent_run_status"):
+            await session_store.update_agent_run_status(
+                config.run_id,
+                status="failed",
+                detail=f"Limite de {config.max_iterations} iterações atingido.",
+                error_code="RECURSION_LIMIT",
+            )
     await emit(
         ErrorSignal(
             code="RECURSION_LIMIT",

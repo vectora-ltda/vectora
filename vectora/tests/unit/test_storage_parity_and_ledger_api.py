@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import tempfile
-from typing import Any
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from backend.api.server import create_app
+from backend.persistence.native.ledger import ThreadLedgerEvent
 from backend.persistence.native.session_store import SessionStore
 from backend.storage.sqlite.pool import AsyncConnectionPool
 from backend.storage.vectorstore.base import VectorHit, VectorRow
@@ -82,50 +82,162 @@ async def test_lancedb_health():
 
 
 @pytest.mark.asyncio
-async def test_thread_events_sse_stream_and_read():
-    """Testa o streaming SSE de eventos do ledger e mark_thread_read com seen_seq."""
-    app = create_app(serve_static=False)
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # Criar thread
-        resp = await client.post(
-            "/vectora.chat.v1.ThreadService/CreateThread",
-            json={"workspace_id": "", "mode": "chat"},
-        )
-        assert resp.status_code == 200
-        thread_id = resp.json()["id"]
+async def test_thread_events_sse_stream_and_read(monkeypatch: pytest.MonkeyPatch):
+    """Testa o streaming SSE de eventos do ledger e mark_thread_read com seen_seq (#352, #367)."""
+    from unittest.mock import AsyncMock, MagicMock
 
-        # Consultar eventos via SSE
-        sse_resp = await client.get(f"/threads/{thread_id}/events?from_seq=0")
-        assert sse_resp.status_code == 200
-        assert "text/event-stream" in sse_resp.headers["content-type"]
-        assert "keep-alive" in sse_resp.text
+    import aiosqlite
 
-        # Marcar leitura com seen_seq
-        read_resp = await client.post(
-            f"/threads/{thread_id}/read",
-            json={"seen_seq": 10, "device_id": "test-device"},
+    import backend.api.handlers.threads as th
+
+    # Isola banco de metadados e session store em memória para evitar concorrência com o host
+    checkpoints_conn = await aiosqlite.connect(":memory:")
+    await th._ensure_schema(checkpoints_conn)
+
+    pool = AsyncConnectionPool(":memory:", min_size=1, max_size=2)
+    await pool.open()
+    store = SessionStore(pool)
+    await store.setup()
+
+    monkeypatch.setattr(th, "_get_db", AsyncMock(return_value=checkpoints_conn))
+    monkeypatch.setattr(th, "_get_session_store", AsyncMock(return_value=store))
+
+    try:
+        # 1. Criar thread via CreateThread
+        from backend.api.schemas import CreateThreadRequest
+
+        mock_http = MagicMock()
+        mock_http.state = MagicMock(user=None)
+        created = await th.create_thread(
+            CreateThreadRequest(workspace_id="", mode="chat"),
+            mock_http,
         )
-        assert read_resp.status_code == 200
-        data = read_resp.json()
-        assert data["thread_id"] == thread_id
-        assert "read_seq" in data
-        assert "unread_count" in data
+        thread_id = created.id
+
+        # 2. Inserir eventos de teste no ledger
+        ev1 = await store.append_event(
+            thread_id,
+            ThreadLedgerEvent(
+                thread_id=thread_id,
+                event_key=f"run_started:{thread_id}:1",
+                type="agent_turn_started",
+                run_id="run-1",
+                payload={"model": "test-model"},
+            ),
+        )
+        ev2 = await store.append_event(
+            thread_id,
+            ThreadLedgerEvent(
+                thread_id=thread_id,
+                event_key=f"run_completed:{thread_id}:1",
+                type="run_completed",
+                run_id="run-1",
+                payload={"stopped_reason": "stop"},
+            ),
+        )
+        assert ev1.seq < ev2.seq
+
+        # 3. Consumir SSE desde seq 0 (replay completo)
+        req_stream = MagicMock()
+        req_stream.state = MagicMock(user=None)
+        req_stream.is_disconnected = AsyncMock(return_value=False)
+        stream_resp = await th.stream_thread_ledger_events(
+            thread_id,
+            req_stream,
+            from_seq=0,
+        )
+        chunks: list[str] = []
+        async for chunk in stream_resp.body_iterator:
+            text = chunk if isinstance(chunk, str) else bytes(chunk).decode("utf-8")
+            chunks.append(text)
+            if len(chunks) >= 2:
+                break
+
+        def _parse_chunk(chunk: str) -> dict[str, str]:
+            parsed: dict[str, str] = {}
+            for line in chunk.strip().split("\n"):
+                if line.startswith("id: "):
+                    parsed["id"] = line[4:].strip()
+                elif line.startswith("event: "):
+                    parsed["event"] = line[7:].strip()
+                elif line.startswith("data: "):
+                    parsed["data"] = line[6:].strip()
+            return parsed
+
+        p1 = _parse_chunk(chunks[0])
+        p2 = _parse_chunk(chunks[1])
+
+        assert p1["id"] == str(ev1.seq)
+        assert p1["event"] == "agent_turn_started"
+        assert p2["id"] == str(ev2.seq)
+        assert p2["event"] == "run_completed"
+        assert int(p1["id"]) < int(p2["id"])
+
+        # 4. Validar Last-Event-ID header (retorna apenas eventos posteriores)
+        resp_last = await th.stream_thread_ledger_events(
+            thread_id,
+            req_stream,
+            last_event_id=str(ev1.seq),
+        )
+        chunk_last_text = ""
+        async for chunk in resp_last.body_iterator:
+            chunk_last_text = (
+                chunk if isinstance(chunk, str) else bytes(chunk).decode("utf-8")
+            )
+            break
+        p_last = _parse_chunk(chunk_last_text)
+        assert p_last["id"] == str(ev2.seq)
+        assert p_last["event"] == "run_completed"
+
+        # 5. Marcar leitura com seen_seq e device_id válido
+        device_id = "vdev_12345678-1234-1234-1234-123456789abc"
+        read_req = th.MarkThreadReadRequest(seen_seq=ev2.seq, device_id=device_id)
+        read_resp = await th.mark_thread_read(thread_id, mock_http, read_req)
+        assert read_resp["thread_id"] == thread_id
+        assert read_resp["read_seq"] == ev2.seq
+        assert "unread_count" in read_resp
+
+    finally:
+        await pool.close()
+        await checkpoints_conn.close()
 
 
 @pytest.mark.asyncio
-async def test_thread_not_found_uniform_404():
+async def test_thread_not_found_uniform_404(monkeypatch: pytest.MonkeyPatch):
     """Testa que threads inexistentes retornam 404 padronizado para o frontend."""
-    app = create_app(serve_static=False)
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.post(
-            "/vectora.chat.v1.ThreadService/GetThread",
-            json={"thread_id": "non-existent-thread-id"},
-        )
-        assert resp.status_code == 404
-        detail = resp.json()["detail"]
+    from unittest.mock import AsyncMock, MagicMock
+
+    import aiosqlite
+    from fastapi import HTTPException
+
+    import backend.api.handlers.threads as th
+    from backend.api.schemas import GetThreadRequest
+
+    checkpoints_conn = await aiosqlite.connect(":memory:")
+    await th._ensure_schema(checkpoints_conn)
+
+    pool = AsyncConnectionPool(":memory:", min_size=1, max_size=2)
+    await pool.open()
+    store = SessionStore(pool)
+    await store.setup()
+
+    monkeypatch.setattr(th, "_get_db", AsyncMock(return_value=checkpoints_conn))
+    monkeypatch.setattr(th, "_get_session_store", AsyncMock(return_value=store))
+
+    try:
+        mock_http = MagicMock()
+        mock_http.state = MagicMock(user=None)
+        with pytest.raises(HTTPException) as exc_info:
+            await th.get_thread(
+                GetThreadRequest(thread_id="non-existent-thread-id"),
+                mock_http,
+            )
+        assert exc_info.value.status_code == 404
+        detail = exc_info.value.detail
         assert isinstance(detail, dict)
         assert detail.get("code") == "thread_not_found"
         assert detail.get("thread_id") == "non-existent-thread-id"
         assert detail.get("deleted") is True
+    finally:
+        await pool.close()
+        await checkpoints_conn.close()
