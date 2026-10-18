@@ -132,6 +132,7 @@ export function ChatInterface({
   const lastReadCursorRef = useRef(0);
   const inFlightReadCursorRef = useRef<number | null>(null);
   const retriedReadCursorRef = useRef<number | null>(null);
+  const readGenerationRef = useRef(0);
   const [readRetry, forceReadRetry] = useState(0);
   const readRetryTimerRef = useRef<number | null>(null);
 
@@ -139,6 +140,7 @@ export function ChatInterface({
   // a cursor acknowledged for the previous conversation cannot suppress the
   // first unread assistant message of the next one.
   useEffect(() => {
+    readGenerationRef.current += 1;
     lastReadCursorRef.current = 0;
     inFlightReadCursorRef.current = null;
     retriedReadCursorRef.current = null;
@@ -164,6 +166,7 @@ export function ChatInterface({
   // race that previously inflated/cleared sidebar badges.
   useEffect(() => {
     if (isNewThread || !threadId) return;
+    const currentGen = readGenerationRef.current;
     const cursor = messages.reduce((max, message) => {
       if (message.role !== "assistant") return max;
       const id = message.persistedMessageId;
@@ -178,8 +181,8 @@ export function ChatInterface({
     const targetThreadId = threadId;
     void markThreadRead(targetThreadId, cursor)
       .then(({ unread_count }) => {
-        // If the user navigated away to another thread, discard the stale callback
-        if (threadId !== targetThreadId) return;
+        // If the user navigated away to another thread or back, discard stale response
+        if (currentGen !== readGenerationRef.current) return;
         lastReadCursorRef.current = Math.max(lastReadCursorRef.current, cursor);
         inFlightReadCursorRef.current = null;
         queryClient.setQueryData<{
@@ -195,12 +198,13 @@ export function ChatInterface({
         );
       })
       .catch(() => {
-        if (threadId !== targetThreadId) return;
+        if (currentGen !== readGenerationRef.current) return;
         inFlightReadCursorRef.current = null;
         if (retriedReadCursorRef.current === cursor) return;
         retriedReadCursorRef.current = cursor;
         readRetryTimerRef.current = window.setTimeout(() => {
           readRetryTimerRef.current = null;
+          if (currentGen !== readGenerationRef.current) return;
           forceReadRetry((value) => value + 1);
         }, 1000);
       });

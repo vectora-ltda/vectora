@@ -163,6 +163,13 @@ def _register_page_listeners(tab: TabState) -> None:
 
 async def _create_tab_state(page: Any) -> TabState:
     cdp = await page.context.new_cdp_session(page)
+    try:
+        info = await cdp.send("Target.getTargetInfo")
+        target_id = info.get("targetInfo", {}).get("targetId")
+        if target_id and isinstance(target_id, str):
+            setattr(page, "_target_id", target_id.strip())
+    except Exception:
+        logger.debug("browser_session: falha ao obter targetInfo via CDP")
     tab = TabState(page=page, cdp=cdp)
     _register_page_listeners(tab)
     return tab
@@ -270,8 +277,8 @@ async def get_browser_page(workspace_id: str, tab_id: str | None = None) -> Any:
                 page = await context.new_page()
             else:
                 raise
-        _claim_page(page, workspace_id)
         tab = await _create_tab_state(page)
+        _claim_page(page, workspace_id)
         first_tab_id = uuid.uuid4().hex[:12]
         _sessions[workspace_id] = {
             "playwright": playwright,

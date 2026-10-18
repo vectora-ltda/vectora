@@ -668,3 +668,42 @@ class TestListActiveUserIds:
         users = await store.list_active_user_ids("2020-01-01T00:00:00")
 
         assert sorted(users) == ["alice", "bob"]
+
+
+class TestLatestAssistantMessageId:
+    async def test_distingue_runs_e_ignora_tool_calls_intermediarias(
+        self, store: SessionStore
+    ):
+        await store.create_session("thread-1", user_id="alice")
+
+        # Mensagem 1: run-1 intermediária com tool_calls
+        async with store._pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO messages (thread_id, role, content_json, tool_calls_json, run_id, created_at) "
+                "VALUES ('thread-1', 'assistant', '\"pensando\"', '[{\"name\": \"tool\"}]', 'run-1', '2026-01-01T00:00:00')"
+            )
+            # Mensagem 2: run-1 resposta final de texto (tool_calls NULL)
+            await conn.execute(
+                "INSERT INTO messages (thread_id, role, content_json, tool_calls_json, run_id, created_at) "
+                "VALUES ('thread-1', 'assistant', '\"resposta final run-1\"', NULL, 'run-1', '2026-01-01T00:00:01')"
+            )
+            # Mensagem 3: run-2 intermediária com tool_calls (sem resposta final)
+            await conn.execute(
+                "INSERT INTO messages (thread_id, role, content_json, tool_calls_json, run_id, created_at) "
+                "VALUES ('thread-1', 'assistant', '\"tool run-2\"', '[{\"name\": \"exec\"}]', 'run-2', '2026-01-01T00:00:02')"
+            )
+            await conn.commit()
+
+        # Para run-1 deve retornar 2 (mensagem final)
+        msg_run1 = await store.latest_assistant_message_id("thread-1", run_id="run-1")
+        assert msg_run1 == 2
+
+        # Para run-2, que só teve tool call, deve retornar None
+        msg_run2 = await store.latest_assistant_message_id("thread-1", run_id="run-2")
+        assert msg_run2 is None
+
+        # Para run inexistente, deve retornar None
+        assert (
+            await store.latest_assistant_message_id("thread-1", run_id="run-xyz")
+            is None
+        )

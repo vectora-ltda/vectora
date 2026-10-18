@@ -46,6 +46,7 @@ import asyncio
 import contextvars
 import hashlib
 import hmac
+import inspect
 import json
 import logging
 import os
@@ -935,15 +936,26 @@ async def _terminate_ollama_process(process: asyncio.subprocess.Process) -> bool
 
     loop = asyncio.get_running_loop()
     deadline = _ollama_cleanup_deadline.get()
-    if deadline is None:
-        deadline = loop.time() + OLLAMA_CLEANUP_TIMEOUT_SECONDS
+    # Cleanup budget is always capped at OLLAMA_CLEANUP_TIMEOUT_SECONDS
+    max_cleanup_deadline = loop.time() + OLLAMA_CLEANUP_TIMEOUT_SECONDS
+    if deadline is None or deadline > max_cleanup_deadline:
+        deadline = max_cleanup_deadline
     with suppress(ProcessLookupError):
         process.kill()
+
+    async def _safe_wait(timeout: float) -> None:
+        wait_fn = getattr(process, "wait", None)
+        if not callable(wait_fn):
+            return
+        res = wait_fn()
+        if inspect.isawaitable(res):
+            await asyncio.wait_for(res, timeout)
+
     try:
         remaining = max(0.0, deadline - loop.time())
         if remaining:
             with suppress(ProcessLookupError):
-                await asyncio.wait_for(process.wait(), remaining)
+                await _safe_wait(remaining)
         confirmed = process.returncode is not None
         _ollama_cleanup_confirmed = confirmed
         return confirmed
@@ -955,7 +967,7 @@ async def _terminate_ollama_process(process: asyncio.subprocess.Process) -> bool
             return False
         with suppress(ProcessLookupError):
             try:
-                await asyncio.wait_for(process.wait(), remaining)
+                await _safe_wait(remaining)
             except TimeoutError:
                 logger.warning("ollama: cleanup expirou sem confirmar o processo")
                 _ollama_cleanup_confirmed = False
@@ -968,13 +980,15 @@ async def _terminate_ollama_process(process: asyncio.subprocess.Process) -> bool
 async def stop_managed_ollama() -> None:
     """Stop only the ``ollama serve`` process started by Vectora's wizard."""
     global _managed_ollama_process, _ollama_log_task
-    if _ollama_log_task is not None and not _ollama_log_task.done():
-        _ollama_log_task.cancel()
-        _ollama_log_task = None
     process = _managed_ollama_process
-    _managed_ollama_process = None
     if process is not None:
-        await _terminate_ollama_process(process)
+        confirmed = await _terminate_ollama_process(process)
+        if confirmed:
+            _managed_ollama_process = None
+    else:
+        if _ollama_log_task is not None and not _ollama_log_task.done():
+            _ollama_log_task.cancel()
+            _ollama_log_task = None
 
 
 async def _ollama_http_status() -> tuple[bool, str | None]:

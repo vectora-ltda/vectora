@@ -856,7 +856,8 @@ class SessionStore:
             if run_id:
                 cur = await conn.execute(
                     "SELECT MAX(id) FROM messages "
-                    "WHERE thread_id = ? AND run_id = ? AND role = 'assistant'",
+                    "WHERE thread_id = ? AND run_id = ? AND role = 'assistant' "
+                    "AND (tool_calls_json IS NULL OR tool_calls_json = '[]')",
                     (thread_id, run_id),
                 )
                 row = await cur.fetchone()
@@ -864,7 +865,8 @@ class SessionStore:
 
             cur = await conn.execute(
                 "SELECT COALESCE(MAX(id), 0) FROM messages "
-                "WHERE thread_id = ? AND role = 'assistant'",
+                "WHERE thread_id = ? AND role = 'assistant' "
+                "AND (tool_calls_json IS NULL OR tool_calls_json = '[]')",
                 (thread_id,),
             )
             row = await cur.fetchone()
