@@ -328,6 +328,8 @@ async def run_docker_model(
     """
     if any("\x00" in arg for arg in args):
         raise ValueError("argumento Docker inválido")
+    cmd_str = f"docker model {' '.join(args)}"
+    logger.info("docker: executando %s", cmd_str)
     process = await asyncio.create_subprocess_exec(
         _docker_executable(),
         "model",
@@ -344,6 +346,7 @@ async def run_docker_model(
     except TimeoutError as exc:
         process.kill()
         await process.wait()
+        logger.warning("docker: %s excedeu o timeout", cmd_str)
         raise RuntimeError("operação Docker Model Runner excedeu o timeout") from exc
     if process.returncode:
         output = stderr[-MAX_OUTPUT_BYTES:]
@@ -353,9 +356,16 @@ async def run_docker_model(
         output = (stdout + b"\n" + stderr)[-MAX_OUTPUT_BYTES:]
     text = output.decode("utf-8", errors="replace")
     if process.returncode:
+        logger.warning(
+            "docker: falha (código %s) em %s: %s",
+            process.returncode,
+            cmd_str,
+            text.strip()[:300],
+        )
         raise RuntimeError(
             text.strip() or f"docker model saiu com {process.returncode}"
         )
+    logger.info("docker: concluído com sucesso %s", cmd_str)
     return text
 
 

@@ -183,9 +183,12 @@ def _find_agent_page(context: Any) -> Any:
         page
         for page in pages
         if isinstance(getattr(page, "url", None), str)
-        and not str(getattr(page, "url", "")).startswith(("file://", "devtools://"))
+        and not str(getattr(page, "url", "")).startswith(
+            ("file://", "devtools://", "vectora-app://", "vscode://")
+        )
         and "127.0.0.1:8080" not in str(getattr(page, "url", ""))
         and "localhost:8080" not in str(getattr(page, "url", ""))
+        and "vectora-app" not in str(getattr(page, "url", ""))
     ]
     if candidates:
         return candidates[0]

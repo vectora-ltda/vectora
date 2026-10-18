@@ -254,7 +254,6 @@ def setup_logging(
             "cohere",
             "cohere.client",
             "cohere.base_client",
-            "aiosqlite",
             "huggingface_hub",
             "huggingface_hub.utils",
             "huggingface_hub.utils._http",
@@ -263,6 +262,14 @@ def setup_logging(
         ]
         for logger_name in silent_loggers:
             logging.getLogger(logger_name).setLevel(logging.CRITICAL)
+
+        # Garante que SQLite, LanceDB e Sidecars tenham nível INFO ativo para observabilidade centralizada
+        for active_logger in [
+            "aiosqlite",
+            "backend.storage",
+            "backend.services.llamacpp_sidecar",
+        ]:
+            logging.getLogger(active_logger).setLevel(logging.INFO)
 
     root_logger.addHandler(handler_console)
 

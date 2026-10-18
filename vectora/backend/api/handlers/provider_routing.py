@@ -69,6 +69,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from backend.api.handlers.admin import require_admin
+from backend.services.subprocess_logging import pipe_to_logger
 from backend.settings import CapabilityState, settings
 from backend.vtypes.providers import ProviderModel
 
@@ -101,6 +102,7 @@ OllamaInstallPhase = Literal[
 ]
 _ollama_install_phase: OllamaInstallPhase = "idle"
 _managed_ollama_process: asyncio.subprocess.Process | None = None
+_ollama_log_task: asyncio.Task[None] | None = None
 _ollama_cleanup_confirmed: bool | None = None
 _ollama_cleanup_deadline: contextvars.ContextVar[float | None] = contextvars.ContextVar(
     "ollama_cleanup_deadline", default=None
@@ -958,7 +960,10 @@ async def _terminate_ollama_process(process: asyncio.subprocess.Process) -> bool
 
 async def stop_managed_ollama() -> None:
     """Stop only the ``ollama serve`` process started by Vectora's wizard."""
-    global _managed_ollama_process
+    global _managed_ollama_process, _ollama_log_task
+    if _ollama_log_task is not None and not _ollama_log_task.done():
+        _ollama_log_task.cancel()
+        _ollama_log_task = None
     process = _managed_ollama_process
     _managed_ollama_process = None
     if process is not None:
@@ -1117,11 +1122,16 @@ async def _install_ollama_runtime_impl(_: ProviderAdmin) -> OllamaRuntimeStatus:
             str(executable),
             "serve",
             env=env,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
         )
-        global _managed_ollama_process
+        global _managed_ollama_process, _ollama_log_task
         _managed_ollama_process = server_process
+        if _ollama_log_task is not None and not _ollama_log_task.done():
+            _ollama_log_task.cancel()
+        _ollama_log_task = asyncio.create_task(
+            pipe_to_logger(server_process.stdout, logger, prefix="ollama")
+        )
         try:
             async with asyncio.timeout(OLLAMA_STARTUP_TIMEOUT_SECONDS):
                 while True:

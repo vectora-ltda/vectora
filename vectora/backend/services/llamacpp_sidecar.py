@@ -14,11 +14,14 @@ from pathlib import Path
 
 import httpx
 
+from backend.services.subprocess_logging import pipe_to_logger
+
 logger = logging.getLogger(__name__)
 
 _READINESS_INTERVAL_SECONDS = 0.5
 _READINESS_TIMEOUT_SECONDS = 120.0
 _process: asyncio.subprocess.Process | None = None
+_log_task: asyncio.Task[None] | None = None
 _lifecycle_lock = asyncio.Lock()
 _process_spec: tuple[str, str, str, int] | None = None
 _process_options: (
@@ -274,8 +277,14 @@ async def start_llamacpp(
             command.append("--jinja")
         _process = await asyncio.create_subprocess_exec(
             *command,
-            stdout=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
+        )
+        global _log_task
+        if _log_task is not None and not _log_task.done():
+            _log_task.cancel()
+        _log_task = asyncio.create_task(
+            pipe_to_logger(_process.stdout, logger, prefix="llamacpp")
         )
         try:
             async with httpx.AsyncClient(timeout=1.0) as client:
@@ -322,7 +331,10 @@ async def stop_llamacpp() -> None:
 
 async def _stop_process() -> None:
     """Encerra o único processo cujo handle pertence a este módulo."""
-    global _process, _process_spec, _process_options, _process_started_at
+    global _process, _process_spec, _process_options, _process_started_at, _log_task
+    if _log_task is not None and not _log_task.done():
+        _log_task.cancel()
+        _log_task = None
     process = _process
     if process is None or process.returncode is not None:
         try:

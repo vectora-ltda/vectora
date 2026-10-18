@@ -110,3 +110,28 @@ async def test_close_session_nao_fecha_chromium_do_electron(
 
     fake_browser.close.assert_not_awaited()
     fake_playwright.stop.assert_awaited_once()
+
+
+def test_find_agent_page_rejeita_vectora_app_e_ui() -> None:
+    app_shell_page = MagicMock()
+    app_shell_page.url = "vectora-app://app/session/123"
+
+    localhost_page = MagicMock()
+    localhost_page.url = "http://localhost:8080/app"
+
+    devtools_page = MagicMock()
+    devtools_page.url = "devtools://devtools/bundled/inspector.html"
+
+    workbench_tab_page = MagicMock()
+    workbench_tab_page.url = "https://github.com/vectora-ltda/vectora/pull/355"
+
+    context_with_only_app = SimpleNamespace(
+        pages=[app_shell_page, localhost_page, devtools_page]
+    )
+    with pytest.raises(
+        RuntimeError, match="Nenhuma aba do Browser Workbench está aberta"
+    ):
+        browser_session._find_agent_page(context_with_only_app)
+
+    context_with_real_tab = SimpleNamespace(pages=[app_shell_page, workbench_tab_page])
+    assert browser_session._find_agent_page(context_with_real_tab) is workbench_tab_page
