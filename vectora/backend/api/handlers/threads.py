@@ -24,6 +24,7 @@ import contextlib
 import json
 import logging
 import os
+import sqlite3
 import stat
 import uuid
 from datetime import UTC, datetime
@@ -91,6 +92,7 @@ from backend.api.schemas import (
 )
 from backend.persistence.thread_activity import get_remote_activity
 from backend.rbac.device_id import validate_device_id
+from backend.vtypes.permission import PERMISSION_MODES, PermissionMode
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +134,7 @@ async def revoke_current_device(
 
 _db_conn: Any = None
 _db_conn_lock: asyncio.Lock = asyncio.Lock()
+_db_write_lock: asyncio.Lock = asyncio.Lock()
 
 # Serializa `reconcile_vectora_sessions` contra `delete_thread` — as duas
 # compartilham a mesma conexão `_db_conn`, então sem essa exclusão mútua a
@@ -196,9 +199,32 @@ async def _ensure_schema(db: Any) -> None:
             thread_id TEXT NOT NULL,
             user_id TEXT NOT NULL,
             read_count INTEGER NOT NULL DEFAULT 0,
+            read_message_id INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (thread_id, user_id)
         )
     """)
+    with contextlib.suppress(sqlite3.OperationalError):
+        await db.execute(
+            "ALTER TABLE thread_read_cursors ADD COLUMN "
+            "read_message_id INTEGER NOT NULL DEFAULT 0"
+        )
+    # Backfill the message cursor for rows created by the legacy count-only
+    # implementation.  The cursor points at the Nth assistant message, so old
+    # messages do not reappear as unread after migration.
+    # Backfill legacy count-only cursors with a windowed query. The previous
+    # correlated OFFSET expression was rejected by SQLite and left cursors at
+    # zero, making all old replies appear unread after migration.
+    with contextlib.suppress(sqlite3.OperationalError):
+        await db.execute(
+            "WITH ranked AS ("
+            " SELECT id, thread_id, ROW_NUMBER() OVER ("
+            "   PARTITION BY thread_id ORDER BY id"
+            " ) AS rn FROM messages WHERE role = 'assistant'"
+            ") UPDATE thread_read_cursors SET read_message_id = COALESCE(("
+            " SELECT ranked.id FROM ranked WHERE ranked.thread_id = thread_read_cursors.thread_id"
+            " AND ranked.rn = thread_read_cursors.read_count"
+            "), 0) WHERE read_count > 0 AND read_message_id = 0"
+        )
     from backend.services.usage_insights import usage_insight_store
 
     await usage_insight_store.ensure_schema(db)
@@ -376,11 +402,42 @@ def _row_to_thread(row: tuple) -> Thread:
 
 
 async def _unread_count(thread_id: str, user_id: str) -> int:
+    session_store = await _get_session_store()
+    assistant_count = await session_store.count_assistant_messages(thread_id)
     db = await _get_db()
+    if assistant_count is not None and hasattr(
+        session_store, "count_assistant_messages_after"
+    ):
+        try:
+            async with db.execute(
+                "SELECT COALESCE((SELECT read_message_id FROM thread_read_cursors "
+                "WHERE thread_id = ? AND user_id = ?), 0)",
+                (thread_id, user_id),
+            ) as cur:
+                cursor_row = await cur.fetchone()
+            return max(
+                0,
+                int(
+                    await session_store.count_assistant_messages_after(
+                        thread_id, int(cursor_row[0] or 0) if cursor_row else 0
+                    )
+                ),
+            )
+        except sqlite3.OperationalError:
+            # Test doubles and legacy deployments may not have the cursor
+            # column yet; preserve the count-based behavior during migration.
+            pass
+    if assistant_count is None:
+        async with db.execute(
+            "SELECT message_count FROM vectora_sessions WHERE thread_id = ?",
+            (thread_id,),
+        ) as cur:
+            legacy_row = await cur.fetchone()
+        assistant_count = int(legacy_row[0]) if legacy_row else 0
     async with db.execute(
-        "SELECT message_count - COALESCE((SELECT read_count FROM thread_read_cursors "
-        "WHERE thread_id = ? AND user_id = ?), 0) FROM vectora_sessions WHERE thread_id = ?",
-        (thread_id, user_id, thread_id),
+        "SELECT ? - COALESCE((SELECT read_count FROM thread_read_cursors "
+        "WHERE thread_id = ? AND user_id = ?), 0)",
+        (assistant_count, thread_id, user_id),
     ) as cur:
         row = await cur.fetchone()
     return max(0, int(row[0])) if row else 0
@@ -822,9 +879,33 @@ async def get_thread(
     ) as cur:
         row = await cur.fetchone()
     if row is None:
-        raise HTTPException(
-            status_code=404, detail=f"Thread {request.thread_id!r} not found"
+        # `sessions.db` é a fonte de verdade do motor. A tabela de metadados
+        # pode ficar defasada durante uma reconciliação ou quando a sidebar
+        # ainda está usando uma resposta cacheada; não transforme isso em um
+        # histórico vazio/404 se a sessão nativa e suas mensagens existem.
+        session_store = await _get_session_store()
+        native = await session_store.get_session(
+            request.thread_id,
+            user_id=(
+                _user_id(http_request)
+                if http_request is not None
+                and getattr(http_request.state, "user", None) is not None
+                else None
+            ),
         )
+        if native is None:
+            raise HTTPException(
+                status_code=404, detail=f"Thread {request.thread_id!r} not found"
+            )
+        thread = Thread(
+            id=str(native["thread_id"]),
+            created_at=native["created_at"],
+            updated_at=native["updated_at"],
+            workspace_id=native["workspace_id"] or "",
+            mode=_normalize_mode(native["mode"]),
+        )
+        thread.unread_count = await _unread_count(thread.id, _user_id(http_request))
+        return thread
     await _assert_owns_thread(request.thread_id, http_request)
     thread = _row_to_thread(row)
     thread.unread_count = await _unread_count(
@@ -911,29 +992,102 @@ async def list_threads(
 
 
 class MarkThreadReadRequest(BaseModel):
-    thread_id: str
+    read_message_id: int | None = None
 
 
 @router.post("/threads/{thread_id}/read")
-async def mark_thread_read(thread_id: str, request: Request) -> dict[str, int | str]:
+async def mark_thread_read(
+    thread_id: str,
+    request: Request,
+    body: MarkThreadReadRequest | None = None,
+) -> dict[str, int | str]:
     """Confirma a leitura da thread de modo idempotente e por usuário."""
     await _assert_owns_thread(thread_id, request)
     user_id = _user_id(request)
+    # Serialize this short transaction with the other users of the shared
+    # handler connection. This keeps rollback scoped to our transaction and
+    # avoids undoing an unrelated pending write.
     db = await _get_db()
-    async with db.execute(
-        "SELECT message_count FROM vectora_sessions WHERE thread_id = ?", (thread_id,)
-    ) as cur:
-        row = await cur.fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Thread não encontrada")
-    await db.execute(
-        "INSERT INTO thread_read_cursors(thread_id, user_id, read_count) VALUES (?, ?, ?) "
-        "ON CONFLICT(thread_id, user_id) DO UPDATE SET read_count = "
-        "MAX(thread_read_cursors.read_count, excluded.read_count)",
-        (thread_id, user_id, int(row[0])),
-    )
-    await db.commit()
-    return {"thread_id": thread_id, "unread_count": 0}
+    async with _db_write_lock:
+        for attempt in range(5):
+            try:
+                session_store = await _get_session_store()
+                assistant_count = await session_store.count_assistant_messages(
+                    thread_id
+                )
+                if assistant_count is None:
+                    async with db.execute(
+                        "SELECT message_count FROM vectora_sessions WHERE thread_id = ?",
+                        (thread_id,),
+                    ) as cur:
+                        legacy_row = await cur.fetchone()
+                    if legacy_row is None:
+                        raise HTTPException(
+                            status_code=404, detail="Thread não encontrada"
+                        )
+                    assistant_count = int(legacy_row[0])
+                if hasattr(session_store, "latest_assistant_message_id"):
+                    latest_assistant = await session_store.latest_assistant_message_id(
+                        thread_id
+                    )
+                else:
+                    latest_assistant = assistant_count
+                async with db.execute(
+                    "SELECT read_message_id FROM thread_read_cursors "
+                    "WHERE thread_id = ? AND user_id = ?",
+                    (thread_id, user_id),
+                ) as cur:
+                    cursor_row = await cur.fetchone()
+                stored_cursor = int(cursor_row[0] or 0) if cursor_row else 0
+                requested_cursor = (
+                    max(0, int(body.read_message_id))
+                    if body and body.read_message_id is not None
+                    else stored_cursor
+                )
+                # A client may only acknowledge messages it has actually
+                # rendered. Never move beyond the server's latest ID and
+                # never move backwards. Calls without a cursor are read-only
+                # compatibility calls and cannot clear a newer response.
+                confirmed_cursor = max(
+                    stored_cursor, min(requested_cursor, latest_assistant or 0)
+                )
+                if hasattr(session_store, "count_assistant_messages_after"):
+                    remaining = await session_store.count_assistant_messages_after(
+                        thread_id, confirmed_cursor
+                    )
+                    unread_count = int(remaining or 0)
+                    read_count = max(0, int(assistant_count) - unread_count)
+                else:
+                    unread_count = max(0, int(assistant_count) - stored_cursor)
+                    read_count = max(0, int(assistant_count) - unread_count)
+                await db.execute(
+                    "INSERT INTO thread_read_cursors "
+                    "(thread_id, user_id, read_count, read_message_id) "
+                    "VALUES (?, ?, ?, ?) ON CONFLICT(thread_id, user_id) DO UPDATE SET "
+                    "read_count = MAX(thread_read_cursors.read_count, excluded.read_count), "
+                    "read_message_id = MAX(thread_read_cursors.read_message_id, "
+                    "excluded.read_message_id)",
+                    (thread_id, user_id, read_count, confirmed_cursor),
+                )
+                await db.commit()
+                break
+            except sqlite3.OperationalError as exc:
+                await db.rollback()
+                locked = "locked" in str(exc).lower()
+                if not locked or attempt == 4:
+                    raise
+                delay = 0.05 * (2**attempt)
+                logger.warning(
+                    "thread_read_write_locked_retry",
+                    extra={
+                        "thread_id": thread_id,
+                        "user_id": user_id,
+                        "attempt": attempt + 1,
+                        "delay_seconds": delay,
+                    },
+                )
+                await asyncio.sleep(delay)
+    return {"thread_id": thread_id, "unread_count": unread_count}
 
 
 async def cleanup_empty_threads(max_age_hours: float = 1.0) -> int:
@@ -1254,6 +1408,7 @@ async def get_history(request: GetHistoryRequest) -> GetHistoryResponse:
             HistoryMessage(
                 role=entry.role,
                 content=entry.text,
+                message_id=entry.message_id,
                 checkpoint_id=entry.checkpoint_id,
                 attachments=entry.attachments,
                 edited_files=[file.model_dump() for file in entry.edited_files],
@@ -1764,6 +1919,7 @@ async def get_thread_history_paginated(
         HistoryMessage(
             role=entry.role,
             content=entry.text,
+            message_id=entry.message_id,
             checkpoint_id=entry.checkpoint_id,
             attachments=entry.attachments,
             edited_files=[file.model_dump() for file in entry.edited_files],
@@ -2015,12 +2171,25 @@ async def thread_pending_interrupt(
     if pending is None:
         return PendingInterruptResponse(interrupt=None)
 
+    session = None
+    permission_mode: PermissionMode = "ask"
+    resolved_workspace_id = workspace_id or ""
+    if request is not None:
+        session_store = await _get_session_store()
+        session = await session_store.get_session(thread_id, user_id=_user_id(request))
+        if isinstance(session, dict):
+            candidate_mode = str(session.get("permission_mode") or "ask")
+            permission_mode = (
+                candidate_mode if candidate_mode in PERMISSION_MODES else "ask"
+            )
+            resolved_workspace_id = str(session.get("workspace_id") or "")
+
     pre_approved = False
     with contextlib.suppress(Exception):
         from backend.services.smart_approval import evaluate_command
 
         pre_approved = await evaluate_command(
-            pending["tool_name"], pending["args"], workspace_id=workspace_id or ""
+            pending["tool_name"], pending["args"], workspace_id=resolved_workspace_id
         )
 
     return PendingInterruptResponse(
@@ -2028,6 +2197,8 @@ async def thread_pending_interrupt(
             tool_name=pending["tool_name"],
             args_json=json.dumps(pending["args"]),
             interrupt_id=pending["interrupt_id"],
+            permission_mode=permission_mode,
+            workspace_id=resolved_workspace_id,
             pre_approved=pre_approved,
             options=pending.get("options", []),
             priority=int(pending.get("priority", 0)),

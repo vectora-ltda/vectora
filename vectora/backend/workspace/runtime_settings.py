@@ -29,27 +29,28 @@ import logging
 import os
 import sqlite3
 import threading
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+from backend.runtime_profile import resolve_runtime_home
+
 logger = logging.getLogger(__name__)
 
 
 def _bootstrap_vectora_home() -> Path:
-    """Lê ``VECTORA_HOME`` direto de ``os.environ`` em vez de importar
-    ``backend.settings.settings``.
+    """Resolve a home sem importar ``backend.settings.settings``.
 
     Este módulo é importado de dentro de
     ``Settings._load_environment_hierarchy`` (import local, para evitar
     ciclo) antes do singleton ``settings`` existir — importar
     ``backend.settings.settings`` aqui levantaria ImportError de módulo
-    parcialmente inicializado. Espelha a mesma leitura de
-    ``backend.settings._default_vectora_home``.
+    parcialmente inicializado. Usa o resolvedor compartilhado para manter
+    banco e settings no mesmo perfil.
     """
-    env_value = os.environ.get("VECTORA_HOME")
-    return Path(env_value) if env_value else Path.home() / ".vectora"
+    return resolve_runtime_home()
 
 
 _DB_PATH = _bootstrap_vectora_home() / "checkpoints.db"
@@ -147,23 +148,42 @@ class RuntimeSettings:
         """Grava uma chave no SQLite. Chamar só dentro de `self._lock`."""
         now = datetime.now(UTC).isoformat()
         payload = json.dumps(value, ensure_ascii=False)
-        try:
-            self._conn.execute(
-                "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
-                (key, payload, now),
-            )
-            self._conn.commit()
-            logger.debug("runtime_settings: salvo %r em %s", key, self._path)
-        except Exception:
-            logger.exception("runtime_settings: erro ao salvar %r", key)
+        for attempt in range(4):
             try:
-                self._conn.rollback()
-            except Exception:
-                logger.exception(
-                    "runtime_settings: falha ao desfazer transação %r", key
+                self._conn.execute(
+                    "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+                    (key, payload, now),
                 )
-            raise
+                self._conn.commit()
+                logger.debug("runtime_settings: salvo %r em %s", key, self._path)
+                return
+            except sqlite3.OperationalError as exc:
+                try:
+                    self._conn.rollback()
+                except Exception:
+                    logger.exception(
+                        "runtime_settings: falha ao desfazer transação %r", key
+                    )
+                if "locked" not in str(exc).lower() or attempt == 3:
+                    logger.exception("runtime_settings: erro ao salvar %r", key)
+                    raise
+                delay = 0.05 * (2**attempt)
+                logger.warning(
+                    "runtime_settings: banco ocupado ao salvar %r; nova tentativa em %.2fs",
+                    key,
+                    delay,
+                )
+                time.sleep(delay)
+            except Exception:
+                logger.exception("runtime_settings: erro ao salvar %r", key)
+                try:
+                    self._conn.rollback()
+                except Exception:
+                    logger.exception(
+                        "runtime_settings: falha ao desfazer transação %r", key
+                    )
+                raise
 
     def reload(self) -> None:
         """Recarrega do SQLite (útil após mudanças externas)."""

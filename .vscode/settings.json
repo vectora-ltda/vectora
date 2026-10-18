@@ -161,5 +161,6 @@
   "python.languageServer": "Default",
   "python.terminal.activateEnvironment": false,
   "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
-  "workbench.colorTheme": "Min Dark"
+  "workbench.colorTheme": "Min Dark",
+  "python-envs.defaultEnvManager": "ms-python.python:system"
 }

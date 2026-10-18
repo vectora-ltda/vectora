@@ -34,7 +34,7 @@ interface BrowserDevtoolsPanelProps {
 }
 
 /** Painel de observabilidade da sessão de browser do AGENTE (Playwright
- * headless, backend/browser/session.py) — distinto do resto da aba Browser,
+ * conectado ao Chromium do Electron via CDP, backend/browser/session.py) — distinto do resto da aba Browser,
  * que mostra a página que o USUÁRIO navega (iframe/WebContentsView). Sem
  * este painel, console/network/DOM do que o agente vê ficam invisíveis ao
  * humano, só acessíveis via tool call. */

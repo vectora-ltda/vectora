@@ -43,14 +43,18 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_workspace(workspace_id: str | None, ctx: ToolContext) -> Any:
-    """Resolve workspace → Workspace (mesmo padrão de workspace.py)."""
+    """Resolve a workspace while binding explicit legacy IDs to the caller."""
     from backend.workspace.workspace import workspace_registry
 
     wid = workspace_id or ctx.workspace_id or None
     if wid:
-        ws = workspace_registry.get(wid)
+        ws = workspace_registry.claim_if_unowned(wid, ctx.user_id)
         if ws is not None:
-            return ws
+            owner_id = getattr(ws, "owner_id", None)
+            if owner_id == ctx.user_id:
+                return ws
+            return None
+        return None
     return workspace_registry.get_or_create()
 
 
@@ -816,6 +820,65 @@ async def git_status(ctx: ToolContext, workspace_id: str | None = None) -> str:
 
 @vtool(
     extras=ToolExtras(
+        render_hint="code_block", category="git", destructive=False, icon="activity"
+    )
+)
+async def git_operation(ctx: ToolContext, workspace_id: str | None = None) -> str:
+    """Retorna a operação Git mais recente do Workbench."""
+    from backend.services.git import git_service
+
+    wid = workspace_id or ctx.workspace_id
+    if not wid:
+        return json.dumps({"status": "error", "message": "workspace_id é obrigatório."})
+    operation = await git_service.latest(wid)
+    return json.dumps(
+        {"status": "ok", "operation": operation.model_dump() if operation else None}
+    )
+
+
+@vtool(
+    extras=ToolExtras(
+        render_hint="table", category="git", destructive=False, icon="history"
+    )
+)
+async def git_operations(
+    ctx: ToolContext, limit: int = 50, workspace_id: str | None = None
+) -> str:
+    """Lista operações Git recentes para reconexão e diagnóstico."""
+    from backend.services.git import git_service
+
+    wid = workspace_id or ctx.workspace_id
+    if not wid:
+        return json.dumps({"status": "error", "message": "workspace_id é obrigatório."})
+    operations = await git_service.history(wid, limit=max(1, min(limit, 200)))
+    return json.dumps(
+        {"status": "ok", "operations": [item.model_dump() for item in operations]}
+    )
+
+
+@vtool(
+    extras=ToolExtras(
+        render_hint="code_block",
+        category="git",
+        destructive=False,
+        icon="message-square",
+    )
+)
+async def git_commit_suggestion(
+    ctx: ToolContext, workspace_id: str | None = None
+) -> str:
+    """Gera a mesma sugestão de commit exibida no Git Workbench."""
+    wid = workspace_id or ctx.workspace_id
+    if not wid:
+        return json.dumps({"status": "error", "message": "workspace_id é obrigatório."})
+    from backend.api.handlers.workspaces import _git_commit_suggestion_sync
+
+    suggestion = await asyncio.to_thread(_git_commit_suggestion_sync, wid)
+    return json.dumps({"status": "ok", "suggestion": suggestion.model_dump()})
+
+
+@vtool(
+    extras=ToolExtras(
         render_hint="table",
         category="git",
         destructive=False,
@@ -901,7 +964,7 @@ async def git_branch(
         category="git",
         destructive=True,
         icon="git-branch",
-        invalidates=["files", "diff"],
+        invalidates=["files", "git"],
     )
 )
 async def git_checkout(
@@ -937,7 +1000,7 @@ async def git_checkout(
         category="git",
         destructive=True,
         icon="git-commit",
-        invalidates=["diff"],
+        invalidates=["git"],
     )
 )
 async def git_commit(
@@ -982,7 +1045,7 @@ async def git_commit(
         category="git",
         destructive=True,
         icon="git-commit",
-        invalidates=["diff", "history"],
+        invalidates=["git", "history"],
     )
 )
 async def git_squash(
@@ -1022,7 +1085,7 @@ async def git_squash(
         category="git",
         destructive=True,
         icon="git-commit",
-        invalidates=["diff", "history"],
+        invalidates=["git", "history"],
     )
 )
 async def git_reorder(
@@ -1050,7 +1113,7 @@ async def git_reorder(
         category="git",
         destructive=True,
         icon="git-commit",
-        invalidates=["diff", "history"],
+        invalidates=["git", "history"],
     )
 )
 async def git_cherry_pick(
@@ -1107,7 +1170,7 @@ async def git_fetch(
         category="git",
         destructive=True,
         icon="git-merge",
-        invalidates=["files", "diff", "history"],
+        invalidates=["files", "git", "history"],
     )
 )
 async def git_merge(
@@ -1140,7 +1203,7 @@ async def git_merge(
         category="git",
         destructive=True,
         icon="git-commit",
-        invalidates=["files", "diff", "history"],
+        invalidates=["files", "git", "history"],
     )
 )
 async def git_revert(
@@ -1212,7 +1275,7 @@ async def git_compare(
         category="git",
         destructive=True,
         icon="git-merge",
-        invalidates=["files", "diff"],
+        invalidates=["files", "git"],
     )
 )
 async def git_resolve_conflict(
@@ -1320,7 +1383,7 @@ async def git_push(
         category="git",
         destructive=True,
         icon="download-cloud",
-        invalidates=["files", "diff"],
+        invalidates=["files", "git"],
     )
 )
 async def git_pull(
@@ -1350,7 +1413,7 @@ async def git_pull(
         category="git",
         destructive=False,
         icon="layers",
-        invalidates=["diff"],
+        invalidates=["git"],
     )
 )
 async def git_stash(
@@ -1443,7 +1506,7 @@ async def git_worktree(
         category="git",
         destructive=False,
         icon="plus-circle",
-        invalidates=["diff"],
+        invalidates=["git"],
     )
 )
 async def git_stage(
@@ -1473,7 +1536,7 @@ async def git_stage(
         category="git",
         destructive=False,
         icon="minus-circle",
-        invalidates=["diff"],
+        invalidates=["git"],
     )
 )
 async def git_unstage(
@@ -1501,7 +1564,7 @@ async def git_unstage(
         category="git",
         destructive=True,
         icon="undo-2",
-        invalidates=["diff", "files"],
+        invalidates=["git", "files"],
     )
 )
 async def git_discard(

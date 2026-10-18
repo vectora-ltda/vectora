@@ -69,6 +69,7 @@ import asyncio
 import contextlib
 import hashlib
 import hmac
+import logging
 import time
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
@@ -78,6 +79,8 @@ from backend.engine.conversation_loop import LoopConfig, run_conversation
 from backend.engine.stream_events import MessageChunk, SubagentOutput
 from backend.rbac import tool_policy
 from backend.tools.registry import ToolRegistry
+
+logger = logging.getLogger(__name__)
 from backend.vtypes.ids import CapabilityToken, CorrelationId
 from backend.vtypes.message import MessageRole, text_message
 
@@ -477,6 +480,22 @@ async def _run_subagent_once(
         status = "running"
     else:
         status = "error"
+
+    if not texto and status != "running":
+        status = "error"
+        texto = (
+            f"Error: subagente '{spec.name}' terminou sem resposta textual "
+            f"(stopped_reason={resultado.stopped_reason})."
+        )
+        logger.error(
+            "subagent_empty_result",
+            extra={
+                "subagent_type": spec.name,
+                "stopped_reason": resultado.stopped_reason,
+                "parent_thread_id": parent_thread_id,
+                "thread_id": thread_id,
+            },
+        )
 
     if status != "running" and on_event is not None:
         await on_event(

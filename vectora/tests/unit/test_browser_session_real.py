@@ -1,16 +1,17 @@
-"""Sessão de browser (Playwright/Chromium) contra o processo real — skip
-limpo sem o Chromium instalado (`playwright install chromium`).
+"""Sessão de browser via CDP contra o Chromium real do Electron.
 
-Diferente de test_tools_browser.py, que mocka Playwright deliberadamente
-(ver seu próprio docstring), este arquivo sobe um Chromium headless de
-verdade e valida o ciclo de vida completo de `backend/browser/session.py`.
+Diferente de test_tools_browser.py, que mocka Playwright deliberadamente,
+este arquivo conecta ao Electron ativo e valida o ciclo de vida completo de
+`backend/browser/session.py`, sem iniciar um navegador próprio.
 """
 
 from __future__ import annotations
 
 import http.server
+import os
 import threading
 
+import httpx
 import pytest
 
 from backend.browser import session as browser_session
@@ -39,26 +40,40 @@ def local_http_server():
         thread.join(timeout=5)
 
 
-def _chromium_available() -> bool:
-    from pathlib import Path
-
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
+def _electron_cdp_available() -> bool:
+    endpoint = os.environ.get("VECTORA_ELECTRON_CDP_URL", "").strip()
+    if not endpoint:
+        port = os.environ.get("VECTORA_ELECTRON_CDP_PORT", "9223").strip()
+        if port.isdigit():
+            endpoint = f"http://127.0.0.1:{port}"
+    if not endpoint:
         return False
-
     try:
-        with sync_playwright() as p:
-            return Path(p.chromium.executable_path).is_file()
+        return httpx.get(f"{endpoint}/json/version", timeout=1).is_success
     except Exception:
         return False
+
+
+async def _new_tab_or_assert_workbench_capability(
+    workspace_id: str, url: str
+) -> str | None:
+    """O CDP do Browser Workbench pode expor somente a aba existente.
+
+    Nessa modalidade a UI do Electron é a dona da criação de abas; o backend
+    deve retornar o erro explícito, sem fingir que reutilizou a aba ativa.
+    """
+    try:
+        return await browser_session.new_tab(workspace_id, url=url)
+    except RuntimeError as exc:
+        assert "não suporta criar uma nova aba via CDP" in str(exc)
+        return None
 
 
 pytestmark = [
     pytest.mark.browser,
     pytest.mark.skipif(
-        not _chromium_available(),
-        reason="Chromium não instalado — rode `playwright install chromium`",
+        not _electron_cdp_available(),
+        reason="Electron não está ativo ou não publicou o endpoint CDP",
     ),
 ]
 
@@ -72,7 +87,7 @@ async def _clean_sessions():
 
 
 @pytest.mark.asyncio
-async def test_get_browser_page_sobe_chromium_real_e_navega():
+async def test_get_browser_page_sobe_chromium_real_e_navega() -> None:
     page = await browser_session.get_browser_page("ws-real-1")
     await page.goto("about:blank")
 
@@ -83,6 +98,19 @@ async def test_get_browser_page_sobe_chromium_real_e_navega():
     # segundo Chromium por chamada.
     page_again = await browser_session.get_browser_page("ws-real-1")
     assert page_again is page
+
+
+async def test_browser_navega_github_publico_real_sem_login() -> None:
+    """Chromium deve acessar a issue pública sem cookies do GitHub."""
+    page = await browser_session.get_browser_page("ws-github-public")
+    response = await page.goto(
+        "https://github.com/vectora-ltda/vectora/issues/317",
+        wait_until="domcontentloaded",
+        timeout=30_000,
+    )
+    assert response is not None
+    assert response.status == 200
+    assert "vectora" in (await page.title()).lower()
 
 
 @pytest.mark.asyncio
@@ -120,7 +148,11 @@ async def test_new_tab_cria_segunda_aba_com_cdp_session_propria():
     first_page = await browser_session.get_browser_page("ws-tabs-1")
     await first_page.goto("about:blank")
 
-    second_tab_id = await browser_session.new_tab("ws-tabs-1", url="about:blank")
+    second_tab_id = await _new_tab_or_assert_workbench_capability(
+        "ws-tabs-1", "about:blank"
+    )
+    if second_tab_id is None:
+        return
 
     tabs = await browser_session.list_tabs("ws-tabs-1")
     assert len(tabs) == 2
@@ -138,7 +170,11 @@ async def test_select_tab_troca_a_aba_ativa():
     first_page = await browser_session.get_browser_page("ws-tabs-2")
     await first_page.goto("about:blank")
     first_tab_id = (await browser_session.list_tabs("ws-tabs-2"))[0]["tab_id"]
-    second_tab_id = await browser_session.new_tab("ws-tabs-2", url="about:blank")
+    second_tab_id = await _new_tab_or_assert_workbench_capability(
+        "ws-tabs-2", "about:blank"
+    )
+    if second_tab_id is None:
+        return
 
     ok = await browser_session.select_tab("ws-tabs-2", first_tab_id)
     assert ok is True
@@ -174,7 +210,11 @@ async def test_close_tab_nao_ativa_promove_outra_aba_a_ativa():
     first_page = await browser_session.get_browser_page("ws-tabs-5")
     await first_page.goto("about:blank")
     first_tab_id = (await browser_session.list_tabs("ws-tabs-5"))[0]["tab_id"]
-    second_tab_id = await browser_session.new_tab("ws-tabs-5", url="about:blank")
+    second_tab_id = await _new_tab_or_assert_workbench_capability(
+        "ws-tabs-5", "about:blank"
+    )
+    if second_tab_id is None:
+        return
 
     ok = await browser_session.close_tab("ws-tabs-5", first_tab_id)
 

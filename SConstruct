@@ -20,6 +20,9 @@ Uso (PowerShell / cmd, a partir da raiz do monorepo):
     scons clean         → remove outputs de build
 
 Pré-requisitos: uv, pnpm, nuitka (incluído no uv.lock), Hugo (extended) no PATH
+O runtime de produção usa exclusivamente o Chromium distribuído pelo pacote
+Electron. Playwright é somente o cliente CDP do backend; os browsers baixados
+por `playwright install` pertencem aos testes E2E e não são empacotados.
 Instalar SCons: pip install scons (ou uv add --dev scons)
 
 Subprojetos cobertos por lint e tests:
@@ -1220,6 +1223,7 @@ def _action_help(target, source, env):
 
   Build
     scons frontend         só o build do frontend (vectora/frontend/dist/)
+    scons install          instala dependências do frontend e o binário do Electron
     scons docker           sobe infraestrutura (PostgreSQL, Redis, Qdrant)
 
   Qualidade
@@ -1416,6 +1420,7 @@ def _action_build_chat_and_electron(target, source, env):
 
 
 _cmd("frontend", _action_build_chat_and_electron)
+_cmd("install", _action_install_desktop)
 
 _build_chat    = _node("build-chat",      _action_build_chat)
 # O binário nats-server precisa estar em vectora/resources/ ANTES tanto do

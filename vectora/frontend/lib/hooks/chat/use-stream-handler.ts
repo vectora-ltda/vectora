@@ -554,6 +554,14 @@ export function useStreamHandler({
           }
           if (event.type === "done") {
             resolvedRunId = event.run_id || undefined;
+            if (typeof event.message_id === "number") {
+              setMessages((prev) =>
+                updateMessageInList(prev, activeId, (message) => ({
+                  ...message,
+                  persistedMessageId: event.message_id ?? undefined,
+                })),
+              );
+            }
             streamCompletedNormally = true;
             break;
           }
@@ -803,6 +811,14 @@ export function useStreamHandler({
           }
           if (event.type === "done") {
             resolvedRunId = event.run_id || resolvedRunId;
+            if (typeof event.message_id === "number") {
+              setMessages((prev) =>
+                updateMessageInList(prev, assistantMessageId, (message) => ({
+                  ...message,
+                  persistedMessageId: event.message_id ?? undefined,
+                })),
+              );
+            }
             streamCompletedNormally = true;
             break;
           }
@@ -1117,7 +1133,7 @@ async function handleEvent(
             affectedPaths: event.affected_paths,
             permissionMode: event.permission_mode,
             preApproved: event.pre_approved,
-            workspaceId: useWorkspacesStore.getState().active_id ?? undefined,
+            workspaceId: event.workspace_id || undefined,
             options: event.options,
             priority: event.priority,
             expiresAt: event.expires_at,
@@ -1200,8 +1216,8 @@ async function handleEvent(
         const tabs = event.tabs as string[];
         if (tabs.includes("files"))
           useWorkbenchStore.getState().invalidateFiles(ws.id);
-        if (tabs.includes("diff"))
-          useWorkbenchStore.getState().invalidateDiff(ws.id);
+        if (tabs.includes("git"))
+          useWorkbenchStore.getState().invalidateGit(ws.id);
         if (tabs.includes("plan") && threadId)
           useWorkbenchStore.getState().invalidatePlan(threadId);
         if (tabs.includes("tasks") || tabs.includes("files"))
@@ -1280,7 +1296,7 @@ function invalidateWorkbenchFor(
     const ws = useWorkspacesStore.getState().getActive();
     if (ws) {
       useWorkbenchStore.getState().invalidateFiles(ws.id);
-      useWorkbenchStore.getState().invalidateDiff(ws.id);
+      useWorkbenchStore.getState().invalidateGit(ws.id);
       // Sinaliza pendência para a aba que não está montada no momento.
       useWorkbenchStore.getState().markPending(ws.id);
     }

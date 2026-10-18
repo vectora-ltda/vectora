@@ -16,6 +16,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
+from backend.vtypes.contracts import ChangedFile, ToolOption
+from backend.vtypes.permission import PermissionMode
+
 
 @dataclass(frozen=True, slots=True)
 class ThreadStarted:
@@ -108,11 +111,13 @@ class HitlRequested:
     tool_name: str
     args_json: str
     interrupt_id: str
+    permission_mode: PermissionMode = "ask"
+    workspace_id: str = ""
     reasoning: str = ""
     affected_paths: list[str] = field(default_factory=list)
     diff_preview: str = ""
     pre_approved: bool = False
-    options: list[dict[str, str]] = field(default_factory=list)
+    options: list[ToolOption] = field(default_factory=list)
     priority: int = 0
     expires_at: str | None = None
 
@@ -139,7 +144,7 @@ class WorkbenchInvalidate:
 class TurnFilesChanged:
     """Arquivos alterados pela resposta atual, com hunks para revisão."""
 
-    files: list[dict[str, object]] = field(default_factory=list)
+    files: list[ChangedFile] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)

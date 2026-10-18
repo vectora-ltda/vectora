@@ -29,6 +29,7 @@ from backend.api.schemas import (
 )
 from backend.persistence.native.session_store import SessionStore
 from backend.storage.sqlite.pool import AsyncConnectionPool
+from backend.vtypes.message import MessageRole, text_message
 
 
 def _http_request(user_id: str | None, device_id: str | None = None) -> MagicMock:
@@ -268,6 +269,25 @@ class TestOwnershipEnforcement:
 
         assert thread.id == "thread-bob"
 
+    async def test_get_thread_reidrata_metadados_ausentes_do_store_nativo(
+        self, session_store: SessionStore
+    ) -> None:
+        """Uma corrida de reconciliação não pode apagar o histórico da UI."""
+        await session_store.create_session(
+            "thread-native-only", user_id="alice", workspace_id="ws-1"
+        )
+        await session_store.append_message(
+            "thread-native-only", text_message(MessageRole.USER, "oi")
+        )
+
+        thread = await th.get_thread(
+            GetThreadRequest(thread_id="thread-native-only"), _http_request("alice")
+        )
+
+        assert thread.id == "thread-native-only"
+        assert thread.workspace_id == "ws-1"
+        assert thread.unread_count == 0
+
     async def test_update_thread_de_outro_usuario_404_e_nao_persiste(
         self, session_store: SessionStore, checkpoints_db: aiosqlite.Connection
     ) -> None:
@@ -443,6 +463,35 @@ class TestCreateThreadRegistersOwnership:
 
 class TestMarkThreadRead:
     """Garante que o cursor de leitura é isolado, monotônico e idempotente."""
+
+    async def test_usuario_so_nao_gera_notificacao_de_resposta(
+        self, session_store
+    ) -> None:
+        """Tool calls e a mensagem do usuário não viram notificações falsas."""
+        await session_store.create_session("thread-user-only", user_id="alice")
+        await session_store.append_message(
+            "thread-user-only", text_message(MessageRole.USER, "oi")
+        )
+        await th._upsert_session("thread-user-only")
+        await th._increment_message_count("thread-user-only")
+
+        assert await th._unread_count("thread-user-only", "alice") == 0
+
+    async def test_tools_nao_sao_contadas_como_respostas(self, session_store) -> None:
+        await session_store.create_session("thread-tools", user_id="alice")
+        await session_store.append_message(
+            "thread-tools", text_message(MessageRole.USER, "busque")
+        )
+        await session_store.append_message(
+            "thread-tools", text_message(MessageRole.TOOL, "resultado")
+        )
+        await session_store.append_message(
+            "thread-tools", text_message(MessageRole.ASSISTANT, "encontrei")
+        )
+        await th._upsert_session("thread-tools")
+        await th._increment_message_count("thread-tools")
+
+        assert await th._unread_count("thread-tools", "alice") == 1
 
     async def test_cursor_isolado_por_usuario(self, session_store) -> None:
         await session_store.create_session("thread-alice", user_id="alice")

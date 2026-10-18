@@ -141,6 +141,39 @@ class TestPersistence:
         assert recarregado.get("persistido_antes") == "ok"
         assert recarregado.get("persistido_depois") == "somente esta deve persistir"
 
+    def test_banco_ocupado_tem_retry_antes_de_falhar(
+        self, tmp_settings_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Uma escrita concorrente transitória não deve falhar a preferência."""
+        rs = RuntimeSettings(path=tmp_settings_path)
+        delegate = rs._conn
+
+        class LockedOnce:
+            def __init__(self, connection: sqlite3.Connection) -> None:
+                self._connection = connection
+                self._locked = True
+
+            def execute(self, sql: str, parameters: tuple[object, ...] = ()):
+                if self._locked:
+                    self._locked = False
+                    raise sqlite3.OperationalError("database is locked")
+                return self._connection.execute(sql, cast("tuple", parameters))
+
+            def commit(self) -> None:
+                self._connection.commit()
+
+            def rollback(self) -> None:
+                self._connection.rollback()
+
+        rs._conn = cast("sqlite3.Connection", LockedOnce(delegate))
+        monkeypatch.setattr(
+            "backend.workspace.runtime_settings.time.sleep", lambda _: None
+        )
+
+        rs.set("transitorio", "ok")
+        assert rs.get("transitorio") == "ok"
+        assert RuntimeSettings(path=tmp_settings_path).get("transitorio") == "ok"
+
 
 # ---------------------------------------------------------------------------
 # set_active_model

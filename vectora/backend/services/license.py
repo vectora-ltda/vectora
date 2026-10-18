@@ -42,6 +42,8 @@ from typing import Literal
 
 import httpx
 
+from backend.runtime_profile import resolve_runtime_home
+
 logger = logging.getLogger(__name__)
 
 LicenseTier = Literal["free", "pro"]
@@ -51,16 +53,11 @@ DEFAULT_LICENSE_URL = "https://services.vectora.company/license/validate"
 
 
 def _bootstrap_vectora_home() -> Path:
-    """Lê ``VECTORA_HOME`` direto de ``os.environ`` — mesmo padrão de
-    ``backend/workspace/runtime_settings.py::_bootstrap_vectora_home``, pra
-    não depender do singleton ``backend.settings.settings`` (evita import
-    circular) e, principalmente, pra não vazar pro `~/.vectora` real numa
-    instância isolada via `VECTORA_HOME` (ex.: testes, instâncias de
-    verificação) — sem isso, o cache/token de licença de uma instância
-    isolada silenciosamente lia/escrevia no diretório real do usuário.
+    """Resolve a home sem importar o singleton de settings.
+
+    O cache de licença permanece no mesmo perfil das demais partes do backend.
     """
-    env_value = os.environ.get("VECTORA_HOME")
-    return Path(env_value) if env_value else Path.home() / ".vectora"
+    return resolve_runtime_home()
 
 
 CACHE_PATH = _bootstrap_vectora_home() / "license_cache.json"

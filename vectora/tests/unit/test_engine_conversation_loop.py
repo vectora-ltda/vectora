@@ -125,6 +125,46 @@ class TestParadaNormal:
         historico = await session_store.get_history("thread-1")
         assert [m.text() for m in historico] == ["olá!"]
 
+    async def test_resposta_vazia_emite_erro_diagnosticavel(
+        self,
+        session_store: SessionStore,
+        ctx: ToolContext,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        client = _ScriptedChatClient([[]])
+        eventos: list[EngineEvent] = []
+
+        async def on_event(event: EngineEvent) -> None:
+            eventos.append(event)
+
+        with caplog.at_level("INFO", logger="backend.engine.conversation_loop"):
+            resultado = await run_conversation(
+                session_store=session_store,
+                chat_client=client,
+                tool_registry=ToolRegistry(),
+                ctx=ctx,
+                thread_id="thread-1",
+                config=LoopConfig(run_id="run-empty"),
+                on_event=on_event,
+            )
+
+        assert resultado.stopped_reason == "stop"
+        assert resultado.final_message is None
+        sinais = [event for event in eventos if isinstance(event, ErrorSignal)]
+        assert [(event.code, event.message) for event in sinais] == [
+            (
+                "EMPTY_MODEL_RESPONSE",
+                "O provedor LLM encerrou o stream sem retornar texto ou uma chamada de ferramenta. Tente novamente ou troque o modelo.",
+            )
+        ]
+        assert any(record.message == "llm_empty_response" for record in caplog.records)
+        assert any(
+            record.message == "llm_turn_finished"
+            and getattr(record, "text_chars", None) == 0
+            and getattr(record, "chunk_count", None) == 0
+            for record in caplog.records
+        )
+
 
 class TestMaxIterations:
     async def test_estoura_o_teto_sem_nunca_parar_naturalmente(
@@ -238,6 +278,60 @@ class TestGuardrailDeRepeticao:
         )
         sinais2 = [e for e in eventos2 if isinstance(e, ErrorSignal)]
         assert not any(e.code == "TOOL_CALL_REPEATED" for e in sinais2)
+
+    async def test_loop_de_tool_repetida_e_interrompido_com_diagnostico(
+        self, session_store: SessionStore, ctx: ToolContext
+    ) -> None:
+        @vtool(extras=ToolExtras())
+        async def buscar(query: str, ctx: ToolContext) -> str:
+            """Busca usada para simular uma tool que não produz progresso."""
+            return "resultado"
+
+        registry = ToolRegistry()
+        _register(registry, "buscar")
+        chamadas = [
+            [
+                _tool_call_chunk(
+                    index=0,
+                    id=f"call_{i}",
+                    name="buscar",
+                    args='{"query":"x"}',
+                )
+            ]
+            for i in range(6)
+        ]
+        client = _ScriptedChatClient(chamadas)
+        eventos: list[EngineEvent] = []
+
+        await session_store.create_session(
+            "thread-repeated-hard-limit", user_id=ctx.user_id
+        )
+
+        async def on_event(event: EngineEvent) -> None:
+            eventos.append(event)
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-repeated-hard-limit",
+            config=LoopConfig(),
+            on_event=on_event,
+        )
+
+        assert resultado.stopped_reason == "loop_cap_exceeded"
+        assert any(
+            event.code == "TOOL_CALL_REPEATED"
+            for event in eventos
+            if isinstance(event, ErrorSignal)
+        )
+        historico = await session_store.get_history("thread-repeated-hard-limit")
+        assert len(historico) == 10
+        assert all(
+            message.role is not MessageRole.ASSISTANT or message.tool_calls
+            for message in historico
+        )
 
 
 class TestToolCallsSequenciais:
