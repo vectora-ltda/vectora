@@ -86,3 +86,7 @@ class VectorStoreBackend(Protocol):
         """Quantidade de documentos na coleção. `None` se não conseguir
         determinar (coleção corrompida/erro transitório) — nunca lança."""
         ...
+
+    async def health(self) -> dict[str, Any]:
+        """Verifica se o backend está acessível e funcional."""
+        ...

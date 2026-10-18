@@ -63,9 +63,11 @@ def export_http(contracts_dir: Path) -> None:
         routes_inventory.append({"path": path, "methods": methods, "name": name})
         routes_map.setdefault(path, set()).update(methods)
 
-    routes_inventory.sort(
-        key=lambda r: (str(r["path"]), "".join(str(x) for x in r["methods"]))
-    )
+    def _methods_str(r: dict[str, Any]) -> str:
+        m = r.get("methods")
+        return "".join(str(x) for x in m) if isinstance(m, list) else ""
+
+    routes_inventory.sort(key=lambda r: (str(r.get("path") or ""), _methods_str(r)))
     (http_dir / "routes.json").write_text(
         dumps_normalized(routes_inventory), encoding="utf-8"
     )

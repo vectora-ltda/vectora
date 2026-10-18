@@ -258,14 +258,24 @@ class QdrantBackend:
         if not ids:
             return 0
         client = self._get_client()
-        async with asyncio.timeout(_TIMEOUT_S):
-            await client.delete(
-                collection_name=collection,
-                points_selector=models.PointIdsList(
-                    points=[_point_id(collection, row_id) for row_id in ids]
-                ),
-            )
-        return len(ids)
+        try:
+            async with asyncio.timeout(_TIMEOUT_S):
+                if not await client.collection_exists(collection):
+                    return 0
+                info_before = await client.get_collection(collection)
+                before_count = info_before.points_count or 0
+                await client.delete(
+                    collection_name=collection,
+                    points_selector=models.PointIdsList(
+                        points=[_point_id(collection, row_id) for row_id in ids]
+                    ),
+                )
+                info_after = await client.get_collection(collection)
+                after_count = info_after.points_count or 0
+                return max(0, before_count - after_count)
+        except Exception:
+            logger.debug("QdrantBackend.delete: erro ao deletar pontos", exc_info=True)
+            return 0
 
     async def purge(self, collection: str) -> None:
         client = self._get_client()
@@ -293,3 +303,17 @@ class QdrantBackend:
             return result.count
         except Exception:
             return None
+
+    async def health(self) -> dict[str, Any]:
+        """Verifica se o Qdrant está acessível."""
+        client = self._get_client()
+        try:
+            async with asyncio.timeout(_TIMEOUT_S):
+                response = await client.get_collections()
+            return {
+                "ok": True,
+                "error": None,
+                "collections": [c.name for c in response.collections],
+            }
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}

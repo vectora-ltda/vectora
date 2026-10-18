@@ -27,12 +27,13 @@ import os
 import sqlite3
 import stat
 import uuid
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 
@@ -86,6 +87,7 @@ from backend.api.schemas import (
     StructuredQuestionAnswerRequest,
     StructuredQuestionResponse,
     Thread,
+    ThreadLastMessagePreview,
     ThreadPinsResponse,
     TodoItem,
     UpdateThreadRequest,
@@ -878,12 +880,19 @@ async def get_thread(
         (request.thread_id,),
     ) as cur:
         row = await cur.fetchone()
+    session_store = await _get_session_store()
+    user_id = (
+        _user_id(http_request)
+        if http_request is not None
+        and getattr(http_request.state, "user", None) is not None
+        else "local"
+    )
+
     if row is None:
         # `sessions.db` é a fonte de verdade do motor. A tabela de metadados
         # pode ficar defasada durante uma reconciliação ou quando a sidebar
         # ainda está usando uma resposta cacheada; não transforme isso em um
         # histórico vazio/404 se a sessão nativa e suas mensagens existem.
-        session_store = await _get_session_store()
         native = await session_store.get_session(
             request.thread_id,
             user_id=(
@@ -895,7 +904,12 @@ async def get_thread(
         )
         if native is None:
             raise HTTPException(
-                status_code=404, detail=f"Thread {request.thread_id!r} not found"
+                status_code=404,
+                detail={
+                    "code": "thread_not_found",
+                    "thread_id": request.thread_id,
+                    "deleted": True,
+                },
             )
         thread = Thread(
             id=str(native["thread_id"]),
@@ -904,13 +918,32 @@ async def get_thread(
             workspace_id=native["workspace_id"] or "",
             mode=_normalize_mode(native["mode"]),
         )
-        thread.unread_count = await _unread_count(thread.id, _user_id(http_request))
-        return thread
-    await _assert_owns_thread(request.thread_id, http_request)
-    thread = _row_to_thread(row)
-    thread.unread_count = await _unread_count(
-        thread.id, _user_id(http_request) if http_request is not None else "local"
-    )
+    else:
+        await _assert_owns_thread(request.thread_id, http_request)
+        thread = _row_to_thread(row)
+
+    # Derivações a partir do ledger de eventos
+    if hasattr(session_store, "get_thread_summaries"):
+        summaries = await session_store.get_thread_summaries(
+            [thread.id], user_id=user_id
+        )
+        if summaries:
+            s = summaries[0]
+            thread.unread_count = s.unread_count
+            thread.status = s.status
+            thread.last_seq = s.last_seq
+            thread.read_seq = s.read_seq
+            if s.last_message:
+                thread.last_message = ThreadLastMessagePreview(
+                    role=s.last_message.role,
+                    preview=s.last_message.preview,
+                    message_id=s.last_message.message_id,
+                    created_at=s.last_message.created_at,
+                )
+        else:
+            thread.unread_count = await _unread_count(thread.id, user_id)
+    else:
+        thread.unread_count = await _unread_count(thread.id, user_id)
     return thread
 
 
@@ -981,10 +1014,31 @@ async def list_threads(
         if current_device_id
         else {}
     )
+    thread_ids = [r[0] for r in rows]
+    summaries_by_id: dict[str, Any] = {}
+    if hasattr(session_store, "get_thread_summaries"):
+        summaries_list = await session_store.get_thread_summaries(
+            thread_ids, user_id=user_id
+        )
+        summaries_by_id = {s.thread_id: s for s in summaries_list}
+
     threads = []
     for row in rows:
         thread = _row_to_thread(row)
-        thread.unread_count = await _unread_count(thread.id, user_id)
+        if s := summaries_by_id.get(thread.id):
+            thread.unread_count = s.unread_count
+            thread.status = s.status
+            thread.last_seq = s.last_seq
+            thread.read_seq = s.read_seq
+            if s.last_message:
+                thread.last_message = ThreadLastMessagePreview(
+                    role=s.last_message.role,
+                    preview=s.last_message.preview,
+                    message_id=s.last_message.message_id,
+                    created_at=s.last_message.created_at,
+                )
+        else:
+            thread.unread_count = await _unread_count(thread.id, user_id)
         if activity := remote_activity.get(thread.id):
             thread.remote_activity = RemoteActivity(last_active_at=activity)
         threads.append(thread)
@@ -993,6 +1047,8 @@ async def list_threads(
 
 class MarkThreadReadRequest(BaseModel):
     read_message_id: int | None = None
+    seen_seq: int | None = None
+    device_id: str | None = None
 
 
 @router.post("/threads/{thread_id}/read")
@@ -1001,17 +1057,39 @@ async def mark_thread_read(
     request: Request,
     body: MarkThreadReadRequest | None = None,
 ) -> dict[str, int | str]:
-    """Confirma a leitura da thread de modo idempotente e por usuário."""
+    """Confirma a leitura da thread de modo idempotente e por usuário/dispositivo."""
     await _assert_owns_thread(thread_id, request)
     user_id = _user_id(request)
-    # Serialize this short transaction with the other users of the shared
-    # handler connection. This keeps rollback scoped to our transaction and
-    # avoids undoing an unrelated pending write.
+    device_id = (
+        body.device_id
+        if body and body.device_id
+        else validate_device_id(getattr(request.state, "device_id", None)) or "default"
+    )
+    session_store = await _get_session_store()
+
+    # Se seen_seq foi fornecido ou SessionStore suporta ledger:
+    if (
+        body
+        and body.seen_seq is not None
+        and hasattr(session_store, "mark_events_seen")
+    ):
+        result = await session_store.mark_events_seen(
+            thread_id=thread_id,
+            user_id=user_id,
+            device_id=device_id,
+            seen_seq=body.seen_seq,
+        )
+        return {
+            "thread_id": thread_id,
+            "unread_count": result.get("unread_count", 0),
+            "read_seq": result.get("read_seq", body.seen_seq),
+        }
+
+    # Fallback / retrocompatibilidade com read_message_id
     db = await _get_db()
     async with _db_write_lock:
         for attempt in range(5):
             try:
-                session_store = await _get_session_store()
                 assistant_count = await session_store.count_assistant_messages(
                     thread_id
                 )
@@ -1023,7 +1101,12 @@ async def mark_thread_read(
                         legacy_row = await cur.fetchone()
                     if legacy_row is None:
                         raise HTTPException(
-                            status_code=404, detail="Thread não encontrada"
+                            status_code=404,
+                            detail={
+                                "code": "thread_not_found",
+                                "thread_id": thread_id,
+                                "deleted": True,
+                            },
                         )
                     assistant_count = int(legacy_row[0])
                 if hasattr(session_store, "latest_assistant_message_id"):
@@ -1044,10 +1127,6 @@ async def mark_thread_read(
                     if body and body.read_message_id is not None
                     else stored_cursor
                 )
-                # A client may only acknowledge messages it has actually
-                # rendered. Never move beyond the server's latest ID and
-                # never move backwards. Calls without a cursor are read-only
-                # compatibility calls and cannot clear a newer response.
                 confirmed_cursor = max(
                     stored_cursor, min(requested_cursor, latest_assistant or 0)
                 )
@@ -2347,3 +2426,40 @@ async def remove_smart_approval_allowlist(
         rule_id=body.rule_id,
     )
     return SmartApprovalAllowlistResponse(allowlist=_allowlist_items(body.workspace_id))
+
+
+@router.get("/threads/{thread_id}/events")
+async def stream_thread_ledger_events(
+    thread_id: str,
+    request: Request,
+    from_seq: int = 0,
+    last_event_id: Annotated[int | None, Header(alias="Last-Event-ID")] = None,
+) -> StreamingResponse:
+    """Stream SSE de eventos do ledger da thread com suporte a Last-Event-ID / from_seq."""
+    await _assert_owns_thread(thread_id, request)
+    session_store = await _get_session_store()
+    start_seq = last_event_id if last_event_id is not None else from_seq
+
+    async def event_generator() -> AsyncGenerator[str]:
+        # 1. Replay de eventos já persistidos no ledger
+        if hasattr(session_store, "get_events_after"):
+            existing_events = await session_store.get_events_after(
+                thread_id, after_seq=start_seq
+            )
+            for ev in existing_events:
+                data = json.dumps(ev.to_dict(), ensure_ascii=False)
+                yield f"id: {ev.seq}\nevent: {ev.type}\ndata: {data}\n\n"
+
+        # 2. Heartbeat para manter a conexão aberta se o cliente mantiver SSE ativo
+        # (reconexão transparente com id estável)
+        yield ": keep-alive\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
