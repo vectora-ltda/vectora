@@ -127,7 +127,10 @@ class LanceDBBackend:
         if not rows:
             return
         db = await self._db()
-        dim = len(rows[0].vector)
+        # Deduplica rows mantendo a última ocorrência de cada id
+        deduped: dict[str, VectorRow] = {row.id: row for row in rows}
+        unique_rows = list(deduped.values())
+        dim = len(unique_rows[0].vector)
         schema = pa.schema(
             [
                 pa.field("id", pa.string()),
@@ -143,7 +146,7 @@ class LanceDBBackend:
                 "text": row.text,
                 "metadata": json.dumps(row.metadata) if row.metadata else "{}",
             }
-            for row in rows
+            for row in unique_rows
         ]
 
         # Abrir-ou-criar sob o mesmo semaphore: com várias tasks escrevendo no
@@ -203,12 +206,13 @@ class LanceDBBackend:
             table = await db.open_table(collection)
         except Exception:
             return 0
-        before_count = await table.count_rows()
-        escaped_ids = [i.replace("'", "''") for i in ids]
-        id_list = ", ".join(f"'{i}'" for i in escaped_ids)
-        await table.delete(f"id IN ({id_list})")
-        after_count = await table.count_rows()
-        return max(0, before_count - after_count)
+        async with self._write_semaphore:
+            before_count = await table.count_rows()
+            escaped_ids = [i.replace("'", "''") for i in ids]
+            id_list = ", ".join(f"'{i}'" for i in escaped_ids)
+            await table.delete(f"id IN ({id_list})")
+            after_count = await table.count_rows()
+            return max(0, before_count - after_count)
 
     async def purge(self, collection: str) -> None:
         db = await self._db()
@@ -221,11 +225,7 @@ class LanceDBBackend:
         try:
             names = (await db.list_tables()).tables
         except Exception:
-            try:
-                names = await db.table_names()
-            except Exception:
-                logger.warning("LanceDBBackend.list_collections: falha", exc_info=True)
-                return []
+            names = await db.table_names()
         return [str(name) for name in names]
 
     async def count(self, collection: str) -> int | None:

@@ -95,6 +95,10 @@ from backend.api.schemas import (
     TodoItem,
     UpdateThreadRequest,
 )
+from backend.persistence.native.ledger import (
+    ThreadLedgerEvent,
+    ensure_thread_backfilled,
+)
 from backend.persistence.thread_activity import get_remote_activity
 from backend.rbac.device_id import validate_device_id
 from backend.vtypes.permission import PERMISSION_MODES, PermissionMode
@@ -884,12 +888,12 @@ async def get_thread(
     ) as cur:
         row = await cur.fetchone()
     session_store = await _get_session_store()
-    user_id = (
-        _user_id(http_request)
-        if http_request is not None
+    has_authenticated_user = (
+        http_request is not None
         and getattr(http_request.state, "user", None) is not None
-        else "local"
     )
+    session_user_id = _user_id(http_request) if has_authenticated_user else None
+    user_id = session_user_id if session_user_id is not None else "local"
 
     if row is None:
         # `sessions.db` é a fonte de verdade do motor. A tabela de metadados
@@ -898,12 +902,7 @@ async def get_thread(
         # histórico vazio/404 se a sessão nativa e suas mensagens existem.
         native = await session_store.get_session(
             request.thread_id,
-            user_id=(
-                _user_id(http_request)
-                if http_request is not None
-                and getattr(http_request.state, "user", None) is not None
-                else None
-            ),
+            user_id=session_user_id,
         )
         if native is None:
             raise HTTPException(
@@ -927,6 +926,21 @@ async def get_thread(
 
     # Derivações a partir do ledger de eventos
     if hasattr(session_store, "get_thread_summaries"):
+        if hasattr(session_store, "_pool"):
+            legacy_count = 0
+            with contextlib.suppress(Exception):
+                async with db.execute(
+                    "SELECT read_count FROM thread_read_cursors WHERE thread_id = ? AND user_id = ?",
+                    (thread.id, user_id),
+                ) as cur_cursor:
+                    if cursor_row := await cur_cursor.fetchone():
+                        legacy_count = int(cursor_row[0] or 0)
+            await ensure_thread_backfilled(
+                session_store._pool,
+                thread.id,
+                user_id=user_id,
+                legacy_read_count=legacy_count,
+            )
         summaries = await session_store.get_thread_summaries(
             [thread.id], user_id=user_id
         )
@@ -1020,6 +1034,25 @@ async def list_threads(
     thread_ids = [r[0] for r in rows]
     summaries_by_id: dict[str, Any] = {}
     if hasattr(session_store, "get_thread_summaries"):
+        if hasattr(session_store, "_pool") and thread_ids:
+            # Buscar contagens legadas de thread_read_cursors para preservar no backfill
+            legacy_counts: dict[str, int] = {}
+            placeholders = ",".join("?" for _ in thread_ids)
+            with contextlib.suppress(Exception):
+                async with db.execute(
+                    f"SELECT thread_id, read_count FROM thread_read_cursors "  # noqa: S608  # nosec B608
+                    f"WHERE user_id = ? AND thread_id IN ({placeholders})",
+                    (user_id, *thread_ids),
+                ) as cur_cursors:
+                    for row_c in await cur_cursors.fetchall():
+                        legacy_counts[str(row_c[0])] = int(row_c[1] or 0)
+            for tid in thread_ids:
+                await ensure_thread_backfilled(
+                    session_store._pool,
+                    tid,
+                    user_id=user_id,
+                    legacy_read_count=legacy_counts.get(tid, 0),
+                )
         summaries_list = await session_store.get_thread_summaries(
             thread_ids, user_id=user_id
         )
@@ -1063,11 +1096,19 @@ async def mark_thread_read(
     """Confirma a leitura da thread de modo idempotente e por usuário/dispositivo."""
     await _assert_owns_thread(thread_id, request)
     user_id = _user_id(request)
-    device_id = (
-        body.device_id
-        if body and body.device_id
-        else validate_device_id(getattr(request.state, "device_id", None)) or "default"
-    )
+    db = await _get_db()
+    if body and body.device_id is not None:
+        validated_dev = validate_device_id(body.device_id)
+        if validated_dev is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Identificador de dispositivo inválido",
+            )
+        device_id = validated_dev
+    else:
+        state_dev = getattr(request.state, "device_id", None)
+        device_id = validate_device_id(state_dev) or "default"
+
     session_store = await _get_session_store()
 
     # Se seen_seq foi fornecido ou SessionStore suporta ledger:
@@ -1076,6 +1117,21 @@ async def mark_thread_read(
         and body.seen_seq is not None
         and hasattr(session_store, "mark_events_seen")
     ):
+        if hasattr(session_store, "_pool"):
+            legacy_count = 0
+            with contextlib.suppress(Exception):
+                async with db.execute(
+                    "SELECT read_count FROM thread_read_cursors WHERE thread_id = ? AND user_id = ?",
+                    (thread_id, user_id),
+                ) as cur_cursor:
+                    if cursor_row := await cur_cursor.fetchone():
+                        legacy_count = int(cursor_row[0] or 0)
+            await ensure_thread_backfilled(
+                session_store._pool,
+                thread_id,
+                user_id=user_id,
+                legacy_read_count=legacy_count,
+            )
         result = await session_store.mark_events_seen(
             thread_id=thread_id,
             user_id=user_id,
@@ -2435,27 +2491,72 @@ async def remove_smart_approval_allowlist(
 async def stream_thread_ledger_events(
     thread_id: str,
     request: Request,
-    from_seq: int = 0,
-    last_event_id: Annotated[int | None, Header(alias="Last-Event-ID")] = None,
+    from_seq: Annotated[int, Query(ge=0)] = 0,
+    last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
 ) -> StreamingResponse:
     """Stream SSE de eventos do ledger da thread com suporte a Last-Event-ID / from_seq."""
     await _assert_owns_thread(thread_id, request)
     session_store = await _get_session_store()
-    start_seq = last_event_id if last_event_id is not None else from_seq
+
+    # Validação e parsing de Last-Event-ID e from_seq
+    if from_seq < 0:
+        raise HTTPException(
+            status_code=422,
+            detail="from_seq deve ser maior ou igual a 0",
+        )
+
+    start_seq = from_seq
+    if last_event_id is not None:
+        try:
+            parsed_id = int(last_event_id)
+            if parsed_id < 0:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Last-Event-ID não pode ser negativo",
+                )
+            start_seq = parsed_id
+        except ValueError:
+            # Fallback para from_seq quando conversão numérica falhar
+            start_seq = from_seq
 
     async def event_generator() -> AsyncGenerator[str]:
-        # 1. Replay de eventos já persistidos no ledger
-        if hasattr(session_store, "get_events_after"):
-            existing_events = await session_store.get_events_after(
-                thread_id, after_seq=start_seq
-            )
-            for ev in existing_events:
-                data = json.dumps(ev.to_dict(), ensure_ascii=False)
-                yield f"id: {ev.seq}\nevent: {ev.type}\ndata: {data}\n\n"
+        current_seq = start_seq
+        last_heartbeat = asyncio.get_event_loop().time()
 
-        # 2. Heartbeat para manter a conexão aberta se o cliente mantiver SSE ativo
-        # (reconexão transparente com id estável)
-        yield ": keep-alive\n\n"
+        while True:
+            if await request.is_disconnected():
+                break
+
+            had_events = False
+            if hasattr(session_store, "list_events"):
+                while True:
+                    if await request.is_disconnected():
+                        return
+                    batch: list[ThreadLedgerEvent] = await session_store.list_events(
+                        thread_id,
+                        after_seq=current_seq,
+                        limit=500,
+                    )
+                    if not batch:
+                        break
+                    had_events = True
+                    for ev in batch:
+                        current_seq = max(current_seq, ev.seq)
+                        data = json.dumps(
+                            ev.model_dump(mode="json"),
+                            ensure_ascii=False,
+                        )
+                        yield f"id: {ev.seq}\nevent: {ev.type}\ndata: {data}\n\n"
+                    if len(batch) < 500:
+                        break
+
+            now = asyncio.get_event_loop().time()
+            if now - last_heartbeat >= 15.0:
+                yield ": keep-alive\n\n"
+                last_heartbeat = now
+            elif not had_events:
+                # Pequena pausa antes de consultar novos eventos
+                await asyncio.sleep(0.5)
 
     return StreamingResponse(
         event_generator(),

@@ -18687,6 +18687,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "minimum": 0,
               "title": "From Seq",
               "type": "integer"
             }
@@ -18698,7 +18699,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "integer"
+                  "type": "string"
                 },
                 {
                   "type": "null"
