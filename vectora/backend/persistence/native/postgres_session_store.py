@@ -11,9 +11,8 @@ a sintaxe SQL mudam (``$1``/``$2`` de placeholder, ``BIGSERIAL``,
 
 from __future__ import annotations
 
-import asyncio
 import json
-from contextlib import asynccontextmanager
+import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -28,7 +27,6 @@ from backend.persistence.native.agent_run import (
 )
 from backend.persistence.native.ledger import (
     LedgerEventType,
-    LedgerEventTypeLiteral,
     RunDraft,
     ThreadLastMessage,
     ThreadLedgerEvent,
@@ -38,38 +36,6 @@ from backend.persistence.native.ledger import (
     make_approval_resolved_key,
     make_message_created_key,
 )
-
-
-class _RunEvidenceLockRegistry:
-    """Retém locks somente enquanto há escritores ou waiters ativos."""
-
-    def __init__(self) -> None:
-        self._entries: dict[str, tuple[asyncio.Lock, int]] = {}
-
-    @asynccontextmanager
-    async def acquire(self, run_id: str):
-        entry = self._entries.get(run_id)
-        if entry is None:
-            entry = (asyncio.Lock(), 0)
-        lock, users = entry
-        self._entries[run_id] = (lock, users + 1)
-        try:
-            async with lock:
-                yield
-        finally:
-            current = self._entries.get(run_id)
-            if current is None or current[0] is not lock:
-                return
-            remaining = current[1] - 1
-            if remaining <= 0 and not lock.locked():
-                self._entries.pop(run_id, None)
-            else:
-                self._entries[run_id] = (lock, remaining)
-
-    def __len__(self) -> int:
-        return len(self._entries)
-
-
 from backend.persistence.native.schema import setup_postgres_session_schema
 from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import VMessage
@@ -83,6 +49,8 @@ if TYPE_CHECKING:
 # pra um `parent_message_id` corrompido/cíclico não fazer a CTE recursar
 # sem fim. Mesmo valor/motivo de `session_store.py::_CHAIN_DEPTH_CAP`.
 _CHAIN_DEPTH_CAP = 100_000
+
+logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -137,7 +105,6 @@ class PostgresSessionStore:
     def __init__(self, pool: asyncpg.Pool) -> None:
         self._pool = pool
         self._is_setup = False
-        self._run_evidence_locks = _RunEvidenceLockRegistry()
 
     async def setup(self) -> None:
         if self._is_setup:
@@ -657,39 +624,56 @@ class PostgresSessionStore:
             return None
         if row["expires_at"] and row["expires_at"] <= _now():
             agora = _now()
-            async with self._pool.acquire() as conn, conn.transaction():
-                await conn.execute(
-                    "DELETE FROM vectora_native_pending_approvals WHERE thread_id = $1",
+            try:
+                async with self._pool.acquire() as conn, conn.transaction():
+                    await conn.execute(
+                        "SELECT 1 FROM vectora_native_sessions WHERE thread_id = $1 FOR UPDATE",
+                        thread_id,
+                    )
+                    deleted = await conn.fetchval(
+                        "DELETE FROM vectora_native_pending_approvals "
+                        "WHERE thread_id = $1 AND interrupt_id = $2 "
+                        "AND expires_at IS NOT NULL AND expires_at <= $3 "
+                        "RETURNING 1",
+                        thread_id,
+                        row["interrupt_id"],
+                        agora,
+                    )
+                    if not deleted:
+                        return None
+                    max_seq = await conn.fetchval(
+                        "SELECT COALESCE(MAX(seq), 0) FROM vectora_native_thread_events WHERE thread_id = $1",
+                        thread_id,
+                    )
+                    current_seq = int(max_seq or 0) + 1
+                    resolved_key = make_approval_resolved_key(row["interrupt_id"])
+                    payload = {
+                        "tool_name": row["tool_name"],
+                        "tool_call_id": row["tool_call_id"],
+                        "interrupt_id": row["interrupt_id"],
+                        "expired": True,
+                    }
+                    await conn.execute(
+                        "INSERT INTO vectora_native_thread_events (thread_id, seq, event_key, type, "
+                        "turn_id, run_id, message_id, tool_call_id, interrupt_id, payload_json, created_at) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) "
+                        "ON CONFLICT (thread_id, event_key) DO NOTHING",
+                        thread_id,
+                        current_seq,
+                        resolved_key,
+                        "approval_resolved",
+                        None,
+                        None,
+                        None,
+                        row["tool_call_id"],
+                        row["interrupt_id"],
+                        json.dumps(payload, ensure_ascii=False),
+                        agora,
+                    )
+            except Exception:
+                logger.exception(
+                    "postgres_session_store: falha ao expirar pending approval para thread %s",
                     thread_id,
-                )
-                max_seq = await conn.fetchval(
-                    "SELECT COALESCE(MAX(seq), 0) FROM vectora_native_thread_events WHERE thread_id = $1",
-                    thread_id,
-                )
-                current_seq = int(max_seq or 0) + 1
-                resolved_key = make_approval_resolved_key(row["interrupt_id"])
-                payload = {
-                    "tool_name": row["tool_name"],
-                    "tool_call_id": row["tool_call_id"],
-                    "interrupt_id": row["interrupt_id"],
-                    "expired": True,
-                }
-                await conn.execute(
-                    "INSERT INTO vectora_native_thread_events (thread_id, seq, event_key, type, "
-                    "turn_id, run_id, message_id, tool_call_id, interrupt_id, payload_json, created_at) "
-                    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) "
-                    "ON CONFLICT (thread_id, event_key) DO NOTHING",
-                    thread_id,
-                    current_seq,
-                    resolved_key,
-                    "approval_resolved",
-                    None,
-                    None,
-                    None,
-                    row["tool_call_id"],
-                    row["interrupt_id"],
-                    json.dumps(payload, ensure_ascii=False),
-                    agora,
                 )
             return None
         return {
@@ -790,6 +774,10 @@ class PostgresSessionStore:
         agora = _now()
         async with self._pool.acquire() as conn, conn.transaction():
             await conn.execute(
+                "SELECT 1 FROM vectora_native_sessions WHERE thread_id = $1 FOR UPDATE",
+                thread_id,
+            )
+            await conn.execute(
                 "INSERT INTO vectora_native_pending_approvals (thread_id, interrupt_id, "
                 "tool_name, tool_call_id, args_json, reasoning, options_json, priority, expires_at, created_at) "
                 "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) "
@@ -813,10 +801,6 @@ class PostgresSessionStore:
                 priority,
                 expires_at,
                 agora,
-            )
-            await conn.execute(
-                "SELECT 1 FROM vectora_native_sessions WHERE thread_id = $1 FOR UPDATE",
-                thread_id,
             )
             max_seq = await conn.fetchval(
                 "SELECT COALESCE(MAX(seq), 0) FROM vectora_native_thread_events WHERE thread_id = $1",
@@ -912,10 +896,6 @@ class PostgresSessionStore:
             )
             await conn.execute(
                 "DELETE FROM vectora_native_run_drafts WHERE thread_id = $1",
-                thread_id,
-            )
-            await conn.execute(
-                "DELETE FROM vectora_native_agent_runs WHERE thread_id = $1",
                 thread_id,
             )
             await conn.execute(
@@ -1021,7 +1001,7 @@ class PostgresSessionStore:
         event = ThreadLedgerEvent(
             thread_id=thread_id,
             event_key=event_key,
-            type=cast("LedgerEventTypeLiteral", event_type),
+            type=cast("LedgerEventType", event_type),
             run_id=run_id,
             turn_id=turn_id,
             message_id=message_id,
@@ -1083,6 +1063,23 @@ class PostgresSessionStore:
                 )
             )
         return events
+
+    async def get_event_seq_by_message_id(
+        self, thread_id: str, message_id: int | str
+    ) -> int | None:
+        """Localiza o seq do evento message_created correspondente a message_id."""
+        await self.setup()
+        mid_int = int(message_id) if str(message_id).isdigit() else None
+        if mid_int is None:
+            return None
+        async with self._pool.acquire() as conn:
+            val = await conn.fetchval(
+                "SELECT seq FROM vectora_native_thread_events WHERE thread_id = $1 AND type = 'message_created' "
+                "AND message_id = $2 ORDER BY seq DESC LIMIT 1",
+                thread_id,
+                mid_int,
+            )
+            return int(val) if val is not None else None
 
     async def mark_events_seen(
         self, thread_id: str, user_id: str, device_id: str, seen_seq: int
@@ -1313,24 +1310,7 @@ class PostgresSessionStore:
         await self.setup()
         now = _now()
         terminal_at = (
-            (run.terminal_at or now)
-            if run.status in TERMINAL_AGENT_RUN_STATUSES
-            else run.terminal_at
-        )
-        redacted_plan_step = (
-            cast("str | None", redact_sensitive_data(run.plan_step))
-            if run.plan_step is not None
-            else None
-        )
-        redacted_detail = (
-            cast("str | None", redact_sensitive_data(run.detail))
-            if run.detail is not None
-            else None
-        )
-        redacted_error_code = (
-            cast("str | None", redact_sensitive_data(run.error_code))
-            if run.error_code is not None
-            else None
+            now if run.status in TERMINAL_AGENT_RUN_STATUSES else run.terminal_at
         )
         tools_available = json.dumps(
             redact_sensitive_data(run.tools_available), ensure_ascii=False
@@ -1348,37 +1328,9 @@ class PostgresSessionStore:
         tests_run = json.dumps(redact_sensitive_data(run.tests_run), ensure_ascii=False)
         artifacts = json.dumps(redact_sensitive_data(run.artifacts), ensure_ascii=False)
         metrics = json.dumps(run.metrics.model_dump(), ensure_ascii=False)
-        evidence_list = list(run.evidence)
-        if run.untrusted_content and not any(
-            isinstance(e, dict) and e.get("untrusted_content") is True
-            for e in evidence_list
-        ):
-            evidence_list.append({"kind": "provenance", "untrusted_content": True})
+        evidence = json.dumps(redact_sensitive_data(run.evidence), ensure_ascii=False)
 
-        async with self._pool.acquire() as conn, conn.transaction():
-            if not any(
-                isinstance(e, dict) and e.get("untrusted_content") is True
-                for e in evidence_list
-            ):
-                row_prev = await conn.fetchrow(
-                    "SELECT evidence_json FROM vectora_native_agent_runs WHERE run_id = $1 FOR UPDATE",
-                    run.run_id,
-                )
-                if row_prev and row_prev["evidence_json"]:
-                    try:
-                        prev_evidence = json.loads(row_prev["evidence_json"])
-                        if any(
-                            isinstance(e, dict) and e.get("untrusted_content") is True
-                            for e in prev_evidence
-                        ):
-                            evidence_list.append(
-                                {"kind": "provenance", "untrusted_content": True}
-                            )
-                    except Exception:
-                        pass
-            evidence = json.dumps(
-                redact_sensitive_data(evidence_list), ensure_ascii=False
-            )
+        async with self._pool.acquire() as conn:
             await conn.execute(
                 "INSERT INTO vectora_native_agent_runs ("
                 "run_id, thread_id, turn_id, user_id, workspace_id, model, provider, "
@@ -1410,7 +1362,7 @@ class PostgresSessionStore:
                 run.model,
                 run.provider,
                 run.status,
-                redacted_plan_step,
+                run.plan_step,
                 tools_available,
                 tools_used,
                 approvals,
@@ -1420,8 +1372,8 @@ class PostgresSessionStore:
                 artifacts,
                 metrics,
                 evidence,
-                redacted_detail,
-                redacted_error_code,
+                run.detail,
+                run.error_code,
                 run.started_at,
                 now,
                 terminal_at,
@@ -1443,21 +1395,6 @@ class PostgresSessionStore:
         await self.setup()
         now = _now()
         terminal_at = now if status in TERMINAL_AGENT_RUN_STATUSES else None
-        redacted_plan_step = (
-            cast("str | None", redact_sensitive_data(plan_step))
-            if plan_step is not None
-            else None
-        )
-        redacted_detail = (
-            cast("str | None", redact_sensitive_data(detail))
-            if detail is not None
-            else None
-        )
-        redacted_error_code = (
-            cast("str | None", redact_sensitive_data(error_code))
-            if error_code is not None
-            else None
-        )
         metrics_json = (
             json.dumps(metrics.model_dump(), ensure_ascii=False) if metrics else None
         )
@@ -1472,11 +1409,11 @@ class PostgresSessionStore:
                 "metrics_json = COALESCE($5, metrics_json), "
                 "updated_at = $6, "
                 "terminal_at = COALESCE($7, terminal_at) "
-                "WHERE run_id = $8 AND status NOT IN ('passed', 'degraded', 'failed', 'cancelled')",
+                "WHERE run_id = $8",
                 status,
-                redacted_plan_step,
-                redacted_detail,
-                redacted_error_code,
+                plan_step,
+                detail,
+                error_code,
                 metrics_json,
                 now,
                 terminal_at,
@@ -1496,26 +1433,25 @@ class PostgresSessionStore:
         file_touched: dict[str, Any] | None = None,
     ) -> None:
         """Registra evidências incrementais no AgentRun."""
-        async with self._run_evidence_locks.acquire(run_id):
-            await self.setup()
-            run = await self.get_agent_run(run_id)
-            if run is None:
-                return
-            if evidence:
-                run.evidence.append(redact_sensitive_data(evidence))
-            if artifact:
-                run.artifacts.append(redact_sensitive_data(artifact))
-            if command:
-                run.commands_run.append(redact_sensitive_data(command))
-            if test_result:
-                run.tests_run.append(redact_sensitive_data(test_result))
-            if tool_used and tool_used not in run.tools_used:
-                run.tools_used.append(tool_used)
-            if approval:
-                run.approvals.append(redact_sensitive_data(approval))
-            if file_touched:
-                run.files_touched.append(redact_sensitive_data(file_touched))
-            await self.upsert_agent_run(run)
+        await self.setup()
+        run = await self.get_agent_run(run_id)
+        if run is None:
+            return
+        if evidence:
+            run.evidence.append(redact_sensitive_data(evidence))
+        if artifact:
+            run.artifacts.append(redact_sensitive_data(artifact))
+        if command:
+            run.commands_run.append(redact_sensitive_data(command))
+        if test_result:
+            run.tests_run.append(redact_sensitive_data(test_result))
+        if tool_used and tool_used not in run.tools_used:
+            run.tools_used.append(tool_used)
+        if approval:
+            run.approvals.append(redact_sensitive_data(approval))
+        if file_touched:
+            run.files_touched.append(redact_sensitive_data(file_touched))
+        await self.upsert_agent_run(run)
 
     async def get_agent_run(self, run_id: str) -> AgentRun | None:
         """Obtém uma execução persistida por run_id."""
@@ -1532,11 +1468,6 @@ class PostgresSessionStore:
             )
             if row is None:
                 return None
-            evidence_data = json.loads(row["evidence_json"] or "[]")
-            is_untrusted = any(
-                isinstance(e, dict) and e.get("untrusted_content") is True
-                for e in evidence_data
-            )
             return AgentRun(
                 run_id=str(row["run_id"]),
                 thread_id=str(row["thread_id"]),
@@ -1555,8 +1486,7 @@ class PostgresSessionStore:
                 tests_run=json.loads(row["tests_run_json"] or "[]"),
                 artifacts=json.loads(row["artifacts_json"] or "[]"),
                 metrics=AgentRunMetrics(**json.loads(row["metrics_json"] or "{}")),
-                evidence=evidence_data,
-                untrusted_content=is_untrusted,
+                evidence=json.loads(row["evidence_json"] or "[]"),
                 detail=str(row["detail"]) if row["detail"] else None,
                 error_code=str(row["error_code"]) if row["error_code"] else None,
                 started_at=str(row["started_at"]),
@@ -1567,9 +1497,8 @@ class PostgresSessionStore:
     async def list_agent_runs(
         self, thread_id: str, *, limit: int = 50
     ) -> list[AgentRun]:
-        """Lista todas as execuções da thread ordenadas pelas mais recentes primeiro."""
+        """Lista todas as execuções da thread ordenadas cronologicamente."""
         await self.setup()
-        safe_limit = max(1, min(500, int(limit)))
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
                 "SELECT run_id, thread_id, turn_id, user_id, workspace_id, "
@@ -1578,50 +1507,38 @@ class PostgresSessionStore:
                 "tests_run_json, artifacts_json, metrics_json, evidence_json, "
                 "detail, error_code, started_at, updated_at, terminal_at "
                 "FROM vectora_native_agent_runs WHERE thread_id = $1 "
-                "ORDER BY started_at DESC LIMIT $2",
+                "ORDER BY started_at ASC LIMIT $2",
                 thread_id,
-                safe_limit,
+                limit,
             )
-            runs: list[AgentRun] = []
-            for r in rows:
-                evidence_data = json.loads(r["evidence_json"] or "[]")
-                is_untrusted = any(
-                    isinstance(e, dict) and e.get("untrusted_content") is True
-                    for e in evidence_data
+            return [
+                AgentRun(
+                    run_id=str(r["run_id"]),
+                    thread_id=str(r["thread_id"]),
+                    turn_id=str(r["turn_id"]) if r["turn_id"] else None,
+                    user_id=str(r["user_id"] or ""),
+                    workspace_id=str(r["workspace_id"]) if r["workspace_id"] else None,
+                    model=str(r["model"] or ""),
+                    provider=str(r["provider"] or ""),
+                    status=cast("AgentRunStatus", r["status"]),
+                    plan_step=str(r["plan_step"]) if r["plan_step"] else None,
+                    tools_available=json.loads(r["tools_available_json"] or "[]"),
+                    tools_used=json.loads(r["tools_used_json"] or "[]"),
+                    approvals=json.loads(r["approvals_json"] or "[]"),
+                    files_touched=json.loads(r["files_touched_json"] or "[]"),
+                    commands_run=json.loads(r["commands_run_json"] or "[]"),
+                    tests_run=json.loads(r["tests_run_json"] or "[]"),
+                    artifacts=json.loads(r["artifacts_json"] or "[]"),
+                    metrics=AgentRunMetrics(**json.loads(r["metrics_json"] or "{}")),
+                    evidence=json.loads(r["evidence_json"] or "[]"),
+                    detail=str(r["detail"]) if r["detail"] else None,
+                    error_code=str(r["error_code"]) if r["error_code"] else None,
+                    started_at=str(r["started_at"]),
+                    updated_at=str(r["updated_at"]),
+                    terminal_at=str(r["terminal_at"]) if r["terminal_at"] else None,
                 )
-                runs.append(
-                    AgentRun(
-                        run_id=str(r["run_id"]),
-                        thread_id=str(r["thread_id"]),
-                        turn_id=str(r["turn_id"]) if r["turn_id"] else None,
-                        user_id=str(r["user_id"] or ""),
-                        workspace_id=str(r["workspace_id"])
-                        if r["workspace_id"]
-                        else None,
-                        model=str(r["model"] or ""),
-                        provider=str(r["provider"] or ""),
-                        status=cast("AgentRunStatus", r["status"]),
-                        plan_step=str(r["plan_step"]) if r["plan_step"] else None,
-                        tools_available=json.loads(r["tools_available_json"] or "[]"),
-                        tools_used=json.loads(r["tools_used_json"] or "[]"),
-                        approvals=json.loads(r["approvals_json"] or "[]"),
-                        files_touched=json.loads(r["files_touched_json"] or "[]"),
-                        commands_run=json.loads(r["commands_run_json"] or "[]"),
-                        tests_run=json.loads(r["tests_run_json"] or "[]"),
-                        artifacts=json.loads(r["artifacts_json"] or "[]"),
-                        metrics=AgentRunMetrics(
-                            **json.loads(r["metrics_json"] or "{}")
-                        ),
-                        evidence=evidence_data,
-                        untrusted_content=is_untrusted,
-                        detail=str(r["detail"]) if r["detail"] else None,
-                        error_code=str(r["error_code"]) if r["error_code"] else None,
-                        started_at=str(r["started_at"]),
-                        updated_at=str(r["updated_at"]),
-                        terminal_at=str(r["terminal_at"]) if r["terminal_at"] else None,
-                    )
-                )
-            return runs
+                for r in rows
+            ]
 
     async def get_agent_run_timeline(self, run_id: str) -> list[AgentRunTimelineEntry]:
         """Recupera eventos do ledger correlacionados a um run_id."""

@@ -12,9 +12,7 @@ conversa nativo sobre ``aiosqlite``: schema append-only ``sessions`` +
 
 from __future__ import annotations
 
-import asyncio
 import json
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
@@ -29,7 +27,6 @@ from backend.persistence.native.agent_run import (
 )
 from backend.persistence.native.ledger import (
     LedgerEventType,
-    LedgerEventTypeLiteral,
     RunDraft,
     ThreadLastMessage,
     ThreadLedgerEvent,
@@ -39,45 +36,6 @@ from backend.persistence.native.ledger import (
     make_approval_resolved_key,
     make_message_created_key,
 )
-
-
-class _RunEvidenceLockRegistry:
-    """Locks por run com retenção limitada à concorrência ativa.
-
-    ``record_run_evidence`` precisa serializar escritores dentro de uma
-    instância do store, mas um dicionário simples por ``run_id`` reteria uma
-    entrada para cada execução histórica. O contador de usuários é
-    incrementado antes do primeiro await e impede remover uma entrada que
-    ainda tem waiter; a entrada só sai quando o último contexto termina.
-    """
-
-    def __init__(self) -> None:
-        self._entries: dict[str, tuple[asyncio.Lock, int]] = {}
-
-    @asynccontextmanager
-    async def acquire(self, run_id: str):
-        entry = self._entries.get(run_id)
-        if entry is None:
-            entry = (asyncio.Lock(), 0)
-        lock, users = entry
-        self._entries[run_id] = (lock, users + 1)
-        try:
-            async with lock:
-                yield
-        finally:
-            current = self._entries.get(run_id)
-            if current is None or current[0] is not lock:
-                return
-            remaining = current[1] - 1
-            if remaining <= 0 and not lock.locked():
-                self._entries.pop(run_id, None)
-            else:
-                self._entries[run_id] = (lock, remaining)
-
-    def __len__(self) -> int:
-        return len(self._entries)
-
-
 from backend.persistence.native.schema import setup_sqlite_session_schema
 from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import VMessage
@@ -95,18 +53,6 @@ _CHAIN_DEPTH_CAP = 100_000
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
-
-
-def _map_legacy_session_run_status(status: str) -> str:
-    """Mapeia status canônico de AgentRun para os valores válidos do CHECK de session_runs.
-
-    session_runs CHECK: ('queued', 'running', 'streaming', 'completed', 'failed', 'cancelled')
-    """
-    if status in ("planned", "running", "waiting_approval", "verifying"):
-        return "running"
-    if status in ("passed", "degraded"):
-        return "completed"
-    return status
 
 
 def _message_to_row(
@@ -172,7 +118,6 @@ class SessionStore:
     def __init__(self, pool: AsyncConnectionPool) -> None:
         self._pool = pool
         self._is_setup = False
-        self._run_evidence_locks = _RunEvidenceLockRegistry()
 
     async def setup(self) -> None:
         """Cria as tabelas se não existirem. Idempotente — chamado
@@ -270,24 +215,7 @@ class SessionStore:
         await self.setup()
         now = _now()
         terminal_at = (
-            (run.terminal_at or now)
-            if run.status in TERMINAL_AGENT_RUN_STATUSES
-            else run.terminal_at
-        )
-        redacted_plan_step = (
-            cast("str | None", redact_sensitive_data(run.plan_step))
-            if run.plan_step is not None
-            else None
-        )
-        redacted_detail = (
-            cast("str | None", redact_sensitive_data(run.detail))
-            if run.detail is not None
-            else None
-        )
-        redacted_error_code = (
-            cast("str | None", redact_sensitive_data(run.error_code))
-            if run.error_code is not None
-            else None
+            now if run.status in TERMINAL_AGENT_RUN_STATUSES else run.terminal_at
         )
         tools_available = json.dumps(
             redact_sensitive_data(run.tools_available), ensure_ascii=False
@@ -305,126 +233,93 @@ class SessionStore:
         tests_run = json.dumps(redact_sensitive_data(run.tests_run), ensure_ascii=False)
         artifacts = json.dumps(redact_sensitive_data(run.artifacts), ensure_ascii=False)
         metrics = json.dumps(run.metrics.model_dump(), ensure_ascii=False)
-        evidence_list = list(run.evidence)
-        if run.untrusted_content and not any(
-            isinstance(e, dict) and e.get("untrusted_content") is True
-            for e in evidence_list
-        ):
-            evidence_list.append({"kind": "provenance", "untrusted_content": True})
+        evidence = json.dumps(redact_sensitive_data(run.evidence), ensure_ascii=False)
 
         async with self._pool.acquire() as conn:
-            await conn.execute("BEGIN IMMEDIATE")
-            try:
-                # Preserva proveniência de conteúdo não confiável já registrada
-                if not any(
-                    isinstance(e, dict) and e.get("untrusted_content") is True
-                    for e in evidence_list
-                ):
-                    cur_prev = await conn.execute(
-                        "SELECT evidence_json FROM agent_runs WHERE run_id = ?",
-                        (run.run_id,),
-                    )
-                    prev_row = await cur_prev.fetchone()
-                    if prev_row and prev_row[0]:
-                        try:
-                            prev_evidence = json.loads(prev_row[0])
-                            if any(
-                                isinstance(e, dict)
-                                and e.get("untrusted_content") is True
-                                for e in prev_evidence
-                            ):
-                                evidence_list.append(
-                                    {"kind": "provenance", "untrusted_content": True}
-                                )
-                        except Exception:
-                            pass
-                evidence = json.dumps(
-                    redact_sensitive_data(evidence_list), ensure_ascii=False
-                )
-
-                # Mantém paridade com session_runs legado
-                mapped_status = _map_legacy_session_run_status(run.status)
-                provider_model = (
-                    f"{run.provider}:{run.model}"
-                    if run.provider and run.model
-                    else (run.model or None)
-                )
-                await conn.execute(
-                    "INSERT INTO session_runs "
-                    "(run_id, thread_id, turn_id, status, detail, provider_model, started_at, updated_at, terminal_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                    "ON CONFLICT(run_id) DO UPDATE SET "
-                    "status=excluded.status, "
-                    "detail=COALESCE(excluded.detail, session_runs.detail), "
-                    "provider_model=COALESCE(excluded.provider_model, session_runs.provider_model), "
-                    "updated_at=excluded.updated_at, "
-                    "terminal_at=COALESCE(excluded.terminal_at, session_runs.terminal_at)",
-                    (
-                        run.run_id,
-                        run.thread_id,
-                        run.turn_id,
-                        mapped_status,
-                        run.detail,
-                        provider_model,
-                        run.started_at,
-                        now,
-                        terminal_at,
-                    ),
-                )
-                # Insere/atualiza na tabela canônica agent_runs
-                await conn.execute(
-                    "INSERT INTO agent_runs ("
-                    "run_id, thread_id, turn_id, user_id, workspace_id, model, provider, "
-                    "status, plan_step, tools_available_json, tools_used_json, approvals_json, "
-                    "files_touched_json, commands_run_json, tests_run_json, artifacts_json, "
-                    "metrics_json, evidence_json, detail, error_code, started_at, updated_at, terminal_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                    "ON CONFLICT(run_id) DO UPDATE SET "
-                    "status=excluded.status, "
-                    "plan_step=COALESCE(excluded.plan_step, agent_runs.plan_step), "
-                    "tools_available_json=excluded.tools_available_json, "
-                    "tools_used_json=excluded.tools_used_json, "
-                    "approvals_json=excluded.approvals_json, "
-                    "files_touched_json=excluded.files_touched_json, "
-                    "commands_run_json=excluded.commands_run_json, "
-                    "tests_run_json=excluded.tests_run_json, "
-                    "artifacts_json=excluded.artifacts_json, "
-                    "metrics_json=excluded.metrics_json, "
-                    "evidence_json=excluded.evidence_json, "
-                    "detail=COALESCE(excluded.detail, agent_runs.detail), "
-                    "error_code=COALESCE(excluded.error_code, agent_runs.error_code), "
-                    "updated_at=excluded.updated_at, "
-                    "terminal_at=COALESCE(excluded.terminal_at, agent_runs.terminal_at)",
-                    (
-                        run.run_id,
-                        run.thread_id,
-                        run.turn_id,
-                        run.user_id,
-                        run.workspace_id,
-                        run.model,
-                        run.provider,
-                        run.status,
-                        redacted_plan_step,
-                        tools_available,
-                        tools_used,
-                        approvals,
-                        files_touched,
-                        commands_run,
-                        tests_run,
-                        artifacts,
-                        metrics,
-                        evidence,
-                        redacted_detail,
-                        redacted_error_code,
-                        run.started_at,
-                        now,
-                        terminal_at,
-                    ),
-                )
-                await conn.commit()
-            except Exception:
-                await conn.rollback()
-                raise
+            # Mantém paridade com session_runs legado
+            mapped_status = (
+                "running"
+                if run.status in ("planned", "running", "waiting_approval", "verifying")
+                else ("completed" if run.status == "passed" else run.status)
+            )
+            provider_model = (
+                f"{run.provider}:{run.model}"
+                if run.provider and run.model
+                else (run.model or None)
+            )
+            await conn.execute(
+                "INSERT INTO session_runs "
+                "(run_id, thread_id, turn_id, status, detail, provider_model, started_at, updated_at, terminal_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(run_id) DO UPDATE SET "
+                "status=excluded.status, "
+                "detail=COALESCE(excluded.detail, session_runs.detail), "
+                "provider_model=COALESCE(excluded.provider_model, session_runs.provider_model), "
+                "updated_at=excluded.updated_at, "
+                "terminal_at=COALESCE(excluded.terminal_at, session_runs.terminal_at)",
+                (
+                    run.run_id,
+                    run.thread_id,
+                    run.turn_id,
+                    mapped_status,
+                    run.detail,
+                    provider_model,
+                    run.started_at,
+                    now,
+                    terminal_at,
+                ),
+            )
+            # Insere/atualiza na tabela canônica agent_runs
+            await conn.execute(
+                "INSERT INTO agent_runs ("
+                "run_id, thread_id, turn_id, user_id, workspace_id, model, provider, "
+                "status, plan_step, tools_available_json, tools_used_json, approvals_json, "
+                "files_touched_json, commands_run_json, tests_run_json, artifacts_json, "
+                "metrics_json, evidence_json, detail, error_code, started_at, updated_at, terminal_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(run_id) DO UPDATE SET "
+                "status=excluded.status, "
+                "plan_step=COALESCE(excluded.plan_step, agent_runs.plan_step), "
+                "tools_available_json=excluded.tools_available_json, "
+                "tools_used_json=excluded.tools_used_json, "
+                "approvals_json=excluded.approvals_json, "
+                "files_touched_json=excluded.files_touched_json, "
+                "commands_run_json=excluded.commands_run_json, "
+                "tests_run_json=excluded.tests_run_json, "
+                "artifacts_json=excluded.artifacts_json, "
+                "metrics_json=excluded.metrics_json, "
+                "evidence_json=excluded.evidence_json, "
+                "detail=COALESCE(excluded.detail, agent_runs.detail), "
+                "error_code=COALESCE(excluded.error_code, agent_runs.error_code), "
+                "updated_at=excluded.updated_at, "
+                "terminal_at=COALESCE(excluded.terminal_at, agent_runs.terminal_at)",
+                (
+                    run.run_id,
+                    run.thread_id,
+                    run.turn_id,
+                    run.user_id,
+                    run.workspace_id,
+                    run.model,
+                    run.provider,
+                    run.status,
+                    run.plan_step,
+                    tools_available,
+                    tools_used,
+                    approvals,
+                    files_touched,
+                    commands_run,
+                    tests_run,
+                    artifacts,
+                    metrics,
+                    evidence,
+                    run.detail,
+                    run.error_code,
+                    run.started_at,
+                    now,
+                    terminal_at,
+                ),
+            )
+            await conn.commit()
 
     async def update_agent_run_status(
         self,
@@ -442,21 +337,6 @@ class SessionStore:
         await self.setup()
         now = _now()
         terminal_at = now if status in TERMINAL_AGENT_RUN_STATUSES else None
-        redacted_plan_step = (
-            cast("str | None", redact_sensitive_data(plan_step))
-            if plan_step is not None
-            else None
-        )
-        redacted_detail = (
-            cast("str | None", redact_sensitive_data(detail))
-            if detail is not None
-            else None
-        )
-        redacted_error_code = (
-            cast("str | None", redact_sensitive_data(error_code))
-            if error_code is not None
-            else None
-        )
         metrics_json = (
             json.dumps(metrics.model_dump(), ensure_ascii=False) if metrics else None
         )
@@ -471,12 +351,12 @@ class SessionStore:
                 "metrics_json = COALESCE(?, metrics_json), "
                 "updated_at = ?, "
                 "terminal_at = COALESCE(?, terminal_at) "
-                "WHERE run_id = ? AND status NOT IN ('passed', 'degraded', 'failed', 'cancelled')",
+                "WHERE run_id = ?",
                 (
                     status,
-                    redacted_plan_step,
-                    redacted_detail,
-                    redacted_error_code,
+                    plan_step,
+                    detail,
+                    error_code,
                     metrics_json,
                     now,
                     terminal_at,
@@ -484,7 +364,11 @@ class SessionStore:
                 ),
             )
             # Atualiza também session_runs para compatibilidade com legados
-            mapped_status = _map_legacy_session_run_status(status)
+            mapped_status = (
+                "running"
+                if status in ("planned", "running", "waiting_approval", "verifying")
+                else ("completed" if status == "passed" else status)
+            )
             await conn.execute(
                 "UPDATE session_runs SET "
                 "status = ?, "
@@ -492,15 +376,8 @@ class SessionStore:
                 "error_code = COALESCE(?, error_code), "
                 "updated_at = ?, "
                 "terminal_at = COALESCE(?, terminal_at) "
-                "WHERE run_id = ? AND status NOT IN ('completed', 'failed', 'cancelled')",
-                (
-                    mapped_status,
-                    redacted_detail,
-                    redacted_error_code,
-                    now,
-                    terminal_at,
-                    run_id,
-                ),
+                "WHERE run_id = ?",
+                (mapped_status, detail, error_code, now, terminal_at, run_id),
             )
             await conn.commit()
 
@@ -517,26 +394,25 @@ class SessionStore:
         file_touched: dict[str, Any] | None = None,
     ) -> None:
         """Registra evidências incrementais em um AgentRun com sanitização de segredos."""
-        async with self._run_evidence_locks.acquire(run_id):
-            await self.setup()
-            run = await self.get_agent_run(run_id)
-            if run is None:
-                return
-            if evidence:
-                run.evidence.append(redact_sensitive_data(evidence))
-            if artifact:
-                run.artifacts.append(redact_sensitive_data(artifact))
-            if command:
-                run.commands_run.append(redact_sensitive_data(command))
-            if test_result:
-                run.tests_run.append(redact_sensitive_data(test_result))
-            if tool_used and tool_used not in run.tools_used:
-                run.tools_used.append(tool_used)
-            if approval:
-                run.approvals.append(redact_sensitive_data(approval))
-            if file_touched:
-                run.files_touched.append(redact_sensitive_data(file_touched))
-            await self.upsert_agent_run(run)
+        await self.setup()
+        run = await self.get_agent_run(run_id)
+        if run is None:
+            return
+        if evidence:
+            run.evidence.append(redact_sensitive_data(evidence))
+        if artifact:
+            run.artifacts.append(redact_sensitive_data(artifact))
+        if command:
+            run.commands_run.append(redact_sensitive_data(command))
+        if test_result:
+            run.tests_run.append(redact_sensitive_data(test_result))
+        if tool_used and tool_used not in run.tools_used:
+            run.tools_used.append(tool_used)
+        if approval:
+            run.approvals.append(redact_sensitive_data(approval))
+        if file_touched:
+            run.files_touched.append(redact_sensitive_data(file_touched))
+        await self.upsert_agent_run(run)
 
     async def get_agent_run(self, run_id: str) -> AgentRun | None:
         """Obtém uma execução persistida por run_id."""
@@ -588,11 +464,6 @@ class SessionStore:
                     terminal_at=str(leg[9]) if leg[9] else None,
                 )
 
-            evidence_data = json.loads(row[17] or "[]")
-            is_untrusted = any(
-                isinstance(e, dict) and e.get("untrusted_content") is True
-                for e in evidence_data
-            )
             return AgentRun(
                 run_id=str(row[0]),
                 thread_id=str(row[1]),
@@ -611,8 +482,7 @@ class SessionStore:
                 tests_run=json.loads(row[14] or "[]"),
                 artifacts=json.loads(row[15] or "[]"),
                 metrics=AgentRunMetrics(**json.loads(row[16] or "{}")),
-                evidence=evidence_data,
-                untrusted_content=is_untrusted,
+                evidence=json.loads(row[17] or "[]"),
                 detail=str(row[18]) if row[18] else None,
                 error_code=str(row[19]) if row[19] else None,
                 started_at=str(row[20]),
@@ -623,9 +493,8 @@ class SessionStore:
     async def list_agent_runs(
         self, thread_id: str, *, limit: int = 50
     ) -> list[AgentRun]:
-        """Lista todas as execuções associadas a uma thread ordenadas pelas mais recentes primeiro."""
+        """Lista todas as execuções associadas a uma thread ordenadas cronologicamente."""
         await self.setup()
-        safe_limit = max(1, min(500, int(limit)))
         async with self._pool.acquire() as conn:
             cur = await conn.execute(
                 "SELECT run_id, thread_id, turn_id, user_id, workspace_id, "
@@ -634,46 +503,38 @@ class SessionStore:
                 "tests_run_json, artifacts_json, metrics_json, evidence_json, "
                 "detail, error_code, started_at, updated_at, terminal_at "
                 "FROM agent_runs WHERE thread_id = ? "
-                "ORDER BY started_at DESC LIMIT ?",
-                (thread_id, safe_limit),
+                "ORDER BY started_at ASC LIMIT ?",
+                (thread_id, limit),
             )
             rows = await cur.fetchall()
-            runs: list[AgentRun] = []
-            for r in rows:
-                evidence_data = json.loads(r[17] or "[]")
-                is_untrusted = any(
-                    isinstance(e, dict) and e.get("untrusted_content") is True
-                    for e in evidence_data
+            return [
+                AgentRun(
+                    run_id=str(r[0]),
+                    thread_id=str(r[1]),
+                    turn_id=str(r[2]) if r[2] else None,
+                    user_id=str(r[3] or ""),
+                    workspace_id=str(r[4]) if r[4] else None,
+                    model=str(r[5] or ""),
+                    provider=str(r[6] or ""),
+                    status=cast("AgentRunStatus", r[7]),
+                    plan_step=str(r[8]) if r[8] else None,
+                    tools_available=json.loads(r[9] or "[]"),
+                    tools_used=json.loads(r[10] or "[]"),
+                    approvals=json.loads(r[11] or "[]"),
+                    files_touched=json.loads(r[12] or "[]"),
+                    commands_run=json.loads(r[13] or "[]"),
+                    tests_run=json.loads(r[14] or "[]"),
+                    artifacts=json.loads(r[15] or "[]"),
+                    metrics=AgentRunMetrics(**json.loads(r[16] or "{}")),
+                    evidence=json.loads(r[17] or "[]"),
+                    detail=str(r[18]) if r[18] else None,
+                    error_code=str(r[19]) if r[19] else None,
+                    started_at=str(r[20]),
+                    updated_at=str(r[21]),
+                    terminal_at=str(r[22]) if r[22] else None,
                 )
-                runs.append(
-                    AgentRun(
-                        run_id=str(r[0]),
-                        thread_id=str(r[1]),
-                        turn_id=str(r[2]) if r[2] else None,
-                        user_id=str(r[3] or ""),
-                        workspace_id=str(r[4]) if r[4] else None,
-                        model=str(r[5] or ""),
-                        provider=str(r[6] or ""),
-                        status=cast("AgentRunStatus", r[7]),
-                        plan_step=str(r[8]) if r[8] else None,
-                        tools_available=json.loads(r[9] or "[]"),
-                        tools_used=json.loads(r[10] or "[]"),
-                        approvals=json.loads(r[11] or "[]"),
-                        files_touched=json.loads(r[12] or "[]"),
-                        commands_run=json.loads(r[13] or "[]"),
-                        tests_run=json.loads(r[14] or "[]"),
-                        artifacts=json.loads(r[15] or "[]"),
-                        metrics=AgentRunMetrics(**json.loads(r[16] or "{}")),
-                        evidence=evidence_data,
-                        untrusted_content=is_untrusted,
-                        detail=str(r[18]) if r[18] else None,
-                        error_code=str(r[19]) if r[19] else None,
-                        started_at=str(r[20]),
-                        updated_at=str(r[21]),
-                        terminal_at=str(r[22]) if r[22] else None,
-                    )
-                )
-            return runs
+                for r in rows
+            ]
 
     async def get_agent_run_timeline(self, run_id: str) -> list[AgentRunTimelineEntry]:
         """Recupera todos os eventos do ledger correlacionados a um run_id."""
@@ -1430,49 +1291,7 @@ class SessionStore:
             created_at,
         ) = row
         if expires_at and expires_at <= _now():
-            agora = _now()
-            async with self._pool.acquire() as conn:
-                await conn.execute("BEGIN IMMEDIATE")
-                try:
-                    await conn.execute(
-                        "DELETE FROM pending_approvals WHERE thread_id = ?",
-                        (thread_id,),
-                    )
-                    cur_max = await conn.execute(
-                        "SELECT COALESCE(MAX(seq), 0) FROM thread_events WHERE thread_id = ?",
-                        (thread_id,),
-                    )
-                    row_max = await cur_max.fetchone()
-                    current_seq = (int(row_max[0]) if row_max else 0) + 1
-                    resolved_key = make_approval_resolved_key(interrupt_id)
-                    payload = {
-                        "tool_name": tool_name,
-                        "tool_call_id": tool_call_id,
-                        "interrupt_id": interrupt_id,
-                        "expired": True,
-                    }
-                    await conn.execute(
-                        "INSERT INTO thread_events (thread_id, seq, event_key, type, "
-                        "turn_id, run_id, message_id, tool_call_id, interrupt_id, payload_json, created_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                        "ON CONFLICT(thread_id, event_key) DO NOTHING",
-                        (
-                            thread_id,
-                            current_seq,
-                            resolved_key,
-                            "approval_resolved",
-                            None,
-                            None,
-                            None,
-                            tool_call_id,
-                            interrupt_id,
-                            json.dumps(payload, ensure_ascii=False),
-                            agora,
-                        ),
-                    )
-                    await conn.commit()
-                except Exception:
-                    await conn.rollback()
+            await self.clear_pending_approval(thread_id)
             return None
         return {
             "interrupt_id": interrupt_id,
@@ -1518,7 +1337,9 @@ class SessionStore:
                     expires_at,
                     created_at,
                 ) = row
-                is_expired = bool(expires_at and expires_at <= _now())
+                if expires_at and expires_at <= _now():
+                    await conn.commit()
+                    return None
 
                 # Obter próximo seq do ledger
                 cur_max = await conn.execute(
@@ -1533,7 +1354,6 @@ class SessionStore:
                     "tool_name": tool_name,
                     "tool_call_id": tool_call_id,
                     "interrupt_id": claimed_id,
-                    "expired": is_expired,
                 }
                 await conn.execute(
                     "INSERT INTO thread_events (thread_id, seq, event_key, type, "
@@ -1558,9 +1378,6 @@ class SessionStore:
             except Exception:
                 await conn.rollback()
                 raise
-
-        if is_expired:
-            return None
 
         return {
             "interrupt_id": claimed_id,
@@ -1719,9 +1536,6 @@ class SessionStore:
                     "DELETE FROM run_drafts WHERE thread_id = ?", (thread_id,)
                 )
                 await conn.execute(
-                    "DELETE FROM agent_runs WHERE thread_id = ?", (thread_id,)
-                )
-                await conn.execute(
                     "DELETE FROM ledger_backfill WHERE thread_id = ?", (thread_id,)
                 )
                 await conn.execute(
@@ -1820,29 +1634,29 @@ class SessionStore:
         thread_id: str,
         *,
         event_key: str,
-        event_type: LedgerEventType | str,
+        event_type: str,
         run_id: str | None = None,
         turn_id: str | None = None,
         message_id: int | None = None,
         tool_call_id: str | None = None,
         interrupt_id: str | None = None,
         payload: dict[str, Any] | None = None,
-        created_at: str | None = None,
     ) -> ThreadLedgerEvent:
-        """Helper para registrar eventos no ledger usando argumentos nomeados."""
-        event = ThreadLedgerEvent(
-            thread_id=thread_id,
-            event_key=event_key,
-            type=cast("LedgerEventTypeLiteral", event_type),
-            run_id=run_id,
-            turn_id=turn_id,
-            message_id=message_id,
-            tool_call_id=tool_call_id,
-            interrupt_id=interrupt_id,
-            payload=payload or {},
-            created_at=created_at or _now(),
+        """Helper conveniente para anexar eventos no ledger da thread."""
+        return await self.append_event(
+            thread_id,
+            ThreadLedgerEvent(
+                thread_id=thread_id,
+                event_key=event_key,
+                type=event_type,  # type: ignore
+                run_id=run_id,
+                turn_id=turn_id,
+                message_id=message_id,
+                tool_call_id=tool_call_id,
+                interrupt_id=interrupt_id,
+                payload=payload or {},
+            ),
         )
-        return await self.append_event(thread_id, event)
 
     async def list_events(
         self, thread_id: str, *, after_seq: int = 0, limit: int = 500
@@ -1910,15 +1724,23 @@ class SessionStore:
             )
             row_max = await cur_max.fetchone()
             max_seq = int(row_max[0]) if row_max else 0
-            clamped_seq = max(0, min(seen_seq, max_seq))
+            clamped_seq = min(seen_seq, max_seq)
+
+            cur_cur = await conn.execute(
+                "SELECT last_seen_seq FROM thread_event_cursors "
+                "WHERE thread_id = ? AND user_id = ? AND device_id = ?",
+                (thread_id, user_id, device_id),
+            )
+            row_cur = await cur_cur.fetchone()
+            existing_seq = int(row_cur[0]) if row_cur else 0
+            final_seq = max(existing_seq, clamped_seq)
 
             await conn.execute(
                 "INSERT INTO thread_event_cursors (thread_id, user_id, device_id, last_seen_seq, updated_at) "
                 "VALUES (?, ?, ?, ?, ?) "
                 "ON CONFLICT(thread_id, user_id, device_id) DO UPDATE SET "
-                "last_seen_seq = MAX(thread_event_cursors.last_seen_seq, excluded.last_seen_seq), "
-                "updated_at = excluded.updated_at",
-                (thread_id, user_id, device_id, clamped_seq, now),
+                "last_seen_seq = excluded.last_seen_seq, updated_at = excluded.updated_at",
+                (thread_id, user_id, device_id, final_seq, now),
             )
             await conn.commit()
 
@@ -1929,7 +1751,7 @@ class SessionStore:
                 "read_seq": summaries[0].read_seq,
                 "unread_count": summaries[0].unread_count,
             }
-        return {"read_seq": clamped_seq, "unread_count": 0}
+        return {"read_seq": final_seq, "unread_count": 0}
 
     async def get_thread_summaries(
         self, thread_ids: list[str], *, user_id: str
@@ -2031,10 +1853,6 @@ class SessionStore:
                     break
                 if ev.type == "run_failed":
                     status = "failed"
-                    break
-                if ev.type == "approval_resolved":
-                    is_exp = bool(ev.payload.get("expired", False))
-                    status = "idle" if is_exp else "running"
                     break
                 if ev.type == "approval_requested":
                     status = "awaiting_approval"

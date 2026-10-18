@@ -47,16 +47,9 @@ from backend.engine.stream_events import (
     ToolResult,
     WorkbenchInvalidate,
 )
-from backend.engine.tool_batch import (
-    _apply_post_execute,
-    _apply_pre_execute,
-    _is_tool_error,
-    execute_tool_batch,
-)
-from backend.persistence.native.agent_run import AgentRunMetrics
+from backend.engine.tool_batch import _is_tool_error, execute_tool_batch
 from backend.persistence.native.ledger import (
     LedgerEventType,
-    ThreadLedgerEvent,
     make_run_completed_key,
     make_run_failed_key,
     make_tool_finished_key,
@@ -84,7 +77,6 @@ if TYPE_CHECKING:
     from backend.engine.stream_events import EventSink
     from backend.llm.base import ChatClient
     from backend.persistence.native.session_store import SessionStore
-    from backend.services.policy_compiler import PolicySnapshot
     from backend.tools.context import ToolContext
     from backend.tools.registry import ToolRegistry
 
@@ -248,45 +240,18 @@ async def run_conversation(
     ]
     | None = None,
     approval_gate: ApprovalGate | None = None,
-    policy_snapshot: PolicySnapshot | None = None,
 ) -> LoopResult:
     # A origem de cobrança vem exclusivamente da credencial persistida do
     # usuário autenticado. O marcador é refeito a cada execução para impedir
     # que um contexto reidratado ou argumento de tool carregue uma isenção
     # não confirmada.
     from backend.services.media_billing import apply_media_billing_source
-    from backend.services.policy_compiler import compile_policy_snapshot
 
     await apply_media_billing_source(ctx)
-    if hasattr(session_store, "get_session") and not (
-        isinstance(ctx._extra, dict) and ctx._extra.get("untrusted_content")
-    ):
-        session_meta = await session_store.get_session(thread_id)
-        if session_meta and session_meta.get("mode") == "connect":
-            if not isinstance(ctx._extra, dict):
-                ctx._extra = {}
-            ctx._extra["untrusted_content"] = True
-
-    if hasattr(session_store, "list_agent_runs") and not (
-        isinstance(ctx._extra, dict) and ctx._extra.get("untrusted_content")
-    ):
-        runs = await session_store.list_agent_runs(thread_id, limit=5)
-        latest_run = runs[0] if runs else None
-        if latest_run and latest_run.untrusted_content:
-            if not isinstance(ctx._extra, dict):
-                ctx._extra = {}
-            ctx._extra["untrusted_content"] = True
-
-    if policy_snapshot is None:
-        policy_snapshot = compile_policy_snapshot(ctx)
-
-    if isinstance(ctx._extra, dict):
-        sub_deps = ctx._extra.get("subagent_deps")
-        if sub_deps is not None and getattr(sub_deps, "policy_snapshot", None) is None:
-            sub_deps.policy_snapshot = policy_snapshot
 
     emit = on_event or _noop_event
     tools = tool_registry.all()
+    store: Any = session_store
     parent_id = await session_store.get_branch_head_id(thread_id)
     assinaturas_anteriores: tuple[tuple[str, str], ...] | None = None
     repeticoes_seguidas = 0
@@ -492,46 +457,35 @@ async def run_conversation(
         )
         await emit(MessageBreak())
 
-        iter_metrics = AgentRunMetrics(
-            input_tokens=int(last_usage.get("input_tokens", 0) if last_usage else 0),
-            output_tokens=int(last_usage.get("output_tokens", 0) if last_usage else 0),
-            total_tokens=int(last_usage.get("total_tokens", 0) if last_usage else 0),
-        )
-
         if not tool_calls:
-            if config.run_id:
-                try:
-                    if hasattr(session_store, "append_ledger_event"):
-                        await session_store.append_ledger_event(
-                            thread_id,
-                            event_key=make_run_completed_key(config.run_id),
-                            event_type=LedgerEventType.RUN_COMPLETED,
-                            run_id=config.run_id,
-                            payload={"stopped_reason": "stop"},
-                        )
-                    elif hasattr(session_store, "append_event"):
-                        await session_store.append_event(
-                            thread_id,
-                            ThreadLedgerEvent(
-                                thread_id=thread_id,
-                                event_key=make_run_completed_key(config.run_id),
-                                type=LedgerEventType.RUN_COMPLETED,
-                                run_id=config.run_id,
-                                payload={"stopped_reason": "stop"},
-                            ),
-                        )
-                except Exception:
-                    logger.exception(
-                        "Falha ao registrar RUN_COMPLETED no ledger para thread %s",
-                        thread_id,
-                    )
-                if hasattr(session_store, "update_agent_run_status"):
-                    await session_store.update_agent_run_status(
-                        config.run_id,
-                        status="passed",
-                        detail="Execução completada com sucesso.",
-                        metrics=iter_metrics,
-                    )
+            if hasattr(session_store, "append_ledger_event") and config.run_id:
+                await session_store.append_ledger_event(
+                    thread_id,
+                    event_key=make_run_completed_key(config.run_id),
+                    event_type=LedgerEventType.RUN_COMPLETED,
+                    run_id=config.run_id,
+                    payload={"stopped_reason": "stop"},
+                )
+            if hasattr(session_store, "update_agent_run_status") and config.run_id:
+                from backend.persistence.native.agent_run import AgentRunMetrics
+
+                metrics = AgentRunMetrics(
+                    input_tokens=int(
+                        last_usage.get("input_tokens", 0) if last_usage else 0
+                    ),
+                    output_tokens=int(
+                        last_usage.get("output_tokens", 0) if last_usage else 0
+                    ),
+                    total_tokens=int(
+                        last_usage.get("total_tokens", 0) if last_usage else 0
+                    ),
+                )
+                await session_store.update_agent_run_status(
+                    config.run_id,
+                    status="passed",
+                    detail="Execução completada com sucesso.",
+                    metrics=metrics,
+                )
             return LoopResult(
                 stopped_reason="stop",
                 final_message=assistant_msg,
@@ -633,34 +587,22 @@ async def run_conversation(
                         expires_at=str(expires_at) if expires_at else None,
                         approval_metadata=approval_metadata,
                     )
-                # A falha na gravação de evidências ou atualização do run não pode impedir
-                # a emissão de HitlRequested para o cliente.
-                try:
-                    if hasattr(session_store, "record_run_evidence") and config.run_id:
-                        await session_store.record_run_evidence(
-                            config.run_id,
-                            approval={
-                                "interrupt_id": interrupt_id,
-                                "tool_name": pendente.name,
-                                "tool_call_id": stable_call_id,
-                                "options": options,
-                                "priority": priority,
-                            },
-                        )
-                    if (
-                        hasattr(session_store, "update_agent_run_status")
-                        and config.run_id
-                    ):
-                        await session_store.update_agent_run_status(
-                            config.run_id,
-                            status="waiting_approval",
-                            detail=f"Aguardando aprovação para {pendente.name}",
-                            metrics=iter_metrics,
-                        )
-                except Exception:
-                    logger.exception(
-                        "conversation_loop: falha ao persistir evidência/status de aprovação para thread %s",
-                        thread_id,
+                if hasattr(session_store, "record_run_evidence") and config.run_id:
+                    await session_store.record_run_evidence(
+                        config.run_id,
+                        approval={
+                            "interrupt_id": interrupt_id,
+                            "tool_name": pendente.name,
+                            "tool_call_id": stable_call_id,
+                            "options": options,
+                            "priority": priority,
+                        },
+                    )
+                if hasattr(session_store, "update_agent_run_status") and config.run_id:
+                    await session_store.update_agent_run_status(
+                        config.run_id,
+                        status="waiting_approval",
+                        detail=f"Aguardando aprovação para {pendente.name}",
                     )
                 await emit(
                     HitlRequested(
@@ -691,35 +633,15 @@ async def run_conversation(
             tool_started_at[tc.id] = time.monotonic()
             preview = _args_preview(tc.args)
             tool_args_previews[tc.id] = preview
-            if config.run_id:
-                try:
-                    if hasattr(session_store, "append_ledger_event"):
-                        await session_store.append_ledger_event(
-                            thread_id,
-                            event_key=make_tool_started_key(config.run_id, tc.id),
-                            event_type=LedgerEventType.TOOL_STARTED,
-                            run_id=config.run_id,
-                            tool_call_id=tc.id,
-                            payload={"tool_name": tc.name, "args": tc.args},
-                        )
-                    elif hasattr(session_store, "append_event"):
-                        await session_store.append_event(
-                            thread_id,
-                            ThreadLedgerEvent(
-                                thread_id=thread_id,
-                                event_key=make_tool_started_key(config.run_id, tc.id),
-                                type=LedgerEventType.TOOL_STARTED,
-                                run_id=config.run_id,
-                                tool_call_id=tc.id,
-                                payload={"tool_name": tc.name, "args": tc.args},
-                            ),
-                        )
-                except Exception:
-                    logger.exception(
-                        "Falha ao registrar TOOL_STARTED no ledger para tool %s (thread %s)",
-                        tc.name,
-                        thread_id,
-                    )
+            if hasattr(session_store, "append_ledger_event"):
+                await store.append_ledger_event(
+                    thread_id,
+                    event_key=make_tool_started_key(config.run_id or "", tc.id),
+                    event_type=LedgerEventType.TOOL_STARTED,
+                    run_id=config.run_id,
+                    tool_call_id=tc.id,
+                    payload={"tool_name": tc.name, "args": tc.args},
+                )
             await emit(
                 ToolCallStarted(
                     tool_name=tc.name,
@@ -743,50 +665,24 @@ async def run_conversation(
             ctx=ctx,
             turn_budget=turn_budget,
             on_event=on_event,
-            policy_snapshot=policy_snapshot,
         )
         for resultado in resultados:
             parent_id = await session_store.append_message(
                 thread_id, resultado, parent_message_id=parent_id
             )
             call_id = resultado.tool_call_id or ""
-            if config.run_id and call_id:
-                try:
-                    if hasattr(session_store, "append_ledger_event"):
-                        await session_store.append_ledger_event(
-                            thread_id,
-                            event_key=make_tool_finished_key(config.run_id, call_id),
-                            event_type=LedgerEventType.TOOL_FINISHED,
-                            run_id=config.run_id,
-                            tool_call_id=call_id,
-                            payload={
-                                "tool_name": resultado.name,
-                                "is_error": resultado.is_error,
-                            },
-                        )
-                    elif hasattr(session_store, "append_event"):
-                        await session_store.append_event(
-                            thread_id,
-                            ThreadLedgerEvent(
-                                thread_id=thread_id,
-                                event_key=make_tool_finished_key(
-                                    config.run_id, call_id
-                                ),
-                                type=LedgerEventType.TOOL_FINISHED,
-                                run_id=config.run_id,
-                                tool_call_id=call_id,
-                                payload={
-                                    "tool_name": resultado.name,
-                                    "is_error": resultado.is_error,
-                                },
-                            ),
-                        )
-                except Exception:
-                    logger.exception(
-                        "Falha ao registrar TOOL_FINISHED no ledger para tool_call %s (thread %s)",
-                        call_id,
-                        thread_id,
-                    )
+            if hasattr(session_store, "append_ledger_event"):
+                await session_store.append_ledger_event(
+                    thread_id,
+                    event_key=make_tool_finished_key(config.run_id or "", call_id),
+                    event_type=LedgerEventType.TOOL_FINISHED,
+                    run_id=config.run_id,
+                    tool_call_id=call_id,
+                    payload={
+                        "tool_name": resultado.name,
+                        "is_error": resultado.is_error,
+                    },
+                )
             if (
                 hasattr(session_store, "record_run_evidence")
                 and config.run_id
@@ -836,44 +732,21 @@ async def run_conversation(
                     await emit(TodosUpdated(todos=todos))
 
         if turn_budget.exceeded is not None:
-            if config.run_id:
-                try:
-                    if hasattr(session_store, "append_ledger_event"):
-                        await session_store.append_ledger_event(
-                            thread_id,
-                            event_key=make_run_failed_key(config.run_id),
-                            event_type=LedgerEventType.RUN_FAILED,
-                            run_id=config.run_id,
-                            payload={
-                                "error": f"loop_cap_exceeded: {turn_budget.exceeded}"
-                            },
-                        )
-                    elif hasattr(session_store, "append_event"):
-                        await session_store.append_event(
-                            thread_id,
-                            ThreadLedgerEvent(
-                                thread_id=thread_id,
-                                event_key=make_run_failed_key(config.run_id),
-                                type=LedgerEventType.RUN_FAILED,
-                                run_id=config.run_id,
-                                payload={
-                                    "error": f"loop_cap_exceeded: {turn_budget.exceeded}"
-                                },
-                            ),
-                        )
-                except Exception:
-                    logger.exception(
-                        "Falha ao registrar RUN_FAILED (loop_cap_exceeded) no ledger para thread %s",
-                        thread_id,
-                    )
-                if hasattr(session_store, "update_agent_run_status"):
-                    await session_store.update_agent_run_status(
-                        config.run_id,
-                        status="failed",
-                        detail=f"Teto de guardrail excedido: {turn_budget.exceeded}",
-                        error_code="LOOP_CAP_EXCEEDED",
-                        metrics=iter_metrics,
-                    )
+            if hasattr(session_store, "append_ledger_event") and config.run_id:
+                await session_store.append_ledger_event(
+                    thread_id,
+                    event_key=make_run_failed_key(config.run_id),
+                    event_type=LedgerEventType.RUN_FAILED,
+                    run_id=config.run_id,
+                    payload={"error": f"loop_cap_exceeded: {turn_budget.exceeded}"},
+                )
+            if hasattr(session_store, "update_agent_run_status") and config.run_id:
+                await session_store.update_agent_run_status(
+                    config.run_id,
+                    status="failed",
+                    detail=f"Teto de guardrail excedido: {turn_budget.exceeded}",
+                    error_code="LOOP_CAP_EXCEEDED",
+                )
             await emit(
                 ErrorSignal(
                     code="LOOP_CAP_EXCEEDED",
@@ -892,51 +765,21 @@ async def run_conversation(
                 tool_names=tuple(sorted(observed_tools)),
             )
 
-    if config.run_id:
-        try:
-            if hasattr(session_store, "append_ledger_event"):
-                await session_store.append_ledger_event(
-                    thread_id,
-                    event_key=make_run_failed_key(config.run_id),
-                    event_type=LedgerEventType.RUN_FAILED,
-                    run_id=config.run_id,
-                    payload={"error": f"recursion_limit: {config.max_iterations}"},
-                )
-            elif hasattr(session_store, "append_event"):
-                await session_store.append_event(
-                    thread_id,
-                    ThreadLedgerEvent(
-                        thread_id=thread_id,
-                        event_key=make_run_failed_key(config.run_id),
-                        type=LedgerEventType.RUN_FAILED,
-                        run_id=config.run_id,
-                        payload={"error": f"recursion_limit: {config.max_iterations}"},
-                    ),
-                )
-        except Exception:
-            logger.exception(
-                "Falha ao registrar RUN_FAILED (recursion_limit) no ledger para thread %s",
-                thread_id,
-            )
-        if hasattr(session_store, "update_agent_run_status"):
-            final_metrics = AgentRunMetrics(
-                input_tokens=int(
-                    last_usage.get("input_tokens", 0) if last_usage else 0
-                ),
-                output_tokens=int(
-                    last_usage.get("output_tokens", 0) if last_usage else 0
-                ),
-                total_tokens=int(
-                    last_usage.get("total_tokens", 0) if last_usage else 0
-                ),
-            )
-            await session_store.update_agent_run_status(
-                config.run_id,
-                status="failed",
-                detail=f"Limite de {config.max_iterations} iterações atingido.",
-                error_code="RECURSION_LIMIT",
-                metrics=final_metrics,
-            )
+    if hasattr(session_store, "append_ledger_event") and config.run_id:
+        await session_store.append_ledger_event(
+            thread_id,
+            event_key=make_run_failed_key(config.run_id),
+            event_type=LedgerEventType.RUN_FAILED,
+            run_id=config.run_id,
+            payload={"error": f"recursion_limit: {config.max_iterations}"},
+        )
+    if hasattr(session_store, "update_agent_run_status") and config.run_id:
+        await session_store.update_agent_run_status(
+            config.run_id,
+            status="failed",
+            detail=f"Limite de {config.max_iterations} iterações atingido.",
+            error_code="RECURSION_LIMIT",
+        )
     await emit(
         ErrorSignal(
             code="RECURSION_LIMIT",
@@ -958,27 +801,11 @@ async def _execute_single_call(
     tool_registry: ToolRegistry,
     ctx: ToolContext,
     on_event: EventSink | None = None,
-    policy_snapshot: PolicySnapshot | None = None,
 ) -> VMessage:
     """Mesma lógica de execução de ``tool_batch._run_one``, sem
     ``TurnBudget`` (o teto de volume é do turno que gerou o lote original,
     já contabilizado ou não antes da pausa — reaplicá-lo no resume duplicaria
     ou perderia contagem)."""
-    allowed, deny_reason = _apply_pre_execute(tool_call, ctx, policy_snapshot)
-    if not allowed:
-        return VMessage(
-            role=MessageRole.TOOL,
-            content=[
-                ContentBlock(
-                    kind="text",
-                    text=f"Error: policy_denied: {deny_reason}",
-                )
-            ],
-            tool_call_id=tool_call.id,
-            name=tool_call.name,
-            is_error=True,
-        )
-
     spec = tool_registry.get(tool_call.name)
     if spec is None:
         texto = f"Error: tool '{tool_call.name}' não encontrada no registry"
@@ -1000,7 +827,6 @@ async def _execute_single_call(
             tool_call.args,
             call_context,
         )
-        texto = _apply_post_execute(texto)
         is_error = _is_tool_error(texto)
         from backend.services.tool_usage import record_tool_usage
 
@@ -1028,7 +854,6 @@ async def resume_conversation(
     interrupt_id: str | None = None,
     approval_gate: ApprovalGate | None = None,
     on_event: EventSink | None = None,
-    policy_snapshot: PolicySnapshot | None = None,
 ) -> bool:
     """Executa o lote de tool calls que ``run_conversation`` pausou —
     ``decision`` é ``"approve"`` | ``"reject"`` | ``"edit"``, aplicada só à
@@ -1048,29 +873,8 @@ async def resume_conversation(
     cliente. ``True`` quando o lote foi executado e a pendência resolvida.
     """
     from backend.services.media_billing import apply_media_billing_source
-    from backend.services.policy_compiler import compile_policy_snapshot
 
     await apply_media_billing_source(ctx)
-    is_untrusted_thread = False
-    if hasattr(session_store, "get_session"):
-        session_meta = await session_store.get_session(thread_id)
-        if session_meta and session_meta.get("mode") == "connect":
-            is_untrusted_thread = True
-    if hasattr(session_store, "list_agent_runs"):
-        runs = await session_store.list_agent_runs(thread_id, limit=5)
-        paused_run = next(
-            (r for r in runs if r.status == "waiting_approval"),
-            runs[0] if runs else None,
-        )
-        if paused_run and paused_run.untrusted_content:
-            is_untrusted_thread = True
-    if is_untrusted_thread:
-        if not isinstance(ctx._extra, dict):
-            ctx._extra = {}
-        ctx._extra["untrusted_content"] = True
-
-    if policy_snapshot is None:
-        policy_snapshot = compile_policy_snapshot(ctx)
 
     emit = on_event or _noop_event
     requested_interrupt_id = interrupt_id
@@ -1140,9 +944,9 @@ async def resume_conversation(
                     is_error=True,
                 )
             else:
-                from backend.engine.hitl import call_requires_separate_approval
+                from backend.engine.hitl import _tool_requires_approval
 
-                if call_requires_separate_approval(tc.name, tc.args):
+                if _tool_requires_approval(tc.name):
                     resultado = VMessage(
                         role=MessageRole.TOOL,
                         content=[
@@ -1157,10 +961,7 @@ async def resume_conversation(
                     )
                 else:
                     resultado = await _execute_single_call(
-                        tc,
-                        tool_registry=tool_registry,
-                        ctx=ctx,
-                        policy_snapshot=policy_snapshot,
+                        tc, tool_registry=tool_registry, ctx=ctx
                     )
         elif decision == "reject":
             resultado = VMessage(
@@ -1176,25 +977,11 @@ async def resume_conversation(
                 args = ephemeral_args
             if decision in {"edit", "option"} and edited_args is not None:
                 args = edited_args
-
-            call_snapshot = policy_snapshot
-            if (
-                tc.id == flagged_id
-                and tc.name == "git_push"
-                and bool(args.get("force", False))
-                and policy_snapshot is not None
-                and not policy_snapshot.allow_force_push
-            ):
-                from dataclasses import replace as dc_replace
-
-                call_snapshot = dc_replace(policy_snapshot, allow_force_push=True)
-
             resultado = await _execute_single_call(
                 replace(tc, args=args),
                 tool_registry=tool_registry,
                 ctx=ctx,
                 on_event=on_event,
-                policy_snapshot=call_snapshot,
             )
 
         parent_id = await session_store.append_message(
