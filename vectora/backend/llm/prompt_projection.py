@@ -31,14 +31,38 @@ def compact_small_model_system_prompt(original: str) -> str:
         specialization = "Perfil: pesquisa web e leitura de fontes."
 
     # 2. Extrair seções essenciais de regras / diretrizes customizadas
-    # Preserva blocos de guidelines (<guidelines>, ## Contexto, ## Instruções, Regras)
-    # ou qualquer linha contendo restrições de comportamento / idioma / aprovação.
+    # Preserva integralmente blocos explícitos (<guidelines>, ## Contexto, ## Regras, etc.)
+    # e linhas com restrições e regras obrigatórias, sem descartar por tamanho de linha,
+    # cabeçalho ou presença de nomes de ferramentas em regras (ex: "Nunca use write_terminal sem aprovação").
     extracted_rules: list[str] = []
     lines = [line.strip() for line in source.splitlines() if line.strip()]
     in_guideline_block = False
+    in_discardable_doc_block = False
 
     for line in lines:
         lower = line.lower()
+
+        # Identifica blocos de documentação explicitamente descartáveis (catálogo de tools / workbench)
+        if any(
+            doc_header in lower
+            for doc_header in (
+                "### tools",
+                "#### 🗂️ filesystem",
+                "#### 📚 rag and indexing",
+                "#### 🧠 memory",
+                "#### 🌐 browser",
+                "### available workbenches",
+                "### how vectora works",
+                "### tech stack",
+                "### supported llm providers",
+                "### agent architecture",
+                "### general capabilities",
+            )
+        ):
+            in_discardable_doc_block = True
+            in_guideline_block = False
+            continue
+
         if any(
             tag in lower
             for tag in (
@@ -46,22 +70,26 @@ def compact_small_model_system_prompt(original: str) -> str:
                 "## regras",
                 "## diretrizes",
                 "## contexto do projeto",
+                "### important restrictions",
+                "### style",
             )
         ):
             in_guideline_block = True
+            in_discardable_doc_block = False
             continue
-        if any(tag in lower for tag in ("</guidelines>", "### tools", "## your role")):
+
+        if any(tag in lower for tag in ("</guidelines>", "## your role")):
             in_guideline_block = False
             continue
 
         if in_guideline_block:
-            if (
-                line not in extracted_rules
-                and len(line) <= 300
-                and not line.startswith("#")
-            ):
+            if line not in extracted_rules and line not in {
+                "<guidelines>",
+                "</guidelines>",
+            }:
                 extracted_rules.append(line)
-        else:
+        elif not in_discardable_doc_block:
+            # Fora dos blocos descartáveis de documentação técnica, captura regras declaradas
             if any(
                 marker in lower
                 for marker in (
@@ -84,26 +112,8 @@ def compact_small_model_system_prompt(original: str) -> str:
                     "proibido",
                 )
             ):
-                # Ignora linhas da documentação padrão de ferramentas do Workbench
-                if not any(
-                    doc_marker in lower
-                    for doc_marker in (
-                        "workbench",
-                        "electron",
-                        "browser_",
-                        "open_terminal",
-                        "list_terminals",
-                        "attach_terminal",
-                        "read_terminal",
-                        "write_terminal",
-                        "ingest_docs",
-                        "vector_search",
-                        "manage_retriever",
-                        "fire-and-forget",
-                    )
-                ):
-                    if line not in extracted_rules and len(line) <= 300:
-                        extracted_rules.append(line)
+                if line not in extracted_rules:
+                    extracted_rules.append(line)
 
     contract_parts = [
         "Nome: Vectora. Função: assistente de programação.",
@@ -112,8 +122,6 @@ def compact_small_model_system_prompt(original: str) -> str:
     if specialization:
         contract_parts.append(specialization)
     if extracted_rules:
-        contract_parts.append(
-            "Instruções obrigatórias:\n" + "\n".join(extracted_rules[:15])
-        )
+        contract_parts.append("Instruções obrigatórias:\n" + "\n".join(extracted_rules))
 
     return "\n".join(contract_parts)

@@ -459,9 +459,15 @@ class TestStreamingToolCallsEUsage:
             "Você é o Vectora Coder Agent com acesso ao sistema.\n"
             "<guidelines>\n"
             "Antes de alterar arquivos, solicite aprovação do usuário.\n"
+            "# Diretriz prioritária de segurança para produção:\n"
+            "Esta regra possui mais de trezentos caracteres para garantir que diretrizes longas, completas e detalhadas fornecidas pelos usuários ou pelo workspace nunca sejam truncadas ou descartadas por critérios arbitrários de tamanho de linha, mantendo a integridade total de políticas corporativas complexas.\n"
             "</guidelines>\n"
             "Idioma: Responda em Espanhol.\n"
             "Regra: Nunca exclua o arquivo de banco de dados.\n"
+            "Nunca use write_terminal sem aprovação.\n"
+            "### Tools\n"
+            "#### 🗂️ Filesystem (main priority)\n"
+            "- `file_read`, `file_edit`, `file_write` — read, edit, and create files\n"
             "Muitas descrições longas sobre a interface e botões que devem ser ignoradas..."
         )
         await client.agenerate(
@@ -473,6 +479,9 @@ class TestStreamingToolCallsEUsage:
 
         sys_msg = payload_captured["messages"][0]["content"]
         assert "Antes de alterar arquivos, solicite aprovação do usuário." in sys_msg
+        assert "Esta regra possui mais de trezentos caracteres" in sys_msg
+        assert "Nunca use write_terminal sem aprovação." in sys_msg
         assert "Idioma: Responda em Espanhol." in sys_msg
         assert "Regra: Nunca exclua o arquivo de banco de dados." in sys_msg
         assert "Muitas descrições longas" not in sys_msg
+        assert "- `file_read`, `file_edit`" not in sys_msg

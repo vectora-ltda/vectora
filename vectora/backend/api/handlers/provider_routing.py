@@ -943,13 +943,14 @@ async def _terminate_ollama_process(process: asyncio.subprocess.Process) -> bool
     with suppress(ProcessLookupError):
         process.kill()
 
-    async def _safe_wait(timeout: float) -> None:
+    async def _safe_wait(wait_timeout: float) -> None:
         wait_fn = getattr(process, "wait", None)
         if not callable(wait_fn):
             return
         res = wait_fn()
         if inspect.isawaitable(res):
-            await asyncio.wait_for(res, timeout)
+            async with asyncio.timeout(wait_timeout):
+                await res
 
     try:
         remaining = max(0.0, deadline - loop.time())
@@ -985,10 +986,9 @@ async def stop_managed_ollama() -> None:
         confirmed = await _terminate_ollama_process(process)
         if confirmed:
             _managed_ollama_process = None
-    else:
-        if _ollama_log_task is not None and not _ollama_log_task.done():
-            _ollama_log_task.cancel()
-            _ollama_log_task = None
+    elif _ollama_log_task is not None and not _ollama_log_task.done():
+        _ollama_log_task.cancel()
+        _ollama_log_task = None
 
 
 async def _ollama_http_status() -> tuple[bool, str | None]:
@@ -1161,14 +1161,18 @@ async def _install_ollama_runtime_impl(_: ProviderAdmin) -> OllamaRuntimeStatus:
                     if reachable:
                         break
         except TimeoutError:
-            await _terminate_ollama_process(server_process)
-            _managed_ollama_process = None
+            confirmed = await _terminate_ollama_process(server_process)
+            if confirmed:
+                _managed_ollama_process = None
         except asyncio.CancelledError:
-            await _terminate_ollama_process(server_process)
-            _managed_ollama_process = None
+            confirmed = await _terminate_ollama_process(server_process)
+            if confirmed:
+                _managed_ollama_process = None
             raise
     if not reachable:
-        _managed_ollama_process = None
+        confirmed = await _terminate_ollama_process(server_process)
+        if confirmed:
+            _managed_ollama_process = None
         raise HTTPException(
             status_code=502, detail="Ollama foi instalado, mas não iniciou o servidor"
         )

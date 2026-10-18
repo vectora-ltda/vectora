@@ -78,7 +78,7 @@ class TestErroDeExecucaoFicaLogado:
         persisted = store.messages[0]
         assert persisted["turn_id"] == "run-terminal:terminal"
         assert persisted["run_id"] == "run-terminal"
-        assert cast(VMessage, persisted["message"]).is_error is True
+        assert cast("VMessage", persisted["message"]).is_error is True
 
     async def test_run_error_gera_error_event_e_loga_o_traceback_real(
         self, caplog: pytest.LogCaptureFixture

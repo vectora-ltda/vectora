@@ -152,6 +152,9 @@ export function ChatInterface({
 
   useEffect(
     () => () => {
+      readGenerationRef.current += 1;
+      inFlightReadCursorRef.current = null;
+      retriedReadCursorRef.current = null;
       if (readRetryTimerRef.current !== null) {
         window.clearTimeout(readRetryTimerRef.current);
         readRetryTimerRef.current = null;

@@ -26,6 +26,7 @@ import logging
 import os
 import uuid
 from collections import deque
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -163,13 +164,31 @@ def _register_page_listeners(tab: TabState) -> None:
 
 async def _create_tab_state(page: Any) -> TabState:
     cdp = await page.context.new_cdp_session(page)
+    target_id: str | None = None
     try:
         info = await cdp.send("Target.getTargetInfo")
-        target_id = info.get("targetInfo", {}).get("targetId")
-        if target_id and isinstance(target_id, str):
-            setattr(page, "_target_id", target_id.strip())
-    except Exception:
-        logger.debug("browser_session: falha ao obter targetInfo via CDP")
+        val = info.get("targetInfo", {}).get("targetId")
+        if isinstance(val, str) and val.strip():
+            target_id = val.strip()
+    except Exception as exc:
+        with suppress(Exception):
+            await cdp.detach()
+        raise RuntimeError("Falha ao obter identidade do alvo CDP do Chromium") from exc
+
+    # Permite passar dublês de teste explícitos caso já possuam target_id pré-definido
+    if not target_id:
+        existing = getattr(page, "_target_id", None) or getattr(page, "target_id", None)
+        if isinstance(existing, str) and existing.strip():
+            target_id = existing.strip()
+
+    if not target_id:
+        with suppress(Exception):
+            await cdp.detach()
+        raise RuntimeError(
+            "Não foi possível obter uma identidade de alvo CDP estável para a página"
+        )
+
+    page._target_id = target_id
     tab = TabState(page=page, cdp=cdp)
     _register_page_listeners(tab)
     return tab
@@ -223,8 +242,9 @@ def _page_target_id(page: Any) -> str:
             val = getattr(target, attr, None)
             if isinstance(val, str) and val.strip():
                 return val.strip()
-    # Fallback seguro para dublês de teste puros sem identificador explícito
-    return str(id(page))
+    raise RuntimeError(
+        "A página não possui uma identidade estável de alvo CDP do Chromium"
+    )
 
 
 def _claim_page(page: Any, workspace_id: str) -> None:
