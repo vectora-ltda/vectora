@@ -938,16 +938,14 @@ async def _terminate_ollama_process(process: asyncio.subprocess.Process) -> bool
     if _ollama_log_task is not None and not _ollama_log_task.done():
         _ollama_log_task.cancel()
         remaining_log = max(0.0, deadline - loop.time())
-        try:
-            if remaining_log > 0:
-                async with asyncio.timeout(remaining_log):
-                    with suppress(asyncio.CancelledError, Exception):
-                        await _ollama_log_task
-            else:
-                with suppress(asyncio.CancelledError, Exception):
-                    _ollama_log_task.cancel()
-        except TimeoutError:
-            logger.warning("ollama: timeout aguardando cancelamento da task de log")
+        if remaining_log > 0:
+            done, _ = await asyncio.wait([_ollama_log_task], timeout=remaining_log)
+            if not done:
+                logger.warning("ollama: timeout aguardando cancelamento da task de log")
+        else:
+            logger.warning(
+                "ollama: sem orçamento para aguardar cancelamento da task de log"
+            )
         if _ollama_log_task.done():
             _ollama_log_task = None
 

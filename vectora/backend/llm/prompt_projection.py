@@ -80,7 +80,8 @@ def compact_small_model_system_prompt(original: str) -> str:
             for doc_header in discardable_doc_headers
         ):
             in_discardable_doc_block = True
-            discardable_header_level = header_level
+            if discardable_header_level is None:
+                discardable_header_level = header_level
             in_guideline_block = False
             continue
 

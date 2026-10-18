@@ -555,3 +555,37 @@ class TestStreamingToolCallsEUsage:
         # Cabeçalho de mesmo nível (### Políticas do Usuário) encerra o descarte
         assert "### Políticas do Usuário" in sys_msg
         assert "Siga rigorosamente as orientações da equipe." in sys_msg
+
+    async def test_compact_system_prompt_preserva_nivel_externo_com_cabecalhos_aninhados(
+        self,
+    ):
+        payload_captured = {}
+
+        def handler(req):
+            nonlocal payload_captured
+            payload_captured = json.loads(req.content.decode("utf-8"))
+            return httpx.Response(200, json=_resposta_ok("Ok"))
+
+        client = _client(handler, compact_system_prompt=True)
+        system_text = (
+            "## Identity\n"
+            "Preâmbulo de identidade geral que deve ser descartado.\n"
+            "### Tools\n"
+            "Documentação de ferramentas que também deve ser descartada.\n"
+            "### Outra descrição\n"
+            "Documentação ainda pertencente a Identity que NÃO deve reentrar.\n"
+            "## Regras\n"
+            "Execute testes antes de concluir.\n"
+        )
+        await client.agenerate(
+            [
+                text_message(MessageRole.SYSTEM, system_text),
+                text_message(MessageRole.USER, "olá"),
+            ]
+        )
+
+        sys_msg = payload_captured["messages"][0]["content"]
+        assert "Preâmbulo de identidade geral" not in sys_msg
+        assert "Documentação de ferramentas" not in sys_msg
+        assert "Documentação ainda pertencente a Identity" not in sys_msg
+        assert "Execute testes antes de concluir." in sys_msg

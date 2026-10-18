@@ -809,29 +809,41 @@ class TestOllamaDiscovery:
     ):
         from backend.api.handlers import provider_routing
 
-        # Cria uma task de log demorada que não conclui imediatamente
+        started_event = asyncio.Event()
+
+        # Cria uma task de log que inicia cooperativamente e depois resiste ao cancelamento
         async def slow_logger():
+            started_event.set()
             try:
                 await asyncio.sleep(100)
             except asyncio.CancelledError:
                 await asyncio.sleep(100)
 
         log_task = asyncio.create_task(slow_logger())
+        await started_event.wait()
         monkeypatch.setattr(provider_routing, "_ollama_log_task", log_task)
 
         fake_process = MagicMock()
         fake_process.kill = MagicMock()
         fake_process.wait = AsyncMock(return_value=None)
-        fake_process.returncode = 0
+        # Processo não encerra a tempo (returncode continua None)
+        fake_process.returncode = None
 
-        # Define um deadline muito curto no ContextVar
+        # Define um deadline muito curto no ContextVar (50ms)
         loop = asyncio.get_running_loop()
-        token = provider_routing._ollama_cleanup_deadline.set(loop.time() + 0.1)
+        start_time = loop.time()
+        token = provider_routing._ollama_cleanup_deadline.set(start_time + 0.05)
         try:
             confirmed = await provider_routing._terminate_ollama_process(fake_process)
-            assert confirmed is True
+            elapsed = loop.time() - start_time
+            # Não confirmou encerramento porque returncode permaneceu None
+            assert confirmed is False
+            # process.kill() deve ter sido chamado pontualmente
             assert fake_process.kill.called
-            # A task de log teve cancelamento solicitado
+            # A duração respeitou o orçamento (não ficou presa na task resistente)
+            assert elapsed < 0.5
+            # A task de log ainda pendente NÃO foi apagada
+            assert provider_routing._ollama_log_task is log_task
             assert log_task.cancelling() or log_task.cancelled()
         finally:
             provider_routing._ollama_cleanup_deadline.reset(token)
