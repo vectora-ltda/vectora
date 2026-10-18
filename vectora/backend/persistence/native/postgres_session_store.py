@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from backend.persistence.native.ledger import (
     LedgerEventType,
@@ -611,7 +611,41 @@ class PostgresSessionStore:
         if row is None:
             return None
         if row["expires_at"] and row["expires_at"] <= _now():
-            await self.clear_pending_approval(thread_id)
+            agora = _now()
+            async with self._pool.acquire() as conn, conn.transaction():
+                await conn.execute(
+                    "DELETE FROM vectora_native_pending_approvals WHERE thread_id = $1",
+                    thread_id,
+                )
+                max_seq = await conn.fetchval(
+                    "SELECT COALESCE(MAX(seq), 0) FROM vectora_native_thread_events WHERE thread_id = $1",
+                    thread_id,
+                )
+                current_seq = int(max_seq or 0) + 1
+                resolved_key = make_approval_resolved_key(row["interrupt_id"])
+                payload = {
+                    "tool_name": row["tool_name"],
+                    "tool_call_id": row["tool_call_id"],
+                    "interrupt_id": row["interrupt_id"],
+                    "expired": True,
+                }
+                await conn.execute(
+                    "INSERT INTO vectora_native_thread_events (thread_id, seq, event_key, type, "
+                    "turn_id, run_id, message_id, tool_call_id, interrupt_id, payload_json, created_at) "
+                    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) "
+                    "ON CONFLICT (thread_id, event_key) DO NOTHING",
+                    thread_id,
+                    current_seq,
+                    resolved_key,
+                    "approval_resolved",
+                    None,
+                    None,
+                    None,
+                    row["tool_call_id"],
+                    row["interrupt_id"],
+                    json.dumps(payload, ensure_ascii=False),
+                    agora,
+                )
             return None
         return {
             "interrupt_id": row["interrupt_id"],
@@ -633,6 +667,10 @@ class PostgresSessionStore:
         await self.setup()
         agora = _now()
         async with self._pool.acquire() as conn, conn.transaction():
+            await conn.execute(
+                "SELECT 1 FROM vectora_native_sessions WHERE thread_id = $1 FOR UPDATE",
+                thread_id,
+            )
             row = await conn.fetchrow(
                 "DELETE FROM vectora_native_pending_approvals "
                 "WHERE thread_id = $1 AND interrupt_id = $2 "
@@ -643,8 +681,7 @@ class PostgresSessionStore:
             )
             if row is None:
                 return None
-            if row["expires_at"] and row["expires_at"] <= _now():
-                return None
+            is_expired = bool(row["expires_at"] and row["expires_at"] <= _now())
 
             max_seq = await conn.fetchval(
                 "SELECT COALESCE(MAX(seq), 0) FROM vectora_native_thread_events WHERE thread_id = $1",
@@ -656,6 +693,7 @@ class PostgresSessionStore:
                 "tool_name": row["tool_name"],
                 "tool_call_id": row["tool_call_id"],
                 "interrupt_id": row["interrupt_id"],
+                "expired": is_expired,
             }
             await conn.execute(
                 "INSERT INTO vectora_native_thread_events (thread_id, seq, event_key, type, "
@@ -674,6 +712,9 @@ class PostgresSessionStore:
                 json.dumps(payload, ensure_ascii=False),
                 agora,
             )
+
+        if is_expired:
+            return None
 
         return {
             "interrupt_id": row["interrupt_id"],
@@ -727,6 +768,10 @@ class PostgresSessionStore:
                 priority,
                 expires_at,
                 agora,
+            )
+            await conn.execute(
+                "SELECT 1 FROM vectora_native_sessions WHERE thread_id = $1 FOR UPDATE",
+                thread_id,
             )
             max_seq = await conn.fetchval(
                 "SELECT COALESCE(MAX(seq), 0) FROM vectora_native_thread_events WHERE thread_id = $1",
@@ -909,6 +954,35 @@ class PostgresSessionStore:
             created_at=created_at,
         )
 
+    async def append_ledger_event(
+        self,
+        thread_id: str,
+        *,
+        event_key: str,
+        event_type: LedgerEventType | str,
+        run_id: str | None = None,
+        turn_id: str | None = None,
+        message_id: int | None = None,
+        tool_call_id: str | None = None,
+        interrupt_id: str | None = None,
+        payload: dict[str, Any] | None = None,
+        created_at: str | None = None,
+    ) -> ThreadLedgerEvent:
+        """Helper para registrar eventos no ledger Postgres usando argumentos nomeados."""
+        event = ThreadLedgerEvent(
+            thread_id=thread_id,
+            event_key=event_key,
+            type=cast("LedgerEventType", event_type),
+            run_id=run_id,
+            turn_id=turn_id,
+            message_id=message_id,
+            tool_call_id=tool_call_id,
+            interrupt_id=interrupt_id,
+            payload=payload or {},
+            created_at=created_at or _now(),
+        )
+        return await self.append_event(thread_id, event)
+
     async def list_events(
         self, thread_id: str, *, after_seq: int = 0, limit: int = 500
     ) -> list[ThreadLedgerEvent]:
@@ -972,27 +1046,19 @@ class PostgresSessionStore:
                 "SELECT COALESCE(MAX(seq), 0) FROM vectora_native_thread_events WHERE thread_id = $1",
                 thread_id,
             )
-            clamped_seq = min(seen_seq, int(max_seq or 0))
-
-            existing_seq = await conn.fetchval(
-                "SELECT last_seen_seq FROM vectora_native_thread_event_cursors "
-                "WHERE thread_id = $1 AND user_id = $2 AND device_id = $3",
-                thread_id,
-                user_id,
-                device_id,
-            )
-            final_seq = max(int(existing_seq or 0), clamped_seq)
+            clamped_seq = max(0, min(seen_seq, int(max_seq or 0)))
 
             await conn.execute(
                 "INSERT INTO vectora_native_thread_event_cursors "
                 "(thread_id, user_id, device_id, last_seen_seq, updated_at) "
                 "VALUES ($1, $2, $3, $4, $5) "
                 "ON CONFLICT (thread_id, user_id, device_id) DO UPDATE SET "
-                "last_seen_seq = EXCLUDED.last_seen_seq, updated_at = EXCLUDED.updated_at",
+                "last_seen_seq = GREATEST(vectora_native_thread_event_cursors.last_seen_seq, EXCLUDED.last_seen_seq), "
+                "updated_at = EXCLUDED.updated_at",
                 thread_id,
                 user_id,
                 device_id,
-                final_seq,
+                clamped_seq,
                 now,
             )
 
@@ -1002,7 +1068,7 @@ class PostgresSessionStore:
                 "read_seq": summaries[0].read_seq,
                 "unread_count": summaries[0].unread_count,
             }
-        return {"read_seq": final_seq, "unread_count": 0}
+        return {"read_seq": clamped_seq, "unread_count": 0}
 
     async def get_thread_summaries(
         self, thread_ids: list[str], *, user_id: str
@@ -1096,6 +1162,10 @@ class PostgresSessionStore:
                     break
                 if ev.type == "run_failed":
                     status = "failed"
+                    break
+                if ev.type == "approval_resolved":
+                    is_exp = bool(ev.payload.get("expired", False))
+                    status = "idle" if is_exp else "running"
                     break
                 if ev.type == "approval_requested":
                     status = "awaiting_approval"

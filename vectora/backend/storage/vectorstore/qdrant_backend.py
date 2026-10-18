@@ -262,16 +262,25 @@ class QdrantBackend:
             async with asyncio.timeout(_TIMEOUT_S):
                 if not await client.collection_exists(collection):
                     return 0
-                info_before = await client.get_collection(collection)
-                before_count = info_before.points_count or 0
+                count_before_res = await client.count(
+                    collection_name=collection, exact=True
+                )
+                raw_before = getattr(count_before_res, "count", count_before_res)
+                before_count = (
+                    int(raw_before) if isinstance(raw_before, (int, str)) else 0
+                )
                 await client.delete(
                     collection_name=collection,
                     points_selector=models.PointIdsList(
                         points=[_point_id(collection, row_id) for row_id in ids]
                     ),
+                    wait=True,
                 )
-                info_after = await client.get_collection(collection)
-                after_count = info_after.points_count or 0
+                count_after_res = await client.count(
+                    collection_name=collection, exact=True
+                )
+                raw_after = getattr(count_after_res, "count", count_after_res)
+                after_count = int(raw_after) if isinstance(raw_after, (int, str)) else 0
                 return max(0, before_count - after_count)
         except Exception:
             logger.debug("QdrantBackend.delete: erro ao deletar pontos", exc_info=True)
