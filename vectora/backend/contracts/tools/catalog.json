@@ -1,0 +1,5483 @@
+[
+  {
+    "category": "media",
+    "description": "Responde uma pergunta sobre o conteúdo de um vídeo em disco.",
+    "destructive": false,
+    "name": "analyze_video",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "path": {
+          "description": "Caminho do arquivo de vídeo.",
+          "title": "Path",
+          "type": "string"
+        },
+        "question": {
+          "description": "O que se quer saber sobre o vídeo.",
+          "title": "Question",
+          "type": "string"
+        }
+      },
+      "required": ["path", "question"],
+      "title": "analyze_videoArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "memory",
+    "description": "Grava uma seção de memória de longo prazo proposta por",
+    "destructive": true,
+    "name": "apply_memory_consolidation",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "category": {
+          "description": "Categoria da seção — \"decisions\", \"gotchas\" ou \"preferences\".",
+          "title": "Category",
+          "type": "string"
+        },
+        "content": {
+          "description": "Conteúdo markdown completo da seção, exatamente como",
+          "title": "Content",
+          "type": "string"
+        }
+      },
+      "required": ["category", "content"],
+      "title": "apply_memory_consolidationArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "workspace",
+    "description": "Intervém numa run de background pausada aguardando aprovação (HITL).",
+    "destructive": true,
+    "name": "approve_task_action",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "decision": {
+          "default": "approve",
+          "description": "``approve`` | ``reject`` | ``edit:<json_dos_args>`` | ``cancel``.",
+          "title": "Decision",
+          "type": "string"
+        },
+        "run_id": {
+          "description": "id da run em ``awaiting_approval`` (de ``list_background_tasks``).",
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": ["run_id"],
+      "title": "approve_task_actionArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "interaction",
+    "description": "Solicita ao usuário uma escolha ou resposta livre, sem duplicar pedidos.",
+    "destructive": false,
+    "name": "ask_structured_question",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "allow_free_text": {
+          "default": true,
+          "title": "Allow Free Text",
+          "type": "boolean"
+        },
+        "idempotency_key": {
+          "default": "",
+          "title": "Idempotency Key",
+          "type": "string"
+        },
+        "options": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Options"
+        },
+        "prompt": {
+          "title": "Prompt",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "default": 300.0,
+          "title": "Timeout Seconds",
+          "type": "number"
+        }
+      },
+      "required": ["prompt"],
+      "title": "ask_structured_questionArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "filesystem",
+    "description": "Assume explicitamente o controle de um terminal PTY interativo aberto pelo usuário.",
+    "destructive": false,
+    "name": "attach_terminal",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "terminal_id": {
+          "title": "Terminal Id",
+          "type": "string"
+        }
+      },
+      "required": ["terminal_id"],
+      "title": "attach_terminalArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "media",
+    "description": "Transcreve um arquivo do workspace com o provider ativo.",
+    "destructive": false,
+    "name": "audio_transcribe",
+    "render_hint": "text",
+    "schema": {
+      "properties": {
+        "language": {
+          "default": "",
+          "title": "Language",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": ["path"],
+      "title": "audio_transcribeArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "native",
+    "description": "Decode base64.",
+    "destructive": false,
+    "name": "base64_decode",
+    "render_hint": "text",
+    "schema": {
+      "properties": {
+        "encoded": {
+          "title": "Encoded",
+          "type": "string"
+        }
+      },
+      "required": ["encoded"],
+      "title": "base64_decodeArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "native",
+    "description": "Encode base64.",
+    "destructive": false,
+    "name": "base64_encode",
+    "render_hint": "text",
+    "schema": {
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": ["text"],
+      "title": "base64_encodeArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Analisa estruturadamente um trace já capturado por",
+    "destructive": false,
+    "name": "browser_analyze_trace",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "artifact_path": {
+          "description": "caminho do artifact retornado por `browser_stop_trace`.",
+          "title": "Artifact Path",
+          "type": "string"
+        }
+      },
+      "required": ["artifact_path"],
+      "title": "browser_analyze_traceArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Limpa o buffer de mensagens de console capturadas da aba (não afeta",
+    "destructive": true,
+    "name": "browser_clear_console",
+    "render_hint": "text",
+    "schema": {
+      "properties": {
+        "tab_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "id da aba (padrão: aba ativa).",
+          "title": "Tab Id"
+        }
+      },
+      "title": "browser_clear_consoleArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Clica no elemento da página atual — por seletor CSS ou por `uid` (de",
+    "destructive": false,
+    "name": "browser_click",
+    "render_hint": "text",
+    "schema": {
+      "properties": {
+        "selector": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Seletor CSS (ex.: \"button.submit\", \"#login-form input[type=email]\").",
+          "title": "Selector"
+        },
+        "uid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "uid de `browser_snapshot` (`backendDOMNodeId`) — usa CDP em vez",
+          "title": "Uid"
+        }
+      },
+      "title": "browser_clickArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Fecha uma aba pelo id. Nunca deixa a sessão sem nenhuma aba —",
+    "destructive": true,
+    "name": "browser_close_tab",
+    "render_hint": "text",
+    "schema": {
+      "properties": {
+        "tab_id": {
+          "description": "id da aba (de `browser_list_tabs`).",
+          "title": "Tab Id",
+          "type": "string"
+        }
+      },
+      "required": ["tab_id"],
+      "title": "browser_close_tabArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Compara dois heap snapshots já capturados (artifacts retornados por",
+    "destructive": false,
+    "name": "browser_compare_heap_snapshots",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "after_path": {
+          "description": "`artifact_path` do snapshot \"depois\".",
+          "title": "After Path",
+          "type": "string"
+        },
+        "before_path": {
+          "description": "`artifact_path` do snapshot \"antes\".",
+          "title": "Before Path",
+          "type": "string"
+        }
+      },
+      "required": ["before_path", "after_path"],
+      "title": "browser_compare_heap_snapshotsArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Arrasta o elemento `source_selector` e solta sobre `target_selector`",
+    "destructive": true,
+    "name": "browser_drag",
+    "render_hint": "text",
+    "schema": {
+      "properties": {
+        "source_selector": {
+          "description": "seletor CSS do elemento a arrastar.",
+          "title": "Source Selector",
+          "type": "string"
+        },
+        "target_selector": {
+          "description": "seletor CSS de onde soltar.",
+          "title": "Target Selector",
+          "type": "string"
+        }
+      },
+      "required": ["source_selector", "target_selector"],
+      "title": "browser_dragArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Emula viewport/device/throttling na aba — útil pra testar layouts",
+    "destructive": false,
+    "name": "browser_emulate",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "cpu_throttle": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "fator de desaceleração de CPU (ex.: 4 = 4x mais",
+          "title": "Cpu Throttle"
+        },
+        "device_scale_factor": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "fator de escala (ex.: 2 para retina/mobile).",
+          "title": "Device Scale Factor"
+        },
+        "network_throttle": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "perfil de rede — \"offline\", \"slow-3g\", \"fast-3g\",",
+          "title": "Network Throttle"
+        },
+        "tab_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "id da aba (padrão: aba ativa).",
+          "title": "Tab Id"
+        },
+        "viewport_height": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "altura do viewport em px (omitido não muda).",
+          "title": "Viewport Height"
+        },
+        "viewport_width": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "largura do viewport em px (omitido não muda).",
+          "title": "Viewport Width"
+        }
+      },
+      "title": "browser_emulateArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Executa JavaScript arbitrário no contexto da página e devolve o",
+    "destructive": true,
+    "name": "browser_evaluate",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "script": {
+          "description": "expressão ou função JS (ex.: `\"document.title\"`,",
+          "title": "Script",
+          "type": "string"
+        },
+        "tab_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "id da aba (padrão: aba ativa).",
+          "title": "Tab Id"
+        }
+      },
+      "required": ["script"],
+      "title": "browser_evaluateArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Preenche um campo da página atual (input/textarea) — por seletor CSS",
+    "destructive": true,
+    "name": "browser_fill",
+    "render_hint": "text",
+    "schema": {
+      "properties": {
+        "selector": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Seletor CSS do campo. Ignorado se `uid` for informado.",
+          "title": "Selector"
+        },
+        "uid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "uid de `browser_snapshot` (`backendDOMNodeId`).",
+          "title": "Uid"
+        },
+        "value": {
+          "description": "Texto a preencher.",
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": ["value"],
+      "title": "browser_fillArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Preenche múltiplos campos da página atual numa só chamada — cada",
+    "destructive": true,
+    "name": "browser_fill_form",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "fields": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "mapa `{seletor_css: valor}`.",
+          "title": "Fields",
+          "type": "object"
+        }
+      },
+      "required": ["fields"],
+      "title": "browser_fill_formArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Detalhes de uma requisição de rede específica, pelo `request_id`",
+    "destructive": false,
+    "name": "browser_get_network_request",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "request_id": {
+          "description": "id da requisição.",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "tab_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "id da aba (padrão: aba ativa).",
+          "title": "Tab Id"
+        }
+      },
+      "required": ["request_id"],
+      "title": "browser_get_network_requestArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Roda um audit Lighthouse (performance/acessibilidade/best-practices/",
+    "destructive": false,
+    "name": "browser_lighthouse_audit",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "tab_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "id da aba usada só pra resolver a URL padrão.",
+          "title": "Tab Id"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "URL a auditar (padrão: URL atual da aba).",
+          "title": "Url"
+        }
+      },
+      "title": "browser_lighthouse_auditArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Lista as mensagens de console (log/warn/error/...) capturadas da aba",
+    "destructive": false,
+    "name": "browser_list_console_messages",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "limit": {
+          "default": 50,
+          "description": "máximo de mensagens mais recentes a retornar.",
+          "title": "Limit",
+          "type": "integer"
+        },
+        "tab_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "id da aba (padrão: aba ativa).",
+          "title": "Tab Id"
+        }
+      },
+      "title": "browser_list_console_messagesArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Lista as requisições de rede capturadas da aba desde que foi aberta.",
+    "destructive": false,
+    "name": "browser_list_network_requests",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "limit": {
+          "default": 50,
+          "description": "máximo de requisições mais recentes a retornar.",
+          "title": "Limit",
+          "type": "integer"
+        },
+        "resource_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "filtra por tipo (ex.: \"xhr\", \"fetch\", \"document\",",
+          "title": "Resource Type"
+        },
+        "tab_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "id da aba (padrão: aba ativa).",
+          "title": "Tab Id"
+        }
+      },
+      "title": "browser_list_network_requestsArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Lista as abas abertas na sessão de browser do workspace ativo.",
+    "destructive": false,
+    "name": "browser_list_tabs",
+    "render_hint": "json",
+    "schema": {
+      "properties": {},
+      "title": "browser_list_tabsArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Lê as últimas linhas de stdout/stderr do dev server — inclusive",
+    "destructive": false,
+    "name": "browser_logs",
+    "render_hint": "terminal_output",
+    "schema": {
+      "properties": {
+        "lines": {
+          "default": 100,
+          "description": "Quantidade de linhas mais recentes a retornar (padrão 100).",
+          "title": "Lines",
+          "type": "integer"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Nome da configuração em `.vectora/launch.json` (mesma regra de",
+          "title": "Name"
+        }
+      },
+      "title": "browser_logsArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Navega a página do browser do workspace pra qualquer URL http(s) —",
+    "destructive": false,
+    "name": "browser_navigate",
+    "render_hint": "text",
+    "schema": {
+      "properties": {
+        "url": {
+          "description": "URL completa (`http://` ou `https://`) a navegar.",
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": ["url"],
+      "title": "browser_navigateArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Abre uma aba nova na sessão do workspace ativo (lança o browser se",
+    "destructive": false,
+    "name": "browser_new_tab",
+    "render_hint": "text",
+    "schema": {
+      "properties": {
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "URL http(s) opcional pra já navegar a aba nova.",
+          "title": "Url"
+        }
+      },
+      "title": "browser_new_tabArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Lê o texto visível da página atual (não o HTML cru).",
+    "destructive": false,
+    "name": "browser_read_dom",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "selector": {
+          "default": "body",
+          "description": "Seletor CSS da raiz da leitura (padrão: página inteira)",
+          "title": "Selector",
+          "type": "string"
+        }
+      },
+      "title": "browser_read_domArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Reinicia o dev server (para se estiver rodando, depois inicia de",
+    "destructive": false,
+    "name": "browser_restart",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Nome da configuração em `.vectora/launch.json` (mesma regra de",
+          "title": "Name"
+        }
+      },
+      "title": "browser_restartArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Inicia a captura contínua de frames da aba (CDP `Page.startScreencast`)",
+    "destructive": false,
+    "name": "browser_screencast_start",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "tab_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "id da aba (padrão: aba ativa).",
+          "title": "Tab Id"
+        }
+      },
+      "title": "browser_screencast_startArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Encerra a captura iniciada por `browser_screencast_start` e persiste",
+    "destructive": false,
+    "name": "browser_screencast_stop",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "tab_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "id da aba (padrão: aba ativa).",
+          "title": "Tab Id"
+        }
+      },
+      "title": "browser_screencast_stopArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Tira um screenshot da página atual do browser (base64 PNG, data URL).",
+    "destructive": false,
+    "name": "browser_screenshot",
+    "render_hint": "image",
+    "schema": {
+      "properties": {},
+      "title": "browser_screenshotArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Rola a página atual do browser.",
+    "destructive": false,
+    "name": "browser_scroll",
+    "render_hint": "text",
+    "schema": {
+      "properties": {
+        "amount": {
+          "default": 600,
+          "description": "pixels a rolar",
+          "title": "Amount",
+          "type": "integer"
+        },
+        "direction": {
+          "default": "down",
+          "description": "\"down\" ou \"up\"",
+          "title": "Direction",
+          "type": "string"
+        }
+      },
+      "title": "browser_scrollArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Torna `tab_id` a aba ativa da sessão — as demais tools de browser",
+    "destructive": false,
+    "name": "browser_select_tab",
+    "render_hint": "text",
+    "schema": {
+      "properties": {
+        "tab_id": {
+          "description": "id da aba (de `browser_list_tabs`).",
+          "title": "Tab Id",
+          "type": "string"
+        }
+      },
+      "required": ["tab_id"],
+      "title": "browser_select_tabArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Define como a aba responde automaticamente a `alert`/`confirm`/",
+    "destructive": false,
+    "name": "browser_set_dialog_policy",
+    "render_hint": "text",
+    "schema": {
+      "properties": {
+        "action": {
+          "description": "\"accept\" ou \"dismiss\".",
+          "title": "Action",
+          "type": "string"
+        },
+        "prompt_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "texto a preencher se o dialog for um `prompt()` e a",
+          "title": "Prompt Text"
+        },
+        "tab_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "id da aba (padrão: aba ativa).",
+          "title": "Tab Id"
+        }
+      },
+      "required": ["action"],
+      "title": "browser_set_dialog_policyArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Gera uma árvore de acessibilidade da página atual, indentada por",
+    "destructive": false,
+    "name": "browser_snapshot",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "tab_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "id da aba (padrão: aba ativa).",
+          "title": "Tab Id"
+        }
+      },
+      "title": "browser_snapshotArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Inicia o dev server do workspace ativo (mesmo efeito que o usuário",
+    "destructive": false,
+    "name": "browser_start",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Nome da configuração em `.vectora/launch.json`. Se omitido e",
+          "title": "Name"
+        }
+      },
+      "title": "browser_startArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Inicia a captura de um trace de performance (CDP Tracing) na aba —",
+    "destructive": false,
+    "name": "browser_start_trace",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "tab_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "id da aba (padrão: aba ativa).",
+          "title": "Tab Id"
+        }
+      },
+      "title": "browser_start_traceArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Para o dev server do workspace ativo.",
+    "destructive": false,
+    "name": "browser_stop",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Nome da configuração em `.vectora/launch.json` (mesma regra de",
+          "title": "Name"
+        }
+      },
+      "title": "browser_stopArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Encerra a captura de trace iniciada por `browser_start_trace` e",
+    "destructive": false,
+    "name": "browser_stop_trace",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "tab_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "id da aba (padrão: aba ativa).",
+          "title": "Tab Id"
+        }
+      },
+      "title": "browser_stop_traceArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Tira um heap snapshot (CDP HeapProfiler) da aba e devolve um resumo",
+    "destructive": false,
+    "name": "browser_take_heap_snapshot",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "tab_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "id da aba (padrão: aba ativa).",
+          "title": "Tab Id"
+        }
+      },
+      "title": "browser_take_heap_snapshotArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Define o arquivo de um `<input type=file>` — sempre um caminho local",
+    "destructive": true,
+    "name": "browser_upload_file",
+    "render_hint": "text",
+    "schema": {
+      "properties": {
+        "file_path": {
+          "description": "caminho absoluto do arquivo no host a anexar.",
+          "title": "File Path",
+          "type": "string"
+        },
+        "selector": {
+          "description": "seletor CSS do input[type=file].",
+          "title": "Selector",
+          "type": "string"
+        }
+      },
+      "required": ["selector", "file_path"],
+      "title": "browser_upload_fileArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "browser",
+    "description": "Espera até o elemento atingir o estado indicado antes de continuar —",
+    "destructive": false,
+    "name": "browser_wait_for",
+    "render_hint": "text",
+    "schema": {
+      "properties": {
+        "selector": {
+          "description": "seletor CSS do elemento a esperar.",
+          "title": "Selector",
+          "type": "string"
+        },
+        "state": {
+          "default": "visible",
+          "description": "\"visible\" | \"hidden\" | \"attached\" | \"detached\".",
+          "title": "State",
+          "type": "string"
+        },
+        "timeout_ms": {
+          "default": 5000,
+          "description": "tempo máximo de espera em milissegundos.",
+          "title": "Timeout Ms",
+          "type": "integer"
+        }
+      },
+      "required": ["selector"],
+      "title": "browser_wait_forArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "workspace",
+    "description": "Retorna o resumo de um bucket específico do workspace.",
+    "destructive": false,
+    "name": "bucket_summary",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "bucket": {
+          "description": "Nome do bucket (ex: \"code\", \"docs\", \"notes\", \"web_cache\")",
+          "title": "Bucket",
+          "type": "string"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace (usa o ativo se omitido)",
+          "title": "Workspace Id"
+        }
+      },
+      "required": ["bucket"],
+      "title": "bucket_summaryArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "general",
+    "description": "Constrói o grafo de contexto do workspace ativo (build completo).",
+    "destructive": false,
+    "name": "build_knowledge_graph",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "mode": {
+          "default": "semantic",
+          "description": "\"semantic\" (AST + LLM) ou \"ast\" (só árvore sintática, sem LLM).",
+          "title": "Mode",
+          "type": "string"
+        },
+        "model": {
+          "default": "",
+          "description": "modelo LLM no formato \"provider:model\" (vazio = padrão do sistema).",
+          "title": "Model",
+          "type": "string"
+        }
+      },
+      "title": "build_knowledge_graphArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "mcp",
+    "description": "Invoca uma ferramenta de outro servidor MCP via Model Context Protocol.",
+    "destructive": false,
+    "name": "call_mcp_tool",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "arguments": {
+          "description": "Argumentos em formato JSON string (ex: '{\"query\": \"x\"}')",
+          "title": "Arguments",
+          "type": "string"
+        },
+        "tool_name": {
+          "description": "Nome da ferramenta no servidor MCP",
+          "title": "Tool Name",
+          "type": "string"
+        }
+      },
+      "required": ["tool_name", "arguments"],
+      "title": "call_mcp_toolArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "filesystem",
+    "description": "Encerra um terminal PTY aberto manualmente pelo usuário, pelo id.",
+    "destructive": true,
+    "name": "close_terminal",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "terminal_id": {
+          "title": "Terminal Id",
+          "type": "string"
+        }
+      },
+      "required": ["terminal_id"],
+      "title": "close_terminalArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "computer_use",
+    "description": "Controla mouse/teclado da tela do desktop — `screenshot`, `click`, `type_text`.",
+    "destructive": true,
+    "name": "computer_use",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "action": {
+          "description": "`screenshot` (captura a tela), `click` (requer `x`/`y`) ou",
+          "title": "Action",
+          "type": "string"
+        },
+        "text": {
+          "default": "",
+          "description": "Texto a digitar, obrigatório para `type_text`.",
+          "title": "Text",
+          "type": "string"
+        },
+        "x": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Coordenada X do clique, obrigatória para `click`.",
+          "title": "X"
+        },
+        "y": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Coordenada Y do clique, obrigatória para `click`.",
+          "title": "Y"
+        }
+      },
+      "required": ["action"],
+      "title": "computer_useArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "artifacts",
+    "description": "Cria e persiste um artifact estruturado em ~/.vectora/artifacts/{session_id}/{slug}.md.",
+    "destructive": false,
+    "name": "create_artifact",
+    "render_hint": "artifact",
+    "schema": {
+      "properties": {
+        "artifact_type": {
+          "description": "Tipo do artifact. Valores válidos:",
+          "title": "Artifact Type",
+          "type": "string"
+        },
+        "content": {
+          "description": "Conteúdo completo em markdown",
+          "title": "Content",
+          "type": "string"
+        },
+        "title": {
+          "description": "Título ESPECÍFICO e descritivo do artifact (ex: \"Plano de",
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": ["artifact_type", "title", "content"],
+      "title": "create_artifactArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "workspace",
+    "description": "Cria uma tarefa em segundo plano para esta sessão.",
+    "destructive": false,
+    "name": "create_background_task",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "instruction": {
+          "description": "Instrução completa que o agente executará",
+          "title": "Instruction",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Tipo — routine (periódica) | heartbreak (via webhook)",
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "description": "Nome curto da tarefa (ex: \"Verificar logs diariamente\")",
+          "title": "Name",
+          "type": "string"
+        },
+        "trigger_config": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Config do trigger (ex: {\"cron_expr\": \"0 9 * * *\"})",
+          "title": "Trigger Config"
+        },
+        "trigger_type": {
+          "description": "Gatilho — interval (cron) | webhook | manual",
+          "title": "Trigger Type",
+          "type": "string"
+        }
+      },
+      "required": ["name", "instruction", "kind", "trigger_type"],
+      "title": "create_background_taskArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "workspace",
+    "description": "Remove uma tarefa em segundo plano permanentemente.",
+    "destructive": true,
+    "name": "delete_background_task",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "task_id": {
+          "description": "id da tarefa a remover.",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["task_id"],
+      "title": "delete_background_taskArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "memory",
+    "description": "Deleta uma memória persistente do namespace do usuário.",
+    "destructive": true,
+    "name": "delete_memory",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "key": {
+          "description": "Chave da memória a deletar",
+          "title": "Key",
+          "type": "string"
+        }
+      },
+      "required": ["key"],
+      "title": "delete_memoryArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "library",
+    "description": "Remove uma skill instalada do usuário.",
+    "destructive": true,
+    "name": "delete_skill",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "skill_id": {
+          "description": "id da skill (de `list_skills`/aba Library).",
+          "title": "Skill Id",
+          "type": "string"
+        }
+      },
+      "required": ["skill_id"],
+      "title": "delete_skillArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "rag",
+    "description": "Enfileira documento para embedding assíncrono (fire-and-forget).",
+    "destructive": false,
+    "name": "embedding",
+    "render_hint": "queue_badge",
+    "schema": {
+      "properties": {
+        "collection": {
+          "default": "articles",
+          "description": "Nome da coleção LanceDB (articles, wiki, api_docs, knowledge_base)",
+          "title": "Collection",
+          "type": "string"
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Metadados opcionais (source, author, timestamp, etc)",
+          "title": "Metadata"
+        },
+        "text": {
+          "description": "Texto do documento a indexar",
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": ["text"],
+      "title": "embeddingArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "media",
+    "description": "Extrai a trilha de áudio de um vídeo LOCAL como WAV (PCM 16-bit) —",
+    "destructive": false,
+    "name": "extract_audio",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "path": {
+          "description": "Caminho do vídeo dentro do workspace.",
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": ["path"],
+      "title": "extract_audioArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "media",
+    "description": "Extrai um frame de um vídeo LOCAL num timestamp específico — \"print\"",
+    "destructive": false,
+    "name": "extract_frame",
+    "render_hint": "image_preview",
+    "schema": {
+      "properties": {
+        "path": {
+          "description": "Caminho do vídeo dentro do workspace.",
+          "title": "Path",
+          "type": "string"
+        },
+        "timestamp_s": {
+          "description": "Segundo exato do frame desejado.",
+          "title": "Timestamp S",
+          "type": "number"
+        }
+      },
+      "required": ["path", "timestamp_s"],
+      "title": "extract_frameArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "web",
+    "description": "Busca e extrai conteúdo de texto de uma URL específica usando Tavily.",
+    "destructive": false,
+    "name": "fetch_url",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "url": {
+          "description": "URL para buscar (deve começar com http:// ou https://)",
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": ["url"],
+      "title": "fetch_urlArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "filesystem",
+    "description": "Cria um diretório dentro do workspace confiável.",
+    "destructive": true,
+    "name": "file_create_dir",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": ["path"],
+      "title": "file_create_dirArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "filesystem",
+    "description": "Remove um arquivo ou diretório; usa lixeira por padrão.",
+    "destructive": true,
+    "name": "file_delete",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "permanent": {
+          "default": false,
+          "title": "Permanent",
+          "type": "boolean"
+        }
+      },
+      "required": ["path"],
+      "title": "file_deleteArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "filesystem",
+    "description": "Edita arquivo substituindo texto.",
+    "destructive": true,
+    "name": "file_edit",
+    "render_hint": "diff",
+    "schema": {
+      "properties": {
+        "file_path": {
+          "description": "Caminho do arquivo",
+          "title": "File Path",
+          "type": "string"
+        },
+        "new_text": {
+          "description": "Texto de substituição",
+          "title": "New Text",
+          "type": "string"
+        },
+        "old_text": {
+          "description": "Texto a encontrar (use \"\" para criar arquivo se não existir)",
+          "title": "Old Text",
+          "type": "string"
+        },
+        "replace_all": {
+          "default": false,
+          "description": "Se True, substitui todas as ocorrências; padrão substitui apenas a 1ª",
+          "title": "Replace All",
+          "type": "boolean"
+        }
+      },
+      "required": ["file_path", "old_text", "new_text"],
+      "title": "file_editArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "filesystem",
+    "description": "Move ou renomeia um caminho sem permitir sair do workspace.",
+    "destructive": true,
+    "name": "file_move",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "from_path": {
+          "title": "From Path",
+          "type": "string"
+        },
+        "to_path": {
+          "title": "To Path",
+          "type": "string"
+        }
+      },
+      "required": ["from_path", "to_path"],
+      "title": "file_moveArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "filesystem",
+    "description": "Lê conteúdo completo de um arquivo de texto.",
+    "destructive": false,
+    "name": "file_read",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "file_path": {
+          "description": "Caminho relativo ou absoluto do arquivo",
+          "title": "File Path",
+          "type": "string"
+        }
+      },
+      "required": ["file_path"],
+      "title": "file_readArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "filesystem",
+    "description": "Busca texto no workspace, com o mesmo contrato do Files Workbench.",
+    "destructive": false,
+    "name": "file_search",
+    "render_hint": "table",
+    "schema": {
+      "properties": {
+        "path": {
+          "default": ".",
+          "title": "Path",
+          "type": "string"
+        },
+        "query": {
+          "title": "Query",
+          "type": "string"
+        }
+      },
+      "required": ["query"],
+      "title": "file_searchArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "filesystem",
+    "description": "Cria ou sobrescreve completamente um arquivo com o conteúdo fornecido.",
+    "destructive": true,
+    "name": "file_write",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "content": {
+          "description": "Conteúdo completo a escrever no arquivo",
+          "title": "Content",
+          "type": "string"
+        },
+        "file_path": {
+          "description": "Caminho do arquivo (absoluto ou relativo)",
+          "title": "File Path",
+          "type": "string"
+        }
+      },
+      "required": ["file_path", "content"],
+      "title": "file_writeArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "computer_use",
+    "description": "Solicita foco e confirma a janela previamente selecionada.",
+    "destructive": true,
+    "name": "focus_desktop_window",
+    "render_hint": "json",
+    "schema": {
+      "properties": {},
+      "title": "focus_desktop_windowArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "media",
+    "description": "Gera uma imagem a partir de uma descrição, usando o modelo ativo.",
+    "destructive": false,
+    "name": "generate_image",
+    "render_hint": "image_preview",
+    "schema": {
+      "properties": {
+        "prompt": {
+          "description": "Descrição do que desenhar, em linguagem natural.",
+          "title": "Prompt",
+          "type": "string"
+        }
+      },
+      "required": ["prompt"],
+      "title": "generate_imageArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "media",
+    "description": "Gera um vídeo curto a partir de uma descrição, usando o modelo ativo.",
+    "destructive": false,
+    "name": "generate_video",
+    "render_hint": "artifact",
+    "schema": {
+      "properties": {
+        "prompt": {
+          "description": "Descrição da cena, em linguagem natural.",
+          "title": "Prompt",
+          "type": "string"
+        }
+      },
+      "required": ["prompt"],
+      "title": "generate_videoArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "memory",
+    "description": "Recupera memórias persistentes salvas.",
+    "destructive": false,
+    "name": "get_memory",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Chave específica. Se None, retorna todas as memórias do namespace.",
+          "title": "Key"
+        }
+      },
+      "title": "get_memoryArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "workspace",
+    "description": "Resultado (resumo) de uma execução específica de tarefa.",
+    "destructive": false,
+    "name": "get_task_result",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "capability_token": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "obrigatório só se a task dona da run foi criada",
+          "title": "Capability Token"
+        },
+        "run_id": {
+          "description": "id da run (de ``list_background_tasks``/``get_task_status``).",
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": ["run_id"],
+      "title": "get_task_resultArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "workspace",
+    "description": "Status de uma tarefa específica + suas execuções recentes.",
+    "destructive": false,
+    "name": "get_task_status",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "capability_token": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "obrigatório só para tasks criadas por",
+          "title": "Capability Token"
+        },
+        "task_id": {
+          "description": "id da tarefa (de ``list_background_tasks`` ou ``create_background_task``).",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["task_id"],
+      "title": "get_task_statusArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "web",
+    "description": "Obtém a transcrição de um vídeo do YouTube (ou de qualquer",
+    "destructive": false,
+    "name": "get_transcript",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "language": {
+          "default": "",
+          "description": "Idioma preferido da legenda (ex: \"pt\", \"en\"). Vazio tenta",
+          "title": "Language",
+          "type": "string"
+        },
+        "url": {
+          "description": "URL do vídeo, ou o ID de 11 caracteres do YouTube.",
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": ["url"],
+      "title": "get_transcriptArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "workspace",
+    "description": "Retorna o arquivo em foco e os arquivos abertos no editor do workbench.",
+    "destructive": false,
+    "name": "get_workbench_context",
+    "render_hint": "json",
+    "schema": {
+      "properties": {},
+      "title": "get_workbench_contextArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Adiciona um comentário a uma issue.",
+    "destructive": false,
+    "name": "gh_issue_comment",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "body": {
+          "default": "",
+          "description": "Texto do comentário (suporta Markdown).",
+          "title": "Body",
+          "type": "string"
+        },
+        "issue_number": {
+          "default": 0,
+          "description": "Número da issue.",
+          "title": "Issue Number",
+          "type": "integer"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "gh_issue_commentArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Cria uma issue no repositório.",
+    "destructive": false,
+    "name": "gh_issue_create",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "body": {
+          "default": "",
+          "description": "Descrição da issue (suporta Markdown).",
+          "title": "Body",
+          "type": "string"
+        },
+        "labels": {
+          "default": "",
+          "description": "Labels separadas por vírgula.",
+          "title": "Labels",
+          "type": "string"
+        },
+        "title": {
+          "default": "",
+          "description": "Título da issue (obrigatório).",
+          "title": "Title",
+          "type": "string"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "gh_issue_createArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Lista issues do repositório.",
+    "destructive": false,
+    "name": "gh_issue_list",
+    "render_hint": "table",
+    "schema": {
+      "properties": {
+        "labels": {
+          "default": "",
+          "description": "Labels separadas por vírgula (ex: \"bug,enhancement\").",
+          "title": "Labels",
+          "type": "string"
+        },
+        "state": {
+          "default": "open",
+          "description": "\"open\" | \"closed\" | \"all\" (default: \"open\").",
+          "title": "State",
+          "type": "string"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "gh_issue_listArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Exibe detalhes de uma issue.",
+    "destructive": false,
+    "name": "gh_issue_view",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "issue_number": {
+          "default": 0,
+          "description": "Número da issue.",
+          "title": "Issue Number",
+          "type": "integer"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "gh_issue_viewArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Cria um pull request a partir da branch atual.",
+    "destructive": false,
+    "name": "gh_pr_create",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "base": {
+          "default": "main",
+          "description": "Branch alvo (default: \"main\").",
+          "title": "Base",
+          "type": "string"
+        },
+        "body": {
+          "default": "",
+          "description": "Descrição do PR (suporta Markdown).",
+          "title": "Body",
+          "type": "string"
+        },
+        "draft": {
+          "default": false,
+          "description": "Se True, cria como rascunho.",
+          "title": "Draft",
+          "type": "boolean"
+        },
+        "title": {
+          "default": "",
+          "description": "Título do PR (obrigatório).",
+          "title": "Title",
+          "type": "string"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "gh_pr_createArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Lista pull requests do repositório.",
+    "destructive": false,
+    "name": "gh_pr_list",
+    "render_hint": "table",
+    "schema": {
+      "properties": {
+        "state": {
+          "default": "open",
+          "description": "\"open\" | \"closed\" | \"merged\" | \"all\" (default: \"open\").",
+          "title": "State",
+          "type": "string"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "gh_pr_listArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Faz merge de um pull request.",
+    "destructive": true,
+    "name": "gh_pr_merge",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "method": {
+          "default": "squash",
+          "description": "\"squash\" | \"merge\" | \"rebase\" (default: \"squash\").",
+          "title": "Method",
+          "type": "string"
+        },
+        "pr_number": {
+          "default": 0,
+          "description": "Número do PR.",
+          "title": "Pr Number",
+          "type": "integer"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "gh_pr_mergeArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Exibe detalhes de um pull request.",
+    "destructive": false,
+    "name": "gh_pr_view",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "pr_number": {
+          "default": 0,
+          "description": "Número do PR.",
+          "title": "Pr Number",
+          "type": "integer"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "gh_pr_viewArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Gerencia branches: lista, cria ou deleta.",
+    "destructive": false,
+    "name": "git_branch",
+    "render_hint": "table",
+    "schema": {
+      "properties": {
+        "action": {
+          "default": "list",
+          "description": "\"list\" | \"create\" | \"delete\"",
+          "title": "Action",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Nome da branch (obrigatório para create/delete).",
+          "title": "Name"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_branchArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Roda os hooks de pre-commit configurados sem criar um commit",
+    "destructive": false,
+    "name": "git_check_hooks",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_check_hooksArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Troca para uma branch ou commit; `create=True` cria a branch antes.",
+    "destructive": true,
+    "name": "git_checkout",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "create": {
+          "default": false,
+          "description": "Se True, cria `ref` como branch nova antes do checkout",
+          "title": "Create",
+          "type": "boolean"
+        },
+        "ref": {
+          "default": "",
+          "description": "Branch, tag ou commit hash para checkout (ou nome da branch nova",
+          "title": "Ref",
+          "type": "string"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_checkoutArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Aplica um commit de outra branch/ref na branch ativa.",
+    "destructive": true,
+    "name": "git_cherry_pick",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "no_commit": {
+          "default": false,
+          "description": "Se True, só stageia as mudanças (sem criar o commit).",
+          "title": "No Commit",
+          "type": "boolean"
+        },
+        "sha": {
+          "default": "",
+          "description": "Hash do commit a aplicar.",
+          "title": "Sha",
+          "type": "string"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_cherry_pickArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Cria um commit com os arquivos staged (ou emenda o último, com `amend`).",
+    "destructive": true,
+    "name": "git_commit",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "all": {
+          "default": false,
+          "description": "Se True, stageia automaticamente modificações rastreadas (-a).",
+          "title": "All",
+          "type": "boolean"
+        },
+        "amend": {
+          "default": false,
+          "description": "Se True, substitui o último commit em vez de criar um novo.",
+          "title": "Amend",
+          "type": "boolean"
+        },
+        "body": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Descrição opcional do commit (corpo, separado do título).",
+          "title": "Body"
+        },
+        "message": {
+          "default": "",
+          "description": "Título do commit (conventional commits recomendado).",
+          "title": "Message",
+          "type": "string"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_commitArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Gera a mesma sugestão de commit exibida no Git Workbench.",
+    "destructive": false,
+    "name": "git_commit_suggestion",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_commit_suggestionArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Compara dois refs — lista arquivos alterados entre `base` e `head`,",
+    "destructive": false,
+    "name": "git_compare",
+    "render_hint": "table",
+    "schema": {
+      "properties": {
+        "base": {
+          "default": "",
+          "description": "Ref base da comparação.",
+          "title": "Base",
+          "type": "string"
+        },
+        "file_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Opcional — devolve os hunks do diff só desse arquivo em",
+          "title": "File Path"
+        },
+        "head": {
+          "default": "",
+          "description": "Ref alvo da comparação.",
+          "title": "Head",
+          "type": "string"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_compareArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Mostra o diff do working tree ou em relação a um commit/branch.",
+    "destructive": false,
+    "name": "git_diff",
+    "render_hint": "diff",
+    "schema": {
+      "properties": {
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Commit hash, tag ou branch para comparar (compara working tree se omitido).",
+          "title": "Ref"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_diffArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Descarta mudanças não staged de um arquivo (`git restore -- <path>`,",
+    "destructive": true,
+    "name": "git_discard",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "path": {
+          "default": "",
+          "description": "Caminho do arquivo cujas mudanças serão descartadas.",
+          "title": "Path",
+          "type": "string"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_discardArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Baixa refs do remote sem integrar (não toca no working tree).",
+    "destructive": false,
+    "name": "git_fetch",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "remote": {
+          "default": "origin",
+          "description": "Nome do remote (default: \"origin\").",
+          "title": "Remote",
+          "type": "string"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_fetchArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Inicializa um repositório git no workspace ativo.",
+    "destructive": false,
+    "name": "git_init",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace (usa o workspace ativo se omitido).",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_initArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Exibe o histórico de commits do repositório.",
+    "destructive": false,
+    "name": "git_log",
+    "render_hint": "table",
+    "schema": {
+      "properties": {
+        "branch": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Branch específica (usa branch ativa se omitida).",
+          "title": "Branch"
+        },
+        "n": {
+          "default": 10,
+          "description": "Número de commits a retornar (default: 10).",
+          "title": "N",
+          "type": "integer"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_logArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Faz merge de `branch` na branch ativa.",
+    "destructive": true,
+    "name": "git_merge",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "branch": {
+          "default": "",
+          "description": "Branch a mesclar na branch ativa.",
+          "title": "Branch",
+          "type": "string"
+        },
+        "no_ff": {
+          "default": false,
+          "description": "Se True, força um merge commit mesmo quando fast-forward seria",
+          "title": "No Ff",
+          "type": "boolean"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_mergeArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Retorna a operação Git mais recente do Workbench.",
+    "destructive": false,
+    "name": "git_operation",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_operationArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Lista operações Git recentes para reconexão e diagnóstico.",
+    "destructive": false,
+    "name": "git_operations",
+    "render_hint": "table",
+    "schema": {
+      "properties": {
+        "limit": {
+          "default": 50,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_operationsArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Baixa e integra commits do remote.",
+    "destructive": true,
+    "name": "git_pull",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "branch": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Branch a baixar (usa branch ativa se omitida).",
+          "title": "Branch"
+        },
+        "remote": {
+          "default": "origin",
+          "description": "Nome do remote (default: \"origin\").",
+          "title": "Remote",
+          "type": "string"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_pullArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Envia commits locais para o remote.",
+    "destructive": true,
+    "name": "git_push",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "branch": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Branch a enviar (usa branch ativa se omitida).",
+          "title": "Branch"
+        },
+        "force": {
+          "default": false,
+          "description": "Se True, usa --force (cuidado em branches compartilhadas).",
+          "title": "Force",
+          "type": "boolean"
+        },
+        "remote": {
+          "default": "origin",
+          "description": "Nome do remote (default: \"origin\").",
+          "title": "Remote",
+          "type": "string"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_pushArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Reordena commits locais (ainda não pushados) pra sequência de `commits`.",
+    "destructive": true,
+    "name": "git_reorder",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "commits": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "SHAs na ordem final desejada (do mais antigo pro mais novo).",
+          "title": "Commits"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_reorderArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Resolve um conflito de merge escolhendo um dos dois lados.",
+    "destructive": true,
+    "name": "git_resolve_conflict",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "path": {
+          "default": "",
+          "description": "Caminho do arquivo em conflito.",
+          "title": "Path",
+          "type": "string"
+        },
+        "strategy": {
+          "default": "",
+          "description": "\"ours\" (mantém o lado atual) ou \"theirs\" (usa o lado",
+          "title": "Strategy",
+          "type": "string"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_resolve_conflictArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Reverte um commit — cria um commit inverso (ou só stageia, com",
+    "destructive": true,
+    "name": "git_revert",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "no_commit": {
+          "default": false,
+          "description": "Se True, só stageia as mudanças (sem criar o commit).",
+          "title": "No Commit",
+          "type": "boolean"
+        },
+        "sha": {
+          "default": "",
+          "description": "Hash do commit a reverter.",
+          "title": "Sha",
+          "type": "string"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_revertArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Squasha os commits de `base_ref` até HEAD numa mensagem só.",
+    "destructive": true,
+    "name": "git_squash",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "base_ref": {
+          "default": "",
+          "description": "Ref (branch/SHA) a partir da qual squashar até HEAD.",
+          "title": "Base Ref",
+          "type": "string"
+        },
+        "body": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Descrição opcional do commit resultante.",
+          "title": "Body"
+        },
+        "message": {
+          "default": "",
+          "description": "Título do commit resultante.",
+          "title": "Message",
+          "type": "string"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_squashArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Stageia um arquivo específico (`git add <path>`).",
+    "destructive": false,
+    "name": "git_stage",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "path": {
+          "default": "",
+          "description": "Caminho do arquivo a stagear (relativo à raiz do repositório).",
+          "title": "Path",
+          "type": "string"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_stageArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Gerencia o stash: salva, aplica ou lista mudanças temporárias.",
+    "destructive": false,
+    "name": "git_stash",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "action": {
+          "default": "push",
+          "description": "\"push\" | \"pop\" | \"apply\" | \"list\" | \"drop\" — \"pop\" aplica",
+          "title": "Action",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Nome descritivo do stash (opcional, apenas para push).",
+          "title": "Name"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_stashArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Mostra o estado do repositório git: arquivos modificados, staged, untracked.",
+    "destructive": false,
+    "name": "git_status",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace (usa o workspace ativo se omitido).",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_statusArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Remove um arquivo do stage (`git reset HEAD <path>`).",
+    "destructive": false,
+    "name": "git_unstage",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "path": {
+          "default": "",
+          "description": "Caminho do arquivo a remover do stage.",
+          "title": "Path",
+          "type": "string"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_unstageArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "git",
+    "description": "Gerencia worktrees do repositório: lista, adiciona ou remove.",
+    "destructive": true,
+    "name": "git_worktree",
+    "render_hint": "table",
+    "schema": {
+      "properties": {
+        "action": {
+          "default": "list",
+          "description": "\"list\" | \"add\" | \"remove\"",
+          "title": "Action",
+          "type": "string"
+        },
+        "branch": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Branch a criar na worktree (apenas para add).",
+          "title": "Branch"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Nome da worktree (obrigatório para add/remove).",
+          "title": "Name"
+        },
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace.",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "git_worktreeArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "github",
+    "description": "Busca o diff completo de um Pull Request via API do GitHub.",
+    "destructive": false,
+    "name": "github_fetch_pr_diff",
+    "render_hint": "diff",
+    "schema": {
+      "properties": {
+        "owner": {
+          "description": "dono do repositório (organização ou usuário).",
+          "title": "Owner",
+          "type": "string"
+        },
+        "pr_number": {
+          "description": "número do PR.",
+          "title": "Pr Number",
+          "type": "integer"
+        },
+        "repo": {
+          "description": "nome do repositório.",
+          "title": "Repo",
+          "type": "string"
+        }
+      },
+      "required": ["owner", "repo", "pr_number"],
+      "title": "github_fetch_pr_diffArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "github",
+    "description": "Posta um comentário num Pull Request do GitHub.",
+    "destructive": true,
+    "name": "github_post_pr_comment",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "body": {
+          "description": "texto do comentário (Markdown suportado pelo GitHub).",
+          "title": "Body",
+          "type": "string"
+        },
+        "owner": {
+          "description": "dono do repositório (organização ou usuário).",
+          "title": "Owner",
+          "type": "string"
+        },
+        "pr_number": {
+          "description": "número do PR.",
+          "title": "Pr Number",
+          "type": "integer"
+        },
+        "repo": {
+          "description": "nome do repositório.",
+          "title": "Repo",
+          "type": "string"
+        }
+      },
+      "required": ["owner", "repo", "pr_number", "body"],
+      "title": "github_post_pr_commentArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "integrations",
+    "description": "Lista emails do Gmail com filtros opcionais.",
+    "destructive": false,
+    "name": "gmail_list",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "max_results": {
+          "default": 10,
+          "description": "Número máximo de emails (padrão 10, máx 50).",
+          "title": "Max Results",
+          "type": "integer"
+        },
+        "query": {
+          "default": "",
+          "description": "Filtro GMail (ex: 'from:boss@empresa.com', 'is:unread', 'subject:fatura').",
+          "title": "Query",
+          "type": "string"
+        }
+      },
+      "title": "gmail_listArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "integrations",
+    "description": "Lê o conteúdo completo de um email do Gmail.",
+    "destructive": false,
+    "name": "gmail_read",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "message_id": {
+          "description": "ID do email (obtido via gmail_list).",
+          "title": "Message Id",
+          "type": "string"
+        }
+      },
+      "required": ["message_id"],
+      "title": "gmail_readArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "integrations",
+    "description": "Lista arquivos e pastas do Google Drive.",
+    "destructive": false,
+    "name": "google_drive_list",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "folder_id": {
+          "default": "root",
+          "description": "ID da pasta a listar. Use 'root' para a raiz.",
+          "title": "Folder Id",
+          "type": "string"
+        }
+      },
+      "title": "google_drive_listArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "integrations",
+    "description": "Lê o conteúdo de um arquivo do Google Drive.",
+    "destructive": false,
+    "name": "google_drive_read",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "file_id": {
+          "description": "ID do arquivo no Google Drive.",
+          "title": "File Id",
+          "type": "string"
+        }
+      },
+      "required": ["file_id"],
+      "title": "google_drive_readArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "integrations",
+    "description": "Busca arquivos no Google Drive por nome ou conteúdo.",
+    "destructive": false,
+    "name": "google_drive_search",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "max_results": {
+          "default": 10,
+          "description": "Número máximo de resultados (padrão 10).",
+          "title": "Max Results",
+          "type": "integer"
+        },
+        "query": {
+          "description": "Termo de busca (nome ou conteúdo do arquivo).",
+          "title": "Query",
+          "type": "string"
+        }
+      },
+      "required": ["query"],
+      "title": "google_drive_searchArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "general",
+    "description": "Encontra todos os componentes afetados se o nó consultado mudar.",
+    "destructive": false,
+    "name": "graph_affected",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "depth": {
+          "default": 2,
+          "description": "profundidade de propagação (default 2).",
+          "title": "Depth",
+          "type": "integer"
+        },
+        "node_query": {
+          "description": "ID, label ou nome parcial do nó a analisar.",
+          "title": "Node Query",
+          "type": "string"
+        }
+      },
+      "required": ["node_query"],
+      "title": "graph_affectedArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "workspace",
+    "description": "Cancela um build (ou update) do Context Graph em andamento, disparado",
+    "destructive": true,
+    "name": "graph_cancel_build",
+    "render_hint": "text",
+    "schema": {
+      "properties": {},
+      "title": "graph_cancel_buildArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "general",
+    "description": "Explica um nó do grafo de contexto mostrando sua vizinhança e conexões.",
+    "destructive": false,
+    "name": "graph_explain",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "node_id": {
+          "description": "ID ou label do nó a explicar (ex.: \"AuthService\", \"authenticate\").",
+          "title": "Node Id",
+          "type": "string"
+        }
+      },
+      "required": ["node_id"],
+      "title": "graph_explainArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "general",
+    "description": "Encontra o caminho mais curto entre dois nós no grafo de contexto.",
+    "destructive": false,
+    "name": "graph_path",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "source": {
+          "description": "ID ou label do nó de origem.",
+          "title": "Source",
+          "type": "string"
+        },
+        "target": {
+          "description": "ID ou label do nó de destino.",
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": ["source", "target"],
+      "title": "graph_pathArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "general",
+    "description": "Consulta o grafo de contexto por pergunta livre.",
+    "destructive": false,
+    "name": "graph_query",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "question": {
+          "description": "pergunta ou termo de busca (ex.: \"quem chama authenticate?\").",
+          "title": "Question",
+          "type": "string"
+        },
+        "top_k": {
+          "default": 10,
+          "description": "número máximo de nós retornados na consulta (padrão 10).",
+          "title": "Top K",
+          "type": "integer"
+        }
+      },
+      "required": ["question"],
+      "title": "graph_queryArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "general",
+    "description": "Atualiza o grafo de contexto incrementalmente (só arquivos novos/modificados).",
+    "destructive": false,
+    "name": "graph_update",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "model": {
+          "default": "",
+          "description": "modelo LLM no formato \"provider:model\" (vazio = padrão do sistema).",
+          "title": "Model",
+          "type": "string"
+        }
+      },
+      "title": "graph_updateArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "filesystem",
+    "description": "Busca padrão em arquivos usando regex.",
+    "destructive": false,
+    "name": "grep",
+    "render_hint": "table",
+    "schema": {
+      "properties": {
+        "path": {
+          "default": ".",
+          "description": "Caminho da pasta ou arquivo",
+          "title": "Path",
+          "type": "string"
+        },
+        "pattern": {
+          "description": "Padrão regex para buscar",
+          "title": "Pattern",
+          "type": "string"
+        }
+      },
+      "required": ["pattern"],
+      "title": "grepArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "smart_home",
+    "description": "Chama um serviço do Home Assistant — age nos dispositivos de verdade.",
+    "destructive": true,
+    "name": "ha_call_service",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "data": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Parâmetros extras do serviço (ex.: `{\"brightness\": 120}`).",
+          "title": "Data"
+        },
+        "domain": {
+          "description": "Domínio do serviço (ex.: `light`).",
+          "title": "Domain",
+          "type": "string"
+        },
+        "entity_id": {
+          "default": "",
+          "description": "Entidade alvo. Vazio aplica ao domínio inteiro — cuidado.",
+          "title": "Entity Id",
+          "type": "string"
+        },
+        "service": {
+          "description": "Nome do serviço (ex.: `turn_on`). Confirme com",
+          "title": "Service",
+          "type": "string"
+        }
+      },
+      "required": ["domain", "service"],
+      "title": "ha_call_serviceArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "smart_home",
+    "description": "Estado atual de uma entidade específica do Home Assistant.",
+    "destructive": false,
+    "name": "ha_get_state",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "entity_id": {
+          "description": "Id completo, no formato `dominio.nome` (ex.: `light.sala`).",
+          "title": "Entity Id",
+          "type": "string"
+        }
+      },
+      "required": ["entity_id"],
+      "title": "ha_get_stateArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "smart_home",
+    "description": "Lista as entidades do Home Assistant, com o estado atual de cada uma.",
+    "destructive": false,
+    "name": "ha_list_entities",
+    "render_hint": "table",
+    "schema": {
+      "properties": {
+        "domain": {
+          "default": "",
+          "description": "Filtra por domínio (`light`, `switch`, `sensor`, `lock`...).",
+          "title": "Domain",
+          "type": "string"
+        }
+      },
+      "title": "ha_list_entitiesArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "smart_home",
+    "description": "Serviços disponíveis num domínio do Home Assistant.",
+    "destructive": false,
+    "name": "ha_list_services",
+    "render_hint": "table",
+    "schema": {
+      "properties": {
+        "domain": {
+          "description": "Domínio a consultar (ex.: `light`, `lock`, `climate`).",
+          "title": "Domain",
+          "type": "string"
+        }
+      },
+      "required": ["domain"],
+      "title": "ha_list_servicesArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "native",
+    "description": "Hash de string (md5/sha256/sha512).",
+    "destructive": false,
+    "name": "hash_text",
+    "render_hint": "text",
+    "schema": {
+      "properties": {
+        "algorithm": {
+          "default": "sha256",
+          "title": "Algorithm",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": ["text"],
+      "title": "hash_textArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "native",
+    "description": "Faz requisição HTTP async.",
+    "destructive": false,
+    "name": "http_request",
+    "render_hint": "text",
+    "schema": {
+      "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "JSON body (opcional)",
+          "title": "Body"
+        },
+        "headers": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "JSON headers (opcional)",
+          "title": "Headers"
+        },
+        "method": {
+          "description": "GET, POST, PUT, DELETE",
+          "title": "Method",
+          "type": "string"
+        },
+        "url": {
+          "description": "URL completa",
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": ["method", "url"],
+      "title": "http_requestArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "rag",
+    "description": "Indexa um diretório inteiro de arquivos no banco vetorial (LanceDB).",
+    "destructive": false,
+    "name": "ingest_docs",
+    "render_hint": "queue_progress",
+    "schema": {
+      "properties": {
+        "collection": {
+          "default": "articles",
+          "description": "Coleção LanceDB de destino (default: \"articles\")",
+          "title": "Collection",
+          "type": "string"
+        },
+        "directory_path": {
+          "description": "Caminho da pasta (ex: \".\", \"src/agents\", \"docs/\")",
+          "title": "Directory Path",
+          "type": "string"
+        },
+        "glob_pattern": {
+          "default": "**/*.py",
+          "description": "Filtro de arquivos:",
+          "title": "Glob Pattern",
+          "type": "string"
+        }
+      },
+      "required": ["directory_path"],
+      "title": "ingest_docsArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "memory",
+    "description": "Grava uma skill proposta por ``learn_from_session`` como",
+    "destructive": true,
+    "name": "install_learned_skill",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "content": {
+          "description": "Passo a passo em Markdown (corpo do SKILL.md).",
+          "title": "Content",
+          "type": "string"
+        },
+        "description": {
+          "description": "Quando usar essa skill.",
+          "title": "Description",
+          "type": "string"
+        },
+        "name": {
+          "description": "Nome curto da skill (vira o slug da pasta).",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": ["name", "description", "content"],
+      "title": "install_learned_skillArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "library",
+    "description": "Instala um conector MCP do registry (curados + registry oficial de",
+    "destructive": true,
+    "name": "install_mcp_from_registry",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "connector_id": {
+          "description": "id do conector, como aparece em `GET /mcp/registry`.",
+          "title": "Connector Id",
+          "type": "string"
+        }
+      },
+      "required": ["connector_id"],
+      "title": "install_mcp_from_registryArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "library",
+    "description": "Baixa e instala um bucket da Vectora Memory Buckets como coleção",
+    "destructive": true,
+    "name": "install_memory_bucket",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "bucket_id": {
+          "description": "id do bucket, como aparece em `GET /memory-buckets/catalog`.",
+          "title": "Bucket Id",
+          "type": "string"
+        }
+      },
+      "required": ["bucket_id"],
+      "title": "install_memory_bucketArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "library",
+    "description": "Instala uma skill curada do catálogo remoto (`GET /skills/catalog`) —",
+    "destructive": true,
+    "name": "install_skill_from_catalog",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "skill_id": {
+          "description": "id da skill no catálogo.",
+          "title": "Skill Id",
+          "type": "string"
+        }
+      },
+      "required": ["skill_id"],
+      "title": "install_skill_from_catalogArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "integrations",
+    "description": "Cria uma issue no Jira.",
+    "destructive": true,
+    "name": "jira_create_issue",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "description": {
+          "default": "",
+          "description": "Descrição em texto simples.",
+          "title": "Description",
+          "type": "string"
+        },
+        "issue_type": {
+          "default": "Task",
+          "description": "Tipo da issue (Task, Bug, Story, Epic).",
+          "title": "Issue Type",
+          "type": "string"
+        },
+        "project_key": {
+          "description": "Chave do projeto (ex: 'PROJ').",
+          "title": "Project Key",
+          "type": "string"
+        },
+        "summary": {
+          "description": "Título da issue.",
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": ["project_key", "summary"],
+      "title": "jira_create_issueArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "integrations",
+    "description": "Lista issues do Jira usando JQL.",
+    "destructive": false,
+    "name": "jira_list_issues",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "jql": {
+          "default": "assignee = currentUser() ORDER BY updated DESC",
+          "description": "Query JQL (ex: 'project = PROJ AND status = \"In Progress\"').",
+          "title": "Jql",
+          "type": "string"
+        },
+        "max_results": {
+          "default": 20,
+          "description": "Número máximo de issues (padrão 20).",
+          "title": "Max Results",
+          "type": "integer"
+        }
+      },
+      "title": "jira_list_issuesArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "integrations",
+    "description": "Muda o status de uma issue do Jira.",
+    "destructive": true,
+    "name": "jira_transition",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "issue_key": {
+          "description": "Chave da issue (ex: 'PROJ-42').",
+          "title": "Issue Key",
+          "type": "string"
+        },
+        "transition_name": {
+          "description": "Nome da transição (ex: 'In Progress', 'Done').",
+          "title": "Transition Name",
+          "type": "string"
+        }
+      },
+      "required": ["issue_key", "transition_name"],
+      "title": "jira_transitionArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "native",
+    "description": "Extrai valor de JSON via dot notation (a.b[0].c).",
+    "destructive": false,
+    "name": "json_query",
+    "render_hint": "text",
+    "schema": {
+      "properties": {
+        "json_str": {
+          "title": "Json Str",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": ["json_str", "path"],
+      "title": "json_queryArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "native",
+    "description": "Decodifica JWT (sem verificar assinatura por padrão).",
+    "destructive": false,
+    "name": "jwt_decode",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "token": {
+          "title": "Token",
+          "type": "string"
+        },
+        "verify": {
+          "default": false,
+          "title": "Verify",
+          "type": "boolean"
+        }
+      },
+      "required": ["token"],
+      "title": "jwt_decodeArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "workspace",
+    "description": "Cria um card novo no board Kanban, pronto pra rodar sob demanda.",
+    "destructive": true,
+    "name": "kanban_create",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "agent_profile_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "perfil de agente a herdar (instrução/modelo/",
+          "title": "Agent Profile Id"
+        },
+        "instruction": {
+          "description": "instrução completa que o agente executará ao rodar.",
+          "title": "Instruction",
+          "type": "string"
+        },
+        "kind": {
+          "default": "subagent",
+          "description": "`subagent` (default) | `routine` | `heartbreak`.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "description": "nome curto do card (coluna do board).",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": ["name", "instruction"],
+      "title": "kanban_createArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "workspace",
+    "description": "Decompõe um card em `triage` num grafo de subtasks com dependências.",
+    "destructive": true,
+    "name": "kanban_decompose",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "task_id": {
+          "description": "id do card em `triage` a decompor.",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["task_id"],
+      "title": "kanban_decomposeArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "workspace",
+    "description": "Lista os cards do board Kanban desta sessão, com filtro opcional.",
+    "destructive": false,
+    "name": "kanban_list",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "agent_profile_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "filtra pelos cards que herdam este perfil de",
+          "title": "Agent Profile Id"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "filtra por coluna (`triage`|`todo`|`scheduled`|`ready`|",
+          "title": "Status"
+        }
+      },
+      "title": "kanban_listArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "workspace",
+    "description": "Move um card do board pra outra coluna, pela máquina de estados real.",
+    "destructive": true,
+    "name": "kanban_update_status",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "block_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "só usado quando `status=\"blocked\"` — `dependency`|",
+          "title": "Block Kind"
+        },
+        "block_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "só usado quando `status=\"blocked\"` — motivo legível.",
+          "title": "Block Reason"
+        },
+        "status": {
+          "description": "coluna alvo (`triage`|`todo`|`scheduled`|`ready`|`running`|",
+          "title": "Status",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "id do card (de `kanban_list`).",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["task_id", "status"],
+      "title": "kanban_update_statusArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "memory",
+    "description": "Analisa o transcript da thread atual e propõe skills reutilizáveis",
+    "destructive": false,
+    "name": "learn_from_session",
+    "render_hint": "default",
+    "schema": {
+      "properties": {},
+      "title": "learn_from_sessionArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "integrations",
+    "description": "Cria uma issue no Linear.",
+    "destructive": true,
+    "name": "linear_create_issue",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "description": {
+          "default": "",
+          "description": "Descrição em Markdown (opcional).",
+          "title": "Description",
+          "type": "string"
+        },
+        "priority": {
+          "default": 0,
+          "description": "Prioridade (0=sem, 1=urgente, 2=alta, 3=média, 4=baixa).",
+          "title": "Priority",
+          "type": "integer"
+        },
+        "team_key": {
+          "description": "Chave do time (ex: 'ENG').",
+          "title": "Team Key",
+          "type": "string"
+        },
+        "title": {
+          "description": "Título da issue.",
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": ["title", "team_key"],
+      "title": "linear_create_issueArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "integrations",
+    "description": "Lista issues do Linear.",
+    "destructive": false,
+    "name": "linear_list_issues",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "limit": {
+          "default": 20,
+          "description": "Número máximo de issues (padrão 20).",
+          "title": "Limit",
+          "type": "integer"
+        },
+        "state": {
+          "default": "",
+          "description": "Estado das issues (ex: 'In Progress', 'Todo'). Vazio = todos.",
+          "title": "State",
+          "type": "string"
+        },
+        "team_key": {
+          "default": "",
+          "description": "Chave do time (ex: 'ENG'). Vazio = todos os times.",
+          "title": "Team Key",
+          "type": "string"
+        }
+      },
+      "title": "linear_list_issuesArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "integrations",
+    "description": "Atualiza o estado ou assignee de uma issue no Linear.",
+    "destructive": true,
+    "name": "linear_update_issue",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "assignee_id": {
+          "default": "",
+          "description": "ID do usuário a atribuir (opcional).",
+          "title": "Assignee Id",
+          "type": "string"
+        },
+        "issue_id": {
+          "description": "ID ou identificador da issue (ex: 'ENG-123').",
+          "title": "Issue Id",
+          "type": "string"
+        },
+        "state_name": {
+          "default": "",
+          "description": "Nome do novo estado (ex: 'In Progress', 'Done').",
+          "title": "State Name",
+          "type": "string"
+        }
+      },
+      "required": ["issue_id"],
+      "title": "linear_update_issueArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "workspace",
+    "description": "Lista as tarefas em segundo plano desta sessão e o status da última run.",
+    "destructive": false,
+    "name": "list_background_tasks",
+    "render_hint": "default",
+    "schema": {
+      "properties": {},
+      "title": "list_background_tasksArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "computer_use",
+    "description": "Lista janelas locais elegíveis sem capturar conteúdo ou aceitar handles.",
+    "destructive": false,
+    "name": "list_desktop_windows",
+    "render_hint": "json",
+    "schema": {
+      "properties": {},
+      "title": "list_desktop_windowsArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "filesystem",
+    "description": "Lista arquivos em um diretório.",
+    "destructive": false,
+    "name": "list_dir",
+    "render_hint": "table",
+    "schema": {
+      "properties": {
+        "path": {
+          "default": ".",
+          "description": "Caminho do diretório",
+          "title": "Path",
+          "type": "string"
+        },
+        "recursive": {
+          "default": false,
+          "description": "Se True, lista recursivamente",
+          "title": "Recursive",
+          "type": "boolean"
+        }
+      },
+      "title": "list_dirArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "library",
+    "description": "Lista conectores MCP disponíveis para instalar (curados + registry",
+    "destructive": false,
+    "name": "list_mcp_catalog",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "query": {
+          "default": "",
+          "description": "filtro opcional por nome/descrição; vazio lista o começo do",
+          "title": "Query",
+          "type": "string"
+        }
+      },
+      "title": "list_mcp_catalogArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "library",
+    "description": "Lista buckets de memória publicados na Vectora Memory Buckets, com id,",
+    "destructive": false,
+    "name": "list_memory_bucket_catalog",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "query": {
+          "default": "",
+          "description": "filtro opcional por nome/descrição.",
+          "title": "Query",
+          "type": "string"
+        }
+      },
+      "title": "list_memory_bucket_catalogArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "library",
+    "description": "Lista skills disponíveis no catálogo, com id, nome e descrição — use",
+    "destructive": false,
+    "name": "list_skills_catalog",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "query": {
+          "default": "",
+          "description": "filtro opcional por nome/descrição.",
+          "title": "Query",
+          "type": "string"
+        }
+      },
+      "title": "list_skills_catalogArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "filesystem",
+    "description": "Lista os terminais PTY abertos nesta sessão (incluindo os que podem ser assumidos).",
+    "destructive": false,
+    "name": "list_terminals",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {},
+      "title": "list_terminalsArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "rag",
+    "description": "Gerencia documentos indexados no RAG — listar, remover ou limpar.",
+    "destructive": true,
+    "name": "manage_retriever",
+    "render_hint": "table",
+    "schema": {
+      "properties": {
+        "action": {
+          "enum": ["list", "delete", "purge"],
+          "title": "Action",
+          "type": "string"
+        },
+        "collection": {
+          "default": "web_cache",
+          "description": "coleção LanceDB alvo (default: \"web_cache\", o bucket web).",
+          "title": "Collection",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "para action=\"delete\", trecho da URL/source/título a remover",
+          "title": "Source"
+        }
+      },
+      "required": ["action"],
+      "title": "manage_retrieverArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "integrations",
+    "description": "Cria uma nova página no Notion.",
+    "destructive": true,
+    "name": "notion_create_page",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "content": {
+          "default": "",
+          "description": "Conteúdo inicial da página (texto simples).",
+          "title": "Content",
+          "type": "string"
+        },
+        "parent_id": {
+          "description": "ID do database ou página pai onde a página será criada.",
+          "title": "Parent Id",
+          "type": "string"
+        },
+        "title": {
+          "description": "Título da nova página.",
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": ["parent_id", "title"],
+      "title": "notion_create_pageArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "integrations",
+    "description": "Lê o conteúdo de uma página do Notion.",
+    "destructive": false,
+    "name": "notion_read_page",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "page_id": {
+          "description": "ID da página (obtido via notion_search).",
+          "title": "Page Id",
+          "type": "string"
+        }
+      },
+      "required": ["page_id"],
+      "title": "notion_read_pageArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "integrations",
+    "description": "Busca páginas e databases no Notion.",
+    "destructive": false,
+    "name": "notion_search",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "limit": {
+          "default": 10,
+          "description": "Número máximo de resultados (padrão 10).",
+          "title": "Limit",
+          "type": "integer"
+        },
+        "query": {
+          "description": "Termo de busca.",
+          "title": "Query",
+          "type": "string"
+        }
+      },
+      "required": ["query"],
+      "title": "notion_searchArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "filesystem",
+    "description": "Abre uma nova PTY do agente, visível como uma aba na Workbench.",
+    "destructive": true,
+    "name": "open_terminal",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "cols": {
+          "default": 120,
+          "title": "Cols",
+          "type": "integer"
+        },
+        "rows": {
+          "default": 32,
+          "title": "Rows",
+          "type": "integer"
+        }
+      },
+      "title": "open_terminalArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "media",
+    "description": "Inspeciona um arquivo de mídia LOCAL (vídeo/áudio) via ffprobe — sem",
+    "destructive": false,
+    "name": "probe_media",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "path": {
+          "description": "Caminho do arquivo de mídia dentro do workspace.",
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": ["path"],
+      "title": "probe_mediaArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "library",
+    "description": "Publica um bucket RAG local na Vectora Memory Buckets remota — exige",
+    "destructive": true,
+    "name": "publish_memory_bucket_tool",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "bucket_id": {
+          "description": "id do bucket local a publicar (de `list_buckets`).",
+          "title": "Bucket Id",
+          "type": "string"
+        },
+        "description": {
+          "description": "descrição em markdown do conteúdo do bucket.",
+          "title": "Description",
+          "type": "string"
+        },
+        "license": {
+          "default": "CC-BY-4.0",
+          "description": "licença de distribuição (ex.: \"CC-BY-4.0\", \"MIT\").",
+          "title": "License",
+          "type": "string"
+        },
+        "name": {
+          "description": "nome de exibição no catálogo remoto.",
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": ["bucket_id", "name", "description"],
+      "title": "publish_memory_bucket_toolArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "filesystem",
+    "description": "Lê incrementalmente a saída retida de um terminal desta sessão.",
+    "destructive": false,
+    "name": "read_terminal",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cursor"
+        },
+        "max_bytes": {
+          "default": 8192,
+          "title": "Max Bytes",
+          "type": "integer"
+        },
+        "terminal_id": {
+          "title": "Terminal Id",
+          "type": "string"
+        }
+      },
+      "required": ["terminal_id"],
+      "title": "read_terminalArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "native",
+    "description": "Testa regex pattern em text.",
+    "destructive": false,
+    "name": "regex_test",
+    "render_hint": "text",
+    "schema": {
+      "properties": {
+        "pattern": {
+          "title": "Pattern",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": ["pattern", "text"],
+      "title": "regex_testArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "workspace",
+    "description": "Dispara a execução imediata de uma tarefa agendada, sem esperar o",
+    "destructive": false,
+    "name": "run_background_task_now",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "task_id": {
+          "description": "id da tarefa a executar agora.",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["task_id"],
+      "title": "run_background_task_nowArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "memory",
+    "description": "Grava um fato durável proposto por ``learn_from_session`` na memória",
+    "destructive": true,
+    "name": "save_learned_fact",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "fact": {
+          "description": "O fato durável a lembrar, em uma frase.",
+          "title": "Fact",
+          "type": "string"
+        }
+      },
+      "required": ["fact"],
+      "title": "save_learned_factArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "library",
+    "description": "Salva uma variável de ambiente exigida por um conector MCP (ex.: a",
+    "destructive": true,
+    "name": "save_mcp_env_var",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "connector_id": {
+          "description": "id do conector que precisa da variável (só para o log).",
+          "title": "Connector Id",
+          "type": "string"
+        },
+        "key": {
+          "description": "nome da variável de ambiente (ex.: \"GITHUB_TOKEN\").",
+          "title": "Key",
+          "type": "string"
+        },
+        "value": {
+          "description": "valor a salvar.",
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": ["connector_id", "key", "value"],
+      "title": "save_mcp_env_varArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "memory",
+    "description": "Salva uma memória persistente para uso em futuras conversas da mesma sessão.",
+    "destructive": false,
+    "name": "save_memory",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "category": {
+          "anyOf": [
+            {
+              "enum": ["gotcha", "decision", "preference", "rule"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Categoria do fato (gotcha/decision/preference/rule) — opcional,",
+          "title": "Category"
+        },
+        "content": {
+          "description": "Conteúdo da memória (string com informações a recordar)",
+          "title": "Content",
+          "type": "string"
+        },
+        "key": {
+          "description": "Chave única da memória (ex: 'user_preferences', 'project_context')",
+          "title": "Key",
+          "type": "string"
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Metadados adicionais",
+          "title": "Metadata"
+        },
+        "ttl_days": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Dias até expiração (informativo — store básico não garante TTL)",
+          "title": "Ttl Days"
+        }
+      },
+      "required": ["key", "content"],
+      "title": "save_memoryArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "workspace",
+    "description": "Agenda uma SOUL ESPECÍFICA do catálogo — não o agente principal",
+    "destructive": false,
+    "name": "schedule_subagent_task",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "correlation_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "identificador opcional da intenção de delegação —",
+          "title": "Correlation Id"
+        },
+        "description": {
+          "description": "O que a SOUL deve fazer (vira a instrução).",
+          "title": "Description",
+          "type": "string"
+        },
+        "subagent_type": {
+          "description": "nome de uma SOUL do catálogo (ver `SUBAGENT_TYPES`).",
+          "title": "Subagent Type",
+          "type": "string"
+        },
+        "when": {
+          "description": "Horário em linguagem natural (ex.: \"em 30 minutos\", \"daqui 1 hora\").",
+          "title": "When",
+          "type": "string"
+        }
+      },
+      "required": ["subagent_type", "description", "when"],
+      "title": "schedule_subagent_taskArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "workspace",
+    "description": "Agenda uma tarefa recorrente a partir de uma descrição em linguagem",
+    "destructive": false,
+    "name": "schedule_task",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "instruction": {
+          "description": "Instrução completa que o agente executará quando disparar",
+          "title": "Instruction",
+          "type": "string"
+        },
+        "name": {
+          "description": "Nome curto da tarefa (ex: \"Resumo diário de commits\")",
+          "title": "Name",
+          "type": "string"
+        },
+        "when": {
+          "description": "Horário em linguagem natural (ex: \"todo dia às 9h\")",
+          "title": "When",
+          "type": "string"
+        }
+      },
+      "required": ["name", "instruction", "when"],
+      "title": "schedule_taskArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "memory",
+    "description": "Busca semântica em memórias — encontra memórias relevantes por similaridade.",
+    "destructive": false,
+    "name": "search_memory",
+    "render_hint": "search_results",
+    "schema": {
+      "properties": {
+        "limit": {
+          "default": 5,
+          "description": "Máximo de memórias a retornar (padrão: 5)",
+          "title": "Limit",
+          "type": "integer"
+        },
+        "query": {
+          "description": "Texto da busca semântica (ex: \"preferências de código\", \"arquitetura\")",
+          "title": "Query",
+          "type": "string"
+        }
+      },
+      "required": ["query"],
+      "title": "search_memoryArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "computer_use",
+    "description": "Seleciona uma janela descoberta no contexto atual, sem aceitar handles.",
+    "destructive": true,
+    "name": "select_desktop_window",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "window_id": {
+          "title": "Window Id",
+          "type": "string"
+        }
+      },
+      "required": ["window_id"],
+      "title": "select_desktop_windowArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "reasoning",
+    "description": "Registra um passo de raciocínio sequencial antes de agir.",
+    "destructive": false,
+    "name": "sequential_thinking",
+    "render_hint": "thinking_step",
+    "schema": {
+      "properties": {
+        "branch_from_thought": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Bifurca a partir deste número de pensamento",
+          "title": "Branch From Thought"
+        },
+        "branch_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Identificador único para este ramo de raciocínio",
+          "title": "Branch Id"
+        },
+        "is_revision": {
+          "default": false,
+          "description": "True se este pensamento revisa um pensamento anterior",
+          "title": "Is Revision",
+          "type": "boolean"
+        },
+        "next_thought_needed": {
+          "default": true,
+          "description": "False quando o raciocínio está completo",
+          "title": "Next Thought Needed",
+          "type": "boolean"
+        },
+        "revises_thought": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Número do pensamento sendo revisado (se is_revision=True)",
+          "title": "Revises Thought"
+        },
+        "thought": {
+          "description": "O conteúdo do pensamento atual",
+          "title": "Thought",
+          "type": "string"
+        },
+        "thought_number": {
+          "description": "Número sequencial deste pensamento (começa em 1)",
+          "title": "Thought Number",
+          "type": "integer"
+        },
+        "total_thoughts": {
+          "description": "Total estimado de pensamentos para completar a análise",
+          "title": "Total Thoughts",
+          "type": "integer"
+        }
+      },
+      "required": ["thought", "thought_number", "total_thoughts"],
+      "title": "sequential_thinkingArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "integrations",
+    "description": "Lista canais públicos do Slack.",
+    "destructive": false,
+    "name": "slack_list_channels",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "limit": {
+          "default": 20,
+          "description": "Número máximo de canais (padrão 20).",
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "title": "slack_list_channelsArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "integrations",
+    "description": "Lê mensagens recentes de um canal do Slack.",
+    "destructive": false,
+    "name": "slack_read",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "channel": {
+          "description": "ID do canal (ex: 'C01234ABCDE').",
+          "title": "Channel",
+          "type": "string"
+        },
+        "limit": {
+          "default": 20,
+          "description": "Número de mensagens (padrão 20, máx 100).",
+          "title": "Limit",
+          "type": "integer"
+        }
+      },
+      "required": ["channel"],
+      "title": "slack_readArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "integrations",
+    "description": "Envia uma mensagem para um canal do Slack.",
+    "destructive": true,
+    "name": "slack_send",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "channel": {
+          "description": "Nome ou ID do canal (ex: '#geral' ou 'C01234ABCDE').",
+          "title": "Channel",
+          "type": "string"
+        },
+        "message": {
+          "description": "Texto da mensagem.",
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": ["channel", "message"],
+      "title": "slack_sendArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "filesystem",
+    "description": "Executa um comando shell de forma assíncrona (não bloqueia o event loop).",
+    "destructive": true,
+    "name": "terminal",
+    "render_hint": "terminal_output",
+    "schema": {
+      "properties": {
+        "command": {
+          "default": "",
+          "description": "Comando shell para executar. Vazio quando só respondendo",
+          "title": "Command",
+          "type": "string"
+        },
+        "stdin_input": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Texto para escrever no stdin de um comando pendente",
+          "title": "Stdin Input"
+        }
+      },
+      "title": "terminalArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "media",
+    "description": "Converte texto em áudio falado, usando o modelo ativo.",
+    "destructive": false,
+    "name": "text_to_speech",
+    "render_hint": "artifact",
+    "schema": {
+      "properties": {
+        "text": {
+          "description": "Texto a ser falado.",
+          "title": "Text",
+          "type": "string"
+        },
+        "voice": {
+          "default": "",
+          "description": "Nome da voz (opcional; cada provider tem as suas).",
+          "title": "Voice",
+          "type": "string"
+        }
+      },
+      "required": ["text"],
+      "title": "text_to_speechArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "native",
+    "description": "Retorna data/hora atual no timezone especificado.",
+    "destructive": false,
+    "name": "time_now",
+    "render_hint": "text",
+    "schema": {
+      "properties": {
+        "timezone": {
+          "default": "UTC",
+          "description": "Timezone IANA (ex: 'UTC', 'America/Sao_Paulo')",
+          "title": "Timezone",
+          "type": "string"
+        }
+      },
+      "title": "time_nowArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "native",
+    "description": "Parse string para datetime (ISO ou human-readable).",
+    "destructive": false,
+    "name": "time_parse",
+    "render_hint": "text",
+    "schema": {
+      "properties": {
+        "date_string": {
+          "description": "String de data (ex: \"2024-06-21\" ou \"next Monday\")",
+          "title": "Date String",
+          "type": "string"
+        },
+        "format_hint": {
+          "default": "iso",
+          "description": "\"iso\" ou \"human\"",
+          "title": "Format Hint",
+          "type": "string"
+        }
+      },
+      "required": ["date_string"],
+      "title": "time_parseArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "workspace",
+    "description": "Liga ou desliga uma tarefa em segundo plano já existente, sem apagá-la.",
+    "destructive": false,
+    "name": "toggle_background_task",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "enabled": {
+          "description": "``True`` reativa, ``False`` pausa (não dispara mais sozinha).",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "task_id": {
+          "description": "id da tarefa (de ``list_background_tasks``).",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["task_id", "enabled"],
+      "title": "toggle_background_taskArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "media",
+    "description": "Transcreve um áudio LOCAL via faster-whisper — 100% offline, sem",
+    "destructive": false,
+    "name": "transcribe_local",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "language": {
+          "default": "",
+          "description": "Código do idioma (ex: \"pt\", \"en\"). Vazio detecta",
+          "title": "Language",
+          "type": "string"
+        },
+        "path": {
+          "description": "Caminho do arquivo de áudio (WAV/MP3/etc) dentro do workspace.",
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": ["path"],
+      "title": "transcribe_localArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "library",
+    "description": "Desinstala um conector MCP previamente instalado (o inverso de",
+    "destructive": true,
+    "name": "uninstall_mcp",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "connector_id": {
+          "description": "id do conector a remover.",
+          "title": "Connector Id",
+          "type": "string"
+        }
+      },
+      "required": ["connector_id"],
+      "title": "uninstall_mcpArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "rag",
+    "description": "Busca o banco de dados vetorial LanceDB por documentos similares.",
+    "destructive": false,
+    "name": "vector_search",
+    "render_hint": "search_results",
+    "schema": {
+      "properties": {
+        "collection": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Nome de uma tabela LanceDB específica — quando omitido,",
+          "title": "Collection"
+        },
+        "limit": {
+          "default": 5,
+          "description": "Número máximo de resultados a retornar (por coleção, quando",
+          "title": "Limit",
+          "type": "integer"
+        },
+        "query": {
+          "description": "String da consulta de busca",
+          "title": "Query",
+          "type": "string"
+        }
+      },
+      "required": ["query"],
+      "title": "vector_searchArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "library",
+    "description": "Revalida o SKILL.md de uma skill instalada (útil após edição manual",
+    "destructive": false,
+    "name": "verify_skill",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "skill_id": {
+          "description": "id da skill a revalidar.",
+          "title": "Skill Id",
+          "type": "string"
+        }
+      },
+      "required": ["skill_id"],
+      "title": "verify_skillArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "web",
+    "description": "Varre um site a partir de uma URL, seguindo links internos.",
+    "destructive": true,
+    "name": "web_crawl",
+    "render_hint": "search_results",
+    "schema": {
+      "properties": {
+        "instructions": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "orientação em linguagem natural do que procurar.",
+          "title": "Instructions"
+        },
+        "limit": {
+          "default": 20,
+          "description": "teto de páginas processadas.",
+          "title": "Limit",
+          "type": "integer"
+        },
+        "max_depth": {
+          "default": 1,
+          "description": "profundidade máxima (1 a 5).",
+          "title": "Max Depth",
+          "type": "integer"
+        },
+        "url": {
+          "description": "URL raiz da varredura.",
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": ["url"],
+      "title": "web_crawlArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "web",
+    "description": "Mapeia a estrutura de links de um site, sem extrair o conteúdo.",
+    "destructive": true,
+    "name": "web_map",
+    "render_hint": "search_results",
+    "schema": {
+      "properties": {
+        "limit": {
+          "default": 50,
+          "description": "teto de links retornados.",
+          "title": "Limit",
+          "type": "integer"
+        },
+        "url": {
+          "description": "URL raiz do mapeamento.",
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": ["url"],
+      "title": "web_mapArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "web",
+    "description": "Busca a web por informações atuais usando Tavily (otimizado para agentes).",
+    "destructive": false,
+    "name": "web_search",
+    "render_hint": "search_results",
+    "schema": {
+      "properties": {
+        "exclude_domains": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "exclui estes domínios dos resultados",
+          "title": "Exclude Domains"
+        },
+        "include_domains": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "restringe a busca a estes domínios (ex: [\"github.com\"]).",
+          "title": "Include Domains"
+        },
+        "query": {
+          "description": "String da consulta de busca",
+          "title": "Query",
+          "type": "string"
+        },
+        "time_range": {
+          "anyOf": [
+            {
+              "enum": ["day", "week", "month", "year"],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "filtro temporal opcional — \"day\", \"week\", \"month\" ou \"year\"",
+          "title": "Time Range"
+        },
+        "topic": {
+          "default": "general",
+          "description": "\"general\" (padrão), \"news\" (notícias) ou \"finance\" (finanças)",
+          "enum": ["general", "news", "finance"],
+          "title": "Topic",
+          "type": "string"
+        }
+      },
+      "required": ["query"],
+      "title": "web_searchArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "workspace",
+    "description": "Descreve o workspace ativo: base de conhecimento indexada, buckets e tópicos.",
+    "destructive": false,
+    "name": "workspace_describe",
+    "render_hint": "json",
+    "schema": {
+      "properties": {
+        "workspace_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "ID do workspace (usa o workspace do diretório atual se omitido)",
+          "title": "Workspace Id"
+        }
+      },
+      "title": "workspace_describeArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "workspace",
+    "description": "Lista todos os workspaces Vectora registrados.",
+    "destructive": false,
+    "name": "workspace_list",
+    "render_hint": "table",
+    "schema": {
+      "properties": {},
+      "title": "workspace_listArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "filesystem",
+    "description": "Escreve entrada no terminal compartilhado.",
+    "destructive": true,
+    "name": "write_terminal",
+    "render_hint": "code_block",
+    "schema": {
+      "properties": {
+        "input_data": {
+          "title": "Input Data",
+          "type": "string"
+        },
+        "request_id": {
+          "default": "",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "submit": {
+          "default": true,
+          "title": "Submit",
+          "type": "boolean"
+        },
+        "terminal_id": {
+          "title": "Terminal Id",
+          "type": "string"
+        }
+      },
+      "required": ["terminal_id", "input_data"],
+      "title": "write_terminalArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "planning",
+    "description": "Substitui a lista de tarefas inteira (não incremental) — use pra",
+    "destructive": false,
+    "name": "write_todos",
+    "render_hint": "default",
+    "schema": {
+      "$defs": {
+        "TodoItemArg": {
+          "description": "Um item da checklist — mesmo shape de ``backend.engine.stream_events.TodoItem``.",
+          "properties": {
+            "content": {
+              "title": "Content",
+              "type": "string"
+            },
+            "status": {
+              "enum": ["pending", "in_progress", "completed"],
+              "title": "Status",
+              "type": "string"
+            }
+          },
+          "required": ["content", "status"],
+          "title": "TodoItemArg",
+          "type": "object"
+        }
+      },
+      "properties": {
+        "todos": {
+          "description": "lista completa e atualizada de tarefas, cada uma com",
+          "items": {
+            "$ref": "#/$defs/TodoItemArg"
+          },
+          "title": "Todos",
+          "type": "array"
+        }
+      },
+      "required": ["todos"],
+      "title": "write_todosArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "web",
+    "description": "Extrai um frame (print) de um momento específico de um vídeo —",
+    "destructive": false,
+    "name": "youtube_frame_at",
+    "render_hint": "image_preview",
+    "schema": {
+      "properties": {
+        "timestamp_s": {
+          "description": "Segundo exato do frame desejado.",
+          "title": "Timestamp S",
+          "type": "number"
+        },
+        "url": {
+          "description": "URL do vídeo.",
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": ["url", "timestamp_s"],
+      "title": "youtube_frame_atArgs",
+      "type": "object"
+    }
+  }
+]
