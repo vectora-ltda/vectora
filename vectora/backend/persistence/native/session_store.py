@@ -299,14 +299,18 @@ class SessionStore:
         self,
         run_id: str,
         *,
-        status: str,
+        status: str | None = None,
         detail: str | None = None,
         error_code: str | None = None,
         partial_text: str | None = None,
         provider_model: str | None = None,
     ) -> None:
-        """Advance a run state atomically and record its terminal timestamp."""
-        if status not in {
+        """Advance a run state atomically and record its terminal timestamp.
+
+        If `status` is None, preserves the current status and only updates
+        the supplied metadata fields (e.g. `provider_model`).
+        """
+        if status is not None and status not in {
             "queued",
             "running",
             "streaming",
@@ -320,7 +324,9 @@ class SessionStore:
         terminal_at = now if status in {"completed", "failed", "cancelled"} else None
         async with self._pool.acquire() as conn:
             await conn.execute(
-                "UPDATE session_runs SET status = ?, detail = COALESCE(?, detail), "
+                "UPDATE session_runs SET "
+                "status = COALESCE(?, status), "
+                "detail = COALESCE(?, detail), "
                 "error_code = COALESCE(?, error_code), "
                 "partial_text = COALESCE(?, partial_text), updated_at = ?, "
                 "provider_model = COALESCE(?, provider_model), "
@@ -836,10 +842,26 @@ class SessionStore:
             row = await cur.fetchone()
         return int(row[0]) if row is not None else None
 
-    async def latest_assistant_message_id(self, thread_id: str) -> int:
-        """Retorna o cursor monotônico da última resposta assistant."""
+    async def latest_assistant_message_id(
+        self, thread_id: str, run_id: str | None = None
+    ) -> int | None:
+        """Retorna o cursor monotônico da última resposta assistant.
+
+        Se `run_id` for informado, restringe a busca estritamente às mensagens
+        assistant gravadas por esse run específico, retornando `None` se o run
+        não tiver gravado nenhuma resposta assistant.
+        """
         await self.setup()
         async with self._pool.acquire() as conn:
+            if run_id:
+                cur = await conn.execute(
+                    "SELECT MAX(id) FROM messages "
+                    "WHERE thread_id = ? AND run_id = ? AND role = 'assistant'",
+                    (thread_id, run_id),
+                )
+                row = await cur.fetchone()
+                return int(row[0]) if (row is not None and row[0] is not None) else None
+
             cur = await conn.execute(
                 "SELECT COALESCE(MAX(id), 0) FROM messages "
                 "WHERE thread_id = ? AND role = 'assistant'",

@@ -175,8 +175,11 @@ export function ChatInterface({
     )
       return;
     inFlightReadCursorRef.current = cursor;
-    void markThreadRead(threadId, cursor)
+    const targetThreadId = threadId;
+    void markThreadRead(targetThreadId, cursor)
       .then(({ unread_count }) => {
+        // If the user navigated away to another thread, discard the stale callback
+        if (threadId !== targetThreadId) return;
         lastReadCursorRef.current = Math.max(lastReadCursorRef.current, cursor);
         inFlightReadCursorRef.current = null;
         queryClient.setQueryData<{
@@ -185,13 +188,14 @@ export function ChatInterface({
           data
             ? {
                 threads: data.threads.map((item) =>
-                  item.id === threadId ? { ...item, unread_count } : item,
+                  item.id === targetThreadId ? { ...item, unread_count } : item,
                 ),
               }
             : data,
         );
       })
       .catch(() => {
+        if (threadId !== targetThreadId) return;
         inFlightReadCursorRef.current = null;
         if (retriedReadCursorRef.current === cursor) return;
         retriedReadCursorRef.current = cursor;

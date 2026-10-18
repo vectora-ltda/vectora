@@ -9,30 +9,64 @@ from __future__ import annotations
 
 
 def compact_small_model_system_prompt(original: str) -> str:
-    """Return a short, actionable identity contract for small local models.
+    """Return an actionable identity contract for small local models.
 
-    This is deliberately an explicit projection rather than truncating the
-    original prompt: truncation can remove the identity, language and safety
-    rules while retaining irrelevant workbench documentation.
+    Preserves mandatory rules, language constraints, and custom workspace
+    instructions from the original prompt while removing repetitive preambles
+    and verbose workbench documentation that exhaust tiny contexts.
     """
-
     source = original.strip()
+    if not source:
+        return (
+            "Nome: Vectora. Função: assistente de programação. "
+            "Responda seguindo diretamente o pedido do usuário. "
+            "Use ferramentas para alterar arquivos e aguarde o resultado."
+        )
+
+    # 1. Identificar especialização declarativa
     specialization = ""
-    # Keep only a role label. Copying the long SOUL section makes tiny models
-    # loop on repeated identity phrases (the full SOUL remains canonical).
     if "Coder Agent" in source or "filesystem operations" in source:
         specialization = "Perfil: programação, arquivos, terminal, git e memória."
     elif "Search Agent" in source:
         specialization = "Perfil: pesquisa web e leitura de fontes."
 
-    # Avoid repeating an imperative "Você é Vectora" many times: tiny models
-    # commonly copy that phrase instead of answering the user. A declarative
-    # role card is both clearer and substantially more stable for SmolLM2.
-    contract = (
-        "Nome: Vectora. Função: assistente de programação. "
-        "Responda em português e siga diretamente o pedido do usuário. "
-        "Use ferramentas para alterar arquivos e aguarde o resultado."
-    )
+    # 2. Extrair seções essenciais de regras / diretrizes customizadas
+    # Se houver instruções explícitas (ex: <guidelines>, regras, idioma), preservá-las.
+    extracted_rules: list[str] = []
+    lines = [line.strip() for line in source.splitlines() if line.strip()]
+    for line in lines:
+        lower = line.lower()
+        if any(
+            marker in lower
+            for marker in (
+                "idioma:",
+                "language:",
+                "responda em",
+                "sempre responda",
+                "sempre use",
+                "não use",
+                "do not",
+                "never",
+                "regra:",
+                "regras:",
+                "rule:",
+                "rules:",
+                "workspace:",
+                "projeto:",
+            )
+        ):
+            if line not in extracted_rules and len(line) <= 250:
+                extracted_rules.append(line)
+
+    contract_parts = [
+        "Nome: Vectora. Função: assistente de programação.",
+        "Siga diretamente o pedido do usuário e execute as ferramentas necessárias.",
+    ]
     if specialization:
-        contract += "\n" + specialization
-    return contract
+        contract_parts.append(specialization)
+    if extracted_rules:
+        contract_parts.append(
+            "Instruções obrigatórias:\n" + "\n".join(extracted_rules[:8])
+        )
+
+    return "\n".join(contract_parts)

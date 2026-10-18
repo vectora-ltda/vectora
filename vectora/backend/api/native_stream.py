@@ -636,7 +636,13 @@ def stream_engine_events(
                 store = await agent_factory.get_session_store()
                 latest_id = getattr(store, "latest_assistant_message_id", None)
                 if latest_id is not None:
-                    persisted_message_id = await latest_id(thread_id)
+                    # Tenta buscar especificamente a mensagem assistant deste run
+                    try:
+                        persisted_message_id = await latest_id(
+                            thread_id, resolved_run_id
+                        )
+                    except TypeError:
+                        persisted_message_id = await latest_id(thread_id)
             except Exception:
                 logger.debug(
                     "native_stream: não foi possível obter cursor persistido",

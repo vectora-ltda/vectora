@@ -181,14 +181,8 @@ class MediaQuota:
     ) -> QuotaReservation | None:
         if self._postgres_enabled():
             try:
-                return await self._reserve_postgres(
-                    user_id, operation, idempotency_key, units
-                )
+                pool = await self._postgres_pool()
             except (ConnectionError, OSError, socket.gaierror, TimeoutError):
-                # A falha ocorreu ao adquirir o backend remoto, antes de uma
-                # transação. Preserve a operação localmente para que uma
-                # indisponibilidade transitória do Postgres não transforme a
-                # tool em erro; falhas dentro da transação continuam subindo.
                 logger.warning(
                     "media_quota: Postgres indisponível antes da reserva; "
                     "usando SQLite local",
@@ -197,6 +191,9 @@ class MediaQuota:
                 return await asyncio.to_thread(
                     self._reserve, user_id, operation, idempotency_key, units
                 )
+            return await self._reserve_postgres(
+                user_id, operation, idempotency_key, units
+            )
         return await asyncio.to_thread(
             self._reserve, user_id, operation, idempotency_key, units
         )

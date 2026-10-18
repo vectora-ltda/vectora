@@ -926,7 +926,13 @@ async def _install_ollama_from_official_release() -> Path | None:
 
 async def _terminate_ollama_process(process: asyncio.subprocess.Process) -> bool:
     """Terminate an owned Ollama child inside one shared cleanup budget."""
-    global _ollama_cleanup_confirmed
+    global _ollama_cleanup_confirmed, _ollama_log_task
+    if _ollama_log_task is not None and not _ollama_log_task.done():
+        _ollama_log_task.cancel()
+        with suppress(asyncio.CancelledError, Exception):
+            await _ollama_log_task
+        _ollama_log_task = None
+
     loop = asyncio.get_running_loop()
     deadline = _ollama_cleanup_deadline.get()
     if deadline is None:
@@ -936,11 +942,12 @@ async def _terminate_ollama_process(process: asyncio.subprocess.Process) -> bool
     try:
         remaining = max(0.0, deadline - loop.time())
         if remaining:
-            await asyncio.wait_for(process.communicate(), remaining)
+            with suppress(ProcessLookupError):
+                await asyncio.wait_for(process.wait(), remaining)
         confirmed = process.returncode is not None
         _ollama_cleanup_confirmed = confirmed
         return confirmed
-    except (TimeoutError, asyncio.IncompleteReadError, OSError):
+    except (TimeoutError, OSError):
         remaining = max(0.0, deadline - loop.time())
         if remaining <= 0:
             logger.warning("ollama: cleanup expirou sem confirmar o processo")
@@ -2337,8 +2344,9 @@ async def restore_managed_llamacpp() -> bool:
         # parâmetro salvo continua tendo precedência; na ausência dele usamos
         # a janela suportada pelo catálogo atual.
         ctx_size=(
-            max(parameters["ctx_size"], 32768)
+            parameters["ctx_size"]
             if isinstance(parameters.get("ctx_size"), int)
+            and parameters["ctx_size"] > 0
             else 32768
         ),
         n_gpu_layers=parameters.get("n_gpu_layers")

@@ -1161,16 +1161,15 @@ async def stream_chat(
         # an explicit fallback changes the model during a run; otherwise a
         # repeated local answer cannot be attributed to Docker/llama/Ollama.
         actual_model = chat_client.last_model_id or configurable.get("model", "")
-        try:
-            store = await agent_factory.get_session_store()
-            if hasattr(store, "update_run"):
-                await store.update_run(
-                    run_id, status="streaming", provider_model=actual_model
+        if actual_model:
+            try:
+                store = await agent_factory.get_session_store()
+                if hasattr(store, "update_run"):
+                    await store.update_run(run_id, provider_model=actual_model)
+            except Exception:
+                logger.warning(
+                    "api/chat: falha ao registrar provider efetivo", exc_info=True
                 )
-        except Exception:
-            logger.warning(
-                "api/chat: falha ao registrar provider efetivo", exc_info=True
-            )
         from backend.workspace.runtime_settings import runtime_settings
 
         if (

@@ -445,3 +445,30 @@ class TestStreamingToolCallsEUsage:
             "output_tokens": 3,
             "total_tokens": 13,
         }
+
+    async def test_compact_system_prompt_preserva_instrucoes_e_idioma(self):
+        payload_captured = {}
+
+        def handler(req):
+            nonlocal payload_captured
+            payload_captured = json.loads(req.content.decode("utf-8"))
+            return httpx.Response(200, json=_resposta_ok("Ok"))
+
+        client = _client(handler, compact_system_prompt=True)
+        system_text = (
+            "Você é o Vectora Coder Agent com acesso ao sistema.\n"
+            "Idioma: Responda em Espanhol.\n"
+            "Regra: Nunca exclua o arquivo de banco de dados.\n"
+            "Muitas descrições longas sobre a interface e botões que devem ser ignoradas..."
+        )
+        await client.agenerate(
+            [
+                text_message(MessageRole.SYSTEM, system_text),
+                text_message(MessageRole.USER, "ajuda"),
+            ]
+        )
+
+        sys_msg = payload_captured["messages"][0]["content"]
+        assert "Idioma: Responda em Espanhol." in sys_msg
+        assert "Regra: Nunca exclua o arquivo de banco de dados." in sys_msg
+        assert "Muitas descrições longas" not in sys_msg

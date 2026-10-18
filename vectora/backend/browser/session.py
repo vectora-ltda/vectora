@@ -45,8 +45,7 @@ _LOG_MAXLEN = 500
 _sessions: dict[str, dict[str, Any]] = {}
 # A CDP target is a shared process-global object. Keep an explicit ownership
 # map so a second workspace cannot silently select and navigate the first
-# workspace's BrowserView.
-_page_owners: dict[int, str] = {}
+# workspace's BrowserView. Keyed by stable target_id string.
 
 #: Referências às tasks de accept/dismiss de dialog em voo — sem isso o
 #: garbage collector pode coletar a task antes dela rodar (RUF006).
@@ -198,13 +197,37 @@ def _find_agent_page(context: Any) -> Any:
     )
 
 
+_page_owners: dict[str, str] = {}
+
+
+def _page_target_id(page: Any) -> str:
+    """Extrai uma identidade estável do alvo CDP/Chromium associado à página.
+
+    Evita que wrappers Python distintos do Playwright (vindos de conexões CDP
+    separadas por workspace) ignorem o bloqueio de ownership do mesmo alvo.
+    """
+    for attr in ("target_id", "_target_id", "targetId"):
+        val = getattr(page, attr, None)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    target = getattr(page, "target", None)
+    if target is not None:
+        for attr in ("target_id", "_target_id", "targetId"):
+            val = getattr(target, attr, None)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+    # Fallback seguro para dublês de teste puros sem identificador explícito
+    return str(id(page))
+
+
 def _claim_page(page: Any, workspace_id: str) -> None:
-    owner = _page_owners.get(id(page))
+    tid = _page_target_id(page)
+    owner = _page_owners.get(tid)
     if owner is not None and owner != workspace_id:
         raise RuntimeError(
             f"A aba do Browser Workbench já pertence ao workspace '{owner}'"
         )
-    _page_owners[id(page)] = workspace_id
+    _page_owners[tid] = workspace_id
 
 
 async def get_browser_page(workspace_id: str, tab_id: str | None = None) -> Any:
@@ -347,7 +370,7 @@ async def close_tab(workspace_id: str, tab_id: str) -> bool:
         session["active_tab_id"] = blank_id
         return True
     session["tabs"].pop(tab_id, None)
-    _page_owners.pop(id(tab.page), None)
+    _page_owners.pop(_page_target_id(tab.page), None)
     try:
         await tab.page.close()
     except Exception:
@@ -462,7 +485,7 @@ async def close_browser_session(workspace_id: str) -> None:
     if session is None:
         return
     for tab in session.get("tabs", {}).values():
-        _page_owners.pop(id(tab.page), None)
+        _page_owners.pop(_page_target_id(tab.page), None)
     try:
         if session.get("owns_browser", False):
             await session["browser"].close()
