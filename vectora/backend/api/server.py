@@ -690,11 +690,6 @@ def create_app(serve_static: bool = True) -> FastAPI:
 
     app.add_exception_handler(Exception, _log_unhandled_exception)
 
-    # ── Correlation & Contract Version Middleware ─────────────────────────────
-    from backend.api.middleware.correlation import CorrelationMiddleware
-
-    app.add_middleware(CorrelationMiddleware)
-
     # ── Auth middleware ───────────────────────────────────────────────────────
     from backend.api.middleware.auth import AuthMiddleware
 
@@ -728,12 +723,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=[
-            "X-Vectora-Chat-Persisted",
-            "X-Correlation-ID",
-            "X-Request-ID",
-            "X-Vectora-Contract-Version",
-        ],
+        expose_headers=["X-Vectora-Chat-Persisted"],
     )
 
     # ── Routers ───────────────────────────────────────────────────────────────
@@ -793,34 +783,10 @@ def create_app(serve_static: bool = True) -> FastAPI:
         return {"version": "1", "tool_count": len(tools_data), "tools": tools_data}
 
     # ── Health + Metrics ──────────────────────────────────────────────────────
-    from fastapi.responses import JSONResponse
 
     @app.get("/health")
     async def health() -> dict:
         return {"status": "ok", "version": __version__}
-
-    @app.get("/health/live")
-    async def health_live() -> dict:
-        """Liveness probe: processo está vivo e aceitando requisições."""
-        return {"status": "live", "version": __version__}
-
-    @app.get("/health/ready")
-    async def health_ready(response: FastAPIResponse) -> dict:
-        """Readiness probe: verifica se os serviços de persistência e dependências vitais estão prontos."""
-        from backend.storage.factory import storage_health
-
-        storage_status = await storage_health()
-        store_ok = storage_status.get("store", {}).get("ok")
-        lancedb_ok = storage_status.get("lancedb", {}).get("ok")
-
-        is_ready = bool(store_ok and lancedb_ok)
-        response.status_code = 200 if is_ready else 503
-
-        return {
-            "status": "ready" if is_ready else "not_ready",
-            "version": __version__,
-            "storage": storage_status,
-        }
 
     @app.get("/api/updates/changelog")
     async def update_changelog() -> dict[str, str]:

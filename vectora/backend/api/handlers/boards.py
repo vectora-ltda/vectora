@@ -21,8 +21,10 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from backend.api.handlers.background import BoardOut as BackgroundBoardOut
 from backend.scheduling.boards import Board
+
+if TYPE_CHECKING:
+    from backend.api.handlers.background import BoardOut as BackgroundBoardOut
 
 router = APIRouter(prefix="/boards", tags=["boards"])
 
