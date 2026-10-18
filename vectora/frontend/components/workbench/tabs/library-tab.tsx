@@ -6,7 +6,7 @@
  * carregados de cada seção, sem endpoint agregado.
  */
 
-import { Archive, Puzzle, Search, Sparkles } from "lucide-react";
+import { Archive, Package, Puzzle, Search, Sparkles } from "lucide-react";
 import { useCallback, useMemo, useState, type KeyboardEvent } from "react";
 
 import {
@@ -20,13 +20,14 @@ import { useSettingsStore } from "@/lib/stores/settings-store";
 import { McpSection } from "./library-mcp-section";
 import { MemoryBucketsSection } from "./library-memory-buckets-section";
 import { SkillsSection } from "./library-skills-section";
+import { ExtensionsSection } from "./library-extensions-section";
 
 interface LibraryTabProps {
   threadId: string;
 }
 
-type LibraryFilter = "mcp" | "skills" | "memory";
-const LIBRARY_SECTIONS = ["mcp", "skills", "memory"] as const;
+type LibraryFilter = "mcp" | "skills" | "memory" | "extensions";
+const LIBRARY_SECTIONS = ["mcp", "skills", "memory", "extensions"] as const;
 
 /** Item genérico de qualquer seção — cada seção monta a lista completa a
  * partir do seu próprio backend; a busca/filtro aqui só precisa do nome
@@ -105,6 +106,7 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
       ...(showMcp ? (["mcp"] as const) : []),
       ...(showSkills ? (["skills"] as const) : []),
       "memory" as const,
+      "extensions" as const,
     ],
     [showMcp, showSkills],
   );
@@ -191,6 +193,14 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
             onKeyDown={(event) => handleSectionKeyDown(event, "memory")}
             tabIndex={rovingTabSection === "memory" ? 0 : -1}
           />
+          <FilterPill
+            value="extensions"
+            label={m.library_filter_extensions()}
+            active={effectiveSection === "extensions"}
+            onSelect={() => setActiveSection("extensions")}
+            onKeyDown={(event) => handleSectionKeyDown(event, "extensions")}
+            tabIndex={rovingTabSection === "extensions" ? 0 : -1}
+          />
         </div>
       </div>
 
@@ -273,7 +283,35 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
               containerClassName="data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:overflow-hidden"
               className="h-full overflow-y-auto pb-2 pl-2 pr-1"
             >
-              <MemoryBucketsSection query={query} />
+              <MemoryBucketsSection
+                query={query}
+                onCountChange={() => undefined}
+              />
+            </AccordionContent>
+          </AccordionItem>
+          <AccordionItem
+            value="extensions"
+            className="shrink-0 border-b-0 data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:flex-col"
+          >
+            <AccordionTrigger className="min-h-[49px] gap-2 px-2.5 py-3.5 hover:no-underline">
+              <span className="flex min-w-0 items-center gap-2">
+                <Package className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="truncate text-sm leading-5">
+                  {m.library_section_extensions()}
+                </span>
+              </span>
+            </AccordionTrigger>
+            <AccordionContent
+              id="library-panel-extensions"
+              role="tabpanel"
+              aria-labelledby="library-tab-extensions"
+              containerClassName="data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:overflow-hidden"
+              className="h-full overflow-y-auto pb-2 pl-2 pr-1"
+            >
+              <ExtensionsSection
+                query={query}
+                onCountChange={() => undefined}
+              />
             </AccordionContent>
           </AccordionItem>
         </Accordion>

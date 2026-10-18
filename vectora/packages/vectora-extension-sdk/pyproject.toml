@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vectora-extension-sdk"
+version = "0.1.0"
+description = "Python SDK contracts for Vectora VEXT extensions"
+requires-python = ">=3.13"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vectora_extension"]

@@ -18,6 +18,7 @@ interface MarkdownPreviewDialogProps {
   onOpenChange: (open: boolean) => void;
   filePath?: string;
   content?: string;
+  assetBaseUrl?: string;
 }
 
 export function MarkdownPreviewDialog({
@@ -25,6 +26,7 @@ export function MarkdownPreviewDialog({
   onOpenChange,
   filePath,
   content: initialContent,
+  assetBaseUrl,
 }: MarkdownPreviewDialogProps) {
   const [content, setContent] = useState<string | null>(initialContent ?? null);
   const [isLoading, setIsLoading] = useState(false);
@@ -57,7 +59,7 @@ export function MarkdownPreviewDialog({
               {m.workbench_preview_md_loading()}
             </div>
           ) : content ? (
-            <MarkdownView content={content} />
+            <MarkdownView content={content} assetBaseUrl={assetBaseUrl} />
           ) : (
             <div className="p-4 text-muted-foreground">
               {m.workbench_preview_md_empty()}
