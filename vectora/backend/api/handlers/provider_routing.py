@@ -928,18 +928,29 @@ async def _install_ollama_from_official_release() -> Path | None:
 async def _terminate_ollama_process(process: asyncio.subprocess.Process) -> bool:
     """Terminate an owned Ollama child inside one shared cleanup budget."""
     global _ollama_cleanup_confirmed, _ollama_log_task
-    if _ollama_log_task is not None and not _ollama_log_task.done():
-        _ollama_log_task.cancel()
-        with suppress(asyncio.CancelledError, Exception):
-            await _ollama_log_task
-        _ollama_log_task = None
-
     loop = asyncio.get_running_loop()
     deadline = _ollama_cleanup_deadline.get()
     # Cleanup budget is always capped at OLLAMA_CLEANUP_TIMEOUT_SECONDS
     max_cleanup_deadline = loop.time() + OLLAMA_CLEANUP_TIMEOUT_SECONDS
     if deadline is None or deadline > max_cleanup_deadline:
         deadline = max_cleanup_deadline
+
+    if _ollama_log_task is not None and not _ollama_log_task.done():
+        _ollama_log_task.cancel()
+        remaining_log = max(0.0, deadline - loop.time())
+        try:
+            if remaining_log > 0:
+                async with asyncio.timeout(remaining_log):
+                    with suppress(asyncio.CancelledError, Exception):
+                        await _ollama_log_task
+            else:
+                with suppress(asyncio.CancelledError, Exception):
+                    _ollama_log_task.cancel()
+        except TimeoutError:
+            logger.warning("ollama: timeout aguardando cancelamento da task de log")
+        if _ollama_log_task.done():
+            _ollama_log_task = None
+
     with suppress(ProcessLookupError):
         process.kill()
 

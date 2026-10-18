@@ -19,7 +19,7 @@ import json
 import os
 import zipfile
 from collections.abc import Callable, Generator, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -802,6 +802,42 @@ class TestOllamaDiscovery:
         body = resp.json()
         assert body["reachable"] is True
         assert [m["name"] for m in body["models"]] == ["qwen3:8b", "llama3.1:8b"]
+
+    @pytest.mark.asyncio
+    async def test_terminate_ollama_process_bounds_log_task_within_budget(
+        self, monkeypatch
+    ):
+        from backend.api.handlers import provider_routing
+
+        # Cria uma task de log demorada que não conclui imediatamente
+        async def slow_logger():
+            try:
+                await asyncio.sleep(100)
+            except asyncio.CancelledError:
+                await asyncio.sleep(100)
+
+        log_task = asyncio.create_task(slow_logger())
+        monkeypatch.setattr(provider_routing, "_ollama_log_task", log_task)
+
+        fake_process = MagicMock()
+        fake_process.kill = MagicMock()
+        fake_process.wait = AsyncMock(return_value=None)
+        fake_process.returncode = 0
+
+        # Define um deadline muito curto no ContextVar
+        loop = asyncio.get_running_loop()
+        token = provider_routing._ollama_cleanup_deadline.set(loop.time() + 0.1)
+        try:
+            confirmed = await provider_routing._terminate_ollama_process(fake_process)
+            assert confirmed is True
+            assert fake_process.kill.called
+            # A task de log teve cancelamento solicitado
+            assert log_task.cancelling() or log_task.cancelled()
+        finally:
+            provider_routing._ollama_cleanup_deadline.reset(token)
+            log_task.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await log_task
 
 
 class TestOllamaRegisteredModels:

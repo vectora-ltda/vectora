@@ -516,3 +516,42 @@ class TestStreamingToolCallsEUsage:
         assert "- read and write files" not in sys_msg
         assert "### Segurança" in sys_msg
         assert "Execute testes antes de concluir." in sys_msg
+
+    async def test_compact_system_prompt_hierarquia_markdown_e_mencao_em_instrucao(
+        self,
+    ):
+        payload_captured = {}
+
+        def handler(req):
+            nonlocal payload_captured
+            payload_captured = json.loads(req.content.decode("utf-8"))
+            return httpx.Response(200, json=_resposta_ok("Ok"))
+
+        client = _client(handler, compact_system_prompt=True)
+        system_text = (
+            "Você é o assistente.\n"
+            "Não altere a seção ### Tools sem autorização prévia.\n"
+            "### Tools\n"
+            "#### Terminal\n"
+            "Documentação extensa do terminal que deve ser descartada.\n"
+            "##### Subseção profunda do terminal\n"
+            "Mais detalhes técnicos irrelevantes.\n"
+            "### Políticas do Usuário\n"
+            "Siga rigorosamente as orientações da equipe.\n"
+        )
+        await client.agenerate(
+            [
+                text_message(MessageRole.SYSTEM, system_text),
+                text_message(MessageRole.USER, "olá"),
+            ]
+        )
+
+        sys_msg = payload_captured["messages"][0]["content"]
+        # A menção inline a "### Tools" NÃO deve ter sido tratada como cabeçalho descartável
+        assert "Não altere a seção ### Tools sem autorização prévia." in sys_msg
+        # Subseções (#### e #####) dentro de ### Tools DEVEM ser descartadas
+        assert "Documentação extensa do terminal" not in sys_msg
+        assert "Mais detalhes técnicos irrelevantes" not in sys_msg
+        # Cabeçalho de mesmo nível (### Políticas do Usuário) encerra o descarte
+        assert "### Políticas do Usuário" in sys_msg
+        assert "Siga rigorosamente as orientações da equipe." in sys_msg

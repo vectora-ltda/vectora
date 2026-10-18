@@ -42,10 +42,6 @@ def compact_small_model_system_prompt(original: str) -> str:
     discardable_doc_headers = (
         "## identity",
         "### tools",
-        "#### 🗂️ filesystem",
-        "#### 📚 rag and indexing",
-        "#### 🧠 memory",
-        "#### 🌐 browser",
         "### available workbenches",
         "### how vectora works",
         "### tech stack",
@@ -54,12 +50,37 @@ def compact_small_model_system_prompt(original: str) -> str:
         "### general capabilities",
     )
 
+    discardable_header_level: int | None = None
+
     for line in lines:
         lower = line.lower()
 
-        # Identifica blocos de documentação explicitamente descartáveis (catálogo de tools / workbench)
-        if any(doc_header in lower for doc_header in discardable_doc_headers):
+        # Determina se a linha é um cabeçalho Markdown legítimo
+        header_level = 0
+        if line.startswith("#"):
+            stripped_hashes = line.lstrip("#")
+            if stripped_hashes.startswith(" "):
+                header_level = len(line) - len(stripped_hashes)
+
+        # Se estamos dentro de um bloco descartável e encontramos um cabeçalho Markdown
+        # de nível menor ou igual (ex: ### Segurança após ### Tools, ou ## Outra Seção),
+        # fechamos o bloco descartável.
+        if (
+            header_level > 0
+            and discardable_header_level is not None
+            and header_level <= discardable_header_level
+        ):
+            in_discardable_doc_block = False
+            discardable_header_level = None
+
+        # Identifica cabeçalhos que iniciam blocos de documentação explicitamente descartáveis
+        if header_level > 0 and any(
+            lower == doc_header
+            or lower.startswith((doc_header + " ", doc_header + "\t"))
+            for doc_header in discardable_doc_headers
+        ):
             in_discardable_doc_block = True
+            discardable_header_level = header_level
             in_guideline_block = False
             continue
 
@@ -76,16 +97,12 @@ def compact_small_model_system_prompt(original: str) -> str:
         ):
             in_guideline_block = True
             in_discardable_doc_block = False
+            discardable_header_level = None
             continue
 
         if any(tag in lower for tag in ("</guidelines>", "## your role")):
             in_guideline_block = False
             continue
-
-        # Se encontrar outro cabeçalho Markdown de mesmo nível ou superior (#, ##, ###)
-        # que não seja um dos blocos descartáveis de documentação, fecha o bloco descartável
-        if line.startswith("#"):
-            in_discardable_doc_block = False
 
         if in_guideline_block:
             if line not in extracted_rules and line not in {
