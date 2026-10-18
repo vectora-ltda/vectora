@@ -2434,12 +2434,23 @@
       },
       "GetHistoryResponse": {
         "properties": {
+          "last_seq": {
+            "default": 0,
+            "title": "Last Seq",
+            "type": "integer"
+          },
           "messages": {
             "items": {
               "$ref": "#/components/schemas/HistoryMessage"
             },
             "title": "Messages",
             "type": "array"
+          },
+          "run_status": {
+            "default": "idle",
+            "enum": ["running", "awaiting_approval", "failed", "idle"],
+            "title": "Run Status",
+            "type": "string"
           },
           "todos": {
             "items": {
@@ -3261,6 +3272,17 @@
             "title": "Edited Files",
             "type": "array"
           },
+          "finish_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finish Reason"
+          },
           "message_id": {
             "anyOf": [
               {
@@ -3275,6 +3297,39 @@
           "role": {
             "title": "Role",
             "type": "string"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seq"
+          },
+          "turn_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Id"
           }
         },
         "required": ["role", "content"],
@@ -4314,6 +4369,17 @@
       },
       "MarkThreadReadRequest": {
         "properties": {
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
           "read_message_id": {
             "anyOf": [
               {
@@ -4324,6 +4390,17 @@
               }
             ],
             "title": "Read Message Id"
+          },
+          "seen_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seen Seq"
           }
         },
         "title": "MarkThreadReadRequest",
@@ -4911,12 +4988,23 @@
             "title": "Has More",
             "type": "boolean"
           },
+          "last_seq": {
+            "default": 0,
+            "title": "Last Seq",
+            "type": "integer"
+          },
           "messages": {
             "items": {
               "$ref": "#/components/schemas/HistoryMessage"
             },
             "title": "Messages",
             "type": "array"
+          },
+          "run_status": {
+            "default": "idle",
+            "enum": ["running", "awaiting_approval", "failed", "idle"],
+            "title": "Run Status",
+            "type": "string"
           },
           "total_count": {
             "title": "Total Count",
@@ -7026,6 +7114,21 @@
             "title": "Id",
             "type": "string"
           },
+          "last_message": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ThreadLastMessagePreview"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_seq": {
+            "default": 0,
+            "title": "Last Seq",
+            "type": "integer"
+          },
           "mode": {
             "default": "dev",
             "title": "Mode",
@@ -7036,6 +7139,11 @@
             "title": "Pinned",
             "type": "boolean"
           },
+          "read_seq": {
+            "default": 0,
+            "title": "Read Seq",
+            "type": "integer"
+          },
           "remote_activity": {
             "anyOf": [
               {
@@ -7045,6 +7153,12 @@
                 "type": "null"
               }
             ]
+          },
+          "status": {
+            "default": "idle",
+            "enum": ["running", "awaiting_approval", "failed", "idle"],
+            "title": "Status",
+            "type": "string"
           },
           "title": {
             "default": "",
@@ -7068,6 +7182,29 @@
         },
         "required": ["id", "created_at", "updated_at"],
         "title": "Thread",
+        "type": "object"
+      },
+      "ThreadLastMessagePreview": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "message_id": {
+            "title": "Message Id",
+            "type": "integer"
+          },
+          "preview": {
+            "title": "Preview",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": ["role", "preview", "message_id", "created_at"],
+        "title": "ThreadLastMessagePreview",
         "type": "object"
       },
       "ThreadPinsResponse": {
@@ -18223,6 +18360,71 @@
         "summary": "List Thread Checkpoints"
       }
     },
+    "/threads/{thread_id}/events": {
+      "get": {
+        "description": "Stream SSE de eventos do ledger da thread com suporte a Last-Event-ID / from_seq.",
+        "operationId": "stream_thread_ledger_events_threads__thread_id__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "title": "Thread Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from_seq",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "From Seq",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Last-Event-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stream Thread Ledger Events"
+      }
+    },
     "/threads/{thread_id}/history": {
       "get": {
         "description": "Histórico paginado de mensagens de uma thread.\n\nRetorna as ``limit`` mensagens mais recentes (excluindo as ``offset`` mais\nrecentes), em ordem cronológica. ``has_more=True`` quando existem mensagens\nmais antigas além das retornadas.",
@@ -18341,7 +18543,7 @@
     },
     "/threads/{thread_id}/read": {
       "post": {
-        "description": "Confirma a leitura da thread de modo idempotente e por usuário.",
+        "description": "Confirma a leitura da thread de modo idempotente e por usuário/dispositivo.",
         "operationId": "mark_thread_read_threads__thread_id__read_post",
         "parameters": [
           {

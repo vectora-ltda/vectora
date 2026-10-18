@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 from backend.persistence.native.ledger import (
     LedgerEventType,
@@ -906,7 +906,49 @@ class SessionStore:
             created_at,
         ) = row
         if expires_at and expires_at <= _now():
-            await self.clear_pending_approval(thread_id)
+            agora = _now()
+            async with self._pool.acquire() as conn:
+                await conn.execute("BEGIN IMMEDIATE")
+                try:
+                    await conn.execute(
+                        "DELETE FROM pending_approvals WHERE thread_id = ?",
+                        (thread_id,),
+                    )
+                    cur_max = await conn.execute(
+                        "SELECT COALESCE(MAX(seq), 0) FROM thread_events WHERE thread_id = ?",
+                        (thread_id,),
+                    )
+                    row_max = await cur_max.fetchone()
+                    current_seq = (int(row_max[0]) if row_max else 0) + 1
+                    resolved_key = make_approval_resolved_key(interrupt_id)
+                    payload = {
+                        "tool_name": tool_name,
+                        "tool_call_id": tool_call_id,
+                        "interrupt_id": interrupt_id,
+                        "expired": True,
+                    }
+                    await conn.execute(
+                        "INSERT INTO thread_events (thread_id, seq, event_key, type, "
+                        "turn_id, run_id, message_id, tool_call_id, interrupt_id, payload_json, created_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                        "ON CONFLICT(thread_id, event_key) DO NOTHING",
+                        (
+                            thread_id,
+                            current_seq,
+                            resolved_key,
+                            "approval_resolved",
+                            None,
+                            None,
+                            None,
+                            tool_call_id,
+                            interrupt_id,
+                            json.dumps(payload, ensure_ascii=False),
+                            agora,
+                        ),
+                    )
+                    await conn.commit()
+                except Exception:
+                    await conn.rollback()
             return None
         return {
             "interrupt_id": interrupt_id,
@@ -952,9 +994,7 @@ class SessionStore:
                     expires_at,
                     created_at,
                 ) = row
-                if expires_at and expires_at <= _now():
-                    await conn.commit()
-                    return None
+                is_expired = bool(expires_at and expires_at <= _now())
 
                 # Obter próximo seq do ledger
                 cur_max = await conn.execute(
@@ -969,6 +1009,7 @@ class SessionStore:
                     "tool_name": tool_name,
                     "tool_call_id": tool_call_id,
                     "interrupt_id": claimed_id,
+                    "expired": is_expired,
                 }
                 await conn.execute(
                     "INSERT INTO thread_events (thread_id, seq, event_key, type, "
@@ -993,6 +1034,9 @@ class SessionStore:
             except Exception:
                 await conn.rollback()
                 raise
+
+        if is_expired:
+            return None
 
         return {
             "interrupt_id": claimed_id,
@@ -1244,6 +1288,35 @@ class SessionStore:
                 await conn.rollback()
                 raise
 
+    async def append_ledger_event(
+        self,
+        thread_id: str,
+        *,
+        event_key: str,
+        event_type: LedgerEventType | str,
+        run_id: str | None = None,
+        turn_id: str | None = None,
+        message_id: int | None = None,
+        tool_call_id: str | None = None,
+        interrupt_id: str | None = None,
+        payload: dict[str, Any] | None = None,
+        created_at: str | None = None,
+    ) -> ThreadLedgerEvent:
+        """Helper para registrar eventos no ledger usando argumentos nomeados."""
+        event = ThreadLedgerEvent(
+            thread_id=thread_id,
+            event_key=event_key,
+            type=cast("LedgerEventType", event_type),
+            run_id=run_id,
+            turn_id=turn_id,
+            message_id=message_id,
+            tool_call_id=tool_call_id,
+            interrupt_id=interrupt_id,
+            payload=payload or {},
+            created_at=created_at or _now(),
+        )
+        return await self.append_event(thread_id, event)
+
     async def list_events(
         self, thread_id: str, *, after_seq: int = 0, limit: int = 500
     ) -> list[ThreadLedgerEvent]:
@@ -1310,23 +1383,15 @@ class SessionStore:
             )
             row_max = await cur_max.fetchone()
             max_seq = int(row_max[0]) if row_max else 0
-            clamped_seq = min(seen_seq, max_seq)
-
-            cur_cur = await conn.execute(
-                "SELECT last_seen_seq FROM thread_event_cursors "
-                "WHERE thread_id = ? AND user_id = ? AND device_id = ?",
-                (thread_id, user_id, device_id),
-            )
-            row_cur = await cur_cur.fetchone()
-            existing_seq = int(row_cur[0]) if row_cur else 0
-            final_seq = max(existing_seq, clamped_seq)
+            clamped_seq = max(0, min(seen_seq, max_seq))
 
             await conn.execute(
                 "INSERT INTO thread_event_cursors (thread_id, user_id, device_id, last_seen_seq, updated_at) "
                 "VALUES (?, ?, ?, ?, ?) "
                 "ON CONFLICT(thread_id, user_id, device_id) DO UPDATE SET "
-                "last_seen_seq = excluded.last_seen_seq, updated_at = excluded.updated_at",
-                (thread_id, user_id, device_id, final_seq, now),
+                "last_seen_seq = MAX(thread_event_cursors.last_seen_seq, excluded.last_seen_seq), "
+                "updated_at = excluded.updated_at",
+                (thread_id, user_id, device_id, clamped_seq, now),
             )
             await conn.commit()
 
@@ -1337,7 +1402,7 @@ class SessionStore:
                 "read_seq": summaries[0].read_seq,
                 "unread_count": summaries[0].unread_count,
             }
-        return {"read_seq": final_seq, "unread_count": 0}
+        return {"read_seq": clamped_seq, "unread_count": 0}
 
     async def get_thread_summaries(
         self, thread_ids: list[str], *, user_id: str
@@ -1439,6 +1504,10 @@ class SessionStore:
                     break
                 if ev.type == "run_failed":
                     status = "failed"
+                    break
+                if ev.type == "approval_resolved":
+                    is_exp = bool(ev.payload.get("expired", False))
+                    status = "idle" if is_exp else "running"
                     break
                 if ev.type == "approval_requested":
                     status = "awaiting_approval"
