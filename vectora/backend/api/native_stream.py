@@ -20,7 +20,7 @@ import logging
 import time
 import uuid
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 from backend.api.adapters import (
     _mark_thread_has_content,
@@ -133,7 +133,7 @@ async def _persist_terminal_outcome(
     thread_id: str,
     run_id: str,
     *,
-    status: Literal["failed", "cancelled"],
+    status: str,
     detail: str,
 ) -> None:
     """Make provider failures/cancellations visible in the durable history.
@@ -161,7 +161,7 @@ async def _persist_terminal_outcome(
         if hasattr(store, "update_agent_run_status"):
             await store.update_agent_run_status(
                 run_id,
-                status=status,
+                status=status,  # type: ignore
                 detail=detail,
             )
         turn_id = f"{run_id}:terminal"
@@ -380,12 +380,7 @@ def stream_engine_events(
             },
         )
 
-        empty_model_response = False
-
         async def on_event(event: EngineEvent) -> None:
-            nonlocal empty_model_response
-            if isinstance(event, ErrorSignal) and event.code == "EMPTY_MODEL_RESPONSE":
-                empty_model_response = True
             await queue.put(event)
 
         async def _runner() -> None:
@@ -431,18 +426,11 @@ def stream_engine_events(
                         detail="A execução foi cancelada antes de produzir uma resposta.",
                     )
                 elif stopped_reason == "stop":
-                    if empty_model_response:
-                        await _persist_terminal_outcome(
-                            thread_id,
-                            resolved_run_id,
-                            status="failed",
-                            detail="O provedor LLM encerrou o stream sem retornar texto ou ferramenta.",
-                        )
-                    else:
-                        await _update_persisted_run(
-                            resolved_run_id,
-                            status="completed",
-                        )
+                    await _update_persisted_run(
+                        resolved_run_id,
+                        status="completed",
+                        detail="Execução concluída.",
+                    )
                 await queue.put(_SENTINEL)
 
         term_queue: asyncio.Queue[str] = asyncio.Queue()
@@ -620,35 +608,28 @@ def stream_engine_events(
                     detail="A execução foi cancelada antes de produzir uma resposta.",
                 )
             elif stopped_reason == "stop":
-                if empty_model_response:
-                    await _persist_terminal_outcome(
-                        thread_id,
-                        resolved_run_id,
-                        status="failed",
-                        detail="O provedor LLM encerrou o stream sem retornar texto ou ferramenta.",
-                    )
-                else:
-                    await _update_persisted_run(
-                        resolved_run_id,
-                        status="completed",
-                        partial_text=accumulated_partial_content,
-                    )
-                    t = asyncio.ensure_future(_clear_partial(thread_id))
-                    background_tasks.add(t)
-                    t.add_done_callback(background_tasks.discard)
+                await _update_persisted_run(
+                    resolved_run_id,
+                    status="completed",
+                    detail="Execução concluída.",
+                    partial_text=accumulated_partial_content,
+                )
+                t = asyncio.ensure_future(_clear_partial(thread_id))
+                background_tasks.add(t)
+                t.add_done_callback(background_tasks.discard)
 
-                    if workspace_id:
-                        await _record_turn_checkpoint(
-                            workspace_id, thread_id, {"run_id": str(uuid.uuid4())}
-                        )
-
-                    from backend.services.remember_trigger import maybe_trigger_remember
-
-                    t2 = asyncio.ensure_future(
-                        maybe_trigger_remember(thread_id, user_id or "local")
+                if workspace_id:
+                    await _record_turn_checkpoint(
+                        workspace_id, thread_id, {"run_id": str(uuid.uuid4())}
                     )
-                    background_tasks.add(t2)
-                    t2.add_done_callback(background_tasks.discard)
+
+                from backend.services.remember_trigger import maybe_trigger_remember
+
+                t2 = asyncio.ensure_future(
+                    maybe_trigger_remember(thread_id, user_id or "local")
+                )
+                background_tasks.add(t2)
+                t2.add_done_callback(background_tasks.discard)
 
         except Exception as exc:
             logger.exception("native_stream: erro no stream nativo")
