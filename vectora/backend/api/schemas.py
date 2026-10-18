@@ -632,6 +632,13 @@ class RemoteActivity(BaseModel):
     last_active_at: str
 
 
+class ThreadLastMessagePreview(BaseModel):
+    role: str
+    preview: str
+    message_id: int
+    created_at: str
+
+
 class Thread(BaseModel):
     id: str
     created_at: str
@@ -642,12 +649,20 @@ class Thread(BaseModel):
     pinned: bool = False
     unread_count: int = 0
     remote_activity: RemoteActivity | None = None
+    last_message: ThreadLastMessagePreview | None = None
+    status: Literal["running", "awaiting_approval", "failed", "idle"] = "idle"
+    last_seq: int = 0
+    read_seq: int = 0
 
 
 class HistoryMessage(BaseModel):
     role: str
     content: str
     message_id: int | None = None
+    seq: int | None = None
+    turn_id: str | None = None
+    run_id: str | None = None
+    finish_reason: str | None = None
     created_at: str = ""
     # Checkpoint pai (estado do thread imediatamente antes desta mensagem
     # existir) — alvo de fork pra "editar e reenviar"/"regenerar". Vazio
@@ -668,12 +683,16 @@ class GetHistoryResponse(BaseModel):
     # seção "Tasks" do Plan tab num reload de página. Vazio quando a thread
     # nunca chamou write_todos.
     todos: list[TodoItem] = Field(default_factory=list)
+    run_status: Literal["running", "awaiting_approval", "failed", "idle"] = "idle"
+    last_seq: int = 0
 
 
 class PagedHistoryResponse(BaseModel):
     messages: list[HistoryMessage]
     has_more: bool
     total_count: int
+    run_status: Literal["running", "awaiting_approval", "failed", "idle"] = "idle"
+    last_seq: int = 0
 
 
 class ConversationBranch(BaseModel):
