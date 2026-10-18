@@ -15,18 +15,9 @@ Cada Protocol tem um método ``health() -> HealthResult`` que retorna
 
 from __future__ import annotations
 
-from typing import Any, Protocol, TypedDict, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
-# ---------------------------------------------------------------------------
-# HealthResult
-# ---------------------------------------------------------------------------
-
-
-class HealthResult(TypedDict):
-    """Resultado de uma verificação de saúde de backend."""
-
-    ok: bool
-    error: str | None
+from backend.vtypes.storage import HealthResult
 
 
 def _ok() -> HealthResult:

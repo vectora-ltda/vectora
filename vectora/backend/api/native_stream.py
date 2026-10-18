@@ -37,7 +37,13 @@ from backend.api.schemas import (
     encode_event,
 )
 from backend.engine.sse_adapter import to_sse_line
-from backend.engine.stream_events import HitlRequested, MessageChunk, SubagentOutput
+from backend.engine.stream_events import (
+    ErrorSignal,
+    HitlRequested,
+    MessageChunk,
+    SubagentOutput,
+)
+from backend.vtypes.message import ContentBlock, MessageRole, VMessage
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable
@@ -123,6 +129,95 @@ async def _record_subagent(
         logger.exception("native_stream: falha ao registrar delegação de subagente")
 
 
+async def _persist_terminal_outcome(
+    thread_id: str,
+    run_id: str,
+    *,
+    status: str,
+    detail: str,
+) -> None:
+    """Make provider failures/cancellations visible in the durable history.
+
+    A stream can fail after the user message has already been committed and
+    before the conversation loop emits an assistant message.  Persisting the
+    terminal outcome closes that gap without manufacturing a successful
+    assistant response.  ``turn_id`` makes retries idempotent at the SQLite
+    constraint and the existing branch-head transaction keeps the outcome in
+    the same conversation chain.
+    """
+    if not run_id:
+        return
+    try:
+        from backend.services import agent_factory
+
+        store = await agent_factory.get_session_store()
+        if hasattr(store, "update_run"):
+            await store.update_run(
+                run_id,
+                status=status,
+                detail=detail,
+                partial_text="",
+            )
+        turn_id = f"{run_id}:terminal"
+        if await store.get_message_id_by_turn_id(thread_id, turn_id) is not None:
+            return
+        parent_id = await store.get_branch_head_id(thread_id)
+        label = "falha" if status == "failed" else "cancelado"
+        message = VMessage(
+            role=MessageRole.ASSISTANT,
+            content=[
+                ContentBlock(
+                    kind="text",
+                    text=f"[{label}] {detail}" if detail else f"[{label}]",
+                )
+            ],
+            finish_reason=status,
+            is_error=True,
+        )
+        await store.append_message(
+            thread_id,
+            message,
+            parent_message_id=parent_id,
+            turn_id=turn_id,
+            run_id=run_id,
+        )
+    except Exception:
+        # The original provider error must remain the primary failure.  A
+        # persistence outage is logged and surfaced to reconciliation instead
+        # of replacing the stream's diagnostic.
+        logger.exception(
+            "native_stream: falha ao persistir desfecho terminal",
+            extra={"thread_id": thread_id, "run_id": run_id, "status": status},
+        )
+
+
+async def _update_persisted_run(
+    run_id: str,
+    *,
+    status: str,
+    detail: str | None = None,
+    partial_text: str | None = None,
+) -> None:
+    if not run_id:
+        return
+    try:
+        from backend.services import agent_factory
+
+        store = await agent_factory.get_session_store()
+        if hasattr(store, "update_run"):
+            await store.update_run(
+                run_id,
+                status=status,
+                detail=detail,
+                partial_text=partial_text,
+            )
+    except Exception:
+        logger.exception(
+            "native_stream: falha ao atualizar estado persistido do run",
+            extra={"run_id": run_id, "status": status},
+        )
+
+
 def stream_engine_events(
     run: Callable[[EventSink], Awaitable[str]],
     *,
@@ -131,6 +226,7 @@ def stream_engine_events(
     http_request: Request | None = None,
     user_id: str | None = None,
     run_id: str | None = None,
+    provider_model: str | None = None,
 ) -> AsyncGenerator[str]:
     """AsyncGenerator SSE a partir de uma chamada ao motor nativo.
 
@@ -180,6 +276,27 @@ def stream_engine_events(
         # the consumer loop below is entered.
         try:
             resolved_run_id = run_id or uuid.uuid4().hex
+            if run_id:
+                try:
+                    from backend.services import agent_factory
+
+                    store = await agent_factory.get_session_store()
+                    if hasattr(store, "start_run"):
+                        await store.start_run(
+                            thread_id,
+                            resolved_run_id,
+                            detail="Provider ainda não iniciado.",
+                            provider_model=provider_model,
+                        )
+                except Exception as exc:
+                    logger.exception(
+                        "native_stream: falha ao registrar início do run",
+                        extra={"thread_id": thread_id, "run_id": resolved_run_id},
+                    )
+                    raise RuntimeError(
+                        "Não foi possível persistir o início da execução; "
+                        "o provider não será iniciado."
+                    ) from exc
             turn_snapshot = await asyncio.to_thread(
                 capture, workspace_id, thread_id, resolved_run_id
             )
@@ -205,6 +322,19 @@ def stream_engine_events(
         run_error: BaseException | None = None
         stopped_reason = "stop"
         turn_files_payload: list[dict[str, object]] = []
+        event_count = 0
+        message_chunk_count = 0
+        streamed_content_chars = 0
+
+        logger.info(
+            "native_stream_started",
+            extra={
+                "thread_id": thread_id,
+                "workspace_id": workspace_id or "",
+                "run_id": resolved_run_id,
+                "user_id": user_id or "",
+            },
+        )
 
         async def on_event(event: EngineEvent) -> None:
             await queue.put(event)
@@ -215,6 +345,7 @@ def stream_engine_events(
                 stopped_reason = await run(on_event)
             except BaseException as exc:
                 run_error = exc
+                stopped_reason = "error"
             finally:
                 changes = await asyncio.to_thread(finalize, turn_snapshot)
                 turn_files_payload.extend(encode_turn_files(changes))
@@ -231,6 +362,31 @@ def stream_engine_events(
                             "native_stream: falha ao persistir arquivos editados",
                             exc_info=True,
                         )
+                # Finalize durable run state from the producer as well as the
+                # SSE consumer.  If the client disconnects, the consumer stops
+                # draining after the sentinel and must not be the only place
+                # that records the provider outcome.
+                if run_error is not None:
+                    code, friendly = classify_stream_error(run_error)
+                    await _persist_terminal_outcome(
+                        thread_id,
+                        resolved_run_id,
+                        status="failed",
+                        detail=f"{code}: {friendly}",
+                    )
+                elif stopped_reason in {"cancelled", "canceled", "aborted"}:
+                    await _persist_terminal_outcome(
+                        thread_id,
+                        resolved_run_id,
+                        status="cancelled",
+                        detail="A execução foi cancelada antes de produzir uma resposta.",
+                    )
+                elif stopped_reason == "stop":
+                    await _update_persisted_run(
+                        resolved_run_id,
+                        status="completed",
+                        detail="Execução concluída.",
+                    )
                 await queue.put(_SENTINEL)
 
         term_queue: asyncio.Queue[str] = asyncio.Queue()
@@ -320,7 +476,11 @@ def stream_engine_events(
                 if event is _SENTINEL:
                     break
 
+                event_count += 1
+
                 if isinstance(event, MessageChunk):
+                    message_chunk_count += 1
+                    streamed_content_chars += len(event.content)
                     accumulated_partial_content += event.content
                     now = time.monotonic()
                     if now - last_kv_flush > 0.5:
@@ -330,6 +490,11 @@ def stream_engine_events(
                         )
                     if not content_started:
                         content_started = True
+                        await _update_persisted_run(
+                            resolved_run_id,
+                            status="streaming",
+                            partial_text=accumulated_partial_content,
+                        )
                         t = asyncio.ensure_future(_mark_thread_has_content(thread_id))
                         background_tasks.add(t)
                         t.add_done_callback(background_tasks.discard)
@@ -346,6 +511,17 @@ def stream_engine_events(
                         )
                         pre = False
                     event = replace(event, pre_approved=pre)
+
+                if isinstance(event, ErrorSignal):
+                    logger.warning(
+                        "native_stream_event_error",
+                        extra={
+                            "thread_id": thread_id,
+                            "run_id": resolved_run_id,
+                            "code": event.code,
+                            "message_length": len(event.message),
+                        },
+                    )
 
                 if (
                     isinstance(event, SubagentOutput)
@@ -373,8 +549,27 @@ def stream_engine_events(
                     exc_info=run_error,
                 )
                 code, friendly = classify_stream_error(run_error)
+                await _persist_terminal_outcome(
+                    thread_id,
+                    resolved_run_id,
+                    status="failed",
+                    detail=f"{code}: {friendly}",
+                )
                 yield encode_event(ErrorEvent(message=friendly, code=code))
+            elif stopped_reason in {"cancelled", "canceled", "aborted"}:
+                await _persist_terminal_outcome(
+                    thread_id,
+                    resolved_run_id,
+                    status="cancelled",
+                    detail="A execução foi cancelada antes de produzir uma resposta.",
+                )
             elif stopped_reason == "stop":
+                await _update_persisted_run(
+                    resolved_run_id,
+                    status="completed",
+                    detail="Execução concluída.",
+                    partial_text=accumulated_partial_content,
+                )
                 t = asyncio.ensure_future(_clear_partial(thread_id))
                 background_tasks.add(t)
                 t.add_done_callback(background_tasks.discard)
@@ -398,6 +593,20 @@ def stream_engine_events(
             yield encode_event(ErrorEvent(message=friendly, code=code))
 
         finally:
+            logger.info(
+                "native_stream_finished",
+                extra={
+                    "thread_id": thread_id,
+                    "workspace_id": workspace_id or "",
+                    "run_id": resolved_run_id,
+                    "stopped_reason": stopped_reason,
+                    "event_count": event_count,
+                    "message_chunk_count": message_chunk_count,
+                    "streamed_content_chars": streamed_content_chars,
+                    "run_error_type": type(run_error).__name__ if run_error else "",
+                    "disconnected": disconnected,
+                },
+            )
             unregister_terminal_output_callback()
             if not term_task.done():
                 term_task.cancel()
@@ -420,6 +629,31 @@ def stream_engine_events(
                     await run_task
             if not lock_transferred:
                 _release_workspace_lock()
-            yield encode_event(DoneEvent(thread_id=thread_id, run_id=resolved_run_id))
+            persisted_message_id: int | None = None
+            try:
+                from backend.services import agent_factory
+
+                store = await agent_factory.get_session_store()
+                latest_id = getattr(store, "latest_assistant_message_id", None)
+                if latest_id is not None:
+                    try:
+                        persisted_message_id = await latest_id(
+                            thread_id, resolved_run_id
+                        )
+                    except TypeError:
+                        persisted_message_id = None
+            except Exception:
+                logger.debug(
+                    "native_stream: não foi possível obter cursor persistido",
+                    extra={"thread_id": thread_id, "run_id": resolved_run_id},
+                    exc_info=True,
+                )
+            yield encode_event(
+                DoneEvent(
+                    thread_id=thread_id,
+                    run_id=resolved_run_id,
+                    message_id=persisted_message_id,
+                )
+            )
 
     return _gen()

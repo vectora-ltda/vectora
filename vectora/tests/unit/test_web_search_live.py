@@ -19,16 +19,18 @@ import json
 import pytest
 
 from backend.settings import settings
+from backend.tools import web as web_tools
 from backend.tools.web import fetch_url, web_search
 
 pytestmark = [
     pytest.mark.live,
     pytest.mark.asyncio,
-    pytest.mark.skipif(
-        not settings.tavily_api_key,
-        reason="TAVILY_API_KEY não configurado em ~/.vectora/.env",
-    ),
 ]
+
+_requires_tavily = pytest.mark.skipif(
+    not settings.tavily_api_key,
+    reason="TAVILY_API_KEY não configurado em ~/.vectora/.env",
+)
 
 
 def _results(raw: str) -> list[dict]:
@@ -42,6 +44,7 @@ def _results(raw: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+@_requires_tavily
 async def test_web_search_query_generica_real():
     raw = await web_search(query="FastAPI framework")
     results = _results(raw)
@@ -52,6 +55,7 @@ async def test_web_search_query_generica_real():
         assert r.get("content") is not None
 
 
+@_requires_tavily
 async def test_web_search_query_local_com_time_range_real():
     raw = await web_search(
         query="clima em São Paulo hoje", topic="general", time_range="day"
@@ -60,6 +64,7 @@ async def test_web_search_query_local_com_time_range_real():
     assert len(results) > 0
 
 
+@_requires_tavily
 async def test_web_search_query_tecnica_especifica_real():
     raw = await web_search(query="Python asyncio event loop internals")
     results = _results(raw)
@@ -67,12 +72,14 @@ async def test_web_search_query_tecnica_especifica_real():
     assert any("content" in r and r["content"] for r in results)
 
 
+@_requires_tavily
 async def test_web_search_topic_finance_real():
     raw = await web_search(query="Nvidia stock price", topic="finance")
     results = _results(raw)
     assert len(results) > 0
 
 
+@_requires_tavily
 async def test_web_search_com_include_domains_real():
     raw = await web_search(query="python asyncio", include_domains=["github.com"])
     results = _results(raw)
@@ -82,6 +89,7 @@ async def test_web_search_com_include_domains_real():
         assert "github.com" in r.get("url", "")
 
 
+@_requires_tavily
 async def test_web_search_com_exclude_domains_real():
     raw = await web_search(
         query="python asyncio tutorial", exclude_domains=["github.com"]
@@ -106,11 +114,28 @@ async def test_web_search_query_vazia_borda():
 # ---------------------------------------------------------------------------
 
 
-async def test_fetch_url_pagina_real():
+@_requires_tavily
+async def test_fetch_url_pagina_real() -> None:
     content = await fetch_url(url="https://fastapi.tiangolo.com/")
     assert isinstance(content, str)
     assert content.strip()
     assert not content.startswith("Error:")
+
+
+async def test_fetch_url_github_publico_real(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A URL pública do GitHub deve usar o fallback HTTP."""
+
+    async def raise_attribute_error(*args: object, **kwargs: object) -> object:
+        raise AttributeError("extração indisponível")
+
+    monkeypatch.setattr(web_tools, "_invoke_backend", raise_attribute_error)
+    content = await fetch_url(url="https://github.com/vectora-ltda/vectora/issues/317")
+    assert content.strip()
+    assert not content.startswith("Error:")
+    body = content.split("\n", 2)[-1].rsplit("\n</untrusted_content>", 1)[0]
+    assert "provider" in body.lower() or "llama" in body.lower()
 
 
 async def test_fetch_url_url_invalida_sem_lancar():

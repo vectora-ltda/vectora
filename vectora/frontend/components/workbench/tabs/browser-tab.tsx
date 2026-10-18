@@ -645,7 +645,8 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     visible,
   ]);
 
-  // Reporta os bounds reais do container (ResizeObserver) pro main process
+  // Reporta os bounds reais do container (ResizeObserver) pro processo
+  // principal. A view nativa usa o Chromium do Electron via CDP.
   // posicionar a WebContentsView ATIVA por cima — só existe depois da
   // primeira navegação daquela aba (currentUrl truthy é quando o container
   // abaixo é renderizado). Depende de `hasUrl`/viewId da aba ativa, não da
@@ -687,10 +688,14 @@ export function BrowserTab({ threadId, visible = true }: BrowserTabProps) {
     report();
     const observer = new ResizeObserver(report);
     observer.observe(el);
+    // A largura pode mudar no elemento pai durante o drag da sidebar.
+    if (el.parentElement) observer.observe(el.parentElement);
     window.addEventListener("resize", report);
+    window.visualViewport?.addEventListener("resize", report);
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", report);
+      window.visualViewport?.removeEventListener("resize", report);
     };
   }, [
     activeViewId,

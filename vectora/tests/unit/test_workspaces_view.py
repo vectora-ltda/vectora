@@ -17,6 +17,7 @@ import hashlib
 from pathlib import Path
 
 import pytest
+from starlette.requests import Request
 
 from backend.vtypes import Workspace
 from backend.workspace.runtime_settings import RuntimeSettings
@@ -601,7 +602,10 @@ class TestPrEndpoints:
             "_gh_run",
             AsyncMock(return_value={"status": "error", "message": "gh not found"}),
         )
-        resp = await ws_mod.pr_list(workspace_id=wsid)
+        resp = await ws_mod.pr_list(
+            workspace_id=wsid,
+            request=Request({"type": "http", "headers": [], "query_string": b""}),
+        )
         assert resp.available is False
 
 

@@ -13,14 +13,29 @@ Valida:
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
 import os
-from collections.abc import Callable, Generator
-from contextlib import contextmanager
+import zipfile
+from collections.abc import Callable, Generator, Iterator
+from contextlib import contextmanager, suppress
+from pathlib import Path
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
+
+from backend.api.handlers.provider_routing import (
+    LlamaCppRollbackRequest,
+    _confirmation_evidence_sha256,
+    _extract_llamacpp_archive,
+    llamacpp_runtime_status,
+    remove_llamacpp_runtime,
+)
 
 
 @pytest.fixture(scope="module")
@@ -132,7 +147,78 @@ def clean_nine_router_config():
     object.__setattr__(settings, "nine_router_api_key", orig_setting_key)
 
 
+@pytest.fixture
+def clean_llamacpp_config():
+    """Isola as configurações e variáveis de ambiente do llama.cpp."""
+    from backend.settings import settings
+
+    keys = (
+        "LLAMACPP_BASE_URL",
+        "LLAMACPP_MODEL",
+        "LLAMACPP_API_KEY",
+        "LLAMACPP_MODE",
+    )
+    original_env = {key: os.environ.get(key) for key in keys}
+    original = (
+        settings.llamacpp_base_url,
+        settings.llamacpp_model,
+        settings.llamacpp_api_key,
+        os.environ.get("LLAMACPP_MODE"),
+    )
+    for key in keys:
+        os.environ.pop(key, None)
+    object.__setattr__(settings, "llamacpp_base_url", None)
+    object.__setattr__(settings, "llamacpp_model", None)
+    object.__setattr__(settings, "llamacpp_api_key", None)
+    yield
+    for key, value in original_env.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+    object.__setattr__(settings, "llamacpp_base_url", original[0])
+    object.__setattr__(settings, "llamacpp_model", original[1])
+    object.__setattr__(settings, "llamacpp_api_key", original[2])
+
+
 class TestOllamaDiscovery:
+    def test_ollama_release_tag_persists_and_allows_explicit_override(
+        self, monkeypatch, tmp_path
+    ):
+        from backend.api.handlers import provider_routing
+
+        tools_dir = tmp_path / "tools" / "ollama"
+        tools_dir.mkdir(parents=True)
+        (tools_dir / "release.json").write_text(
+            json.dumps({"tag": "v0.12.3"}), encoding="utf-8"
+        )
+        assert provider_routing._ollama_release_tag(tools_dir) == "v0.12.3"
+
+        monkeypatch.setenv("VECTORA_OLLAMA_RELEASE_TAG", "v0.13.0")
+        assert provider_routing._ollama_release_tag(tools_dir) == "v0.13.0"
+
+        monkeypatch.setenv("VECTORA_OLLAMA_RELEASE_TAG", "../unsafe")
+        with pytest.raises(ValueError, match="inválida"):
+            provider_routing._ollama_release_tag(tools_dir)
+
+    def test_trusted_cli_rejects_relative_path_from_path(self, monkeypatch):
+        from backend.api.handlers import provider_routing
+
+        monkeypatch.setattr(provider_routing.shutil, "which", lambda _: "winget")
+
+        assert provider_routing._trusted_cli_executable("winget") is None
+
+    def test_trusted_cli_accepts_existing_absolute_executable(
+        self, monkeypatch, tmp_path
+    ):
+        from backend.api.handlers import provider_routing
+
+        executable = tmp_path / "winget.exe"
+        executable.write_bytes(b"stub")
+        monkeypatch.setattr(provider_routing.shutil, "which", lambda _: str(executable))
+
+        assert provider_routing._trusted_cli_executable("winget") == executable
+
     def test_host_unreachable_returns_reachable_false_not_500(self, client):
         # Mocka a falha de conexão explicitamente — não depende da ausência
         # de um Ollama real rodando na máquina de dev (ver memória
@@ -151,6 +237,548 @@ class TestOllamaDiscovery:
         body = resp.json()
         assert body["reachable"] is False
         assert body["models"] == []
+
+    @pytest.mark.asyncio
+    async def test_install_ollama_applies_global_deadline(self, monkeypatch):
+        from backend.api.handlers import provider_routing
+
+        monkeypatch.setattr(
+            provider_routing,
+            "OLLAMA_INSTALL_TOTAL_TIMEOUT_SECONDS",
+            0.001,
+        )
+
+        async def never_finishes(_):
+            await asyncio.sleep(60)
+
+        monkeypatch.setattr(
+            provider_routing, "_install_ollama_runtime_impl", never_finishes
+        )
+
+        with pytest.raises(HTTPException) as error:
+            await provider_routing.install_ollama_runtime(None)
+        assert error.value.status_code == 504
+        assert "prazo total" in str(error.value.detail)
+
+    @pytest.mark.asyncio
+    async def test_ollama_cleanup_kills_and_waits_with_own_deadline(self, monkeypatch):
+        from backend.api.handlers import provider_routing
+
+        monkeypatch.setattr(provider_routing, "OLLAMA_CLEANUP_TIMEOUT_SECONDS", 0.001)
+        process = MagicMock()
+        process.kill = MagicMock()
+        process.wait = AsyncMock()
+
+        process.communicate = AsyncMock(side_effect=TimeoutError)
+        await provider_routing._terminate_ollama_process(process)
+
+        process.kill.assert_called_once_with()
+        process.wait.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_ollama_cleanup_returns_when_both_waits_hang(self, monkeypatch):
+        from backend.api.handlers import provider_routing
+
+        monkeypatch.setattr(provider_routing, "OLLAMA_CLEANUP_TIMEOUT_SECONDS", 0.01)
+        process = MagicMock()
+        process.kill = MagicMock()
+
+        async def hangs():
+            await asyncio.sleep(60)
+
+        process.communicate = AsyncMock(side_effect=TimeoutError)
+        process.wait = AsyncMock(side_effect=hangs)
+        await provider_routing._terminate_ollama_process(process)
+        process.kill.assert_called_once_with()
+        process.wait.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_ollama_shutdown_stops_only_managed_process(self, monkeypatch):
+        from backend.api.handlers import provider_routing
+
+        process = MagicMock()
+        process.kill = MagicMock()
+        process.communicate = AsyncMock(return_value=(b"", b""))
+        monkeypatch.setattr(provider_routing, "_managed_ollama_process", process)
+
+        await provider_routing.stop_managed_ollama()
+
+        assert provider_routing._managed_ollama_process is None
+        process.kill.assert_called_once_with()
+
+    @pytest.mark.asyncio
+    async def test_install_ollama_serializes_concurrent_requests(self, monkeypatch):
+        from backend.api.handlers import provider_routing
+
+        monkeypatch.setattr(provider_routing, "OLLAMA_INSTALL_TOTAL_TIMEOUT_SECONDS", 1)
+        active = 0
+        maximum = 0
+
+        async def serialized(_):
+            nonlocal active, maximum
+            active += 1
+            maximum = max(maximum, active)
+            await asyncio.sleep(0.01)
+            active -= 1
+            return "done"
+
+        monkeypatch.setattr(
+            provider_routing, "_install_ollama_runtime_impl", serialized
+        )
+        await asyncio.gather(
+            provider_routing.install_ollama_runtime(None),
+            provider_routing.install_ollama_runtime(None),
+        )
+        assert maximum == 1
+
+    @pytest.mark.asyncio
+    async def test_ollama_install_reports_ready_phase_after_readiness(
+        self, monkeypatch, tmp_path
+    ):
+        """O wizard só publica ``ready`` depois de confirmar o endpoint."""
+        from backend.api.handlers import provider_routing
+
+        executable = tmp_path / "ollama.exe"
+        executable.write_bytes(b"stub")
+        monkeypatch.setattr(provider_routing, "_ollama_executable", lambda: executable)
+
+        async def reachable():
+            return True, "0.1.0-test"
+
+        monkeypatch.setattr(provider_routing, "_ollama_http_status", reachable)
+        result = await provider_routing._install_ollama_runtime_impl(None)
+
+        assert result.state == "running"
+        assert result.phase == "ready"
+        assert provider_routing._ollama_install_phase == "ready"
+
+    @pytest.mark.asyncio
+    async def test_ollama_install_cancelled_phase_is_observable(self, monkeypatch):
+        from backend.api.handlers import provider_routing
+
+        async def cancelled(_):
+            raise asyncio.CancelledError
+
+        monkeypatch.setattr(provider_routing, "_install_ollama_runtime_impl", cancelled)
+        with pytest.raises(asyncio.CancelledError):
+            await provider_routing.install_ollama_runtime(None)
+        assert provider_routing._ollama_install_phase == "cancelled"
+
+    @pytest.mark.asyncio
+    async def test_ollama_unexpected_failure_leaves_failed_phase(self, monkeypatch):
+        from backend.api.handlers import provider_routing
+
+        async def broken(_):
+            raise RuntimeError("falha inesperada")
+
+        monkeypatch.setattr(provider_routing, "_install_ollama_runtime_impl", broken)
+        with pytest.raises(RuntimeError, match="falha inesperada"):
+            await provider_routing.install_ollama_runtime(None)
+        assert provider_routing._ollama_install_phase == "failed"
+
+    @pytest.mark.asyncio
+    async def test_ollama_status_exposes_failed_phase_as_error(self, monkeypatch):
+        from backend.api.handlers import provider_routing
+
+        monkeypatch.setattr(provider_routing, "_ollama_install_phase", "failed")
+        monkeypatch.setattr(provider_routing, "_ollama_executable", lambda: None)
+
+        async def unreachable():
+            return False, None
+
+        monkeypatch.setattr(provider_routing, "_ollama_http_status", unreachable)
+        status = await provider_routing.ollama_runtime_status()
+
+        assert status.state == "error"
+        assert status.phase == "failed"
+
+    @pytest.mark.asyncio
+    async def test_ollama_resume_rejects_mismatched_content_range(
+        self, monkeypatch, tmp_path
+    ):
+        from backend.api.handlers import provider_routing
+        from backend.settings import settings
+
+        original_home = settings.vectora_home
+        object.__setattr__(settings, "vectora_home", Path(tmp_path))
+        installer = Path(tmp_path) / "tools" / "ollama" / "OllamaSetup.exe"
+        partial = installer.with_suffix(".exe.part")
+        partial.parent.mkdir(parents=True)
+        partial.write_bytes(b"abc")
+        Path(f"{partial}.json").write_text(
+            json.dumps(
+                {
+                    "tag": "v1",
+                    "url": "https://github.com/ollama/ollama/releases/download/v1/OllamaSetup.exe",
+                    "size": 4,
+                    "digest": None,
+                }
+            )
+        )
+
+        class Response:
+            status_code = 206
+            headers = {"content-range": "bytes 0-3/4"}
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "tag_name": "v1",
+                    "assets": [
+                        {
+                            "name": "OllamaSetup.exe",
+                            "browser_download_url": "https://github.com/ollama/ollama/releases/download/v1/OllamaSetup.exe",
+                            "size": 4,
+                            "digest": None,
+                        }
+                    ],
+                }
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+            async def aiter_bytes(self, _chunk_size):
+                yield b"d"
+
+        class Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+            async def get(self, _url):
+                return Response()
+
+            def stream(self, _method, _url, headers=None):
+                return Response()
+
+        monkeypatch.setattr(provider_routing.httpx, "AsyncClient", lambda **_: Client())
+
+        with pytest.raises(HTTPException) as error:
+            await provider_routing._install_ollama_from_official_release()
+
+        assert error.value.status_code == 502
+        assert not partial.exists()
+        assert not Path(f"{partial}.json").exists()
+        object.__setattr__(settings, "vectora_home", original_home)
+
+    @pytest.mark.asyncio
+    async def test_ollama_download_rejects_digest_mismatch_and_cleans_partial(
+        self, monkeypatch, tmp_path
+    ):
+        """A valid-size installer must still match the publisher digest."""
+        from backend.api.handlers import provider_routing
+        from backend.settings import settings
+
+        original_home = settings.vectora_home
+        object.__setattr__(settings, "vectora_home", Path(tmp_path))
+        content = b"installer-bytes"
+        installer = Path(tmp_path) / "tools" / "ollama" / "OllamaSetup.exe"
+
+        class Response:
+            status_code = 200
+            headers: dict[str, str] = {}
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "tag_name": "v1",
+                    "assets": [
+                        {
+                            "name": "OllamaSetup.exe",
+                            "browser_download_url": "https://example.invalid/OllamaSetup.exe",
+                            "size": len(content),
+                            "digest": "sha256:" + ("0" * 64),
+                        }
+                    ],
+                }
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+            async def aiter_bytes(self, _chunk_size):
+                yield content
+
+        class Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+            async def get(self, _url):
+                return Response()
+
+            def stream(self, _method, _url, headers=None):
+                return Response()
+
+        monkeypatch.setattr(provider_routing.httpx, "AsyncClient", lambda **_: Client())
+
+        with pytest.raises(HTTPException, match="digest"):
+            await provider_routing._install_ollama_from_official_release()
+
+        assert not installer.exists()
+        assert not installer.with_suffix(".exe.part").exists()
+        assert not Path(f"{installer.with_suffix('.exe.part')}.json").exists()
+        object.__setattr__(settings, "vectora_home", original_home)
+
+    @pytest.mark.asyncio
+    async def test_ollama_download_preserves_partial_on_transport_error(
+        self, monkeypatch, tmp_path
+    ):
+        """A transient HTTP stream failure must remain resumable."""
+        from backend.api.handlers import provider_routing
+        from backend.settings import settings
+
+        original_home = settings.vectora_home
+        object.__setattr__(settings, "vectora_home", Path(tmp_path))
+        installer = Path(tmp_path) / "tools" / "ollama" / "OllamaSetup.exe"
+
+        class Response:
+            status_code = 200
+            headers: dict[str, str] = {}
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "tag_name": "v1",
+                    "assets": [
+                        {
+                            "name": "OllamaSetup.exe",
+                            "browser_download_url": "https://example.invalid/OllamaSetup.exe",
+                            "size": 100,
+                            "digest": "0" * 64,
+                        }
+                    ],
+                }
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+            async def aiter_bytes(self, _chunk_size):
+                yield b"partial"
+                raise httpx.ReadError("connection dropped")
+
+        class Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+            async def get(self, _url):
+                return Response()
+
+            def stream(self, _method, _url, headers=None):
+                return Response()
+
+        monkeypatch.setattr(provider_routing.httpx, "AsyncClient", lambda **_: Client())
+
+        with pytest.raises(HTTPException, match="connection dropped"):
+            await provider_routing._install_ollama_from_official_release()
+
+        partial = installer.with_suffix(".exe.part")
+        assert partial.read_bytes() == b"partial"
+        assert Path(f"{partial}.json").exists()
+        object.__setattr__(settings, "vectora_home", original_home)
+
+    @pytest.mark.asyncio
+    async def test_ollama_download_rejects_resume_when_server_ignores_range(
+        self, monkeypatch, tmp_path
+    ):
+        """A resumed download must never append a full 200 response."""
+        from backend.api.handlers import provider_routing
+        from backend.settings import settings
+
+        original_home = settings.vectora_home
+        object.__setattr__(settings, "vectora_home", Path(tmp_path))
+        installer = Path(tmp_path) / "tools" / "ollama" / "OllamaSetup.exe"
+        partial = installer.with_suffix(".exe.part")
+        partial.parent.mkdir(parents=True)
+        partial.write_bytes(b"prefix")
+        digest = hashlib.sha256(b"prefixfull-response").hexdigest()
+        partial.with_suffix(partial.suffix + ".json").write_text(
+            json.dumps(
+                {
+                    "tag": "v1",
+                    "url": "https://example.invalid/OllamaSetup.exe",
+                    "size": len(b"prefixfull-response"),
+                    "digest": digest,
+                }
+            )
+        )
+
+        class Response:
+            status_code = 200
+            headers: dict[str, str] = {}
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "tag_name": "v1",
+                    "assets": [
+                        {
+                            "name": "OllamaSetup.exe",
+                            "browser_download_url": "https://example.invalid/OllamaSetup.exe",
+                            "size": len(b"prefixfull-response"),
+                            "digest": digest,
+                        }
+                    ],
+                }
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+            async def aiter_bytes(self, _chunk_size):
+                yield b"full-response"
+
+        class Client:
+            def __init__(self):
+                self.headers = None
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+            async def get(self, _url):
+                return Response()
+
+            def stream(self, _method, _url, headers=None):
+                self.headers = headers
+                return Response()
+
+        http_client = Client()
+        monkeypatch.setattr(
+            provider_routing.httpx, "AsyncClient", lambda **_: http_client
+        )
+
+        with pytest.raises(HTTPException, match="ignorou Range"):
+            await provider_routing._install_ollama_from_official_release()
+
+        assert partial.read_bytes() == b"prefix"
+        assert http_client.headers == {
+            "Range": "bytes=6-",
+            "Accept-Encoding": "identity",
+            "Cache-Control": "no-cache",
+        }
+        object.__setattr__(settings, "vectora_home", original_home)
+
+    @pytest.mark.asyncio
+    async def test_ollama_download_reads_digest_manifest_when_asset_omits_digest(
+        self, monkeypatch, tmp_path
+    ):
+        from backend.api.handlers import provider_routing
+        from backend.settings import settings
+
+        original_home = settings.vectora_home
+        object.__setattr__(settings, "vectora_home", Path(tmp_path))
+        content = b"installer-bytes"
+        digest = hashlib.sha256(content).hexdigest()
+        installer_url = "https://example.invalid/OllamaSetup.exe"
+        checksum_url = "https://example.invalid/sha256sum.txt"
+
+        class Response:
+            status_code = 200
+            headers: dict[str, str] = {}
+
+            def __init__(self, payload=None, text=""):
+                self._payload = payload
+                self.text = text
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return self._payload
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+            async def aiter_bytes(self, _chunk_size):
+                yield content
+
+        class Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_):
+                return False
+
+            async def get(self, url):
+                if url.endswith("sha256sum.txt"):
+                    return Response(text=f"{digest} *OllamaSetup.exe\\n")
+                return Response(
+                    payload={
+                        "tag_name": "v1",
+                        "assets": [
+                            {
+                                "name": "OllamaSetup.exe",
+                                "browser_download_url": installer_url,
+                                "size": len(content),
+                                "digest": None,
+                            },
+                            {
+                                "name": "sha256sum.txt",
+                                "browser_download_url": checksum_url,
+                            },
+                        ],
+                    }
+                )
+
+            def stream(self, _method, _url, headers=None):
+                return Response()
+
+        class Process:
+            returncode = 0
+
+            async def communicate(self):
+                return b"", b""
+
+        monkeypatch.setattr(provider_routing.httpx, "AsyncClient", lambda **_: Client())
+        monkeypatch.setattr(
+            provider_routing.asyncio,
+            "create_subprocess_exec",
+            AsyncMock(return_value=Process()),
+        )
+        monkeypatch.setattr(
+            provider_routing,
+            "_ollama_executable",
+            lambda: Path(tmp_path) / "ollama.exe",
+        )
+
+        result = await provider_routing._install_ollama_from_official_release()
+
+        assert result == Path(tmp_path) / "ollama.exe"
+        assert not (
+            Path(tmp_path) / "tools" / "ollama" / "OllamaSetup.exe.part"
+        ).exists()
+        object.__setattr__(settings, "vectora_home", original_home)
 
     def test_host_reachable_returns_models(self, client):
         mock_response = MagicMock()
@@ -175,8 +803,66 @@ class TestOllamaDiscovery:
         assert body["reachable"] is True
         assert [m["name"] for m in body["models"]] == ["qwen3:8b", "llama3.1:8b"]
 
+    @pytest.mark.asyncio
+    async def test_terminate_ollama_process_bounds_log_task_within_budget(
+        self, monkeypatch
+    ):
+        from backend.api.handlers import provider_routing
+
+        started_event = asyncio.Event()
+
+        # Cria uma task de log que inicia cooperativamente e depois resiste ao cancelamento
+        async def slow_logger():
+            started_event.set()
+            try:
+                await asyncio.sleep(100)
+            except asyncio.CancelledError:
+                await asyncio.sleep(100)
+
+        log_task = asyncio.create_task(slow_logger())
+        await started_event.wait()
+        monkeypatch.setattr(provider_routing, "_ollama_log_task", log_task)
+
+        fake_process = MagicMock()
+        fake_process.kill = MagicMock()
+        fake_process.wait = AsyncMock(return_value=None)
+        # Processo não encerra a tempo (returncode continua None)
+        fake_process.returncode = None
+
+        # Define um deadline muito curto no ContextVar (50ms)
+        loop = asyncio.get_running_loop()
+        start_time = loop.time()
+        token = provider_routing._ollama_cleanup_deadline.set(start_time + 0.05)
+        try:
+            confirmed = await provider_routing._terminate_ollama_process(fake_process)
+            elapsed = loop.time() - start_time
+            # Não confirmou encerramento porque returncode permaneceu None
+            assert confirmed is False
+            # process.kill() deve ter sido chamado pontualmente
+            assert fake_process.kill.called
+            # A duração respeitou o orçamento (não ficou presa na task resistente)
+            assert elapsed < 0.5
+            # A task de log ainda pendente NÃO foi apagada
+            assert provider_routing._ollama_log_task is log_task
+            assert log_task.cancelling() or log_task.cancelled()
+        finally:
+            provider_routing._ollama_cleanup_deadline.reset(token)
+            log_task.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await log_task
+
 
 class TestOllamaRegisteredModels:
+    def test_registered_model_mutation_requires_authentication(
+        self, client, monkeypatch
+    ) -> None:
+        monkeypatch.setenv("VECTORA_AUTH_REQUIRED", "true")
+        response = client.post(
+            "/provider-routing/ollama/registered", json={"tag": "unauthorized"}
+        )
+        assert response.status_code == 401
+        monkeypatch.setenv("VECTORA_AUTH_REQUIRED", "false")
+
     def test_register_list_and_delete(self, client):
         create = client.post(
             "/provider-routing/ollama/registered", json={"tag": "qwen3:8b"}
@@ -204,6 +890,631 @@ class TestOllamaRegisteredModels:
             "/provider-routing/ollama/registered", json={"tag": "dup-model"}
         )
         assert resp.status_code == 409
+
+
+class TestLlamaCppAndHuggingFace:
+    def test_confirmation_evidence_is_canonical_and_parameter_bound(self):
+        serialized, evidence = _confirmation_evidence_sha256(
+            "a" * 64,
+            "0123456789abcdef",
+            {"temperature": 0.2, "seed": 7},
+        )
+        assert serialized == '{"seed":7,"temperature":0.2}'
+        assert (
+            evidence
+            == hashlib.sha256(
+                f"{'a' * 64}:0123456789abcdef:{serialized}".encode()
+            ).hexdigest()
+        )
+        _, changed = _confirmation_evidence_sha256(
+            "a" * 64,
+            "0123456789abcdef",
+            {"temperature": 0.3, "seed": 7},
+        )
+        assert changed != evidence
+
+    def test_llamacpp_status_uses_suggested_endpoint_without_configuring_provider(
+        self, client, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from backend.settings import settings
+
+        monkeypatch.setenv("LLAMACPP_MODE", "external")
+        object.__setattr__(settings, "llamacpp_base_url", None)
+        response = client.get("/provider-routing/llamacpp/status")
+        assert response.status_code == 200
+        assert response.json()["configured"] is False
+        assert response.json()["base_url"] == "http://127.0.0.1:18080/v1"
+
+    def test_llamacpp_connection_test_reports_empty_catalog(self, client):
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {"data": []}
+        with patch("httpx.AsyncClient") as mock_httpx:
+            context = AsyncMock()
+            context.__aenter__ = AsyncMock(return_value=context)
+            context.__aexit__ = AsyncMock(return_value=False)
+            context.get = AsyncMock(return_value=response)
+            mock_httpx.return_value = context
+            result = client.post("/provider-routing/llamacpp/test")
+        assert result.status_code == 200
+        assert result.json() == {"status": "empty", "models": [], "detail": None}
+
+    def test_llamacpp_discovery_uses_openai_models_endpoint(self, client):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {
+            "data": [{"id": "Qwen3-8B", "name": "Qwen3-8B"}]
+        }
+        with patch("httpx.AsyncClient") as mock_httpx:
+            mock_ctx = AsyncMock()
+            mock_ctx.__aenter__ = AsyncMock(return_value=mock_ctx)
+            mock_ctx.__aexit__ = AsyncMock(return_value=False)
+            mock_ctx.get = AsyncMock(return_value=mock_response)
+            mock_httpx.return_value = mock_ctx
+            response = client.get("/provider-routing/llamacpp/models")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "reachable": True,
+            "models": [{"id": "Qwen3-8B", "name": "Qwen3-8B"}],
+        }
+        mock_ctx.get.assert_awaited_once()
+        assert mock_ctx.get.await_args is not None
+        assert mock_ctx.get.await_args.args[0].endswith("/v1/models")
+
+    def test_huggingface_catalog_is_shared_by_runtimes(self, client):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = [
+            {
+                "id": "org/model-GGUF",
+                "pipeline_tag": "text-generation",
+                "downloads": 12,
+                "cardData": {"license": "apache-2.0"},
+            }
+        ]
+        with patch("httpx.AsyncClient") as mock_httpx:
+            mock_ctx = AsyncMock()
+            mock_ctx.__aenter__ = AsyncMock(return_value=mock_ctx)
+            mock_ctx.__aexit__ = AsyncMock(return_value=False)
+            mock_ctx.get = AsyncMock(return_value=mock_response)
+            mock_httpx.return_value = mock_ctx
+            llama = client.get("/provider-routing/huggingface/models?provider=llamacpp")
+            ollama = client.get("/provider-routing/huggingface/models?provider=ollama")
+            dmr = client.get("/provider-routing/huggingface/models?provider=dmr")
+
+        assert llama.status_code == ollama.status_code == dmr.status_code == 200
+        assert llama.json()["models"][0]["provider"] == "llamacpp"
+        assert ollama.json()["models"][0]["provider"] == "ollama"
+        assert dmr.json()["models"][0]["provider"] == "dmr"
+        assert mock_ctx.get.await_count == 3
+        assert "filter" not in (mock_ctx.get.await_args_list[2].kwargs["params"])
+
+    def test_huggingface_catalog_rejects_unknown_runtime(self, client):
+        response = client.get("/provider-routing/huggingface/models?provider=unknown")
+        assert response.status_code == 400
+
+    def test_huggingface_metadata_rejects_invalid_repo(self, client):
+        response = client.get("/provider-routing/huggingface/models/not-a-repo")
+        assert response.status_code == 400
+
+    def test_huggingface_metadata_exposes_compatibility_fields(self, client):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {
+            "id": "org/model-GGUF",
+            "sha": "abc123",
+            "library_name": "transformers",
+            "cardData": {"license": "apache-2.0", "context_length": 8192},
+            "tags": ["gguf", "q4_k_m"],
+            "siblings": [],
+        }
+        with patch("httpx.AsyncClient") as mock_httpx:
+            mock_ctx = AsyncMock()
+            mock_ctx.__aenter__ = AsyncMock(return_value=mock_ctx)
+            mock_ctx.__aexit__ = AsyncMock(return_value=False)
+            mock_ctx.get = AsyncMock(return_value=mock_response)
+            mock_httpx.return_value = mock_ctx
+
+            response = client.get("/provider-routing/huggingface/models/org/model-GGUF")
+
+        assert response.status_code == 200
+        assert mock_ctx.get.await_args is not None
+        assert mock_ctx.get.await_args.kwargs["params"] == {"blobs": "true"}
+        assert response.json()["publisher"] == "org"
+        assert response.json()["architecture"] == "transformers"
+        assert response.json()["quantization"] == "q4_k_m"
+        assert response.json()["context_length"] == 8192
+
+    @pytest.mark.asyncio
+    async def test_huggingface_file_metadata_requests_revision_and_published_digest(
+        self,
+    ):
+        from backend.api.handlers.provider_routing import _huggingface_file_metadata
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {
+            "siblings": [
+                {
+                    "rfilename": "weights.gguf",
+                    "size": 123,
+                    "lfs": {"sha256": "a" * 64, "size": 123},
+                }
+            ]
+        }
+        with patch("httpx.AsyncClient") as mock_httpx:
+            mock_ctx = AsyncMock()
+            mock_ctx.__aenter__ = AsyncMock(return_value=mock_ctx)
+            mock_ctx.__aexit__ = AsyncMock(return_value=False)
+            mock_ctx.get = AsyncMock(return_value=mock_response)
+            mock_httpx.return_value = mock_ctx
+
+            digest, size = await _huggingface_file_metadata(
+                "org/model", "revision-1", "weights.gguf"
+            )
+
+        assert digest == "a" * 64
+        assert size == 123
+        assert mock_ctx.get.await_args is not None
+        assert mock_ctx.get.await_args.kwargs["params"] == {
+            "revision": "revision-1",
+            "blobs": "true",
+        }
+
+    def test_local_executor_requires_desktop_bridge_token(self, monkeypatch):
+        from fastapi import HTTPException
+
+        from backend.api.handlers.provider_routing import _require_desktop_bridge
+
+        monkeypatch.setenv("VECTORA_AUTH_REQUIRED", "false")
+        monkeypatch.setenv("VECTORA_DESKTOP_BRIDGE_TOKEN", "bridge-token")
+        with pytest.raises(HTTPException) as error:
+            _require_desktop_bridge(None)
+        assert error.value.status_code == 403
+
+    def test_huggingface_download_rejects_path_traversal(self, client):
+        response = client.post(
+            "/provider-routing/huggingface/download",
+            json={"repo_id": "org/model", "filename": "../model.gguf"},
+        )
+        assert response.status_code == 400
+
+    @pytest.mark.parametrize(
+        "filename", ["/tmp/model.gguf", "C:/model.gguf", "./model.gguf"]
+    )
+    def test_huggingface_download_rejects_absolute_or_ambiguous_paths(
+        self, client, filename
+    ):
+        response = client.post(
+            "/provider-routing/huggingface/download",
+            json={"repo_id": "org/model", "filename": filename},
+        )
+        assert response.status_code == 400
+
+    def test_huggingface_download_cancel_rejects_path_traversal(self, client):
+        response = client.delete(
+            "/provider-routing/huggingface/download",
+            params={"repo_id": "org/model", "filename": "../model.gguf"},
+        )
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_huggingface_cancel_waits_for_download_lock_before_removing_partial(
+        self, tmp_path, monkeypatch
+    ):
+        from backend.api.handlers import provider_routing as provider_mod
+        from backend.api.handlers.provider_routing import cancel_huggingface_download
+        from backend.settings import settings
+
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        partial = (
+            tmp_path / "models" / "huggingface" / "org" / "model" / "weights.gguf.part"
+        )
+        partial.parent.mkdir(parents=True)
+        partial.write_bytes(b"partial")
+        key = "org/model/weights.gguf"
+        lock = await provider_mod._download_lock(key)
+        await lock.acquire()
+        event = asyncio.Event()
+        provider_mod._download_cancel_events[key] = event
+        try:
+            result_task = asyncio.create_task(
+                cancel_huggingface_download(
+                    "org/model", "weights.gguf", None, revision="revision-1"
+                )
+            )
+            await asyncio.sleep(0)
+            assert event.is_set()
+            assert not result_task.done()
+            lock.release()
+            result = await result_task
+        finally:
+            if lock.locked():
+                lock.release()
+            provider_mod._download_cancel_events.pop(key, None)
+        assert result == {"ok": True, "status": "cancelled"}
+        assert not partial.exists()
+
+    @pytest.mark.asyncio
+    async def test_huggingface_download_rejects_duplicate_active_transfer(
+        self, tmp_path, monkeypatch
+    ):
+        from fastapi import HTTPException
+        from starlette.requests import Request
+
+        from backend.api.handlers import provider_routing as provider_mod
+        from backend.api.handlers.provider_routing import (
+            HuggingFaceDownloadRequest,
+            download_huggingface_model,
+        )
+        from backend.settings import settings
+
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        key = "org/model/weights.gguf"
+        provider_mod._download_cancel_events[key] = asyncio.Event()
+
+        class DisconnectedRequest:
+            async def is_disconnected(self) -> bool:
+                return False
+
+        try:
+            with pytest.raises(HTTPException) as error:
+                await download_huggingface_model(
+                    HuggingFaceDownloadRequest(
+                        repo_id="org/model",
+                        revision="main",
+                        filename="weights.gguf",
+                    ),
+                    cast("Request", DisconnectedRequest()),
+                    None,
+                )
+        finally:
+            provider_mod._download_cancel_events.pop(key, None)
+
+        assert error.value.status_code == 409
+
+    @pytest.mark.asyncio
+    async def test_huggingface_install_writes_manifest_for_selected_files(
+        self, tmp_path, monkeypatch
+    ):
+        from backend.api.handlers.provider_routing import (
+            HuggingFaceInstallRequest,
+            install_huggingface_model,
+        )
+        from backend.settings import settings
+
+        root = tmp_path / "models" / "huggingface" / "org" / "model"
+        root.mkdir(parents=True)
+        (root / "model.Q4_K_M.gguf").write_bytes(b"weights")
+        (root / "mmproj-f16.gguf").write_bytes(b"projector")
+        for name, content in (
+            ("model.Q4_K_M.gguf", b"weights"),
+            ("mmproj-f16.gguf", b"projector"),
+        ):
+            (root / f"{name}.source.json").write_text(
+                json.dumps(
+                    {
+                        "repo_id": "org/model",
+                        "filename": name,
+                        "revision": "abc123",
+                        "sha256": hashlib.sha256(content).hexdigest(),
+                        "size": len(content),
+                    }
+                ),
+                encoding="utf-8",
+            )
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+
+        result = await install_huggingface_model(
+            HuggingFaceInstallRequest(
+                repo_id="org/model",
+                revision="abc123",
+                filename="model.Q4_K_M.gguf",
+                mmproj_filename="mmproj-f16.gguf",
+                alias="local-model",
+                parameters={"ctx_size": 4096},
+                license="apache-2.0",
+                architecture="llama",
+                quantization="Q4_K_M",
+                context_length=8192,
+                compatibility="provável",
+            ),
+            None,
+        )
+
+        assert result["status"] == "installed"
+        manifest = result["manifest"]
+        assert isinstance(manifest, dict)
+        assert manifest["revision"] == "abc123"
+        assert manifest["alias"] == "local-model"
+        assert manifest["publisher"] == "org"
+        assert manifest["license"] == "apache-2.0"
+        assert manifest["architecture"] == "llama"
+        assert manifest["quantization"] == "Q4_K_M"
+        assert manifest["context_length"] == 8192
+        assert manifest["compatibility"] == "provável"
+        assert [item["role"] for item in manifest["files"]] == [
+            "model",
+            "mmproj",
+        ]
+        assert (root / "model-manifest.json").is_file()
+
+    @pytest.mark.asyncio
+    async def test_huggingface_ollama_install_requires_alias(self) -> None:
+        from fastapi import HTTPException
+
+        from backend.api.handlers.provider_routing import (
+            HuggingFaceInstallRequest,
+            install_huggingface_model,
+        )
+
+        with pytest.raises(HTTPException, match="alias"):
+            await install_huggingface_model(
+                HuggingFaceInstallRequest(
+                    repo_id="org/model",
+                    filename="model.gguf",
+                    provider="ollama",
+                    alias="",
+                ),
+                None,
+            )
+
+    @pytest.mark.asyncio
+    async def test_huggingface_ollama_install_requires_runtime_readiness(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        from backend.api.handlers import provider_routing as provider_mod
+        from backend.api.handlers.provider_routing import (
+            HuggingFaceInstallRequest,
+            install_huggingface_model,
+        )
+        from backend.settings import settings
+
+        root = tmp_path / "models" / "huggingface" / "org" / "model"
+        root.mkdir(parents=True)
+        model = root / "model.gguf"
+        model.write_bytes(b"weights")
+        model.with_name("model.gguf.source.json").write_text(
+            json.dumps(
+                {
+                    "repo_id": "org/model",
+                    "filename": "model.gguf",
+                    "revision": "abc123",
+                    "sha256": hashlib.sha256(b"weights").hexdigest(),
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        monkeypatch.setattr(provider_mod, "_ollama_executable", lambda: model)
+        monkeypatch.setattr(
+            provider_mod, "_ollama_http_status", AsyncMock(return_value=(False, None))
+        )
+
+        with pytest.raises(HTTPException, match="readiness"):
+            await install_huggingface_model(
+                HuggingFaceInstallRequest(
+                    repo_id="org/model",
+                    revision="abc123",
+                    filename="model.gguf",
+                    provider="ollama",
+                    alias="local-model",
+                ),
+                None,
+            )
+
+        assert not (root / "model-manifest.json").exists()
+
+    @pytest.mark.asyncio
+    async def test_huggingface_ollama_failure_does_not_publish_manifest(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        from fastapi import HTTPException
+
+        from backend.api.handlers import provider_routing as provider_mod
+        from backend.api.handlers.provider_routing import (
+            HuggingFaceInstallRequest,
+            install_huggingface_model,
+        )
+        from backend.settings import settings
+
+        root = tmp_path / "models" / "huggingface" / "org" / "model"
+        root.mkdir(parents=True)
+        model = root / "model.gguf"
+        model.write_bytes(b"weights")
+        model.with_name("model.gguf.source.json").write_text(
+            json.dumps(
+                {
+                    "repo_id": "org/model",
+                    "filename": "model.gguf",
+                    "revision": "abc123",
+                    "sha256": hashlib.sha256(b"weights").hexdigest(),
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        monkeypatch.setattr(
+            provider_mod, "_ollama_http_status", AsyncMock(return_value=(True, "0.1"))
+        )
+
+        response = MagicMock()
+        response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "upstream failure",
+            request=httpx.Request("POST", "http://127.0.0.1:11434/api/create"),
+            response=httpx.Response(500),
+        )
+        client_context = AsyncMock()
+        client_context.__aenter__ = AsyncMock(return_value=client_context)
+        client_context.__aexit__ = AsyncMock(return_value=False)
+        client_context.post = AsyncMock(return_value=response)
+
+        with patch("httpx.AsyncClient", return_value=client_context):
+            with pytest.raises(HTTPException, match="importar o modelo"):
+                await install_huggingface_model(
+                    HuggingFaceInstallRequest(
+                        repo_id="org/model",
+                        revision="abc123",
+                        filename="model.gguf",
+                        provider="ollama",
+                        alias="local-model",
+                    ),
+                    None,
+                )
+
+        assert not (root / "model-manifest.json").exists()
+
+    @pytest.mark.asyncio
+    async def test_huggingface_install_rejects_file_without_source_metadata(
+        self, tmp_path, monkeypatch
+    ):
+        from fastapi import HTTPException
+
+        from backend.api.handlers.provider_routing import (
+            HuggingFaceInstallRequest,
+            install_huggingface_model,
+        )
+        from backend.settings import settings
+
+        root = tmp_path / "models" / "huggingface" / "org" / "model"
+        root.mkdir(parents=True)
+        (root / "model.gguf").write_bytes(b"weights")
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+
+        with pytest.raises(HTTPException, match="metadados de origem ausentes"):
+            await install_huggingface_model(
+                HuggingFaceInstallRequest(
+                    repo_id="org/model",
+                    revision="abc123",
+                    filename="model.gguf",
+                ),
+                None,
+            )
+
+    @pytest.mark.asyncio
+    async def test_huggingface_start_uses_active_managed_runtime(
+        self, tmp_path, monkeypatch
+    ):
+        from backend.api.handlers.provider_routing import (
+            HuggingFaceStartRequest,
+            start_installed_huggingface_model,
+        )
+        from backend.settings import settings
+
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        model_root = tmp_path / "models" / "huggingface" / "org" / "model"
+        model_root.mkdir(parents=True)
+        model_path = model_root / "weights.gguf"
+        model_path.write_bytes(b"weights")
+        runtime_root = tmp_path / "tools" / "llama.cpp"
+        runtime_dir = runtime_root / "versions" / "0123456789abcdef"
+        runtime_dir.mkdir(parents=True)
+        executable = runtime_dir / "llama-server"
+        executable.write_bytes(b"server")
+        (runtime_root / "active-runtime").write_text(
+            "0123456789abcdef", encoding="utf-8"
+        )
+        (runtime_root / "runtime-manifest.json").write_text(
+            json.dumps(
+                {
+                    "runtimes": [
+                        {
+                            "id": "0123456789abcdef",
+                            "directory": str(runtime_dir),
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        (model_root / "model-manifest.json").write_text(
+            json.dumps({"files": [{"filename": "weights.gguf", "role": "model"}]}),
+            encoding="utf-8",
+        )
+        started: dict[str, object] = {}
+
+        async def fake_start(executable_arg, model_arg, **options):
+            started.update(
+                executable=str(executable_arg),
+                model=str(model_arg),
+                **options,
+            )
+
+        monkeypatch.setattr(
+            "backend.services.llamacpp_sidecar.start_llamacpp", fake_start
+        )
+        result = await start_installed_huggingface_model(
+            HuggingFaceStartRequest(repo_id="org/model"), None
+        )
+
+        assert result["running"] is True
+        assert started == {
+            "executable": str(executable),
+            "model": str(model_path),
+            "host": "127.0.0.1",
+            "port": 18080,
+            "alias": None,
+            "mmproj": None,
+            "ctx_size": 32768,
+            "n_gpu_layers": None,
+            "threads": None,
+            "parallel": None,
+            "jinja": False,
+        }
+        assert result["confirmed"] is True
+        assert result["model_tag"] == "weights.gguf"
+
+    def test_llamacpp_install_rejects_non_official_url(self, client):
+        response = client.post(
+            "/provider-routing/llamacpp/install",
+            json={"asset_url": "https://example.com/llama.zip"},
+        )
+        assert response.status_code == 400
+
+    def test_llamacpp_install_rejects_invalid_checksum(self, client):
+        response = client.post(
+            "/provider-routing/llamacpp/install",
+            json={
+                "asset_url": "https://github.com/ggml-org/llama.cpp/releases/download/b1/llama.zip",
+                "sha256": "bad",
+            },
+        )
+        assert response.status_code == 400
+
+    def test_llamacpp_runtime_test_rejects_unknown_binary(self, client):
+        response = client.post(
+            "/provider-routing/llamacpp/runtime/test",
+            json={"path": "C:/tmp/not-llama.exe"},
+        )
+        assert response.status_code == 400
+
+    def test_llamacpp_model_confirmation_rejects_unmanaged_path(self, client):
+        response = client.post(
+            "/provider-routing/llamacpp/models/confirm",
+            json={
+                "tag": "local-model",
+                "model_path": "C:/outside/model.gguf",
+                "runtime_id": "0123456789abcdef",
+            },
+        )
+        assert response.status_code == 400
+
+    def test_llamacpp_archive_extraction_rejects_traversal(self, tmp_path):
+        archive = tmp_path / "runtime.zip"
+        with zipfile.ZipFile(archive, "w") as bundle:
+            bundle.writestr("../escape.exe", b"bad")
+        with pytest.raises(ValueError):
+            _extract_llamacpp_archive(archive, tmp_path / "runtime")
+
+    def test_llamacpp_archive_extraction_returns_files(self, tmp_path):
+        archive = tmp_path / "runtime.zip"
+        destination = tmp_path / "runtime"
+        with zipfile.ZipFile(archive, "w") as bundle:
+            bundle.writestr("bin/llama-server.exe", b"binary")
+        files = _extract_llamacpp_archive(archive, destination)
+        assert (destination / "bin" / "llama-server.exe").read_bytes() == b"binary"
+        assert files == [str(destination / "bin" / "llama-server.exe")]
 
 
 class TestOpenRouterKey:
@@ -904,3 +2215,259 @@ class TestNineRouterRegisteredModels:
             "/provider-routing/nine-router/registered", json={"tag": "dup/nine-model"}
         )
         assert resp.status_code == 409
+
+
+class TestLlamaCppConfiguration:
+    def test_managed_mode_requires_ready_sidecar(self, client, monkeypatch):
+        monkeypatch.delenv("LLAMACPP_MODE", raising=False)
+        monkeypatch.setattr(
+            "backend.services.llamacpp_sidecar.llamacpp_status",
+            lambda: {"running": False},
+        )
+        response = client.post(
+            "/provider-routing/llamacpp/mode", json={"mode": "managed"}
+        )
+        assert response.status_code == 409
+
+    def test_external_mode_is_persisted_without_copying_credentials(
+        self, client, clean_llamacpp_config, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "backend.api.handlers.provider_routing._env_file",
+            lambda: tmp_path / ".env",
+        )
+        response = client.post(
+            "/provider-routing/llamacpp/mode", json={"mode": "external"}
+        )
+        assert response.status_code == 200
+        assert response.json()["mode"] == "external"
+        assert "LLAMACPP_MODE=external" in (tmp_path / ".env").read_text()
+
+    def test_config_syncs_model_environment(
+        self, client, clean_llamacpp_config, tmp_path, monkeypatch
+    ) -> None:
+        from backend.settings import settings
+
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        response = client.post(
+            "/provider-routing/llamacpp/config",
+            json={
+                "base_url": "http://127.0.0.1:8080/v1",
+                "api_key": "",
+                "model": "  local-model  ",
+            },
+        )
+        assert response.status_code == 200
+        assert os.environ["LLAMACPP_MODEL"] == "local-model"
+
+        cleared = client.post(
+            "/provider-routing/llamacpp/config",
+            json={
+                "base_url": "http://127.0.0.1:8080/v1",
+                "api_key": "",
+                "model": "",
+            },
+        )
+        assert cleared.status_code == 200
+        assert "LLAMACPP_MODEL" not in os.environ
+
+    @pytest.mark.asyncio
+    async def test_runtime_status_reads_installed_manifest(self, tmp_path, monkeypatch):
+        from backend.settings import settings
+
+        # Keep this assertion independent from provider-configuration tests
+        # that run before it and may leave an external URL in the shared
+        # settings singleton.  An installed manifest without an active
+        # process is a managed runtime that is currently unavailable.
+        monkeypatch.setattr(settings, "llamacpp_base_url", None)
+        monkeypatch.setenv("LLAMACPP_MODE", "managed")
+        monkeypatch.setattr(
+            "backend.services.llamacpp_sidecar.llamacpp_status",
+            lambda: {"running": False, "persisted_pid": None, "stale_state": False},
+        )
+        root = tmp_path / "tools" / "llama.cpp"
+        root.mkdir(parents=True)
+        (root / "runtime-manifest.json").write_text(
+            '{"runtimes": [{"asset": "llama-server.zip", "sha256": "abc"}]}',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+
+        status = await llamacpp_runtime_status()
+
+        assert status["installed"] is True
+        assert status["runtimes"] == [{"asset": "llama-server.zip", "sha256": "abc"}]
+        assert status["state"] == "unavailable"
+        assert status["managed"] is True
+
+    @pytest.mark.asyncio
+    async def test_runtime_status_distinguishes_external_mode_without_managed_files(
+        self, tmp_path, monkeypatch
+    ):
+        from backend.api.handlers.provider_routing import llamacpp_runtime_status
+        from backend.settings import settings
+
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        monkeypatch.setattr(settings, "llamacpp_base_url", "http://127.0.0.1:8080/v1")
+        monkeypatch.setenv("LLAMACPP_MODE", "external")
+        monkeypatch.setattr(
+            "backend.services.llamacpp_sidecar.llamacpp_status",
+            lambda: {"running": False, "persisted_pid": None, "stale_state": False},
+        )
+
+        status = await llamacpp_runtime_status()
+
+        assert status["state"] == "external"
+        assert status["managed"] is False
+        assert status["external"] is True
+
+    @pytest.mark.asyncio
+    async def test_runtime_status_marks_persisted_unknown_process(
+        self, tmp_path, monkeypatch
+    ):
+        from backend.api.handlers.provider_routing import llamacpp_runtime_status
+        from backend.settings import settings
+
+        root = tmp_path / "tools" / "llama.cpp"
+        root.mkdir(parents=True)
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        monkeypatch.setattr(
+            "backend.services.llamacpp_sidecar.llamacpp_status",
+            lambda: {
+                "running": False,
+                "persisted_pid": 9876,
+                "stale_state": False,
+            },
+        )
+
+        status = await llamacpp_runtime_status()
+
+        assert status["state"] == "unknown-process"
+
+    @pytest.mark.asyncio
+    async def test_runtime_removal_rejects_active_sidecar(self, monkeypatch):
+        monkeypatch.setattr(
+            "backend.services.llamacpp_sidecar.llamacpp_status",
+            lambda: {"running": True, "pid": 123},
+        )
+
+        with pytest.raises(Exception, match="pare o sidecar"):
+            await remove_llamacpp_runtime(None)
+
+    @pytest.mark.asyncio
+    async def test_runtime_rollback_activates_registered_version(
+        self, tmp_path, monkeypatch
+    ):
+        from backend.api.handlers.provider_routing import rollback_llamacpp_runtime
+        from backend.settings import settings
+
+        root = tmp_path / "tools" / "llama.cpp"
+        version = root / "versions" / "0123456789abcdef"
+        version.mkdir(parents=True)
+        (root / "runtime-manifest.json").write_text(
+            '{"runtimes": [{"id": "0123456789abcdef", "directory": "ignored"}]}',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        result = await rollback_llamacpp_runtime(
+            LlamaCppRollbackRequest(runtime_id="0123456789abcdef"), None
+        )
+        assert result == {"ok": True, "active_runtime": "0123456789abcdef"}
+        assert (root / "active-runtime").read_text(
+            encoding="utf-8"
+        ) == "0123456789abcdef"
+
+    @pytest.mark.asyncio
+    async def test_runtime_version_removal_keeps_active_version(
+        self, tmp_path, monkeypatch
+    ):
+        from backend.api.handlers.provider_routing import (
+            remove_llamacpp_runtime_version,
+        )
+        from backend.settings import settings
+
+        root = tmp_path / "tools" / "llama.cpp"
+        version = root / "versions" / "fedcba9876543210"
+        version.mkdir(parents=True)
+        (version / "llama-server").write_bytes(b"runtime")
+        (root / "active-runtime").write_text("0123456789abcdef", encoding="utf-8")
+        (root / "runtime-manifest.json").write_text(
+            '{"runtimes": [{"id": "0123456789abcdef"}, {"id": "fedcba9876543210"}]}',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        result = await remove_llamacpp_runtime_version("fedcba9876543210", None)
+        assert result == {"ok": True}
+        assert not version.exists()
+
+    @pytest.mark.asyncio
+    async def test_runtime_cleanup_retains_active_and_newest_inactive_versions(
+        self, tmp_path, monkeypatch
+    ):
+        from backend.api.handlers.provider_routing import (
+            LlamaCppRetentionRequest,
+            cleanup_llamacpp_runtime_versions,
+        )
+        from backend.settings import settings
+
+        root = tmp_path / "tools" / "llama.cpp"
+        versions = root / "versions"
+        versions.mkdir(parents=True)
+        active = "0123456789abcdef"
+        newest = "fedcba9876543210"
+        oldest = "0011223344556677"
+        (root / "active-runtime").write_text(active, encoding="utf-8")
+        for runtime_id in (active, newest, oldest):
+            (versions / runtime_id).mkdir()
+        (root / "runtime-manifest.json").write_text(
+            json.dumps(
+                {
+                    "runtimes": [
+                        {"id": active, "installed_at": "2026-01-01T00:00:00+00:00"},
+                        {"id": newest, "installed_at": "2026-02-01T00:00:00+00:00"},
+                        {"id": oldest, "installed_at": "2026-01-01T00:00:00+00:00"},
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        monkeypatch.setattr(
+            "backend.services.llamacpp_sidecar.llamacpp_status",
+            lambda: {"running": False},
+        )
+
+        result = await cleanup_llamacpp_runtime_versions(
+            LlamaCppRetentionRequest(keep=1), None
+        )
+
+        assert result["removed"] == [oldest]
+        assert (versions / active).exists()
+        assert (versions / newest).exists()
+        assert not (versions / oldest).exists()
+
+    @pytest.mark.asyncio
+    async def test_runtime_transitions_are_serialized(self):
+        from backend.api.handlers.provider_routing import _runtime_transition
+
+        events: list[str] = []
+
+        @_runtime_transition
+        async def transition(name: str) -> None:
+            events.append(f"start:{name}")
+            await asyncio.sleep(0)
+            events.append(f"end:{name}")
+
+        await asyncio.gather(transition("first"), transition("second"))
+
+        assert events in (
+            ["start:first", "end:first", "start:second", "end:second"],
+            ["start:second", "end:second", "start:first", "end:first"],
+        )
+
+    @pytest.mark.asyncio
+    async def test_runtime_validation_requires_llama_server(self):
+        from backend.api.handlers.provider_routing import _validate_runtime_executable
+
+        with pytest.raises(ValueError, match="não contém llama-server"):
+            await _validate_runtime_executable(["/tmp/other-binary"])

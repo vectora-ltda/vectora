@@ -182,6 +182,27 @@ async def _license_revalidation_loop() -> None:
         await asyncio.sleep(_LICENSE_REVALIDATE_INTERVAL_S)
 
 
+async def _autostart_storage_stack() -> None:
+    """Garante a infra local antes de aceitar requests do modo completo.
+
+    O Docker é um serviço externo: se o daemon estiver parado, o backend
+    continua subindo e registra o diagnóstico, permitindo usar o modo lite ou
+    corrigir a instalação sem um crash obscuro no startup.
+    """
+    from backend.settings import settings as _storage_settings
+
+    if _storage_settings.storage_mode != "complete":
+        return
+    if not _storage_settings.storage_docker_autostart:
+        logger.info("storage: auto-start Docker desativado por configuração")
+        return
+    from backend.storage.dev_stack import stack_up
+
+    result = await asyncio.to_thread(stack_up)
+    level = logger.info if result.ok else logger.warning
+    level("storage: auto-start Docker: %s", "; ".join(result.messages))
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
     """Startup / shutdown da aplicação.
@@ -196,6 +217,11 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
     não-daemon de libs externas (httpx, aiosqlite) que ignoram cancel.
     """
     logger.info("api/server: startup")
+
+    try:
+        await _autostart_storage_stack()
+    except Exception as exc:
+        logger.warning("storage: auto-start Docker falhou: %s", exc, exc_info=True)
 
     # Telemetria nativa de execução do agente (turnos, tool calls, erros).
     try:
@@ -268,6 +294,24 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
         except Exception as exc:
             logger.warning("api/server: falha ao subir sidecar Electron: %s", exc)
 
+    # Restores the last model selected through the provider wizard after a
+    # web/backend restart.  The wizard persists a signed confirmation for the
+    # managed model; without this step the selector still has a valid model,
+    # but the first chat fails with "sidecar ... não está em execução".
+    if os.getenv("LLAMACPP_MODE", "external") == "managed":
+        try:
+            from backend.api.handlers.provider_routing import (
+                restore_managed_llamacpp,
+            )
+
+            restored = await restore_managed_llamacpp()
+            if restored:
+                logger.info(
+                    "api/server: sidecar llama.cpp restaurado pelo perfil ativo"
+                )
+        except Exception as exc:
+            logger.warning("api/server: não foi possível restaurar llama.cpp: %s", exc)
+
     # Validação de licença: uma no boot (não-bloqueante) + revalidação a cada
     # 6h (TTL do cache). O launcher CLI valida antes do uvicorn, mas deploys
     # via docker/uvicorn direto não passam pelo launcher — sem este loop o
@@ -339,6 +383,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
     # desatualizada ali — nunca deixa uma conversa real ficar invisível na
     # sidebar por muito mais de 1h, seja qual for a causa da divergência.
     thread_cleanup_task: asyncio.Task[None] | None = None
+    reconcile_runs_task: asyncio.Task[None] | None = None
     try:
         from backend.api.handlers.threads import (
             cleanup_empty_threads,
@@ -356,6 +401,22 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             except Exception as exc:
                 logger.warning("api/server: falha ao reconciliar threads: %s", exc)
 
+        async def _reconcile_runs_safe() -> None:
+            try:
+                from backend.services import agent_factory
+
+                store = await agent_factory.get_session_store()
+                reconcile_runs = getattr(store, "reconcile_abandoned_runs", None)
+                if reconcile_runs is not None:
+                    count = await reconcile_runs(older_than_seconds=900)
+                    if count:
+                        logger.warning(
+                            "api/server: %s execução(ões) abandonada(s) reconciliada(s)",
+                            count,
+                        )
+            except Exception as exc:
+                logger.warning("api/server: falha ao reconciliar runs: %s", exc)
+
         async def _cleanup_safe() -> None:
             try:
                 await cleanup_empty_threads()
@@ -369,6 +430,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
                 logger.warning("api/server: falha ao limpar atividade remota: %s", exc)
 
         async def _thread_cleanup_loop() -> None:
+            nonlocal reconcile_runs_task
             # Reconcilia ANTES de limpar: uma thread real com message_count
             # zerado por alguma falha (upsert perdido) e mais velha que o
             # cutoff seria apagada por cleanup_empty_threads antes de
@@ -378,11 +440,18 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             # threads fantasma de uma sessão anterior (crash/cancelamento
             # antes do 1º envio) ficavam visíveis por até 1h a cada restart.
             await _reconcile_safe()
+            # Run reconciliation independently so a slow/unavailable native
+            # store cannot block sidebar cleanup at startup.
+            reconcile_runs_task = asyncio.create_task(_reconcile_runs_safe())
+            reconcile_runs_task.add_done_callback(
+                lambda task: task.exception() if not task.cancelled() else None
+            )
             await _cleanup_safe()
             await _activity_cleanup_safe()
             while True:
                 await asyncio.sleep(3600)
                 await _reconcile_safe()
+                await _reconcile_runs_safe()
                 await _cleanup_safe()
                 await _activity_cleanup_safe()
 
@@ -429,6 +498,12 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             consolidation_task.cancel()
         if thread_cleanup_task is not None:
             thread_cleanup_task.cancel()
+        if reconcile_runs_task is not None:
+            reconcile_runs_task.cancel()
+        for task in (thread_cleanup_task, reconcile_runs_task, consolidation_task):
+            if task is not None:
+                with suppress(asyncio.CancelledError):
+                    await task
         if _gateway_client is not None:
             with suppress(Exception):
                 await _gateway_client.stop()
@@ -479,6 +554,25 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             logger.info("api/server: sidecar NATS fechado")
         except Exception:
             logger.warning("api/server: erro ao encerrar sidecar NATS", exc_info=True)
+
+        try:
+            from backend.services.llamacpp_sidecar import stop_llamacpp
+
+            await stop_llamacpp()
+            logger.info("api/server: sidecar llama.cpp fechado")
+        except Exception:
+            logger.warning(
+                "api/server: erro ao encerrar sidecar llama.cpp", exc_info=True
+            )
+
+        try:
+            from backend.api.handlers.provider_routing import stop_managed_ollama
+
+            await stop_managed_ollama()
+        except Exception:
+            logger.warning(
+                "api/server: erro ao encerrar Ollama gerenciado", exc_info=True
+            )
 
         try:
             from backend.services.electron_sidecar import stop_electron_sidecar

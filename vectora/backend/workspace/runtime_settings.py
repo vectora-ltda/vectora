@@ -29,6 +29,7 @@ import logging
 import os
 import sqlite3
 import threading
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -147,23 +148,42 @@ class RuntimeSettings:
         """Grava uma chave no SQLite. Chamar só dentro de `self._lock`."""
         now = datetime.now(UTC).isoformat()
         payload = json.dumps(value, ensure_ascii=False)
-        try:
-            self._conn.execute(
-                "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
-                (key, payload, now),
-            )
-            self._conn.commit()
-            logger.debug("runtime_settings: salvo %r em %s", key, self._path)
-        except Exception:
-            logger.exception("runtime_settings: erro ao salvar %r", key)
+        for attempt in range(4):
             try:
-                self._conn.rollback()
-            except Exception:
-                logger.exception(
-                    "runtime_settings: falha ao desfazer transação %r", key
+                self._conn.execute(
+                    "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+                    (key, payload, now),
                 )
-            raise
+                self._conn.commit()
+                logger.debug("runtime_settings: salvo %r em %s", key, self._path)
+                return
+            except sqlite3.OperationalError as exc:
+                try:
+                    self._conn.rollback()
+                except Exception:
+                    logger.exception(
+                        "runtime_settings: falha ao desfazer transação %r", key
+                    )
+                if "locked" not in str(exc).lower() or attempt == 3:
+                    logger.exception("runtime_settings: erro ao salvar %r", key)
+                    raise
+                delay = 0.05 * (2**attempt)
+                logger.warning(
+                    "runtime_settings: banco ocupado ao salvar %r; nova tentativa em %.2fs",
+                    key,
+                    delay,
+                )
+                time.sleep(delay)
+            except Exception:
+                logger.exception("runtime_settings: erro ao salvar %r", key)
+                try:
+                    self._conn.rollback()
+                except Exception:
+                    logger.exception(
+                        "runtime_settings: falha ao desfazer transação %r", key
+                    )
+                raise
 
     def reload(self) -> None:
         """Recarrega do SQLite (útil após mudanças externas)."""

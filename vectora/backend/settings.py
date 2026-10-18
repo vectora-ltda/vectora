@@ -26,6 +26,11 @@ from backend.runtime_profile import resolve_runtime_home
 
 logger = logging.getLogger(__name__)
 
+# Values injected by the previous Settings initialization are not operator env.
+# Keep this ledger so repeated initialization does not promote values loaded
+# from a project .env into process-level precedence.
+_LAST_LOADED_ENV_VALUES: dict[str, str] = {}
+
 
 def _default_vectora_home() -> Path:
     """Resolve o diretório base do Vectora a partir de ``VECTORA_HOME``, se setado.
@@ -65,6 +70,8 @@ class Settings(BaseSettings):
         "cohere",
         "openrouter",
         "nine_router",
+        "llamacpp",
+        "dmr",
     ] = "google-genai"
     """Active LLM provider (auto-detected from API keys if not set)."""
 
@@ -114,6 +121,16 @@ class Settings(BaseSettings):
     nine_router_base_url: str | None = None
     nine_router_api_key: str | None = None
     nine_router_default_model: str | None = None
+
+    # llama.cpp (servidor local OpenAI-compatible)
+    llamacpp_base_url: str | None = None
+    llamacpp_api_key: str | None = None
+    llamacpp_model: str | None = None
+
+    # Docker Model Runner (local Docker Desktop/Engine plugin)
+    dmr_base_url: str | None = None
+    dmr_model: str | None = None
+    dmr_contract: str | None = None
 
     # Cohere Chat (command-* series)
     # Nota: cohere_api_key (seção EMBEDDINGS abaixo) é reutilizado para ChatCohere.
@@ -167,6 +184,14 @@ class Settings(BaseSettings):
     lite     — SQLite + LanceDB (padrão, zero dependências externas).
     complete — PostgreSQL + Qdrant + Redis (Pro; requer POSTGRES_DSN,
                QDRANT_URL e REDIS_URL configurados).
+    """
+
+    storage_docker_autostart: bool = True
+    """Sobe a stack local de storage quando o modo ``complete`` está ativo.
+
+    O comportamento só é aplicado ao modo completo e usa o executor interno
+    que valida o Docker antes de iniciar os containers. Instalações remotas
+    podem desligá-lo com ``STORAGE_DOCKER_AUTOSTART=false``.
     """
 
     chat_mode: bool = False
@@ -719,7 +744,15 @@ class Settings(BaseSettings):
         # abaixo mesmo quando eles usam override=True entre si, senão um
         # `.env` de projeto esquecido no filesystem vence silenciosamente um
         # env var que o operador/teste setou de propósito.
+        global _LAST_LOADED_ENV_VALUES
         _operator_env = dict(os.environ)
+        for _key_name, _loaded_value in _LAST_LOADED_ENV_VALUES.items():
+            # Remove only values that are still exactly the value introduced by
+            # the previous file load.  Values changed by an operator/test are
+            # retained and win over the files below.
+            if _operator_env.get(_key_name) == _loaded_value:
+                _operator_env.pop(_key_name, None)
+                os.environ.pop(_key_name, None)
 
         # Level 5 (lowest): Load embedded defaults.env via setdefault
         try:
@@ -758,6 +791,8 @@ class Settings(BaseSettings):
                     "cohere": "COHERE_CHAT_MODEL",
                     "openrouter": "OPENROUTER_MODEL",
                     "nine_router": "NINE_ROUTER_MODEL",
+                    "llamacpp": "LLAMACPP_MODEL",
+                    "dmr": "DMR_MODEL",
                 }
                 if _env_var := _model_env_map.get(_provider):
                     os.environ.setdefault(_env_var, _model)
@@ -842,6 +877,11 @@ class Settings(BaseSettings):
         # já estava no processo antes desta função rodar — restaura por
         # cima de tudo que foi carregado acima.
         os.environ.update(_operator_env)
+        _LAST_LOADED_ENV_VALUES = {
+            _key_name: os.environ[_key_name]
+            for _key_name in PROVIDER_API_KEY_ENV.values()
+            if _key_name is not None and _key_name in os.environ
+        }
 
     def _initialize_directories(self) -> None:
         """Create all required directories if they don't exist."""
@@ -916,6 +956,8 @@ class Settings(BaseSettings):
             self.llm_provider = "openrouter"
         elif self.ollama_base_url:
             self.llm_provider = "ollama"
+        elif self.dmr_base_url:
+            self.llm_provider = "dmr"
 
         logger.debug(f"LLM provider auto-detected: {self.llm_provider}")
 
@@ -945,6 +987,8 @@ class Settings(BaseSettings):
             "cohere": self.cohere_chat_model,
             "openrouter": self.openrouter_model,
             "nine_router": self.nine_router_default_model or "",
+            "llamacpp": self.llamacpp_model or "",
+            "dmr": self.dmr_model or "",
         }
         return model_map.get(self.llm_provider, self.google_model)
 
@@ -962,6 +1006,8 @@ class Settings(BaseSettings):
             "cohere": self.cohere_api_key,
             "openrouter": self.openrouter_api_key,
             "nine_router": self.nine_router_api_key,
+            "llamacpp": self.llamacpp_api_key,
+            "dmr": None,
         }
         return key_map.get(self.llm_provider)
 
@@ -988,6 +1034,13 @@ class Settings(BaseSettings):
             providers.append("nine_router")
         if getattr(self, "ollama_base_url", ""):
             providers.append("ollama")
+        if (
+            getattr(self, "llamacpp_base_url", "")
+            or os.getenv("LLAMACPP_MODE", "external") == "managed"
+        ):
+            providers.append("llamacpp")
+        if getattr(self, "dmr_base_url", None):
+            providers.append("dmr")
         return providers
 
     def get_cohere_api_key(self) -> str | None:
@@ -1009,25 +1062,12 @@ class Settings(BaseSettings):
         return self.cohere_api_key or os.getenv("COHERE_API_KEY")
 
     def get_available_providers(self) -> list[str]:
-        """Get list of providers with API keys configured.
+        """Return every configured chat provider, including local runtimes.
 
-        Returns:
-            List of available provider names
+        Keep this legacy accessor aligned with ``configured_llm_providers`` so
+        callers do not silently omit 9Router, llama.cpp or Docker Model Runner.
         """
-        available = []
-        if self.anthropic_api_key:
-            available.append("anthropic")
-        if self.openai_api_key:
-            available.append("openai")
-        if self.google_api_key:
-            available.append("google-genai")
-        if self.ollama_base_url:
-            available.append("ollama")
-        if self.cohere_api_key:
-            available.append("cohere")
-        if self.openrouter_api_key:
-            available.append("openrouter")
-        return available
+        return self.configured_llm_providers()
 
     def set_model(self, provider: str, model: str) -> None:
         """Update model for a specific provider.
@@ -1048,6 +1088,8 @@ class Settings(BaseSettings):
             "cohere",
             "openrouter",
             "nine_router",
+            "llamacpp",
+            "dmr",
         ]:
             raise ValueError(f"Unknown LLM provider: {provider}")
 
@@ -1065,6 +1107,10 @@ class Settings(BaseSettings):
             self.openrouter_model = model
         elif provider == "nine_router":
             self.nine_router_default_model = model
+        elif provider == "llamacpp":
+            self.llamacpp_model = model
+        elif provider == "dmr":
+            self.dmr_model = model
 
         logger.info(f"Model updated: {provider}={model}")
 
@@ -1317,6 +1363,8 @@ PROVIDER_API_KEY_ENV: dict[str, str | None] = {
     "cohere": "COHERE_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
     "nine_router": "NINE_ROUTER_API_KEY",
+    "llamacpp": "LLAMACPP_API_KEY",
+    "dmr": None,
     "tavily": "TAVILY_API_KEY",
 }
 
@@ -1329,6 +1377,8 @@ PROVIDER_MODEL_ENV: dict[str, str] = {
     "cohere": "COHERE_CHAT_MODEL",
     "openrouter": "OPENROUTER_MODEL",
     "nine_router": "NINE_ROUTER_MODEL",
+    "llamacpp": "LLAMACPP_MODEL",
+    "dmr": "DMR_MODEL",
 }
 
 # Nome amigável para exibição no TUI / setup wizard.

@@ -36,6 +36,9 @@ def _safe_roots_file() -> Path:
 
 def _default_builtin_root() -> Path:
     """Return the default workspace root."""
+    configured = os.environ.get("VECTORA_WORKSPACES_ROOT")
+    if configured:
+        return Path(configured).expanduser().resolve()
     return settings.vectora_home.parent / "Documents" / "vectora"
 
 

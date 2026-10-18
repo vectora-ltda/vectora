@@ -50,6 +50,10 @@ def _resposta_ok(texto: str = "ok") -> VMessage:
     )
 
 
+async def _async_value(value):
+    return value
+
+
 def _make_client(
     monkeypatch, *, fallback_chain, clients_por_modelo, on_model_switch=None
 ):
@@ -65,6 +69,28 @@ def _make_client(
 
 
 class TestAgenerate:
+    async def test_managed_llamacpp_e_iniciado_antes_de_resolver_candidatos(
+        self, monkeypatch
+    ):
+        chamado = False
+
+        async def garantir():
+            nonlocal chamado
+            chamado = True
+
+        monkeypatch.setenv("LLAMACPP_MODE", "managed")
+        monkeypatch.setattr(
+            "backend.llm.fallback_chat_client._ensure_managed_llamacpp", garantir
+        )
+        monkeypatch.setattr(
+            "backend.llm.fallback_chat_client._candidates",
+            lambda *_args, **_kwargs: _async_value(["llamacpp:qwen"]),
+        )
+        cliente = FallbackChatClient("llamacpp:qwen")
+
+        assert await cliente._candidate_ids([]) == ["llamacpp:qwen"]
+        assert chamado is True
+
     async def test_usa_o_primario_quando_nao_ha_erro(self, monkeypatch):
         cliente = _make_client(
             monkeypatch,

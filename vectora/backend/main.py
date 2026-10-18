@@ -3,7 +3,7 @@
 vectora                 imprime o help (descobre a CLI de configuração)
 vectora start           sobe backend + SPA (fullstack)
 vectora start --headless  sobe sem janela (bandeja + backend)
-vectora web             sobe só como webapp — sem Electron, sem bandeja
+vectora web             sobe o webapp com Electron/Chromium, sem bandeja Python
 vectora run --task "..."  roda uma tarefa uma vez e sai — sem servidor (CI)
 
 Configuração (operacional, para VPS via SSH):
@@ -183,7 +183,7 @@ def _build_parser() -> argparse.ArgumentParser:
   vectora start                        sobe backend + SPA (fullstack)
   vectora start --headless             servidor headless (VPS/systemd)
   vectora start --port 9000            porta customizada
-  vectora web                          webapp puro — sem Electron, sem bandeja
+  vectora web                          webapp com Electron/Chromium, sem bandeja
 
   vectora config                       mostra configuração completa
   vectora config keys                  wizard: API keys + LLM provider
@@ -308,15 +308,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Chave privada TLS correspondente. Também via env SSL_KEYFILE.",
     )
 
-    # ── web — força modo webapp puro (sem Electron, sem bandeja) ──────────────
+    # ── web — HTTP + Electron/Chromium, sem bandeja Python ───────────────────
     web_p = sub.add_parser(
         "web",
-        help="Sobe o Vectora como webapp puro (sem Electron, sem bandeja)",
+        help="Sobe o webapp com Electron/Chromium (sem bandeja Python)",
         description=(
             "Sobe o backend completo (FastAPI) servindo a SPA via uvicorn,\n"
-            "acessível só pelo browser — nunca abre janela Electron nem ícone de\n"
-            "bandeja, mesmo numa máquina com display. Equivalente ao modo\n"
-            "servidor/VPS, mas utilizável em qualquer máquina."
+            "mantém o Electron/Chromium como sidecar e não sobe a bandeja\n"
+            "Python. O backend continua acessível pela porta HTTP informada."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -553,20 +552,25 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
     Em ``--headless`` registra ``VECTORA_HEADLESS=1`` para a bandeja/Electron
     decidirem não abrir janela; o servidor em si é idêntico.
 
-    ``force_web=True`` (``vectora web``) vai além de ``--headless``: nem a
-    bandeja do sistema sobe — só o servidor ASGI, para uso via browser em
-    qualquer máquina, com ou sem display.
+    ``force_web=True`` (``vectora web``) não sobe a bandeja Python, mas mantém
+    o Electron como sidecar quando o binário e um display estiverem disponíveis.
+    O servidor continua em TCP para uso pelo browser e por clientes externos.
     """
     import uvicorn
 
-    # `vectora web` is an explicit browser-only mode. Clear desktop flags that
-    # could have been inherited from a launcher and never auto-start Electron,
-    # including when the installed Electron binary is discoverable.
     if force_web:
+        # `vectora web` always exposes TCP, even when launched from an Electron
+        # parent that left the desktop transport marker in the environment.
         os.environ.pop("VECTORA_DESKTOP", None)
-        os.environ.pop("VECTORA_SPAWN_ELECTRON", None)
+        # Electron remains available as a hidden Chromium/Node sidecar for
+        # browser workbench and CDP, but must never present the desktop app
+        # window when the operator explicitly selected the web command.
+        os.environ["VECTORA_WEB_MODE"] = "1"
 
-    headless = force_web or getattr(args, "headless", False)
+    # `vectora web` keeps the HTTP server and omits only the Python tray. The
+    # Electron sidecar remains enabled so its bundled Chromium is the single
+    # browser runtime used by the Browser Workbench and the CDP client.
+    headless = getattr(args, "headless", False)
     if headless:
         os.environ["VECTORA_HEADLESS"] = "1"
 
@@ -587,14 +591,17 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
     # sozinho, no seu próprio startup, se faz sentido subir uma janela.
     from backend.services.electron_sidecar import should_spawn_electron
 
-    dev_electron = not force_web and should_spawn_electron()
+    dev_electron = should_spawn_electron()
     if dev_electron:
         # A development desktop must never reuse the installed app's
         # databases, sockets, PID file or NATS JetStream store. Keep an
         # explicit VECTORA_HOME untouched so callers can choose another
         # profile for automated runs.
         os.environ.setdefault("VECTORA_RUNTIME_PROFILE", "dev")
-        os.environ["VECTORA_DESKTOP"] = "1"
+        # `vectora start` uses desktop IPC. `vectora web` must keep TCP
+        # reachable for web clients while Electron attaches as a sidecar.
+        if not force_web:
+            os.environ["VECTORA_DESKTOP"] = "1"
         os.environ["VECTORA_SPAWN_ELECTRON"] = "1"
         logger.info(
             "Electron (dev) resolvido — sobe como sidecar no startup do FastAPI"
@@ -675,7 +682,7 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
             scheme,
             args.host,
             port,
-            "web" if force_web else ("headless" if headless else "fullstack"),
+            "web+electron" if force_web else ("headless" if headless else "fullstack"),
         )
         config = uvicorn.Config(
             app,
@@ -757,11 +764,11 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
         return  # pragma: no cover - os._exit não retorna fora de teste
 
     if force_web:
-        # vectora web: nem a bandeja sobe — só o servidor ASGI puro, igual ao
-        # fallback "sem display" de run_server_with_tray, mas explícito
-        # mesmo em máquina com display (Ctrl+C encerra via os sinais acima).
+        # `vectora web`: sem bandeja Python, mas com Electron sidecar quando
+        # disponível. O backend continua em TCP para clientes web externos.
         logger.warning(
-            "\n\n  ✨  Vectora rodando em %s://localhost:%d — acesse pelo browser.\n",
+            "\n\n  ✨  Vectora rodando em %s://localhost:%d com Electron/Chromium — "
+            "acesse pelo app Electron ou pelo browser.\n",
             scheme,
             port,
         )

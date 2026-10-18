@@ -116,6 +116,7 @@ jobs:
           DEVELOPMENT_MILESTONE: ${{ steps.release-line.outputs.development_milestone }}
           MAINTENANCE_MILESTONE: ${{ steps.release-line.outputs.maintenance_milestone }}
           RELEASE_MILESTONE: ${{ steps.release-line.outputs.release_milestone }}
+          RELEASE_MANIFEST: ${{ startsWith(github.ref, 'refs/tags/v') && '.release-please-manifest.maintenance.json' || (github.ref_name == steps.release-line.outputs.development_branch && '.release-please-manifest.development.json' || '.release-please-manifest.maintenance.json') }}
           CANDIDATE_BASE_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
         shell: bash
         run: |
@@ -140,112 +141,176 @@ jobs:
           all-extras: "false"
           working-directory: vectora
 
-      - name: Find canonical release branch PR
-        if: steps.release-line.outputs.enabled == 'true'
-        id: canonical-release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TARGET_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
-          RELEASE_TARGET_BRANCH: ${{ steps.release-line.outputs.release_target_branch }}
-          RELEASE_MILESTONE: ${{ steps.release-line.outputs.release_milestone }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          prs="$(gh pr list --repo "$GITHUB_REPOSITORY" --base "$RELEASE_TARGET_BRANCH" --head "$TARGET_BRANCH" --state open --limit 20 --json number,headRefName,headRefOid,headRepository,title,body,labels,baseRefName)"
-          selected="$(uv run --project vectora python utils/select_release_pr.py \
-            --repository "$GITHUB_REPOSITORY" --source "$TARGET_BRANCH" \
-            --target "$RELEASE_TARGET_BRANCH" --milestone "$RELEASE_MILESTONE" \
-            <<< "$prs")"
-          echo "number=$(jq -r '.number // empty' <<< "$selected")" >> "$GITHUB_OUTPUT"
-
-      # Somente a branch canônica da linha pode receber o token de publicação.
-      - name: Find canonical release branch
+      - name: Build canonical release plan
         if: steps.release-line.outputs.enabled == 'true' && steps.release-candidates.outputs.has_candidates == 'true'
-        id: release-branch
+        id: release-plan
         env:
-          GH_TOKEN: ${{ github.token }}
           TARGET_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
-          RELEASE_TARGET_BRANCH: ${{ steps.release-line.outputs.release_target_branch }}
-          REPOSITORY: ${{ github.repository }}
           RELEASE_MILESTONE: ${{ steps.release-line.outputs.release_milestone }}
+          DEVELOPMENT_BRANCH: ${{ steps.release-line.outputs.development_branch }}
+          MAINTENANCE_BRANCH: ${{ steps.release-line.outputs.maintenance_branch }}
+          RELEASE_MANIFEST: ${{ startsWith(github.ref, 'refs/tags/v') && '.release-please-manifest.maintenance.json' || (github.ref_name == steps.release-line.outputs.development_branch && '.release-please-manifest.development.json' || '.release-please-manifest.maintenance.json') }}
         shell: bash
         run: |
           set -euo pipefail
-          prs="$(gh pr list \
-            --repo "$GITHUB_REPOSITORY" \
-            --state open \
-            --limit 100 \
-            --json number,headRefName,headRefOid,headRepository,labels,title,baseRefName)"
-          pr="$(uv run --project vectora python utils/select_release_pr.py \
-            --repository "$REPOSITORY" --source "$TARGET_BRANCH" \
-            --target "$RELEASE_TARGET_BRANCH" --milestone "$RELEASE_MILESTONE" \
-            <<< "$prs")"
-          branch="$(jq -r '.headRefName // empty' <<<"$pr")"
-          number="$(jq -r '.number // empty' <<<"$pr")"
-          if [[ -z "$branch" ]]; then
-            echo "No trusted Release Please PR found for $RELEASE_TARGET_BRANCH."
+          if [[ "$TARGET_BRANCH" == "$DEVELOPMENT_BRANCH" || "$TARGET_BRANCH" == "$MAINTENANCE_BRANCH" ]]; then
+            source_ref="origin/$TARGET_BRANCH"
+          else
+            echo "Skipping unconfigured source branch $TARGET_BRANCH."
             exit 0
           fi
-          echo "branch=$branch" >> "$GITHUB_OUTPUT"
-          echo "number=$number" >> "$GITHUB_OUTPUT"
+          latest_tag="$(git tag --merged "$source_ref" --list 'v*' --sort=-version:refname | head -n 1)"
+          if [[ -n "$latest_tag" ]]; then
+            git log --format='%s%x1f%b%x1e' "$latest_tag..$source_ref" | jq -R -s 'split("\u001e") | map(select(length > 0)) | map({subject: (split("\u001f")[0]), body: (split("\u001f")[1] // "")})' > "$RUNNER_TEMP/release-commits.json"
+          else
+            git log --format='%s%x1f%b%x1e' "$source_ref" | jq -R -s 'split("\u001e") | map(select(length > 0)) | map({subject: (split("\u001f")[0]), body: (split("\u001f")[1] // "")})' > "$RUNNER_TEMP/release-commits.json"
+          fi
+          if [[ -n "$latest_tag" ]]; then
+            current_version=""
+            if git cat-file -e "$latest_tag:$RELEASE_MANIFEST" 2>/dev/null; then
+              current_version="$(git show "$latest_tag:$RELEASE_MANIFEST" | jq -er '.["."] // empty')" || true
+            fi
+            if [[ -z "$current_version" ]] && git cat-file -e "$latest_tag:.release-please-manifest.json" 2>/dev/null; then
+              current_version="$(git show "$latest_tag:.release-please-manifest.json" | jq -er '.vectora // empty')" || true
+            fi
+            if [[ -z "$current_version" ]]; then
+              echo "::error::Nenhum manifesto de release válido foi encontrado na tag $latest_tag." >&2
+              exit 1
+            fi
+          else
+            current_version="$(jq -er '.["."]' "$RELEASE_MANIFEST")"
+          fi
+          if [[ ! "$current_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Versão inválida no manifesto de release: $current_version" >&2
+            exit 1
+          fi
+          bump_flag=""
+          [[ "$RELEASE_MILESTONE" == *.x ]] && bump_flag="--bump-patch-for-minor-pre-major"
+          uv run --project vectora python utils/release_plan.py \
+            --current-version "$current_version" \
+            --commits-json "$RUNNER_TEMP/release-commits.json" \
+            --manifest "$RELEASE_MANIFEST" \
+            --files vectora/pyproject.toml vectora/frontend/package.json services/package.json company/package.json vectora/uv.lock \
+            $bump_flag > "$RUNNER_TEMP/release-plan.json"
+          next_version="$(jq -er '.next_version' "$RUNNER_TEMP/release-plan.json")"
+          bump="$(jq -er '.bump' "$RUNNER_TEMP/release-plan.json")"
+          if [[ "$bump" == "none" ]]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$TARGET_BRANCH" == "$DEVELOPMENT_BRANCH" ]]; then
+            release_branch="$TARGET_BRANCH"
+          else
+            release_branch="release/$next_version"
+          fi
+          if [[ "$release_branch" == *release-please--* || "$release_branch" == *--branches--* || "$release_branch" == *--components--* ]]; then
+            echo "::error::Ref de release inválida: $release_branch" >&2
+            exit 1
+          fi
+          {
+            echo "enabled=true"
+            echo "branch=$release_branch"
+            echo "version=$next_version"
+            echo "current_version=$current_version"
+            echo "target_branch=$TARGET_BRANCH"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Check out Release Please branch
-        if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
+      - name: Create canonical release branch
+        if: steps.release-plan.outputs.enabled == 'true'
+        env:
+          RELEASE_BRANCH: ${{ steps.release-plan.outputs.branch }}
+          SOURCE_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh api "/repos/$GITHUB_REPOSITORY/git/ref/heads/$RELEASE_BRANCH" >/dev/null 2>&1; then
+            echo "Canonical branch $RELEASE_BRANCH already exists."
+          else
+            git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            git push origin "$SOURCE_SHA:refs/heads/$RELEASE_BRANCH"
+          fi
+
+      - name: Check out canonical release branch
+        if: steps.release-plan.outputs.enabled == 'true'
         uses: actions/checkout@v7
         with:
-          ref: ${{ steps.release-branch.outputs.branch }}
+          ref: ${{ steps.release-plan.outputs.branch }}
           token: ${{ github.token }}
+          fetch-depth: 0
           persist-credentials: false
 
-      - uses: ./.github/actions/setup-uv
-        if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
-        with:
-          python-version: "3.13"
-          all-extras: "false"
-          working-directory: vectora
-
-      - name: Normalize generated changelog list markers
-        if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
-        run: python utils/normalize_changelog_lists.py
-
-      - name: Align release lines in the Release Please PR
-        if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
+      - name: Apply release files
+        if: steps.release-plan.outputs.enabled == 'true'
         env:
-          TARGET_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
-        run: |
-          uv run --project vectora python utils/prepare_release_line_config.py \
-            vectora/CHANGELOG.md \
-            .github/release-lines.json \
-            .release-please-manifest.maintenance.json \
-            "$TARGET_BRANCH"
-
-      - name: Prepare current release section for PR body
-        if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ steps.release-branch.outputs.number }}
+          RELEASE_MILESTONE: ${{ steps.release-line.outputs.release_milestone }}
+          PLAN_CURRENT_VERSION: ${{ steps.release-plan.outputs.current_version }}
+          RELEASE_BRANCH: ${{ steps.release-plan.outputs.branch }}
+          TARGET_BRANCH: ${{ steps.release-plan.outputs.target_branch }}
+          SOURCE_SHA: ${{ github.sha }}
+          RELEASE_MANIFEST: ${{ startsWith(github.ref, 'refs/tags/v') && '.release-please-manifest.maintenance.json' || (github.ref_name == steps.release-line.outputs.development_branch && '.release-please-manifest.development.json' || '.release-please-manifest.maintenance.json') }}
         shell: bash
         run: |
           set -euo pipefail
-          python utils/prepare_release_pr_body.py \
-            vectora/CHANGELOG.md "$RUNNER_TEMP/release-pr-body.md"
-          gh pr edit "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
-            --body-file "$RUNNER_TEMP/release-pr-body.md"
+          bump_flag=""
+          [[ "$RELEASE_MILESTONE" == *.x ]] && bump_flag="--bump-patch-for-minor-pre-major"
+          if [[ "$RELEASE_BRANCH" != "$TARGET_BRANCH" ]]; then
+            git reset --hard "$SOURCE_SHA"
+          fi
+          current_version="$PLAN_CURRENT_VERSION"
+          uv run --project vectora python utils/release_plan.py \
+            --current-version "$current_version" \
+            --commits-json "$RUNNER_TEMP/release-commits.json" \
+            --manifest "$RELEASE_MANIFEST" \
+            --files vectora/pyproject.toml vectora/frontend/package.json services/package.json company/package.json vectora/uv.lock \
+            --apply $bump_flag
+          python utils/normalize_changelog_lists.py
 
-      - name: Commit normalized changelog
-        if: steps.release-line.outputs.enabled == 'true' && steps.release-branch.outputs.branch != ''
+      - name: Commit and push canonical release branch
+        if: steps.release-plan.outputs.enabled == 'true'
         env:
-          RELEASE_BRANCH: ${{ steps.release-branch.outputs.branch }}
+          RELEASE_BRANCH: ${{ steps.release-plan.outputs.branch }}
+          TARGET_BRANCH: ${{ steps.release-plan.outputs.target_branch }}
+          RELEASE_VERSION: ${{ steps.release-plan.outputs.version }}
+          RELEASE_MANIFEST: ${{ startsWith(github.ref, 'refs/tags/v') && '.release-please-manifest.maintenance.json' || (github.ref_name == steps.release-line.outputs.development_branch && '.release-please-manifest.development.json' || '.release-please-manifest.maintenance.json') }}
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          if git diff --quiet -- vectora/CHANGELOG.md .github/release-lines.json .release-please-manifest.maintenance.json; then
-            echo "Generated release files are already normalized."
-            exit 0
-          fi
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add vectora/CHANGELOG.md .github/release-lines.json .release-please-manifest.maintenance.json
-          git commit -m "chore: align release lines for generated release"
+          if ! git diff --quiet; then
+            git add "$RELEASE_MANIFEST" vectora/CHANGELOG.md vectora/pyproject.toml vectora/frontend/package.json services/package.json company/package.json vectora/uv.lock
+            git commit -m "chore(master): release $RELEASE_VERSION"
+          fi
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git push origin "HEAD:$RELEASE_BRANCH"
+          if [[ "$RELEASE_BRANCH" == "$TARGET_BRANCH" ]]; then
+            git push origin "HEAD:$RELEASE_BRANCH"
+          else
+            expected_sha="$(git ls-remote origin "refs/heads/$RELEASE_BRANCH" | awk '{print $1}')"
+            if [[ -z "$expected_sha" ]]; then
+              git push origin "HEAD:$RELEASE_BRANCH"
+            else
+              git push --force-with-lease="refs/heads/$RELEASE_BRANCH:$expected_sha" origin "HEAD:$RELEASE_BRANCH"
+            fi
+          fi
+
+      - name: Create or update canonical release PR
+        if: steps.release-plan.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_BRANCH: ${{ steps.release-plan.outputs.branch }}
+          RELEASE_TARGET_BRANCH: ${{ steps.release-line.outputs.release_target_branch }}
+          RELEASE_MILESTONE: ${{ steps.release-line.outputs.release_milestone }}
+          RELEASE_VERSION: ${{ steps.release-plan.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python utils/prepare_release_pr_body.py vectora/CHANGELOG.md "$RUNNER_TEMP/release-pr-body.md"
+          existing="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$RELEASE_BRANCH" --base "$RELEASE_TARGET_BRANCH" --state open --json number --jq '.[0].number // empty')"
+          title="chore(master): release $RELEASE_VERSION"
+          if [[ -n "$existing" ]]; then
+            gh pr edit "$existing" --repo "$GITHUB_REPOSITORY" --title "$title" --body-file "$RUNNER_TEMP/release-pr-body.md" --add-label "autorelease: pending" --milestone "$RELEASE_MILESTONE"
+          else
+            gh pr create --repo "$GITHUB_REPOSITORY" --base "$RELEASE_TARGET_BRANCH" --head "$RELEASE_BRANCH" --title "$title" --body-file "$RUNNER_TEMP/release-pr-body.md" --label "autorelease: pending" --milestone "$RELEASE_MILESTONE"
+          fi

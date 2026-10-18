@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import MessageRole
 
 if TYPE_CHECKING:
@@ -24,6 +25,33 @@ if TYPE_CHECKING:
     from backend.vtypes.message import VMessage
 
 logger = logging.getLogger(__name__)
+
+
+def _log_decision(
+    tool_name: str,
+    ctx: ToolContext,
+    *,
+    decision: bool,
+    mode: str,
+    reason: str,
+) -> None:
+    """Registra a decisão efetiva do gate com contexto auditável."""
+    logger.info(
+        "hitl.decision tool=%s decision=%s mode=%s reason=%s",
+        tool_name,
+        decision,
+        mode,
+        reason,
+        extra={
+            "tool_name": tool_name,
+            "decision": decision,
+            "mode": mode,
+            "reason": reason,
+            "thread_id": ctx.thread_id,
+            "workspace_id": ctx.workspace_id,
+        },
+    )
+
 
 #: Tools destrutivas candidatas a pausar o loop para aprovação.
 REQUIRE_APPROVAL: frozenset[str] = frozenset(
@@ -128,14 +156,14 @@ def _plan_mode_ja_passou_neste_turno(history: list[VMessage]) -> bool:
             last_user_idx = idx
 
     for msg in history[last_user_idx + 1 :]:
-        if msg.role == MessageRole.TOOL and (msg.name or "") in REQUIRE_APPROVAL:
+        if msg.role == MessageRole.TOOL and _tool_requires_approval(msg.name or ""):
             return True
     return False
 
 
 def _mode_should_interrupt(mode: str, tool_name: str, history: list[VMessage]) -> bool:
     """Política canônica dos 5 modos — fonte única de verdade do HITL nativo."""
-    requires_approval = tool_name in REQUIRE_APPROVAL
+    requires_approval = _tool_requires_approval(tool_name)
     always_interrupt = tool_name in _ALWAYS_INTERRUPT
     if mode in _NON_INTERRUPTING_MODES:
         decision = False
@@ -152,6 +180,31 @@ def _mode_should_interrupt(mode: str, tool_name: str, history: list[VMessage]) -
     return requires_approval and (always_interrupt or decision)
 
 
+def _tool_requires_approval(tool_name: str) -> bool:
+    """Resolve the approval candidate from the canonical tool metadata.
+
+    ``REQUIRE_APPROVAL`` remains a compatibility fallback for tools that are
+    intentionally resolved before their native module is imported. Once a
+    tool is registered, ``ToolExtras.destructive`` is the authoritative
+    contract shared by the registry, batching policy, UI metadata and HITL.
+    This prevents a newly added destructive tool from silently bypassing the
+    approval gate just because somebody forgot to update a second name list.
+    """
+    if tool_name in REQUIRE_APPROVAL:
+        return True
+    try:
+        from backend.tools.registry import TOOL_REGISTRY
+
+        spec = TOOL_REGISTRY.get(tool_name)
+    except Exception:
+        logger.warning(
+            "hitl: unable to resolve tool metadata",
+            extra={"tool_name": tool_name},
+        )
+        return True
+    return spec is not None and spec.extras.destructive
+
+
 def should_require_approval(
     tool_name: str,
     ctx: ToolContext,
@@ -160,7 +213,15 @@ def should_require_approval(
 ) -> bool:
     """Predicate único do HITL nativo — mesma assinatura que `run_conversation`
     já aceita opcionalmente em `should_require_approval`."""
+    mode = ctx.permission_mode or "ask"
     if _is_self_kanban_update(ctx, tool_name, args):
+        _log_decision(
+            tool_name,
+            ctx,
+            decision=False,
+            mode=mode,
+            reason="self_kanban_update",
+        )
         return False
     if tool_name in {"generate_image", "text_to_speech", "generate_video"}:
         # O limiar é definido pelo backend autenticado no contexto. Ausência
@@ -183,20 +244,50 @@ def should_require_approval(
                     units=estimate.units,
                     result="auto_approved",
                 )
+                _log_decision(
+                    tool_name,
+                    ctx,
+                    decision=False,
+                    mode=mode,
+                    reason="media_below_threshold",
+                )
                 return False
             # Custos acima do limiar exigem aprovação em qualquer modo,
             # inclusive `auto` e `bypass`.
+            _log_decision(
+                tool_name,
+                ctx,
+                decision=True,
+                mode=mode,
+                reason="media_above_threshold",
+            )
             return True
         # Sem um limiar confiável, falha fechada: o custo deve ser
         # apresentado ao usuário antes da execução.
+        _log_decision(
+            tool_name,
+            ctx,
+            decision=True,
+            mode=mode,
+            reason="media_threshold_unavailable",
+        )
         return True
     if tool_name in _JAILED_BYPASS_TOOLS and _workspace_is_jailed(ctx.workspace_id):
+        _log_decision(
+            tool_name,
+            ctx,
+            decision=False,
+            mode=mode,
+            reason="workspace_jailed",
+        )
         return False
-    mode = ctx.permission_mode or "ask"
     decision = _mode_should_interrupt(mode, tool_name, history)
-    logger.info(
-        "hitl.decision",
-        extra={"tool_name": tool_name, "decision": decision, "mode": mode},
+    _log_decision(
+        tool_name,
+        ctx,
+        decision=decision,
+        mode=mode,
+        reason="policy",
     )
     return decision
 
@@ -223,7 +314,7 @@ class ApprovalGate:
         tool_call_id: str,
         args: dict[str, Any],
         reasoning: str | None = None,
-        options: list[dict[str, str]] | None = None,
+        options: list[ToolOption] | None = None,
         priority: int = 0,
         expires_at: str | None = None,
         approval_metadata: dict[str, Any] | None = None,

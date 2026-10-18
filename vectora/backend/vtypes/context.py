@@ -18,6 +18,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from pydantic import TypeAdapter, ValidationError
+
+from backend.vtypes.permission import PermissionMode
+
+_PERMISSION_MODE = TypeAdapter(PermissionMode)
+
 
 @dataclass
 class VectoraContext:
@@ -33,8 +39,8 @@ class VectoraContext:
     workspace_id: str = ""
     """ID do workspace ativo na sessão."""
 
-    permission_mode: str = "ask"
-    """Modo de permissão: 'ask' | 'accept_edits' | 'auto' | 'bypass' | 'plan'."""
+    permission_mode: PermissionMode = "ask"
+    """Modo de permissão aceito pelo contrato API/UI."""
 
     org_id: str = ""
     """ID da organização (multi-tenant). Vazio em modo single-user."""
@@ -96,10 +102,15 @@ def ctx_from_config(config: dict | None) -> VectoraContext:
         ``VectoraContext`` com campos populados do ``configurable``, ou defaults.
     """
     c = (config or {}).get("configurable") or {}
+    raw_permission_mode = c.get("permission_mode") or "ask"
+    try:
+        permission_mode = _PERMISSION_MODE.validate_python(raw_permission_mode)
+    except ValidationError as exc:
+        raise ValueError(f"permission_mode inválido: {raw_permission_mode!r}") from exc
     return VectoraContext(
         user_id=str(c.get("user_id") or "local"),
         workspace_id=str(c.get("workspace_id") or ""),
-        permission_mode=str(c.get("permission_mode") or "ask"),
+        permission_mode=permission_mode,
         org_id=str(c.get("org_id") or ""),
         locale=str(c.get("language") or c.get("locale") or ""),
         model=str(c.get("model") or ""),

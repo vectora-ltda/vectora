@@ -15,6 +15,7 @@ Valida:
 from __future__ import annotations
 
 import os
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -50,70 +51,108 @@ class TestModelsProviders:
             TOOL_CALLING_INCOMPATIBLE_MODELS
         )
 
-    def test_registered_ollama_model_appears_in_dynamic_models(self, client):
-        tag = "providers-test-tag"
-        # DB real compartilhada entre execuções (ver threads.py::_get_db) —
-        # limpa resíduo de uma execução anterior antes de registrar de novo.
-        for existing in client.get("/provider-routing/ollama/registered").json():
-            if existing["tag"] == tag:
-                client.delete(f"/provider-routing/ollama/registered/{existing['id']}")
 
-        create = client.post("/provider-routing/ollama/registered", json={"tag": tag})
-        assert create.status_code == 200
-        model_id = create.json()["id"]
+@pytest.mark.asyncio
+async def test_ollama_runtime_status_reports_missing_runtime(monkeypatch):
+    """O wizard precisa distinguir Ollama ausente de um servidor parado."""
+    from backend.api.handlers import provider_routing
 
-        resp = client.get("/models/providers")
-        assert resp.status_code == 200
-        ids = [m["id"] for m in resp.json()["dynamic_models"]]
-        assert f"ollama:{tag}" in ids
+    monkeypatch.setattr(provider_routing, "_ollama_executable", lambda: None)
+    monkeypatch.setattr(provider_routing, "_ollama_install_phase", "idle")
+    monkeypatch.setattr(
+        provider_routing,
+        "_ollama_http_status",
+        AsyncMock(return_value=(False, None)),
+    )
 
-        client.delete(f"/provider-routing/ollama/registered/{model_id}")
+    status = await provider_routing.ollama_runtime_status()
 
-    def test_registered_openrouter_model_appears_alongside_ollama(self, client):
-        ollama_tag = "providers-test-ollama-tag"
-        openrouter_tag = "providers-test-openrouter/model"
-        for existing in client.get("/provider-routing/ollama/registered").json():
-            if existing["tag"] == ollama_tag:
-                client.delete(f"/provider-routing/ollama/registered/{existing['id']}")
-        for existing in client.get("/provider-routing/openrouter/registered").json():
-            if existing["tag"] == openrouter_tag:
-                client.delete(
-                    f"/provider-routing/openrouter/registered/{existing['id']}"
-                )
+    assert status.installed is False
+    assert status.reachable is False
+    assert status.state == "missing"
 
-        ollama_id = client.post(
-            "/provider-routing/ollama/registered", json={"tag": ollama_tag}
-        ).json()["id"]
-        openrouter_id = client.post(
-            "/provider-routing/openrouter/registered", json={"tag": openrouter_tag}
-        ).json()["id"]
 
-        resp = client.get("/models/providers")
-        assert resp.status_code == 200
-        ids = [m["id"] for m in resp.json()["dynamic_models"]]
-        assert f"ollama:{ollama_tag}" in ids
-        assert f"openrouter:{openrouter_tag}" in ids
+@pytest.mark.asyncio
+async def test_ollama_runtime_status_reports_active_install(monkeypatch):
+    """Uma instalação em andamento não deve aparecer como runtime ausente."""
+    from backend.api.handlers import provider_routing
 
-        client.delete(f"/provider-routing/ollama/registered/{ollama_id}")
-        client.delete(f"/provider-routing/openrouter/registered/{openrouter_id}")
+    monkeypatch.setattr(provider_routing, "_ollama_executable", lambda: None)
+    monkeypatch.setattr(
+        provider_routing,
+        "_ollama_http_status",
+        AsyncMock(return_value=(False, None)),
+    )
+    monkeypatch.setattr(provider_routing, "_ollama_install_phase", "download")
 
-    def test_registered_nine_router_model_appears_in_dynamic_models(self, client):
-        tag = "cc/providers-test-model"
-        for existing in client.get("/provider-routing/nine-router/registered").json():
-            if existing["tag"] == tag:
-                client.delete(
-                    f"/provider-routing/nine-router/registered/{existing['id']}"
-                )
+    status = await provider_routing.ollama_runtime_status()
 
-        create = client.post(
-            "/provider-routing/nine-router/registered", json={"tag": tag}
-        )
-        assert create.status_code == 200
-        model_id = create.json()["id"]
+    assert status.installed is False
+    assert status.reachable is False
+    assert status.state == "installing"
+    assert status.phase == "download"
 
-        resp = client.get("/models/providers")
-        assert resp.status_code == 200
-        ids = [m["id"] for m in resp.json()["dynamic_models"]]
-        assert f"nine_router:{tag}" in ids
 
-        client.delete(f"/provider-routing/nine-router/registered/{model_id}")
+def test_registered_ollama_model_appears_in_dynamic_models(client):
+    tag = "providers-test-tag"
+    # DB real compartilhada entre execuções (ver threads.py::_get_db) —
+    # limpa resíduo de uma execução anterior antes de registrar de novo.
+    for existing in client.get("/provider-routing/ollama/registered").json():
+        if existing["tag"] == tag:
+            client.delete(f"/provider-routing/ollama/registered/{existing['id']}")
+
+    create = client.post("/provider-routing/ollama/registered", json={"tag": tag})
+    assert create.status_code == 200
+    model_id = create.json()["id"]
+
+    resp = client.get("/models/providers")
+    assert resp.status_code == 200
+    ids = [m["id"] for m in resp.json()["dynamic_models"]]
+    assert f"ollama:{tag}" in ids
+
+    client.delete(f"/provider-routing/ollama/registered/{model_id}")
+
+
+def test_registered_openrouter_model_appears_alongside_ollama(client):
+    ollama_tag = "providers-test-ollama-tag"
+    openrouter_tag = "providers-test-openrouter/model"
+    for existing in client.get("/provider-routing/ollama/registered").json():
+        if existing["tag"] == ollama_tag:
+            client.delete(f"/provider-routing/ollama/registered/{existing['id']}")
+    for existing in client.get("/provider-routing/openrouter/registered").json():
+        if existing["tag"] == openrouter_tag:
+            client.delete(f"/provider-routing/openrouter/registered/{existing['id']}")
+
+    ollama_id = client.post(
+        "/provider-routing/ollama/registered", json={"tag": ollama_tag}
+    ).json()["id"]
+    openrouter_id = client.post(
+        "/provider-routing/openrouter/registered", json={"tag": openrouter_tag}
+    ).json()["id"]
+
+    resp = client.get("/models/providers")
+    assert resp.status_code == 200
+    ids = [m["id"] for m in resp.json()["dynamic_models"]]
+    assert f"ollama:{ollama_tag}" in ids
+    assert f"openrouter:{openrouter_tag}" in ids
+
+    client.delete(f"/provider-routing/ollama/registered/{ollama_id}")
+    client.delete(f"/provider-routing/openrouter/registered/{openrouter_id}")
+
+
+def test_registered_nine_router_model_appears_in_dynamic_models(client):
+    tag = "cc/providers-test-model"
+    for existing in client.get("/provider-routing/nine-router/registered").json():
+        if existing["tag"] == tag:
+            client.delete(f"/provider-routing/nine-router/registered/{existing['id']}")
+
+    create = client.post("/provider-routing/nine-router/registered", json={"tag": tag})
+    assert create.status_code == 200
+    model_id = create.json()["id"]
+
+    resp = client.get("/models/providers")
+    assert resp.status_code == 200
+    ids = [m["id"] for m in resp.json()["dynamic_models"]]
+    assert f"nine_router:{tag}" in ids
+
+    client.delete(f"/provider-routing/nine-router/registered/{model_id}")
