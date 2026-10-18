@@ -7,17 +7,28 @@ Também define os modelos de resumo da thread e do rascunho de execução.
 
 from __future__ import annotations
 
-import contextlib
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-if TYPE_CHECKING:
-    from backend.storage.sqlite.pool import AsyncConnectionPool
 
-LedgerEventType = Literal[
+class LedgerEventType:
+    """Tipos canônicos de eventos registrados no ledger."""
+
+    MESSAGE_CREATED = "message_created"
+    TOOL_STARTED = "tool_started"
+    TOOL_FINISHED = "tool_finished"
+    AGENT_TURN_STARTED = "agent_turn_started"
+    AGENT_TURN_FINISHED = "agent_turn_finished"
+    APPROVAL_REQUESTED = "approval_requested"
+    APPROVAL_RESOLVED = "approval_resolved"
+    RUN_FAILED = "run_failed"
+    RUN_COMPLETED = "run_completed"
+
+
+type LedgerEventTypeLiteral = Literal[
     "message_created",
     "tool_started",
     "tool_finished",
@@ -50,7 +61,7 @@ class ThreadLedgerEvent(BaseModel):
     thread_id: str
     seq: int = Field(default=0, description="Sequência monótona crescente por thread")
     event_key: str = Field(description="Chave única de idempotência do evento")
-    type: LedgerEventType
+    type: LedgerEventTypeLiteral
     turn_id: str | None = None
     run_id: str | None = None
     message_id: int | None = None
@@ -144,7 +155,7 @@ def is_event_notifiable(event: ThreadLedgerEvent) -> bool:
 
 
 async def backfill_thread_ledger(
-    pool: AsyncConnectionPool,
+    pool: Any,
     thread_id: str,
     *,
     legacy_read_count: int = 0,
@@ -162,14 +173,7 @@ async def backfill_thread_ledger(
     async with pool.acquire() as conn:
         await conn.execute("BEGIN IMMEDIATE")
         try:
-            # 1. Verificar se a thread existe em sessions; se não existir, não cria sessão e encerra
-            cur_sess = await conn.execute(
-                "SELECT thread_id FROM sessions WHERE thread_id = ?", (thread_id,)
-            )
-            if not await cur_sess.fetchone():
-                await conn.rollback()
-                return 0, 0
-
+            # 1. Verificar se já migrou
             cur_bf = await conn.execute(
                 "SELECT status, migrated_messages, last_seq FROM ledger_backfill WHERE thread_id = ?",
                 (thread_id,),
@@ -283,23 +287,20 @@ async def backfill_thread_ledger(
             await conn.commit()
             return migrated_count, current_seq
         except Exception as exc:
-            with contextlib.suppress(Exception):
-                await conn.rollback()
-            try:
-                await conn.execute(
+            await conn.rollback()
+            async with pool.acquire() as conn_err:
+                await conn_err.execute(
                     "INSERT INTO ledger_backfill (thread_id, status, error, started_at, completed_at) "
                     "VALUES (?, 'failed', ?, ?, ?) "
                     "ON CONFLICT(thread_id) DO UPDATE SET status='failed', error=excluded.error, completed_at=excluded.completed_at",
                     (thread_id, str(exc), now, _now()),
                 )
-                await conn.commit()
-            except Exception:
-                pass
+                await conn_err.commit()
             raise
 
 
 async def ensure_thread_backfilled(
-    pool: AsyncConnectionPool,
+    pool: Any,
     thread_id: str,
     *,
     user_id: str = "",

@@ -181,6 +181,282 @@
         "title": "AgentProfileOut",
         "type": "object"
       },
+      "AgentRun": {
+        "description": "Contrato persistente único para execuções do agente.",
+        "properties": {
+          "approvals": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Approvals",
+            "type": "array"
+          },
+          "artifacts": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Artifacts",
+            "type": "array"
+          },
+          "commands_run": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Commands Run",
+            "type": "array"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "files_touched": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Files Touched",
+            "type": "array"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/AgentRunMetrics"
+          },
+          "model": {
+            "default": "",
+            "title": "Model",
+            "type": "string"
+          },
+          "plan_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Step"
+          },
+          "provider": {
+            "default": "",
+            "title": "Provider",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "default": "running",
+            "enum": [
+              "planned",
+              "running",
+              "waiting_approval",
+              "verifying",
+              "passed",
+              "degraded",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "terminal_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terminal At"
+          },
+          "tests_run": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Tests Run",
+            "type": "array"
+          },
+          "thread_id": {
+            "title": "Thread Id",
+            "type": "string"
+          },
+          "tools_available": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tools Available",
+            "type": "array"
+          },
+          "tools_used": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tools Used",
+            "type": "array"
+          },
+          "turn_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Id"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user_id": {
+            "default": "",
+            "title": "User Id",
+            "type": "string"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
+          }
+        },
+        "required": ["run_id", "thread_id"],
+        "title": "AgentRun",
+        "type": "object"
+      },
+      "AgentRunMetrics": {
+        "description": "Métricas consolidadas de consumo e tempo de execução.",
+        "properties": {
+          "attempts": {
+            "default": 1,
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "cost_cents": {
+            "default": 0.0,
+            "title": "Cost Cents",
+            "type": "number"
+          },
+          "duration_ms": {
+            "default": 0,
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "input_tokens": {
+            "default": 0,
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "output_tokens": {
+            "default": 0,
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "retries": {
+            "default": 0,
+            "title": "Retries",
+            "type": "integer"
+          },
+          "total_tokens": {
+            "default": 0,
+            "title": "Total Tokens",
+            "type": "integer"
+          }
+        },
+        "title": "AgentRunMetrics",
+        "type": "object"
+      },
+      "AgentRunTimelineEntry": {
+        "description": "Entrada da linha do tempo da execução.",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_key": {
+            "default": "",
+            "title": "Event Key",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "seq": {
+            "default": 0,
+            "title": "Seq",
+            "type": "integer"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "AgentRunTimelineEntry",
+        "type": "object"
+      },
+      "AgentRunTimelineResponse": {
+        "description": "Timeline completa de eventos correlacionados à execução.",
+        "properties": {
+          "run": {
+            "$ref": "#/components/schemas/AgentRun"
+          },
+          "timeline": {
+            "items": {
+              "$ref": "#/components/schemas/AgentRunTimelineEntry"
+            },
+            "title": "Timeline",
+            "type": "array"
+          }
+        },
+        "required": ["run"],
+        "title": "AgentRunTimelineResponse",
+        "type": "object"
+      },
       "ApproveHooksRequest": {
         "properties": {
           "workspace_id": {
@@ -3186,59 +3462,6 @@
         },
         "required": ["exists"],
         "title": "HasUsersResponse",
-        "type": "object"
-      },
-      "HealthLiveResponse": {
-        "description": "Contrato de resposta da sonda de liveness.",
-        "properties": {
-          "status": {
-            "const": "live",
-            "title": "Status",
-            "type": "string"
-          },
-          "version": {
-            "title": "Version",
-            "type": "string"
-          }
-        },
-        "required": ["status", "version"],
-        "title": "HealthLiveResponse",
-        "type": "object"
-      },
-      "HealthReadyChecks": {
-        "description": "Estado detalhado das dependências vitais.",
-        "properties": {
-          "lancedb": {
-            "title": "Lancedb",
-            "type": "boolean"
-          },
-          "store": {
-            "title": "Store",
-            "type": "boolean"
-          }
-        },
-        "required": ["store", "lancedb"],
-        "title": "HealthReadyChecks",
-        "type": "object"
-      },
-      "HealthReadyResponse": {
-        "description": "Contrato de resposta da sonda de readiness.",
-        "properties": {
-          "checks": {
-            "$ref": "#/components/schemas/HealthReadyChecks"
-          },
-          "status": {
-            "enum": ["ready", "not_ready"],
-            "title": "Status",
-            "type": "string"
-          },
-          "version": {
-            "title": "Version",
-            "type": "string"
-          }
-        },
-        "required": ["status", "version", "checks"],
-        "title": "HealthReadyResponse",
         "type": "object"
       },
       "HistoryMessage": {
@@ -11995,7 +12218,9 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HealthLiveResponse"
+                  "additionalProperties": true,
+                  "title": "Response Health Live Health Live Get",
+                  "type": "object"
                 }
               }
             },
@@ -12014,7 +12239,9 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HealthReadyResponse"
+                  "additionalProperties": true,
+                  "title": "Response Health Ready Health Ready Get",
+                  "type": "object"
                 }
               }
             },
@@ -16259,6 +16486,86 @@
         "tags": ["rag"]
       }
     },
+    "/runs/{run_id}": {
+      "get": {
+        "description": "Consulta o estado consolidado, evidências e métricas de um AgentRun.",
+        "operationId": "get_agent_run_runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRun"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Agent Run"
+      }
+    },
+    "/runs/{run_id}/timeline": {
+      "get": {
+        "description": "Consulta o estado e a timeline de eventos correlacionados ao AgentRun.",
+        "operationId": "get_agent_run_timeline_runs__run_id__timeline_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRunTimelineResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Agent Run Timeline"
+      }
+    },
     "/sessions/{thread_id}/background/board": {
       "get": {
         "description": "Board agregado numa passada só. Query O(1) por agregado\n(progress/comentários/dependências em lote), não O(n) por card — trava\na regressão de N+1 que a listagem plana (`get_tasks` + `_to_out` por\nitem) sempre teve.",
@@ -18380,7 +18687,6 @@
             "required": false,
             "schema": {
               "default": 0,
-              "minimum": 0,
               "title": "From Seq",
               "type": "integer"
             }
@@ -18392,7 +18698,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "type": "integer"
                 },
                 {
                   "type": "null"
@@ -18405,9 +18711,11 @@
         "responses": {
           "200": {
             "content": {
-              "text/event-stream": {}
+              "application/json": {
+                "schema": {}
+              }
             },
-            "description": "Stream SSE de eventos do ledger da thread"
+            "description": "Successful Response"
           },
           "422": {
             "content": {
@@ -18665,6 +18973,60 @@
           }
         },
         "summary": "Rewind Thread"
+      }
+    },
+    "/threads/{thread_id}/runs": {
+      "get": {
+        "description": "Lista as execuções de agente vinculadas a uma thread.",
+        "operationId": "list_thread_agent_runs_threads__thread_id__runs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "title": "Thread Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AgentRun"
+                  },
+                  "title": "Response List Thread Agent Runs Threads  Thread Id  Runs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Thread Agent Runs"
       }
     },
     "/threads/{thread_id}/structured-questions/answer": {

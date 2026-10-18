@@ -158,6 +158,12 @@ async def _persist_terminal_outcome(
                 detail=detail,
                 partial_text="",
             )
+        if hasattr(store, "update_agent_run_status"):
+            await store.update_agent_run_status(
+                run_id,
+                status=status,  # type: ignore
+                detail=detail,
+            )
         turn_id = f"{run_id}:terminal"
         if await store.get_message_id_by_turn_id(thread_id, turn_id) is not None:
             return
@@ -210,6 +216,28 @@ async def _update_persisted_run(
                 status=status,
                 detail=detail,
                 partial_text=partial_text,
+            )
+        if hasattr(store, "update_agent_run_status"):
+            canonical_status = (
+                "passed"
+                if status == "completed"
+                else (
+                    status
+                    if status
+                    in (
+                        "running",
+                        "waiting_approval",
+                        "verifying",
+                        "failed",
+                        "cancelled",
+                    )
+                    else "running"
+                )
+            )
+            await store.update_agent_run_status(
+                run_id,
+                status=canonical_status,
+                detail=detail,
             )
     except Exception:
         logger.exception(
@@ -287,6 +315,22 @@ def stream_engine_events(
                             resolved_run_id,
                             detail="Provider ainda não iniciado.",
                             provider_model=provider_model,
+                        )
+                    if hasattr(store, "upsert_agent_run"):
+                        from backend.persistence.native.agent_run import AgentRun
+
+                        prov, _, mod = (provider_model or "").partition(":")
+                        await store.upsert_agent_run(
+                            AgentRun(
+                                run_id=resolved_run_id,
+                                thread_id=thread_id,
+                                user_id=user_id or "",
+                                workspace_id=workspace_id or None,
+                                provider=prov if mod else "",
+                                model=mod or prov,
+                                status="running",
+                                detail="Provider ainda não iniciado.",
+                            )
                         )
                 except Exception as exc:
                     logger.exception(

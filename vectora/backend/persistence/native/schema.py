@@ -134,6 +134,36 @@ CREATE TABLE IF NOT EXISTS ledger_backfill (
     started_at TEXT NOT NULL,
     completed_at TEXT
 );
+CREATE TABLE IF NOT EXISTS agent_runs (
+    run_id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL REFERENCES sessions(thread_id),
+    turn_id TEXT,
+    user_id TEXT NOT NULL DEFAULT '',
+    workspace_id TEXT,
+    model TEXT NOT NULL DEFAULT '',
+    provider TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL CHECK(status IN
+        ('planned', 'running', 'waiting_approval', 'verifying', 'passed', 'degraded', 'failed', 'cancelled')),
+    plan_step TEXT,
+    tools_available_json TEXT NOT NULL DEFAULT '[]',
+    tools_used_json TEXT NOT NULL DEFAULT '[]',
+    approvals_json TEXT NOT NULL DEFAULT '[]',
+    files_touched_json TEXT NOT NULL DEFAULT '[]',
+    commands_run_json TEXT NOT NULL DEFAULT '[]',
+    tests_run_json TEXT NOT NULL DEFAULT '[]',
+    artifacts_json TEXT NOT NULL DEFAULT '[]',
+    metrics_json TEXT NOT NULL DEFAULT '{}',
+    evidence_json TEXT NOT NULL DEFAULT '[]',
+    detail TEXT,
+    error_code TEXT,
+    started_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    terminal_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_agent_runs_thread_turn
+    ON agent_runs(thread_id, turn_id) WHERE turn_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_agent_runs_thread_status
+    ON agent_runs(thread_id, status, updated_at);
 """
 
 
@@ -290,6 +320,36 @@ CREATE TABLE IF NOT EXISTS vectora_native_ledger_backfill (
     started_at TEXT NOT NULL,
     completed_at TEXT
 );
+CREATE TABLE IF NOT EXISTS vectora_native_agent_runs (
+    run_id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL REFERENCES vectora_native_sessions(thread_id),
+    turn_id TEXT,
+    user_id TEXT NOT NULL DEFAULT '',
+    workspace_id TEXT,
+    model TEXT NOT NULL DEFAULT '',
+    provider TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL CHECK(status IN
+        ('planned', 'running', 'waiting_approval', 'verifying', 'passed', 'degraded', 'failed', 'cancelled')),
+    plan_step TEXT,
+    tools_available_json TEXT NOT NULL DEFAULT '[]',
+    tools_used_json TEXT NOT NULL DEFAULT '[]',
+    approvals_json TEXT NOT NULL DEFAULT '[]',
+    files_touched_json TEXT NOT NULL DEFAULT '[]',
+    commands_run_json TEXT NOT NULL DEFAULT '[]',
+    tests_run_json TEXT NOT NULL DEFAULT '[]',
+    artifacts_json TEXT NOT NULL DEFAULT '[]',
+    metrics_json TEXT NOT NULL DEFAULT '{}',
+    evidence_json TEXT NOT NULL DEFAULT '[]',
+    detail TEXT,
+    error_code TEXT,
+    started_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    terminal_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_vectora_native_agent_runs_thread_turn
+    ON vectora_native_agent_runs(thread_id, turn_id) WHERE turn_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_vectora_native_agent_runs_thread_status
+    ON vectora_native_agent_runs(thread_id, status, updated_at);
 """
 
 
