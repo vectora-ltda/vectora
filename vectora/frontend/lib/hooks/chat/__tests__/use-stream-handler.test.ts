@@ -69,7 +69,12 @@ describe("useStreamHandler.processStream", () => {
         { type: "token", content: "Olá" },
         { type: "token", content: ", " },
         { type: "token", content: "mundo" },
-        { type: "done", thread_id: "t1", run_id: "run-1" },
+        {
+          type: "done",
+          thread_id: "t1",
+          run_id: "run-1",
+          message_id: 42,
+        },
       ]),
     );
 
@@ -83,6 +88,7 @@ describe("useStreamHandler.processStream", () => {
     expect(assistant?.content).toBe("Olá, mundo");
     expect(assistant?.isThinking).toBe(false);
     expect(assistant?.isError).toBeFalsy();
+    expect(assistant?.persistedMessageId).toBe(42);
   });
 
   it("forkFromCheckpointId presente manda config.fork_from_checkpoint_id; ausente omite (edit/regenerate)", async () => {
@@ -358,6 +364,8 @@ describe("useStreamHandler.processStream", () => {
           tool_name: "file_write",
           args_json: "{}",
           interrupt_id: "int-1",
+          permission_mode: "ask",
+          workspace_id: "ws-from-event",
         } as StreamEvent;
       })(),
     );
@@ -369,6 +377,8 @@ describe("useStreamHandler.processStream", () => {
     expect(window.localStorage.getItem("vectora:streaming:t1")).toBeNull();
     const assistant = messages.find((m) => m.id === "a1");
     expect(assistant?.hitlPending?.toolName).toBe("file_write");
+    expect(assistant?.hitlPending?.permissionMode).toBe("ask");
+    expect(assistant?.hitlPending?.workspaceId).toBe("ws-from-event");
   });
 
   it("message_break mantém bolha única e concatena segmentos com separador", async () => {

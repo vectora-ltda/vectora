@@ -68,6 +68,42 @@ class TestAgenerate:
 
 
 class TestConversaoDeMensagens:
+    async def test_projecao_de_prompt_para_modelo_pequeno_preserva_nome(self):
+        capturado: dict = {}
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            capturado.update(json.loads(req.content))
+            return httpx.Response(200, json=_resposta_ok())
+
+        client = _client(handler, compact_system_prompt=True)
+        await client.agenerate(
+            [
+                text_message(
+                    MessageRole.SYSTEM,
+                    "## Identity — Vectora\n" + ("documentação longa " * 200),
+                ),
+                text_message(MessageRole.USER, "Quem é você?"),
+            ]
+        )
+
+        system = capturado["messages"][0]["content"]
+        assert "Nome: Vectora" in system
+        assert len(system) < 1_000
+
+    async def test_modelo_pequeno_aplica_piso_de_temperatura(self):
+        capturado: dict = {}
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            capturado.update(json.loads(req.content))
+            return httpx.Response(200, json=_resposta_ok())
+
+        client = _client(handler, compact_system_prompt=True)
+        await client.agenerate(
+            [text_message(MessageRole.USER, "apresente-se")], temperature=0
+        )
+
+        assert capturado["temperature"] == 0.2
+
     async def test_roles_traduzidos_e_tool_message_carrega_tool_call_id(self):
         capturado: dict = {}
 
@@ -409,3 +445,147 @@ class TestStreamingToolCallsEUsage:
             "output_tokens": 3,
             "total_tokens": 13,
         }
+
+    async def test_compact_system_prompt_preserva_instrucoes_e_idioma(self):
+        payload_captured = {}
+
+        def handler(req):
+            nonlocal payload_captured
+            payload_captured = json.loads(req.content.decode("utf-8"))
+            return httpx.Response(200, json=_resposta_ok("Ok"))
+
+        client = _client(handler, compact_system_prompt=True)
+        system_text = (
+            "Você é o Vectora Coder Agent com acesso ao sistema.\n"
+            "<guidelines>\n"
+            "Antes de alterar arquivos, solicite aprovação do usuário.\n"
+            "# Diretriz prioritária de segurança para produção:\n"
+            "Esta regra possui mais de trezentos caracteres para garantir que diretrizes longas, completas e detalhadas fornecidas pelos usuários ou pelo workspace nunca sejam truncadas ou descartadas por critérios arbitrários de tamanho de linha, mantendo a integridade total de políticas corporativas complexas.\n"
+            "</guidelines>\n"
+            "Idioma: Responda em Espanhol.\n"
+            "Regra: Nunca exclua o arquivo de banco de dados.\n"
+            "Nunca use write_terminal sem aprovação.\n"
+            "### Tools\n"
+            "#### 🗂️ Filesystem (main priority)\n"
+            "- `file_read`, `file_edit`, `file_write` — read, edit, and create files\n"
+            "Muitas descrições longas sobre a interface e botões que devem ser ignoradas..."
+        )
+        await client.agenerate(
+            [
+                text_message(MessageRole.SYSTEM, system_text),
+                text_message(MessageRole.USER, "ajuda"),
+            ]
+        )
+
+        sys_msg = payload_captured["messages"][0]["content"]
+        assert "Antes de alterar arquivos, solicite aprovação do usuário." in sys_msg
+        assert "Esta regra possui mais de trezentos caracteres" in sys_msg
+        assert "Nunca use write_terminal sem aprovação." in sys_msg
+        assert "Idioma: Responda em Espanhol." in sys_msg
+        assert "Regra: Nunca exclua o arquivo de banco de dados." in sys_msg
+        assert "Muitas descrições longas" not in sys_msg
+        assert "- `file_read`, `file_edit`" not in sys_msg
+
+    async def test_compact_system_prompt_preserva_secao_apos_tools_e_regras_sem_keywords(
+        self,
+    ):
+        payload_captured = {}
+
+        def handler(req):
+            nonlocal payload_captured
+            payload_captured = json.loads(req.content.decode("utf-8"))
+            return httpx.Response(200, json=_resposta_ok("Ok"))
+
+        client = _client(handler, compact_system_prompt=True)
+        system_text = (
+            "Você é o Vectora assistente.\n"
+            "### Tools\n"
+            "#### 🗂️ Filesystem\n"
+            "- read and write files\n"
+            "### Segurança\n"
+            "Execute testes antes de concluir.\n"
+        )
+        await client.agenerate(
+            [
+                text_message(MessageRole.SYSTEM, system_text),
+                text_message(MessageRole.USER, "olá"),
+            ]
+        )
+
+        sys_msg = payload_captured["messages"][0]["content"]
+        assert "- read and write files" not in sys_msg
+        assert "### Segurança" in sys_msg
+        assert "Execute testes antes de concluir." in sys_msg
+
+    async def test_compact_system_prompt_hierarquia_markdown_e_mencao_em_instrucao(
+        self,
+    ):
+        payload_captured = {}
+
+        def handler(req):
+            nonlocal payload_captured
+            payload_captured = json.loads(req.content.decode("utf-8"))
+            return httpx.Response(200, json=_resposta_ok("Ok"))
+
+        client = _client(handler, compact_system_prompt=True)
+        system_text = (
+            "Você é o assistente.\n"
+            "Não altere a seção ### Tools sem autorização prévia.\n"
+            "### Tools\n"
+            "#### Terminal\n"
+            "Documentação extensa do terminal que deve ser descartada.\n"
+            "##### Subseção profunda do terminal\n"
+            "Mais detalhes técnicos irrelevantes.\n"
+            "### Políticas do Usuário\n"
+            "Siga rigorosamente as orientações da equipe.\n"
+        )
+        await client.agenerate(
+            [
+                text_message(MessageRole.SYSTEM, system_text),
+                text_message(MessageRole.USER, "olá"),
+            ]
+        )
+
+        sys_msg = payload_captured["messages"][0]["content"]
+        # A menção inline a "### Tools" NÃO deve ter sido tratada como cabeçalho descartável
+        assert "Não altere a seção ### Tools sem autorização prévia." in sys_msg
+        # Subseções (#### e #####) dentro de ### Tools DEVEM ser descartadas
+        assert "Documentação extensa do terminal" not in sys_msg
+        assert "Mais detalhes técnicos irrelevantes" not in sys_msg
+        # Cabeçalho de mesmo nível (### Políticas do Usuário) encerra o descarte
+        assert "### Políticas do Usuário" in sys_msg
+        assert "Siga rigorosamente as orientações da equipe." in sys_msg
+
+    async def test_compact_system_prompt_preserva_nivel_externo_com_cabecalhos_aninhados(
+        self,
+    ):
+        payload_captured = {}
+
+        def handler(req):
+            nonlocal payload_captured
+            payload_captured = json.loads(req.content.decode("utf-8"))
+            return httpx.Response(200, json=_resposta_ok("Ok"))
+
+        client = _client(handler, compact_system_prompt=True)
+        system_text = (
+            "## Identity\n"
+            "Preâmbulo de identidade geral que deve ser descartado.\n"
+            "### Tools\n"
+            "Documentação de ferramentas que também deve ser descartada.\n"
+            "### Outra descrição\n"
+            "Documentação ainda pertencente a Identity que NÃO deve reentrar.\n"
+            "## Regras\n"
+            "Execute testes antes de concluir.\n"
+        )
+        await client.agenerate(
+            [
+                text_message(MessageRole.SYSTEM, system_text),
+                text_message(MessageRole.USER, "olá"),
+            ]
+        )
+
+        sys_msg = payload_captured["messages"][0]["content"]
+        assert "Preâmbulo de identidade geral" not in sys_msg
+        assert "Documentação de ferramentas" not in sys_msg
+        assert "Documentação ainda pertencente a Identity" not in sys_msg
+        assert "Execute testes antes de concluir." in sys_msg

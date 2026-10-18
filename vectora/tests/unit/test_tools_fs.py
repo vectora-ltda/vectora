@@ -17,7 +17,9 @@ from backend.vtypes import Workspace
 
 
 @pytest.fixture
-def trusted_ws(tmp_path, monkeypatch):
+def trusted_ws(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> dict[str, dict[str, str]]:
     """Workspace confiável apontando para tmp_path + config para as tools.
 
     As tools de fs confinam toda operação ao workspace ativo. Os testes
@@ -56,7 +58,9 @@ def trusted_ws(tmp_path, monkeypatch):
 
 
 class TestFileRead:
-    async def test_reads_existing_file(self, tmp_path, trusted_ws):
+    async def test_reads_existing_file(
+        self, tmp_path: Path, trusted_ws: dict[str, dict[str, str]]
+    ) -> None:
         from backend.tools.fs import file_read
 
         f = tmp_path / "hello.txt"
@@ -64,7 +68,9 @@ class TestFileRead:
         result = await file_read(file_path=str(f), ctx=ctx_from_config(trusted_ws))
         assert result == "conteudo do arquivo"
 
-    async def test_file_not_found(self, tmp_path, trusted_ws):
+    async def test_file_not_found(
+        self, tmp_path: Path, trusted_ws: dict[str, dict[str, str]]
+    ) -> None:
         from backend.tools.fs import file_read
 
         result = await file_read(
@@ -72,7 +78,9 @@ class TestFileRead:
         )
         assert "not found" in result.lower() or "error" in result.lower()
 
-    async def test_blocked_path(self, tmp_path, trusted_ws):
+    async def test_blocked_path(
+        self, tmp_path: Path, trusted_ws: dict[str, dict[str, str]]
+    ) -> None:
         from backend.tools.fs import file_read
 
         outside = tmp_path.parent / "fora_do_workspace.txt"
@@ -82,8 +90,10 @@ class TestFileRead:
         assert "fora do workspace" in result.lower() or "error" in result.lower()
 
     async def test_blocked_credencial_sensivel_mesmo_dentro_do_workspace(
-        self, tmp_path, trusted_ws
-    ):
+        self,
+        tmp_path: Path,
+        trusted_ws: dict[str, dict[str, str]],
+    ) -> None:
         """Chave SSH versionada por engano dentro do workspace confiável
         continua bloqueada — segunda camada de defesa independente do
         sandbox nativo estar ativo."""
@@ -96,6 +106,32 @@ class TestFileRead:
         result = await file_read(file_path=str(chave), ctx=ctx_from_config(trusted_ws))
         assert "sensível" in result.lower() or "error" in result.lower()
         assert "chave-privada-fake" not in result
+
+
+# ---------------------------------------------------------------------------
+# Files Workbench parity
+# ---------------------------------------------------------------------------
+
+
+class TestFileWorkbenchParity:
+    async def test_create_move_search_delete(
+        self, tmp_path: Path, trusted_ws: dict[str, dict[str, str]]
+    ) -> None:
+        from backend.tools.fs import (
+            file_create_dir,
+            file_delete,
+            file_move,
+            file_search,
+        )
+
+        ctx = ctx_from_config(trusted_ws)
+        assert "OK" in await file_create_dir("nested", ctx)
+        (tmp_path / "nested" / "note.txt").write_text("github workbench")
+        assert "github" in (await file_search("github", ctx, "nested")).lower()
+        assert "OK" in await file_move("nested/note.txt", "renamed.txt", ctx)
+        assert (tmp_path / "renamed.txt").exists()
+        assert "OK" in await file_delete("renamed.txt", ctx, permanent=True)
+        assert not (tmp_path / "renamed.txt").exists()
 
 
 # ---------------------------------------------------------------------------

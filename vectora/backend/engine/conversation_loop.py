@@ -27,9 +27,11 @@ vocabulário nativo.
 from __future__ import annotations
 
 import json
+import logging
+import math
 import time
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 from backend.engine.guardrails import LoopCapConfig, TurnBudget
@@ -47,6 +49,7 @@ from backend.engine.stream_events import (
 )
 from backend.engine.tool_batch import _is_tool_error, execute_tool_batch
 from backend.services.context_compaction import compact_messages
+from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import ContentBlock, MessageRole, ToolCall, VMessage
 
 _REPEATED_CALL_THRESHOLD = 3
@@ -54,6 +57,11 @@ _REPEATED_CALL_THRESHOLD = 3
 aviso de possível loop preso — inspirado na detecção de repetição do
 hermes-agent (`agent/tool_guardrails.py`), sem a classificação
 idempotente/mutante dele: aqui é só sinal, o LLM/HITL decide o resto."""
+
+_REPEATED_CALL_HARD_LIMIT = 6
+"""Limite de segurança antes de encerrar uma chamada de tool presa."""
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -237,7 +245,7 @@ async def run_conversation(
     emit = on_event or _noop_event
     tools = tool_registry.all()
     parent_id = await session_store.get_branch_head_id(thread_id)
-    assinaturas_anteriores: frozenset[tuple[str, str]] | None = None
+    assinaturas_anteriores: tuple[tuple[str, str], ...] | None = None
     repeticoes_seguidas = 0
     turn_budget = TurnBudget(config=config.loop_caps)
     last_usage: dict[str, int] | None = None
@@ -254,10 +262,28 @@ async def run_conversation(
                 else _default_context_tokens()
             ),
             enabled=config.context_compaction_enabled,
+            preserve_latest_tool_result=str(ctx.model).startswith("ollama:"),
         )
 
         partes_texto: list[str] = []
         tool_call_chunks_por_indice: dict[int, dict[str, Any]] = {}
+        chunk_count = 0
+        text_chunk_count = 0
+        reasoning_chars = 0
+        tool_chunk_count = 0
+        finish_reasons: list[str] = []
+
+        logger.info(
+            "llm_turn_started",
+            extra={
+                "thread_id": thread_id,
+                "run_id": config.run_id or "",
+                "iteration": _iteracao + 1,
+                "history_messages": len(historico),
+                "tool_count": len(tools),
+                "model": str(getattr(chat_client, "last_model_id", "") or ""),
+            },
+        )
 
         stream_usage: dict[str, int] | None = None
         async for chunk in chat_client.astream(
@@ -266,11 +292,18 @@ async def run_conversation(
             temperature=config.temperature,
             max_tokens=config.max_tokens,
         ):
+            chunk_count += 1
+            if chunk.finish_reason:
+                finish_reasons.append(str(chunk.finish_reason))
             if chunk.usage:
-                stream_usage = dict(chunk.usage)
+                stream_usage = cast("dict[str, int]", dict(chunk.usage))
             if chunk.delta_text:
+                text_chunk_count += 1
                 partes_texto.append(chunk.delta_text)
                 await emit(MessageChunk(content=chunk.delta_text))
+
+            reasoning_chars += len(chunk.delta_reasoning or "")
+            tool_chunk_count += len(chunk.tool_call_chunks)
 
             for tc_chunk in chunk.tool_call_chunks:
                 acumulado = tool_call_chunks_por_indice.setdefault(
@@ -301,6 +334,57 @@ async def run_conversation(
         tool_calls = _resolve_tool_calls(tool_call_chunks_por_indice)
         observed_tools.update(tc.name for tc in tool_calls if tc.name)
 
+        logger.info(
+            "llm_turn_finished",
+            extra={
+                "thread_id": thread_id,
+                "run_id": config.run_id or "",
+                "iteration": _iteracao + 1,
+                "model": str(getattr(chat_client, "last_model_id", "") or ""),
+                "chunk_count": chunk_count,
+                "text_chunk_count": text_chunk_count,
+                "text_chars": len(texto_final),
+                "reasoning_chars": reasoning_chars,
+                "tool_chunk_count": tool_chunk_count,
+                "tool_call_count": len(tool_calls),
+                "finish_reasons": ",".join(finish_reasons),
+                "usage_present": stream_usage is not None,
+            },
+        )
+
+        if not texto_final and not tool_calls:
+            logger.warning(
+                "llm_empty_response",
+                extra={
+                    "thread_id": thread_id,
+                    "run_id": config.run_id or "",
+                    "iteration": _iteracao + 1,
+                    "model": str(getattr(chat_client, "last_model_id", "") or ""),
+                    "chunk_count": chunk_count,
+                    "reasoning_chars": reasoning_chars,
+                    "finish_reasons": ",".join(finish_reasons),
+                },
+            )
+            await emit(
+                ErrorSignal(
+                    code="EMPTY_MODEL_RESPONSE",
+                    message=(
+                        "O provedor LLM encerrou o stream sem retornar texto "
+                        "ou uma chamada de ferramenta. Tente novamente ou "
+                        "troque o modelo."
+                    ),
+                )
+            )
+            await emit(MessageBreak())
+            return LoopResult(
+                stopped_reason="stop",
+                final_message=None,
+                usage=last_usage,
+                usage_models=tuple(sorted(usage_models)),
+                usage_records=tuple(usage_records),
+                tool_names=tuple(sorted(observed_tools)),
+            )
+
         tool_calls_for_history = [_sanitize_tool_call(tc, ctx) for tc in tool_calls]
         assistant_msg = VMessage(
             role=MessageRole.ASSISTANT,
@@ -310,6 +394,56 @@ async def run_conversation(
             tool_calls=tool_calls_for_history,
             finish_reason="tool_calls" if tool_calls else "stop",
         )
+
+        # Do not persist an assistant tool-call message when the repetition
+        # guard is about to stop the loop.  Persisting it would leave pending
+        # calls in the session history without matching tool results, causing
+        # the next run to replay an incomplete turn.
+        if tool_calls:
+            assinaturas_atual = tuple(_call_signature(tc) for tc in tool_calls)
+            if assinaturas_atual == assinaturas_anteriores:
+                repeticoes_seguidas += 1
+            else:
+                repeticoes_seguidas = 1
+            assinaturas_anteriores = assinaturas_atual
+            if repeticoes_seguidas == _REPEATED_CALL_THRESHOLD:
+                nomes = ", ".join(sorted({tc.name for tc in tool_calls}))
+                await emit(
+                    ErrorSignal(
+                        code="TOOL_CALL_REPEATED",
+                        message=(
+                            f"Mesma tool call ({nomes}) repetida "
+                            f"{_REPEATED_CALL_THRESHOLD}x seguidas com argumentos "
+                            "idênticos — possível loop preso."
+                        ),
+                    )
+                )
+            if repeticoes_seguidas >= _REPEATED_CALL_HARD_LIMIT:
+                nomes = ", ".join(sorted({tc.name for tc in tool_calls}))
+                mensagem = (
+                    f"Execução interrompida: a mesma chamada ({nomes}) foi repetida "
+                    f"{repeticoes_seguidas} vezes sem progresso."
+                )
+                logger.error(
+                    "tool_call_loop_stopped",
+                    extra={
+                        "thread_id": thread_id,
+                        "iteration": _iteracao + 1,
+                        "tool_names": nomes,
+                        "repetitions": repeticoes_seguidas,
+                    },
+                )
+                await emit(ErrorSignal(code="TOOL_CALL_REPEATED", message=mensagem))
+                await emit(MessageBreak())
+                return LoopResult(
+                    stopped_reason="loop_cap_exceeded",
+                    final_message=None,
+                    usage=last_usage,
+                    usage_models=tuple(sorted(usage_models)),
+                    usage_records=tuple(usage_records),
+                    tool_names=tuple(sorted(observed_tools)),
+                )
+
         parent_id = await session_store.append_message(
             thread_id, assistant_msg, parent_message_id=parent_id, run_id=config.run_id
         )
@@ -323,25 +457,6 @@ async def run_conversation(
                 usage_models=tuple(sorted(usage_models)),
                 usage_records=tuple(usage_records),
                 tool_names=tuple(sorted(observed_tools)),
-            )
-
-        assinaturas_atual = frozenset(_call_signature(tc) for tc in tool_calls)
-        if assinaturas_atual == assinaturas_anteriores:
-            repeticoes_seguidas += 1
-        else:
-            repeticoes_seguidas = 1
-        assinaturas_anteriores = assinaturas_atual
-        if repeticoes_seguidas == _REPEATED_CALL_THRESHOLD:
-            nomes = ", ".join(sorted({tc.name for tc in tool_calls}))
-            await emit(
-                ErrorSignal(
-                    code="TOOL_CALL_REPEATED",
-                    message=(
-                        f"Mesma tool call ({nomes}) repetida "
-                        f"{_REPEATED_CALL_THRESHOLD}x seguidas com argumentos "
-                        "idênticos — possível loop preso."
-                    ),
-                )
             )
 
         if should_require_approval is not None:
@@ -398,22 +513,29 @@ async def run_conversation(
                     approval_args = dict(approval_metadata)
                 args_json = json.dumps(approval_args, ensure_ascii=False)
                 raw_options = pendente.args.get("options", [])
-                options = (
-                    [
-                        {
-                            "label": str(item.get("label") or item["value"]),
-                            "value": str(item["value"]),
-                        }
-                        for item in raw_options
-                        if isinstance(item, dict) and item.get("value")
-                    ]
-                    if isinstance(raw_options, list)
-                    else []
-                )
+                options: list[ToolOption] = []
+                if isinstance(raw_options, list):
+                    for item in raw_options:
+                        if not isinstance(item, dict):
+                            continue
+                        raw_value = item.get("value")
+                        if not raw_value:
+                            continue
+                        raw_label = item.get("label") or raw_value
+                        options.append(
+                            {"label": str(raw_label), "value": str(raw_value)}
+                        )
+                raw_priority = pendente.args.get("approval_priority", 0)
                 try:
-                    priority = max(
-                        0, min(100, int(pendente.args.get("approval_priority", 0)))
-                    )
+                    if isinstance(raw_priority, (int, float, str)):
+                        numeric_priority = float(raw_priority)
+                        priority = (
+                            max(0, min(100, int(numeric_priority)))
+                            if math.isfinite(numeric_priority)
+                            else 0
+                        )
+                    else:
+                        priority = 0
                 except (TypeError, ValueError):
                     priority = 0
                 expires_at = pendente.args.get("approval_expires_at")
@@ -434,6 +556,8 @@ async def run_conversation(
                         tool_name=pendente.name,
                         args_json=args_json,
                         interrupt_id=interrupt_id,
+                        permission_mode=ctx.permission_mode or "ask",
+                        workspace_id=ctx.workspace_id,
                         options=options,
                         priority=priority,
                         expires_at=str(expires_at) if expires_at else None,
@@ -701,9 +825,9 @@ async def resume_conversation(
                     is_error=True,
                 )
             else:
-                from backend.engine.hitl import REQUIRE_APPROVAL
+                from backend.engine.hitl import _tool_requires_approval
 
-                if tc.name in REQUIRE_APPROVAL:
+                if _tool_requires_approval(tc.name):
                     resultado = VMessage(
                         role=MessageRole.TOOL,
                         content=[

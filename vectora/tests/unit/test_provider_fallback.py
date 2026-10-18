@@ -204,6 +204,24 @@ class TestProviderHasKey:
         with patch.object(settings, "google_api_key", None):
             assert pf._provider_has_key("google_genai") is False
 
+    def test_llamacpp_is_available_with_external_url(self):
+        from backend.settings import settings
+
+        with patch.object(settings, "llamacpp_base_url", "http://127.0.0.1:18082/v1"):
+            assert pf._provider_has_key("llamacpp") is True
+
+    def test_llamacpp_is_available_for_managed_sidecar(self):
+        from backend.settings import settings
+
+        with (
+            patch.object(settings, "llamacpp_base_url", None),
+            patch(
+                "backend.services.llamacpp_sidecar.llamacpp_status",
+                return_value={"running": True},
+            ),
+        ):
+            assert pf._provider_has_key("llamacpp") is True
+
 
 # ---------------------------------------------------------------------------
 # get_fallback_chain

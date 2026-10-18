@@ -30,5 +30,6 @@ class ThreadHistoryEntry(BaseModel):
     role: Literal["human", "assistant"]
     text: str
     checkpoint_id: str
+    message_id: int | None = None
     attachments: list[dict[str, object]] = Field(default_factory=list)
     edited_files: list[HistoryEditedFile] = Field(default_factory=list)

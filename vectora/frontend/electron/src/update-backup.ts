@@ -29,7 +29,15 @@ let snapshotQueue: Promise<void> = Promise.resolve();
 function isTransientFileLock(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const code = (error as { code?: unknown }).code;
-  return code === "EBUSY" || code === "EPERM" || code === "EACCES";
+  // EACCES also represents a permanent ACL failure. Retrying it would hide
+  // an incomplete backup, so only OS-level busy/operation locks are transient.
+  return code === "EBUSY" || code === "EPERM";
+}
+
+function isSkippableFileLock(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const code = (error as { code?: unknown }).code;
+  return code === "EBUSY" || code === "EPERM";
 }
 
 export async function withFileLockRetry<T>(
@@ -115,7 +123,7 @@ async function collectFiles(
   try {
     names = await fs.readdir(current);
   } catch (error) {
-    if (!isTransientFileLock(error)) throw error;
+    if (!isSkippableFileLock(error)) throw error;
     const relative = path.relative(root, current);
     if (!relative) throw error;
     skipped.push(relative);
@@ -133,7 +141,7 @@ async function collectFiles(
     try {
       stat = await withFileLockRetry(() => fs.lstat(source));
     } catch (error) {
-      if (isTransientFileLock(error)) {
+      if (isSkippableFileLock(error)) {
         skipped.push(relative);
         console.warn("[updater] backup omitindo caminho bloqueado", {
           path: relative,
@@ -265,7 +273,7 @@ export async function createRotatingUpdateBackup(
           );
           files.push({ ...copied, path: relative });
         } catch (error) {
-          if (!isTransientFileLock(error)) throw error;
+          if (!isSkippableFileLock(error)) throw error;
           skipped.push(relative);
           console.warn("[updater] backup omitindo arquivo bloqueado", {
             path: relative,

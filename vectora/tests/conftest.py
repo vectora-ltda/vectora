@@ -117,11 +117,17 @@ def pytest_runtest_teardown(item: Any) -> None:
         fd_count = sum(1 for _ in Path("/proc/self/fd").iterdir())
     except OSError:
         fd_count = -1  # não-Linux (Windows local) — sem /proc
-    stream.write(
-        f"[diag fds] teste #{_diag_test_count} ({item.nodeid}): "
-        f"fds_abertos={fd_count} threads_vivas={threading.active_count()}\n"
-    )
-    stream.flush()
+    try:
+        stream.write(
+            f"[diag fds] teste #{_diag_test_count} ({item.nodeid}): "
+            f"fds_abertos={fd_count} threads_vivas={threading.active_count()}\n"
+        )
+        stream.flush()
+    except OSError:
+        # Windows runners can detach the pytest console while a test is
+        # tearing down (WinError 6).  Diagnostics are best-effort and must
+        # never turn a successful test into a teardown error.
+        pass
 
 
 def pytest_sessionfinish(exitstatus: int) -> None:
