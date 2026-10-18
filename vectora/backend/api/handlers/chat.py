@@ -853,10 +853,6 @@ async def stream_chat(
     configurable = _build_configurable(
         request.config, thread_id, user_id, user_name=user_name
     )
-    if hasattr(http_request.state, "correlation_id"):
-        configurable["correlation_id"] = http_request.state.correlation_id
-    if hasattr(http_request.state, "request_id"):
-        configurable["request_id"] = http_request.state.request_id
     if planning_mode:
         configurable["planning_mode"] = True
 
@@ -1364,8 +1360,6 @@ async def resume_chat(
             "permission_mode": permission_mode,
             "workspace_id": selector_workspace_id or "",
             "model": selector_model,
-            "correlation_id": getattr(http_request.state, "correlation_id", ""),
-            "request_id": getattr(http_request.state, "request_id", ""),
         },
         "recursion_limit": 50,
     }

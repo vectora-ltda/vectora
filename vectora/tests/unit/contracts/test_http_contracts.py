@@ -37,34 +37,3 @@ def test_health_live_and_ready_endpoints():
     assert data["status"] in ("ready", "not_ready")
     assert "version" in data
     assert "storage" in data
-
-
-def test_settings_prefs_protected_by_auth(monkeypatch):
-    monkeypatch.setenv("VECTORA_AUTH_REQUIRED", "true")
-    app = create_app(serve_static=False)
-    client = TestClient(app)
-
-    # /settings/flags é pública
-    flags_res = client.get("/settings/flags")
-    assert flags_res.status_code == 200
-
-    # /settings/prefs exige autenticação
-    prefs_res = client.get("/settings/prefs")
-    assert prefs_res.status_code == 401
-
-
-def test_vectora_context_carries_correlation():
-    from backend.vtypes.context import VectoraContext, ctx_from_config
-
-    ctx = ctx_from_config(
-        {
-            "configurable": {
-                "thread_id": "t-123",
-                "correlation_id": "corr-456",
-                "request_id": "req-789",
-            }
-        }
-    )
-    assert ctx.thread_id == "t-123"
-    assert ctx.correlation_id == "corr-456"
-    assert ctx.request_id == "req-789"

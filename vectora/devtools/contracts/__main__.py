@@ -165,9 +165,9 @@ def check_all(contracts_dir: Path) -> int:
             print(f"MISSING: {rel}")
             has_diff = True
             continue
-        expected_data = json.loads(expected_file.read_text(encoding="utf-8"))
-        current_data = json.loads(target.read_text(encoding="utf-8"))
-        if expected_data != current_data:
+        expected_content = expected_file.read_text(encoding="utf-8")
+        current_content = target.read_text(encoding="utf-8")
+        if expected_content != current_content:
             print(f"DRIFT DETECTED: {rel}")
             has_diff = True
 
