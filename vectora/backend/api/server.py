@@ -793,7 +793,6 @@ def create_app(serve_static: bool = True) -> FastAPI:
         return {"version": "1", "tool_count": len(tools_data), "tools": tools_data}
 
     # ── Health + Metrics ──────────────────────────────────────────────────────
-    from fastapi.responses import JSONResponse
 
     @app.get("/health")
     async def health() -> dict:

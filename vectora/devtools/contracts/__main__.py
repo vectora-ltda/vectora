@@ -8,6 +8,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 # Configuração de isolamento do ambiente antes de importar qualquer módulo do backend
 _TEMP_HOME = Path(tempfile.gettempdir()) / "vectora_contracts_isolation"
@@ -46,7 +47,11 @@ def export_http(contracts_dir: Path) -> None:
         if path:
             routes_inventory.append({"path": path, "methods": methods, "name": name})
 
-    routes_inventory.sort(key=lambda r: (r["path"], "".join(r["methods"])))
+    def _methods_str(r: dict[str, Any]) -> str:
+        m = r.get("methods")
+        return "".join(str(x) for x in m) if isinstance(m, list) else ""
+
+    routes_inventory.sort(key=lambda r: (str(r.get("path") or ""), _methods_str(r)))
     (http_dir / "routes.json").write_text(
         dumps_normalized(routes_inventory), encoding="utf-8"
     )
@@ -76,7 +81,7 @@ def export_tools(contracts_dir: Path) -> None:
     tools_dir = contracts_dir / "tools"
     tools_dir.mkdir(parents=True, exist_ok=True)
 
-    catalog = []
+    catalog: list[dict[str, Any]] = []
     for spec in ALL_TOOL_SPECS:
         schema = {}
         if spec.args_model is not None:
@@ -92,7 +97,7 @@ def export_tools(contracts_dir: Path) -> None:
             }
         )
 
-    catalog.sort(key=lambda t: t["name"])
+    catalog.sort(key=lambda t: str(t["name"]))
     (tools_dir / "catalog.json").write_text(dumps_normalized(catalog), encoding="utf-8")
     print("Exported Tools catalog.")
 

@@ -48,6 +48,13 @@ from backend.engine.stream_events import (
     WorkbenchInvalidate,
 )
 from backend.engine.tool_batch import _is_tool_error, execute_tool_batch
+from backend.persistence.native.ledger import (
+    LedgerEventType,
+    make_run_completed_key,
+    make_run_failed_key,
+    make_tool_finished_key,
+    make_tool_started_key,
+)
 from backend.services.context_compaction import compact_messages
 from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import ContentBlock, MessageRole, ToolCall, VMessage
@@ -244,6 +251,7 @@ async def run_conversation(
 
     emit = on_event or _noop_event
     tools = tool_registry.all()
+    store: Any = session_store
     parent_id = await session_store.get_branch_head_id(thread_id)
     assinaturas_anteriores: tuple[tuple[str, str], ...] | None = None
     repeticoes_seguidas = 0
@@ -450,6 +458,14 @@ async def run_conversation(
         await emit(MessageBreak())
 
         if not tool_calls:
+            if hasattr(session_store, "append_ledger_event") and config.run_id:
+                await store.append_ledger_event(
+                    thread_id,
+                    event_key=make_run_completed_key(config.run_id),
+                    event_type=LedgerEventType.RUN_COMPLETED,
+                    run_id=config.run_id,
+                    payload={"stopped_reason": "stop"},
+                )
             return LoopResult(
                 stopped_reason="stop",
                 final_message=assistant_msg,
@@ -580,6 +596,15 @@ async def run_conversation(
             tool_started_at[tc.id] = time.monotonic()
             preview = _args_preview(tc.args)
             tool_args_previews[tc.id] = preview
+            if hasattr(session_store, "append_ledger_event"):
+                await store.append_ledger_event(
+                    thread_id,
+                    event_key=make_tool_started_key(config.run_id or "", tc.id),
+                    event_type=LedgerEventType.TOOL_STARTED,
+                    run_id=config.run_id,
+                    tool_call_id=tc.id,
+                    payload={"tool_name": tc.name, "args": tc.args},
+                )
             await emit(
                 ToolCallStarted(
                     tool_name=tc.name,
@@ -609,6 +634,18 @@ async def run_conversation(
                 thread_id, resultado, parent_message_id=parent_id
             )
             call_id = resultado.tool_call_id or ""
+            if hasattr(session_store, "append_ledger_event"):
+                await store.append_ledger_event(
+                    thread_id,
+                    event_key=make_tool_finished_key(config.run_id or "", call_id),
+                    event_type=LedgerEventType.TOOL_FINISHED,
+                    run_id=config.run_id,
+                    tool_call_id=call_id,
+                    payload={
+                        "tool_name": resultado.name,
+                        "is_error": resultado.is_error,
+                    },
+                )
             await emit(
                 ToolResult(
                     tool_call_id=call_id,
@@ -643,6 +680,14 @@ async def run_conversation(
                     await emit(TodosUpdated(todos=todos))
 
         if turn_budget.exceeded is not None:
+            if hasattr(session_store, "append_ledger_event") and config.run_id:
+                await store.append_ledger_event(
+                    thread_id,
+                    event_key=make_run_failed_key(config.run_id),
+                    event_type=LedgerEventType.RUN_FAILED,
+                    run_id=config.run_id,
+                    payload={"error": f"loop_cap_exceeded: {turn_budget.exceeded}"},
+                )
             await emit(
                 ErrorSignal(
                     code="LOOP_CAP_EXCEEDED",
@@ -661,6 +706,14 @@ async def run_conversation(
                 tool_names=tuple(sorted(observed_tools)),
             )
 
+    if hasattr(session_store, "append_ledger_event") and config.run_id:
+        await store.append_ledger_event(
+            thread_id,
+            event_key=make_run_failed_key(config.run_id),
+            event_type=LedgerEventType.RUN_FAILED,
+            run_id=config.run_id,
+            payload={"error": f"recursion_limit: {config.max_iterations}"},
+        )
     await emit(
         ErrorSignal(
             code="RECURSION_LIMIT",

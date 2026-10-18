@@ -162,7 +162,14 @@ class LanceDBBackend:
                     )
                 except Exception:
                     table = await db.open_table(collection)
-            await table.add(docs)
+            # Idempotência: merge_insert por 'id' atualiza os existentes e insere os novos,
+            # eliminando registros duplicados.
+            await (
+                table.merge_insert("id")
+                .when_matched_update_all()
+                .when_not_matched_insert_all()
+                .execute(docs)
+            )
 
     async def list_rows(self, collection: str) -> list[VectorRow]:
         db = await self._db()
@@ -196,9 +203,12 @@ class LanceDBBackend:
             table = await db.open_table(collection)
         except Exception:
             return 0
-        id_list = ", ".join(f"'{i}'" for i in ids)
+        before_count = await table.count_rows()
+        escaped_ids = [i.replace("'", "''") for i in ids]
+        id_list = ", ".join(f"'{i}'" for i in escaped_ids)
         await table.delete(f"id IN ({id_list})")
-        return len(ids)
+        after_count = await table.count_rows()
+        return max(0, before_count - after_count)
 
     async def purge(self, collection: str) -> None:
         db = await self._db()
@@ -225,3 +235,11 @@ class LanceDBBackend:
             return await table.count_rows()
         except Exception:
             return None
+
+    async def health(self) -> dict[str, Any]:
+        """Verifica se o LanceDB está acessível e lista tabelas."""
+        try:
+            tables = await self.list_collections()
+            return {"ok": True, "error": None, "tables": tables, "internal": True}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc), "internal": True}
