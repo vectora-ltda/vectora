@@ -35,6 +35,8 @@ async def test_github_rest_pr_publico_sem_login_real(
     result = await github_fetch_pr_diff(
         owner="vectora-ltda", repo="vectora", pr_number=319
     )
+    if '"error": "GitHub API respondeu 403' in result:
+        pytest.skip("GitHub API rate limit sem autenticação atingido no runner")
     assert '"status": "ok"' in result
     assert "diff --git" in result
 
