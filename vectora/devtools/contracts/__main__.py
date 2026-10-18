@@ -9,7 +9,6 @@ import subprocess  # nosec B404
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
 
 from pydantic import BaseModel
 
@@ -63,7 +62,7 @@ def export_http(contracts_dir: Path) -> None:
         routes_inventory.append({"path": path, "methods": methods, "name": name})
         routes_map.setdefault(path, set()).update(methods)
 
-    def _methods_str(r: dict[str, Any]) -> str:
+    def _methods_str(r: dict[str, object]) -> str:
         m = r.get("methods")
         return "".join(str(x) for x in m) if isinstance(m, list) else ""
 
@@ -116,7 +115,7 @@ def export_tools(contracts_dir: Path) -> None:
     tools_dir = contracts_dir / "tools"
     tools_dir.mkdir(parents=True, exist_ok=True)
 
-    catalog: list[dict[str, Any]] = []
+    catalog: list[dict[str, object]] = []
     for spec in ALL_TOOL_SPECS:
         schema = {}
         if spec.args_model is not None:

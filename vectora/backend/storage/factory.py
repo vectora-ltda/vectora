@@ -505,12 +505,11 @@ async def storage_health() -> dict[str, Any]:
 
     # LanceDB / Qdrant (Vector Store Backend)
     try:
-        from backend.services.license import get_effective_storage_mode
-        from backend.storage.factory import get_vector_store_backend
+        from backend.storage.vectorstore.qdrant_backend import QdrantBackend
 
         vs_backend = await get_vector_store_backend()
         vs_health = await vs_backend.health()
-        if get_effective_storage_mode() == "complete":
+        if isinstance(vs_backend, QdrantBackend):
             result["qdrant"] = vs_health
             result["lancedb"] = {
                 "ok": None,
