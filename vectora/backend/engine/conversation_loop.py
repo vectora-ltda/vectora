@@ -459,12 +459,32 @@ async def run_conversation(
 
         if not tool_calls:
             if hasattr(session_store, "append_ledger_event") and config.run_id:
-                await store.append_ledger_event(
+                await session_store.append_ledger_event(
                     thread_id,
                     event_key=make_run_completed_key(config.run_id),
                     event_type=LedgerEventType.RUN_COMPLETED,
                     run_id=config.run_id,
                     payload={"stopped_reason": "stop"},
+                )
+            if hasattr(session_store, "update_agent_run_status") and config.run_id:
+                from backend.persistence.native.agent_run import AgentRunMetrics
+
+                metrics = AgentRunMetrics(
+                    input_tokens=int(
+                        last_usage.get("input_tokens", 0) if last_usage else 0
+                    ),
+                    output_tokens=int(
+                        last_usage.get("output_tokens", 0) if last_usage else 0
+                    ),
+                    total_tokens=int(
+                        last_usage.get("total_tokens", 0) if last_usage else 0
+                    ),
+                )
+                await session_store.update_agent_run_status(
+                    config.run_id,
+                    status="passed",
+                    detail="Execução completada com sucesso.",
+                    metrics=metrics,
                 )
             return LoopResult(
                 stopped_reason="stop",
@@ -567,6 +587,23 @@ async def run_conversation(
                         expires_at=str(expires_at) if expires_at else None,
                         approval_metadata=approval_metadata,
                     )
+                if hasattr(session_store, "record_run_evidence") and config.run_id:
+                    await session_store.record_run_evidence(
+                        config.run_id,
+                        approval={
+                            "interrupt_id": interrupt_id,
+                            "tool_name": pendente.name,
+                            "tool_call_id": stable_call_id,
+                            "options": options,
+                            "priority": priority,
+                        },
+                    )
+                if hasattr(session_store, "update_agent_run_status") and config.run_id:
+                    await session_store.update_agent_run_status(
+                        config.run_id,
+                        status="waiting_approval",
+                        detail=f"Aguardando aprovação para {pendente.name}",
+                    )
                 await emit(
                     HitlRequested(
                         tool_name=pendente.name,
@@ -635,7 +672,7 @@ async def run_conversation(
             )
             call_id = resultado.tool_call_id or ""
             if hasattr(session_store, "append_ledger_event"):
-                await store.append_ledger_event(
+                await session_store.append_ledger_event(
                     thread_id,
                     event_key=make_tool_finished_key(config.run_id or "", call_id),
                     event_type=LedgerEventType.TOOL_FINISHED,
@@ -643,6 +680,21 @@ async def run_conversation(
                     tool_call_id=call_id,
                     payload={
                         "tool_name": resultado.name,
+                        "is_error": resultado.is_error,
+                    },
+                )
+            if (
+                hasattr(session_store, "record_run_evidence")
+                and config.run_id
+                and resultado.name
+            ):
+                await session_store.record_run_evidence(
+                    config.run_id,
+                    tool_used=resultado.name,
+                    evidence={
+                        "type": "tool_result",
+                        "tool_name": resultado.name,
+                        "tool_call_id": call_id,
                         "is_error": resultado.is_error,
                     },
                 )
@@ -681,12 +733,19 @@ async def run_conversation(
 
         if turn_budget.exceeded is not None:
             if hasattr(session_store, "append_ledger_event") and config.run_id:
-                await store.append_ledger_event(
+                await session_store.append_ledger_event(
                     thread_id,
                     event_key=make_run_failed_key(config.run_id),
                     event_type=LedgerEventType.RUN_FAILED,
                     run_id=config.run_id,
                     payload={"error": f"loop_cap_exceeded: {turn_budget.exceeded}"},
+                )
+            if hasattr(session_store, "update_agent_run_status") and config.run_id:
+                await session_store.update_agent_run_status(
+                    config.run_id,
+                    status="failed",
+                    detail=f"Teto de guardrail excedido: {turn_budget.exceeded}",
+                    error_code="LOOP_CAP_EXCEEDED",
                 )
             await emit(
                 ErrorSignal(
@@ -707,12 +766,19 @@ async def run_conversation(
             )
 
     if hasattr(session_store, "append_ledger_event") and config.run_id:
-        await store.append_ledger_event(
+        await session_store.append_ledger_event(
             thread_id,
             event_key=make_run_failed_key(config.run_id),
             event_type=LedgerEventType.RUN_FAILED,
             run_id=config.run_id,
             payload={"error": f"recursion_limit: {config.max_iterations}"},
+        )
+    if hasattr(session_store, "update_agent_run_status") and config.run_id:
+        await session_store.update_agent_run_status(
+            config.run_id,
+            status="failed",
+            detail=f"Limite de {config.max_iterations} iterações atingido.",
+            error_code="RECURSION_LIMIT",
         )
     await emit(
         ErrorSignal(

@@ -14,8 +14,17 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
+from backend.persistence.native.agent_run import (
+    TERMINAL_AGENT_RUN_STATUSES,
+    VALID_AGENT_RUN_STATUSES,
+    AgentRun,
+    AgentRunMetrics,
+    AgentRunStatus,
+    AgentRunTimelineEntry,
+    redact_sensitive_data,
+)
 from backend.persistence.native.ledger import (
     LedgerEventType,
     RunDraft,
@@ -198,6 +207,356 @@ class SessionStore:
             )
             await conn.commit()
 
+    async def upsert_agent_run(
+        self,
+        run: AgentRun,
+    ) -> None:
+        """Cria ou atualiza uma execução do agente com redação de dados sensíveis."""
+        await self.setup()
+        now = _now()
+        terminal_at = (
+            now if run.status in TERMINAL_AGENT_RUN_STATUSES else run.terminal_at
+        )
+        tools_available = json.dumps(
+            redact_sensitive_data(run.tools_available), ensure_ascii=False
+        )
+        tools_used = json.dumps(
+            redact_sensitive_data(run.tools_used), ensure_ascii=False
+        )
+        approvals = json.dumps(redact_sensitive_data(run.approvals), ensure_ascii=False)
+        files_touched = json.dumps(
+            redact_sensitive_data(run.files_touched), ensure_ascii=False
+        )
+        commands_run = json.dumps(
+            redact_sensitive_data(run.commands_run), ensure_ascii=False
+        )
+        tests_run = json.dumps(redact_sensitive_data(run.tests_run), ensure_ascii=False)
+        artifacts = json.dumps(redact_sensitive_data(run.artifacts), ensure_ascii=False)
+        metrics = json.dumps(run.metrics.model_dump(), ensure_ascii=False)
+        evidence = json.dumps(redact_sensitive_data(run.evidence), ensure_ascii=False)
+
+        async with self._pool.acquire() as conn:
+            # Mantém paridade com session_runs legado
+            mapped_status = (
+                "running"
+                if run.status in ("planned", "running", "waiting_approval", "verifying")
+                else ("completed" if run.status == "passed" else run.status)
+            )
+            provider_model = (
+                f"{run.provider}:{run.model}"
+                if run.provider and run.model
+                else (run.model or None)
+            )
+            await conn.execute(
+                "INSERT INTO session_runs "
+                "(run_id, thread_id, turn_id, status, detail, provider_model, started_at, updated_at, terminal_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(run_id) DO UPDATE SET "
+                "status=excluded.status, "
+                "detail=COALESCE(excluded.detail, session_runs.detail), "
+                "provider_model=COALESCE(excluded.provider_model, session_runs.provider_model), "
+                "updated_at=excluded.updated_at, "
+                "terminal_at=COALESCE(excluded.terminal_at, session_runs.terminal_at)",
+                (
+                    run.run_id,
+                    run.thread_id,
+                    run.turn_id,
+                    mapped_status,
+                    run.detail,
+                    provider_model,
+                    run.started_at,
+                    now,
+                    terminal_at,
+                ),
+            )
+            # Insere/atualiza na tabela canônica agent_runs
+            await conn.execute(
+                "INSERT INTO agent_runs ("
+                "run_id, thread_id, turn_id, user_id, workspace_id, model, provider, "
+                "status, plan_step, tools_available_json, tools_used_json, approvals_json, "
+                "files_touched_json, commands_run_json, tests_run_json, artifacts_json, "
+                "metrics_json, evidence_json, detail, error_code, started_at, updated_at, terminal_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(run_id) DO UPDATE SET "
+                "status=excluded.status, "
+                "plan_step=COALESCE(excluded.plan_step, agent_runs.plan_step), "
+                "tools_available_json=excluded.tools_available_json, "
+                "tools_used_json=excluded.tools_used_json, "
+                "approvals_json=excluded.approvals_json, "
+                "files_touched_json=excluded.files_touched_json, "
+                "commands_run_json=excluded.commands_run_json, "
+                "tests_run_json=excluded.tests_run_json, "
+                "artifacts_json=excluded.artifacts_json, "
+                "metrics_json=excluded.metrics_json, "
+                "evidence_json=excluded.evidence_json, "
+                "detail=COALESCE(excluded.detail, agent_runs.detail), "
+                "error_code=COALESCE(excluded.error_code, agent_runs.error_code), "
+                "updated_at=excluded.updated_at, "
+                "terminal_at=COALESCE(excluded.terminal_at, agent_runs.terminal_at)",
+                (
+                    run.run_id,
+                    run.thread_id,
+                    run.turn_id,
+                    run.user_id,
+                    run.workspace_id,
+                    run.model,
+                    run.provider,
+                    run.status,
+                    run.plan_step,
+                    tools_available,
+                    tools_used,
+                    approvals,
+                    files_touched,
+                    commands_run,
+                    tests_run,
+                    artifacts,
+                    metrics,
+                    evidence,
+                    run.detail,
+                    run.error_code,
+                    run.started_at,
+                    now,
+                    terminal_at,
+                ),
+            )
+            await conn.commit()
+
+    async def update_agent_run_status(
+        self,
+        run_id: str,
+        *,
+        status: AgentRunStatus,
+        plan_step: str | None = None,
+        detail: str | None = None,
+        error_code: str | None = None,
+        metrics: AgentRunMetrics | None = None,
+    ) -> None:
+        """Transiciona o status de uma run atomicamente."""
+        if status not in VALID_AGENT_RUN_STATUSES:
+            raise ValueError(f"status de AgentRun inválido: {status!r}")
+        await self.setup()
+        now = _now()
+        terminal_at = now if status in TERMINAL_AGENT_RUN_STATUSES else None
+        metrics_json = (
+            json.dumps(metrics.model_dump(), ensure_ascii=False) if metrics else None
+        )
+
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE agent_runs SET "
+                "status = ?, "
+                "plan_step = COALESCE(?, plan_step), "
+                "detail = COALESCE(?, detail), "
+                "error_code = COALESCE(?, error_code), "
+                "metrics_json = COALESCE(?, metrics_json), "
+                "updated_at = ?, "
+                "terminal_at = COALESCE(?, terminal_at) "
+                "WHERE run_id = ?",
+                (
+                    status,
+                    plan_step,
+                    detail,
+                    error_code,
+                    metrics_json,
+                    now,
+                    terminal_at,
+                    run_id,
+                ),
+            )
+            # Atualiza também session_runs para compatibilidade com legados
+            mapped_status = (
+                "running"
+                if status in ("planned", "running", "waiting_approval", "verifying")
+                else ("completed" if status == "passed" else status)
+            )
+            await conn.execute(
+                "UPDATE session_runs SET "
+                "status = ?, "
+                "detail = COALESCE(?, detail), "
+                "error_code = COALESCE(?, error_code), "
+                "updated_at = ?, "
+                "terminal_at = COALESCE(?, terminal_at) "
+                "WHERE run_id = ?",
+                (mapped_status, detail, error_code, now, terminal_at, run_id),
+            )
+            await conn.commit()
+
+    async def record_run_evidence(
+        self,
+        run_id: str,
+        *,
+        evidence: dict[str, Any] | None = None,
+        artifact: dict[str, Any] | None = None,
+        command: dict[str, Any] | None = None,
+        test_result: dict[str, Any] | None = None,
+        tool_used: str | None = None,
+        approval: dict[str, Any] | None = None,
+        file_touched: dict[str, Any] | None = None,
+    ) -> None:
+        """Registra evidências incrementais em um AgentRun com sanitização de segredos."""
+        await self.setup()
+        run = await self.get_agent_run(run_id)
+        if run is None:
+            return
+        if evidence:
+            run.evidence.append(redact_sensitive_data(evidence))
+        if artifact:
+            run.artifacts.append(redact_sensitive_data(artifact))
+        if command:
+            run.commands_run.append(redact_sensitive_data(command))
+        if test_result:
+            run.tests_run.append(redact_sensitive_data(test_result))
+        if tool_used and tool_used not in run.tools_used:
+            run.tools_used.append(tool_used)
+        if approval:
+            run.approvals.append(redact_sensitive_data(approval))
+        if file_touched:
+            run.files_touched.append(redact_sensitive_data(file_touched))
+        await self.upsert_agent_run(run)
+
+    async def get_agent_run(self, run_id: str) -> AgentRun | None:
+        """Obtém uma execução persistida por run_id."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT run_id, thread_id, turn_id, user_id, workspace_id, "
+                "model, provider, status, plan_step, tools_available_json, "
+                "tools_used_json, approvals_json, files_touched_json, commands_run_json, "
+                "tests_run_json, artifacts_json, metrics_json, evidence_json, "
+                "detail, error_code, started_at, updated_at, terminal_at "
+                "FROM agent_runs WHERE run_id = ?",
+                (run_id,),
+            )
+            row = await cur.fetchone()
+            if row is None:
+                # Fallback para session_runs se tiver sido registrado antes da migração
+                cur_legacy = await conn.execute(
+                    "SELECT run_id, thread_id, turn_id, status, detail, error_code, "
+                    "provider_model, started_at, updated_at, terminal_at "
+                    "FROM session_runs WHERE run_id = ?",
+                    (run_id,),
+                )
+                leg = await cur_legacy.fetchone()
+                if leg is None:
+                    return None
+                st = leg[3]
+                canonical_st: AgentRunStatus = (
+                    "passed"
+                    if st == "completed"
+                    else cast(
+                        "AgentRunStatus",
+                        st if st in VALID_AGENT_RUN_STATUSES else "running",
+                    )
+                )
+                prov_model = str(leg[6] or "")
+                prov, _, mod = prov_model.partition(":")
+                return AgentRun(
+                    run_id=str(leg[0]),
+                    thread_id=str(leg[1]),
+                    turn_id=str(leg[2]) if leg[2] else None,
+                    status=canonical_st,
+                    detail=str(leg[4]) if leg[4] else None,
+                    error_code=str(leg[5]) if leg[5] else None,
+                    provider=prov if mod else "",
+                    model=mod or prov,
+                    started_at=str(leg[7]),
+                    updated_at=str(leg[8]),
+                    terminal_at=str(leg[9]) if leg[9] else None,
+                )
+
+            return AgentRun(
+                run_id=str(row[0]),
+                thread_id=str(row[1]),
+                turn_id=str(row[2]) if row[2] else None,
+                user_id=str(row[3] or ""),
+                workspace_id=str(row[4]) if row[4] else None,
+                model=str(row[5] or ""),
+                provider=str(row[6] or ""),
+                status=cast("AgentRunStatus", row[7]),
+                plan_step=str(row[8]) if row[8] else None,
+                tools_available=json.loads(row[9] or "[]"),
+                tools_used=json.loads(row[10] or "[]"),
+                approvals=json.loads(row[11] or "[]"),
+                files_touched=json.loads(row[12] or "[]"),
+                commands_run=json.loads(row[13] or "[]"),
+                tests_run=json.loads(row[14] or "[]"),
+                artifacts=json.loads(row[15] or "[]"),
+                metrics=AgentRunMetrics(**json.loads(row[16] or "{}")),
+                evidence=json.loads(row[17] or "[]"),
+                detail=str(row[18]) if row[18] else None,
+                error_code=str(row[19]) if row[19] else None,
+                started_at=str(row[20]),
+                updated_at=str(row[21]),
+                terminal_at=str(row[22]) if row[22] else None,
+            )
+
+    async def list_agent_runs(
+        self, thread_id: str, *, limit: int = 50
+    ) -> list[AgentRun]:
+        """Lista todas as execuções associadas a uma thread ordenadas cronologicamente."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT run_id, thread_id, turn_id, user_id, workspace_id, "
+                "model, provider, status, plan_step, tools_available_json, "
+                "tools_used_json, approvals_json, files_touched_json, commands_run_json, "
+                "tests_run_json, artifacts_json, metrics_json, evidence_json, "
+                "detail, error_code, started_at, updated_at, terminal_at "
+                "FROM agent_runs WHERE thread_id = ? "
+                "ORDER BY started_at ASC LIMIT ?",
+                (thread_id, limit),
+            )
+            rows = await cur.fetchall()
+            return [
+                AgentRun(
+                    run_id=str(r[0]),
+                    thread_id=str(r[1]),
+                    turn_id=str(r[2]) if r[2] else None,
+                    user_id=str(r[3] or ""),
+                    workspace_id=str(r[4]) if r[4] else None,
+                    model=str(r[5] or ""),
+                    provider=str(r[6] or ""),
+                    status=cast("AgentRunStatus", r[7]),
+                    plan_step=str(r[8]) if r[8] else None,
+                    tools_available=json.loads(r[9] or "[]"),
+                    tools_used=json.loads(r[10] or "[]"),
+                    approvals=json.loads(r[11] or "[]"),
+                    files_touched=json.loads(r[12] or "[]"),
+                    commands_run=json.loads(r[13] or "[]"),
+                    tests_run=json.loads(r[14] or "[]"),
+                    artifacts=json.loads(r[15] or "[]"),
+                    metrics=AgentRunMetrics(**json.loads(r[16] or "{}")),
+                    evidence=json.loads(r[17] or "[]"),
+                    detail=str(r[18]) if r[18] else None,
+                    error_code=str(r[19]) if r[19] else None,
+                    started_at=str(r[20]),
+                    updated_at=str(r[21]),
+                    terminal_at=str(r[22]) if r[22] else None,
+                )
+                for r in rows
+            ]
+
+    async def get_agent_run_timeline(self, run_id: str) -> list[AgentRunTimelineEntry]:
+        """Recupera todos os eventos do ledger correlacionados a um run_id."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT seq, event_key, type, created_at, payload_json "
+                "FROM thread_events WHERE run_id = ? ORDER BY seq ASC",
+                (run_id,),
+            )
+            rows = await cur.fetchall()
+            return [
+                AgentRunTimelineEntry(
+                    seq=r[0],
+                    event_key=str(r[1]),
+                    type=str(r[2]),
+                    created_at=str(r[3]),
+                    payload=json.loads(r[4] or "{}"),
+                )
+                for r in rows
+            ]
+
     async def update_run(
         self,
         run_id: str,
@@ -245,6 +604,32 @@ class SessionStore:
                     run_id,
                 ),
             )
+            # Atualiza também na tabela canônica agent_runs se presente
+            if status is not None:
+                canonical_status: AgentRunStatus = (
+                    "passed"
+                    if status == "completed"
+                    else cast(
+                        "AgentRunStatus",
+                        status if status in VALID_AGENT_RUN_STATUSES else "running",
+                    )
+                )
+                await conn.execute(
+                    "UPDATE agent_runs SET "
+                    "status = ?, "
+                    "detail = COALESCE(?, detail), "
+                    "error_code = COALESCE(?, error_code), "
+                    "updated_at = ?, "
+                    "terminal_at = COALESCE(?, terminal_at) WHERE run_id = ?",
+                    (
+                        canonical_status,
+                        detail,
+                        error_code,
+                        now,
+                        terminal_at,
+                        run_id,
+                    ),
+                )
             await conn.commit()
 
     async def reconcile_abandoned_runs(self, *, older_than_seconds: float) -> int:
@@ -1243,6 +1628,35 @@ class SessionStore:
             except Exception:
                 await conn.rollback()
                 raise
+
+    async def append_ledger_event(
+        self,
+        thread_id: str,
+        *,
+        event_key: str,
+        event_type: str,
+        run_id: str | None = None,
+        turn_id: str | None = None,
+        message_id: int | None = None,
+        tool_call_id: str | None = None,
+        interrupt_id: str | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> ThreadLedgerEvent:
+        """Helper conveniente para anexar eventos no ledger da thread."""
+        return await self.append_event(
+            thread_id,
+            ThreadLedgerEvent(
+                thread_id=thread_id,
+                event_key=event_key,
+                type=event_type,  # type: ignore
+                run_id=run_id,
+                turn_id=turn_id,
+                message_id=message_id,
+                tool_call_id=tool_call_id,
+                interrupt_id=interrupt_id,
+                payload=payload or {},
+            ),
+        )
 
     async def list_events(
         self, thread_id: str, *, after_seq: int = 0, limit: int = 500

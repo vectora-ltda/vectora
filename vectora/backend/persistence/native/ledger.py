@@ -13,7 +13,22 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-LedgerEventType = Literal[
+
+class LedgerEventType:
+    """Tipos canônicos de eventos registrados no ledger."""
+
+    MESSAGE_CREATED = "message_created"
+    TOOL_STARTED = "tool_started"
+    TOOL_FINISHED = "tool_finished"
+    AGENT_TURN_STARTED = "agent_turn_started"
+    AGENT_TURN_FINISHED = "agent_turn_finished"
+    APPROVAL_REQUESTED = "approval_requested"
+    APPROVAL_RESOLVED = "approval_resolved"
+    RUN_FAILED = "run_failed"
+    RUN_COMPLETED = "run_completed"
+
+
+type LedgerEventTypeLiteral = Literal[
     "message_created",
     "tool_started",
     "tool_finished",
@@ -46,7 +61,7 @@ class ThreadLedgerEvent(BaseModel):
     thread_id: str
     seq: int = Field(default=0, description="Sequência monótona crescente por thread")
     event_key: str = Field(description="Chave única de idempotência do evento")
-    type: LedgerEventType
+    type: LedgerEventTypeLiteral
     turn_id: str | None = None
     run_id: str | None = None
     message_id: int | None = None

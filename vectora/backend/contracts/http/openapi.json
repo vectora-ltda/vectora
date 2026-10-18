@@ -181,6 +181,282 @@
         "title": "AgentProfileOut",
         "type": "object"
       },
+      "AgentRun": {
+        "description": "Contrato persistente único para execuções do agente.",
+        "properties": {
+          "approvals": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Approvals",
+            "type": "array"
+          },
+          "artifacts": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Artifacts",
+            "type": "array"
+          },
+          "commands_run": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Commands Run",
+            "type": "array"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "files_touched": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Files Touched",
+            "type": "array"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/AgentRunMetrics"
+          },
+          "model": {
+            "default": "",
+            "title": "Model",
+            "type": "string"
+          },
+          "plan_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Step"
+          },
+          "provider": {
+            "default": "",
+            "title": "Provider",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "default": "running",
+            "enum": [
+              "planned",
+              "running",
+              "waiting_approval",
+              "verifying",
+              "passed",
+              "degraded",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "terminal_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terminal At"
+          },
+          "tests_run": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Tests Run",
+            "type": "array"
+          },
+          "thread_id": {
+            "title": "Thread Id",
+            "type": "string"
+          },
+          "tools_available": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tools Available",
+            "type": "array"
+          },
+          "tools_used": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tools Used",
+            "type": "array"
+          },
+          "turn_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Id"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user_id": {
+            "default": "",
+            "title": "User Id",
+            "type": "string"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
+          }
+        },
+        "required": ["run_id", "thread_id"],
+        "title": "AgentRun",
+        "type": "object"
+      },
+      "AgentRunMetrics": {
+        "description": "Métricas consolidadas de consumo e tempo de execução.",
+        "properties": {
+          "attempts": {
+            "default": 1,
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "cost_cents": {
+            "default": 0.0,
+            "title": "Cost Cents",
+            "type": "number"
+          },
+          "duration_ms": {
+            "default": 0,
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "input_tokens": {
+            "default": 0,
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "output_tokens": {
+            "default": 0,
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "retries": {
+            "default": 0,
+            "title": "Retries",
+            "type": "integer"
+          },
+          "total_tokens": {
+            "default": 0,
+            "title": "Total Tokens",
+            "type": "integer"
+          }
+        },
+        "title": "AgentRunMetrics",
+        "type": "object"
+      },
+      "AgentRunTimelineEntry": {
+        "description": "Entrada da linha do tempo da execução.",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_key": {
+            "default": "",
+            "title": "Event Key",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "seq": {
+            "default": 0,
+            "title": "Seq",
+            "type": "integer"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "AgentRunTimelineEntry",
+        "type": "object"
+      },
+      "AgentRunTimelineResponse": {
+        "description": "Timeline completa de eventos correlacionados à execução.",
+        "properties": {
+          "run": {
+            "$ref": "#/components/schemas/AgentRun"
+          },
+          "timeline": {
+            "items": {
+              "$ref": "#/components/schemas/AgentRunTimelineEntry"
+            },
+            "title": "Timeline",
+            "type": "array"
+          }
+        },
+        "required": ["run"],
+        "title": "AgentRunTimelineResponse",
+        "type": "object"
+      },
       "ApproveHooksRequest": {
         "properties": {
           "workspace_id": {
@@ -2434,12 +2710,23 @@
       },
       "GetHistoryResponse": {
         "properties": {
+          "last_seq": {
+            "default": 0,
+            "title": "Last Seq",
+            "type": "integer"
+          },
           "messages": {
             "items": {
               "$ref": "#/components/schemas/HistoryMessage"
             },
             "title": "Messages",
             "type": "array"
+          },
+          "run_status": {
+            "default": "idle",
+            "enum": ["running", "awaiting_approval", "failed", "idle"],
+            "title": "Run Status",
+            "type": "string"
           },
           "todos": {
             "items": {
@@ -3208,6 +3495,17 @@
             "title": "Edited Files",
             "type": "array"
           },
+          "finish_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finish Reason"
+          },
           "message_id": {
             "anyOf": [
               {
@@ -3222,6 +3520,39 @@
           "role": {
             "title": "Role",
             "type": "string"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seq"
+          },
+          "turn_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Id"
           }
         },
         "required": ["role", "content"],
@@ -4261,6 +4592,17 @@
       },
       "MarkThreadReadRequest": {
         "properties": {
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
           "read_message_id": {
             "anyOf": [
               {
@@ -4271,6 +4613,17 @@
               }
             ],
             "title": "Read Message Id"
+          },
+          "seen_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seen Seq"
           }
         },
         "title": "MarkThreadReadRequest",
@@ -4858,12 +5211,23 @@
             "title": "Has More",
             "type": "boolean"
           },
+          "last_seq": {
+            "default": 0,
+            "title": "Last Seq",
+            "type": "integer"
+          },
           "messages": {
             "items": {
               "$ref": "#/components/schemas/HistoryMessage"
             },
             "title": "Messages",
             "type": "array"
+          },
+          "run_status": {
+            "default": "idle",
+            "enum": ["running", "awaiting_approval", "failed", "idle"],
+            "title": "Run Status",
+            "type": "string"
           },
           "total_count": {
             "title": "Total Count",
@@ -6973,6 +7337,21 @@
             "title": "Id",
             "type": "string"
           },
+          "last_message": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ThreadLastMessagePreview"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_seq": {
+            "default": 0,
+            "title": "Last Seq",
+            "type": "integer"
+          },
           "mode": {
             "default": "dev",
             "title": "Mode",
@@ -6983,6 +7362,11 @@
             "title": "Pinned",
             "type": "boolean"
           },
+          "read_seq": {
+            "default": 0,
+            "title": "Read Seq",
+            "type": "integer"
+          },
           "remote_activity": {
             "anyOf": [
               {
@@ -6992,6 +7376,12 @@
                 "type": "null"
               }
             ]
+          },
+          "status": {
+            "default": "idle",
+            "enum": ["running", "awaiting_approval", "failed", "idle"],
+            "title": "Status",
+            "type": "string"
           },
           "title": {
             "default": "",
@@ -7015,6 +7405,29 @@
         },
         "required": ["id", "created_at", "updated_at"],
         "title": "Thread",
+        "type": "object"
+      },
+      "ThreadLastMessagePreview": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "message_id": {
+            "title": "Message Id",
+            "type": "integer"
+          },
+          "preview": {
+            "title": "Preview",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": ["role", "preview", "message_id", "created_at"],
+        "title": "ThreadLastMessagePreview",
         "type": "object"
       },
       "ThreadPinsResponse": {
@@ -16073,6 +16486,86 @@
         "tags": ["rag"]
       }
     },
+    "/runs/{run_id}": {
+      "get": {
+        "description": "Consulta o estado consolidado, evidências e métricas de um AgentRun.",
+        "operationId": "get_agent_run_runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRun"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Agent Run"
+      }
+    },
+    "/runs/{run_id}/timeline": {
+      "get": {
+        "description": "Consulta o estado e a timeline de eventos correlacionados ao AgentRun.",
+        "operationId": "get_agent_run_timeline_runs__run_id__timeline_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRunTimelineResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Agent Run Timeline"
+      }
+    },
     "/sessions/{thread_id}/background/board": {
       "get": {
         "description": "Board agregado numa passada só. Query O(1) por agregado\n(progress/comentários/dependências em lote), não O(n) por card — trava\na regressão de N+1 que a listagem plana (`get_tasks` + `_to_out` por\nitem) sempre teve.",
@@ -18174,6 +18667,70 @@
         "summary": "List Thread Checkpoints"
       }
     },
+    "/threads/{thread_id}/events": {
+      "get": {
+        "description": "Stream SSE de eventos do ledger da thread com suporte a Last-Event-ID / from_seq.",
+        "operationId": "stream_thread_ledger_events_threads__thread_id__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "title": "Thread Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from_seq",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "From Seq",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Last-Event-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stream Thread Ledger Events"
+      }
+    },
     "/threads/{thread_id}/history": {
       "get": {
         "description": "Histórico paginado de mensagens de uma thread.\n\nRetorna as ``limit`` mensagens mais recentes (excluindo as ``offset`` mais\nrecentes), em ordem cronológica. ``has_more=True`` quando existem mensagens\nmais antigas além das retornadas.",
@@ -18292,7 +18849,7 @@
     },
     "/threads/{thread_id}/read": {
       "post": {
-        "description": "Confirma a leitura da thread de modo idempotente e por usuário.",
+        "description": "Confirma a leitura da thread de modo idempotente e por usuário/dispositivo.",
         "operationId": "mark_thread_read_threads__thread_id__read_post",
         "parameters": [
           {
@@ -18416,6 +18973,60 @@
           }
         },
         "summary": "Rewind Thread"
+      }
+    },
+    "/threads/{thread_id}/runs": {
+      "get": {
+        "description": "Lista as execuções de agente vinculadas a uma thread.",
+        "operationId": "list_thread_agent_runs_threads__thread_id__runs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "title": "Thread Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AgentRun"
+                  },
+                  "title": "Response List Thread Agent Runs Threads  Thread Id  Runs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Thread Agent Runs"
       }
     },
     "/threads/{thread_id}/structured-questions/answer": {
