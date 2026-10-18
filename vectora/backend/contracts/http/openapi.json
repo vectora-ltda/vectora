@@ -5434,6 +5434,45 @@
         "title": "ProgressOut",
         "type": "object"
       },
+      "ProviderCapabilities": {
+        "description": "Capacidades declaradas por um provedor de Decision Models.",
+        "properties": {
+          "supported_models": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Supported Models",
+            "type": "array"
+          },
+          "supports_choice": {
+            "default": true,
+            "title": "Supports Choice",
+            "type": "boolean"
+          },
+          "supports_image": {
+            "default": false,
+            "title": "Supports Image",
+            "type": "boolean"
+          },
+          "supports_noul": {
+            "default": true,
+            "title": "Supports Noul",
+            "type": "boolean"
+          },
+          "supports_score": {
+            "default": true,
+            "title": "Supports Score",
+            "type": "boolean"
+          },
+          "supports_video": {
+            "default": false,
+            "title": "Supports Video",
+            "type": "boolean"
+          }
+        },
+        "title": "ProviderCapabilities",
+        "type": "object"
+      },
       "ProviderModel": {
         "description": "Modelo descoberto por um endpoint compatível com OpenAI.",
         "properties": {
@@ -7018,6 +7057,114 @@
         "title": "StructuredQuestionResponse",
         "type": "object"
       },
+      "SystemOneStatusResponse": {
+        "properties": {
+          "allow_remote_fallback": {
+            "title": "Allow Remote Fallback",
+            "type": "boolean"
+          },
+          "capabilities": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProviderCapabilities"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "clef_api_base_url": {
+            "title": "Clef Api Base Url",
+            "type": "string"
+          },
+          "clef_api_key_configured": {
+            "title": "Clef Api Key Configured",
+            "type": "boolean"
+          },
+          "clef_api_key_masked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clef Api Key Masked"
+          },
+          "clef_api_model": {
+            "title": "Clef Api Model",
+            "type": "string"
+          },
+          "confidence_threshold_hitl": {
+            "title": "Confidence Threshold Hitl",
+            "type": "number"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "is_healthy": {
+            "default": false,
+            "title": "Is Healthy",
+            "type": "boolean"
+          },
+          "jev_api_base_url": {
+            "title": "Jev Api Base Url",
+            "type": "string"
+          },
+          "jev_api_key_configured": {
+            "title": "Jev Api Key Configured",
+            "type": "boolean"
+          },
+          "jev_api_key_masked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jev Api Key Masked"
+          },
+          "jev_api_model": {
+            "title": "Jev Api Model",
+            "type": "string"
+          },
+          "local_base_url": {
+            "title": "Local Base Url",
+            "type": "string"
+          },
+          "local_model": {
+            "title": "Local Model",
+            "type": "string"
+          },
+          "provider": {
+            "enum": ["clef-local", "clef-api", "jev-api"],
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled",
+          "provider",
+          "local_base_url",
+          "local_model",
+          "clef_api_base_url",
+          "clef_api_model",
+          "clef_api_key_configured",
+          "clef_api_key_masked",
+          "jev_api_base_url",
+          "jev_api_model",
+          "jev_api_key_configured",
+          "jev_api_key_masked",
+          "allow_remote_fallback",
+          "confidence_threshold_hitl"
+        ],
+        "title": "SystemOneStatusResponse",
+        "type": "object"
+      },
       "TaskDependencyOut": {
         "properties": {
           "id": {
@@ -8127,6 +8274,145 @@
         },
         "required": ["label"],
         "title": "UpdateSafeRootBody",
+        "type": "object"
+      },
+      "UpdateSystemOneConfigRequest": {
+        "properties": {
+          "allow_remote_fallback": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allow Remote Fallback"
+          },
+          "clef_api_base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clef Api Base Url"
+          },
+          "clef_api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clef Api Key"
+          },
+          "clef_api_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clef Api Model"
+          },
+          "confidence_threshold_hitl": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence Threshold Hitl"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "jev_api_base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jev Api Base Url"
+          },
+          "jev_api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jev Api Key"
+          },
+          "jev_api_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jev Api Model"
+          },
+          "local_base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Base Url"
+          },
+          "local_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Model"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "enum": ["clef-local", "clef-api", "jev-api"],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          }
+        },
+        "title": "UpdateSystemOneConfigRequest",
         "type": "object"
       },
       "UpdateTaskRequest": {
@@ -13423,6 +13709,66 @@
         },
         "summary": "Verify Plugin",
         "tags": ["plugins"]
+      }
+    },
+    "/provider-routing/decision-models/config": {
+      "post": {
+        "description": "Atualiza as configurações e credenciais de Decision Models.",
+        "operationId": "update_decision_models_config_provider_routing_decision_models_config_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSystemOneConfigRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemOneStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Decision Models Config",
+        "tags": ["provider-routing"]
+      }
+    },
+    "/provider-routing/decision-models/status": {
+      "get": {
+        "description": "Retorna o status atual, capacidades e saúde do subsistema de Decision Models.",
+        "operationId": "get_decision_models_status_provider_routing_decision_models_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemOneStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Decision Models Status",
+        "tags": ["provider-routing"]
       }
     },
     "/provider-routing/dmr/config": {

@@ -4184,3 +4184,142 @@ async def unregister_nine_router_model(
 ) -> dict[str, bool]:
     await _unregister("nine_router_registered_models", model_id)
     return {"ok": True}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Decision Models (SystemOne: JEV & Clef)
+# ─────────────────────────────────────────────────────────────────────────────
+
+from pydantic import BaseModel, Field
+
+from backend.llm.systemone.settings import (
+    SystemOneSettings,
+    get_systemone_provider,
+    mask_secret,
+)
+from backend.llm.systemone.types import (
+    DecisionProviderType,
+    NoulQuestion,
+    ProviderCapabilities,
+    SystemOneRequest,
+)
+
+
+class SystemOneStatusResponse(BaseModel):
+    enabled: bool
+    provider: DecisionProviderType
+    local_base_url: str
+    local_model: str
+    clef_api_base_url: str
+    clef_api_model: str
+    clef_api_key_configured: bool
+    clef_api_key_masked: str | None
+    jev_api_base_url: str
+    jev_api_model: str
+    jev_api_key_configured: bool
+    jev_api_key_masked: str | None
+    allow_remote_fallback: bool
+    confidence_threshold_hitl: float
+    capabilities: ProviderCapabilities | None = None
+    is_healthy: bool = False
+
+
+class UpdateSystemOneConfigRequest(BaseModel):
+    enabled: bool | None = None
+    provider: DecisionProviderType | None = None
+    local_base_url: str | None = None
+    local_model: str | None = None
+    clef_api_base_url: str | None = None
+    clef_api_model: str | None = None
+    clef_api_key: str | None = None
+    jev_api_base_url: str | None = None
+    jev_api_model: str | None = None
+    jev_api_key: str | None = None
+    allow_remote_fallback: bool | None = None
+    confidence_threshold_hitl: float | None = None
+
+
+@router.get("/decision-models/status")
+async def get_decision_models_status() -> SystemOneStatusResponse:
+    """Retorna o status atual, capacidades e saúde do subsistema de Decision Models."""
+    from backend.settings import settings
+
+    sys_settings = SystemOneSettings(
+        enabled=settings.systemone_enabled,
+        provider=settings.systemone_provider,  # type: ignore[arg-type]
+        local_base_url=settings.systemone_local_base_url,
+        local_model=settings.systemone_local_model,
+        clef_api_base_url=settings.systemone_clef_api_base_url,
+        clef_api_model=settings.systemone_clef_api_model,
+        jev_api_base_url=settings.systemone_jev_api_base_url,
+        jev_api_model=settings.systemone_jev_api_model,
+        allow_remote_fallback=settings.systemone_allow_remote_fallback,
+        confidence_threshold_hitl=settings.systemone_confidence_threshold_hitl,
+    )
+
+    caps: ProviderCapabilities | None = None
+    is_healthy = False
+    try:
+        prov = get_systemone_provider(
+            sys_settings,
+            clef_api_key=settings.clef_api_key,
+            jev_api_key=settings.jev_api_key,
+        )
+        caps = await prov.capabilities()
+        is_healthy = await prov.health()
+    except Exception:
+        pass
+
+    return SystemOneStatusResponse(
+        enabled=settings.systemone_enabled,
+        provider=settings.systemone_provider,
+        local_base_url=settings.systemone_local_base_url,
+        local_model=settings.systemone_local_model,
+        clef_api_base_url=settings.systemone_clef_api_base_url,
+        clef_api_model=settings.systemone_clef_api_model,
+        clef_api_key_configured=bool(settings.clef_api_key),
+        clef_api_key_masked=mask_secret(settings.clef_api_key),
+        jev_api_base_url=settings.systemone_jev_api_base_url,
+        jev_api_model=settings.systemone_jev_api_model,
+        jev_api_key_configured=bool(settings.jev_api_key),
+        jev_api_key_masked=mask_secret(settings.jev_api_key),
+        allow_remote_fallback=settings.systemone_allow_remote_fallback,
+        confidence_threshold_hitl=settings.systemone_confidence_threshold_hitl,
+        capabilities=caps,
+        is_healthy=is_healthy,
+    )
+
+
+@router.post("/decision-models/config")
+async def update_decision_models_config(
+    body: UpdateSystemOneConfigRequest, _: ProviderAdmin
+) -> SystemOneStatusResponse:
+    """Atualiza as configurações e credenciais de Decision Models."""
+    from backend.settings import settings
+
+    if body.enabled is not None:
+        settings.systemone_enabled = body.enabled
+    if body.provider is not None:
+        settings.systemone_provider = body.provider  # type: ignore[assignment]
+    if body.local_base_url is not None:
+        settings.systemone_local_base_url = body.local_base_url
+    if body.local_model is not None:
+        settings.systemone_local_model = body.local_model
+    if body.clef_api_base_url is not None:
+        settings.systemone_clef_api_base_url = body.clef_api_base_url
+    if body.clef_api_model is not None:
+        settings.systemone_clef_api_model = body.clef_api_model
+    if body.clef_api_key is not None:
+        settings.clef_api_key = body.clef_api_key if body.clef_api_key.strip() else None
+    if body.jev_api_base_url is not None:
+        settings.systemone_jev_api_base_url = body.jev_api_base_url
+    if body.jev_api_model is not None:
+        settings.systemone_jev_api_model = body.jev_api_model
+    if body.jev_api_key is not None:
+        settings.jev_api_key = body.jev_api_key if body.jev_api_key.strip() else None
+    if body.allow_remote_fallback is not None:
+        settings.systemone_allow_remote_fallback = body.allow_remote_fallback
+    if body.confidence_threshold_hitl is not None:
+        settings.systemone_confidence_threshold_hitl = body.confidence_threshold_hitl
+
+    return await get_decision_models_status()

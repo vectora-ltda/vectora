@@ -92,6 +92,32 @@ class TestFerramentaIaDeteccao:
         assert _find_violations(path) == []
 
 
+class TestTrackerDeteccao:
+    def test_bloqueia_issue_com_numero(self, tmp_path: Path) -> None:
+        path = _write(tmp_path, "a.py", "# fix para issue #318\nx = 1\n")
+        assert len(_find_violations(path)) == 1
+
+    def test_bloqueia_numero_de_issue_direto(self, tmp_path: Path) -> None:
+        path = _write(tmp_path, "a.ts", "// resolvido em #384\nconst x = 1;\n")
+        assert len(_find_violations(path)) == 1
+        path2 = _write(tmp_path, "b.py", "# ver #1 para contexto\nx = 1\n")
+        assert len(_find_violations(path2)) == 1
+
+    def test_bloqueia_pr_com_numero(self, tmp_path: Path) -> None:
+        path = _write(tmp_path, "a.tsx", "// PR 383 adicionou isso\nconst x = 1;\n")
+        assert len(_find_violations(path)) == 1
+
+    def test_bloqueia_pull_request(self, tmp_path: Path) -> None:
+        path = _write(tmp_path, "a.py", "# ver pull request #12\nx = 1\n")
+        assert len(_find_violations(path)) == 1
+
+    def test_bloqueia_gha_e_github_actions(self, tmp_path: Path) -> None:
+        path1 = _write(tmp_path, "b.py", "# rodado no GHA\nx = 1\n")
+        assert len(_find_violations(path1)) == 1
+        path2 = _write(tmp_path, "c.py", "# fluxo do github actions\nx = 1\n")
+        assert len(_find_violations(path2)) == 1
+
+
 class TestMain:
     def test_erro_borda_arquivo_limpo_retorna_zero(self, tmp_path: Path) -> None:
         path = _write(tmp_path, "a.py", "def soma(a, b):\n    return a + b\n")
