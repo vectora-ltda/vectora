@@ -101,6 +101,107 @@ def _build_openrouter_reranker() -> Any:
         return None
 
 
+class SystemOneRerank:
+    """Reranker opcional baseado em Decision Models via `SystemOneHarness`.
+
+    Preserva metadados, IDs estáveis e permissões dos candidatos filtrados,
+    aplica desempate determinístico e degrada para o ranking original em falha.
+    """
+
+    def __init__(
+        self,
+        harness: Any,
+        *,
+        top_n: int = 5,
+        workspace_id: str = "default",
+    ) -> None:
+        self.harness = harness
+        self.top_n = max(1, int(top_n))
+        self.workspace_id = workspace_id
+
+    async def acompress_documents(
+        self, documents: Any, query: str, callbacks: Any = None
+    ) -> list[Document]:
+        docs = list(documents)
+        if not docs:
+            return []
+        limit = min(self.top_n, len(docs))
+        candidates = [
+            {
+                "id": str(
+                    doc.metadata.get("id")
+                    or doc.metadata.get("chunk_id")
+                    or doc.metadata.get("source")
+                    or f"doc_{idx}"
+                ),
+                "snippet": doc.page_content[:2000],
+                "original_index": idx,
+                "doc": doc,
+            }
+            for idx, doc in enumerate(docs)
+        ]
+        try:
+            ranked = await self.harness.rerank_candidates(
+                workspace_id=self.workspace_id,
+                query=query,
+                candidates=candidates,
+                top_k=limit,
+            )
+            if not ranked:
+                return docs[:limit]
+            return [item["doc"] for item in ranked[:limit] if "doc" in item] or docs[
+                :limit
+            ]
+        except Exception:
+            logger.warning(
+                "rag: falha no reranking SystemOne — preservando ranking original",
+                exc_info=True,
+            )
+            return docs[:limit]
+
+    def compress_documents(
+        self, documents: Any, query: str, callbacks: Any = None
+    ) -> list[Document]:
+        return asyncio.run(self.acompress_documents(documents, query, callbacks))
+
+
+def _build_systemone_reranker(workspace_id: str = "default") -> Any:
+    """Constrói `SystemOneRerank` se os Decision Models estiverem habilitados."""
+    try:
+        from backend.llm.systemone.harness import SystemOneHarness
+        from backend.llm.systemone.settings import (
+            SystemOneSettings,
+            get_systemone_provider,
+        )
+
+        if not settings.systemone_enabled:
+            return None
+        s1_settings = SystemOneSettings(
+            enabled=settings.systemone_enabled,
+            provider=settings.systemone_provider,  # type: ignore[arg-type]
+            local_base_url=settings.systemone_local_base_url,
+            local_model=settings.systemone_local_model,
+            clef_api_base_url=settings.systemone_clef_api_base_url,
+            clef_api_model=settings.systemone_clef_api_model,
+            jev_api_base_url=settings.systemone_jev_api_base_url,
+            jev_api_model=settings.systemone_jev_api_model,
+            allow_remote_fallback=settings.systemone_allow_remote_fallback,
+            confidence_threshold_hitl=settings.systemone_confidence_threshold_hitl,
+        )
+        provider = get_systemone_provider(
+            s1_settings,
+            clef_api_key=settings.clef_api_key,
+            jev_api_key=settings.jev_api_key,
+        )
+        harness = SystemOneHarness(s1_settings, provider)
+        harness.set_mode("rag_rerank_scoring", "enforced", workspace_id=workspace_id)
+        top_k = int(_rag_runtime().get("reranker_top_k", settings.reranker_top_k))
+        return SystemOneRerank(harness, top_n=top_k, workspace_id=workspace_id)
+    except Exception:
+        logger.warning("rag: falha ao montar reranker SystemOne", exc_info=True)
+        return None
+
+
 def _rag_runtime() -> dict[str, Any]:
     """Settings de RAG configurados em runtime (aba de memória)."""
     from backend.workspace.runtime_settings import runtime_settings
@@ -122,8 +223,12 @@ def _build_reranker() -> Any:
         return None
     pref = str(rag.get("rerank_provider", "auto"))
     rtype = (
-        pref if pref in ("cohere", "voyage", "openrouter") else settings.reranker_type
+        pref
+        if pref in ("cohere", "voyage", "openrouter", "systemone")
+        else settings.reranker_type
     )
+    if rtype == "systemone":
+        return _build_systemone_reranker()
     if rtype == "openrouter":
         primary = _build_openrouter_reranker()
         if primary is None:

@@ -1,4 +1,12 @@
-"""Interface abstrata / protocolo para provedores de Decision Models."""
+"""Interface abstrata / protocolo para provedores de Decision Models.
+
+Decisão de escopo arquitetural:
+- Esta camada em Python consolida a entrega aprovada para o runtime 1.x (#318),
+  mantendo contratos, fixtures, registry de patterns e critérios de avaliação
+  desacoplados e reutilizáveis.
+- O runtime nativo em Rust (#303) permanece condicionado à migração da #266 (2.0),
+  compartilhando os mesmos contratos JSON e especificações de patterns.
+"""
 
 from __future__ import annotations
 

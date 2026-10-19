@@ -18,18 +18,13 @@ from backend.llm.systemone.errors import (
 )
 from backend.llm.systemone.protocol import SystemOneProvider
 from backend.llm.systemone.types import (
-    ChoiceAnswer,
     ChoiceQuestion,
-    NoulAnswer,
     NoulQuestion,
     ProviderCapabilities,
-    ScoreAnswer,
     ScoreQuestion,
-    SystemOneAnswer,
-    SystemOneMetadata,
     SystemOneRequest,
     SystemOneResponse,
-    SystemOneUsage,
+    parse_systemone_response,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,15 +42,21 @@ class BaseSystemOneApiAdapter(SystemOneProvider):
         *,
         provider_name: str,
         timeout: float = _DEFAULT_TIMEOUT_SECONDS,
+        client: httpx.AsyncClient | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._provider_name = provider_name
         self._timeout = timeout
+        self._external_client = client
 
     @property
     def provider_id(self) -> str:
         return self._provider_name
+
+    async def aclose(self) -> None:
+        """Encerra recursos de transporte HTTP quando gerenciados pelo adapter."""
+        return
 
     async def health(self) -> bool:
         if not self._api_key:
@@ -63,6 +64,9 @@ class BaseSystemOneApiAdapter(SystemOneProvider):
         url = f"{self._base_url}/health"
         headers = {"Authorization": f"Bearer {self._api_key}"}
         try:
+            if self._external_client is not None:
+                res = await self._external_client.get(url, headers=headers)
+                return res.status_code == 200
             async with httpx.AsyncClient(timeout=5.0) as client:
                 res = await client.get(url, headers=headers)
                 return res.status_code == 200
@@ -126,8 +130,13 @@ class BaseSystemOneApiAdapter(SystemOneProvider):
 
         start_time = time.perf_counter()
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                res = await client.post(endpoint, json=payload, headers=headers)
+            if self._external_client is not None:
+                res = await self._external_client.post(
+                    endpoint, json=payload, headers=headers
+                )
+            else:
+                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                    res = await client.post(endpoint, json=payload, headers=headers)
         except httpx.TimeoutException as exc:
             raise SystemOneTimeoutError(
                 f"Timeout ({self._timeout}s) em {self.provider_id}",
@@ -135,7 +144,7 @@ class BaseSystemOneApiAdapter(SystemOneProvider):
             ) from exc
         except httpx.RequestError as exc:
             raise SystemOneConnectionError(
-                f"Erro de conexão com {self.provider_id} em {self._base_url}: {exc}",
+                "systemone_connection_error",
                 provider=self.provider_id,
             ) from exc
 
@@ -158,7 +167,7 @@ class BaseSystemOneApiAdapter(SystemOneProvider):
             )
         if res.status_code >= 400:
             raise SystemOneValidationError(
-                f"Erro HTTP {res.status_code} de {self.provider_id}: {res.text}",
+                f"Erro HTTP {res.status_code} de {self.provider_id}",
                 provider=self.provider_id,
             )
 
@@ -170,95 +179,11 @@ class BaseSystemOneApiAdapter(SystemOneProvider):
                 provider=self.provider_id,
             ) from exc
 
-        raw_answers = data.get("answers")
-        if not isinstance(raw_answers, dict):
-            raise SystemOneValidationError(
-                f"Resposta inválida de {self.provider_id}: 'answers' ausente ou não é objeto",
-                provider=self.provider_id,
-            )
-
-        answers: dict[str, SystemOneAnswer] = {}
-        for q_id, q_spec in request.questions.items():
-            if q_id not in raw_answers:
-                raise SystemOneValidationError(
-                    f"Resposta de {self.provider_id} não contém resposta para '{q_id}'",
-                    provider=self.provider_id,
-                )
-            ans_raw = raw_answers[q_id]
-            if not isinstance(ans_raw, dict):
-                raise SystemOneValidationError(
-                    f"Resposta para '{q_id}' deve ser um objeto JSON",
-                    provider=self.provider_id,
-                )
-
-            q_type = q_spec.type
-            confidence = ans_raw.get("confidence")
-            if confidence is not None:
-                confidence = float(confidence)
-
-            if q_type == "noul":
-                prob = ans_raw.get("probability")
-                if prob is None:
-                    raise SystemOneValidationError(
-                        f"Resposta Noul para '{q_id}' ausente do campo 'probability'",
-                        provider=self.provider_id,
-                    )
-                answers[q_id] = NoulAnswer(
-                    probability=float(prob),
-                    confidence=confidence,
-                )
-            elif q_type == "choice":
-                selection = ans_raw.get("selection")
-                if not selection or not isinstance(selection, str):
-                    raise SystemOneValidationError(
-                        f"Resposta Choice para '{q_id}' inválida ou ausente",
-                        provider=self.provider_id,
-                    )
-                if (
-                    isinstance(q_spec, ChoiceQuestion)
-                    and selection not in q_spec.options
-                ):
-                    raise SystemOneValidationError(
-                        f"Seleção '{selection}' para '{q_id}' não pertence às opções: {q_spec.options}",
-                        provider=self.provider_id,
-                    )
-                dist = ans_raw.get("distribution")
-                answers[q_id] = ChoiceAnswer(
-                    selection=selection,
-                    distribution=dist,
-                    confidence=confidence,
-                )
-            elif q_type == "score":
-                score = ans_raw.get("score")
-                if score is None:
-                    raise SystemOneValidationError(
-                        f"Resposta Score para '{q_id}' ausente",
-                        provider=self.provider_id,
-                    )
-                answers[q_id] = ScoreAnswer(
-                    score=float(score),
-                    confidence=confidence,
-                )
-
-        usage_raw = data.get("usage", {})
-        usage = SystemOneUsage(
-            prompt_tokens=int(usage_raw.get("prompt_tokens", 0)),
-            completion_tokens=int(usage_raw.get("completion_tokens", 0)),
-            total_tokens=int(usage_raw.get("total_tokens", 0)),
-        )
-
-        metadata = SystemOneMetadata(
+        return parse_systemone_response(
+            data,
+            request,
             provider=self.provider_id,
-            model=request.model,
-            pattern_version="v1",
             latency_ms=elapsed_ms,
-            usage=usage,
-        )
-
-        return SystemOneResponse(
-            answers=answers,
-            metadata=metadata,
-            raw_payload=data,
         )
 
 
@@ -270,17 +195,26 @@ class ClefApiAdapter(BaseSystemOneApiAdapter):
         api_key: str,
         base_url: str = "https://api.cloudflare.com/client/v4/accounts/systemone",
         timeout: float = _DEFAULT_TIMEOUT_SECONDS,
+        *,
+        client: httpx.AsyncClient | None = None,
     ) -> None:
-        super().__init__(base_url, api_key, provider_name="clef-api", timeout=timeout)
+        super().__init__(
+            base_url,
+            api_key,
+            provider_name="clef-api",
+            timeout=timeout,
+            client=client,
+        )
 
     async def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(
             supports_noul=True,
             supports_choice=True,
             supports_score=True,
-            supports_image=True,  # Clef e Clef-Flash suportam imagens e entrada multimodal
+            supports_image=True,
             supports_video=False,
             supported_models=["@cf/cloudflare/clef", "@cf/cloudflare/clef-flash"],
+            evidence="documented",
         )
 
 
@@ -292,15 +226,24 @@ class JevApiAdapter(BaseSystemOneApiAdapter):
         api_key: str,
         base_url: str = "https://api.jev.ai",
         timeout: float = _DEFAULT_TIMEOUT_SECONDS,
+        *,
+        client: httpx.AsyncClient | None = None,
     ) -> None:
-        super().__init__(base_url, api_key, provider_name="jev-api", timeout=timeout)
+        super().__init__(
+            base_url,
+            api_key,
+            provider_name="jev-api",
+            timeout=timeout,
+            client=client,
+        )
 
     async def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(
             supports_noul=True,
             supports_choice=True,
             supports_score=True,
-            supports_image=True,  # JEV suporta visão multimodal conforme especificação
+            supports_image=True,
             supports_video=False,
             supported_models=["jev-1", "jev-fast"],
+            evidence="documented",
         )
