@@ -41,9 +41,14 @@
         "thread_id": {
           "title": "Thread Id",
           "type": "string"
+        },
+        "type": {
+          "const": "done",
+          "title": "Type",
+          "type": "string"
         }
       },
-      "required": ["thread_id"],
+      "required": ["thread_id", "type"],
       "title": "DoneEvent",
       "type": "object"
     },
@@ -57,9 +62,14 @@
         "message": {
           "title": "Message",
           "type": "string"
+        },
+        "type": {
+          "const": "error",
+          "title": "Type",
+          "type": "string"
         }
       },
-      "required": ["message"],
+      "required": ["message", "type"],
       "title": "ErrorEvent",
       "type": "object"
     },
@@ -129,19 +139,31 @@
           "title": "Tool Name",
           "type": "string"
         },
+        "type": {
+          "const": "hitl",
+          "title": "Type",
+          "type": "string"
+        },
         "workspace_id": {
           "default": "",
           "title": "Workspace Id",
           "type": "string"
         }
       },
-      "required": ["tool_name", "args_json", "interrupt_id"],
+      "required": ["args_json", "interrupt_id", "tool_name", "type"],
       "title": "HITLEvent",
       "type": "object"
     },
     "MessageBreakEvent": {
       "description": "Sinaliza quebra de bolha: o agente começou a emitir tokens de um nó diferente.\n\nO frontend cria uma nova mensagem do assistente ao receber este evento.",
-      "properties": {},
+      "properties": {
+        "type": {
+          "const": "message_break",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": ["type"],
       "title": "MessageBreakEvent",
       "type": "object"
     },
@@ -155,9 +177,14 @@
         "to_model": {
           "title": "To Model",
           "type": "string"
+        },
+        "type": {
+          "const": "model_switched",
+          "title": "Type",
+          "type": "string"
         }
       },
-      "required": ["from_model", "to_model"],
+      "required": ["from_model", "to_model", "type"],
       "title": "ModelSwitchedEvent",
       "type": "object"
     },
@@ -181,9 +208,14 @@
           "enum": ["started", "finished"],
           "title": "Status",
           "type": "string"
+        },
+        "type": {
+          "const": "node",
+          "title": "Type",
+          "type": "string"
         }
       },
-      "required": ["node", "status"],
+      "required": ["node", "status", "type"],
       "title": "NodeEvent",
       "type": "object"
     },
@@ -220,9 +252,14 @@
           },
           "title": "Citations",
           "type": "array"
+        },
+        "type": {
+          "const": "rag_citations",
+          "title": "Type",
+          "type": "string"
         }
       },
-      "required": ["citations"],
+      "required": ["citations", "type"],
       "title": "RagCitationEvent",
       "type": "object"
     },
@@ -256,14 +293,20 @@
         "thread_id": {
           "title": "Thread Id",
           "type": "string"
+        },
+        "type": {
+          "const": "structured_question",
+          "title": "Type",
+          "type": "string"
         }
       },
       "required": [
+        "allow_free_text",
+        "options",
+        "prompt",
         "question_id",
         "thread_id",
-        "prompt",
-        "options",
-        "allow_free_text"
+        "type"
       ],
       "title": "StructuredQuestionEvent",
       "type": "object"
@@ -299,9 +342,14 @@
           "default": "",
           "title": "Tool Call Id",
           "type": "string"
+        },
+        "type": {
+          "const": "subagent_output",
+          "title": "Type",
+          "type": "string"
         }
       },
-      "required": ["subagent_type"],
+      "required": ["subagent_type", "type"],
       "title": "SubagentOutputEvent",
       "type": "object"
     },
@@ -311,9 +359,14 @@
         "line": {
           "title": "Line",
           "type": "string"
+        },
+        "type": {
+          "const": "terminal_line",
+          "title": "Type",
+          "type": "string"
         }
       },
-      "required": ["line"],
+      "required": ["line", "type"],
       "title": "TerminalLineEvent",
       "type": "object"
     },
@@ -336,13 +389,18 @@
           "title": "Thread Id",
           "type": "string"
         },
+        "type": {
+          "const": "thread",
+          "title": "Type",
+          "type": "string"
+        },
         "workspace_id": {
           "default": "",
           "title": "Workspace Id",
           "type": "string"
         }
       },
-      "required": ["thread_id"],
+      "required": ["thread_id", "type"],
       "title": "ThreadEvent",
       "type": "object"
     },
@@ -372,9 +430,14 @@
           },
           "title": "Todos",
           "type": "array"
+        },
+        "type": {
+          "const": "todos_updated",
+          "title": "Type",
+          "type": "string"
         }
       },
-      "required": ["todos"],
+      "required": ["todos", "type"],
       "title": "TodosUpdatedEvent",
       "type": "object"
     },
@@ -388,9 +451,14 @@
           "default": "",
           "title": "Node",
           "type": "string"
+        },
+        "type": {
+          "const": "token",
+          "title": "Type",
+          "type": "string"
         }
       },
-      "required": ["content"],
+      "required": ["content", "type"],
       "title": "TokenEvent",
       "type": "object"
     },
@@ -422,9 +490,14 @@
         "tool_name": {
           "title": "Tool Name",
           "type": "string"
+        },
+        "type": {
+          "const": "tool_activity",
+          "title": "Type",
+          "type": "string"
         }
       },
-      "required": ["tool_name"],
+      "required": ["tool_name", "type"],
       "title": "ToolActivityEvent",
       "type": "object"
     },
@@ -461,9 +534,14 @@
         "tool_name": {
           "title": "Tool Name",
           "type": "string"
+        },
+        "type": {
+          "const": "tool_call",
+          "title": "Type",
+          "type": "string"
         }
       },
-      "required": ["tool_name", "tool_call_id", "args_json"],
+      "required": ["args_json", "tool_call_id", "tool_name", "type"],
       "title": "ToolCallEvent",
       "type": "object"
     },
@@ -497,9 +575,14 @@
         "tool_call_id": {
           "title": "Tool Call Id",
           "type": "string"
+        },
+        "type": {
+          "const": "tool_result",
+          "title": "Type",
+          "type": "string"
         }
       },
-      "required": ["tool_call_id", "content_json"],
+      "required": ["content_json", "tool_call_id", "type"],
       "title": "ToolResultEvent",
       "type": "object"
     },
@@ -557,8 +640,14 @@
           "enum": ["active", "finalized"],
           "title": "Status",
           "type": "string"
+        },
+        "type": {
+          "const": "turn_files_changed",
+          "title": "Type",
+          "type": "string"
         }
       },
+      "required": ["type"],
       "title": "TurnFilesChangedEvent",
       "type": "object"
     },
@@ -591,8 +680,14 @@
           "default": {},
           "title": "Tool Calls",
           "type": "object"
+        },
+        "type": {
+          "const": "ui_metrics",
+          "title": "Type",
+          "type": "string"
         }
       },
+      "required": ["type"],
       "title": "UIMetricsEvent",
       "type": "object"
     },
@@ -610,9 +705,14 @@
           "default": "",
           "title": "Tool Name",
           "type": "string"
+        },
+        "type": {
+          "const": "workbench_invalidate",
+          "title": "Type",
+          "type": "string"
         }
       },
-      "required": ["tabs"],
+      "required": ["tabs", "type"],
       "title": "WorkbenchInvalidateEvent",
       "type": "object"
     }
