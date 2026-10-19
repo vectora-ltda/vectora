@@ -880,6 +880,10 @@ class PostgresSessionStore:
                 thread_id,
             )
             await conn.execute(
+                "DELETE FROM vectora_native_agent_runs WHERE thread_id = $1",
+                thread_id,
+            )
+            await conn.execute(
                 "DELETE FROM vectora_native_ledger_backfill WHERE thread_id = $1",
                 thread_id,
             )
@@ -1274,7 +1278,24 @@ class PostgresSessionStore:
         await self.setup()
         now = _now()
         terminal_at = (
-            now if run.status in TERMINAL_AGENT_RUN_STATUSES else run.terminal_at
+            (run.terminal_at or now)
+            if run.status in TERMINAL_AGENT_RUN_STATUSES
+            else run.terminal_at
+        )
+        redacted_plan_step = (
+            cast("str | None", redact_sensitive_data(run.plan_step))
+            if run.plan_step is not None
+            else None
+        )
+        redacted_detail = (
+            cast("str | None", redact_sensitive_data(run.detail))
+            if run.detail is not None
+            else None
+        )
+        redacted_error_code = (
+            cast("str | None", redact_sensitive_data(run.error_code))
+            if run.error_code is not None
+            else None
         )
         tools_available = json.dumps(
             redact_sensitive_data(run.tools_available), ensure_ascii=False
@@ -1326,7 +1347,7 @@ class PostgresSessionStore:
                 run.model,
                 run.provider,
                 run.status,
-                run.plan_step,
+                redacted_plan_step,
                 tools_available,
                 tools_used,
                 approvals,
@@ -1336,8 +1357,8 @@ class PostgresSessionStore:
                 artifacts,
                 metrics,
                 evidence,
-                run.detail,
-                run.error_code,
+                redacted_detail,
+                redacted_error_code,
                 run.started_at,
                 now,
                 terminal_at,
@@ -1359,6 +1380,21 @@ class PostgresSessionStore:
         await self.setup()
         now = _now()
         terminal_at = now if status in TERMINAL_AGENT_RUN_STATUSES else None
+        redacted_plan_step = (
+            cast("str | None", redact_sensitive_data(plan_step))
+            if plan_step is not None
+            else None
+        )
+        redacted_detail = (
+            cast("str | None", redact_sensitive_data(detail))
+            if detail is not None
+            else None
+        )
+        redacted_error_code = (
+            cast("str | None", redact_sensitive_data(error_code))
+            if error_code is not None
+            else None
+        )
         metrics_json = (
             json.dumps(metrics.model_dump(), ensure_ascii=False) if metrics else None
         )
@@ -1375,9 +1411,9 @@ class PostgresSessionStore:
                 "terminal_at = COALESCE($7, terminal_at) "
                 "WHERE run_id = $8",
                 status,
-                plan_step,
-                detail,
-                error_code,
+                redacted_plan_step,
+                redacted_detail,
+                redacted_error_code,
                 metrics_json,
                 now,
                 terminal_at,
@@ -1461,8 +1497,9 @@ class PostgresSessionStore:
     async def list_agent_runs(
         self, thread_id: str, *, limit: int = 50
     ) -> list[AgentRun]:
-        """Lista todas as execuções da thread ordenadas cronologicamente."""
+        """Lista todas as execuções da thread ordenadas pelas mais recentes primeiro."""
         await self.setup()
+        safe_limit = max(1, min(500, int(limit)))
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
                 "SELECT run_id, thread_id, turn_id, user_id, workspace_id, "
@@ -1471,9 +1508,9 @@ class PostgresSessionStore:
                 "tests_run_json, artifacts_json, metrics_json, evidence_json, "
                 "detail, error_code, started_at, updated_at, terminal_at "
                 "FROM vectora_native_agent_runs WHERE thread_id = $1 "
-                "ORDER BY started_at ASC LIMIT $2",
+                "ORDER BY started_at DESC LIMIT $2",
                 thread_id,
-                limit,
+                safe_limit,
             )
             return [
                 AgentRun(

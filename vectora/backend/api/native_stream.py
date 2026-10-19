@@ -304,7 +304,7 @@ def stream_engine_events(
         # the consumer loop below is entered.
         try:
             resolved_run_id = run_id or uuid.uuid4().hex
-            if run_id:
+            if resolved_run_id:
                 try:
                     from backend.services import agent_factory
 

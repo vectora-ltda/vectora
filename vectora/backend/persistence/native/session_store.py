@@ -56,6 +56,18 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _map_legacy_session_run_status(status: str) -> str:
+    """Mapeia status canônico de AgentRun para os valores válidos do CHECK de session_runs.
+
+    session_runs CHECK: ('queued', 'running', 'streaming', 'completed', 'failed', 'cancelled')
+    """
+    if status in ("planned", "running", "waiting_approval", "verifying"):
+        return "running"
+    if status in ("passed", "degraded"):
+        return "completed"
+    return status
+
+
 def _message_to_row(
     msg: VMessage,
 ) -> tuple[str, str, str | None, str | None, str | None, int]:
@@ -216,7 +228,24 @@ class SessionStore:
         await self.setup()
         now = _now()
         terminal_at = (
-            now if run.status in TERMINAL_AGENT_RUN_STATUSES else run.terminal_at
+            (run.terminal_at or now)
+            if run.status in TERMINAL_AGENT_RUN_STATUSES
+            else run.terminal_at
+        )
+        redacted_plan_step = (
+            cast("str | None", redact_sensitive_data(run.plan_step))
+            if run.plan_step is not None
+            else None
+        )
+        redacted_detail = (
+            cast("str | None", redact_sensitive_data(run.detail))
+            if run.detail is not None
+            else None
+        )
+        redacted_error_code = (
+            cast("str | None", redact_sensitive_data(run.error_code))
+            if run.error_code is not None
+            else None
         )
         tools_available = json.dumps(
             redact_sensitive_data(run.tools_available), ensure_ascii=False
@@ -238,11 +267,7 @@ class SessionStore:
 
         async with self._pool.acquire() as conn:
             # Mantém paridade com session_runs legado
-            mapped_status = (
-                "running"
-                if run.status in ("planned", "running", "waiting_approval", "verifying")
-                else ("completed" if run.status == "passed" else run.status)
-            )
+            mapped_status = _map_legacy_session_run_status(run.status)
             provider_model = (
                 f"{run.provider}:{run.model}"
                 if run.provider and run.model
@@ -303,7 +328,7 @@ class SessionStore:
                     run.model,
                     run.provider,
                     run.status,
-                    run.plan_step,
+                    redacted_plan_step,
                     tools_available,
                     tools_used,
                     approvals,
@@ -313,8 +338,8 @@ class SessionStore:
                     artifacts,
                     metrics,
                     evidence,
-                    run.detail,
-                    run.error_code,
+                    redacted_detail,
+                    redacted_error_code,
                     run.started_at,
                     now,
                     terminal_at,
@@ -338,6 +363,21 @@ class SessionStore:
         await self.setup()
         now = _now()
         terminal_at = now if status in TERMINAL_AGENT_RUN_STATUSES else None
+        redacted_plan_step = (
+            cast("str | None", redact_sensitive_data(plan_step))
+            if plan_step is not None
+            else None
+        )
+        redacted_detail = (
+            cast("str | None", redact_sensitive_data(detail))
+            if detail is not None
+            else None
+        )
+        redacted_error_code = (
+            cast("str | None", redact_sensitive_data(error_code))
+            if error_code is not None
+            else None
+        )
         metrics_json = (
             json.dumps(metrics.model_dump(), ensure_ascii=False) if metrics else None
         )
@@ -355,9 +395,9 @@ class SessionStore:
                 "WHERE run_id = ?",
                 (
                     status,
-                    plan_step,
-                    detail,
-                    error_code,
+                    redacted_plan_step,
+                    redacted_detail,
+                    redacted_error_code,
                     metrics_json,
                     now,
                     terminal_at,
@@ -365,11 +405,7 @@ class SessionStore:
                 ),
             )
             # Atualiza também session_runs para compatibilidade com legados
-            mapped_status = (
-                "running"
-                if status in ("planned", "running", "waiting_approval", "verifying")
-                else ("completed" if status == "passed" else status)
-            )
+            mapped_status = _map_legacy_session_run_status(status)
             await conn.execute(
                 "UPDATE session_runs SET "
                 "status = ?, "
@@ -378,7 +414,14 @@ class SessionStore:
                 "updated_at = ?, "
                 "terminal_at = COALESCE(?, terminal_at) "
                 "WHERE run_id = ?",
-                (mapped_status, detail, error_code, now, terminal_at, run_id),
+                (
+                    mapped_status,
+                    redacted_detail,
+                    redacted_error_code,
+                    now,
+                    terminal_at,
+                    run_id,
+                ),
             )
             await conn.commit()
 
@@ -494,8 +537,9 @@ class SessionStore:
     async def list_agent_runs(
         self, thread_id: str, *, limit: int = 50
     ) -> list[AgentRun]:
-        """Lista todas as execuções associadas a uma thread ordenadas cronologicamente."""
+        """Lista todas as execuções associadas a uma thread ordenadas pelas mais recentes primeiro."""
         await self.setup()
+        safe_limit = max(1, min(500, int(limit)))
         async with self._pool.acquire() as conn:
             cur = await conn.execute(
                 "SELECT run_id, thread_id, turn_id, user_id, workspace_id, "
@@ -504,8 +548,8 @@ class SessionStore:
                 "tests_run_json, artifacts_json, metrics_json, evidence_json, "
                 "detail, error_code, started_at, updated_at, terminal_at "
                 "FROM agent_runs WHERE thread_id = ? "
-                "ORDER BY started_at ASC LIMIT ?",
-                (thread_id, limit),
+                "ORDER BY started_at DESC LIMIT ?",
+                (thread_id, safe_limit),
             )
             rows = await cur.fetchall()
             return [
@@ -1579,6 +1623,9 @@ class SessionStore:
                 )
                 await conn.execute(
                     "DELETE FROM run_drafts WHERE thread_id = ?", (thread_id,)
+                )
+                await conn.execute(
+                    "DELETE FROM agent_runs WHERE thread_id = ?", (thread_id,)
                 )
                 await conn.execute(
                     "DELETE FROM ledger_backfill WHERE thread_id = ?", (thread_id,)
