@@ -9,11 +9,13 @@ import sys
 import tempfile
 from pathlib import Path
 
-# Configuração de isolamento do ambiente antes de importar qualquer módulo do backend
-_TEMP_HOME = Path(tempfile.gettempdir()) / "vectora_contracts_isolation"
-_TEMP_HOME.mkdir(parents=True, exist_ok=True)
-os.environ["VECTORA_HOME"] = str(_TEMP_HOME)
-os.environ["VECTORA_AUTH_REQUIRED"] = "false"
+
+def _setup_isolation_env() -> Path:
+    temp_home = Path(tempfile.gettempdir()) / "vectora_contracts_isolation"
+    temp_home.mkdir(parents=True, exist_ok=True)
+    os.environ["VECTORA_HOME"] = str(temp_home)
+    os.environ["VECTORA_AUTH_REQUIRED"] = "false"
+    return temp_home
 
 
 def _contracts_root() -> Path:
@@ -23,6 +25,7 @@ def _contracts_root() -> Path:
 
 def export_http(contracts_dir: Path) -> None:
     """Exporta o schema OpenAPI e o inventário de rotas."""
+    _setup_isolation_env()
     from backend.api.server import create_app
     from devtools.contracts.normalize import dumps_normalized
     from devtools.contracts.redaction import redact_payload
@@ -39,12 +42,22 @@ def export_http(contracts_dir: Path) -> None:
     )
 
     routes_inventory = []
-    for route in app.routes:
-        methods = sorted(getattr(route, "methods", []))
-        path = getattr(route, "path", None)
-        name = getattr(route, "name", None)
-        if path:
-            routes_inventory.append({"path": path, "methods": methods, "name": name})
+    routes_map: dict[str, set[str]] = {}
+    for path, path_item in openapi_schema.get("paths", {}).items():
+        methods = [
+            m.upper()
+            for m in path_item
+            if m.lower()
+            in {"get", "post", "put", "delete", "patch", "options", "head", "trace"}
+        ]
+        methods.sort()
+        name = None
+        for m in path_item.values():
+            if isinstance(m, dict) and "operationId" in m:
+                name = m["operationId"]
+                break
+        routes_inventory.append({"path": path, "methods": methods, "name": name})
+        routes_map.setdefault(path, set()).update(methods)
 
     def _methods_str(r: dict[str, object]) -> str:
         m = r.get("methods")
@@ -61,10 +74,28 @@ def export_http(contracts_dir: Path) -> None:
         {"path": "/health/live", "methods": ["GET"], "auth": False},
         {"path": "/health/ready", "methods": ["GET"], "auth": False},
         {"path": "/settings/flags", "methods": ["GET"], "auth": False},
-        {"path": "/settings/prefs", "methods": ["GET", "POST"], "auth": True},
-        {"path": "/chat", "methods": ["POST"], "auth": True},
-        {"path": "/threads", "methods": ["GET", "POST"], "auth": True},
+        {"path": "/settings/prefs", "methods": ["GET", "PATCH"], "auth": True},
+        {
+            "path": "/vectora.chat.v1.ChatService/StreamChat",
+            "methods": ["POST"],
+            "auth": True,
+        },
+        {
+            "path": "/vectora.chat.v1.ChatService/ResumeChat",
+            "methods": ["POST"],
+            "auth": True,
+        },
     ]
+
+    # Validação estrita: cada entrada de critical_routes deve existir em app.routes
+    for cr in critical_routes:
+        cr_path = cr["path"]
+        if cr_path not in routes_map:
+            raise ValueError(f"Rota crítica inexistente na aplicação: {cr_path}")
+        for m in cr["methods"]:
+            if m not in routes_map[cr_path]:
+                raise ValueError(f"Método {m} inexistente na rota crítica {cr_path}")
+
     (http_dir / "critical-routes.json").write_text(
         dumps_normalized(critical_routes), encoding="utf-8"
     )
@@ -132,9 +163,30 @@ def export_errors(contracts_dir: Path) -> None:
         "NOT_FOUND": {"status_code": 404, "retryable": False, "category": "client"},
         "RATE_LIMITED": {"status_code": 429, "retryable": True, "category": "client"},
         "BAD_REQUEST": {"status_code": 400, "retryable": False, "category": "client"},
+        "INTERNAL": {"status_code": 500, "retryable": True, "category": "server"},
         "INTERNAL_ERROR": {"status_code": 500, "retryable": True, "category": "server"},
         "SERVICE_UNAVAILABLE": {
             "status_code": 503,
+            "retryable": True,
+            "category": "server",
+        },
+        "MODEL_NO_VISION": {
+            "status_code": 400,
+            "retryable": False,
+            "category": "client",
+        },
+        "MODEL_NO_TOOL_CALLING": {
+            "status_code": 400,
+            "retryable": False,
+            "category": "client",
+        },
+        "MODEL_NOT_ALLOWED": {
+            "status_code": 403,
+            "retryable": False,
+            "category": "auth",
+        },
+        "EMPTY_MODEL_RESPONSE": {
+            "status_code": 502,
             "retryable": True,
             "category": "server",
         },
@@ -156,28 +208,53 @@ def export_all(contracts_dir: Path, only: str | None = None) -> None:
 
 def check_all(contracts_dir: Path) -> int:
     """Verifica se há drift entre os contratos exportados e a implementação."""
-    # Para o check, exportamos temporariamente e comparamos
-    temp_dir = _TEMP_HOME / "check_contracts"
-    temp_dir.mkdir(parents=True, exist_ok=True)
-    export_all(temp_dir)
+    from devtools.contracts.compat import check_schema_compatibility
 
-    has_diff = False
-    for expected_file in temp_dir.rglob("*.json"):
-        rel = expected_file.relative_to(temp_dir)
-        target = contracts_dir / rel
-        if not target.exists():
-            print(f"MISSING: {rel}")
-            has_diff = True
-            continue
-        expected_data = json.loads(expected_file.read_text(encoding="utf-8"))
-        current_data = json.loads(target.read_text(encoding="utf-8"))
-        if expected_data != current_data:
-            print(f"DRIFT DETECTED: {rel}")
-            has_diff = True
+    _setup_isolation_env()
 
-    if has_diff:
-        print("Contracts check failed: drift detected.")
-        return 1
+    with tempfile.TemporaryDirectory() as tmp_str:
+        temp_dir = Path(tmp_str)
+        export_all(temp_dir)
+
+        has_diff = False
+
+        # 1. Checa se algum arquivo gerado está ausente ou tem drift em relação a contracts_dir
+        for expected_file in temp_dir.rglob("*.json"):
+            rel = expected_file.relative_to(temp_dir)
+            target = contracts_dir / rel
+            if not target.exists():
+                print(f"MISSING: {rel}")
+                has_diff = True
+                continue
+            expected_data = json.loads(expected_file.read_text(encoding="utf-8"))
+            current_data = json.loads(target.read_text(encoding="utf-8"))
+            if expected_data != current_data:
+                print(f"DRIFT DETECTED: {rel}")
+                has_diff = True
+
+            # Se for schema OpenAPI ou SSE, executa check_schema_compatibility
+            if (
+                rel.name == "openapi.json"
+                and isinstance(current_data, dict)
+                and isinstance(expected_data, dict)
+            ):
+                report = check_schema_compatibility(current_data, expected_data)
+                if not report.is_compatible:
+                    print(f"BREAKING SCHEMA CHANGE in {rel}: {report.breaking}")
+                    has_diff = True
+
+        # 2. Checa se há arquivos órfãos / obsoletos em contracts_dir que não foram gerados
+        for target_file in contracts_dir.rglob("*.json"):
+            rel = target_file.relative_to(contracts_dir)
+            expected = temp_dir / rel
+            if not expected.exists():
+                print(f"OBSOLETE FILE DETECTED: {rel}")
+                has_diff = True
+
+        if has_diff:
+            print("Contracts check failed: drift detected.")
+            return 1
+
     print("All contracts match. No drift detected.")
     return 0
 

@@ -8,7 +8,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.requests import Request
 from starlette.responses import Response
 
-_CONTRACT_VERSION = "0.3.0"
+from backend.contracts import CONTRACT_VERSION
 
 
 class CorrelationMiddleware(BaseHTTPMiddleware):
@@ -26,5 +26,5 @@ class CorrelationMiddleware(BaseHTTPMiddleware):
 
         response.headers["X-Correlation-ID"] = correlation_id
         response.headers["X-Request-ID"] = request_id
-        response.headers["X-Vectora-Contract-Version"] = _CONTRACT_VERSION
+        response.headers["X-Vectora-Contract-Version"] = CONTRACT_VERSION
         return response
