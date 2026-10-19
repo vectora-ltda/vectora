@@ -70,7 +70,7 @@ class BaseSystemOneApiAdapter(SystemOneProvider):
             return False
 
     async def decide(self, request: SystemOneRequest) -> SystemOneResponse:
-        if not self._api_key:
+        if not self._api_key or not self._api_key.strip():
             raise SystemOneAuthenticationError(
                 f"Chave de API necessária para {self.provider_id}",
                 provider=self.provider_id,

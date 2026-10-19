@@ -16,6 +16,7 @@ from backend.llm.systemone.errors import (
     SystemOneAuthenticationError,
     SystemOneCapabilityError,
     SystemOneConnectionError,
+    SystemOneError,
     SystemOneRateLimitError,
     SystemOneTimeoutError,
     SystemOneValidationError,
@@ -157,6 +158,16 @@ class ClefLocalAdapter(SystemOneProvider):
         if res.status_code == 429:
             raise SystemOneRateLimitError(
                 "Limite de requisições excedido no endpoint llama.cpp",
+                provider=self.provider_id,
+            )
+        if res.status_code == 404:
+            raise SystemOneConnectionError(
+                f"Endpoint POST /v1/systemone não encontrado no llama.cpp: {res.text}",
+                provider=self.provider_id,
+            )
+        if res.status_code >= 500:
+            raise SystemOneError(
+                f"Servidor llama.cpp retornou erro HTTP {res.status_code}: {res.text}",
                 provider=self.provider_id,
             )
         if res.status_code >= 400:
