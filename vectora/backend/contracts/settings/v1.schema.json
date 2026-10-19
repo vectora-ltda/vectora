@@ -1,0 +1,319 @@
+{
+  "$defs": {
+    "AppearanceSettings": {
+      "properties": {
+        "sidebarPosition": {
+          "default": "left",
+          "description": "Posição da barra lateral",
+          "enum": ["left", "right"],
+          "title": "Sidebarposition",
+          "type": "string"
+        },
+        "theme": {
+          "default": "dark",
+          "description": "Tema visual da UI",
+          "enum": ["dark", "light", "system"],
+          "title": "Theme",
+          "type": "string"
+        }
+      },
+      "title": "AppearanceSettings",
+      "type": "object"
+    },
+    "EditorSettings": {
+      "properties": {
+        "fontFamily": {
+          "default": "JetBrains Mono",
+          "description": "Família da fonte do editor",
+          "title": "Fontfamily",
+          "type": "string"
+        },
+        "fontLigatures": {
+          "default": true,
+          "description": "Habilita ligaduras tipográficas",
+          "title": "Fontligatures",
+          "type": "boolean"
+        },
+        "fontSize": {
+          "default": 13,
+          "description": "Tamanho da fonte em pixels",
+          "maximum": 32,
+          "minimum": 8,
+          "title": "Fontsize",
+          "type": "integer"
+        },
+        "formatOnPaste": {
+          "default": false,
+          "description": "Formatar texto colado",
+          "title": "Formatonpaste",
+          "type": "boolean"
+        },
+        "formatOnSave": {
+          "default": true,
+          "description": "Formatar arquivo ao salvar",
+          "title": "Formatonsave",
+          "type": "boolean"
+        },
+        "lineHeight": {
+          "default": 1.6,
+          "description": "Altura da linha",
+          "maximum": 3.0,
+          "minimum": 1.0,
+          "title": "Lineheight",
+          "type": "number"
+        },
+        "lint": {
+          "$ref": "#/$defs/LintSettings"
+        },
+        "minimap": {
+          "default": true,
+          "description": "Exibe minimapa do código",
+          "title": "Minimap",
+          "type": "boolean"
+        },
+        "smoothScrolling": {
+          "default": true,
+          "description": "Rolagem suave",
+          "title": "Smoothscrolling",
+          "type": "boolean"
+        },
+        "suggestions": {
+          "$ref": "#/$defs/SuggestionsSettings"
+        },
+        "wordWrap": {
+          "default": "off",
+          "description": "Quebra de linha",
+          "enum": ["off", "on", "wordWrapColumn", "bounded"],
+          "title": "Wordwrap",
+          "type": "string"
+        }
+      },
+      "title": "EditorSettings",
+      "type": "object"
+    },
+    "FileSettings": {
+      "properties": {
+        "autoSave": {
+          "default": "off",
+          "description": "Modo de salvamento automático",
+          "enum": ["off", "afterDelay", "onFocusChange", "onWindowChange"],
+          "title": "Autosave",
+          "type": "string"
+        },
+        "autoSaveDelayMs": {
+          "default": 1000,
+          "description": "Delay em ms para autoSave",
+          "maximum": 60000,
+          "minimum": 100,
+          "title": "Autosavedelayms",
+          "type": "integer"
+        },
+        "encoding": {
+          "default": "utf-8",
+          "description": "Codificação padrão de arquivos",
+          "title": "Encoding",
+          "type": "string"
+        },
+        "eol": {
+          "default": "lf",
+          "description": "Terminador de linha",
+          "enum": ["lf", "crlf", "auto"],
+          "title": "Eol",
+          "type": "string"
+        },
+        "insertFinalNewline": {
+          "default": true,
+          "description": "Insere newline no final do arquivo",
+          "title": "Insertfinalnewline",
+          "type": "boolean"
+        },
+        "trimTrailingWhitespace": {
+          "default": true,
+          "description": "Remove espaços em branco no final das linhas",
+          "title": "Trimtrailingwhitespace",
+          "type": "boolean"
+        },
+        "watcher": {
+          "$ref": "#/$defs/WatcherSettings"
+        }
+      },
+      "title": "FileSettings",
+      "type": "object"
+    },
+    "LintSettings": {
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Habilita análise estática em tempo real",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "showDiagnostics": {
+          "default": true,
+          "description": "Exibe diagnósticos inline no editor",
+          "title": "Showdiagnostics",
+          "type": "boolean"
+        }
+      },
+      "title": "LintSettings",
+      "type": "object"
+    },
+    "LocaleSettings": {
+      "properties": {
+        "language": {
+          "default": "pt-BR",
+          "description": "Idioma da interface (ex: pt-BR, en)",
+          "title": "Language",
+          "type": "string"
+        },
+        "timezone": {
+          "default": "America/Sao_Paulo",
+          "description": "Timezone IANA do usuário",
+          "title": "Timezone",
+          "type": "string"
+        }
+      },
+      "title": "LocaleSettings",
+      "type": "object"
+    },
+    "SuggestionsSettings": {
+      "properties": {
+        "aiEnabled": {
+          "default": true,
+          "description": "Habilita sugestões alimentadas por IA",
+          "title": "Aienabled",
+          "type": "boolean"
+        },
+        "enabled": {
+          "default": true,
+          "description": "Habilita sugestões de autocompletion",
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "title": "SuggestionsSettings",
+      "type": "object"
+    },
+    "UpdatesSettings": {
+      "properties": {
+        "autoUpdateEnabled": {
+          "default": true,
+          "description": "Checagem e aplicação de atualizações automáticas",
+          "title": "Autoupdateenabled",
+          "type": "boolean"
+        }
+      },
+      "title": "UpdatesSettings",
+      "type": "object"
+    },
+    "WatcherSettings": {
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Habilita watcher do sistema de arquivos",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "exclude": {
+          "description": "Padrões glob excluídos do monitoramento",
+          "items": {
+            "type": "string"
+          },
+          "title": "Exclude",
+          "type": "array"
+        }
+      },
+      "title": "WatcherSettings",
+      "type": "object"
+    },
+    "WorkbenchesSettings": {
+      "properties": {
+        "browser": {
+          "additionalProperties": true,
+          "description": "Configurações da Browser Workbench",
+          "title": "Browser",
+          "type": "object"
+        },
+        "contextGraph": {
+          "additionalProperties": true,
+          "description": "Configurações do Context Graph",
+          "title": "Contextgraph",
+          "type": "object"
+        },
+        "git": {
+          "additionalProperties": true,
+          "description": "Configurações da Git Workbench",
+          "title": "Git",
+          "type": "object"
+        },
+        "library": {
+          "additionalProperties": true,
+          "description": "Configurações da biblioteca/docs",
+          "title": "Library",
+          "type": "object"
+        },
+        "plan": {
+          "additionalProperties": true,
+          "description": "Configurações do Plan Mode",
+          "title": "Plan",
+          "type": "object"
+        },
+        "storage": {
+          "additionalProperties": true,
+          "description": "Configurações de storage/banco",
+          "title": "Storage",
+          "type": "object"
+        },
+        "tasks": {
+          "additionalProperties": true,
+          "description": "Configurações de tarefas agendadas",
+          "title": "Tasks",
+          "type": "object"
+        },
+        "terminal": {
+          "additionalProperties": true,
+          "description": "Configurações do Terminal integrado",
+          "title": "Terminal",
+          "type": "object"
+        }
+      },
+      "title": "WorkbenchesSettings",
+      "type": "object"
+    }
+  },
+  "description": "Schema do settings.json de usuário (v1).",
+  "properties": {
+    "$schema": {
+      "default": "vectora://schemas/settings/v1.json",
+      "description": "URI do schema JSON para autocompletion no Monaco e validadores",
+      "title": "$Schema",
+      "type": "string"
+    },
+    "appearance": {
+      "$ref": "#/$defs/AppearanceSettings"
+    },
+    "editor": {
+      "$ref": "#/$defs/EditorSettings"
+    },
+    "files": {
+      "$ref": "#/$defs/FileSettings"
+    },
+    "locale": {
+      "$ref": "#/$defs/LocaleSettings"
+    },
+    "updates": {
+      "$ref": "#/$defs/UpdatesSettings"
+    },
+    "version": {
+      "default": 1,
+      "description": "Versão do schema do settings.json",
+      "title": "Version",
+      "type": "integer"
+    },
+    "workbenches": {
+      "$ref": "#/$defs/WorkbenchesSettings"
+    }
+  },
+  "title": "UserSettingsV1",
+  "type": "object"
+}
