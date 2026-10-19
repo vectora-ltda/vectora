@@ -13,6 +13,24 @@ from backend.llm.systemone.errors import (
     SystemOneTimeoutError,
     SystemOneValidationError,
 )
+from backend.llm.systemone.harness import (
+    HarnessDecisionResult,
+    SystemOneHarness,
+    WorkspaceBudgetTracker,
+)
+from backend.llm.systemone.patterns import (
+    DEFAULT_PATTERN_REGISTRY,
+    DecisionPatternRegistry,
+    DecisionPatternSpec,
+    PatternEvaluationSpec,
+    PatternInputSpec,
+    PatternOperationMode,
+    PatternOperationSpec,
+    PatternPolicySpec,
+    PatternPrivacySpec,
+    build_default_patterns,
+    serialize_canonical_state,
+)
 from backend.llm.systemone.policy import DecisionPolicyEngine, PolicyEvaluationResult
 from backend.llm.systemone.protocol import SystemOneProvider
 from backend.llm.systemone.settings import (
@@ -21,6 +39,7 @@ from backend.llm.systemone.settings import (
     mask_secret,
 )
 from backend.llm.systemone.types import (
+    CapabilityEvidenceLevel,
     ChoiceAnswer,
     ChoiceQuestion,
     DecisionProviderType,
@@ -36,18 +55,30 @@ from backend.llm.systemone.types import (
     SystemOneRequest,
     SystemOneResponse,
     SystemOneUsage,
+    parse_systemone_response,
 )
 
 __all__ = [
+    "DEFAULT_PATTERN_REGISTRY",
+    "CapabilityEvidenceLevel",
     "ChoiceAnswer",
     "ChoiceQuestion",
     "ClefApiAdapter",
     "ClefLocalAdapter",
+    "DecisionPatternRegistry",
+    "DecisionPatternSpec",
     "DecisionPolicyEngine",
     "DecisionProviderType",
+    "HarnessDecisionResult",
     "JevApiAdapter",
     "NoulAnswer",
     "NoulQuestion",
+    "PatternEvaluationSpec",
+    "PatternInputSpec",
+    "PatternOperationMode",
+    "PatternOperationSpec",
+    "PatternPolicySpec",
+    "PatternPrivacySpec",
     "PolicyEvaluationResult",
     "ProviderCapabilities",
     "QuestionType",
@@ -58,6 +89,7 @@ __all__ = [
     "SystemOneCapabilityError",
     "SystemOneConnectionError",
     "SystemOneError",
+    "SystemOneHarness",
     "SystemOneMetadata",
     "SystemOneProvider",
     "SystemOneQuestion",
@@ -68,6 +100,10 @@ __all__ = [
     "SystemOneTimeoutError",
     "SystemOneUsage",
     "SystemOneValidationError",
+    "WorkspaceBudgetTracker",
+    "build_default_patterns",
     "get_systemone_provider",
     "mask_secret",
+    "parse_systemone_response",
+    "serialize_canonical_state",
 ]
