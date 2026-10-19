@@ -97,7 +97,7 @@ def _auth_enabled() -> bool:
 
 
 def _matches_prefix(path: str, prefix: str) -> bool:
-    if prefix.endswith("/") or prefix.endswith("."):
+    if prefix.endswith(("/", ".")):
         return path.startswith(prefix)
     return path == prefix or path.startswith(f"{prefix}/")
 
