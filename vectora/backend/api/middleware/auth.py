@@ -95,6 +95,12 @@ def _auth_enabled() -> bool:
     return runtime_settings.auth_required
 
 
+def _matches_prefix(path: str, prefix: str) -> bool:
+    if prefix.endswith("/"):
+        return path.startswith(prefix)
+    return path == prefix or path.startswith(f"{prefix}/")
+
+
 def _is_public_route(path: str, method: str = "GET") -> bool:
     """True se a rota é pública (não requer token).
 
@@ -106,14 +112,14 @@ def _is_public_route(path: str, method: str = "GET") -> bool:
     4. Prefixos explicitamente públicos da API (_PUBLIC_PREFIXES).
     """
     # Rotas fora da API → frontend → pública
-    if not any(path.startswith(p) for p in _API_PREFIXES):
+    if not any(_matches_prefix(path, p) for p in _API_PREFIXES):
         return True
     # Rotas de API marcadas explicitamente como públicas (ex.: viewer de share)
-    if any(path.startswith(p) for p in _EXTRA_PUBLIC_PREFIXES):
+    if any(_matches_prefix(path, p) for p in _EXTRA_PUBLIC_PREFIXES):
         return not (path.startswith("/threads/share/") and method.upper() != "GET")
     # An API path with a dotted filename remains private. Static assets only
     # reach this branch when they are outside the API prefix above.
-    return any(path.startswith(p) for p in _PUBLIC_PREFIXES)
+    return any(_matches_prefix(path, p) for p in _PUBLIC_PREFIXES)
 
 
 async def _extract_service_token_user(token: str) -> Any:

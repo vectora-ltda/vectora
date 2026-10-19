@@ -4,15 +4,40 @@
     "retryable": false,
     "status_code": 400
   },
+  "EMPTY_MODEL_RESPONSE": {
+    "category": "server",
+    "retryable": true,
+    "status_code": 502
+  },
   "FORBIDDEN": {
     "category": "auth",
     "retryable": false,
     "status_code": 403
   },
+  "INTERNAL": {
+    "category": "server",
+    "retryable": true,
+    "status_code": 500
+  },
   "INTERNAL_ERROR": {
     "category": "server",
     "retryable": true,
     "status_code": 500
+  },
+  "MODEL_NOT_ALLOWED": {
+    "category": "auth",
+    "retryable": false,
+    "status_code": 403
+  },
+  "MODEL_NO_TOOL_CALLING": {
+    "category": "client",
+    "retryable": false,
+    "status_code": 400
+  },
+  "MODEL_NO_VISION": {
+    "category": "client",
+    "retryable": false,
+    "status_code": 400
   },
   "NOT_FOUND": {
     "category": "client",

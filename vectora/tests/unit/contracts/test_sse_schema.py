@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 
-def test_sse_schema_exists_and_valid():
+def test_sse_schema_exists_and_valid() -> None:
     schema_path = (
         Path(__file__).resolve().parents[3]
         / "backend"
@@ -17,7 +17,7 @@ def test_sse_schema_exists_and_valid():
     assert "$defs" in data or "anyOf" in data or "oneOf" in data
 
 
-def test_sse_wire_format_deterministic_encoding():
+def test_sse_wire_format_deterministic_encoding() -> None:
     from backend.api.schemas import DoneEvent, TokenEvent, ToolCallEvent, encode_event
 
     # 1. TokenEvent
@@ -52,3 +52,35 @@ def test_sse_wire_format_deterministic_encoding():
     assert data_done["type"] == "done"
     assert data_done["thread_id"] == "t-1234"
     assert data_done["run_id"] == "r-5678"
+
+
+def test_sse_error_codes_in_matrix() -> None:
+    matrix_path = (
+        Path(__file__).resolve().parents[3]
+        / "backend"
+        / "contracts"
+        / "errors"
+        / "matrix.json"
+    )
+    matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
+
+    # Verifica que códigos emitidos em handlers/chat e stream nativo têm entrada na matriz
+    emitted_codes = {
+        "MODEL_NO_VISION",
+        "MODEL_NO_TOOL_CALLING",
+        "MODEL_NOT_ALLOWED",
+        "EMPTY_MODEL_RESPONSE",
+        "INTERNAL",
+        "INTERNAL_ERROR",
+        "UNAUTHORIZED",
+        "FORBIDDEN",
+        "NOT_FOUND",
+        "RATE_LIMITED",
+        "SERVICE_UNAVAILABLE",
+    }
+    for code in emitted_codes:
+        assert code in matrix, f"Código de erro {code} não documentado em matrix.json"
+        entry = matrix[code]
+        assert "category" in entry
+        assert "retryable" in entry
+        assert "status_code" in entry
