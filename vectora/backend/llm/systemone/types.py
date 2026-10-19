@@ -13,10 +13,13 @@ from __future__ import annotations
 import math
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError, model_validator
+
+from backend.llm.systemone.errors import SystemOneValidationError
 
 QuestionType = Literal["noul", "choice", "score"]
 DecisionProviderType = Literal["clef-local", "clef-api", "jev-api"]
+CapabilityEvidenceLevel = Literal["documented", "observed", "unverified"]
 
 
 class BaseQuestion(BaseModel):
@@ -138,14 +141,10 @@ class ChoiceAnswer(BaseAnswer):
                     raise ValueError(
                         f"Probabilidade da opção '{opt}' deve estar entre 0.0 e 1.0."
                     )
-            # Se todas as opções somam algo razoável, valida proximidade com 1.0 quando estritamente especificada
-            total = sum(self.distribution.values())
-            if len(self.distribution) >= 2 and not math.isclose(
-                total, 1.0, abs_tol=0.05
+            if not math.isclose(
+                math.fsum(self.distribution.values()), 1.0, abs_tol=1e-6
             ):
-                raise ValueError(
-                    f"Distribuição de probabilidades deve somar aproximadamente 1.0 (soma atual: {total:.4f})."
-                )
+                raise ValueError("A distribuição deve somar 1.0.")
         return self
 
 
@@ -211,7 +210,7 @@ class SystemOneRequest(BaseModel):
         default=None,
         ge=0.0,
         le=2.0,
-        description="Temperatura de amostragem (normalmente 0 para decisão determinística).",
+        description="Temperatura de amostragem; zero não garante reprodutibilidade.",
     )
 
 
@@ -259,3 +258,81 @@ class ProviderCapabilities(BaseModel):
     supports_image: bool = False
     supports_video: bool = False
     supported_models: list[str] = Field(default_factory=list)
+    evidence: CapabilityEvidenceLevel = Field(
+        default="documented",
+        description="Evidência de compatibilidade verificada para este provedor e runtime.",
+    )
+
+
+_ANSWER_ADAPTER = TypeAdapter(dict[str, SystemOneAnswer])
+_USAGE_ADAPTER = TypeAdapter(SystemOneUsage)
+
+
+def parse_systemone_response(
+    data: object,
+    request: SystemOneRequest,
+    *,
+    provider: str,
+    latency_ms: float,
+) -> SystemOneResponse:
+    """Validate an untrusted envelope against the original request without repairs."""
+    try:
+        if not isinstance(data, dict):
+            raise ValueError("Invalid envelope")
+        answers = _ANSWER_ADAPTER.validate_python(data.get("answers"), strict=True)
+        if answers.keys() != request.questions.keys():
+            raise ValueError("Answer IDs do not match")
+        for question_id, question in request.questions.items():
+            answer = answers[question_id]
+            if answer.type != question.type:
+                raise ValueError("Answer type does not match")
+            if isinstance(question, ChoiceQuestion) and isinstance(
+                answer, ChoiceAnswer
+            ):
+                if answer.selection not in question.options:
+                    raise ValueError("Unknown selection")
+                if answer.distribution is not None:
+                    if set(answer.distribution) != set(question.options):
+                        raise ValueError("Distribution options do not match")
+                    if answer.distribution[answer.selection] < max(
+                        answer.distribution.values()
+                    ):
+                        raise ValueError("Selection contradicts distribution")
+            if isinstance(question, ScoreQuestion) and isinstance(answer, ScoreAnswer):
+                if not question.min_score <= answer.score <= question.max_score:
+                    raise ValueError("Score outside requested bounds")
+                if (
+                    answer.min_score is not None
+                    and answer.min_score != question.min_score
+                ):
+                    raise ValueError("Lower bound does not match")
+                if (
+                    answer.max_score is not None
+                    and answer.max_score != question.max_score
+                ):
+                    raise ValueError("Upper bound does not match")
+        usage_raw = data.get("usage", {})
+        if not isinstance(usage_raw, dict):
+            raise ValueError("Invalid usage envelope")
+        usage_normalized = dict(usage_raw)
+        if (
+            "total_tokens" in usage_normalized
+            and "prompt_tokens" not in usage_normalized
+        ):
+            usage_normalized.setdefault("prompt_tokens", 0)
+            usage_normalized.setdefault("completion_tokens", 0)
+        usage = _USAGE_ADAPTER.validate_python(usage_normalized, strict=True)
+        return SystemOneResponse(
+            answers=answers,
+            metadata=SystemOneMetadata(
+                provider=provider,
+                model=request.model,
+                latency_ms=latency_ms,
+                usage=usage,
+            ),
+        )
+    except (ValidationError, ValueError, TypeError):
+        raise SystemOneValidationError(
+            "systemone_invalid_response",
+            provider=provider,
+        ) from None
