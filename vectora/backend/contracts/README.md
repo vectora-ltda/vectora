@@ -14,8 +14,14 @@ Eles servem como fonte canônica da verdade para comunicação HTTP, streaming S
   - `catalog.json`: Catálogo canônico de todas as ferramentas disponíveis no agente (`ALL_TOOL_SPECS`), incluindo parâmetros, categorização e mutabilidade (se destrutiva).
 - `sse/`:
   - `events.schema.json`: Schema JSON de todos os eventos tipados do wire format SSE gerados pelo stream do chat.
+- `settings/`:
+  - `v1.schema.json`: Schema JSON de validação canônica para `settings.json` de usuário (versão 1).
+- `quality_gates/`:
+  - `schema.json`: Schema JSON para perfis de verificação de workspace, quality gates pós-execução e resultados auditáveis.
 - `errors/`:
   - `matrix.json`: Matriz de erros canônicos da API, seus status HTTP correspondentes, categorias e flags de retry.
+
+Além dos artefatos JSON acima, os contratos são exportados como tipos TypeScript canônicos em `vectora/frontend/lib/contracts/index.ts` para sincronização estrita de ponta a ponta.
 
 ## Contratos Operacionais
 
