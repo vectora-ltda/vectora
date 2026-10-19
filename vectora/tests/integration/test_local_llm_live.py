@@ -57,3 +57,46 @@ async def test_llamacpp_real_exposes_model_and_generates_completion() -> None:
         payload = completion.json()
         text = payload["choices"][0]["message"]["content"]
         assert isinstance(text, str) and text.strip()
+
+
+@pytest.mark.skipif(
+    not os.environ.get("VECTORA_LOCAL_LLM_BASE_URL"),
+    reason="VECTORA_LOCAL_LLM_BASE_URL não aponta para um servidor local real",
+)
+async def test_llamacpp_systemone_endpoint_or_clef_adapter() -> None:
+    """Exercita o adapter ClefLocalAdapter e o endpoint /v1/systemone no llama.cpp local."""
+    from backend.llm.systemone.clef_local import ClefLocalAdapter
+    from backend.llm.systemone.types import NoulAnswer, NoulQuestion, SystemOneRequest
+
+    server_base = _BASE_URL.removesuffix("/v1")
+    adapter = ClefLocalAdapter(base_url=server_base, timeout=30.0)
+
+    is_healthy = await adapter.health()
+    assert is_healthy is True
+
+    caps = await adapter.capabilities()
+    assert caps.supports_noul is True
+    assert caps.supports_choice is True
+    assert caps.supports_score is True
+
+    req = SystemOneRequest(
+        model="clef-flash",
+        state="O usuário enviou uma mensagem solicitando listagem de diretório.",
+        questions={
+            "is_file_operation": NoulQuestion(
+                criterion="A solicitação envolve leitura de arquivos?"
+            )
+        },
+    )
+
+    async with httpx.AsyncClient(base_url=server_base, timeout=_TIMEOUT) as client:
+        res = await client.post("/v1/systemone", json=req.model_dump())
+        if res.status_code == 200:
+            ans = res.json()["answers"]
+            assert "is_file_operation" in ans
+            decide_res = await adapter.decide(req)
+            assert "is_file_operation" in decide_res.answers
+            assert isinstance(decide_res.answers["is_file_operation"], NoulAnswer)
+        else:
+            # Em servidores com build sem endpoint /v1/systemone ativado, o retorno esperado é 404/405
+            assert res.status_code in {200, 404, 405}
