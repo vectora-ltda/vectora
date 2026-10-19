@@ -690,11 +690,6 @@ def create_app(serve_static: bool = True) -> FastAPI:
 
     app.add_exception_handler(Exception, _log_unhandled_exception)
 
-    # ── Correlation & Contract Version Middleware ─────────────────────────────
-    from backend.api.middleware.correlation import CorrelationMiddleware
-
-    app.add_middleware(CorrelationMiddleware)
-
     # ── Auth middleware ───────────────────────────────────────────────────────
     from backend.api.middleware.auth import AuthMiddleware
 
@@ -735,6 +730,14 @@ def create_app(serve_static: bool = True) -> FastAPI:
             "X-Vectora-Contract-Version",
         ],
     )
+
+    # ── Correlation & Contract Version Middleware ─────────────────────────────
+    # Registrado por último para ser o middleware mais externo na pilha do Starlette,
+    # garantindo que cabeçalhos de correlação estejam presentes em qualquer resposta
+    # (inclusive 401, 429, preflight CORS e erros não tratados).
+    from backend.api.middleware.correlation import CorrelationMiddleware
+
+    app.add_middleware(CorrelationMiddleware)
 
     # ── Routers ───────────────────────────────────────────────────────────────
     app.include_router(flags_router)
@@ -793,7 +796,6 @@ def create_app(serve_static: bool = True) -> FastAPI:
         return {"version": "1", "tool_count": len(tools_data), "tools": tools_data}
 
     # ── Health + Metrics ──────────────────────────────────────────────────────
-    from fastapi.responses import JSONResponse
 
     @app.get("/health")
     async def health() -> dict:
@@ -807,11 +809,36 @@ def create_app(serve_static: bool = True) -> FastAPI:
     @app.get("/health/ready")
     async def health_ready(response: FastAPIResponse) -> dict:
         """Readiness probe: verifica se os serviços de persistência e dependências vitais estão prontos."""
-        from backend.storage.factory import storage_health
+        import asyncio
 
-        storage_status = await storage_health()
-        store_ok = storage_status.get("store", {}).get("ok")
-        lancedb_ok = storage_status.get("lancedb", {}).get("ok")
+        from backend.storage.factory import get_store
+        from backend.storage.lancedb.connection import get_lancedb
+
+        async def _check_dependencies() -> tuple[bool, bool]:
+            s_ok = False
+            l_ok = False
+            try:
+                st = await get_store()
+                s_ok = st is not None
+            except Exception:
+                s_ok = False
+
+            try:
+                db = await get_lancedb()
+                _ = (await db.list_tables()).tables
+                l_ok = True
+            except Exception:
+                l_ok = False
+
+            return s_ok, l_ok
+
+        try:
+            store_ok, lancedb_ok = await asyncio.wait_for(
+                _check_dependencies(), timeout=3.0
+            )
+        except Exception:
+            store_ok = False
+            lancedb_ok = False
 
         is_ready = bool(store_ok and lancedb_ok)
         response.status_code = 200 if is_ready else 503
@@ -819,7 +846,10 @@ def create_app(serve_static: bool = True) -> FastAPI:
         return {
             "status": "ready" if is_ready else "not_ready",
             "version": __version__,
-            "storage": storage_status,
+            "checks": {
+                "store": store_ok,
+                "lancedb": lancedb_ok,
+            },
         }
 
     @app.get("/api/updates/changelog")
