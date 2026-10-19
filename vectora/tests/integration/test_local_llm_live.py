@@ -98,5 +98,5 @@ async def test_llamacpp_systemone_endpoint_or_clef_adapter() -> None:
             assert "is_file_operation" in decide_res.answers
             assert isinstance(decide_res.answers["is_file_operation"], NoulAnswer)
         else:
-            # Em servidores com build sem endpoint /v1/systemone ativado, o retorno esperado é 404/405
-            assert res.status_code in {200, 404, 405}
+            # Em servidores com build sem endpoint /v1/systemone ativado ou não implementado, o retorno é 404, 405 ou 501 (Not Implemented)
+            assert res.status_code in {200, 404, 405, 501}
