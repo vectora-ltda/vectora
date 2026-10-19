@@ -159,13 +159,13 @@ class DecisionPolicyEngine:
                     return PolicyEvaluationResult(
                         outcome="requires_hitl",
                         requires_hitl=True,
-                        reason=f"Provedor primário e fallback falharam: {exc}; {fallback_exc}",
+                        reason="Falha na execução do provedor primário e de fallback. Requer intervenção humana.",
                     )
             else:
                 return PolicyEvaluationResult(
                     outcome="requires_hitl",
                     requires_hitl=True,
-                    reason=f"Falha no provedor de decisão ({exc}). Requer intervenção humana.",
+                    reason="Falha no provedor de decisão primário. Requer intervenção humana.",
                 )
 
         if resp is None:
