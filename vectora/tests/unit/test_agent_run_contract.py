@@ -10,11 +10,14 @@ Cobre:
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 from backend.persistence.native.agent_run import (
     AgentRun,
     AgentRunMetrics,
+    AgentRunStatus,
     redact_sensitive_data,
 )
 from backend.persistence.native.ledger import LedgerEventType, make_tool_started_key
@@ -38,17 +41,23 @@ async def store(tmp_path):
 
 class TestRedaction:
     def test_redact_sensitive_data_strings(self):
-        secret_text = "sk-1234567890abcdef12345678 e ghp_123456789012345678901234567890123456 e AKIAIOSFODNN7EXAMPLE"
+        secret_text = (
+            "sk-1234567890abcdef12345678 e ghp_123456789012345678901234567890123456 e AKIAIOSFODNN7EXAMPLE "
+            'export API_KEY="super secret token with spaces" and KEY=secret_value'
+        )
         redacted = redact_sensitive_data(secret_text)
         assert "sk-1234567890abcdef12345678" not in redacted
         assert "ghp_123456789012345678901234567890123456" not in redacted
         assert "AKIAIOSFODNN7EXAMPLE" not in redacted
+        assert "super secret token with spaces" not in redacted
+        assert "secret_value" not in redacted
         assert "[REDACTED]" in redacted
 
     def test_redact_sensitive_data_dict_keys(self):
         payload = {
             "api_key": "minha-chave-secreta",
-            "password": "senha-super-forte",
+            "x-auth-token": "meu-token-secreto",
+            "db-password": "senha-super-forte",
             "normal_field": "conteudo livre",
             "nested": {
                 "token": "token-1234",
@@ -57,7 +66,8 @@ class TestRedaction:
         }
         res = redact_sensitive_data(payload)
         assert res["api_key"] == "[REDACTED]"
-        assert res["password"] == "[REDACTED]"
+        assert res["x-auth-token"] == "[REDACTED]"
+        assert res["db-password"] == "[REDACTED]"
         assert res["normal_field"] == "conteudo livre"
         assert res["nested"]["token"] == "[REDACTED]"
         assert res["nested"]["safe"] == "ok"
@@ -96,42 +106,68 @@ class TestAgentRunLifecycle:
         assert loaded.tools_available == ["file_read", "terminal"]
         assert loaded.metrics.total_tokens == 120
 
-    async def test_state_transitions_canonical(self, store: SessionStore):
-        await store.create_session("thread-run-2", user_id="user-123")
+    @pytest.mark.parametrize(
+        ("terminal_status", "expected_legacy_status"),
+        [
+            ("passed", "completed"),
+            ("degraded", "completed"),
+            ("failed", "failed"),
+            ("cancelled", "cancelled"),
+        ],
+    )
+    async def test_state_transitions_canonical(
+        self, store: SessionStore, terminal_status: str, expected_legacy_status: str
+    ):
+        thread_id = f"thread-run-{terminal_status}"
+        run_id = f"run-uuid-{terminal_status}"
+        await store.create_session(thread_id, user_id="user-123")
         run = AgentRun(
-            run_id="run-uuid-2",
-            thread_id="thread-run-2",
+            run_id=run_id,
+            thread_id=thread_id,
             status="planned",
         )
         await store.upsert_agent_run(run)
 
         # planned -> running
         await store.update_agent_run_status(
-            "run-uuid-2", status="running", plan_step="Executando"
+            run_id, status="running", plan_step="Executando"
         )
-        r1 = await store.get_agent_run("run-uuid-2")
+        r1 = await store.get_agent_run(run_id)
         assert r1 is not None and r1.status == "running"
         assert r1.terminal_at is None
 
         # running -> waiting_approval
         await store.update_agent_run_status(
-            "run-uuid-2", status="waiting_approval", detail="Esperando HITL"
+            run_id, status="waiting_approval", detail="Esperando HITL"
         )
-        r2 = await store.get_agent_run("run-uuid-2")
+        r2 = await store.get_agent_run(run_id)
         assert r2 is not None and r2.status == "waiting_approval"
 
         # waiting_approval -> verifying
-        await store.update_agent_run_status("run-uuid-2", status="verifying")
-        r3 = await store.get_agent_run("run-uuid-2")
+        await store.update_agent_run_status(run_id, status="verifying")
+        r3 = await store.get_agent_run(run_id)
         assert r3 is not None and r3.status == "verifying"
 
-        # verifying -> passed (terminal)
+        # verifying -> terminal_status
         await store.update_agent_run_status(
-            "run-uuid-2", status="passed", detail="Concluído com testes"
+            run_id,
+            status=cast("AgentRunStatus", terminal_status),
+            detail=f"Concluído com {terminal_status}",
         )
-        r4 = await store.get_agent_run("run-uuid-2")
-        assert r4 is not None and r4.status == "passed"
+        r4 = await store.get_agent_run(run_id)
+        assert r4 is not None and r4.status == terminal_status
         assert r4.terminal_at is not None
+
+        # Confirma que session_runs reflete o status legado mapeado e respeita o CHECK
+        async with store._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT status, terminal_at FROM session_runs WHERE run_id = ?",
+                (run_id,),
+            )
+            legacy_row = await cur.fetchone()
+            assert legacy_row is not None
+            assert legacy_row[0] == expected_legacy_status
+            assert legacy_row[1] is not None
 
     async def test_record_evidences_and_redaction(self, store: SessionStore):
         await store.create_session("thread-run-3", user_id="user-123")
@@ -160,19 +196,19 @@ class TestAgentRunLifecycle:
         assert loaded is not None
         assert "terminal" in loaded.tools_used
         assert len(loaded.commands_run) == 1
-        assert "sk-1234567890abcdef12345678" not in loaded.commands_run[0]["cmd"]
-        assert "[REDACTED]" in loaded.commands_run[0]["cmd"]
+        cmd_str = str(loaded.commands_run[0].get("cmd"))
+        assert "sk-1234567890abcdef12345678" not in cmd_str
+        assert "[REDACTED]" in cmd_str
 
         assert len(loaded.evidence) == 1
-        assert (
-            "ghp_123456789012345678901234567890123456" not in loaded.evidence[0]["log"]
-        )
-        assert "[REDACTED]" in loaded.evidence[0]["log"]
+        log_str = str(loaded.evidence[0].get("log"))
+        assert "ghp_123456789012345678901234567890123456" not in log_str
+        assert "[REDACTED]" in log_str
 
         assert len(loaded.artifacts) == 1
-        assert loaded.artifacts[0]["api_key"] == "[REDACTED]"
+        assert loaded.artifacts[0].get("api_key") == "[REDACTED]"
         assert len(loaded.files_touched) == 1
-        assert loaded.files_touched[0]["path"] == "src/main.py"
+        assert loaded.files_touched[0].get("path") == "src/main.py"
 
     async def test_rehydrate_after_restart(self, tmp_path):
         db_path = str(tmp_path / "restart_test.db")

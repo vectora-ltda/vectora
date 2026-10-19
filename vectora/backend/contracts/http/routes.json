@@ -811,6 +811,16 @@
   },
   {
     "methods": ["GET"],
+    "name": "get_agent_run_runs__run_id__get",
+    "path": "/runs/{run_id}"
+  },
+  {
+    "methods": ["GET"],
+    "name": "get_agent_run_timeline_runs__run_id__timeline_get",
+    "path": "/runs/{run_id}/timeline"
+  },
+  {
+    "methods": ["GET"],
     "name": "get_board_sessions__thread_id__background_board_get",
     "path": "/sessions/{thread_id}/background/board"
   },
@@ -986,6 +996,11 @@
   },
   {
     "methods": ["GET"],
+    "name": "stream_thread_ledger_events_threads__thread_id__events_get",
+    "path": "/threads/{thread_id}/events"
+  },
+  {
+    "methods": ["GET"],
     "name": "get_thread_history_paginated_threads__thread_id__history_get",
     "path": "/threads/{thread_id}/history"
   },
@@ -1003,6 +1018,11 @@
     "methods": ["POST"],
     "name": "rewind_thread_threads__thread_id__rewind_post",
     "path": "/threads/{thread_id}/rewind"
+  },
+  {
+    "methods": ["GET"],
+    "name": "list_thread_agent_runs_threads__thread_id__runs_get",
+    "path": "/threads/{thread_id}/runs"
   },
   {
     "methods": ["POST"],

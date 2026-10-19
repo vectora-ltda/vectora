@@ -186,7 +186,9 @@
         "properties": {
           "approvals": {
             "items": {
-              "additionalProperties": true,
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
               "type": "object"
             },
             "title": "Approvals",
@@ -194,7 +196,9 @@
           },
           "artifacts": {
             "items": {
-              "additionalProperties": true,
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
               "type": "object"
             },
             "title": "Artifacts",
@@ -202,7 +206,9 @@
           },
           "commands_run": {
             "items": {
-              "additionalProperties": true,
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
               "type": "object"
             },
             "title": "Commands Run",
@@ -232,7 +238,9 @@
           },
           "evidence": {
             "items": {
-              "additionalProperties": true,
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
               "type": "object"
             },
             "title": "Evidence",
@@ -240,7 +248,9 @@
           },
           "files_touched": {
             "items": {
-              "additionalProperties": true,
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
               "type": "object"
             },
             "title": "Files Touched",
@@ -306,7 +316,9 @@
           },
           "tests_run": {
             "items": {
-              "additionalProperties": true,
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
               "type": "object"
             },
             "title": "Tests Run",
@@ -421,7 +433,9 @@
             "type": "string"
           },
           "payload": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
             "title": "Payload",
             "type": "object"
           },
@@ -3944,6 +3958,7 @@
         "title": "JourneySkill",
         "type": "object"
       },
+      "JsonValue": {},
       "LaunchConfigModel": {
         "properties": {
           "env": {
