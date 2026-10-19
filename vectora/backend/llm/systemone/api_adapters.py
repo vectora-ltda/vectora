@@ -278,7 +278,7 @@ class ClefApiAdapter(BaseSystemOneApiAdapter):
             supports_noul=True,
             supports_choice=True,
             supports_score=True,
-            supports_image=False,
+            supports_image=True,  # Clef e Clef-Flash suportam imagens e entrada multimodal
             supports_video=False,
             supported_models=["@cf/cloudflare/clef", "@cf/cloudflare/clef-flash"],
         )
