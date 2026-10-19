@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, NotRequired
 
 from pydantic import TypeAdapter
-from typing_extensions import NotRequired, TypedDict
+from typing_extensions import TypedDict
 
 NetworkProfileName = Literal["offline", "slow-3g", "fast-3g"]
 
