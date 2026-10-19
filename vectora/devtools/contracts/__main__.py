@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess  # nosec B404
 import sys
 import tempfile
 from pathlib import Path
@@ -140,6 +141,29 @@ def export_sse(contracts_dir: Path) -> None:
 
     adapter = TypeAdapter(StreamChatEventPayload)
     schema = adapter.json_schema()
+
+    # Enriquecer cada definição referenciada com a propriedade "type" constante correspondente ao wire format
+    from backend.api.schemas import _TYPE_MAP
+
+    defs = schema.get("$defs", {})
+    name_to_type = {cls.__name__: t for cls, t in _TYPE_MAP.items()}
+
+    for ref_entry in schema.get("anyOf", []):
+        ref = ref_entry.get("$ref", "")
+        def_name = ref.split("/")[-1]
+        if def_name in defs and def_name in name_to_type:
+            event_def = defs[def_name]
+            properties = event_def.setdefault("properties", {})
+            properties["type"] = {
+                "const": name_to_type[def_name],
+                "title": "Type",
+                "type": "string",
+            }
+            required = event_def.setdefault("required", [])
+            if "type" not in required:
+                required.append("type")
+                required.sort()
+
     (sse_dir / "events.schema.json").write_text(
         dumps_normalized(schema), encoding="utf-8"
     )
@@ -229,15 +253,73 @@ def check_all(contracts_dir: Path) -> int:
                 has_diff = True
 
             # Se for schema OpenAPI ou SSE, executa check_schema_compatibility
+            # Carrega baseline do branch base se disponível (ex: git show origin/release/0.3:...),
+            # ou usa current_data (artefato em disco/PR) como baseline local.
+            baseline_data = current_data
+            try:
+                git_rel = f"vectora/{contracts_dir.name}/{rel.as_posix()}"
+                res = subprocess.run(  # nosec B603, B607 # noqa: S603
+                    ["git", "show", f"origin/release/0.3:{git_rel}"],  # noqa: S607
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if res.returncode == 0 and res.stdout.strip():
+                    baseline_data = json.loads(res.stdout)
+            except Exception:
+                baseline_data = current_data
+
             if (
                 rel.name == "openapi.json"
-                and isinstance(current_data, dict)
+                and isinstance(baseline_data, dict)
                 and isinstance(expected_data, dict)
             ):
-                report = check_schema_compatibility(current_data, expected_data)
-                if not report.is_compatible:
-                    print(f"BREAKING SCHEMA CHANGE in {rel}: {report.breaking}")
-                    has_diff = True
+                # Comparar cada schema de components.schemas individualmente
+                old_schemas = baseline_data.get("components", {}).get("schemas", {})
+                new_schemas = expected_data.get("components", {}).get("schemas", {})
+                for s_name, old_s in old_schemas.items():
+                    if s_name in new_schemas:
+                        new_s = new_schemas[s_name]
+                        # Decide direção: request schemas terminam em Request / Config / Input / etc.
+                        direction = (
+                            "request"
+                            if any(
+                                k in s_name.lower()
+                                for k in ("request", "config", "input", "query")
+                            )
+                            else "response"
+                        )
+                        report = check_schema_compatibility(
+                            old_s,
+                            new_s,
+                            path=f"components.schemas.{s_name}",
+                            direction=direction,
+                        )
+                        if not report.is_compatible:
+                            print(
+                                f"BREAKING SCHEMA CHANGE in openapi.json ({s_name}): {report.breaking}"
+                            )
+                            has_diff = True
+
+            elif (
+                rel.name == "events.schema.json"
+                and isinstance(baseline_data, dict)
+                and isinstance(expected_data, dict)
+            ):
+                # SSE events são eventos de resposta / streaming
+                old_defs = baseline_data.get("$defs", {})
+                new_defs = expected_data.get("$defs", {})
+                for d_name, old_d in old_defs.items():
+                    if d_name in new_defs:
+                        new_d = new_defs[d_name]
+                        report = check_schema_compatibility(
+                            old_d, new_d, path=f"$defs.{d_name}", direction="response"
+                        )
+                        if not report.is_compatible:
+                            print(
+                                f"BREAKING SSE SCHEMA CHANGE ({d_name}): {report.breaking}"
+                            )
+                            has_diff = True
 
         # 2. Checa se há arquivos órfãos / obsoletos em contracts_dir que não foram gerados
         for target_file in contracts_dir.rglob("*.json"):
