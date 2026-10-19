@@ -106,7 +106,7 @@ class NoulAnswer(BaseAnswer):
         ...,
         ge=0.0,
         le=1.0,
-        description="Probabilidade calibrada da afirmação (0.0 a 1.0).",
+        description="Probabilidade estimada da afirmação (0.0 a 1.0); calibração não verificada.",
     )
 
     @model_validator(mode="after")
@@ -138,6 +138,14 @@ class ChoiceAnswer(BaseAnswer):
                     raise ValueError(
                         f"Probabilidade da opção '{opt}' deve estar entre 0.0 e 1.0."
                     )
+            # Se todas as opções somam algo razoável, valida proximidade com 1.0 quando estritamente especificada
+            total = sum(self.distribution.values())
+            if len(self.distribution) >= 2 and not math.isclose(
+                total, 1.0, abs_tol=0.05
+            ):
+                raise ValueError(
+                    f"Distribuição de probabilidades deve somar aproximadamente 1.0 (soma atual: {total:.4f})."
+                )
         return self
 
 
