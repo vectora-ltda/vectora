@@ -9,6 +9,7 @@ import subprocess  # nosec B404
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 
 def _setup_isolation_env() -> Path:
@@ -42,7 +43,7 @@ def export_http(contracts_dir: Path) -> None:
         dumps_normalized(sanitized_openapi), encoding="utf-8"
     )
 
-    routes_inventory = []
+    routes_inventory: list[dict[str, Any]] = []
     routes_map: dict[str, set[str]] = {}
     for path, path_item in openapi_schema.get("paths", {}).items():
         methods = [
@@ -60,17 +61,15 @@ def export_http(contracts_dir: Path) -> None:
         routes_inventory.append({"path": path, "methods": methods, "name": name})
         routes_map.setdefault(path, set()).update(methods)
 
-    def _methods_str(r: dict[str, object]) -> str:
-        m = r.get("methods")
-        return "".join(str(x) for x in m) if isinstance(m, list) else ""
-
-    routes_inventory.sort(key=lambda r: (str(r.get("path") or ""), _methods_str(r)))
+    routes_inventory.sort(
+        key=lambda r: (str(r["path"]), "".join(str(x) for x in r["methods"]))
+    )
     (http_dir / "routes.json").write_text(
         dumps_normalized(routes_inventory), encoding="utf-8"
     )
 
     # Overlay curado de rotas críticas
-    critical_routes = [
+    critical_routes: list[dict[str, Any]] = [
         {"path": "/health", "methods": ["GET"], "auth": False},
         {"path": "/health/live", "methods": ["GET"], "auth": False},
         {"path": "/health/ready", "methods": ["GET"], "auth": False},
@@ -90,10 +89,11 @@ def export_http(contracts_dir: Path) -> None:
 
     # Validação estrita: cada entrada de critical_routes deve existir em app.routes
     for cr in critical_routes:
-        cr_path = cr["path"]
+        cr_path = str(cr["path"])
         if cr_path not in routes_map:
             raise ValueError(f"Rota crítica inexistente na aplicação: {cr_path}")
-        for m in cr["methods"]:
+        cr_methods: list[str] = list(cr["methods"])  # type: ignore[arg-type]
+        for m in cr_methods:
             if m not in routes_map[cr_path]:
                 raise ValueError(f"Método {m} inexistente na rota crítica {cr_path}")
 
@@ -112,7 +112,7 @@ def export_tools(contracts_dir: Path) -> None:
     tools_dir = contracts_dir / "tools"
     tools_dir.mkdir(parents=True, exist_ok=True)
 
-    catalog: list[dict[str, object]] = []
+    catalog: list[dict[str, Any]] = []
     for spec in ALL_TOOL_SPECS:
         schema = {}
         if spec.args_model is not None:
@@ -219,6 +219,205 @@ def export_errors(contracts_dir: Path) -> None:
     print("Exported Errors matrix.")
 
 
+def export_settings(contracts_dir: Path) -> None:
+    """Exporta o schema canônico do settings.json (v1) e definições de perfil."""
+    from backend.contracts.models import UserSettingsV1
+    from devtools.contracts.normalize import dumps_normalized
+
+    settings_dir = contracts_dir / "settings"
+    settings_dir.mkdir(parents=True, exist_ok=True)
+
+    schema = UserSettingsV1.model_json_schema()
+    (settings_dir / "v1.schema.json").write_text(
+        dumps_normalized(schema), encoding="utf-8"
+    )
+    print("Exported Settings schema.")
+
+
+def export_quality_gates(contracts_dir: Path) -> None:
+    """Exporta os schemas de Quality Gates e perfis de verificação pós-execução."""
+    from backend.contracts.models import (
+        QualityGateRunResult,
+        QualityGateSpec,
+        WorkspaceVerificationProfile,
+    )
+    from devtools.contracts.normalize import dumps_normalized
+
+    gates_dir = contracts_dir / "quality_gates"
+    gates_dir.mkdir(parents=True, exist_ok=True)
+
+    profile_schema = WorkspaceVerificationProfile.model_json_schema()
+    spec_schema = QualityGateSpec.model_json_schema()
+    result_schema = QualityGateRunResult.model_json_schema()
+
+    bundle = {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "QualityGatesVerificationBundle",
+        "description": "Schemas de perfis e resultados de verificação pós-execução.",
+        "definitions": {
+            "WorkspaceVerificationProfile": profile_schema,
+            "QualityGateSpec": spec_schema,
+            "QualityGateRunResult": result_schema,
+        },
+    }
+    (gates_dir / "schema.json").write_text(dumps_normalized(bundle), encoding="utf-8")
+    print("Exported Quality Gates schema.")
+
+
+def export_typescript(contracts_dir: Path) -> None:
+    """Exporta definições de tipos TypeScript sincronizadas com os contratos canônicos."""
+    frontend_contracts_dir = (
+        Path(__file__).resolve().parents[2] / "frontend" / "lib" / "contracts"
+    )
+    frontend_contracts_dir.mkdir(parents=True, exist_ok=True)
+
+    ts_content = """/**
+ * CANONICAL TYPESCRIPT CONTRACTS (AUTO-GENERATED)
+ *
+ * Fonte da verdade: vectora/backend/contracts/
+ * Atualizado via: uv run python -m devtools.contracts export
+ * NÃO EDITAR MANUALMENTE.
+ */
+
+// ============================================================================
+// Errors Matrix (vectora/backend/contracts/errors/matrix.json)
+// ============================================================================
+
+export type CanonicalErrorCode =
+  | "UNAUTHORIZED"
+  | "FORBIDDEN"
+  | "NOT_FOUND"
+  | "RATE_LIMITED"
+  | "BAD_REQUEST"
+  | "INTERNAL"
+  | "INTERNAL_ERROR"
+  | "SERVICE_UNAVAILABLE"
+  | "MODEL_NO_VISION"
+  | "MODEL_NO_TOOL_CALLING"
+  | "MODEL_NOT_ALLOWED"
+  | "EMPTY_MODEL_RESPONSE";
+
+export interface CanonicalErrorSpec {
+  status_code: number;
+  retryable: boolean;
+  category: "auth" | "client" | "server";
+}
+
+// ============================================================================
+// Settings Schema v1 (vectora/backend/contracts/settings/v1.schema.json)
+// ============================================================================
+
+export interface LocaleSettings {
+  language: string;
+  timezone: string;
+}
+
+export interface AppearanceSettings {
+  theme: "dark" | "light" | "system";
+  sidebarPosition: "left" | "right";
+}
+
+export interface SuggestionsSettings {
+  enabled: boolean;
+  aiEnabled: boolean;
+}
+
+export interface LintSettings {
+  enabled: boolean;
+  showDiagnostics: boolean;
+}
+
+export interface EditorSettings {
+  fontFamily: string;
+  fontSize: number;
+  lineHeight: number;
+  fontLigatures: boolean;
+  wordWrap: "off" | "on" | "wordWrapColumn" | "bounded";
+  minimap: boolean;
+  smoothScrolling: boolean;
+  formatOnSave: boolean;
+  formatOnPaste: boolean;
+  suggestions: SuggestionsSettings;
+  lint: LintSettings;
+}
+
+export interface WatcherSettings {
+  enabled: boolean;
+  exclude: string[];
+}
+
+export interface FileSettings {
+  autoSave: "off" | "afterDelay" | "onFocusChange" | "onWindowChange";
+  autoSaveDelayMs: number;
+  encoding: string;
+  eol: "lf" | "crlf" | "auto";
+  trimTrailingWhitespace: boolean;
+  insertFinalNewline: boolean;
+  watcher: WatcherSettings;
+}
+
+export interface WorkbenchesSettings {
+  git: Record<string, unknown>;
+  plan: Record<string, unknown>;
+  tasks: Record<string, unknown>;
+  browser: Record<string, unknown>;
+  storage: Record<string, unknown>;
+  contextGraph: Record<string, unknown>;
+  library: Record<string, unknown>;
+  terminal: Record<string, unknown>;
+}
+
+export interface UpdatesSettings {
+  autoUpdateEnabled: boolean;
+}
+
+export interface UserSettingsV1 {
+  $schema?: string;
+  version: number;
+  locale: LocaleSettings;
+  appearance: AppearanceSettings;
+  editor: EditorSettings;
+  files: FileSettings;
+  workbenches: WorkbenchesSettings;
+  updates: UpdatesSettings;
+}
+
+// ============================================================================
+// Quality Gates & Post-Run Verification (vectora/backend/contracts/quality_gates/schema.json)
+// ============================================================================
+
+export type QualityGatePolicy = "block" | "degrade" | "inform";
+
+export interface QualityGateSpec {
+  id: string;
+  name: string;
+  command: string[];
+  policy: QualityGatePolicy;
+  file_patterns?: string[];
+  timeout_seconds?: number;
+}
+
+export interface WorkspaceVerificationProfile {
+  workspace_id: string;
+  enabled: boolean;
+  gates: QualityGateSpec[];
+  require_clean_git?: boolean;
+  inject_stack_trace_on_failure?: boolean;
+}
+
+export interface QualityGateRunResult {
+  gate_id: string;
+  passed: boolean;
+  exit_code: number;
+  output?: string;
+  duration_ms?: number;
+  artifacts_collected?: string[];
+}
+"""
+    (frontend_contracts_dir / "index.ts").write_text(ts_content, encoding="utf-8")
+    print("Exported TypeScript contracts.")
+
+
 def export_all(contracts_dir: Path, only: str | None = None) -> None:
     if only in (None, "http"):
         export_http(contracts_dir)
@@ -228,6 +427,12 @@ def export_all(contracts_dir: Path, only: str | None = None) -> None:
         export_sse(contracts_dir)
     if only in (None, "errors"):
         export_errors(contracts_dir)
+    if only in (None, "settings"):
+        export_settings(contracts_dir)
+    if only in (None, "quality_gates"):
+        export_quality_gates(contracts_dir)
+    if only in (None, "typescript"):
+        export_typescript(contracts_dir)
 
 
 def check_all(contracts_dir: Path) -> int:
@@ -348,7 +553,15 @@ def main() -> None:
     export_parser = subparsers.add_parser("export")
     export_parser.add_argument(
         "--only",
-        choices=["http", "tools", "sse", "errors"],
+        choices=[
+            "http",
+            "tools",
+            "sse",
+            "errors",
+            "settings",
+            "quality_gates",
+            "typescript",
+        ],
         help="Exporta apenas uma área",
     )
 
