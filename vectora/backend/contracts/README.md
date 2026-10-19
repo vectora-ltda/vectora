@@ -1,11 +1,11 @@
-# Contratos Canônicos do Backend Vectora (v0.3.0)
+# Contratos Canônicos do Backend Vectora (v1)
 
 Este diretório contém os contratos formais versionados do backend Python do Vectora (`vectora/backend/contracts/`).
 Eles servem como fonte canônica da verdade para comunicação HTTP, streaming Server-Sent Events (SSE), catálogo de ferramentas (Tools) do agente e catálogo de erros.
 
 ## Estrutura do Diretório
 
-- `VERSION`: Versão semântica canônica do contrato (ex: `0.3.0`).
+- `VERSION`: Versão canônica do contrato (ex: `1`).
 - `http/`:
   - `openapi.json`: Especificação OpenAPI completa do backend (sanitizada de segredos e normalizada).
   - `routes.json`: Inventário exaustivo de todas as rotas e métodos registrados na aplicação FastAPI.

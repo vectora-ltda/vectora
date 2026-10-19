@@ -30,15 +30,31 @@ _SECRET_PATTERNS = [
 _SENSITIVE_KEYS = {
     "api_key",
     "apikey",
+    "api-key",
+    "x-api-key",
+    "x_api_key",
     "token",
+    "id_token",
+    "id-token",
     "secret",
-    "password",
-    "authorization",
     "client_secret",
+    "client-secret",
+    "password",
+    "passwd",
+    "credentials",
+    "authorization",
     "access_token",
+    "access-token",
     "refresh_token",
+    "refresh-token",
     "private_key",
+    "private-key",
 }
+
+
+def _is_sensitive_key(key: str) -> bool:
+    normalized = key.lower().replace("-", "_")
+    return normalized in _SENSITIVE_KEYS or key.lower() in _SENSITIVE_KEYS
 
 
 def redact_string(value: str) -> str:
@@ -50,12 +66,26 @@ def redact_string(value: str) -> str:
 
 
 def redact_payload(obj: Any) -> Any:
-    """Aplica redação recursivamente em dicionários, listas e primitivos."""
+    """Aplica redação recursivamente em dicionários, listas e primitivos.
+
+    Preserva estruturas de JSON Schema contidas sob `properties` para não
+    descaracterizar schemas de API ao exportar contratos.
+    """
     if isinstance(obj, dict):
+        # Se for um schema (contém `properties` ou `type` com definições de schema),
+        # precisamos garantir que não redigimos definições de propriedades estruturais
         new_dict = {}
+        is_schema_properties = "type" in obj and (
+            "title" in obj or "description" in obj
+        )
         for k, v in obj.items():
-            if str(k).lower() in _SENSITIVE_KEYS and isinstance(v, str):
-                new_dict[k] = "[REDACTED]"
+            key_str = str(k)
+            if _is_sensitive_key(key_str) and not is_schema_properties:
+                # Redige se não for um schema de tipo (ex: {"type": "string"})
+                if isinstance(v, dict) and "type" in v:
+                    new_dict[k] = redact_payload(v)
+                else:
+                    new_dict[k] = "[REDACTED]"
             else:
                 new_dict[k] = redact_payload(v)
         return new_dict

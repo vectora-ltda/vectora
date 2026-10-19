@@ -3,7 +3,7 @@
 from devtools.contracts.compat import check_schema_compatibility
 
 
-def test_schema_compat_identical():
+def test_schema_compat_identical() -> None:
     s1 = {"type": "object", "properties": {"a": {"type": "string"}}}
     s2 = {"type": "object", "properties": {"a": {"type": "string"}}}
     report = check_schema_compatibility(s1, s2)
@@ -12,7 +12,7 @@ def test_schema_compat_identical():
     assert len(report.non_breaking) == 0
 
 
-def test_schema_compat_added_field():
+def test_schema_compat_added_field() -> None:
     old = {"type": "object", "properties": {"a": {"type": "string"}}}
     new = {
         "type": "object",
@@ -25,7 +25,7 @@ def test_schema_compat_added_field():
     assert "b" in report.non_breaking[0]
 
 
-def test_schema_compat_removed_field():
+def test_schema_compat_removed_field() -> None:
     old = {
         "type": "object",
         "properties": {"a": {"type": "string"}, "b": {"type": "integer"}},
@@ -37,10 +37,46 @@ def test_schema_compat_removed_field():
     assert "b" in report.breaking[0]
 
 
-def test_schema_compat_type_changed():
+def test_schema_compat_type_changed() -> None:
     old = {"type": "object", "properties": {"a": {"type": "string"}}}
     new = {"type": "object", "properties": {"a": {"type": "integer"}}}
     report = check_schema_compatibility(old, new)
     assert not report.is_compatible
     assert len(report.breaking) == 1
     assert "tipo alterado" in report.breaking[0]
+
+
+def test_schema_compat_required_fields_by_direction() -> None:
+    old = {"type": "object", "properties": {"a": {"type": "string"}}}
+    new = {
+        "type": "object",
+        "properties": {"a": {"type": "string"}, "b": {"type": "string"}},
+        "required": ["b"],
+    }
+    # Em request: adicionar campo obrigatório quebra compatibilidade
+    req_report = check_schema_compatibility(old, new, direction="request")
+    assert not req_report.is_compatible
+    assert any("novos campos obrigatórios" in b for b in req_report.breaking)
+
+    # Em response: adicionar campo obrigatório na resposta é não-quebrante
+    resp_report = check_schema_compatibility(old, new, direction="response")
+    assert resp_report.is_compatible
+    assert any("novos campos obrigatórios" in nb for nb in resp_report.non_breaking)
+
+
+def test_schema_compat_nested_schemas_and_refs() -> None:
+    old = {
+        "type": "object",
+        "properties": {
+            "items": {"type": "array", "items": {"$ref": "#/defs/OldItem"}},
+        },
+    }
+    new = {
+        "type": "object",
+        "properties": {
+            "items": {"type": "array", "items": {"$ref": "#/defs/NewItem"}},
+        },
+    }
+    report = check_schema_compatibility(old, new)
+    assert not report.is_compatible
+    assert any("referência $ref alterada" in b for b in report.breaking)

@@ -21,17 +21,17 @@
   },
   {
     "auth": true,
-    "methods": ["GET", "POST"],
+    "methods": ["GET", "PATCH"],
     "path": "/settings/prefs"
   },
   {
     "auth": true,
     "methods": ["POST"],
-    "path": "/chat"
+    "path": "/vectora.chat.v1.ChatService/StreamChat"
   },
   {
     "auth": true,
-    "methods": ["GET", "POST"],
-    "path": "/threads"
+    "methods": ["POST"],
+    "path": "/vectora.chat.v1.ChatService/ResumeChat"
   }
 ]
