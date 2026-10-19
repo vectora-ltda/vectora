@@ -37,7 +37,7 @@ jobs:
           fi
 
   local-llm:
-    name: Real Docker + llama.cpp + SmolLM2
+    name: Real Docker + llama.cpp + SmolLM2 & Clef
     needs: detect
     if: needs.detect.outputs.requested == 'true'
     runs-on: ubuntu-24.04

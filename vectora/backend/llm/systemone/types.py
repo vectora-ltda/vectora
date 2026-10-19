@@ -35,6 +35,7 @@ class NoulQuestion(BaseQuestion):
     type: Literal["noul"] = "noul"
     criterion: str = Field(
         ...,
+        min_length=1,
         description="Critério ou hipótese a ser avaliada em termos de probabilidade.",
     )
 
@@ -121,6 +122,7 @@ class ChoiceAnswer(BaseAnswer):
     type: Literal["choice"] = "choice"
     selection: str = Field(
         ...,
+        min_length=1,
         description="Alternativa escolhida pelo modelo de decisão.",
     )
     distribution: dict[str, float] | None = Field(
@@ -147,11 +149,23 @@ class ScoreAnswer(BaseAnswer):
         ...,
         description="Pontuação atribuída pelo modelo dentro dos limites.",
     )
+    min_score: float | None = Field(
+        default=None, description="Limite inferior para validação."
+    )
+    max_score: float | None = Field(
+        default=None, description="Limite superior para validação."
+    )
 
     @model_validator(mode="after")
-    def validate_finite(self) -> ScoreAnswer:
+    def validate_finite_and_bounds(self) -> ScoreAnswer:
         if not math.isfinite(self.score):
             raise ValueError("O score deve ser um número finito.")
+        if self.min_score is not None and self.score < self.min_score:
+            raise ValueError(
+                f"Score {self.score} abaixo de min_score {self.min_score}."
+            )
+        if self.max_score is not None and self.score > self.max_score:
+            raise ValueError(f"Score {self.score} acima de max_score {self.max_score}.")
         return self
 
 
