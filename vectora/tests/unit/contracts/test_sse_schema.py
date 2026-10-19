@@ -16,6 +16,23 @@ def test_sse_schema_exists_and_valid() -> None:
     data = json.loads(schema_path.read_text(encoding="utf-8"))
     assert "$defs" in data or "anyOf" in data or "oneOf" in data
 
+    defs = data.get("$defs", {})
+    for ref_entry in data.get("anyOf", []):
+        ref = ref_entry.get("$ref", "")
+        def_name = ref.split("/")[-1]
+        assert def_name in defs, (
+            f"Definição {def_name} referenciada em anyOf ausente em $defs"
+        )
+        event_def = defs[def_name]
+        props = event_def.get("properties", {})
+        assert "type" in props, f"Propriedade 'type' ausente em {def_name}"
+        assert "const" in props["type"], (
+            f"Campo 'const' ausente em {def_name}.properties.type"
+        )
+        assert "type" in event_def.get("required", []), (
+            f"'type' não está em required de {def_name}"
+        )
+
 
 def test_sse_wire_format_deterministic_encoding() -> None:
     from backend.api.schemas import DoneEvent, TokenEvent, ToolCallEvent, encode_event
