@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from backend.evaluation.cassette import Cassette
+from backend.vtypes import JsonObject
 
 
 class EvalMetric(BaseModel):
@@ -32,7 +33,7 @@ class EvalReport(BaseModel):
     avg_latency_reduction_pct: float = 0.0
     token_savings_pct: float = 0.0
     metrics: list[EvalMetric] = Field(default_factory=list)
-    details: list[dict[str, Any]] = Field(default_factory=list)
+    details: list[JsonObject] = Field(default_factory=list)
 
 
 def _total_tokens(usage: dict[str, int]) -> int:

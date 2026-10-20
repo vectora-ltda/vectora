@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from backend.evaluation.cassette import Cassette, CassetteInteraction
 from backend.llm.base import ChatClient
+from backend.vtypes import JsonObject
 from backend.vtypes.message import (
     ContentBlock,
     MessageRole,
@@ -51,11 +52,13 @@ class ReplayChatClient(ChatClient):
 
         tool_calls: list[ToolCall] = []
         for tc in item.tool_calls:
+            raw_args = tc.get("args")
+            args: JsonObject = raw_args if isinstance(raw_args, dict) else {}
             tool_calls.append(
                 ToolCall(
                     id=str(tc.get("id", f"call_{len(tool_calls)}")),
                     name=str(tc.get("name", "")),
-                    args=dict(tc.get("args", {})),
+                    args=args,
                 )
             )
 
@@ -101,13 +104,10 @@ class ReplayChatClient(ChatClient):
             )
 
         if interaction.usage:
-            inp = int(
-                interaction.usage.get("input", interaction.usage.get("prompt", 0))
-            )
-            out = int(
-                interaction.usage.get("output", interaction.usage.get("completion", 0))
-            )
-            tot = int(interaction.usage.get("total", inp + out))
+            u = interaction.usage
+            inp = int(u.get("input", u.get("prompt", u.get("input_tokens", 0))))
+            out = int(u.get("output", u.get("completion", u.get("output_tokens", 0))))
+            tot = int(u.get("total", u.get("total_tokens", inp + out)))
             yield VMessageChunk(
                 usage=UsageSnapshot(
                     input_tokens=inp,

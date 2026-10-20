@@ -7,19 +7,19 @@ import asyncio
 import json
 import sys
 from pathlib import Path
-from typing import Any
 
 from pydantic import ValidationError
 
 from backend.evaluation.cassette import Cassette
 from backend.evaluation.replay_client import ReplayChatClient
 from backend.evaluation.runner import compare_cassettes
+from backend.vtypes import JsonObject
 from backend.vtypes.message import ContentBlock, MessageRole, VMessage
 
 
-async def _replay_suite(cassette: Cassette) -> list[dict[str, Any]]:
+async def _replay_suite(cassette: Cassette) -> list[JsonObject]:
     client = ReplayChatClient(cassette)
-    results: list[dict[str, Any]] = []
+    results: list[JsonObject] = []
     for idx, interaction in enumerate(cassette.interactions):
         msgs: list[VMessage] = []
         for m in interaction.messages:

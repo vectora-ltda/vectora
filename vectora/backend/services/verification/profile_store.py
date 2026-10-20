@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import sys
+import tempfile
 from pathlib import Path
 
 from backend.contracts.models import (
@@ -75,10 +77,25 @@ def get_verification_profile(
 
 
 def save_verification_profile(profile: WorkspaceVerificationProfile) -> None:
-    """Persiste o perfil de verificação do workspace."""
+    """Persiste o perfil de verificação do workspace atomicamente usando substituição segura."""
     path = _profile_path(profile.workspace_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(profile.model_dump(), indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            delete=False,
+            suffix=".tmp",
+        ) as temp_file:
+            temp_path = Path(temp_file.name)
+            content = json.dumps(profile.model_dump(), indent=2, ensure_ascii=False)
+            temp_file.write(content)
+            temp_file.flush()
+        temp_path.replace(path)
+    except Exception:
+        if temp_path and temp_path.exists():
+            with contextlib.suppress(Exception):
+                temp_path.unlink()
+        raise

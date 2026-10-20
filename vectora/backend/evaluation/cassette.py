@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 from pydantic import BaseModel, Field
 
 from backend.persistence.native.agent_run import redact_sensitive_data
+from backend.vtypes import JsonObject
 
 
 def _now_iso() -> str:
@@ -20,9 +20,9 @@ class CassetteInteraction(BaseModel):
     """Registro individual de uma interação do modelo."""
 
     interaction_id: str
-    messages: list[dict[str, Any]]
+    messages: list[JsonObject]
     response_text: str = ""
-    tool_calls: list[dict[str, Any]] = Field(default_factory=list)
+    tool_calls: list[JsonObject] = Field(default_factory=list)
     duration_ms: int = 0
     usage: dict[str, int] = Field(default_factory=dict)
     systemone_decision: str | None = None
@@ -58,8 +58,8 @@ class Cassette(BaseModel):
         )
 
     @classmethod
-    def load(cls, path: Path | str) -> Cassette:
-        """Carrega e valida uma cassete do disco."""
-        p = Path(path)
-        raw = json.loads(p.read_text(encoding="utf-8"))
+    def load(cls, source_path: Path | str) -> Cassette:
+        """Carrega e valida uma cassete gravada a partir do caminho indicado."""
+        path = Path(source_path)
+        raw = json.loads(path.read_text(encoding="utf-8"))
         return cls.model_validate(raw)

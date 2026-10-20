@@ -31,15 +31,23 @@ def compute_files_snapshot(
     Returns:
         Tupla com (sha256_combinado, mapa_arquivo_para_hash).
     """
-    root = Path(cwd)
+    root = Path(cwd).resolve()
     file_hashes: dict[str, str] = {}
 
     target_paths: list[Path] = []
     if files:
         for f in files:
-            p = root / f if not Path(f).is_absolute() else Path(f)
-            if not p.is_dir():
-                target_paths.append(p)
+            try:
+                candidate = (
+                    (root / f).resolve()
+                    if not Path(f).is_absolute()
+                    else Path(f).resolve()
+                )
+                candidate.relative_to(root)
+                if candidate.is_file():
+                    target_paths.append(candidate)
+            except (ValueError, OSError):
+                continue
     else:
         # Varre arquivos do workspace ignorando diretórios de cache/vcs
         ignored_dirs = {
@@ -54,7 +62,9 @@ def compute_files_snapshot(
         }
         for dirpath, dirnames, filenames in os.walk(root):
             dirnames[:] = [d for d in dirnames if d not in ignored_dirs]
-            target_paths.extend(Path(dirpath) / fn for fn in filenames)
+            target_paths.extend(
+                p for fn in filenames if (p := Path(dirpath) / fn).is_file()
+            )
 
     for p in sorted(target_paths, key=str):
         try:
