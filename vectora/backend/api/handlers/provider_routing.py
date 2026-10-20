@@ -4195,7 +4195,6 @@ from pydantic import BaseModel, Field
 from backend.llm.systemone.settings import (
     SystemOneSettings,
     get_systemone_provider,
-    mask_secret,
 )
 from backend.llm.systemone.types import (
     DecisionProviderType,
@@ -4236,11 +4235,13 @@ class UpdateSystemOneConfigRequest(BaseModel):
     jev_api_model: str | None = None
     jev_api_key: str | None = None
     allow_remote_fallback: bool | None = None
-    confidence_threshold_hitl: float | None = None
+    confidence_threshold_hitl: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 @router.get("/decision-models/status")
-async def get_decision_models_status() -> SystemOneStatusResponse:
+async def get_decision_models_status(
+    _: ProviderAdmin = None,
+) -> SystemOneStatusResponse:
     """Retorna o status atual, capacidades e saúde do subsistema de Decision Models."""
     from backend.settings import settings
 
@@ -4268,7 +4269,10 @@ async def get_decision_models_status() -> SystemOneStatusResponse:
         caps = await prov.capabilities()
         is_healthy = await prov.health()
     except Exception:
-        pass
+        logger.warning(
+            "provider_routing: falha ao verificar saúde do provider SystemOne",
+            exc_info=True,
+        )
 
     return SystemOneStatusResponse(
         enabled=settings.systemone_enabled,
@@ -4278,11 +4282,11 @@ async def get_decision_models_status() -> SystemOneStatusResponse:
         clef_api_base_url=settings.systemone_clef_api_base_url,
         clef_api_model=settings.systemone_clef_api_model,
         clef_api_key_configured=bool(settings.clef_api_key),
-        clef_api_key_masked=mask_secret(settings.clef_api_key),
+        clef_api_key_masked=None,
         jev_api_base_url=settings.systemone_jev_api_base_url,
         jev_api_model=settings.systemone_jev_api_model,
         jev_api_key_configured=bool(settings.jev_api_key),
-        jev_api_key_masked=mask_secret(settings.jev_api_key),
+        jev_api_key_masked=None,
         allow_remote_fallback=settings.systemone_allow_remote_fallback,
         confidence_threshold_hitl=settings.systemone_confidence_threshold_hitl,
         capabilities=caps,
@@ -4322,4 +4326,4 @@ async def update_decision_models_config(
     if body.confidence_threshold_hitl is not None:
         settings.systemone_confidence_threshold_hitl = body.confidence_threshold_hitl
 
-    return await get_decision_models_status()
+    return await get_decision_models_status(_)

@@ -26,7 +26,10 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from backend.llm.systemone.harness import SystemOneHarness
 
 logger = logging.getLogger(__name__)
 
@@ -1141,7 +1144,7 @@ async def classify_block_kind_with_systemone(
     task_id: str,
     error_summary: str,
     *,
-    harness: Any | None,
+    harness: SystemOneHarness | None,
     workspace_id: str = "default",
     default_kind: str = "needs_input",
 ) -> tuple[str, str]:
@@ -1184,7 +1187,7 @@ async def classify_block_kind_with_systemone(
 async def propose_transition_with_systemone(
     task_id: str,
     *,
-    harness: Any,
+    harness: SystemOneHarness,
     workspace_id: str = "default",
     evidence_summary: str = "",
     authorized_session_id: str | None = None,

@@ -92,24 +92,56 @@ class _CircuitBreakerState:
 
 
 class WorkspaceBudgetTracker:
-    """Controle de orçamento de tokens por workspace com reserva prévia e reconciliação."""
+    """Controle de orçamento de tokens por workspace com reserva prévia, janela de renovação e reconciliação."""
 
-    def __init__(self, default_limit_tokens: int = 100_000) -> None:
+    def __init__(
+        self,
+        default_limit_tokens: int = 100_000,
+        *,
+        window_seconds: float | None = 3600.0,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self._default_limit = default_limit_tokens
+        self._window_seconds = window_seconds
+        self._clock = clock
         self._limits: dict[str, int] = {}
         self._consumed: dict[str, int] = {}
         self._reserved: dict[str, int] = {}
+        self._window_started_at: dict[str, float] = {}
+
+    def _refresh_window_if_expired(self, workspace_id: str) -> None:
+        if self._window_seconds is None or self._window_seconds <= 0:
+            return
+        now = self._clock()
+        started = self._window_started_at.get(workspace_id)
+        if started is None:
+            self._window_started_at[workspace_id] = now
+            return
+        if now - started >= self._window_seconds:
+            self._consumed[workspace_id] = 0
+            self._window_started_at[workspace_id] = now
+
+    def reset(self, workspace_id: str | None = None) -> None:
+        """Zera o consumo acumulado de um workspace ou de todos os workspaces."""
+        if workspace_id is None:
+            self._consumed.clear()
+            self._window_started_at.clear()
+            return
+        self._consumed.pop(workspace_id, None)
+        self._window_started_at.pop(workspace_id, None)
 
     def set_workspace_limit(self, workspace_id: str, limit_tokens: int) -> None:
         self._limits[workspace_id] = max(0, limit_tokens)
 
     def get_consumed(self, workspace_id: str) -> int:
+        self._refresh_window_if_expired(workspace_id)
         return self._consumed.get(workspace_id, 0)
 
     def get_reserved(self, workspace_id: str) -> int:
         return self._reserved.get(workspace_id, 0)
 
     def reserve(self, workspace_id: str, estimated_tokens: int) -> bool:
+        self._refresh_window_if_expired(workspace_id)
         limit = self._limits.get(workspace_id, self._default_limit)
         used = self._consumed.get(workspace_id, 0)
         reserved = self._reserved.get(workspace_id, 0)
@@ -125,6 +157,7 @@ class WorkspaceBudgetTracker:
         reserved_tokens: int,
         actual_tokens: int | None,
     ) -> int:
+        self._refresh_window_if_expired(workspace_id)
         estimate = max(_MIN_ACCOUNTED_TOKENS, reserved_tokens)
         current_reserved = self._reserved.get(workspace_id, 0)
         self._reserved[workspace_id] = max(0, current_reserved - estimate)
@@ -786,6 +819,9 @@ class SystemOneHarness:
                 provider_id=primary_id,
                 model=primary_model,
             )
+        except Exception:
+            self._budget.release(workspace_id, estimated_tokens)
+            raise
         finally:
             self._queued_count = max(0, self._queued_count - 1)
 
@@ -885,8 +921,9 @@ class SystemOneHarness:
         if not self._settings.enabled or mode == "off":
             return list(candidates[:limit])
 
-        scored: list[tuple[float, int, str, dict[str, Any]]] = []
-        for idx, item in enumerate(candidates):
+        async def _score_one(
+            idx: int, item: dict[str, Any]
+        ) -> tuple[float, int, str, dict[str, Any]] | None:
             cand_id = str(item.get("id", f"cand_{idx}"))
             snippet = str(item.get("snippet") or item.get("text") or "")[:2000]
             res = await self.decide_pattern(
@@ -900,12 +937,21 @@ class SystemOneHarness:
                 correlation_id=correlation_id,
             )
             if not res.is_usable_recommendation or res.response is None:
-                # Em shadow ou em qualquer falha/HITL, preserva integralmente o ranking original
-                return list(candidates[:limit])
+                return None
             ans = res.response.answers.get("relevance")
             if not isinstance(ans, ScoreAnswer):
+                return None
+            return (ans.score, idx, cand_id, item)
+
+        results = await asyncio.gather(
+            *(_score_one(idx, item) for idx, item in enumerate(candidates))
+        )
+        scored: list[tuple[float, int, str, dict[str, Any]]] = []
+        for entry in results:
+            if entry is None:
+                # Em shadow ou em qualquer falha/HITL, preserva integralmente o ranking original
                 return list(candidates[:limit])
-            scored.append((ans.score, idx, cand_id, item))
+            scored.append(entry)
 
         # Desempate determinístico: maior score primeiro, menor índice original, menor candidate_id
         scored.sort(key=lambda entry: (-entry[0], entry[1], entry[2]))

@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from backend.engine.conversation_loop import LoopConfig
     from backend.engine.hitl import ApprovalGate
     from backend.llm.base import ChatClient
+    from backend.llm.systemone.harness import SystemOneHarness
     from backend.persistence.native.session_store import SessionStore
     from backend.tools.context import ToolContext
     from backend.tools.registry import ToolRegistry
@@ -230,7 +231,7 @@ def _gate_failure_signature(
 
 
 async def evaluate_goal_with_systemone(
-    harness: Any,
+    harness: SystemOneHarness,
     *,
     workspace_id: str,
     goal: str,
@@ -314,7 +315,7 @@ async def _run_goal_loop(
     max_goal_turns: int,
     should_require_approval: Callable[..., bool] | None,
     approval_gate: ApprovalGate | None,
-    systemone_harness: Any | None = None,
+    systemone_harness: SystemOneHarness | None = None,
 ) -> GoalOutcome:
     consecutive_judge_failures = 0
     gate_failure_streak = 0

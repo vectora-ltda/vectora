@@ -622,7 +622,7 @@ INTEGRATIONS_REGISTRY: list[dict[str, Any]] = [
         "env_var": "LLAMACPP_API_KEY",
         "kind": "apikey",
         "description": "Chave de autenticação Bearer para instâncias protegidas do llama.cpp",
-        "docs_url": "https://github.com/ggerganov/llama.cpp/tree/master/examples/server",
+        "docs_url": "https://github.com/ggml-org/llama.cpp/tree/master/tools/server",
         "icon": "cpu",
     },
     {
@@ -936,23 +936,27 @@ async def _verify_apikey(integration_id: str, token: str) -> tuple[bool, str]:  
             return False, f"Cloudflare retornou {r.status_code}"
 
         if integration_id == "ollama":
-            # Validação via header Bearer no endpoint do ollama.com
+            # Validação via header Bearer em endpoint autenticado do ollama.com
             r = await client.get(
-                "https://ollama.com/api/user",
+                "https://ollama.com/api/me",
                 headers={"Authorization": f"Bearer {token}"},
             )
-            if r.status_code in {200, 404}:
-                return True, "Chave Ollama configurada"
-            return False, f"Ollama retornou {r.status_code}"
+            if r.status_code == 200:
+                return True, "Chave Ollama válida"
+            if r.status_code in {401, 403}:
+                return False, f"Ollama rejeitou a chave ({r.status_code})"
+            return True, "Chave salva (verificação não disponível para este provedor)"
 
         if integration_id == "llamacpp":
-            # Validação no servidor local configurado ou loopback padrão
+            # Validação no servidor local configurado ou loopback padrão via endpoint protegido
             base = os.environ.get("LLAMACPP_BASE_URL", "http://127.0.0.1:8080")
             try:
                 r = await client.get(
-                    f"{base}/health",
+                    f"{base}/props",
                     headers={"Authorization": f"Bearer {token}"},
                 )
+                if r.status_code in {401, 403}:
+                    return False, "llama.cpp rejeitou a chave"
                 if r.status_code == 200:
                     return True, "Servidor llama.cpp acessível com a chave"
                 return False, f"llama.cpp retornou {r.status_code}"
