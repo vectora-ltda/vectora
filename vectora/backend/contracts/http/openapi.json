@@ -5438,8 +5438,9 @@
         "description": "Capacidades declaradas por um provedor de Decision Models.",
         "properties": {
           "evidence": {
-            "default": "unknown",
-            "enum": ["verified", "documented", "unknown"],
+            "default": "documented",
+            "description": "Evidência de compatibilidade verificada para este provedor e runtime.",
+            "enum": ["documented", "observed", "unverified"],
             "title": "Evidence",
             "type": "string"
           },
@@ -8339,7 +8340,6 @@
                 "type": "null"
               }
             ],
-            "default": null,
             "title": "Confidence Threshold Hitl"
           },
           "enabled": {
