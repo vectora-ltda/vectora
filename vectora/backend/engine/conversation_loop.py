@@ -26,6 +26,7 @@ vocabulário nativo.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
@@ -787,16 +788,6 @@ async def run_conversation(
                     tool_name=tc.name, tool_call_id=tc.id, args_preview=preview
                 )
             )
-            for key in (
-                "path",
-                "file_path",
-                "target_file",
-                "relative_path",
-                "filename",
-            ):
-                p_val = tc.args.get(key)
-                if isinstance(p_val, str) and p_val and p_val not in files_touched:
-                    files_touched.append(p_val)
 
         resultados = await execute_tool_batch(
             tool_calls,
@@ -811,6 +802,68 @@ async def run_conversation(
                 thread_id, resultado, parent_message_id=parent_id
             )
             call_id = resultado.tool_call_id or ""
+            if not resultado.is_error:
+                tc_match = next((t for t in tool_calls if t.id == call_id), None)
+                tc_args = tc_match.args if tc_match else {}
+                t_name = resultado.name or (tc_match.name if tc_match else "")
+                if t_name in {
+                    "file_write",
+                    "file_edit",
+                    "write_file",
+                    "edit_file",
+                    "apply_patch",
+                    "append_file",
+                    "replace_file",
+                }:
+                    p = (
+                        tc_args.get("file_path")
+                        or tc_args.get("path")
+                        or tc_args.get("target_file")
+                    )
+                    if isinstance(p, str) and p and p not in files_touched:
+                        files_touched.append(p)
+                elif t_name in {"file_delete", "delete_file"}:
+                    p = tc_args.get("path") or tc_args.get("file_path")
+                    if isinstance(p, str) and p and p not in files_touched:
+                        files_touched.append(p)
+                elif t_name in {"file_move", "move_file"}:
+                    for k in ("to_path", "from_path"):
+                        p = tc_args.get(k)
+                        if isinstance(p, str) and p and p not in files_touched:
+                            files_touched.append(p)
+                elif t_name in {
+                    "write_terminal",
+                    "terminal",
+                    "run_command",
+                    "exec_command",
+                }:
+                    ws_path = getattr(ctx, "workspace_dir", None) or getattr(
+                        ctx, "cwd", None
+                    )
+                    if ws_path:
+                        try:
+                            proc = await asyncio.create_subprocess_exec(
+                                "git",
+                                "status",
+                                "--porcelain",
+                                cwd=str(ws_path),
+                                stdout=asyncio.subprocess.PIPE,
+                                stderr=asyncio.subprocess.DEVNULL,
+                            )
+                            stdout_data, _ = await asyncio.wait_for(
+                                proc.communicate(), timeout=2.0
+                            )
+                            out = stdout_data.decode("utf-8", errors="replace")
+                            for raw_line in out.splitlines():
+                                cleaned_line = raw_line.strip()
+                                if len(cleaned_line) > 3:
+                                    f_part = cleaned_line[3:].strip()
+                                    if " -> " in f_part:
+                                        f_part = f_part.split(" -> ")[-1].strip()
+                                    if f_part and f_part not in files_touched:
+                                        files_touched.append(f_part)
+                        except Exception:
+                            pass
             if config.run_id and call_id:
                 try:
                     if hasattr(session_store, "append_ledger_event"):

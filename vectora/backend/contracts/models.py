@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # ============================================================================
 # Contrato canônico de settings.json (v1)
@@ -181,6 +181,13 @@ class QualityGateSpec(BaseModel):
     timeout_seconds: int = Field(
         default=300, ge=5, le=3600, description="Tempo máximo de execução em segundos"
     )
+
+    @field_validator("command")
+    @classmethod
+    def validate_command_non_empty(cls, v: list[str]) -> list[str]:
+        if not v or not any(part.strip() for part in v):
+            raise ValueError("command deve conter pelo menos um executável não vazio")
+        return v
 
 
 class WorkspaceVerificationProfile(BaseModel):
