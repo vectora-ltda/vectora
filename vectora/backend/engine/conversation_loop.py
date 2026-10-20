@@ -26,6 +26,7 @@ vocabulário nativo.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
@@ -267,8 +268,32 @@ async def run_conversation(
     from backend.services.policy_compiler import compile_policy_snapshot
 
     await apply_media_billing_source(ctx)
+    if hasattr(session_store, "get_session") and not (
+        isinstance(ctx._extra, dict) and ctx._extra.get("untrusted_content")
+    ):
+        session_meta = await session_store.get_session(thread_id)
+        if session_meta and session_meta.get("mode") == "connect":
+            if not isinstance(ctx._extra, dict):
+                ctx._extra = {}
+            ctx._extra["untrusted_content"] = True
+
+    if hasattr(session_store, "list_agent_runs") and not (
+        isinstance(ctx._extra, dict) and ctx._extra.get("untrusted_content")
+    ):
+        runs = await session_store.list_agent_runs(thread_id, limit=5)
+        latest_run = runs[0] if runs else None
+        if latest_run and latest_run.untrusted_content:
+            if not isinstance(ctx._extra, dict):
+                ctx._extra = {}
+            ctx._extra["untrusted_content"] = True
+
     if policy_snapshot is None:
         policy_snapshot = compile_policy_snapshot(ctx)
+
+    if isinstance(ctx._extra, dict):
+        sub_deps = ctx._extra.get("subagent_deps")
+        if sub_deps is not None and getattr(sub_deps, "policy_snapshot", None) is None:
+            sub_deps.policy_snapshot = policy_snapshot
 
     emit = on_event or _noop_event
     tools = tool_registry.all()
@@ -280,6 +305,8 @@ async def run_conversation(
     usage_models: set[str] = set()
     usage_records: list[tuple[str | None, dict[str, int]]] = []
     observed_tools: set[str] = set()
+    files_touched: list[str] = []
+    executed_step_gates: set[tuple[str, str]] = set()
 
     for _iteracao in range(config.max_iterations):
         historico = compact_messages(
@@ -511,12 +538,76 @@ async def run_conversation(
                         thread_id,
                     )
                 if hasattr(session_store, "update_agent_run_status"):
+                    # 1. Transiciona atomicamente para o estado 'verifying'
                     await session_store.update_agent_run_status(
                         config.run_id,
-                        status="passed",
-                        detail="Execução completada com sucesso.",
+                        status="verifying",
+                        detail="Executando verificação de quality gates e snapshot criptográfico.",
                         metrics=iter_metrics,
                     )
+                    # 2. Despacha o motor de verificação pós-execução
+                    from backend.services.verification import run_verification
+
+                    ws_id = getattr(ctx, "workspace_id", None)
+                    ws_dir = getattr(ctx, "workspace_dir", None) or getattr(
+                        ctx, "cwd", None
+                    )
+                    v_res = None
+                    try:
+                        v_res = await run_verification(
+                            ws_id,
+                            ws_dir,
+                            files_touched=files_touched or None,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Falha ao executar verificação pós-execução para run %s (thread %s)",
+                            config.run_id,
+                            thread_id,
+                        )
+                        await session_store.update_agent_run_status(
+                            config.run_id,
+                            status="failed",
+                            detail="Erro interno durante a verificação pós-execução.",
+                            error_code="VERIFICATION_ERROR",
+                            metrics=iter_metrics,
+                        )
+
+                    # 3. Persiste o resultado da verificação e a evidência com SHA-256 no AgentRun
+                    if v_res is not None:
+                        try:
+                            if hasattr(session_store, "get_agent_run") and hasattr(
+                                session_store, "upsert_agent_run"
+                            ):
+                                agent_run = await session_store.get_agent_run(
+                                    config.run_id
+                                )
+                                if agent_run is not None:
+                                    agent_run.evidence.append(v_res.to_evidence_entry())
+                                    agent_run.status = v_res.status
+                                    agent_run.metrics = iter_metrics
+                                    agent_run.detail = (
+                                        "Verificação concluída com sucesso."
+                                        if v_res.passed
+                                        else f"Falha nos quality gates: {v_res.failure_feedback or ''}"
+                                    )
+                                    await session_store.upsert_agent_run(agent_run)
+                            else:
+                                await session_store.update_agent_run_status(
+                                    config.run_id,
+                                    status=v_res.status,
+                                    detail=(
+                                        "Verificação concluída com sucesso."
+                                        if v_res.passed
+                                        else "Falha nos quality gates."
+                                    ),
+                                    metrics=iter_metrics,
+                                )
+                        except Exception:
+                            logger.exception(
+                                "Falha ao persistir evidências de verificação para run %s",
+                                config.run_id,
+                            )
             return LoopResult(
                 stopped_reason="stop",
                 final_message=assistant_msg,
@@ -735,6 +826,68 @@ async def run_conversation(
                 thread_id, resultado, parent_message_id=parent_id
             )
             call_id = resultado.tool_call_id or ""
+            if not resultado.is_error:
+                tc_match = next((t for t in tool_calls if t.id == call_id), None)
+                tc_args = tc_match.args if tc_match else {}
+                t_name = resultado.name or (tc_match.name if tc_match else "")
+                if t_name in {
+                    "file_write",
+                    "file_edit",
+                    "write_file",
+                    "edit_file",
+                    "apply_patch",
+                    "append_file",
+                    "replace_file",
+                }:
+                    p = (
+                        tc_args.get("file_path")
+                        or tc_args.get("path")
+                        or tc_args.get("target_file")
+                    )
+                    if isinstance(p, str) and p and p not in files_touched:
+                        files_touched.append(p)
+                elif t_name in {"file_delete", "delete_file"}:
+                    p = tc_args.get("path") or tc_args.get("file_path")
+                    if isinstance(p, str) and p and p not in files_touched:
+                        files_touched.append(p)
+                elif t_name in {"file_move", "move_file"}:
+                    for k in ("to_path", "from_path"):
+                        p = tc_args.get(k)
+                        if isinstance(p, str) and p and p not in files_touched:
+                            files_touched.append(p)
+                elif t_name in {
+                    "write_terminal",
+                    "terminal",
+                    "run_command",
+                    "exec_command",
+                }:
+                    ws_path = getattr(ctx, "workspace_dir", None) or getattr(
+                        ctx, "cwd", None
+                    )
+                    if ws_path:
+                        try:
+                            proc = await asyncio.create_subprocess_exec(
+                                "git",
+                                "status",
+                                "--porcelain",
+                                cwd=str(ws_path),
+                                stdout=asyncio.subprocess.PIPE,
+                                stderr=asyncio.subprocess.DEVNULL,
+                            )
+                            stdout_data, _ = await asyncio.wait_for(
+                                proc.communicate(), timeout=2.0
+                            )
+                            out = stdout_data.decode("utf-8", errors="replace")
+                            for raw_line in out.splitlines():
+                                cleaned_line = raw_line.strip()
+                                if len(cleaned_line) > 3:
+                                    f_part = cleaned_line[3:].strip()
+                                    if " -> " in f_part:
+                                        f_part = f_part.split(" -> ")[-1].strip()
+                                    if f_part and f_part not in files_touched:
+                                        files_touched.append(f_part)
+                        except Exception:
+                            pass
             if config.run_id and call_id:
                 try:
                     if hasattr(session_store, "append_ledger_event"):
@@ -836,21 +989,49 @@ async def run_conversation(
                         agent_run = await session_store.get_agent_run(config.run_id)
                         if agent_run is not None:
                             agent_run.plan_step = active_step_id
+                            # Recupera gates já concluídos com sucesso para não reexecutar
+                            for ev in agent_run.evidence:
+                                if (
+                                    isinstance(ev, dict)
+                                    and ev.get("kind") == "quality_gate_verification"
+                                    and ev.get("passed")
+                                ):
+                                    ev_step = ev.get("step_id")
+                                    ev_gate = ev.get("quality_gate")
+                                    if ev_step and ev_gate:
+                                        executed_step_gates.add(
+                                            (str(ev_step), str(ev_gate))
+                                        )
+
                             # Executa quality gates específicos para etapas concluídas
                             for item in todos:
                                 if item.status == "completed" and item.quality_gate:
+                                    step_key = item.step_id or item.content
+                                    gate_key = item.quality_gate
+                                    pair = (step_key, gate_key)
+                                    if pair in executed_step_gates:
+                                        continue
+
                                     from backend.services.verification import (
                                         run_verification,
                                     )
 
                                     ws_id = getattr(ctx, "workspace_id", None)
+                                    ws_dir = getattr(
+                                        ctx, "workspace_dir", None
+                                    ) or getattr(ctx, "cwd", None)
                                     v_res = await run_verification(
                                         ws_id,
-                                        getattr(ctx, "cwd", None),
+                                        ws_dir,
                                         target_gate_ids=[item.quality_gate],
                                     )
-                                    agent_run.evidence.append(v_res.to_evidence_entry())
-                                    if not v_res.passed:
+                                    v_entry = v_res.to_evidence_entry()
+                                    v_entry["step_id"] = step_key
+                                    v_entry["quality_gate"] = gate_key
+                                    agent_run.evidence.append(v_entry)
+                                    if v_res.passed:
+                                        executed_step_gates.add(pair)
+                                    else:
                                         agent_run.status = v_res.status
                             await session_store.upsert_agent_run(agent_run)
 
@@ -1070,6 +1251,11 @@ async def resume_conversation(
     from backend.services.policy_compiler import compile_policy_snapshot
 
     await apply_media_billing_source(ctx)
+    is_untrusted_thread = False
+    if hasattr(session_store, "get_session"):
+        session_meta = await session_store.get_session(thread_id)
+        if session_meta and session_meta.get("mode") == "connect":
+            is_untrusted_thread = True
     if hasattr(session_store, "list_agent_runs"):
         runs = await session_store.list_agent_runs(thread_id, limit=5)
         paused_run = next(
@@ -1077,9 +1263,11 @@ async def resume_conversation(
             runs[0] if runs else None,
         )
         if paused_run and paused_run.untrusted_content:
-            if not isinstance(ctx._extra, dict):
-                ctx._extra = {}
-            ctx._extra["untrusted_content"] = True
+            is_untrusted_thread = True
+    if is_untrusted_thread:
+        if not isinstance(ctx._extra, dict):
+            ctx._extra = {}
+        ctx._extra["untrusted_content"] = True
 
     if policy_snapshot is None:
         policy_snapshot = compile_policy_snapshot(ctx)

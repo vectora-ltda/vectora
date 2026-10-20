@@ -261,3 +261,20 @@ def test_save_verification_profile_atomic(
     loaded = get_verification_profile("atomic_ws")
     assert loaded.workspace_id == "atomic_ws"
     assert loaded.enabled is True
+
+
+@pytest.mark.asyncio
+async def test_run_verification_target_gate_missing_fails(
+    test_workspace: Path,
+) -> None:
+    profile = WorkspaceVerificationProfile(
+        workspace_id="test_ws",
+        enabled=True,
+        gates=[],
+    )
+    res = await run_verification(
+        "test_ws", test_workspace, profile=profile, target_gate_ids=["nonexistent_gate"]
+    )
+    assert res.passed is False
+    assert res.status == "failed"
+    assert "Quality gates solicitados não existem" in (res.failure_feedback or "")
