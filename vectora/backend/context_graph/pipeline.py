@@ -36,6 +36,8 @@ class GraphResult:
     god_nodes: list[str] = field(default_factory=list)
     suggested_questions: list[str] = field(default_factory=list)
     error: str | None = None
+    indexing_degraded: bool = False
+    indexing_error: str | None = None
 
 
 def _graph_out_dir(workspace_path: Path) -> Path:
@@ -356,7 +358,13 @@ async def build_workspace_graph(
         # ── Passo 8: exportar grafo + manifesto ───────────────────────────────
         _progress(8, "Exportando...", _files_total)
         try:
-            await asyncio.to_thread(to_json, graph, communities, str(graph_json))
+            await asyncio.to_thread(
+                to_json,
+                graph,
+                communities,
+                str(graph_json),
+                community_labels=community_labels,
+            )
         except Exception:
             logger.exception(
                 "context_graph: falha ao exportar graph.json",
@@ -364,7 +372,13 @@ async def build_workspace_graph(
             )
 
         try:
-            await asyncio.to_thread(to_html, graph, communities, str(graph_html))
+            await asyncio.to_thread(
+                to_html,
+                graph,
+                communities,
+                str(graph_html),
+                community_labels=community_labels,
+            )
         except Exception:
             logger.exception(
                 "context_graph: falha ao exportar graph.html",
@@ -394,11 +408,13 @@ async def build_workspace_graph(
             if not update:
                 await purge_graph_index(workspace_id)
             await index_graph_nodes(workspace_id, graph_data)
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 "context_graph: falha ao indexar nós no LanceDB",
                 extra={"workspace_id": workspace_id},
             )
+            result.indexing_degraded = True
+            result.indexing_error = str(exc)
 
         logger.info(
             "context_graph: build completo — %d nós, %d arestas, %d tokens",

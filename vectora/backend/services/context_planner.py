@@ -1,0 +1,255 @@
+"""Planejador Unificado de Contexto e Memória (ContextPlanner).
+
+Seleciona mensagens, projeções, memórias e arquivos por relevância e
+preserva a integridade causal de tool-calls/tool-results e instruções do sistema.
+"""
+
+from __future__ import annotations
+
+import hashlib
+from dataclasses import dataclass, field
+from typing import Any
+
+from backend.services.context_compaction import (
+    _bound_tool_results,
+    _conversation_units,
+    _marker,
+    _message_tokens,
+)
+from backend.services.context_manifest import (
+    ContextBlock,
+    ContextManifest,
+    ContextProjection,
+)
+from backend.services.memory_store import MemoryStore, get_memory_store
+from backend.services.policy_compiler import PolicySnapshot
+from backend.vtypes.message import ContentBlock, MessageRole, VMessage
+
+
+def compute_transcript_hash(messages: list[VMessage]) -> str:
+    """Calcula o hash SHA-256 estável da sequência de mensagens."""
+    h = hashlib.sha256()
+    for m in messages:
+        h.update(f"{m.role.value}:{m.text()}:{len(m.tool_calls)}".encode())
+    return h.hexdigest()
+
+
+@dataclass
+class PlannedContext:
+    """Resultado do planejamento de contexto para envio ao modelo."""
+
+    messages: list[VMessage]
+    manifest: ContextManifest
+    projection: ContextProjection | None = None
+    untrusted_content: bool = False
+
+
+class ContextPlanner:
+    """Orquestrador de seleção, compactação e enriquecimento de contexto."""
+
+    def __init__(self, memory_store: MemoryStore | None = None) -> None:
+        self._memory_store = memory_store or get_memory_store()
+
+    def plan_context(
+        self,
+        messages: list[VMessage],
+        *,
+        max_tokens: int,
+        enabled: bool = True,
+        preserve_latest_tool_result: bool = False,
+        workspace_id: str | None = None,
+        policy_snapshot: PolicySnapshot | None = None,
+    ) -> PlannedContext:
+        """Seleciona deterministicamente o contexto ideal respeitando orçamentos e prioridades."""
+        transcript_hash = compute_transcript_hash(messages)
+        is_untrusted = policy_snapshot.untrusted_content if policy_snapshot else False
+
+        blocks: list[ContextBlock] = []
+
+        # 1. Recupera regras ou memórias de projeto relevantes
+        project_memories = self._memory_store.retrieve(
+            domain="project",
+            scope_id=workspace_id or "global",
+            limit=5,
+        )
+
+        injected_system_messages: list[VMessage] = []
+        if project_memories.records:
+            memory_texts = [
+                f"- [{r.provenance or 'project'}]: {r.content}"
+                for r in project_memories.records
+            ]
+            mem_content = "[Memória de Projeto e Diretrizes]:\n" + "\n".join(
+                memory_texts
+            )
+            injected_system_messages.append(
+                VMessage(
+                    role=MessageRole.SYSTEM,
+                    content=[ContentBlock(kind="text", text=mem_content)],
+                )
+            )
+            blocks.append(
+                ContextBlock(
+                    domain="project",
+                    title="Diretrizes do Projeto",
+                    token_count=_message_tokens(injected_system_messages[0]),
+                    reason="Injeção de memória de projeto persistente",
+                    provenance=workspace_id,
+                )
+            )
+
+        full_messages = [*injected_system_messages, *messages]
+        tokens_before = sum(_message_tokens(m) for m in full_messages)
+
+        if not enabled or max_tokens <= 0 or len(full_messages) < 2:
+            manifest = ContextManifest(
+                blocks=[
+                    *blocks,
+                    ContextBlock(
+                        domain="short_term",
+                        title="Transcript Operacional Completo",
+                        token_count=tokens_before,
+                        reason="Histórico integral sem compactação",
+                        untrusted_content=is_untrusted,
+                    ),
+                ],
+                total_tokens=tokens_before,
+                untrusted_content=is_untrusted,
+            )
+            return PlannedContext(
+                messages=full_messages,
+                manifest=manifest,
+                untrusted_content=is_untrusted,
+            )
+
+        # 2. Aplica limitação segura em resultados de tool
+        bounded = _bound_tool_results(full_messages)
+        if sum(_message_tokens(m) for m in bounded) <= max_tokens:
+            manifest = ContextManifest(
+                blocks=[
+                    *blocks,
+                    ContextBlock(
+                        domain="short_term",
+                        title="Transcript Operacional",
+                        token_count=sum(_message_tokens(m) for m in bounded),
+                        reason="Dentro do orçamento de tokens",
+                        untrusted_content=is_untrusted,
+                    ),
+                ],
+                total_tokens=sum(_message_tokens(m) for m in bounded),
+                untrusted_content=is_untrusted,
+            )
+            return PlannedContext(
+                messages=bounded,
+                manifest=manifest,
+                untrusted_content=is_untrusted,
+            )
+
+        # 3. Compactação causal via conversation units preservando decisões e erros
+        systems = [m for m in bounded if m.role == MessageRole.SYSTEM]
+        non_system = [m for m in bounded if m.role != MessageRole.SYSTEM]
+        units = _conversation_units(non_system)
+
+        preserved_decisions: list[str] = []
+        preserved_errors: list[str] = []
+        preserved_approvals: list[str] = []
+
+        # Extrai decisões e erros estruturados
+        for u in units:
+            for m in u:
+                txt = m.text()
+                if "error" in txt.lower() or "falha" in txt.lower():
+                    preserved_errors.append(txt[:100])
+                if "aprovad" in txt.lower():
+                    preserved_approvals.append(txt[:100])
+
+        used_tokens = sum(_message_tokens(m) for m in systems)
+        selected_units: list[list[VMessage]] = []
+
+        marker_msg = _marker(len(non_system))
+        marker_cost = _message_tokens(marker_msg)
+        selection_budget = max_tokens - marker_cost
+
+        for unit in reversed(units):
+            cost = sum(_message_tokens(m) for m in unit)
+            if used_tokens + cost > selection_budget:
+                continue
+            selected_units.append(unit)
+            used_tokens += cost
+
+        selected_non_system = [m for unit in reversed(selected_units) for m in unit]
+        omitted = len(non_system) - len(selected_non_system)
+
+        final_messages = [*systems]
+        if omitted > 0:
+            final_messages.append(marker_msg)
+        final_messages.extend(selected_non_system)
+
+        tokens_after = sum(_message_tokens(m) for m in final_messages)
+
+        projection = ContextProjection(
+            start_seq=0,
+            end_seq=len(messages),
+            source_transcript_hash=transcript_hash,
+            tokens_before=tokens_before,
+            tokens_after=tokens_after,
+            preserved_decisions=preserved_decisions,
+            preserved_errors=preserved_errors,
+            preserved_approvals=preserved_approvals,
+            excluded_items_count=omitted,
+        )
+
+        blocks.append(
+            ContextBlock(
+                domain="system",
+                title="Instruções de Sistema",
+                token_count=sum(_message_tokens(m) for m in systems),
+                reason="Instruções e políticas obrigatórias",
+            )
+        )
+        blocks.append(
+            ContextBlock(
+                domain="short_term",
+                title="Histórico Selecionado",
+                token_count=sum(_message_tokens(m) for m in selected_non_system),
+                reason=f"Unidades causais recentes ({len(selected_units)} unidades mantidas)",
+                untrusted_content=is_untrusted,
+            )
+        )
+
+        manifest = ContextManifest(
+            blocks=blocks,
+            total_tokens=tokens_after,
+            untrusted_content=is_untrusted,
+            projection=projection,
+        )
+
+        return PlannedContext(
+            messages=final_messages,
+            manifest=manifest,
+            projection=projection,
+            untrusted_content=is_untrusted,
+        )
+
+
+_DEFAULT_PLANNER = ContextPlanner()
+
+
+def plan_context(
+    messages: list[VMessage],
+    *,
+    max_tokens: int,
+    enabled: bool = True,
+    preserve_latest_tool_result: bool = False,
+    workspace_id: str | None = None,
+    policy_snapshot: PolicySnapshot | None = None,
+) -> PlannedContext:
+    """Função conveniente para planejar o contexto de um turno."""
+    return _DEFAULT_PLANNER.plan_context(
+        messages,
+        max_tokens=max_tokens,
+        enabled=enabled,
+        preserve_latest_tool_result=preserve_latest_tool_result,
+        workspace_id=workspace_id,
+        policy_snapshot=policy_snapshot,
+    )
