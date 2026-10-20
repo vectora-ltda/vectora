@@ -1346,12 +1346,14 @@ class PostgresSessionStore:
             )
             await conn.execute(
                 "INSERT INTO vectora_native_agent_runs ("
-                "run_id, thread_id, turn_id, user_id, workspace_id, model, provider, "
+                "run_id, thread_id, turn_id, parent_run_id, correlation_id, user_id, workspace_id, model, provider, "
                 "status, plan_step, tools_available_json, tools_used_json, approvals_json, "
                 "files_touched_json, commands_run_json, tests_run_json, artifacts_json, "
                 "metrics_json, evidence_json, detail, error_code, started_at, updated_at, terminal_at) "
-                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25) "
                 "ON CONFLICT(run_id) DO UPDATE SET "
+                "parent_run_id = COALESCE(EXCLUDED.parent_run_id, vectora_native_agent_runs.parent_run_id), "
+                "correlation_id = COALESCE(EXCLUDED.correlation_id, vectora_native_agent_runs.correlation_id), "
                 "status = EXCLUDED.status, "
                 "plan_step = COALESCE(EXCLUDED.plan_step, vectora_native_agent_runs.plan_step), "
                 "tools_available_json = EXCLUDED.tools_available_json, "
@@ -1370,6 +1372,8 @@ class PostgresSessionStore:
                 run.run_id,
                 run.thread_id,
                 run.turn_id,
+                run.parent_run_id,
+                run.correlation_id,
                 run.user_id,
                 run.workspace_id,
                 run.model,
@@ -1486,7 +1490,7 @@ class PostgresSessionStore:
         await self.setup()
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT run_id, thread_id, turn_id, user_id, workspace_id, "
+                "SELECT run_id, thread_id, turn_id, parent_run_id, correlation_id, user_id, workspace_id, "
                 "model, provider, status, plan_step, tools_available_json, "
                 "tools_used_json, approvals_json, files_touched_json, commands_run_json, "
                 "tests_run_json, artifacts_json, metrics_json, evidence_json, "
@@ -1505,6 +1509,12 @@ class PostgresSessionStore:
                 run_id=str(row["run_id"]),
                 thread_id=str(row["thread_id"]),
                 turn_id=str(row["turn_id"]) if row["turn_id"] else None,
+                parent_run_id=str(row["parent_run_id"])
+                if row["parent_run_id"]
+                else None,
+                correlation_id=str(row["correlation_id"])
+                if row["correlation_id"]
+                else None,
                 user_id=str(row["user_id"] or ""),
                 workspace_id=str(row["workspace_id"]) if row["workspace_id"] else None,
                 model=str(row["model"] or ""),
@@ -1536,7 +1546,7 @@ class PostgresSessionStore:
         safe_limit = max(1, min(500, int(limit)))
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT run_id, thread_id, turn_id, user_id, workspace_id, "
+                "SELECT run_id, thread_id, turn_id, parent_run_id, correlation_id, user_id, workspace_id, "
                 "model, provider, status, plan_step, tools_available_json, "
                 "tools_used_json, approvals_json, files_touched_json, commands_run_json, "
                 "tests_run_json, artifacts_json, metrics_json, evidence_json, "
@@ -1558,6 +1568,12 @@ class PostgresSessionStore:
                         run_id=str(r["run_id"]),
                         thread_id=str(r["thread_id"]),
                         turn_id=str(r["turn_id"]) if r["turn_id"] else None,
+                        parent_run_id=str(r["parent_run_id"])
+                        if r["parent_run_id"]
+                        else None,
+                        correlation_id=str(r["correlation_id"])
+                        if r["correlation_id"]
+                        else None,
                         user_id=str(r["user_id"] or ""),
                         workspace_id=str(r["workspace_id"])
                         if r["workspace_id"]

@@ -1,7 +1,7 @@
 """Contrato persistente e canônico de execuções do agente (AgentRun).
 
 Consolida eventos, checkpoints, aprovações, tools, artefatos, evidências e métricas
-em conformidade com a issue #368 e contratos versionados do backend.
+em conformidade com contratos versionados do backend.
 """
 
 from __future__ import annotations
@@ -200,6 +200,8 @@ class AgentRun(BaseModel):
     run_id: str
     thread_id: str
     turn_id: str | None = None
+    parent_run_id: str | None = None
+    correlation_id: str | None = None
     user_id: str = ""
     workspace_id: str | None = None
     model: str = ""

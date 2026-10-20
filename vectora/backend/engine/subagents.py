@@ -78,6 +78,8 @@ from uuid import uuid4
 from backend.engine.conversation_loop import LoopConfig, run_conversation
 from backend.engine.stream_events import MessageChunk, SubagentOutput
 from backend.rbac import tool_policy
+from backend.services.egress_policy import EgressPolicy
+from backend.services.policy_compiler import DESTRUCTIVE_TOOLS, PolicySnapshot
 from backend.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -224,6 +226,7 @@ async def run_subagent(
     | None,
     turn_budget: TurnBudget | None = None,
     liveness: LivenessConfig | None = None,
+    parent_policy_snapshot: PolicySnapshot | None = None,
 ) -> str:
     """Roda `spec` até completar (ou pausar em HITL) e devolve o texto
     final. Sem `spec.correlation_id`, delega direto pra
@@ -246,6 +249,7 @@ async def run_subagent(
             should_require_approval=should_require_approval,
             turn_budget=turn_budget,
             liveness=liveness,
+            parent_policy_snapshot=parent_policy_snapshot,
         )
 
     correlation_id = spec.correlation_id
@@ -268,6 +272,7 @@ async def run_subagent(
             should_require_approval=should_require_approval,
             turn_budget=turn_budget,
             liveness=liveness,
+            parent_policy_snapshot=parent_policy_snapshot,
         )
     except BaseException as exc:
         if not future.done():
@@ -297,6 +302,7 @@ async def _run_subagent_once(
     | None = None,
     turn_budget: TurnBudget | None = None,
     liveness: LivenessConfig | None = None,
+    parent_policy_snapshot: PolicySnapshot | None = None,
 ) -> str:
     """Roda `spec` uma única vez até completar (ou pausar em HITL) e
     devolve o texto final — instância nova e isolada do motor, sessão
@@ -321,14 +327,27 @@ async def _run_subagent_once(
     momento, distinto do watchdog de liveness (só timeout de inatividade).
 
     Erro/borda: `spec.tools` pedindo tool fora do escopo RBAC do usuário
-    (`ctx.user_id`, via `backend.rbac.tool_policy.effective_disabled`) é
+    (`ctx.user_id`, via `backend.rbac.tool_policy.effective_disabled`) ou
+    bloqueada por políticas de governança/conteúdo não confiável é
     rejeitado antes de qualquer sessão ser criada — erro tipado, nenhuma
     chamada ao chat client."""
     fora_do_escopo = _tools_outside_user_scope(spec.tools, ctx.user_id)
+    if parent_policy_snapshot is not None:
+        for t in spec.tools:
+            allowed, _ = parent_policy_snapshot.is_tool_allowed(t.name)
+            if not allowed and t.name not in fora_do_escopo:
+                fora_do_escopo.append(t.name)
+    else:
+        extra = getattr(ctx, "_extra", {})
+        if isinstance(extra, dict) and extra.get("untrusted_content"):
+            for t in spec.tools:
+                if t.name in DESTRUCTIVE_TOOLS and t.name not in fora_do_escopo:
+                    fora_do_escopo.append(t.name)
+
     if fora_do_escopo:
         return (
             f"Error: subagente '{spec.name}' pede tool(s) fora do escopo "
-            f"RBAC do usuário atual: {', '.join(sorted(fora_do_escopo))}."
+            f"RBAC ou bloqueadas por política de segurança: {', '.join(sorted(fora_do_escopo))}."
         )
 
     if turn_budget is not None:
@@ -362,7 +381,63 @@ async def _run_subagent_once(
     for tool_spec in spec.tools:
         sub_registry.register(tool_spec)
 
-    sub_ctx = replace(ctx, thread_id=thread_id)
+    child_run_id = f"run_{uuid4().hex}"
+    parent_run_id = ctx.run_id or (config.run_id if config else None) or None
+    corr_id = (
+        str(spec.correlation_id)
+        if spec.correlation_id
+        else (ctx.correlation_id or None)
+    )
+
+    child_disabled = set(tool_policy.effective_disabled(ctx.user_id))
+    is_untrusted = False
+    if parent_policy_snapshot is not None:
+        child_disabled.update(parent_policy_snapshot.disabled_tools)
+        is_untrusted = parent_policy_snapshot.untrusted_content
+    else:
+        extra = getattr(ctx, "_extra", {})
+        if isinstance(extra, dict) and extra.get("untrusted_content"):
+            is_untrusted = True
+
+    child_policy = PolicySnapshot(
+        workspace_id=ctx.workspace_id or None,
+        user_id=ctx.user_id or "local",
+        permission_mode=ctx.permission_mode or "ask",
+        disabled_tools=frozenset(child_disabled),
+        egress_policy=parent_policy_snapshot.egress_policy
+        if parent_policy_snapshot
+        else EgressPolicy(workspace_id=ctx.workspace_id or None),
+        is_jailed=parent_policy_snapshot.is_jailed if parent_policy_snapshot else False,
+        untrusted_content=is_untrusted,
+        allow_force_push=parent_policy_snapshot.allow_force_push
+        if parent_policy_snapshot
+        else False,
+    )
+
+    if hasattr(session_store, "upsert_agent_run"):
+        from backend.persistence.native.agent_run import AgentRun
+
+        child_run = AgentRun(
+            run_id=child_run_id,
+            thread_id=thread_id,
+            parent_run_id=parent_run_id,
+            correlation_id=corr_id,
+            user_id=ctx.user_id,
+            workspace_id=ctx.workspace_id or None,
+            model=ctx.model or "",
+            status="running",
+            tools_available=[t.name for t in spec.tools],
+            untrusted_content=is_untrusted,
+        )
+        await session_store.upsert_agent_run(child_run)
+
+    sub_ctx = replace(
+        ctx,
+        thread_id=thread_id,
+        run_id=child_run_id,
+        correlation_id=corr_id or "",
+    )
+    sub_config = replace(config or LoopConfig(), run_id=child_run_id)
 
     if on_event is not None:
         await on_event(
@@ -402,9 +477,10 @@ async def _run_subagent_once(
             tool_registry=sub_registry,
             ctx=sub_ctx,
             thread_id=thread_id,
-            config=config or LoopConfig(),
+            config=sub_config,
             on_event=_on_event_com_liveness,
             should_require_approval=should_require_approval,
+            policy_snapshot=child_policy,
         )
     )
 
