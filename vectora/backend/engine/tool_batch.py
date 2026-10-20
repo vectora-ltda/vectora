@@ -63,9 +63,9 @@ def _check_policy_snapshot_pre_execute(
 
 
 #: Callbacks aplicados, em ordem, antes da execução de qualquer tool.
-_PRE_EXECUTE: tuple[
-    Callable[[ToolCall, ToolContext, PolicySnapshot | None], tuple[bool, str]], ...
-] = (_check_policy_snapshot_pre_execute,)
+_PRE_EXECUTE: tuple[Callable[[ToolCall, ToolContext, Any], tuple[bool, str]], ...] = (
+    _check_policy_snapshot_pre_execute,
+)
 
 
 def _apply_pre_execute(
