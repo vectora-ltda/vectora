@@ -216,7 +216,7 @@ class TestApiAdapters:
 
     @pytest.mark.asyncio
     async def test_clef_api_adapter_requires_key(self) -> None:
-        adapter = ClefApiAdapter(api_key="")
+        adapter = ClefApiAdapter(api_key="", account_id="test-account")
         req = SystemOneRequest(
             model="@cf/cloudflare/clef-flash",
             state="State",
@@ -323,13 +323,20 @@ class TestDecisionPolicyEngine:
         assert "Empate ou ambiguidade" in eval_result.reason
 
     @pytest.mark.asyncio
-    async def test_remote_fallback_policy_disabled_by_default(self) -> None:
+    async def test_remote_fallback_policy_disabled_by_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         # Fallback desabilitado por padrão
         settings = SystemOneSettings(enabled=True, allow_remote_fallback=False)
         engine = DecisionPolicyEngine(settings)
 
+        async def fake_post(*args: object, **kwargs: object) -> httpx.Response:
+            raise httpx.ConnectError("Local provider down")
+
+        monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
         primary = ClefLocalAdapter()
-        fallback = ClefApiAdapter(api_key="key")
+        fallback = ClefApiAdapter(api_key="key", account_id="test-account")
 
         req = SystemOneRequest(
             model="clef-flash",
@@ -353,8 +360,14 @@ class TestSettingsAndSecrets:
 
     def test_mask_secret(self) -> None:
         assert mask_secret(None) is None
-        assert mask_secret("short") == "********"
-        assert mask_secret("vst_secret_key_123456789") == "vst...6789"
+        short_mask = mask_secret("short")
+        assert short_mask is not None
+        assert short_mask.startswith("********#")
+        long_mask = mask_secret("vst_secret_key_123456789")
+        assert long_mask is not None
+        assert long_mask.startswith("********#")
+        assert "vst" not in long_mask
+        assert "6789" not in long_mask
 
     def test_provider_factory(self) -> None:
         s_local = SystemOneSettings(provider="clef-local")

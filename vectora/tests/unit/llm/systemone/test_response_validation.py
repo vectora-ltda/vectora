@@ -20,7 +20,11 @@ from backend.llm.systemone.types import (
 
 @pytest.mark.parametrize(
     "adapter",
-    [ClefLocalAdapter(), ClefApiAdapter(api_key="test"), JevApiAdapter(api_key="test")],
+    [
+        ClefLocalAdapter(),
+        ClefApiAdapter(api_key="test", account_id="test-account"),
+        JevApiAdapter(api_key="test"),
+    ],
 )
 @pytest.mark.parametrize(
     "answers",
@@ -137,7 +141,11 @@ def test_invalid_envelopes_are_safe(payload: object) -> None:
 
 @pytest.mark.parametrize(
     "adapter",
-    [ClefLocalAdapter(), ClefApiAdapter(api_key="test"), JevApiAdapter(api_key="test")],
+    [
+        ClefLocalAdapter(),
+        ClefApiAdapter(api_key="test", account_id="test-account"),
+        JevApiAdapter(api_key="test"),
+    ],
 )
 async def test_http_errors_do_not_expose_response_body(
     adapter: ClefLocalAdapter | ClefApiAdapter | JevApiAdapter,

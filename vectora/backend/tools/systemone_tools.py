@@ -22,7 +22,10 @@ from backend.tools.registry import ToolExtras, vtool
 
 logger = logging.getLogger(__name__)
 
-_SHARED_TOOL_BUDGET = WorkspaceBudgetTracker(default_limit_tokens=50_000)
+_SHARED_TOOL_BUDGET = WorkspaceBudgetTracker(
+    default_limit_tokens=50_000, window_seconds=3600.0
+)
+_DEFAULT_HARNESS_CACHE: tuple[tuple[object, ...], SystemOneHarness] | None = None
 
 
 def _resolve_authenticated_workspace(ctx: ToolContext) -> str | None:
@@ -34,7 +37,8 @@ def _resolve_authenticated_workspace(ctx: ToolContext) -> str | None:
 
 
 def _build_default_harness() -> SystemOneHarness:
-    """Constrói uma instância governada do `SystemOneHarness` a partir da configuração ativa."""
+    """Constrói ou reutiliza uma instância governada do `SystemOneHarness` a partir da configuração ativa."""
+    global _DEFAULT_HARNESS_CACHE
     try:
         from backend.settings import settings
 
@@ -56,17 +60,37 @@ def _build_default_harness() -> SystemOneHarness:
         s1_settings = SystemOneSettings(enabled=False)
         clef_key = jev_key = None
 
+    cache_key = (
+        s1_settings.enabled,
+        s1_settings.provider,
+        s1_settings.local_base_url,
+        s1_settings.local_model,
+        s1_settings.clef_api_base_url,
+        s1_settings.clef_api_model,
+        s1_settings.clef_account_id,
+        s1_settings.jev_api_base_url,
+        s1_settings.jev_api_model,
+        s1_settings.allow_remote_fallback,
+        s1_settings.confidence_threshold_hitl,
+        clef_key,
+        jev_key,
+    )
+    if _DEFAULT_HARNESS_CACHE is not None and _DEFAULT_HARNESS_CACHE[0] == cache_key:
+        return _DEFAULT_HARNESS_CACHE[1]
+
     provider = get_systemone_provider(
         s1_settings,
         clef_api_key=clef_key,
         jev_api_key=jev_key,
     )
-    return SystemOneHarness(
+    harness = SystemOneHarness(
         s1_settings,
         provider,
         registry=DEFAULT_PATTERN_REGISTRY,
         budget_tracker=_SHARED_TOOL_BUDGET,
     )
+    _DEFAULT_HARNESS_CACHE = (cache_key, harness)
+    return harness
 
 
 @vtool(extras=ToolExtras(destructive=False, category="planning", icon="cpu"))
@@ -138,9 +162,12 @@ async def systemone_evaluate_pattern(
             ensure_ascii=False,
         )
 
-    harness = getattr(ctx, "_extra", {}).get("systemone_harness")
+    extra = getattr(ctx, "_extra", None)
+    harness = extra.get("systemone_harness") if isinstance(extra, dict) else None
     if not isinstance(harness, SystemOneHarness):
         harness = _build_default_harness()
+        if isinstance(extra, dict):
+            extra["systemone_harness"] = harness
 
     try:
         result = await harness.decide_pattern(
@@ -204,9 +231,12 @@ async def systemone_propose_kanban_transition(
             {"status": "error", "error": "sessão ou workspace ausente no contexto"}
         )
 
-    harness = getattr(ctx, "_extra", {}).get("systemone_harness")
+    extra = getattr(ctx, "_extra", None)
+    harness = extra.get("systemone_harness") if isinstance(extra, dict) else None
     if not isinstance(harness, SystemOneHarness):
         harness = _build_default_harness()
+        if isinstance(extra, dict):
+            extra["systemone_harness"] = harness
 
     try:
         proposal = await kanban.propose_transition_with_systemone(

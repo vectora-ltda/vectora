@@ -111,6 +111,10 @@ class TestTrackerDeteccao:
         path = _write(tmp_path, "a.py", "# ver pull request #12\nx = 1\n")
         assert len(_find_violations(path)) == 1
 
+    def test_bloqueia_pull_request_sem_numero(self, tmp_path: Path) -> None:
+        path = _write(tmp_path, "a.py", "# acompanhamento no pull request\nx = 1\n")
+        assert len(_find_violations(path)) == 1
+
     def test_bloqueia_gha_e_github_actions(self, tmp_path: Path) -> None:
         path1 = _write(tmp_path, "b.py", "# rodado no GHA\nx = 1\n")
         assert len(_find_violations(path1)) == 1

@@ -257,12 +257,12 @@ def test_score_answer_out_of_bounds(score: float, min_s: float, max_s: float) ->
         (400, SystemOneValidationError),
         (401, SystemOneAuthenticationError),
         (403, SystemOneAuthenticationError),
-        (404, SystemOneConnectionError),
+        (404, SystemOneCapabilityError),
         (429, SystemOneRateLimitError),
-        (500, SystemOneError),
-        (502, SystemOneError),
-        (503, SystemOneError),
-        (504, SystemOneError),
+        (500, SystemOneConnectionError),
+        (502, SystemOneConnectionError),
+        (503, SystemOneConnectionError),
+        (504, SystemOneConnectionError),
     ],
 )
 @pytest.mark.asyncio
@@ -347,7 +347,7 @@ async def test_clef_local_health(
 @pytest.mark.parametrize("api_key", ["", "   "])
 @pytest.mark.asyncio
 async def test_api_adapters_empty_keys(api_key: str) -> None:
-    clef = ClefApiAdapter(api_key=api_key)
+    clef = ClefApiAdapter(api_key=api_key, account_id="test-account")
     jev = JevApiAdapter(api_key=api_key)
     req = SystemOneRequest(
         model="clef-flash",
@@ -362,7 +362,7 @@ async def test_api_adapters_empty_keys(api_key: str) -> None:
 
 @pytest.mark.asyncio
 async def test_clef_api_capabilities_supports_images() -> None:
-    clef = ClefApiAdapter(api_key="valid_key")
+    clef = ClefApiAdapter(api_key="valid_key", account_id="test-account")
     caps = await clef.capabilities()
     assert caps.supports_image is True
 
@@ -380,14 +380,14 @@ async def test_jev_api_capabilities_supports_images() -> None:
         (401, SystemOneAuthenticationError),
         (403, SystemOneAuthenticationError),
         (429, SystemOneRateLimitError),
-        (500, SystemOneError),
+        (500, SystemOneConnectionError),
     ],
 )
 @pytest.mark.asyncio
 async def test_clef_api_http_errors(
     monkeypatch: pytest.MonkeyPatch, status_code: int, expected_exc: type[Exception]
 ) -> None:
-    clef = ClefApiAdapter(api_key="test_token")
+    clef = ClefApiAdapter(api_key="test_token", account_id="test-account")
     req = SystemOneRequest(
         model="@cf/cloudflare/clef-flash",
         state="State",
@@ -408,7 +408,7 @@ async def test_clef_api_http_errors(
         (401, SystemOneAuthenticationError),
         (403, SystemOneAuthenticationError),
         (429, SystemOneRateLimitError),
-        (500, SystemOneError),
+        (500, SystemOneConnectionError),
     ],
 )
 @pytest.mark.asyncio
@@ -503,25 +503,25 @@ def test_policy_choice_tie_breaker(d1: float, d2: float, should_hitl: bool) -> N
 
 
 @pytest.mark.parametrize(
-    ("secret", "expected"),
+    "secret",
     [
-        (None, None),
-        ("", None),
-        ("123", "********"),
-        ("shortkey", "********"),
-        ("cf_abcdef123456789", "cf_...6789"),
-        ("jev_live_api_key_9988776655", "jev...655"),
+        None,
+        "",
+        "123",
+        "shortkey",
+        "cf_abcdef123456789",
+        "jev_live_api_key_9988776655",
     ],
 )
-def test_mask_secret_permutations(secret: str | None, expected: str | None) -> None:
+def test_mask_secret_permutations(secret: str | None) -> None:
     res = mask_secret(secret)
     if not secret:
         assert res is None
-    elif len(secret) <= 8:
-        assert res == "********"
     else:
         assert res is not None
-        assert res.endswith(secret[-4:])
+        assert res.startswith("********#")
+        assert len(res) == len("********#") + 8
+        assert secret[-3:] not in res
 
 
 @pytest.mark.parametrize("provider_name", ["clef-local", "clef-api", "jev-api"])
@@ -557,6 +557,29 @@ from backend.api.handlers.provider_routing import (
     get_decision_models_status,
     update_decision_models_config,
 )
+from backend.settings import settings as app_settings
+
+_SYSTEMONE_SETTING_ATTRS = (
+    "systemone_enabled",
+    "systemone_provider",
+    "systemone_local_base_url",
+    "systemone_local_model",
+    "systemone_clef_api_base_url",
+    "systemone_clef_api_model",
+    "systemone_jev_api_base_url",
+    "systemone_jev_api_model",
+    "systemone_allow_remote_fallback",
+    "systemone_confidence_threshold_hitl",
+    "clef_api_key",
+    "jev_api_key",
+)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_systemone_app_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    for attr in _SYSTEMONE_SETTING_ATTRS:
+        if hasattr(app_settings, attr):
+            monkeypatch.setattr(app_settings, attr, getattr(app_settings, attr))
 
 
 @pytest.mark.asyncio

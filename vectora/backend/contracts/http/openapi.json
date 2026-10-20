@@ -5452,6 +5452,12 @@
       "ProviderCapabilities": {
         "description": "Capacidades declaradas por um provedor de Decision Models.",
         "properties": {
+          "evidence": {
+            "default": "unknown",
+            "enum": ["verified", "documented", "unknown"],
+            "title": "Evidence",
+            "type": "string"
+          },
           "supported_models": {
             "items": {
               "type": "string"

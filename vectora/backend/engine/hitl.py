@@ -13,13 +13,17 @@ decide COMO persistir/esperar.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+from collections import deque
 from typing import TYPE_CHECKING, Any
 
 from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import MessageRole
 
 if TYPE_CHECKING:
+    from backend.llm.systemone.harness import SystemOneHarness
     from backend.persistence.native.session_store import SessionStore
     from backend.tools.context import ToolContext
     from backend.vtypes.message import VMessage
@@ -285,12 +289,20 @@ def should_require_approval(
     reason = "policy"
     if not decision:
         extra = getattr(ctx, "_extra", None)
-        if (
-            isinstance(extra, dict)
-            and extra.get("systemone_risk_requires_approval") is True
-        ):
-            decision = True
-            reason = "systemone_risk_elevated"
+        if isinstance(extra, dict):
+            elevated = extra.get("systemone_risk_elevated_calls")
+            if (
+                isinstance(elevated, set)
+                and _risk_assessment_key(tool_name, args) in elevated
+            ):
+                decision = True
+                reason = "systemone_risk_elevated"
+            elif (
+                elevated is None
+                and extra.get("systemone_risk_requires_approval") is True
+            ):
+                decision = True
+                reason = "systemone_risk_elevated"
     _log_decision(
         tool_name,
         ctx,
@@ -301,8 +313,14 @@ def should_require_approval(
     return decision
 
 
+def _risk_assessment_key(tool_name: str, args: dict[str, Any]) -> str:
+    payload = json.dumps(args, sort_keys=True, default=str)
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return f"{tool_name}:{digest}"
+
+
 async def precompute_tool_risk_assessment(
-    harness: Any,
+    harness: SystemOneHarness,
     *,
     tool_name: str,
     ctx: ToolContext,
@@ -346,12 +364,21 @@ async def precompute_tool_risk_assessment(
         if isinstance(score, int | float) and score >= risk_score_threshold:
             elevate = True
 
+    elevated = extra.setdefault("systemone_risk_elevated_calls", set())
+    key = _risk_assessment_key(tool_name, args)
     if elevate:
+        elevated.add(key)
         extra["systemone_risk_requires_approval"] = True
+    else:
+        elevated.discard(key)
+        extra["systemone_risk_requires_approval"] = bool(elevated)
     return elevate
 
 
-_NON_TOOL_REVIEW_RECORDS: list[dict[str, Any]] = []
+_MAX_NON_TOOL_REVIEW_RECORDS = 500
+_NON_TOOL_REVIEW_RECORDS: deque[dict[str, Any]] = deque(
+    maxlen=_MAX_NON_TOOL_REVIEW_RECORDS
+)
 
 
 def record_non_tool_review_request(
@@ -363,7 +390,7 @@ def record_non_tool_review_request(
     state_version: str,
     reason: str,
 ) -> dict[str, Any]:
-    """Registra revisão durável para decisões sem tool call (sem criar tool call fictícia)."""
+    """Registra em memória (buffer circular limitado ao processo atual) revisão para decisões sem tool call."""
     record = {
         "workspace_id": workspace_id,
         "consumer": consumer,

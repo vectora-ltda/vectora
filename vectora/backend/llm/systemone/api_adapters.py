@@ -73,6 +73,9 @@ class BaseSystemOneApiAdapter(SystemOneProvider):
         except Exception:
             return False
 
+    def _decide_endpoint(self) -> str:
+        return f"{self._base_url}/v1/systemone"
+
     async def decide(self, request: SystemOneRequest) -> SystemOneResponse:
         if not self._api_key or not self._api_key.strip():
             raise SystemOneAuthenticationError(
@@ -87,7 +90,7 @@ class BaseSystemOneApiAdapter(SystemOneProvider):
                 provider=self.provider_id,
             )
 
-        endpoint = f"{self._base_url}/v1/systemone"
+        endpoint = self._decide_endpoint()
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self._api_key}",
@@ -165,6 +168,11 @@ class BaseSystemOneApiAdapter(SystemOneProvider):
                 provider=self.provider_id,
                 retry_after=retry_s,
             )
+        if res.status_code >= 500:
+            raise SystemOneConnectionError(
+                f"Erro HTTP {res.status_code} de {self.provider_id}",
+                provider=self.provider_id,
+            )
         if res.status_code >= 400:
             raise SystemOneValidationError(
                 f"Erro HTTP {res.status_code} de {self.provider_id}",
@@ -193,11 +201,15 @@ class ClefApiAdapter(BaseSystemOneApiAdapter):
     def __init__(
         self,
         api_key: str,
-        base_url: str = "https://api.cloudflare.com/client/v4/accounts/systemone",
+        account_id: str = "systemone",
+        base_url: str = "https://api.cloudflare.com/client/v4/accounts",
         timeout: float = _DEFAULT_TIMEOUT_SECONDS,
         *,
         client: httpx.AsyncClient | None = None,
     ) -> None:
+        if not account_id or not account_id.strip():
+            raise ValueError("account_id é obrigatório para ClefApiAdapter")
+        self._account_id = account_id.strip()
         super().__init__(
             base_url,
             api_key,
@@ -205,6 +217,12 @@ class ClefApiAdapter(BaseSystemOneApiAdapter):
             timeout=timeout,
             client=client,
         )
+
+    def _decide_endpoint(self) -> str:
+        suffix = f"/{self._account_id}"
+        if self._base_url.endswith(suffix):
+            return f"{self._base_url}/ai/run/@cf/cloudflare/clef"
+        return f"{self._base_url}/{self._account_id}/ai/run/@cf/cloudflare/clef"
 
     async def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(

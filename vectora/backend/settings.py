@@ -459,7 +459,7 @@ class Settings(BaseSettings):
     systemone_allow_remote_fallback: bool = False
     """Permite fallback para API remota se local falhar (requer consentimento explícito)."""
 
-    systemone_confidence_threshold_hitl: float = 0.70
+    systemone_confidence_threshold_hitl: float = Field(default=0.70, ge=0.0, le=1.0)
     """Limiar de confiança para acionar revisão humana obrigatória (HITL)."""
 
     clef_api_key: str | None = None

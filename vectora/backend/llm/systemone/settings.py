@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
-from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -34,8 +34,12 @@ class SystemOneSettings(BaseModel):
     )
 
     # Clef API
+    clef_account_id: str = Field(
+        default="systemone",
+        description="Account ID da Cloudflare para Workers AI Clef.",
+    )
     clef_api_base_url: str = Field(
-        default="https://api.cloudflare.com/client/v4/accounts/systemone",
+        default="https://api.cloudflare.com/client/v4/accounts",
         description="Base URL para Clef Cloud.",
     )
     clef_api_model: str = Field(
@@ -70,9 +74,8 @@ def mask_secret(secret: str | None) -> str | None:
     """Mascara chaves de API para nunca exibir em texto aberto em logs ou APIs."""
     if not secret:
         return None
-    if len(secret) <= 8:
-        return "********"
-    return f"{secret[:3]}...{secret[-4:]}"
+    digest = hashlib.sha256(secret.encode("utf-8")).hexdigest()[:8]
+    return f"********#{digest}"
 
 
 def get_systemone_provider(
@@ -92,8 +95,14 @@ def get_systemone_provider(
         )
     if provider_type == "clef-api":
         key = clef_api_key or os.getenv("CLEF_API_KEY", "")
+        account_id = (
+            settings.clef_account_id
+            or os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
+            or os.getenv("CLEF_ACCOUNT_ID", "systemone")
+        )
         return ClefApiAdapter(
             api_key=key,
+            account_id=account_id,
             base_url=settings.clef_api_base_url,
         )
     if provider_type == "jev-api":
