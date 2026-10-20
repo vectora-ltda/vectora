@@ -295,16 +295,44 @@ async def run_conversation(
     executed_step_gates: set[tuple[str, str]] = set()
 
     for _iteracao in range(config.max_iterations):
-        historico = compact_messages(
-            await session_store.get_history(thread_id),
-            max_tokens=(
-                config.context_max_tokens
-                if config.context_max_tokens is not None
-                else _default_context_tokens()
-            ),
+        raw_history = await session_store.get_history(thread_id)
+        effective_max_tokens = (
+            config.context_max_tokens
+            if config.context_max_tokens is not None
+            else _default_context_tokens()
+        )
+        from backend.services.context_planner import plan_context
+
+        planned_context = plan_context(
+            raw_history,
+            max_tokens=effective_max_tokens,
             enabled=config.context_compaction_enabled,
             preserve_latest_tool_result=str(ctx.model).startswith("ollama:"),
+            workspace_id=ctx.workspace_id or None,
+            policy_snapshot=policy_snapshot,
         )
+        historico = planned_context.messages
+
+        if (
+            config.run_id
+            and planned_context.manifest
+            and hasattr(session_store, "get_agent_run")
+            and hasattr(session_store, "upsert_agent_run")
+        ):
+            agent_run = await session_store.get_agent_run(config.run_id)
+            if agent_run is not None:
+                if not any(
+                    isinstance(e, dict) and e.get("kind") == "context_manifest"
+                    for e in agent_run.evidence
+                ):
+                    agent_run.evidence.append(
+                        planned_context.manifest.to_evidence_entry()
+                    )
+                    if planned_context.projection is not None:
+                        agent_run.evidence.append(
+                            planned_context.projection.to_evidence_entry()
+                        )
+                    await session_store.upsert_agent_run(agent_run)
 
         partes_texto: list[str] = []
         tool_call_chunks_por_indice: dict[int, dict[str, Any]] = {}
