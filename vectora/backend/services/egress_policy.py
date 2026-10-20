@@ -7,10 +7,11 @@ de isolamento de rede por backend de sandbox.
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import logging
 import socket
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 from urllib.parse import urlparse
 
@@ -21,7 +22,7 @@ from backend.browser.ssrf_guard import _is_blocked_ip
 logger = logging.getLogger(__name__)
 
 
-class BackendEgressCapability(str, Enum):
+class BackendEgressCapability(StrEnum):
     """Nível de capacidade de enforcement de rede por backend de sandbox."""
 
     APPLIES = "applies"
@@ -76,7 +77,57 @@ def _matches_pattern(host: str, pattern: str) -> bool:
     return norm_host == norm_pat
 
 
-def is_url_allowed(url: str, policy: EgressPolicy | None = None) -> tuple[bool, str]:
+def _validate_addr_infos_and_port(
+    host: str,
+    port: int,
+    pol: EgressPolicy,
+    addr_infos: list[tuple[Any, ...]],
+) -> tuple[bool, str, str | None]:
+    is_loopback_target = False
+    first_ip: str | None = None
+    for info in addr_infos:
+        ip_str = str(info[4][0])
+        try:
+            ip_obj = ipaddress.ip_address(ip_str)
+        except ValueError:
+            return False, f"Endereço IP resolvido inválido: {ip_str}", None
+
+        if ip_obj.is_loopback:
+            is_loopback_target = True
+
+        if pol.block_private_ips and (_is_blocked_ip(ip_str) or not ip_obj.is_global):
+            # Se for loopback mas a porta estiver explicitamente autorizada para dev server local
+            if ip_obj.is_loopback and port in pol.allow_localhost_dev_ports:
+                if first_ip is None:
+                    first_ip = ip_str
+                continue
+            return (
+                False,
+                f"Destino '{host}' resolve para IP privado/restrito ({ip_str}) não autorizado",
+                None,
+            )
+        if first_ip is None:
+            first_ip = ip_str
+
+    # 4. Checagem de porta: se allowed_ports estiver vazia, não há restrição de porta
+    if pol.allowed_ports:
+        valid_ports = set(pol.allowed_ports)
+        if is_loopback_target:
+            valid_ports.update(pol.allow_localhost_dev_ports)
+
+        if port not in valid_ports:
+            return (
+                False,
+                f"Porta de conexão {port} não autorizada pela política de egress",
+                None,
+            )
+
+    return True, "", first_ip
+
+
+def is_url_allowed(  # noqa: PLR0911
+    url: str, policy: EgressPolicy | None = None
+) -> tuple[bool, str]:
     """Verifica se a URL é autorizada pela política de egress e segura contra SSRF.
 
     Retorna uma tupla (permitido, motivo).
@@ -127,35 +178,62 @@ def is_url_allowed(url: str, policy: EgressPolicy | None = None) -> tuple[bool, 
         logger.warning("egress_policy: falha ao resolver DNS de %s: %s", host, exc)
         return False, f"Falha na resolução de DNS para '{host}'"
 
-    is_loopback_target = False
-    for info in addr_infos:
-        ip_str = str(info[4][0])
-        try:
-            ip_obj = ipaddress.ip_address(ip_str)
-        except ValueError:
-            return False, f"Endereço IP resolvido inválido: {ip_str}"
+    ok, reason, _ = _validate_addr_infos_and_port(host, port, pol, addr_infos)
+    return ok, reason
 
-        if ip_obj.is_loopback:
-            is_loopback_target = True
 
-        if pol.block_private_ips and _is_blocked_ip(ip_str):
-            # Se for loopback mas a porta estiver explicitamente autorizada para dev server local
-            if ip_obj.is_loopback and port in pol.allow_localhost_dev_ports:
-                continue
+async def async_is_url_allowed(  # noqa: PLR0911
+    url: str, policy: EgressPolicy | None = None
+) -> tuple[bool, str, str | None]:
+    """Valida assincronamente a URL e retorna (permitido, motivo, ip_validado)."""
+    if not url or not isinstance(url, str):
+        return False, "URL vazia ou inválida", None
+
+    try:
+        parsed = urlparse(url)
+    except Exception as exc:
+        return False, f"Falha ao processar URL: {exc}", None
+
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in ("http", "https"):
+        return (
+            False,
+            f"Esquema de URL '{scheme}' não permitido; utilize apenas HTTP ou HTTPS",
+            None,
+        )
+
+    host = parsed.hostname
+    if not host:
+        return False, "Hostname ausente na URL", None
+
+    port = parsed.port or (443 if scheme == "https" else 80)
+    pol = policy or EgressPolicy()
+
+    for denied in pol.denied_hosts:
+        if _matches_pattern(host, denied):
             return (
                 False,
-                f"Destino '{host}' resolve para IP privado/restrito ({ip_str}) não autorizado",
+                f"Host '{host}' explicitamente bloqueado pela política de egress",
+                None,
             )
 
-    # 4. Checagem de porta
-    valid_ports = set(pol.allowed_ports)
-    if is_loopback_target:
-        valid_ports.update(pol.allow_localhost_dev_ports)
+    if pol.allowed_hosts:
+        allowed = any(_matches_pattern(host, pat) for pat in pol.allowed_hosts)
+        if not allowed:
+            return (
+                False,
+                f"Host '{host}' não consta na allowlist de destinos autorizados",
+                None,
+            )
 
-    if port not in valid_ports:
-        return False, f"Porta de conexão {port} não autorizada pela política de egress"
+    loop = asyncio.get_running_loop()
+    try:
+        addr_infos = await loop.getaddrinfo(host, port)
+    except Exception as exc:
+        logger.warning("egress_policy: falha ao resolver DNS de %s: %s", host, exc)
+        return False, f"Falha na resolução de DNS para '{host}'", None
 
-    return True, ""
+    return _validate_addr_infos_and_port(host, port, pol, addr_infos)
 
 
 def validate_backend_egress_support(

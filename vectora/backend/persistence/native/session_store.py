@@ -269,89 +269,120 @@ class SessionStore:
             for e in evidence_list
         ):
             evidence_list.append({"kind": "provenance", "untrusted_content": True})
-        evidence = json.dumps(redact_sensitive_data(evidence_list), ensure_ascii=False)
 
         async with self._pool.acquire() as conn:
-            # Mantém paridade com session_runs legado
-            mapped_status = _map_legacy_session_run_status(run.status)
-            provider_model = (
-                f"{run.provider}:{run.model}"
-                if run.provider and run.model
-                else (run.model or None)
-            )
-            await conn.execute(
-                "INSERT INTO session_runs "
-                "(run_id, thread_id, turn_id, status, detail, provider_model, started_at, updated_at, terminal_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(run_id) DO UPDATE SET "
-                "status=excluded.status, "
-                "detail=COALESCE(excluded.detail, session_runs.detail), "
-                "provider_model=COALESCE(excluded.provider_model, session_runs.provider_model), "
-                "updated_at=excluded.updated_at, "
-                "terminal_at=COALESCE(excluded.terminal_at, session_runs.terminal_at)",
-                (
-                    run.run_id,
-                    run.thread_id,
-                    run.turn_id,
-                    mapped_status,
-                    run.detail,
-                    provider_model,
-                    run.started_at,
-                    now,
-                    terminal_at,
-                ),
-            )
-            # Insere/atualiza na tabela canônica agent_runs
-            await conn.execute(
-                "INSERT INTO agent_runs ("
-                "run_id, thread_id, turn_id, user_id, workspace_id, model, provider, "
-                "status, plan_step, tools_available_json, tools_used_json, approvals_json, "
-                "files_touched_json, commands_run_json, tests_run_json, artifacts_json, "
-                "metrics_json, evidence_json, detail, error_code, started_at, updated_at, terminal_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(run_id) DO UPDATE SET "
-                "status=excluded.status, "
-                "plan_step=COALESCE(excluded.plan_step, agent_runs.plan_step), "
-                "tools_available_json=excluded.tools_available_json, "
-                "tools_used_json=excluded.tools_used_json, "
-                "approvals_json=excluded.approvals_json, "
-                "files_touched_json=excluded.files_touched_json, "
-                "commands_run_json=excluded.commands_run_json, "
-                "tests_run_json=excluded.tests_run_json, "
-                "artifacts_json=excluded.artifacts_json, "
-                "metrics_json=excluded.metrics_json, "
-                "evidence_json=excluded.evidence_json, "
-                "detail=COALESCE(excluded.detail, agent_runs.detail), "
-                "error_code=COALESCE(excluded.error_code, agent_runs.error_code), "
-                "updated_at=excluded.updated_at, "
-                "terminal_at=COALESCE(excluded.terminal_at, agent_runs.terminal_at)",
-                (
-                    run.run_id,
-                    run.thread_id,
-                    run.turn_id,
-                    run.user_id,
-                    run.workspace_id,
-                    run.model,
-                    run.provider,
-                    run.status,
-                    redacted_plan_step,
-                    tools_available,
-                    tools_used,
-                    approvals,
-                    files_touched,
-                    commands_run,
-                    tests_run,
-                    artifacts,
-                    metrics,
-                    evidence,
-                    redacted_detail,
-                    redacted_error_code,
-                    run.started_at,
-                    now,
-                    terminal_at,
-                ),
-            )
-            await conn.commit()
+            await conn.execute("BEGIN IMMEDIATE")
+            try:
+                # Preserva proveniência de conteúdo não confiável já registrada
+                if not any(
+                    isinstance(e, dict) and e.get("untrusted_content") is True
+                    for e in evidence_list
+                ):
+                    cur_prev = await conn.execute(
+                        "SELECT evidence_json FROM agent_runs WHERE run_id = ?",
+                        (run.run_id,),
+                    )
+                    prev_row = await cur_prev.fetchone()
+                    if prev_row and prev_row[0]:
+                        try:
+                            prev_evidence = json.loads(prev_row[0])
+                            if any(
+                                isinstance(e, dict)
+                                and e.get("untrusted_content") is True
+                                for e in prev_evidence
+                            ):
+                                evidence_list.append(
+                                    {"kind": "provenance", "untrusted_content": True}
+                                )
+                        except Exception:
+                            pass
+                evidence = json.dumps(
+                    redact_sensitive_data(evidence_list), ensure_ascii=False
+                )
+
+                # Mantém paridade com session_runs legado
+                mapped_status = _map_legacy_session_run_status(run.status)
+                provider_model = (
+                    f"{run.provider}:{run.model}"
+                    if run.provider and run.model
+                    else (run.model or None)
+                )
+                await conn.execute(
+                    "INSERT INTO session_runs "
+                    "(run_id, thread_id, turn_id, status, detail, provider_model, started_at, updated_at, terminal_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(run_id) DO UPDATE SET "
+                    "status=excluded.status, "
+                    "detail=COALESCE(excluded.detail, session_runs.detail), "
+                    "provider_model=COALESCE(excluded.provider_model, session_runs.provider_model), "
+                    "updated_at=excluded.updated_at, "
+                    "terminal_at=COALESCE(excluded.terminal_at, session_runs.terminal_at)",
+                    (
+                        run.run_id,
+                        run.thread_id,
+                        run.turn_id,
+                        mapped_status,
+                        run.detail,
+                        provider_model,
+                        run.started_at,
+                        now,
+                        terminal_at,
+                    ),
+                )
+                # Insere/atualiza na tabela canônica agent_runs
+                await conn.execute(
+                    "INSERT INTO agent_runs ("
+                    "run_id, thread_id, turn_id, user_id, workspace_id, model, provider, "
+                    "status, plan_step, tools_available_json, tools_used_json, approvals_json, "
+                    "files_touched_json, commands_run_json, tests_run_json, artifacts_json, "
+                    "metrics_json, evidence_json, detail, error_code, started_at, updated_at, terminal_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(run_id) DO UPDATE SET "
+                    "status=excluded.status, "
+                    "plan_step=COALESCE(excluded.plan_step, agent_runs.plan_step), "
+                    "tools_available_json=excluded.tools_available_json, "
+                    "tools_used_json=excluded.tools_used_json, "
+                    "approvals_json=excluded.approvals_json, "
+                    "files_touched_json=excluded.files_touched_json, "
+                    "commands_run_json=excluded.commands_run_json, "
+                    "tests_run_json=excluded.tests_run_json, "
+                    "artifacts_json=excluded.artifacts_json, "
+                    "metrics_json=excluded.metrics_json, "
+                    "evidence_json=excluded.evidence_json, "
+                    "detail=COALESCE(excluded.detail, agent_runs.detail), "
+                    "error_code=COALESCE(excluded.error_code, agent_runs.error_code), "
+                    "updated_at=excluded.updated_at, "
+                    "terminal_at=COALESCE(excluded.terminal_at, agent_runs.terminal_at)",
+                    (
+                        run.run_id,
+                        run.thread_id,
+                        run.turn_id,
+                        run.user_id,
+                        run.workspace_id,
+                        run.model,
+                        run.provider,
+                        run.status,
+                        redacted_plan_step,
+                        tools_available,
+                        tools_used,
+                        approvals,
+                        files_touched,
+                        commands_run,
+                        tests_run,
+                        artifacts,
+                        metrics,
+                        evidence,
+                        redacted_detail,
+                        redacted_error_code,
+                        run.started_at,
+                        now,
+                        terminal_at,
+                    ),
+                )
+                await conn.commit()
+            except Exception:
+                await conn.rollback()
+                raise
 
     async def update_agent_run_status(
         self,
