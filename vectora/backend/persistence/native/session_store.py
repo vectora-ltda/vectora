@@ -263,7 +263,13 @@ class SessionStore:
         tests_run = json.dumps(redact_sensitive_data(run.tests_run), ensure_ascii=False)
         artifacts = json.dumps(redact_sensitive_data(run.artifacts), ensure_ascii=False)
         metrics = json.dumps(run.metrics.model_dump(), ensure_ascii=False)
-        evidence = json.dumps(redact_sensitive_data(run.evidence), ensure_ascii=False)
+        evidence_list = list(run.evidence)
+        if run.untrusted_content and not any(
+            isinstance(e, dict) and e.get("untrusted_content") is True
+            for e in evidence_list
+        ):
+            evidence_list.append({"kind": "provenance", "untrusted_content": True})
+        evidence = json.dumps(redact_sensitive_data(evidence_list), ensure_ascii=False)
 
         async with self._pool.acquire() as conn:
             # Mantém paridade com session_runs legado
@@ -508,6 +514,11 @@ class SessionStore:
                     terminal_at=str(leg[9]) if leg[9] else None,
                 )
 
+            evidence_data = json.loads(row[17] or "[]")
+            is_untrusted = any(
+                isinstance(e, dict) and e.get("untrusted_content") is True
+                for e in evidence_data
+            )
             return AgentRun(
                 run_id=str(row[0]),
                 thread_id=str(row[1]),
@@ -526,7 +537,8 @@ class SessionStore:
                 tests_run=json.loads(row[14] or "[]"),
                 artifacts=json.loads(row[15] or "[]"),
                 metrics=AgentRunMetrics(**json.loads(row[16] or "{}")),
-                evidence=json.loads(row[17] or "[]"),
+                evidence=evidence_data,
+                untrusted_content=is_untrusted,
                 detail=str(row[18]) if row[18] else None,
                 error_code=str(row[19]) if row[19] else None,
                 started_at=str(row[20]),
@@ -552,34 +564,42 @@ class SessionStore:
                 (thread_id, safe_limit),
             )
             rows = await cur.fetchall()
-            return [
-                AgentRun(
-                    run_id=str(r[0]),
-                    thread_id=str(r[1]),
-                    turn_id=str(r[2]) if r[2] else None,
-                    user_id=str(r[3] or ""),
-                    workspace_id=str(r[4]) if r[4] else None,
-                    model=str(r[5] or ""),
-                    provider=str(r[6] or ""),
-                    status=cast("AgentRunStatus", r[7]),
-                    plan_step=str(r[8]) if r[8] else None,
-                    tools_available=json.loads(r[9] or "[]"),
-                    tools_used=json.loads(r[10] or "[]"),
-                    approvals=json.loads(r[11] or "[]"),
-                    files_touched=json.loads(r[12] or "[]"),
-                    commands_run=json.loads(r[13] or "[]"),
-                    tests_run=json.loads(r[14] or "[]"),
-                    artifacts=json.loads(r[15] or "[]"),
-                    metrics=AgentRunMetrics(**json.loads(r[16] or "{}")),
-                    evidence=json.loads(r[17] or "[]"),
-                    detail=str(r[18]) if r[18] else None,
-                    error_code=str(r[19]) if r[19] else None,
-                    started_at=str(r[20]),
-                    updated_at=str(r[21]),
-                    terminal_at=str(r[22]) if r[22] else None,
+            runs: list[AgentRun] = []
+            for r in rows:
+                evidence_data = json.loads(r[17] or "[]")
+                is_untrusted = any(
+                    isinstance(e, dict) and e.get("untrusted_content") is True
+                    for e in evidence_data
                 )
-                for r in rows
-            ]
+                runs.append(
+                    AgentRun(
+                        run_id=str(r[0]),
+                        thread_id=str(r[1]),
+                        turn_id=str(r[2]) if r[2] else None,
+                        user_id=str(r[3] or ""),
+                        workspace_id=str(r[4]) if r[4] else None,
+                        model=str(r[5] or ""),
+                        provider=str(r[6] or ""),
+                        status=cast("AgentRunStatus", r[7]),
+                        plan_step=str(r[8]) if r[8] else None,
+                        tools_available=json.loads(r[9] or "[]"),
+                        tools_used=json.loads(r[10] or "[]"),
+                        approvals=json.loads(r[11] or "[]"),
+                        files_touched=json.loads(r[12] or "[]"),
+                        commands_run=json.loads(r[13] or "[]"),
+                        tests_run=json.loads(r[14] or "[]"),
+                        artifacts=json.loads(r[15] or "[]"),
+                        metrics=AgentRunMetrics(**json.loads(r[16] or "{}")),
+                        evidence=evidence_data,
+                        untrusted_content=is_untrusted,
+                        detail=str(r[18]) if r[18] else None,
+                        error_code=str(r[19]) if r[19] else None,
+                        started_at=str(r[20]),
+                        updated_at=str(r[21]),
+                        terminal_at=str(r[22]) if r[22] else None,
+                    )
+                )
+            return runs
 
     async def get_agent_run_timeline(self, run_id: str) -> list[AgentRunTimelineEntry]:
         """Recupera todos os eventos do ledger correlacionados a um run_id."""

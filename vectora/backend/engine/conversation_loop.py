@@ -47,7 +47,12 @@ from backend.engine.stream_events import (
     ToolResult,
     WorkbenchInvalidate,
 )
-from backend.engine.tool_batch import _is_tool_error, execute_tool_batch
+from backend.engine.tool_batch import (
+    _apply_post_execute,
+    _apply_pre_execute,
+    _is_tool_error,
+    execute_tool_batch,
+)
 from backend.persistence.native.agent_run import AgentRunMetrics
 from backend.persistence.native.ledger import (
     LedgerEventType,
@@ -79,6 +84,7 @@ if TYPE_CHECKING:
     from backend.engine.stream_events import EventSink
     from backend.llm.base import ChatClient
     from backend.persistence.native.session_store import SessionStore
+    from backend.services.policy_compiler import PolicySnapshot
     from backend.tools.context import ToolContext
     from backend.tools.registry import ToolRegistry
 
@@ -242,14 +248,18 @@ async def run_conversation(
     ]
     | None = None,
     approval_gate: ApprovalGate | None = None,
+    policy_snapshot: PolicySnapshot | None = None,
 ) -> LoopResult:
     # A origem de cobrança vem exclusivamente da credencial persistida do
     # usuário autenticado. O marcador é refeito a cada execução para impedir
     # que um contexto reidratado ou argumento de tool carregue uma isenção
     # não confirmada.
     from backend.services.media_billing import apply_media_billing_source
+    from backend.services.policy_compiler import compile_policy_snapshot
 
     await apply_media_billing_source(ctx)
+    if policy_snapshot is None:
+        policy_snapshot = compile_policy_snapshot(ctx)
 
     emit = on_event or _noop_event
     tools = tool_registry.all()
@@ -709,6 +719,7 @@ async def run_conversation(
             ctx=ctx,
             turn_budget=turn_budget,
             on_event=on_event,
+            policy_snapshot=policy_snapshot,
         )
         for resultado in resultados:
             parent_id = await session_store.append_message(
@@ -923,11 +934,27 @@ async def _execute_single_call(
     tool_registry: ToolRegistry,
     ctx: ToolContext,
     on_event: EventSink | None = None,
+    policy_snapshot: PolicySnapshot | None = None,
 ) -> VMessage:
     """Mesma lógica de execução de ``tool_batch._run_one``, sem
     ``TurnBudget`` (o teto de volume é do turno que gerou o lote original,
     já contabilizado ou não antes da pausa — reaplicá-lo no resume duplicaria
     ou perderia contagem)."""
+    allowed, deny_reason = _apply_pre_execute(tool_call, ctx, policy_snapshot)
+    if not allowed:
+        return VMessage(
+            role=MessageRole.TOOL,
+            content=[
+                ContentBlock(
+                    kind="text",
+                    text=f"Error: policy_denied: {deny_reason}",
+                )
+            ],
+            tool_call_id=tool_call.id,
+            name=tool_call.name,
+            is_error=True,
+        )
+
     spec = tool_registry.get(tool_call.name)
     if spec is None:
         texto = f"Error: tool '{tool_call.name}' não encontrada no registry"
@@ -949,6 +976,7 @@ async def _execute_single_call(
             tool_call.args,
             call_context,
         )
+        texto = _apply_post_execute(texto)
         is_error = _is_tool_error(texto)
         from backend.services.tool_usage import record_tool_usage
 
@@ -976,6 +1004,7 @@ async def resume_conversation(
     interrupt_id: str | None = None,
     approval_gate: ApprovalGate | None = None,
     on_event: EventSink | None = None,
+    policy_snapshot: PolicySnapshot | None = None,
 ) -> bool:
     """Executa o lote de tool calls que ``run_conversation`` pausou —
     ``decision`` é ``"approve"`` | ``"reject"`` | ``"edit"``, aplicada só à
@@ -995,8 +1024,11 @@ async def resume_conversation(
     cliente. ``True`` quando o lote foi executado e a pendência resolvida.
     """
     from backend.services.media_billing import apply_media_billing_source
+    from backend.services.policy_compiler import compile_policy_snapshot
 
     await apply_media_billing_source(ctx)
+    if policy_snapshot is None:
+        policy_snapshot = compile_policy_snapshot(ctx)
 
     emit = on_event or _noop_event
     requested_interrupt_id = interrupt_id
@@ -1083,7 +1115,10 @@ async def resume_conversation(
                     )
                 else:
                     resultado = await _execute_single_call(
-                        tc, tool_registry=tool_registry, ctx=ctx
+                        tc,
+                        tool_registry=tool_registry,
+                        ctx=ctx,
+                        policy_snapshot=policy_snapshot,
                     )
         elif decision == "reject":
             resultado = VMessage(
@@ -1104,6 +1139,7 @@ async def resume_conversation(
                 tool_registry=tool_registry,
                 ctx=ctx,
                 on_event=on_event,
+                policy_snapshot=policy_snapshot,
             )
 
         parent_id = await session_store.append_message(

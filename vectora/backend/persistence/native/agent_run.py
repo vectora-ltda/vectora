@@ -215,6 +215,7 @@ class AgentRun(BaseModel):
     artifacts: list[dict[str, JsonValue]] = Field(default_factory=list)
     metrics: AgentRunMetrics = Field(default_factory=AgentRunMetrics)
     evidence: list[dict[str, JsonValue]] = Field(default_factory=list)
+    untrusted_content: bool = False
     detail: str | None = None
     error_code: str | None = None
     started_at: str = Field(default_factory=_now)

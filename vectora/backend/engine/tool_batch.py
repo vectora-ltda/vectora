@@ -15,13 +15,14 @@ import asyncio
 import re
 from collections.abc import Callable
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from backend.vtypes.message import ContentBlock, MessageRole, VMessage
 
 if TYPE_CHECKING:
     from backend.engine.guardrails import TurnBudget
     from backend.engine.stream_events import EventSink
+    from backend.services.policy_compiler import PolicySnapshot
     from backend.tools.context import ToolContext
     from backend.tools.registry import ToolRegistry
     from backend.vtypes.message import ToolCall
@@ -48,6 +49,37 @@ def _redact_secrets(texto: str) -> str:
     return texto
 
 
+def _check_policy_snapshot_pre_execute(
+    tool_call: ToolCall,
+    ctx: ToolContext,
+    policy_snapshot: PolicySnapshot | None,
+) -> tuple[bool, str]:
+    if policy_snapshot is None:
+        from backend.services.policy_compiler import compile_policy_snapshot
+
+        policy_snapshot = compile_policy_snapshot(ctx)
+
+    return policy_snapshot.validate_call(tool_call.name, tool_call.args)
+
+
+#: Callbacks aplicados, em ordem, antes da execução de qualquer tool.
+_PRE_EXECUTE: tuple[Callable[[ToolCall, ToolContext, Any], tuple[bool, str]], ...] = (
+    _check_policy_snapshot_pre_execute,
+)
+
+
+def _apply_pre_execute(
+    tool_call: ToolCall,
+    ctx: ToolContext,
+    policy_snapshot: PolicySnapshot | None,
+) -> tuple[bool, str]:
+    for hook in _PRE_EXECUTE:
+        ok, reason = hook(tool_call, ctx, policy_snapshot)
+        if not ok:
+            return False, reason
+    return True, ""
+
+
 #: Callbacks aplicados, em ordem, ao texto de resultado de toda tool antes
 #: de persistir/emitir. Não é um sistema de plugin genérico — não há
 #: registro dinâmico vindo de fora deste módulo, é uma lista fixa e
@@ -69,8 +101,24 @@ async def _run_one(
     ctx: ToolContext,
     turn_budget: TurnBudget | None,
     on_event: EventSink | None,
+    policy_snapshot: PolicySnapshot | None = None,
 ) -> VMessage:
     """Executa uma chamada do lote com contexto correlacionado à própria tool."""
+    allowed, deny_reason = _apply_pre_execute(tool_call, ctx, policy_snapshot)
+    if not allowed:
+        return VMessage(
+            role=MessageRole.TOOL,
+            content=[
+                ContentBlock(
+                    kind="text",
+                    text=f"Error: policy_denied: {deny_reason}",
+                )
+            ],
+            tool_call_id=tool_call.id,
+            name=tool_call.name,
+            is_error=True,
+        )
+
     spec = tool_registry.get(tool_call.name)
 
     if turn_budget is not None:
@@ -134,6 +182,7 @@ async def execute_tool_batch(
     ctx: ToolContext,
     turn_budget: TurnBudget | None = None,
     on_event: EventSink | None = None,
+    policy_snapshot: PolicySnapshot | None = None,
 ) -> list[VMessage]:
     """Executa todas as `tool_calls` do turno, na ordem em que aparecem no
     resultado — paralelo se nenhuma é destrutiva, sequencial (mas ainda
@@ -144,6 +193,11 @@ async def execute_tool_batch(
     primeira chamada que estourar o teto vira erro sem executar a tool, e
     `turn_budget.exceeded` fica setado (travado) pro chamador checar depois
     do lote inteiro e decidir parar o loop."""
+    if policy_snapshot is None:
+        from backend.services.policy_compiler import compile_policy_snapshot
+
+        policy_snapshot = compile_policy_snapshot(ctx)
+
     algum_destrutivo = any(
         (spec := tool_registry.get(tc.name)) is not None and spec.extras.destructive
         for tc in tool_calls
@@ -157,6 +211,7 @@ async def execute_tool_batch(
                 ctx=ctx,
                 turn_budget=turn_budget,
                 on_event=on_event,
+                policy_snapshot=policy_snapshot,
             )
             for tc in tool_calls
         ]
@@ -170,6 +225,7 @@ async def execute_tool_batch(
                     ctx=ctx,
                     turn_budget=turn_budget,
                     on_event=on_event,
+                    policy_snapshot=policy_snapshot,
                 )
                 for tc in tool_calls
             )

@@ -84,6 +84,8 @@ REQUIRE_APPROVAL: frozenset[str] = frozenset(
         "kanban_create",
         "kanban_update_status",
         "apply_memory_consolidation",
+        "git_push",
+        "call_mcp_tool",
         # Operações com custo variável: a quota e o preço estimado são
         # apresentados ao usuário antes da execução do provider.
         "generate_image",
@@ -274,6 +276,40 @@ def should_require_approval(
             decision=True,
             mode=mode,
             reason="media_threshold_unavailable",
+        )
+        return True
+    if tool_name == "git_push":
+        force = bool(args.get("force", False))
+        if force:
+            _log_decision(
+                tool_name,
+                ctx,
+                decision=True,
+                mode=mode,
+                reason="git_force_push",
+            )
+            return True
+    if tool_name == "http_request":
+        method = str(args.get("method", "GET")).upper()
+        if (
+            method in ("POST", "PUT", "PATCH", "DELETE")
+            and mode not in _NON_INTERRUPTING_MODES
+        ):
+            _log_decision(
+                tool_name,
+                ctx,
+                decision=True,
+                mode=mode,
+                reason="mutable_http_request",
+            )
+            return True
+    if tool_name == "call_mcp_tool" and mode not in _NON_INTERRUPTING_MODES:
+        _log_decision(
+            tool_name,
+            ctx,
+            decision=True,
+            mode=mode,
+            reason="mcp_tool_invocation",
         )
         return True
     if tool_name in _JAILED_BYPASS_TOOLS and _workspace_is_jailed(ctx.workspace_id):
