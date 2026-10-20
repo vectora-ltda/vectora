@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +13,7 @@ from backend.persistence.native.agent_run import redact_sensitive_data
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class CassetteInteraction(BaseModel):
@@ -43,9 +43,17 @@ class Cassette(BaseModel):
         path = Path(target_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         raw_dict = self.model_dump()
-        redacted = redact_sensitive_data(raw_dict)
+        for inter in raw_dict.get("interactions", []):
+            saved_usage = inter.get("usage")
+            inter["messages"] = redact_sensitive_data(inter.get("messages", []))
+            inter["response_text"] = redact_sensitive_data(
+                inter.get("response_text", "")
+            )
+            inter["tool_calls"] = redact_sensitive_data(inter.get("tool_calls", []))
+            inter["usage"] = saved_usage
+        raw_dict["description"] = redact_sensitive_data(raw_dict.get("description", ""))
         path.write_text(
-            json.dumps(redacted, indent=2, ensure_ascii=False),
+            json.dumps(raw_dict, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
 
