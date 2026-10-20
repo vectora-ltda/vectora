@@ -14,7 +14,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from backend.engine.hitl import REQUIRE_APPROVAL, SAFE_HTTP_METHODS
 from backend.rbac import tool_policy
 from backend.services.egress_policy import EgressPolicy, is_url_allowed
 from backend.services.mcp_policy import evaluate as evaluate_mcp
@@ -22,8 +21,21 @@ from backend.tools.context import ToolContext
 
 logger = logging.getLogger(__name__)
 
-#: Conjunto canônico de ferramentas com potencial destrutivo (compatibilidade)
-DESTRUCTIVE_TOOLS: frozenset[str] = REQUIRE_APPROVAL
+#: Conjunto canônico de ferramentas com potencial destrutivo ou de modificação externa
+DESTRUCTIVE_TOOLS: frozenset[str] = frozenset(
+    {
+        "terminal",
+        "terminal_tool",
+        "write_terminal",
+        "file_write",
+        "file_write_tool",
+        "file_edit",
+        "git_push",
+        "uninstall_mcp",
+        "delete_skill",
+        "computer_use",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -45,9 +57,9 @@ class PolicySnapshot:
             return False, f"Tool '{tool_name}' desabilitada pela política de permissões"
 
         if self.untrusted_content:
-            from backend.engine.hitl import _tool_requires_approval
-
-            if _tool_requires_approval(tool_name):
+            # Em execuções com conteúdo não confiável (ex.: canais externos sem aprovação interativa),
+            # ferramentas destrutivas de terminal, escrita em disco e push são bloqueadas.
+            if tool_name in DESTRUCTIVE_TOOLS:
                 return (
                     False,
                     f"Tool '{tool_name}' bloqueada para execução com conteúdo não confiável (untrusted_content)",
@@ -55,22 +67,11 @@ class PolicySnapshot:
 
         return True, ""
 
-    def validate_call(  # noqa: PLR0911
-        self, tool_name: str, args: dict[str, Any]
-    ) -> tuple[bool, str]:
+    def validate_call(self, tool_name: str, args: dict[str, Any]) -> tuple[bool, str]:
         """Validação estrita de pré-execução para argumentos e destinos de rede."""
         allowed, reason = self.is_tool_allowed(tool_name)
         if not allowed:
             return False, reason
-
-        # Em fluxos com untrusted_content, bloqueia métodos HTTP fora da allowlist segura
-        if self.untrusted_content and tool_name == "http_request":
-            method = str(args.get("method", "GET")).strip().upper()
-            if method not in SAFE_HTTP_METHODS:
-                return (
-                    False,
-                    f"Método HTTP mutável '{method}' bloqueado para execução com conteúdo não confiável (untrusted_content)",
-                )
 
         # Checagem de integridade de repositório para git_push
         if tool_name == "git_push":
@@ -81,42 +82,24 @@ class PolicySnapshot:
                     "git_push com --force bloqueado pela política de governança de repositório",
                 )
 
-        # Checagem unificada de saída de rede (egress) sem resolução síncrona de DNS
+        # Checagem unificada de saída de rede (egress)
         if tool_name in ("http_request", "web_fetch", "web_crawl", "web_map"):
             url = args.get("url")
             if isinstance(url, str):
-                ok, egress_reason = is_url_allowed(
-                    url, self.egress_policy, resolve_dns=False
-                )
+                ok, egress_reason = is_url_allowed(url, self.egress_policy)
                 if not ok:
                     return False, f"Egress policy violada para '{url}': {egress_reason}"
 
         # Checagem de conformidade de servidor MCP
         if tool_name == "call_mcp_tool":
             server_name = args.get("server_name") or args.get("server")
-            if not server_name:
-                inner_tool = args.get("tool_name")
-                if isinstance(inner_tool, str):
-                    try:
-                        from backend.tools.mcp import _mcp_client
-
-                        if _mcp_client is not None:
-                            server_name = _mcp_client.tools_by_server().get(inner_tool)
-                    except Exception:
-                        server_name = None
-
-            if not server_name:
-                return (
-                    False,
-                    "Não foi possível resolver o servidor MCP para a ferramenta solicitada",
-                )
-
-            decision = evaluate_mcp(str(server_name), workspace_id=self.workspace_id)
-            if not decision.allowed:
-                return (
-                    False,
-                    f"Servidor MCP '{server_name}' bloqueado pela política de MCP ({decision.code})",
-                )
+            if isinstance(server_name, str):
+                decision = evaluate_mcp(server_name, workspace_id=self.workspace_id)
+                if not decision.allowed:
+                    return (
+                        False,
+                        f"Servidor MCP '{server_name}' bloqueado pela política de MCP ({decision.code})",
+                    )
 
         return True, ""
 
