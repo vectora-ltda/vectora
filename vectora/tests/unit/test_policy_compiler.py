@@ -85,3 +85,42 @@ def test_compile_policy_snapshot():
     assert snapshot.user_id == "bob"
     assert snapshot.permission_mode == "accept_edits"
     assert snapshot.untrusted_content is True
+
+
+def test_policy_snapshot_untrusted_content_mutable_http():
+    snapshot = PolicySnapshot(untrusted_content=True)
+
+    # GET e métodos seguros permitidos sob conteúdo não confiável
+    ok, _ = snapshot.validate_call(
+        "http_request", {"method": "GET", "url": "https://allowed.com"}
+    )
+    assert ok is True
+
+    # Métodos mutáveis bloqueados
+    for m in ("POST", "PUT", "PATCH", "DELETE"):
+        ok, reason = snapshot.validate_call(
+            "http_request", {"method": m, "url": "https://allowed.com"}
+        )
+        assert ok is False
+        assert "mutável" in reason
+
+
+def test_policy_snapshot_call_mcp_tool_resolution(monkeypatch):
+    snapshot = PolicySnapshot()
+
+    # Sem servidor e sem mapeamento -> bloqueado
+    ok, reason = snapshot.validate_call("call_mcp_tool", {"tool_name": "unknown_tool"})
+    assert ok is False
+    assert "resolver" in reason
+
+    # Servidor resolvido via cliente MCP
+    class _FakeMcpClient:
+        def tools_by_server(self) -> dict[str, str]:
+            return {"known_tool": "my_server"}
+
+    import backend.tools.mcp as mcp_mod
+
+    monkeypatch.setattr(mcp_mod, "_mcp_client", _FakeMcpClient())
+
+    ok, _ = snapshot.validate_call("call_mcp_tool", {"tool_name": "known_tool"})
+    assert ok is True

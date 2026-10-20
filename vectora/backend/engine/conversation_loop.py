@@ -1027,6 +1027,17 @@ async def resume_conversation(
     from backend.services.policy_compiler import compile_policy_snapshot
 
     await apply_media_billing_source(ctx)
+    if hasattr(session_store, "list_agent_runs"):
+        runs = await session_store.list_agent_runs(thread_id, limit=5)
+        paused_run = next(
+            (r for r in runs if r.status == "waiting_approval"),
+            runs[0] if runs else None,
+        )
+        if paused_run and paused_run.untrusted_content:
+            if not isinstance(ctx._extra, dict):
+                ctx._extra = {}
+            ctx._extra["untrusted_content"] = True
+
     if policy_snapshot is None:
         policy_snapshot = compile_policy_snapshot(ctx)
 
@@ -1098,9 +1109,9 @@ async def resume_conversation(
                     is_error=True,
                 )
             else:
-                from backend.engine.hitl import _tool_requires_approval
+                from backend.engine.hitl import call_requires_separate_approval
 
-                if _tool_requires_approval(tc.name):
+                if call_requires_separate_approval(tc.name, tc.args):
                     resultado = VMessage(
                         role=MessageRole.TOOL,
                         content=[
@@ -1134,12 +1145,25 @@ async def resume_conversation(
                 args = ephemeral_args
             if decision in {"edit", "option"} and edited_args is not None:
                 args = edited_args
+
+            call_snapshot = policy_snapshot
+            if (
+                tc.id == flagged_id
+                and tc.name == "git_push"
+                and bool(args.get("force", False))
+                and policy_snapshot is not None
+                and not policy_snapshot.allow_force_push
+            ):
+                from dataclasses import replace as dc_replace
+
+                call_snapshot = dc_replace(policy_snapshot, allow_force_push=True)
+
             resultado = await _execute_single_call(
                 replace(tc, args=args),
                 tool_registry=tool_registry,
                 ctx=ctx,
                 on_event=on_event,
-                policy_snapshot=policy_snapshot,
+                policy_snapshot=call_snapshot,
             )
 
         parent_id = await session_store.append_message(
