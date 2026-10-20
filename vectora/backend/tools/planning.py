@@ -26,6 +26,8 @@ class TodoItemArg(BaseModel):
 
     content: str
     status: Literal["pending", "in_progress", "completed"]
+    step_id: str | None = None
+    quality_gate: str | None = None
 
 
 @vtool(extras=ToolExtras(category="planning", icon="list-checks"))
@@ -38,5 +40,13 @@ async def write_todos(todos: list[TodoItemArg], ctx: ToolContext) -> str:
         todos: lista completa e atualizada de tarefas, cada uma com
             content (descrição curta) e status (pending/in_progress/completed).
     """
-    payload = [{"content": t.content, "status": t.status} for t in todos]
+    payload = [
+        {
+            "content": t.content,
+            "status": t.status,
+            **({"step_id": t.step_id} if t.step_id is not None else {}),
+            **({"quality_gate": t.quality_gate} if t.quality_gate is not None else {}),
+        }
+        for t in todos
+    ]
     return json.dumps(payload, ensure_ascii=False)

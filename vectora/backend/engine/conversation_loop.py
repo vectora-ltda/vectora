@@ -203,7 +203,16 @@ def _parse_todos_result(texto: str) -> list[TodoItem] | None:
         status = item.get("status")
         if status not in ("pending", "in_progress", "completed"):
             return None
-        itens.append(TodoItem(content=str(item.get("content", "")), status=status))
+        step_id = item.get("step_id")
+        quality_gate = item.get("quality_gate")
+        itens.append(
+            TodoItem(
+                content=str(item.get("content", "")),
+                status=status,
+                step_id=str(step_id) if step_id is not None else None,
+                quality_gate=str(quality_gate) if quality_gate is not None else None,
+            )
+        )
     return itens
 
 
@@ -810,6 +819,40 @@ async def run_conversation(
                 todos = _parse_todos_result(resultado.text())
                 if todos is not None:
                     await emit(TodosUpdated(todos=todos))
+                    if (
+                        config.run_id
+                        and hasattr(session_store, "get_agent_run")
+                        and hasattr(session_store, "upsert_agent_run")
+                    ):
+                        active_item = next(
+                            (t for t in todos if t.status == "in_progress"),
+                            None,
+                        )
+                        active_step_id = (
+                            (active_item.step_id or active_item.content)
+                            if active_item
+                            else None
+                        )
+                        agent_run = await session_store.get_agent_run(config.run_id)
+                        if agent_run is not None:
+                            agent_run.plan_step = active_step_id
+                            # Executa quality gates específicos para etapas concluídas
+                            for item in todos:
+                                if item.status == "completed" and item.quality_gate:
+                                    from backend.services.verification import (
+                                        run_verification,
+                                    )
+
+                                    ws_id = getattr(ctx, "workspace_id", None)
+                                    v_res = await run_verification(
+                                        ws_id,
+                                        getattr(ctx, "cwd", None),
+                                        target_gate_ids=[item.quality_gate],
+                                    )
+                                    agent_run.evidence.append(v_res.to_evidence_entry())
+                                    if not v_res.passed:
+                                        agent_run.status = v_res.status
+                            await session_store.upsert_agent_run(agent_run)
 
         if turn_budget.exceeded is not None:
             if config.run_id:

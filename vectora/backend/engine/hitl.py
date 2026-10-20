@@ -60,6 +60,7 @@ def _log_decision(
 #: Tools destrutivas candidatas a pausar o loop para aprovação.
 REQUIRE_APPROVAL: frozenset[str] = frozenset(
     {
+        "bash",
         "terminal",
         "terminal_tool",
         "write_terminal",

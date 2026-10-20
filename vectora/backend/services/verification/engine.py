@@ -194,6 +194,7 @@ async def run_verification(
     *,
     files_touched: list[str] | None = None,
     profile: WorkspaceVerificationProfile | None = None,
+    target_gate_ids: list[str] | set[str] | None = None,
 ) -> VerificationResult:
     """Executa o ciclo completo de verificação pós-execução.
 
@@ -210,14 +211,18 @@ async def run_verification(
         if not is_clean:
             git_unclean_reason = f"Git working tree não está limpo:\n{unclean_details}"
 
-    # 2. Filtragem dos gates relevantes aos arquivos alterados
+    # 2. Filtragem dos gates relevantes aos arquivos alterados ou especificados
+    target_set = set(target_gate_ids) if target_gate_ids is not None else None
     applicable_gates: list[QualityGateSpec] = (
         [
             g
             for g in prof.gates
-            if not g.file_patterns
-            or not files_touched
-            or any(_matches_any_pattern(f, g.file_patterns) for f in files_touched)
+            if (target_set is None or g.id in target_set)
+            and (
+                not g.file_patterns
+                or not files_touched
+                or any(_matches_any_pattern(f, g.file_patterns) for f in files_touched)
+            )
         ]
         if prof.enabled and prof.gates
         else []

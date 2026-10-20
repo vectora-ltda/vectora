@@ -192,7 +192,7 @@ async def _record_task_event(
 async def get_task_status(task_id: str) -> dict[str, Any]:
     db = await _get_db()
     async with db.execute(
-        "SELECT status, block_kind, block_reason, claim_lock, claim_expires_at "
+        "SELECT status, block_kind, block_reason, claim_lock, claim_expires_at, updated_at "
         "FROM vectora_background_tasks WHERE id = ?",
         (task_id,),
     ) as cur:
@@ -445,6 +445,8 @@ async def manual_transition(
     task_id: str,
     target_status: str,
     *,
+    expected_status: str | None = None,
+    expected_version: int | str | None = None,
     authorized_session_id: str | None = None,
     authorized_run_id: str | None = None,
 ) -> None:
@@ -455,6 +457,7 @@ async def manual_transition(
     que precisam ficar exclusivos do claim atômico e da run terminando.
     `blocked→ready` passa por `unblock_task` (mesma função do botão
     "Desbloquear") para também limpar `block_kind`/`block_reason`.
+    Permite validação otimista de concorrência via `expected_status` e `expected_version`.
     """
     estado = await get_task_status(task_id)
     if authorized_session_id is not None:
@@ -467,6 +470,16 @@ async def manual_transition(
         if row is None or row["session_id"] != authorized_session_id:
             raise ValueError("task não pertence à sessão atual")
     atual = estado["status"]
+    if expected_status is not None and atual != expected_status:
+        raise ValueError(
+            f"concorrência detectada: status atual {atual!r} difere do esperado {expected_status!r}"
+        )
+    if expected_version is not None:
+        versao_atual = estado.get("version") or estado.get("updated_at")
+        if str(versao_atual) != str(expected_version):
+            raise ValueError(
+                f"concorrência detectada: versão atual {versao_atual!r} difere da esperada {expected_version!r}"
+            )
     permitidos = MANUAL_TRANSITIONS.get(atual, frozenset())
     if target_status not in permitidos:
         msg = f"transição {atual!r} → {target_status!r} não é permitida manualmente"
@@ -957,9 +970,10 @@ async def get_dependencies_batch(
     return out
 
 
-async def _depende_de(task_id: str) -> set[str]:
+async def _depende_de(task_id: str, db: Any = None) -> set[str]:
     """Ancestrais de `task_id` — usado pra detectar ciclo."""
-    db = await _get_db()
+    if db is None:
+        db = await _get_db()
     vistos: set[str] = set()
     fila = [task_id]
     while fila:
@@ -981,21 +995,25 @@ async def add_dependency(parent_id: str, child_id: str) -> None:
         msg = "dependência circular: uma task não pode depender de si mesma"
         raise ValueError(msg)
 
-    # Ciclo trava os dois cards em `todo` para sempre, e o motivo não
-    # aparece em lugar nenhum — recusar na criação é a única chance.
-    if child_id in await _depende_de(parent_id):
-        msg = (
-            f"dependência circular: {parent_id!r} já depende (direta ou "
-            f"indiretamente) de {child_id!r}"
-        )
-        raise ValueError(msg)
-
     db = await _get_db()
-    await db.execute(
-        "INSERT OR IGNORE INTO vectora_task_links (parent_id, child_id) VALUES (?, ?)",
-        (parent_id, child_id),
-    )
-    await db.commit()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        deps = await _depende_de(parent_id, db=db)
+        if child_id in deps:
+            msg = (
+                f"dependência circular: {parent_id!r} já depende (direta ou "
+                f"indiretamente) de {child_id!r}"
+            )
+            raise ValueError(msg)
+
+        await db.execute(
+            "INSERT OR IGNORE INTO vectora_task_links (parent_id, child_id) VALUES (?, ?)",
+            (parent_id, child_id),
+        )
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
 
 
 async def remove_dependency(parent_id: str, child_id: str) -> bool:
@@ -1020,34 +1038,41 @@ async def recompute_ready() -> int:
     os dois — promover com um só o faria rodar sem o resultado do outro.
     """
     db = await _get_db()
-    async with db.execute(
-        """
-        SELECT t.id
-          FROM vectora_background_tasks t
-         WHERE t.status = 'todo'
-           AND EXISTS (
-                 SELECT 1 FROM vectora_task_links l WHERE l.child_id = t.id
-               )
-           AND NOT EXISTS (
-                 SELECT 1
-                   FROM vectora_task_links l
-                   JOIN vectora_background_tasks p ON p.id = l.parent_id
-                  WHERE l.child_id = t.id
-                    AND p.status != 'done'
-               )
-        """
-    ) as cur:
-        prontas = [r["id"] for r in await cur.fetchall()]
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        async with db.execute(
+            """
+            SELECT t.id
+              FROM vectora_background_tasks t
+             WHERE t.status = 'todo'
+               AND EXISTS (
+                     SELECT 1 FROM vectora_task_links l WHERE l.child_id = t.id
+                   )
+               AND NOT EXISTS (
+                     SELECT 1
+                       FROM vectora_task_links l
+                       JOIN vectora_background_tasks p ON p.id = l.parent_id
+                      WHERE l.child_id = t.id
+                        AND p.status != 'done'
+                   )
+            """
+        ) as cur:
+            prontas = [r["id"] for r in await cur.fetchall()]
 
-    for task_id in prontas:
-        await db.execute(
-            "UPDATE vectora_background_tasks SET status = 'ready', "
-            "block_kind = NULL, block_reason = NULL, "
-            "updated_at = datetime('now') WHERE id = ?",
-            (task_id,),
-        )
-    await db.commit()
-    return len(prontas)
+        promoted = 0
+        for task_id in prontas:
+            cur = await db.execute(
+                "UPDATE vectora_background_tasks SET status = 'ready', "
+                "block_kind = NULL, block_reason = NULL, "
+                "updated_at = datetime('now') WHERE id = ? AND status = 'todo'",
+                (task_id,),
+            )
+            promoted += cur.rowcount
+        await db.commit()
+        return promoted
+    except Exception:
+        await db.rollback()
+        raise
 
 
 async def approve_review(task_id: str, user_id: str) -> None:
@@ -1059,12 +1084,40 @@ async def approve_review(task_id: str, user_id: str) -> None:
     `manual_transition` não faz. `review → ready` (reprovar) segue pelo
     caminho genérico normalmente.
     """
-    estado = await get_task_status(task_id)
-    if estado["status"] != "review":
-        msg = f"task está em {estado['status']!r}, não em 'review' — nada a aprovar"
-        raise ValueError(msg)
-    await set_status(task_id, "done")
-    await add_comment(task_id, user_id, "✓ Review aprovada.")
+    db = await _get_db()
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        async with db.execute(
+            "SELECT status FROM vectora_background_tasks WHERE id = ?",
+            (task_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None or row["status"] != "review":
+            st = row["status"] if row else "inexistente"
+            msg = f"task está em {st!r}, não em 'review' — nada a aprovar"
+            raise ValueError(msg)
+
+        await db.execute(
+            "UPDATE vectora_background_tasks SET status = 'done', block_count = 0, "
+            "updated_at = datetime('now') WHERE id = ?",
+            (task_id,),
+        )
+        comment_id = str(uuid.uuid4())
+        await db.execute(
+            "INSERT INTO vectora_task_comments (id, task_id, user_id, body) VALUES (?, ?, ?, ?)",
+            (comment_id, task_id, user_id, "✓ Review aprovada."),
+        )
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+
+    with contextlib.suppress(Exception):
+        await _emit_kanban_event(task_id, "done")
+    with contextlib.suppress(Exception):
+        await _record_task_event(task_id, "review", "done")
+    with contextlib.suppress(Exception):
+        await recompute_ready()
 
 
 async def add_comment(task_id: str, user_id: str, body: str) -> dict[str, Any]:
