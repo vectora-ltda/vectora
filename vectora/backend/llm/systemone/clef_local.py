@@ -176,12 +176,12 @@ class ClefLocalAdapter(SystemOneProvider):
                 retry_after=retry_s,
             )
         if res.status_code == 404:
-            raise SystemOneConnectionError(
+            raise SystemOneCapabilityError(
                 "Endpoint POST /v1/systemone não encontrado no llama.cpp",
                 provider=self.provider_id,
             )
         if res.status_code >= 500:
-            raise SystemOneError(
+            raise SystemOneConnectionError(
                 f"Servidor llama.cpp retornou erro HTTP {res.status_code}",
                 provider=self.provider_id,
             )

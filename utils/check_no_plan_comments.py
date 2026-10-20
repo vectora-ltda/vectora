@@ -58,10 +58,9 @@ _AI_TOOL_PATTERN: re.Pattern[str] = re.compile(
     r"(?i:\b(?:coderabbit(?:ai)?|claude(?:\s*code)?|chatgpt|copilot|codex)\b)(?!\.md)"
 )
 
-# Proíbe menções a issues (#123, issue 123, #1), pull requests (PR 123, PR #123, pull request)
-# e GitHub Actions / automações de CI (GHA, GitHub Actions) em comentários de código.
+# Proíbe referências a rastreadores de tarefas, revisões abertas e automações de CI em comentários.
 _TRACKER_PATTERN: re.Pattern[str] = re.compile(
-    r"(?i:\b(?:issue|issues)\s*#?\d+\b|#\d+\b|\b(?:pull\s*request|pr)\s*#?\d+\b|\bgha\b|\bgithub\s+actions\b)"
+    r"(?i:\b(?:issue|issues)\s*#?\d+\b|#\d+\b|\bpull\s+requests?(?:\s*#?\d+)?\b|\b(?:pull\s*request|pr)\s*#?\d+\b|\bgha\b|\bgithub\s+actions\b)"
 )
 
 _PATTERN: re.Pattern[str] = re.compile(

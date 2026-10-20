@@ -8,7 +8,7 @@ import logging
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from backend.embedding.queue import get_embedding_queue
 from backend.services.text import text_service
@@ -16,6 +16,9 @@ from backend.settings import settings
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
 from backend.vtypes.documents import Document
+
+if TYPE_CHECKING:
+    from backend.llm.systemone.harness import SystemOneHarness
 
 try:
     import lancedb
@@ -110,7 +113,7 @@ class SystemOneRerank:
 
     def __init__(
         self,
-        harness: Any,
+        harness: SystemOneHarness,
         *,
         top_n: int = 5,
         workspace_id: str = "default",
@@ -209,7 +212,7 @@ def _rag_runtime() -> dict[str, Any]:
     return runtime_settings.rag_settings
 
 
-def _build_reranker() -> Any:
+def _build_reranker(workspace_id: str = "default") -> Any:
     """Reranker com fallback Cohere↔Voyage por quota.
 
     Honra os settings de runtime: ``reranker_enabled`` (off → None, sem rerank) e
@@ -228,7 +231,7 @@ def _build_reranker() -> Any:
         else settings.reranker_type
     )
     if rtype == "systemone":
-        return _build_systemone_reranker()
+        return _build_systemone_reranker(workspace_id=workspace_id)
     if rtype == "openrouter":
         primary = _build_openrouter_reranker()
         if primary is None:
@@ -562,14 +565,20 @@ async def vector_search(
             )
 
         # Reranking opcional — melhora precisão (Cohere ou VoyageAI)
-        reranker = _build_reranker()
+        reranker = _build_reranker(workspace_id=ctx.workspace_id or "default")
         if results and reranker is not None:
             try:
                 docs_to_rerank = [
                     Document(page_content=str(r["content"]), metadata=r["metadata"])
                     for r in results
                 ]
-                reranked_docs = reranker.compress_documents(docs_to_rerank, query)
+                acompress = getattr(reranker, "acompress_documents", None)
+                if callable(acompress):
+                    reranked_docs = await acompress(docs_to_rerank, query)
+                else:
+                    reranked_docs = await asyncio.to_thread(
+                        reranker.compress_documents, docs_to_rerank, query
+                    )
                 results = [
                     {
                         "content": doc.page_content,
