@@ -10,7 +10,12 @@ import asyncio
 
 import pytest
 
-from backend.engine.hitl import REQUIRE_APPROVAL, ApprovalGate, should_require_approval
+from backend.engine.hitl import (
+    REQUIRE_APPROVAL,
+    ApprovalGate,
+    call_requires_separate_approval,
+    should_require_approval,
+)
 from backend.persistence.native.session_store import SessionStore
 from backend.storage.sqlite.pool import AsyncConnectionPool
 from backend.tools.context import ToolContext
@@ -296,3 +301,23 @@ class TestApprovalGate:
         liberado = await gate.wait_for_resume("thread-1", timeout_s=0.05)
 
         assert liberado is False
+
+
+def test_call_requires_separate_approval():
+    # Tools destrutivas padrão exigem aprovação
+    assert call_requires_separate_approval("file_write") is True
+    assert call_requires_separate_approval("git_push") is True
+
+    # git_push com force=True
+    assert call_requires_separate_approval("git_push", {"force": True}) is True
+
+    # http_request: GET não exige, métodos mutáveis exigem
+    assert call_requires_separate_approval("http_request", {"method": "GET"}) is False
+    assert call_requires_separate_approval("http_request", {}) is False
+    assert call_requires_separate_approval("http_request", {"method": "POST"}) is True
+    assert call_requires_separate_approval("http_request", {"method": "PUT"}) is True
+    assert call_requires_separate_approval("http_request", {"method": "PATCH"}) is True
+    assert call_requires_separate_approval("http_request", {"method": "DELETE"}) is True
+
+    # Tool de leitura segura
+    assert call_requires_separate_approval("file_read", {"path": "a.txt"}) is False

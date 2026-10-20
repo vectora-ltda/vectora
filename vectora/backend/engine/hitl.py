@@ -211,7 +211,29 @@ def _tool_requires_approval(tool_name: str) -> bool:
     return spec is not None and spec.extras.destructive
 
 
-def should_require_approval(
+def call_requires_separate_approval(
+    tool_name: str, args: dict[str, Any] | None = None
+) -> bool:
+    """Verifica se uma invocação específica de ferramenta exige aprovação isolada.
+
+    Preserva a regra canônica de aprovação por metadados de ferramenta,
+    além de interceptar operações sensíveis baseadas em argumentos:
+    - git_push com force=True
+    - http_request com métodos mutáveis (POST, PUT, PATCH, DELETE)
+    """
+    if _tool_requires_approval(tool_name):
+        return True
+    call_args = args or {}
+    if tool_name == "git_push" and bool(call_args.get("force", False)):
+        return True
+    if tool_name == "http_request":
+        method = str(call_args.get("method", "GET")).upper()
+        if method in ("POST", "PUT", "PATCH", "DELETE"):
+            return True
+    return False
+
+
+def should_require_approval(  # noqa: PLR0911
     tool_name: str,
     ctx: ToolContext,
     args: dict[str, Any],
@@ -330,10 +352,7 @@ def should_require_approval(
             if (
                 isinstance(elevated, set)
                 and _risk_assessment_key(tool_name, args) in elevated
-            ):
-                decision = True
-                reason = "systemone_risk_elevated"
-            elif (
+            ) or (
                 elevated is None
                 and extra.get("systemone_risk_requires_approval") is True
             ):

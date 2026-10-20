@@ -1313,9 +1313,37 @@ class PostgresSessionStore:
         tests_run = json.dumps(redact_sensitive_data(run.tests_run), ensure_ascii=False)
         artifacts = json.dumps(redact_sensitive_data(run.artifacts), ensure_ascii=False)
         metrics = json.dumps(run.metrics.model_dump(), ensure_ascii=False)
-        evidence = json.dumps(redact_sensitive_data(run.evidence), ensure_ascii=False)
+        evidence_list = list(run.evidence)
+        if run.untrusted_content and not any(
+            isinstance(e, dict) and e.get("untrusted_content") is True
+            for e in evidence_list
+        ):
+            evidence_list.append({"kind": "provenance", "untrusted_content": True})
 
-        async with self._pool.acquire() as conn:
+        async with self._pool.acquire() as conn, conn.transaction():
+            if not any(
+                isinstance(e, dict) and e.get("untrusted_content") is True
+                for e in evidence_list
+            ):
+                row_prev = await conn.fetchrow(
+                    "SELECT evidence_json FROM vectora_native_agent_runs WHERE run_id = $1",
+                    run.run_id,
+                )
+                if row_prev and row_prev["evidence_json"]:
+                    try:
+                        prev_evidence = json.loads(row_prev["evidence_json"])
+                        if any(
+                            isinstance(e, dict) and e.get("untrusted_content") is True
+                            for e in prev_evidence
+                        ):
+                            evidence_list.append(
+                                {"kind": "provenance", "untrusted_content": True}
+                            )
+                    except Exception:
+                        pass
+            evidence = json.dumps(
+                redact_sensitive_data(evidence_list), ensure_ascii=False
+            )
             await conn.execute(
                 "INSERT INTO vectora_native_agent_runs ("
                 "run_id, thread_id, turn_id, user_id, workspace_id, model, provider, "
