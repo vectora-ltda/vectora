@@ -9,6 +9,7 @@ import pytest
 from backend.services.egress_policy import (
     BackendEgressCapability,
     EgressPolicy,
+    async_is_url_allowed,
     is_url_allowed,
     validate_backend_egress_support,
 )
@@ -81,7 +82,7 @@ def test_is_url_allowed_private_ip_blocking():
 def test_is_url_allowed_loopback_with_dev_port():
     # Sem porta liberada -> bloqueia
     policy = EgressPolicy(block_private_ips=True, allow_localhost_dev_ports=[])
-    ok, reason = is_url_allowed("http://localhost:3000", policy)
+    ok, _ = is_url_allowed("http://localhost:3000", policy)
     assert ok is False
 
     # Com porta 3000 explicitamente liberada para dev local -> autoriza
@@ -111,3 +112,40 @@ def test_validate_backend_egress_support():
     ok, reason = validate_backend_egress_support("windows", policy_restricted)
     assert ok is False
     assert "fail-closed" in reason
+
+
+def test_is_url_allowed_non_global_ip_blocked(monkeypatch):
+    def _mock_cgnat(host, port, *args, **kwargs):
+        # 100.64.0.1 é CGNAT (Carrier-grade NAT) -> is_global é False
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("100.64.0.1", port))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", _mock_cgnat)
+    policy = EgressPolicy(block_private_ips=True)
+    ok, reason = is_url_allowed("http://cgnat-dest.example", policy)
+    assert ok is False
+    assert "privado/restrito" in reason
+
+
+def test_is_url_allowed_empty_allowed_ports_permits_custom_port():
+    policy = EgressPolicy(allowed_ports=[], block_private_ips=False)
+    ok, _ = is_url_allowed("http://example.com:8080/path", policy)
+    assert ok is True
+
+
+@pytest.mark.asyncio
+async def test_async_is_url_allowed_returns_pinned_ip(monkeypatch):
+    import asyncio
+
+    async def _mock_getaddrinfo(host, port):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))]
+
+    loop = asyncio.get_running_loop()
+    monkeypatch.setattr(loop, "getaddrinfo", _mock_getaddrinfo)
+
+    policy = EgressPolicy()
+    ok, reason, pinned_ip = await async_is_url_allowed(
+        "https://example.com/api", policy
+    )
+    assert ok is True
+    assert reason == ""
+    assert pinned_ip == "93.184.216.34"
