@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import fnmatch
 import logging
 import os
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
 from backend.contracts.models import (
@@ -50,11 +51,26 @@ def _matches_any_pattern(file_path: str, patterns: list[str]) -> bool:
     if not patterns:
         return True
     norm_path = file_path.replace("\\", "/")
-    return any(
-        fnmatch.fnmatch(norm_path, pat)
-        or fnmatch.fnmatch(os.path.basename(norm_path), pat)
-        for pat in patterns
-    )
+    pure_p = PurePosixPath(norm_path)
+    basename = pure_p.name
+    for pat in patterns:
+        if fnmatch.fnmatch(norm_path, pat) or fnmatch.fnmatch(basename, pat):
+            return True
+        if pure_p.match(pat):
+            return True
+        if pat.startswith("**/"):
+            stripped = pat[3:]
+            if (
+                fnmatch.fnmatch(norm_path, stripped)
+                or fnmatch.fnmatch(basename, stripped)
+                or pure_p.match(stripped)
+            ):
+                return True
+        if "/**/" in pat:
+            collapsed = pat.replace("/**/", "/")
+            if fnmatch.fnmatch(norm_path, collapsed) or pure_p.match(collapsed):
+                return True
+    return False
 
 
 async def _execute_single_gate(
@@ -73,12 +89,18 @@ async def _execute_single_gate(
         )
 
     try:
+        kwargs: dict[str, Any] = {
+            "cwd": str(cwd),
+            "stdout": asyncio.subprocess.PIPE,
+            "stderr": asyncio.subprocess.STDOUT,
+        }
+        if os.name != "nt":
+            kwargs["start_new_session"] = True
+
         proc = await asyncio.create_subprocess_exec(
             cmd[0],
             *cmd[1:],
-            cwd=str(cwd),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
+            **kwargs,
         )
         try:
             stdout_data, _ = await asyncio.wait_for(
@@ -86,11 +108,15 @@ async def _execute_single_gate(
             )
             exit_code = proc.returncode if proc.returncode is not None else 1
             output = (stdout_data or b"").decode("utf-8", errors="replace")
-        except asyncio.TimeoutError:
-            try:
-                proc.kill()
-            except Exception:
-                pass
+        except TimeoutError:
+            if os.name != "nt" and hasattr(os, "killpg"):
+                with contextlib.suppress(ProcessLookupError, Exception):
+                    os.killpg(proc.pid, 9)
+            else:
+                with contextlib.suppress(ProcessLookupError, Exception):
+                    proc.kill()
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(proc.wait(), timeout=5.0)
             exit_code = -1
             output = f"Tempo limite de execução ({gate.timeout_seconds}s) excedido para o gate '{gate.id}'"
     except Exception as exc:
@@ -124,7 +150,9 @@ async def run_verification(
     prof = profile or get_verification_profile(workspace_id)
 
     # 1. Cálculo do snapshot SHA-256 criptográfico
-    snapshot_sha256, file_hashes = compute_files_snapshot(root_dir, files=files_touched)
+    snapshot_sha256, file_hashes = await asyncio.to_thread(
+        compute_files_snapshot, root_dir, files=files_touched
+    )
 
     if not prof.enabled or not prof.gates:
         return VerificationResult(
@@ -138,10 +166,9 @@ async def run_verification(
     # 2. Filtragem dos gates relevantes aos arquivos alterados
     applicable_gates: list[QualityGateSpec] = []
     for g in prof.gates:
-        if not g.file_patterns:
-            applicable_gates.append(g)
-        elif files_touched and any(
-            _matches_any_pattern(f, g.file_patterns) for f in files_touched
+        if not g.file_patterns or (
+            files_touched
+            and any(_matches_any_pattern(f, g.file_patterns) for f in files_touched)
         ):
             applicable_gates.append(g)
         elif not files_touched:

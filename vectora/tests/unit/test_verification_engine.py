@@ -11,8 +11,9 @@ from backend.contracts.models import (
     QualityGateSpec,
     WorkspaceVerificationProfile,
 )
-from backend.services.verification.engine import run_verification
+from backend.services.verification.engine import _matches_any_pattern, run_verification
 from backend.services.verification.profile_store import (
+    _profile_path,
     get_verification_profile,
     save_verification_profile,
 )
@@ -40,6 +41,23 @@ def test_compute_files_snapshot(test_workspace: Path):
     assert sha2 != sha
     assert file_hashes2["main.py"] != file_hashes["main.py"]
     assert file_hashes2["utils.py"] == file_hashes["utils.py"]
+
+
+def test_compute_files_snapshot_unreadable(test_workspace: Path):
+    sha, file_hashes = compute_files_snapshot(
+        test_workspace, files=["main.py", "non_existent.py"]
+    )
+    assert len(sha) == 64
+    assert file_hashes["main.py"] != "unreadable"
+    assert file_hashes["non_existent.py"] == "unreadable"
+
+
+def test_pattern_matching_recursive():
+    assert _matches_any_pattern("main.py", ["**/*.py"]) is True
+    assert _matches_any_pattern("src/app.py", ["**/*.py"]) is True
+    assert _matches_any_pattern("src/components/button.tsx", ["src/**/*.tsx"]) is True
+    assert _matches_any_pattern("src/button.tsx", ["src/**/*.tsx"]) is True
+    assert _matches_any_pattern("readme.md", ["**/*.py"]) is False
 
 
 @pytest.mark.asyncio
@@ -124,3 +142,25 @@ async def test_run_verification_degrading_failure(test_workspace: Path):
     res = await run_verification("test_ws", test_workspace, profile=profile)
     assert res.passed is True  # Degraded ainda permite avanço
     assert res.status == "degraded"
+
+
+@pytest.mark.asyncio
+async def test_corrupted_profile_fail_closed(
+    test_workspace: Path, monkeypatch, tmp_path: Path
+):
+    monkeypatch.setattr(
+        "backend.services.verification.profile_store._profiles_dir",
+        lambda: tmp_path / "profiles",
+    )
+    p_path = _profile_path("corrupted_ws")
+    p_path.parent.mkdir(parents=True, exist_ok=True)
+    p_path.write_text("{bad json content", encoding="utf-8")
+
+    profile = get_verification_profile("corrupted_ws")
+    assert profile.enabled is True
+    assert len(profile.gates) == 1
+    assert profile.gates[0].id == "corrupted_profile_guard"
+
+    res = await run_verification("corrupted_ws", test_workspace, profile=profile)
+    assert res.passed is False
+    assert res.status == "failed"

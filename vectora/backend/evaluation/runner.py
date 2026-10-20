@@ -35,14 +35,28 @@ class EvalReport(BaseModel):
     details: list[dict[str, Any]] = Field(default_factory=list)
 
 
+def _total_tokens(usage: dict[str, int]) -> int:
+    """Calcula o total de tokens preferindo chaves consolidadas ou somando input/output."""
+    if not usage:
+        return 0
+    if "total" in usage:
+        return int(usage["total"])
+    if "total_tokens" in usage:
+        return int(usage["total_tokens"])
+    inp = int(usage.get("input", usage.get("prompt", usage.get("input_tokens", 0))))
+    out = int(
+        usage.get("output", usage.get("completion", usage.get("output_tokens", 0)))
+    )
+    return inp + out
+
+
 def compare_cassettes(
     baseline_cassette: Cassette, candidate_cassette: Cassette
 ) -> EvalReport:
     """Compara duas cassetes (ex: baseline SystemTwo vs candidato SystemOne)."""
-    total = min(
-        len(baseline_cassette.interactions),
-        len(candidate_cassette.interactions),
-    )
+    b_len = len(baseline_cassette.interactions)
+    c_len = len(candidate_cassette.interactions)
+    total = max(b_len, c_len)
     if total == 0:
         return EvalReport(
             suite_name="comparison",
@@ -61,36 +75,73 @@ def compare_cassettes(
     details: list[dict[str, Any]] = []
 
     for i in range(total):
-        b_item = baseline_cassette.interactions[i]
-        c_item = candidate_cassette.interactions[i]
+        b_item = baseline_cassette.interactions[i] if i < b_len else None
+        c_item = candidate_cassette.interactions[i] if i < c_len else None
 
-        b_tools = [t.get("name") for t in b_item.tool_calls]
-        c_tools = [t.get("name") for t in c_item.tool_calls]
-        is_match = b_tools == c_tools
-        if is_match:
-            matches += 1
+        if b_item is not None and c_item is not None:
+            b_tools = [t.get("name") for t in b_item.tool_calls]
+            c_tools = [t.get("name") for t in c_item.tool_calls]
+            is_match = b_tools == c_tools
+            if is_match:
+                matches += 1
 
-        b_lat = b_item.duration_ms
-        c_lat = c_item.duration_ms
+            b_lat = b_item.duration_ms
+            c_lat = c_item.duration_ms
+            b_tok = _total_tokens(b_item.usage)
+            c_tok = _total_tokens(c_item.usage)
+
+            details.append(
+                {
+                    "index": i,
+                    "matched": is_match,
+                    "baseline_tools": b_tools,
+                    "candidate_tools": c_tools,
+                    "latency_delta_ms": c_lat - b_lat,
+                    "tokens_delta": c_tok - b_tok,
+                    "candidate_decision": c_item.systemone_decision,
+                }
+            )
+        elif b_item is not None:
+            b_tools = [t.get("name") for t in b_item.tool_calls]
+            b_lat = b_item.duration_ms
+            c_lat = 0
+            b_tok = _total_tokens(b_item.usage)
+            c_tok = 0
+            details.append(
+                {
+                    "index": i,
+                    "matched": False,
+                    "missing": "candidate",
+                    "baseline_tools": b_tools,
+                    "candidate_tools": None,
+                    "latency_delta_ms": -b_lat,
+                    "tokens_delta": -b_tok,
+                    "candidate_decision": None,
+                }
+            )
+        elif c_item is not None:
+            c_tools = [t.get("name") for t in c_item.tool_calls]
+            b_lat = 0
+            c_lat = c_item.duration_ms
+            b_tok = 0
+            c_tok = _total_tokens(c_item.usage)
+            details.append(
+                {
+                    "index": i,
+                    "matched": False,
+                    "missing": "baseline",
+                    "baseline_tools": None,
+                    "candidate_tools": c_tools,
+                    "latency_delta_ms": c_lat,
+                    "tokens_delta": c_tok,
+                    "candidate_decision": c_item.systemone_decision,
+                }
+            )
+
         total_baseline_latency += b_lat
         total_candidate_latency += c_lat
-
-        b_tok = sum(b_item.usage.values())
-        c_tok = sum(c_item.usage.values())
         total_baseline_tokens += b_tok
         total_candidate_tokens += c_tok
-
-        details.append(
-            {
-                "index": i,
-                "matched": is_match,
-                "baseline_tools": b_tools,
-                "candidate_tools": c_tools,
-                "latency_delta_ms": c_lat - b_lat,
-                "tokens_delta": c_tok - b_tok,
-                "candidate_decision": c_item.systemone_decision,
-            }
-        )
 
     accuracy = matches / total if total > 0 else 1.0
 

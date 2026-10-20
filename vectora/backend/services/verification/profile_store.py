@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 from pathlib import Path
 
 from backend.contracts.models import (
@@ -38,8 +39,29 @@ def get_verification_profile(
             raw = json.loads(path.read_text(encoding="utf-8"))
             return WorkspaceVerificationProfile.model_validate(raw)
         except Exception as exc:
-            logger.warning(
-                "Falha ao carregar perfil de verificação para %s: %s", ws_id, exc
+            logger.exception(
+                "Falha ao carregar perfil de verificação corrompido para %s: %s",
+                ws_id,
+                exc,
+            )
+            return WorkspaceVerificationProfile(
+                workspace_id=ws_id,
+                enabled=True,
+                gates=[
+                    QualityGateSpec(
+                        id="corrupted_profile_guard",
+                        name="Corrupted Profile Guard",
+                        command=[
+                            sys.executable,
+                            "-c",
+                            "import sys; sys.stderr.write('Perfil de verificacao corrompido\\n'); sys.exit(1)",
+                        ],
+                        policy="block",
+                        timeout_seconds=5,
+                    )
+                ],
+                require_clean_git=False,
+                inject_stack_trace_on_failure=True,
             )
 
     # Perfil padrão inicial: ativo, sem gates pré-definidos (passa livre a menos que gates sejam adicionados)

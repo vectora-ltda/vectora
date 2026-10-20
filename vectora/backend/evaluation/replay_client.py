@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
@@ -23,31 +22,13 @@ if TYPE_CHECKING:
     from backend.tools.registry import ToolSpec
 
 
-def _compute_messages_key(messages: list[VMessage]) -> str:
-    """Gera um hash estável do histórico de mensagens para indexação."""
-    h = hashlib.sha256()
-    for m in messages:
-        h.update(m.role.value.encode("utf-8"))
-        h.update(b":")
-        h.update(m.text().encode("utf-8"))
-        if m.tool_calls:
-            for tc in m.tool_calls:
-                h.update(tc.name.encode("utf-8"))
-                h.update(json.dumps(tc.args, sort_keys=True).encode("utf-8"))
-        h.update(b"\n")
-    return h.hexdigest()
-
-
 class ReplayChatClient(ChatClient):
-    """ChatClient que reproduz fielmente interações salvas em cassete."""
+    """ChatClient determinístico que reproduz sequencialmente interações salvas por cursor posicional."""
 
     def __init__(self, cassette: Cassette, *, fallback_on_missing: bool = False):
         self.cassette = cassette
         self.fallback_on_missing = fallback_on_missing
-        self._index: dict[str, CassetteInteraction] = {}
         self._interaction_cursor = 0
-        for item in cassette.interactions:
-            self._index[item.interaction_id] = item
 
     def reset(self) -> None:
         """Reinicia o cursor sequencial de interações."""
