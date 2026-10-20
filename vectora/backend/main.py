@@ -337,7 +337,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Chave privada TLS correspondente. Também via env SSL_KEYFILE.",
     )
 
-    # ── run — one-shot, sem servidor (CI, Vectora Bot for GHA) ────────────────
+    # ── run — one-shot, sem servidor (CI) ────────────────
     run_p = sub.add_parser(
         "run",
         help="Roda uma tarefa uma única vez e sai — sem servidor (CI)",
@@ -537,6 +537,27 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=["signup", "login", "logout", "whoami", "refresh"],
         help="Ação de autenticação.",
     )
+
+    # ── eval ──────────────────────────────────────────────────────────────────
+    eval_p = sub.add_parser(
+        "eval",
+        help="Evaluation Lab para benchmark e replay de decisões",
+        description="Comandos do Evaluation Lab:\n  run [--suite FILE]\n  compare BASELINE CANDIDATE",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    eval_sub = eval_p.add_subparsers(dest="action", required=True)
+    eval_run = eval_sub.add_parser("run", help="Executa benchmark ou suite de cassetes")
+    eval_run.add_argument(
+        "--suite", default=None, help="Caminho para arquivo de cassete/suite"
+    )
+    eval_run.add_argument("--output", choices=("human", "json"), default="human")
+
+    eval_compare = eval_sub.add_parser(
+        "compare", help="Compara duas cassetes (baseline vs candidate)"
+    )
+    eval_compare.add_argument("baseline", help="Caminho para cassete baseline")
+    eval_compare.add_argument("candidate", help="Caminho para cassete candidata")
+    eval_compare.add_argument("--output", choices=("human", "json"), default="human")
 
     return parser
 
@@ -871,6 +892,12 @@ def _run_auth_command(args: argparse.Namespace) -> None:
     sys.exit(handler(args))
 
 
+def _run_eval_command(args: argparse.Namespace) -> None:
+    from backend.cli.eval import handle_eval
+
+    sys.exit(handle_eval(args))
+
+
 # Subcomandos que só precisam de "importa o módulo, chama o handler com
 # args" — start/web (têm variantes force_web) e auth (tratado à parte
 # acima, mas despachado pela mesma tabela) ficam fora por clareza no
@@ -885,6 +912,7 @@ _COMMAND_HANDLERS: dict[str, Any] = {
     "mcp": _run_marketplace_command,
     "skills": _run_marketplace_command,
     "media": _run_media_command,
+    "eval": _run_eval_command,
 }
 
 
