@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
+from pathlib import Path
+
 import aiosqlite
 import pytest
 
@@ -16,7 +19,9 @@ from backend.scheduling.kanban import (
 
 
 @pytest.fixture
-async def db(tmp_path, monkeypatch):
+async def db(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> AsyncGenerator[aiosqlite.Connection]:
     """Banco SQLite isolado com schema do Kanban."""
     caminho = tmp_path / "kanban_cas.db"
     conn = await aiosqlite.connect(caminho)
@@ -43,6 +48,7 @@ async def db(tmp_path, monkeypatch):
             claim_expires_at TEXT,
             block_count    INTEGER NOT NULL DEFAULT 0,
             board_id       TEXT,
+            version        INTEGER NOT NULL DEFAULT 1,
             created_at     TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
         );
@@ -72,7 +78,7 @@ async def db(tmp_path, monkeypatch):
     )
     await conn.commit()
 
-    async def _get_db():
+    async def _get_db() -> aiosqlite.Connection:
         return conn
 
     monkeypatch.setattr(kanban, "_get_db", _get_db)
@@ -81,19 +87,25 @@ async def db(tmp_path, monkeypatch):
 
 
 async def _insere_task(
-    db, task_id: str, status: str = "todo", updated_at: str = "2026-10-20T10:00:00"
+    db: aiosqlite.Connection,
+    task_id: str,
+    status: str = "todo",
+    updated_at: str = "2026-10-20T10:00:00",
+    version: int = 1,
 ) -> None:
     await db.execute(
         "INSERT INTO vectora_background_tasks "
-        "(id, session_id, user_id, kind, name, instruction, trigger_type, status, updated_at) "
-        "VALUES (?, 's1', 'u1', 'subagent', 'Task', 'inst', 'manual', ?, ?)",
-        (task_id, status, updated_at),
+        "(id, session_id, user_id, kind, name, instruction, trigger_type, status, updated_at, version) "
+        "VALUES (?, 's1', 'u1', 'subagent', 'Task', 'inst', 'manual', ?, ?, ?)",
+        (task_id, status, updated_at, version),
     )
     await db.commit()
 
 
 @pytest.mark.asyncio
-async def test_manual_transition_with_expected_status(db):
+async def test_manual_transition_with_expected_status(
+    db: aiosqlite.Connection,
+) -> None:
     await _insere_task(db, "t1", status="todo")
 
     # Transição com expected_status correspondente
@@ -109,21 +121,40 @@ async def test_manual_transition_with_expected_status(db):
 
 
 @pytest.mark.asyncio
-async def test_manual_transition_with_expected_version(db):
-    await _insere_task(db, "t2", status="todo", updated_at="2026-10-20T10:00:00")
+async def test_manual_transition_with_expected_version(
+    db: aiosqlite.Connection,
+) -> None:
+    await _insere_task(db, "t2", status="todo", version=1)
 
-    # Versão esperada bate com updated_at
-    await manual_transition("t2", "ready", expected_version="2026-10-20T10:00:00")
+    # Versão esperada bate com a versão monotônica
+    await manual_transition("t2", "ready", expected_version=1)
     st = await get_task_status("t2")
     assert st["status"] == "ready"
+    assert st["version"] == 2
 
     # Tentativa com versão antiga deve falhar por conflito de versão
     with pytest.raises(ValueError, match="concorrência detectada: versão atual"):
-        await manual_transition("t2", "triage", expected_version="2026-10-20T10:00:00")
+        await manual_transition("t2", "triage", expected_version=1)
 
 
 @pytest.mark.asyncio
-async def test_add_dependency_cycle_detection(db):
+async def test_manual_transition_cas_write_time_collision(
+    db: aiosqlite.Connection,
+) -> None:
+    await _insere_task(db, "t_cas", status="todo", version=1)
+
+    # Chamada com versão desatualizada no momento da escrita dispara conflito de concorrência
+    with pytest.raises(
+        ValueError,
+        match="concorrência detectada: registro foi modificado por outra operação",
+    ):
+        await kanban.set_status("t_cas", "ready", expected_version=99)
+
+
+@pytest.mark.asyncio
+async def test_add_dependency_cycle_detection(
+    db: aiosqlite.Connection,
+) -> None:
     await _insere_task(db, "parent1", status="todo")
     await _insere_task(db, "child1", status="todo")
 
@@ -135,7 +166,7 @@ async def test_add_dependency_cycle_detection(db):
 
 
 @pytest.mark.asyncio
-async def test_approve_review_atomic(db):
+async def test_approve_review_atomic(db: aiosqlite.Connection) -> None:
     await _insere_task(db, "rev1", status="review")
 
     await approve_review("rev1", user_id="approver1")
@@ -148,14 +179,16 @@ async def test_approve_review_atomic(db):
         "SELECT body, user_id FROM vectora_task_comments WHERE task_id = ?",
         ("rev1",),
     ) as cur:
-        comments = await cur.fetchall()
+        comments = list(await cur.fetchall())
         assert len(comments) == 1
         assert comments[0]["body"] == "✓ Review aprovada."
         assert comments[0]["user_id"] == "approver1"
 
 
 @pytest.mark.asyncio
-async def test_recompute_ready_atomic_promotion(db):
+async def test_recompute_ready_atomic_promotion(
+    db: aiosqlite.Connection,
+) -> None:
     await _insere_task(db, "dep_parent", status="done")
     await _insere_task(db, "dep_child", status="todo")
     await add_dependency("dep_parent", "dep_child")

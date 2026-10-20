@@ -210,6 +210,22 @@ async def run_verification(
 
     # 2. Filtragem dos gates relevantes aos arquivos alterados ou especificados
     target_set = set(target_gate_ids) if target_gate_ids is not None else None
+    if target_set is not None:
+        existing_gate_ids = {g.id for g in prof.gates} if prof.gates else set()
+        missing_gate_ids = target_set - existing_gate_ids
+        if missing_gate_ids:
+            snapshot_sha256, file_hashes = await asyncio.to_thread(
+                compute_files_snapshot, root_dir, files=files_touched
+            )
+            return VerificationResult(
+                passed=False,
+                status="failed",
+                snapshot_sha256=snapshot_sha256,
+                file_hashes=file_hashes,
+                gate_results=[],
+                failure_feedback=f"Quality gates solicitados não existem no perfil: {sorted(missing_gate_ids)}",
+            )
+
     applicable_gates: list[QualityGateSpec] = (
         [
             g

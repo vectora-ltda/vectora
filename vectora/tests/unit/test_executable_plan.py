@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from backend.engine.conversation_loop import _parse_todos_result
-from backend.persistence.native.agent_run import AgentRun
-from backend.services.verification.engine import VerificationResult
 from backend.tools.context import ToolContext
 from backend.tools.planning import TodoItemArg, write_todos
 
@@ -20,7 +17,7 @@ def ctx() -> ToolContext:
 
 
 @pytest.mark.asyncio
-async def test_write_todos_includes_step_id_and_quality_gate(ctx):
+async def test_write_todos_includes_step_id_and_quality_gate(ctx: ToolContext) -> None:
     todos = [
         TodoItemArg(
             content="Instalar dependências",
@@ -55,7 +52,7 @@ async def test_write_todos_includes_step_id_and_quality_gate(ctx):
     assert parsed[2]["status"] == "pending"
 
 
-def test_parse_todos_result_with_step_id_and_quality_gate():
+def test_parse_todos_result_with_step_id_and_quality_gate() -> None:
     raw_json = json.dumps(
         [
             {

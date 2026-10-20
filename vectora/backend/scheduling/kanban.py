@@ -192,7 +192,7 @@ async def _record_task_event(
 async def get_task_status(task_id: str) -> dict[str, Any]:
     db = await _get_db()
     async with db.execute(
-        "SELECT status, block_kind, block_reason, claim_lock, claim_expires_at, updated_at "
+        "SELECT status, block_kind, block_reason, claim_lock, claim_expires_at, updated_at, version "
         "FROM vectora_background_tasks WHERE id = ?",
         (task_id,),
     ) as cur:
@@ -200,7 +200,10 @@ async def get_task_status(task_id: str) -> dict[str, Any]:
     if row is None:
         msg = f"task {task_id!r} não existe"
         raise ValueError(msg)
-    return dict(row)
+    st = dict(row)
+    if "version" not in st or st["version"] is None:
+        st["version"] = 1
+    return st
 
 
 async def authorize_task_session(task_id: str, session_id: str) -> None:
@@ -221,12 +224,21 @@ async def authorize_task_session(task_id: str, session_id: str) -> None:
 
 
 async def set_status(
-    task_id: str, status: str, *, authorized_run_id: str | None = None
+    task_id: str,
+    status: str,
+    *,
+    authorized_run_id: str | None = None,
+    expected_status: str | None = None,
+    expected_updated_at: str | None = None,
+    expected_version: int | str | None = None,
 ) -> None:
-    """Atualiza o status do card, opcionalmente sob fencing de uma run.
+    """Atualiza o status do card, opcionalmente sob fencing de uma run ou CAS.
 
     Quando ``authorized_run_id`` é informado, a escrita só ocorre enquanto o
     claim da run continua vigente; uma perda do claim levanta ``ValueError``.
+    Quando ``expected_status``, ``expected_updated_at`` ou ``expected_version``
+    são informados, a mutação exige que o registro coincida exatamente com essas
+    condições; se divergirem (rowcount 0), levanta ``ValueError`` por conflito.
     """
     if status not in KANBAN_STATUSES:
         msg = (
@@ -269,32 +281,60 @@ async def set_status(
             return _next_run(cron_expr if isinstance(cron_expr, str) else None)
 
         next_run_at = _next_interval_run(interval_config_raw)
+
+    where_parts = ["id = ?"]
+    extra_params: list[Any] = []
+    if expected_status is not None:
+        where_parts.append("status = ?")
+        extra_params.append(expected_status)
+    if expected_updated_at is not None:
+        where_parts.append("updated_at = ?")
+        extra_params.append(expected_updated_at)
+    if expected_version is not None:
+        where_parts.append("version = ?")
+        extra_params.append(
+            int(expected_version)
+            if isinstance(expected_version, int)
+            or (isinstance(expected_version, str) and expected_version.isdigit())
+            else expected_version
+        )
+
     if status in ("ready", "done"):
         # Saída bem-sucedida do ciclo de bloqueio — zera o contador de
         # escalonamento (ver BLOCK_RECURRENCE_LIMIT), senão uma task que
         # falhou 2x e depois teve sucesso carregaria o histórico pra
         # sempre em vez de resetar a régua.
         if authorized_run_id is None:
-            cur = await db.execute(
-                "UPDATE vectora_background_tasks SET status = ?, block_count = 0, "
-                "updated_at = datetime('now') WHERE id = ?",
-                (status, task_id),
+            query = (
+                "UPDATE vectora_background_tasks SET status = ?, block_count = 0, "  # noqa: S608  # nosec B608
+                "version = version + 1, updated_at = datetime('now') "
+                f"WHERE {' AND '.join(where_parts)}"
             )
+            cur = await db.execute(query, (status, task_id, *extra_params))
         elif is_interval_completion:
             # A concurrent schedule edit may replace trigger_config after
             # the snapshot above. Retry from the fresh config rather than
             # overwriting its next_run_at with the old cron expression.
+            where_interval = [
+                *where_parts,
+                "claim_lock = ?",
+                "claim_expires_at > ?",
+                "trigger_config = ?",
+            ]
+            query = (
+                "UPDATE vectora_background_tasks SET status = ?, "  # noqa: S608  # nosec B608
+                "block_count = 0, next_run_at = ?, claim_lock = NULL, "
+                "claim_expires_at = NULL, version = version + 1, updated_at = datetime('now') "
+                f"WHERE {' AND '.join(where_interval)}"
+            )
             while True:
                 cur = await db.execute(
-                    "UPDATE vectora_background_tasks SET status = ?, "
-                    "block_count = 0, next_run_at = ?, claim_lock = NULL, "
-                    "claim_expires_at = NULL, updated_at = datetime('now') "
-                    "WHERE id = ? AND claim_lock = ? AND claim_expires_at > ? "
-                    "AND trigger_config = ?",
+                    query,
                     (
                         status,
                         next_run_at,
                         task_id,
+                        *extra_params,
                         authorized_run_id,
                         _agora().isoformat(),
                         interval_config_raw,
@@ -320,30 +360,60 @@ async def set_status(
                 interval_config_raw = latest["trigger_config"]
                 next_run_at = _next_interval_run(interval_config_raw)
         else:
-            cur = await db.execute(
-                "UPDATE vectora_background_tasks SET status = ?, "
+            where_run = [*where_parts, "claim_lock = ?", "claim_expires_at > ?"]
+            query = (
+                "UPDATE vectora_background_tasks SET status = ?, "  # noqa: S608  # nosec B608
                 "block_count = 0, claim_lock = NULL, claim_expires_at = NULL, "
-                "updated_at = datetime('now') WHERE id = ? AND claim_lock = ? "
-                "AND claim_expires_at > ?",
-                (status, task_id, authorized_run_id, _agora().isoformat()),
+                "version = version + 1, updated_at = datetime('now') "
+                f"WHERE {' AND '.join(where_run)}"
+            )
+            cur = await db.execute(
+                query,
+                (
+                    status,
+                    task_id,
+                    *extra_params,
+                    authorized_run_id,
+                    _agora().isoformat(),
+                ),
             )
     elif authorized_run_id is None:
-        cur = await db.execute(
-            "UPDATE vectora_background_tasks SET status = ?, "
-            "updated_at = datetime('now') WHERE id = ?",
-            (status, task_id),
+        query = (
+            "UPDATE vectora_background_tasks SET status = ?, "  # noqa: S608  # nosec B608
+            "version = version + 1, updated_at = datetime('now') "
+            f"WHERE {' AND '.join(where_parts)}"
         )
+        cur = await db.execute(query, (status, task_id, *extra_params))
     else:
-        cur = await db.execute(
-            "UPDATE vectora_background_tasks SET status = ?, "
+        where_run = [*where_parts, "claim_lock = ?", "claim_expires_at > ?"]
+        query = (
+            "UPDATE vectora_background_tasks SET status = ?, "  # noqa: S608  # nosec B608
             "claim_lock = NULL, claim_expires_at = NULL, "
-            "updated_at = datetime('now') WHERE id = ? AND claim_lock = ? "
-            "AND claim_expires_at > ?",
-            (status, task_id, authorized_run_id, _agora().isoformat()),
+            "version = version + 1, updated_at = datetime('now') "
+            f"WHERE {' AND '.join(where_run)}"
         )
-    if authorized_run_id is not None and cur.rowcount == 0:
+        cur = await db.execute(
+            query,
+            (
+                status,
+                task_id,
+                *extra_params,
+                authorized_run_id,
+                _agora().isoformat(),
+            ),
+        )
+    if cur.rowcount == 0:
         await db.rollback()
-        raise ValueError("execução perdeu o claim da task")
+        if authorized_run_id is not None:
+            raise ValueError("execução perdeu o claim da task")
+        if (
+            expected_status is not None
+            or expected_updated_at is not None
+            or expected_version is not None
+        ):
+            raise ValueError(
+                "concorrência detectada: registro foi modificado por outra operação"
+            )
     await db.commit()
     await _emit_kanban_event(task_id, status)
     await _record_task_event(task_id, from_status, status)
@@ -475,8 +545,8 @@ async def manual_transition(
             f"concorrência detectada: status atual {atual!r} difere do esperado {expected_status!r}"
         )
     if expected_version is not None:
-        versao_atual = estado.get("version") or estado.get("updated_at")
-        if str(versao_atual) != str(expected_version):
+        versao_atual = estado.get("version")
+        if versao_atual is not None and str(versao_atual) != str(expected_version):
             raise ValueError(
                 f"concorrência detectada: versão atual {versao_atual!r} difere da esperada {expected_version!r}"
             )
@@ -484,10 +554,28 @@ async def manual_transition(
     if target_status not in permitidos:
         msg = f"transição {atual!r} → {target_status!r} não é permitida manualmente"
         raise ValueError(msg)
+
+    cas_expected_status = expected_status or atual
+    cas_expected_updated_at = estado.get("updated_at")
+    cas_expected_version = expected_version or estado.get("version")
+
     if atual == "blocked" and target_status == "ready":
-        await unblock_task(task_id, authorized_run_id=authorized_run_id)
+        await unblock_task(
+            task_id,
+            authorized_run_id=authorized_run_id,
+            expected_status=cas_expected_status,
+            expected_updated_at=cas_expected_updated_at,
+            expected_version=cas_expected_version,
+        )
         return
-    await set_status(task_id, target_status, authorized_run_id=authorized_run_id)
+    await set_status(
+        task_id,
+        target_status,
+        authorized_run_id=authorized_run_id,
+        expected_status=cas_expected_status,
+        expected_updated_at=cas_expected_updated_at,
+        expected_version=cas_expected_version,
+    )
 
 
 async def claim_task(
@@ -843,11 +931,20 @@ async def cancel_run_and_block(
     return True
 
 
-async def unblock_task(task_id: str, *, authorized_run_id: str | None = None) -> None:
+async def unblock_task(
+    task_id: str,
+    *,
+    authorized_run_id: str | None = None,
+    expected_status: str | None = None,
+    expected_updated_at: str | None = None,
+    expected_version: int | str | None = None,
+) -> None:
     """Desbloqueia um card e limpa seus metadados de bloqueio.
 
     Com ``authorized_run_id``, a alteração exige um claim vigente da mesma
     run e levanta ``ValueError`` se o fencing rejeitar a escrita.
+    Com ``expected_status``, ``expected_updated_at`` ou ``expected_version``,
+    aplica CAS na mutação e levanta ``ValueError`` se houver conflito de concorrência.
     """
     db = await _get_db()
     async with db.execute(
@@ -855,23 +952,54 @@ async def unblock_task(task_id: str, *, authorized_run_id: str | None = None) ->
     ) as cur:
         row = await cur.fetchone()
     from_status = row["status"] if row else None
+
+    where_parts = ["id = ?"]
+    extra_params: list[Any] = []
+    if expected_status is not None:
+        where_parts.append("status = ?")
+        extra_params.append(expected_status)
+    if expected_updated_at is not None:
+        where_parts.append("updated_at = ?")
+        extra_params.append(expected_updated_at)
+    if expected_version is not None:
+        where_parts.append("version = ?")
+        extra_params.append(
+            int(expected_version)
+            if isinstance(expected_version, int)
+            or (isinstance(expected_version, str) and expected_version.isdigit())
+            else expected_version
+        )
+
     if authorized_run_id is None:
-        cur = await db.execute(
-            "UPDATE vectora_background_tasks SET status = 'ready', block_kind = NULL, "
-            "block_reason = NULL, block_count = 0, updated_at = datetime('now') "
-            "WHERE id = ?",
-            (task_id,),
+        query = (
+            "UPDATE vectora_background_tasks SET status = 'ready', block_kind = NULL, "  # noqa: S608  # nosec B608
+            "block_reason = NULL, block_count = 0, version = version + 1, updated_at = datetime('now') "
+            f"WHERE {' AND '.join(where_parts)}"
         )
+        cur = await db.execute(query, (task_id, *extra_params))
     else:
-        cur = await db.execute(
-            "UPDATE vectora_background_tasks SET status = 'ready', block_kind = NULL, "
-            "block_reason = NULL, block_count = 0, updated_at = datetime('now') "
-            "WHERE id = ? AND claim_lock = ? AND claim_expires_at > ?",
-            (task_id, authorized_run_id, _agora().isoformat()),
+        where_run = [*where_parts, "claim_lock = ?", "claim_expires_at > ?"]
+        query = (
+            "UPDATE vectora_background_tasks SET status = 'ready', block_kind = NULL, "  # noqa: S608  # nosec B608
+            "block_reason = NULL, block_count = 0, version = version + 1, updated_at = datetime('now') "
+            f"WHERE {' AND '.join(where_run)}"
         )
-    if authorized_run_id is not None and cur.rowcount == 0:
+        cur = await db.execute(
+            query,
+            (task_id, *extra_params, authorized_run_id, _agora().isoformat()),
+        )
+    if cur.rowcount == 0:
         await db.rollback()
-        raise ValueError("execução perdeu o claim da task")
+        if authorized_run_id is not None:
+            raise ValueError("execução perdeu o claim da task")
+        if (
+            expected_status is not None
+            or expected_updated_at is not None
+            or expected_version is not None
+        ):
+            raise ValueError(
+                "concorrência detectada: registro foi modificado por outra operação"
+            )
     await db.commit()
     await _emit_kanban_event(task_id, "ready", block_kind=None, block_reason=None)
     await _record_task_event(task_id, from_status, "ready")

@@ -292,6 +292,7 @@ async def run_conversation(
     usage_records: list[tuple[str | None, dict[str, int]]] = []
     observed_tools: set[str] = set()
     files_touched: list[str] = []
+    executed_step_gates: set[tuple[str, str]] = set()
 
     for _iteracao in range(config.max_iterations):
         historico = compact_messages(
@@ -974,21 +975,49 @@ async def run_conversation(
                         agent_run = await session_store.get_agent_run(config.run_id)
                         if agent_run is not None:
                             agent_run.plan_step = active_step_id
+                            # Recupera gates já concluídos com sucesso para não reexecutar
+                            for ev in agent_run.evidence:
+                                if (
+                                    isinstance(ev, dict)
+                                    and ev.get("kind") == "quality_gate_verification"
+                                    and ev.get("passed")
+                                ):
+                                    ev_step = ev.get("step_id")
+                                    ev_gate = ev.get("quality_gate")
+                                    if ev_step and ev_gate:
+                                        executed_step_gates.add(
+                                            (str(ev_step), str(ev_gate))
+                                        )
+
                             # Executa quality gates específicos para etapas concluídas
                             for item in todos:
                                 if item.status == "completed" and item.quality_gate:
+                                    step_key = item.step_id or item.content
+                                    gate_key = item.quality_gate
+                                    pair = (step_key, gate_key)
+                                    if pair in executed_step_gates:
+                                        continue
+
                                     from backend.services.verification import (
                                         run_verification,
                                     )
 
                                     ws_id = getattr(ctx, "workspace_id", None)
+                                    ws_dir = getattr(
+                                        ctx, "workspace_dir", None
+                                    ) or getattr(ctx, "cwd", None)
                                     v_res = await run_verification(
                                         ws_id,
-                                        getattr(ctx, "cwd", None),
+                                        ws_dir,
                                         target_gate_ids=[item.quality_gate],
                                     )
-                                    agent_run.evidence.append(v_res.to_evidence_entry())
-                                    if not v_res.passed:
+                                    v_entry = v_res.to_evidence_entry()
+                                    v_entry["step_id"] = step_key
+                                    v_entry["quality_gate"] = gate_key
+                                    agent_run.evidence.append(v_entry)
+                                    if v_res.passed:
+                                        executed_step_gates.add(pair)
+                                    else:
                                         agent_run.status = v_res.status
                             await session_store.upsert_agent_run(agent_run)
 

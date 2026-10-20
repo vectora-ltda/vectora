@@ -504,6 +504,12 @@ async def _run_subagent_once(
                     f"progresso por "
                     f"{liveness.heartbeat_interval_s * liveness.max_stalled_heartbeats:.0f}s."
                 )
+                if hasattr(session_store, "update_agent_run_status"):
+                    await session_store.update_agent_run_status(
+                        child_run_id,
+                        status="cancelled",
+                        detail=texto_cancelado,
+                    )
                 if on_event is not None:
                     await on_event(
                         SubagentOutput(
@@ -530,6 +536,12 @@ async def _run_subagent_once(
                 f"Subagente '{spec.name}' cancelado por pedido explícito "
                 f"(hard interrupt)."
             )
+            if hasattr(session_store, "update_agent_run_status"):
+                await session_store.update_agent_run_status(
+                    child_run_id,
+                    status="cancelled",
+                    detail=texto_cancelado,
+                )
             if on_event is not None:
                 await on_event(
                     SubagentOutput(
