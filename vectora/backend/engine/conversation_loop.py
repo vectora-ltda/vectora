@@ -512,12 +512,47 @@ async def run_conversation(
                         thread_id,
                     )
                 if hasattr(session_store, "update_agent_run_status"):
+                    # 1. Transiciona atomicamente para o estado 'verifying'
                     await session_store.update_agent_run_status(
                         config.run_id,
-                        status="passed",
-                        detail="Execução completada com sucesso.",
+                        status="verifying",
+                        detail="Executando verificação de quality gates e snapshot criptográfico.",
                         metrics=iter_metrics,
                     )
+                    # 2. Despacha o motor de verificação pós-execução
+                    from backend.services.verification import run_verification
+
+                    ws_id = getattr(ctx, "workspace_id", None)
+                    v_res = await run_verification(
+                        ws_id,
+                        getattr(ctx, "cwd", None),
+                    )
+                    # 3. Persiste o resultado da verificação e a evidência com SHA-256 no AgentRun
+                    if hasattr(session_store, "get_agent_run") and hasattr(
+                        session_store, "upsert_agent_run"
+                    ):
+                        agent_run = await session_store.get_agent_run(config.run_id)
+                        if agent_run is not None:
+                            agent_run.evidence.append(v_res.to_evidence_entry())
+                            agent_run.status = v_res.status
+                            agent_run.metrics = iter_metrics
+                            agent_run.detail = (
+                                "Verificação concluída com sucesso."
+                                if v_res.passed
+                                else f"Falha nos quality gates: {v_res.failure_feedback or ''}"
+                            )
+                            await session_store.upsert_agent_run(agent_run)
+                    else:
+                        await session_store.update_agent_run_status(
+                            config.run_id,
+                            status=v_res.status,
+                            detail=(
+                                "Verificação concluída com sucesso."
+                                if v_res.passed
+                                else "Falha nos quality gates."
+                            ),
+                            metrics=iter_metrics,
+                        )
             return LoopResult(
                 stopped_reason="stop",
                 final_message=assistant_msg,
