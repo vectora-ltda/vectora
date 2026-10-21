@@ -15,6 +15,8 @@ Cobre os critérios de aceite:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncGenerator
+from pathlib import Path
 
 import pytest
 
@@ -35,7 +37,7 @@ from backend.vtypes.message import MessageRole, text_message
 
 
 @pytest.fixture
-async def store(tmp_path):
+async def store(tmp_path: Path) -> AsyncGenerator[SessionStore]:
     pool = AsyncConnectionPool(str(tmp_path / "sessions.db"), min_size=1, max_size=5)
     await pool.open()
     store = SessionStore(pool)
@@ -47,7 +49,9 @@ async def store(tmp_path):
 
 
 class TestThreadLedgerStore:
-    async def test_append_event_monotone_seq_and_idempotency(self, store: SessionStore):
+    async def test_append_event_monotone_seq_and_idempotency(
+        self, store: SessionStore
+    ) -> None:
         """seq é monótono e a mesma event_key retorna o evento existente sem duplicar."""
         await store.create_session("thread-1", user_id="alice")
 
@@ -78,7 +82,7 @@ class TestThreadLedgerStore:
         ev2 = await store.append_event("thread-1", draft2)
         assert ev2.seq == 2
 
-    async def test_append_message_recorded_atomicity(self, store: SessionStore):
+    async def test_append_message_recorded_atomicity(self, store: SessionStore) -> None:
         """append_message_recorded grava mensagem e evento message_created na mesma transação."""
         await store.create_session("thread-1", user_id="alice")
 
@@ -111,7 +115,7 @@ class TestThreadLedgerStore:
         assert events2[0].message_id == msg2_id
         assert events2[0].seq == 2
 
-    async def test_pending_approval_atomic_events(self, store: SessionStore):
+    async def test_pending_approval_atomic_events(self, store: SessionStore) -> None:
         """put_pending_approval grava approval_requested e claim_pending_approval grava approval_resolved."""
         await store.create_session("thread-1", user_id="alice")
 
@@ -140,7 +144,7 @@ class TestThreadLedgerStore:
         assert events_after[0].interrupt_id == "int-1"
         assert events_after[0].seq == 2
 
-    async def test_read_cursor_monotone_and_capped(self, store: SessionStore):
+    async def test_read_cursor_monotone_and_capped(self, store: SessionStore) -> None:
         """mark_events_seen é limitado pelo MAX(seq) da thread e usa MAX(existing, seen_seq)."""
         await store.create_session("thread-1", user_id="alice")
 
@@ -165,7 +169,7 @@ class TestThreadLedgerStore:
         )
         assert res2["read_seq"] == 2
 
-    async def test_get_thread_summaries_and_badges(self, store: SessionStore):
+    async def test_get_thread_summaries_and_badges(self, store: SessionStore) -> None:
         """get_thread_summaries deriva unread_count, status, last_message e last_seq."""
         await store.create_session("thread-1", user_id="alice")
         await store.create_session("thread-2", user_id="alice")
@@ -206,7 +210,7 @@ class TestThreadLedgerStore:
         assert s2.unread_count == 1
         assert s2.status == "failed"
 
-    async def test_run_draft_crud(self, store: SessionStore):
+    async def test_run_draft_crud(self, store: SessionStore) -> None:
         """upsert, get e delete de rascunhos de run."""
         await store.create_session("thread-1", user_id="alice")
 
@@ -224,7 +228,7 @@ class TestThreadLedgerStore:
         draft3 = await store.get_run_draft("thread-1", "run-1")
         assert draft3 is None
 
-    async def test_delete_session_cleans_ledger(self, store: SessionStore):
+    async def test_delete_session_cleans_ledger(self, store: SessionStore) -> None:
         """delete_session apaga eventos, cursores e rascunhos da thread."""
         await store.create_session("thread-1", user_id="alice")
         await store.append_message_recorded(
