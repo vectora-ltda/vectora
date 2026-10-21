@@ -258,6 +258,15 @@ async def run_conversation(
     from backend.services.policy_compiler import compile_policy_snapshot
 
     await apply_media_billing_source(ctx)
+    if hasattr(session_store, "get_session") and not (
+        isinstance(ctx._extra, dict) and ctx._extra.get("untrusted_content")
+    ):
+        session_meta = await session_store.get_session(thread_id)
+        if session_meta and session_meta.get("mode") == "connect":
+            if not isinstance(ctx._extra, dict):
+                ctx._extra = {}
+            ctx._extra["untrusted_content"] = True
+
     if hasattr(session_store, "list_agent_runs") and not (
         isinstance(ctx._extra, dict) and ctx._extra.get("untrusted_content")
     ):
@@ -270,6 +279,11 @@ async def run_conversation(
 
     if policy_snapshot is None:
         policy_snapshot = compile_policy_snapshot(ctx)
+
+    if isinstance(ctx._extra, dict):
+        sub_deps = ctx._extra.get("subagent_deps")
+        if sub_deps is not None and getattr(sub_deps, "policy_snapshot", None) is None:
+            sub_deps.policy_snapshot = policy_snapshot
 
     emit = on_event or _noop_event
     tools = tool_registry.all()
@@ -1037,6 +1051,11 @@ async def resume_conversation(
     from backend.services.policy_compiler import compile_policy_snapshot
 
     await apply_media_billing_source(ctx)
+    is_untrusted_thread = False
+    if hasattr(session_store, "get_session"):
+        session_meta = await session_store.get_session(thread_id)
+        if session_meta and session_meta.get("mode") == "connect":
+            is_untrusted_thread = True
     if hasattr(session_store, "list_agent_runs"):
         runs = await session_store.list_agent_runs(thread_id, limit=5)
         paused_run = next(
@@ -1044,9 +1063,11 @@ async def resume_conversation(
             runs[0] if runs else None,
         )
         if paused_run and paused_run.untrusted_content:
-            if not isinstance(ctx._extra, dict):
-                ctx._extra = {}
-            ctx._extra["untrusted_content"] = True
+            is_untrusted_thread = True
+    if is_untrusted_thread:
+        if not isinstance(ctx._extra, dict):
+            ctx._extra = {}
+        ctx._extra["untrusted_content"] = True
 
     if policy_snapshot is None:
         policy_snapshot = compile_policy_snapshot(ctx)

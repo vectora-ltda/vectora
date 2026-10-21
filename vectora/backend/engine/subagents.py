@@ -91,6 +91,7 @@ if TYPE_CHECKING:
     from backend.engine.stream_events import EventSink
     from backend.llm.base import ChatClient
     from backend.persistence.native.session_store import SessionStore
+    from backend.services.policy_compiler import PolicySnapshot
     from backend.tools.context import ToolContext
     from backend.tools.registry import ToolSpec
     from backend.vtypes.message import VMessage
@@ -224,6 +225,7 @@ async def run_subagent(
     | None,
     turn_budget: TurnBudget | None = None,
     liveness: LivenessConfig | None = None,
+    policy_snapshot: PolicySnapshot | None = None,
 ) -> str:
     """Roda `spec` até completar (ou pausar em HITL) e devolve o texto
     final. Sem `spec.correlation_id`, delega direto pra
@@ -246,6 +248,7 @@ async def run_subagent(
             should_require_approval=should_require_approval,
             turn_budget=turn_budget,
             liveness=liveness,
+            policy_snapshot=policy_snapshot,
         )
 
     correlation_id = spec.correlation_id
@@ -268,6 +271,7 @@ async def run_subagent(
             should_require_approval=should_require_approval,
             turn_budget=turn_budget,
             liveness=liveness,
+            policy_snapshot=policy_snapshot,
         )
     except BaseException as exc:
         if not future.done():
@@ -297,6 +301,7 @@ async def _run_subagent_once(
     | None = None,
     turn_budget: TurnBudget | None = None,
     liveness: LivenessConfig | None = None,
+    policy_snapshot: PolicySnapshot | None = None,
 ) -> str:
     """Roda `spec` uma única vez até completar (ou pausar em HITL) e
     devolve o texto final — instância nova e isolada do motor, sessão
@@ -405,6 +410,7 @@ async def _run_subagent_once(
             config=config or LoopConfig(),
             on_event=_on_event_com_liveness,
             should_require_approval=should_require_approval,
+            policy_snapshot=policy_snapshot,
         )
     )
 
