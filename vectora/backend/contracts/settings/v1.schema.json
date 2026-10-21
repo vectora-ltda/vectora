@@ -227,6 +227,7 @@
       "type": "object"
     },
     "WorkbenchesSettings": {
+      "description": "Configurações específicas das workbenches.\n\nO uso de `dict[str, Any]` é justificado pois as seções de cada workbench são\nlivres e flexíveis na v1 do schema e poderão ser estritamente tipadas em versões futuras.",
       "properties": {
         "browser": {
           "additionalProperties": true,
