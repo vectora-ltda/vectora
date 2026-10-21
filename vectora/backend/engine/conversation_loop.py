@@ -498,6 +498,12 @@ async def run_conversation(
             finish_reason="tool_calls" if tool_calls else "stop",
         )
 
+        iter_metrics = AgentRunMetrics(
+            input_tokens=int(last_usage.get("input_tokens", 0) if last_usage else 0),
+            output_tokens=int(last_usage.get("output_tokens", 0) if last_usage else 0),
+            total_tokens=int(last_usage.get("total_tokens", 0) if last_usage else 0),
+        )
+
         # Do not persist an assistant tool-call message when the repetition
         # guard is about to stop the loop.  Persisting it would leave pending
         # calls in the session history without matching tool results, causing
@@ -536,6 +542,14 @@ async def run_conversation(
                         "repetitions": repeticoes_seguidas,
                     },
                 )
+                if hasattr(session_store, "update_agent_run_status") and config.run_id:
+                    await session_store.update_agent_run_status(
+                        config.run_id,
+                        status="failed",
+                        detail=mensagem,
+                        error_code="TOOL_CALL_REPEATED",
+                        metrics=iter_metrics,
+                    )
                 await emit(ErrorSignal(code="TOOL_CALL_REPEATED", message=mensagem))
                 await emit(MessageBreak())
                 return LoopResult(
@@ -551,12 +565,6 @@ async def run_conversation(
             thread_id, assistant_msg, parent_message_id=parent_id, run_id=config.run_id
         )
         await emit(MessageBreak())
-
-        iter_metrics = AgentRunMetrics(
-            input_tokens=int(last_usage.get("input_tokens", 0) if last_usage else 0),
-            output_tokens=int(last_usage.get("output_tokens", 0) if last_usage else 0),
-            total_tokens=int(last_usage.get("total_tokens", 0) if last_usage else 0),
-        )
 
         if not tool_calls:
             if config.run_id:
