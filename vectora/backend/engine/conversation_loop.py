@@ -88,6 +88,7 @@ if TYPE_CHECKING:
     from backend.services.policy_compiler import PolicySnapshot
     from backend.tools.context import ToolContext
     from backend.tools.registry import ToolRegistry
+    from backend.vtypes import JsonObject
 
 
 @dataclass(slots=True)
@@ -340,11 +341,17 @@ async def run_conversation(
                     for e in agent_run.evidence
                 ):
                     agent_run.evidence.append(
-                        planned_context.manifest.to_evidence_entry()
+                        cast(
+                            "JsonObject",
+                            planned_context.manifest.to_evidence_entry(),
+                        )
                     )
                     if planned_context.projection is not None:
                         agent_run.evidence.append(
-                            planned_context.projection.to_evidence_entry()
+                            cast(
+                                "JsonObject",
+                                planned_context.projection.to_evidence_entry(),
+                            )
                         )
                     await session_store.upsert_agent_run(agent_run)
 

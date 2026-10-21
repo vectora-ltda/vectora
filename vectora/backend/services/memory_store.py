@@ -5,9 +5,10 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Literal
 
 from backend.services.context_manifest import ContextDomain
+from backend.vtypes import JsonObject
 
 MemoryTrustLevel = Literal["trusted", "verified", "untrusted"]
 
@@ -25,7 +26,7 @@ class MemoryRecord:
     provenance: str = ""
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     accessed_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: JsonObject = field(default_factory=dict)
 
 
 @dataclass
@@ -54,7 +55,7 @@ class MemoryStore:
         importance: float = 0.5,
         trust_level: MemoryTrustLevel = "trusted",
         provenance: str = "",
-        metadata: dict[str, Any] | None = None,
+        metadata: JsonObject | None = None,
     ) -> MemoryRecord:
         record = MemoryRecord(
             id=record_id,
