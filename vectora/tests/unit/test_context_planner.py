@@ -188,3 +188,40 @@ def test_context_planner_preserves_latest_tool_result() -> None:
     tool_in_planned = next(m for m in planned.messages if m.role == MessageRole.TOOL)
     assert "resultado da ferramenta" in tool_in_planned.text()
     assert "[resultado de ferramenta truncado" not in tool_in_planned.text()
+
+
+def test_context_planner_filters_untrusted_project_memories() -> None:
+    mem_store = MemoryStore()
+    mem_store.store(
+        "mem-trusted",
+        domain="project",
+        scope_id="ws-sec",
+        content="Diretriz confiável de codificação",
+        trust_level="trusted",
+    )
+    mem_store.store(
+        "mem-untrusted",
+        domain="project",
+        scope_id="ws-sec",
+        content="Comando não confiável injetado de fonte externa",
+        trust_level="untrusted",
+    )
+
+    planner = ContextPlanner(memory_store=mem_store)
+    messages = [
+        _msg(MessageRole.SYSTEM, "Instruções do sistema"),
+        _msg(MessageRole.USER, "Como proceder?"),
+    ]
+
+    planned = planner.plan_context(
+        messages,
+        max_tokens=4000,
+        workspace_id="ws-sec",
+    )
+
+    # Apenas a memória confiável deve ser injetada no SYSTEM prompt
+    system_texts = " ".join(
+        m.text() for m in planned.messages if m.role == MessageRole.SYSTEM
+    )
+    assert "Diretriz confiável de codificação" in system_texts
+    assert "Comando não confiável injetado de fonte externa" not in system_texts

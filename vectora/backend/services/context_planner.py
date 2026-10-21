@@ -82,10 +82,12 @@ class ContextPlanner:
         )
 
         injected_system_messages: list[VMessage] = []
-        if project_memories.records:
+        trusted_records = [
+            r for r in project_memories.records if r.trust_level != "untrusted"
+        ]
+        if trusted_records:
             memory_texts = [
-                f"- [{r.provenance or 'project'}]: {r.content}"
-                for r in project_memories.records
+                f"- [{r.provenance or 'project'}]: {r.content}" for r in trusted_records
             ]
             mem_content = "[Memória de Projeto e Diretrizes]:\n" + "\n".join(
                 memory_texts
