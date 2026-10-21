@@ -1053,6 +1053,23 @@ class PostgresSessionStore:
             )
         return events
 
+    async def get_event_seq_by_message_id(
+        self, thread_id: str, message_id: int | str
+    ) -> int | None:
+        """Localiza o seq do evento message_created correspondente a message_id."""
+        await self.setup()
+        mid_int = int(message_id) if str(message_id).isdigit() else None
+        if mid_int is None:
+            return None
+        async with self._pool.acquire() as conn:
+            val = await conn.fetchval(
+                "SELECT seq FROM vectora_native_thread_events WHERE thread_id = $1 AND type = 'message_created' "
+                "AND message_id = $2 ORDER BY seq DESC LIMIT 1",
+                thread_id,
+                mid_int,
+            )
+            return int(val) if val is not None else None
+
     async def mark_events_seen(
         self, thread_id: str, user_id: str, device_id: str, seen_seq: int
     ) -> dict[str, int]:

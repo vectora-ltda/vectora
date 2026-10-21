@@ -1298,6 +1298,20 @@ class SessionStore:
             row = await cur.fetchone()
         return int(row[0] or 0) if row is not None else 0
 
+    async def get_event_seq_by_message_id(
+        self, thread_id: str, message_id: int | str
+    ) -> int | None:
+        """Localiza o seq do evento message_created correspondente a message_id."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT seq FROM thread_events WHERE thread_id = ? AND type = 'message_created' "
+                "AND (message_id = ? OR message_id = CAST(? AS INTEGER)) ORDER BY seq DESC LIMIT 1",
+                (thread_id, message_id, message_id),
+            )
+            row = await cur.fetchone()
+            return int(row[0]) if row and row[0] is not None else None
+
     async def list_active_user_ids(self, since_iso: str) -> list[str]:
         """`user_id` distintos com pelo menos uma sessão atualizada desde
         `since_iso` (string ISO comparável lexicograficamente com
