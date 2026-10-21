@@ -96,3 +96,42 @@ def test_quality_gate_policy_literals() -> None:
                 "policy": "invalid_policy",
             }
         )
+
+
+def test_quality_gates_bundle_all_refs_resolve() -> None:
+    """Valida que todas as referências $ref no bundle draft-07 resolvem a partir da raiz."""
+    schema_file = (
+        Path(__file__).resolve().parents[3]
+        / "backend"
+        / "contracts"
+        / "quality_gates"
+        / "schema.json"
+    )
+    schema_json = json.loads(schema_file.read_text(encoding="utf-8"))
+
+    def _resolve_pointer(root: dict, pointer: str) -> dict:
+        assert pointer.startswith("#/"), f"Referência externa não suportada: {pointer}"
+        parts = pointer[2:].split("/")
+        curr = root
+        for part in parts:
+            assert part in curr, f"Referência {pointer} falhou em resolver '{part}'"
+            curr = curr[part]
+        return curr
+
+    refs_found: list[str] = []
+
+    def _find_refs(obj: object) -> None:
+        if isinstance(obj, dict):
+            if "$ref" in obj:
+                ref = str(obj["$ref"])
+                refs_found.append(ref)
+                resolved = _resolve_pointer(schema_json, ref)
+                assert isinstance(resolved, dict)
+            for v in obj.values():
+                _find_refs(v)
+        elif isinstance(obj, list):
+            for item in obj:
+                _find_refs(item)
+
+    _find_refs(schema_json)
+    assert "#/definitions/QualityGateSpec" in refs_found
