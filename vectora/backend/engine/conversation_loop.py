@@ -258,6 +258,16 @@ async def run_conversation(
     from backend.services.policy_compiler import compile_policy_snapshot
 
     await apply_media_billing_source(ctx)
+    if hasattr(session_store, "list_agent_runs") and not (
+        isinstance(ctx._extra, dict) and ctx._extra.get("untrusted_content")
+    ):
+        runs = await session_store.list_agent_runs(thread_id, limit=5)
+        latest_run = runs[0] if runs else None
+        if latest_run and latest_run.untrusted_content:
+            if not isinstance(ctx._extra, dict):
+                ctx._extra = {}
+            ctx._extra["untrusted_content"] = True
+
     if policy_snapshot is None:
         policy_snapshot = compile_policy_snapshot(ctx)
 
