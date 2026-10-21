@@ -10,7 +10,7 @@ from backend.persistence.native.session_store import SessionStore
 from backend.services.policy_compiler import PolicySnapshot
 from backend.storage.sqlite.pool import AsyncConnectionPool
 from backend.tools.context import ToolContext
-from backend.tools.registry import ToolExtras, ToolSpec
+from backend.tools.registry import TOOL_REGISTRY, ToolExtras, ToolSpec
 from backend.vtypes.ids import CorrelationId
 from backend.vtypes.message import VMessageChunk
 
@@ -37,13 +37,15 @@ async def _dummy_handler(args: dict, ctx: ToolContext) -> str:
     return args.get("text", "ok")
 
 
-def _make_tool_spec(name: str, category: str = "generic") -> ToolSpec:
+def _make_tool_spec(
+    name: str, category: str = "generic", *, destructive: bool = False
+) -> ToolSpec:
     return ToolSpec(
         name=name,
         description=f"tool {name}",
         args_model=_DummyArgs,
         handler=_dummy_handler,
-        extras=ToolExtras(category=category),
+        extras=ToolExtras(category=category, destructive=destructive),
         needs_ctx=True,
     )
 
@@ -148,34 +150,41 @@ async def test_subagent_permission_intersection_blocks_disabled_tool(
 
 
 @pytest.mark.asyncio
-async def test_subagent_untrusted_content_blocks_destructive_tool(session_store, ctx):
-    spec = SubagentSpec(
-        name="terminal_worker",
-        description="runs terminal",
-        system_prompt="run bash",
-        tools=[_make_tool_spec("bash", category="terminal")],
-    )
+async def test_subagent_untrusted_content_blocks_destructive_tool(
+    session_store: SessionStore, ctx: ToolContext
+) -> None:
+    tool = _make_tool_spec("fake_terminal", category="terminal", destructive=True)
+    TOOL_REGISTRY.register(tool)
+    try:
+        spec = SubagentSpec(
+            name="terminal_worker",
+            description="runs terminal",
+            system_prompt="run fake terminal",
+            tools=[tool],
+        )
 
-    parent_policy = PolicySnapshot(
-        user_id="user1",
-        untrusted_content=True,
-    )
+        parent_policy = PolicySnapshot(
+            user_id="user1",
+            untrusted_content=True,
+        )
 
-    client = _SimpleChatClient(["ok"])
+        client = _SimpleChatClient(["ok"])
 
-    res = await run_subagent(
-        spec,
-        "run bash ls",
-        session_store=session_store,
-        chat_client=client,
-        ctx=ctx,
-        parent_thread_id="thread-parent",
-        should_require_approval=None,
-        parent_policy_snapshot=parent_policy,
-    )
+        res = await run_subagent(
+            spec,
+            "run bash ls",
+            session_store=session_store,
+            chat_client=client,
+            ctx=ctx,
+            parent_thread_id="thread-parent",
+            should_require_approval=None,
+            parent_policy_snapshot=parent_policy,
+        )
 
-    assert (
-        "Error: subagente 'terminal_worker' pede tool(s) fora do escopo RBAC ou bloqueadas"
-        in res
-    )
-    assert "bash" in res
+        assert (
+            "Error: subagente 'terminal_worker' pede tool(s) fora do escopo RBAC ou bloqueadas"
+            in res
+        )
+        assert "fake_terminal" in res
+    finally:
+        TOOL_REGISTRY._tools.pop("fake_terminal", None)

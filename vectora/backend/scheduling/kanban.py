@@ -484,14 +484,14 @@ async def complete_run_and_set_status(
     if interval_completion:
         task_cur = await db.execute(
             "UPDATE vectora_background_tasks SET status = ?, block_count = 0, "
-            "next_run_at = ?, claim_lock = NULL, claim_expires_at = NULL, "
-            "updated_at = datetime('now') WHERE id = ? AND claim_lock = ?",
+            "version = version + 1, next_run_at = ?, claim_lock = NULL, "
+            "claim_expires_at = NULL, updated_at = datetime('now') WHERE id = ? AND claim_lock = ?",
             (target_status, next_run_at, task_id, run_id),
         )
     else:
         task_cur = await db.execute(
             "UPDATE vectora_background_tasks SET status = ?, block_count = 0, "
-            "claim_lock = NULL, claim_expires_at = NULL, "
+            "version = version + 1, claim_lock = NULL, claim_expires_at = NULL, "
             "updated_at = datetime('now') WHERE id = ? AND claim_lock = ?",
             (target_status, task_id, run_id),
         )
@@ -599,6 +599,7 @@ async def claim_task(
            SET status = 'running',
                claim_lock = ?,
                claim_expires_at = ?,
+               version = version + 1,
                updated_at = datetime('now')
          WHERE id = ?
            AND status IN ('ready', 'scheduled')
@@ -633,7 +634,7 @@ async def ensure_task_claim(
         return False
     cur = await db.execute(
         "UPDATE vectora_background_tasks SET status = 'running', claim_lock = ?, "
-        "claim_expires_at = ?, updated_at = datetime('now') WHERE id = ? AND "
+        "claim_expires_at = ?, version = version + 1, updated_at = datetime('now') WHERE id = ? AND "
         "((claim_lock = ?) OR "
         "(claim_lock IS NULL AND status IN ('ready', 'scheduled')))",
         (run_id, expira, task_id, run_id),
@@ -699,6 +700,7 @@ async def release_stale_claims() -> int:
            SET status = 'ready',
                claim_lock = NULL,
                claim_expires_at = NULL,
+               version = version + 1,
                updated_at = datetime('now')
          WHERE claim_lock IS NOT NULL
            AND claim_expires_at IS NOT NULL
@@ -748,14 +750,14 @@ async def block_task(
             cur = await db.execute(
                 "UPDATE vectora_background_tasks SET status = 'todo', block_kind = ?, "
                 "block_reason = ?, claim_lock = NULL, claim_expires_at = NULL, "
-                "updated_at = datetime('now') WHERE id = ?",
+                "version = version + 1, updated_at = datetime('now') WHERE id = ?",
                 (kind, reason, task_id),
             )
         elif allow_expired_claim:
             cur = await db.execute(
                 "UPDATE vectora_background_tasks SET status = 'todo', "
                 "block_kind = ?, block_reason = ?, claim_lock = NULL, "
-                "claim_expires_at = NULL, updated_at = datetime('now') "
+                "claim_expires_at = NULL, version = version + 1, updated_at = datetime('now') "
                 "WHERE id = ? AND (claim_lock = ? OR (claim_lock IS NULL "
                 "AND status IN ('ready', 'running', 'scheduled')))",
                 (kind, reason, task_id, authorized_run_id),
@@ -764,7 +766,7 @@ async def block_task(
             cur = await db.execute(
                 "UPDATE vectora_background_tasks SET status = 'todo', block_kind = ?, "
                 "block_reason = ?, claim_lock = NULL, claim_expires_at = NULL, "
-                "updated_at = datetime('now') WHERE id = ? AND claim_lock = ? "
+                "version = version + 1, updated_at = datetime('now') WHERE id = ? AND claim_lock = ? "
                 "AND claim_expires_at > ?",
                 (kind, reason, task_id, authorized_run_id, _agora().isoformat()),
             )
@@ -798,14 +800,14 @@ async def block_task(
         cur = await db.execute(
             "UPDATE vectora_background_tasks SET status = ?, block_kind = ?, "
             "block_reason = ?, block_count = ?, claim_lock = NULL, "
-            "claim_expires_at = NULL, updated_at = datetime('now') WHERE id = ?",
+            "claim_expires_at = NULL, version = version + 1, updated_at = datetime('now') WHERE id = ?",
             (status, kind, reason, novo_count, task_id),
         )
     elif allow_expired_claim:
         cur = await db.execute(
             "UPDATE vectora_background_tasks SET status = ?, block_kind = ?, "
             "block_reason = ?, block_count = ?, claim_lock = NULL, "
-            "claim_expires_at = NULL, updated_at = datetime('now') WHERE id = ? "
+            "claim_expires_at = NULL, version = version + 1, updated_at = datetime('now') WHERE id = ? "
             "AND (claim_lock = ? OR (claim_lock IS NULL AND status IN "
             "('ready', 'running', 'scheduled')))",
             (status, kind, reason, novo_count, task_id, authorized_run_id),
@@ -814,7 +816,7 @@ async def block_task(
         cur = await db.execute(
             "UPDATE vectora_background_tasks SET status = ?, block_kind = ?, "
             "block_reason = ?, block_count = ?, claim_lock = NULL, "
-            "claim_expires_at = NULL, updated_at = datetime('now') WHERE id = ? "
+            "claim_expires_at = NULL, version = version + 1, updated_at = datetime('now') WHERE id = ? "
             "AND claim_lock = ? AND claim_expires_at > ?",
             (
                 status,
@@ -896,7 +898,7 @@ async def cancel_run_and_block(
     task_cur = await db.execute(
         "UPDATE vectora_background_tasks SET status = ?, block_kind = ?, "
         "block_reason = ?, block_count = ?, claim_lock = NULL, "
-        "claim_expires_at = NULL, updated_at = datetime('now') WHERE id = ? "
+        "claim_expires_at = NULL, version = version + 1, updated_at = datetime('now') WHERE id = ? "
         "AND (claim_lock = ? OR (claim_lock IS NULL AND status IN "
         "('ready', 'running', 'scheduled')))",
         (
@@ -1192,7 +1194,7 @@ async def recompute_ready() -> int:
             cur = await db.execute(
                 "UPDATE vectora_background_tasks SET status = 'ready', "
                 "block_kind = NULL, block_reason = NULL, "
-                "updated_at = datetime('now') WHERE id = ? AND status = 'todo'",
+                "version = version + 1, updated_at = datetime('now') WHERE id = ? AND status = 'todo'",
                 (task_id,),
             )
             promoted += cur.rowcount
@@ -1227,7 +1229,7 @@ async def approve_review(task_id: str, user_id: str) -> None:
 
         await db.execute(
             "UPDATE vectora_background_tasks SET status = 'done', block_count = 0, "
-            "updated_at = datetime('now') WHERE id = ?",
+            "version = version + 1, updated_at = datetime('now') WHERE id = ?",
             (task_id,),
         )
         comment_id = str(uuid.uuid4())
