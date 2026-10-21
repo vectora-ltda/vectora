@@ -614,6 +614,10 @@ class PostgresSessionStore:
             agora = _now()
             async with self._pool.acquire() as conn, conn.transaction():
                 await conn.execute(
+                    "SELECT 1 FROM vectora_native_sessions WHERE thread_id = $1 FOR UPDATE",
+                    thread_id,
+                )
+                await conn.execute(
                     "DELETE FROM vectora_native_pending_approvals WHERE thread_id = $1",
                     thread_id,
                 )
@@ -745,6 +749,10 @@ class PostgresSessionStore:
         agora = _now()
         async with self._pool.acquire() as conn, conn.transaction():
             await conn.execute(
+                "SELECT 1 FROM vectora_native_sessions WHERE thread_id = $1 FOR UPDATE",
+                thread_id,
+            )
+            await conn.execute(
                 "INSERT INTO vectora_native_pending_approvals (thread_id, interrupt_id, "
                 "tool_name, tool_call_id, args_json, reasoning, options_json, priority, expires_at, created_at) "
                 "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) "
@@ -768,10 +776,6 @@ class PostgresSessionStore:
                 priority,
                 expires_at,
                 agora,
-            )
-            await conn.execute(
-                "SELECT 1 FROM vectora_native_sessions WHERE thread_id = $1 FOR UPDATE",
-                thread_id,
             )
             max_seq = await conn.fetchval(
                 "SELECT COALESCE(MAX(seq), 0) FROM vectora_native_thread_events WHERE thread_id = $1",
