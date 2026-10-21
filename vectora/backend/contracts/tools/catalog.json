@@ -5430,10 +5430,36 @@
               "title": "Content",
               "type": "string"
             },
+            "quality_gate": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "ID de um quality gate configurado no perfil do workspace; omita se não houver.",
+              "title": "Quality Gate"
+            },
             "status": {
               "enum": ["pending", "in_progress", "completed"],
               "title": "Status",
               "type": "string"
+            },
+            "step_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "ID estável da etapa do plano.",
+              "title": "Step Id"
             }
           },
           "required": ["content", "status"],
