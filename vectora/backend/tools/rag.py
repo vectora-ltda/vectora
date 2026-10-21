@@ -173,7 +173,7 @@ class SystemOneRerank:
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             return cast(
-                list[Document],
+                "list[Document]",
                 pool.submit(
                     asyncio.run, self.acompress_documents(documents, query, callbacks)
                 ).result(),
