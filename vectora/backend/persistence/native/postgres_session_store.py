@@ -1307,12 +1307,8 @@ class PostgresSessionStore:
             )
         return [(r["thread_id"], r["run_id"]) for r in rows]
 
-    async def upsert_agent_run(
-        self,
-        run: AgentRun,
-    ) -> None:
-        """Cria ou atualiza uma execução do agente no PostgreSQL com redação de segredos."""
-        await self.setup()
+    async def _upsert_agent_run_on_conn(self, conn: Any, run: AgentRun) -> None:
+        """Persiste ou atualiza uma execução do agente na conexão PostgreSQL fornecida."""
         now = _now()
         terminal_at = (
             (run.terminal_at or now)
@@ -1352,54 +1348,62 @@ class PostgresSessionStore:
         metrics = json.dumps(run.metrics.model_dump(), ensure_ascii=False)
         evidence = json.dumps(redact_sensitive_data(run.evidence), ensure_ascii=False)
 
+        await conn.execute(
+            "INSERT INTO vectora_native_agent_runs ("
+            "run_id, thread_id, turn_id, user_id, workspace_id, model, provider, "
+            "status, plan_step, tools_available_json, tools_used_json, approvals_json, "
+            "files_touched_json, commands_run_json, tests_run_json, artifacts_json, "
+            "metrics_json, evidence_json, detail, error_code, started_at, updated_at, terminal_at) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) "
+            "ON CONFLICT(run_id) DO UPDATE SET "
+            "status = EXCLUDED.status, "
+            "plan_step = COALESCE(EXCLUDED.plan_step, vectora_native_agent_runs.plan_step), "
+            "tools_available_json = EXCLUDED.tools_available_json, "
+            "tools_used_json = EXCLUDED.tools_used_json, "
+            "approvals_json = EXCLUDED.approvals_json, "
+            "files_touched_json = EXCLUDED.files_touched_json, "
+            "commands_run_json = EXCLUDED.commands_run_json, "
+            "tests_run_json = EXCLUDED.tests_run_json, "
+            "artifacts_json = EXCLUDED.artifacts_json, "
+            "metrics_json = EXCLUDED.metrics_json, "
+            "evidence_json = EXCLUDED.evidence_json, "
+            "detail = COALESCE(EXCLUDED.detail, vectora_native_agent_runs.detail), "
+            "error_code = COALESCE(EXCLUDED.error_code, vectora_native_agent_runs.error_code), "
+            "updated_at = EXCLUDED.updated_at, "
+            "terminal_at = COALESCE(vectora_native_agent_runs.terminal_at, EXCLUDED.terminal_at)",
+            run.run_id,
+            run.thread_id,
+            run.turn_id,
+            run.user_id,
+            run.workspace_id,
+            run.model,
+            run.provider,
+            run.status,
+            redacted_plan_step,
+            tools_available,
+            tools_used,
+            approvals,
+            files_touched,
+            commands_run,
+            tests_run,
+            artifacts,
+            metrics,
+            evidence,
+            redacted_detail,
+            redacted_error_code,
+            run.started_at,
+            now,
+            terminal_at,
+        )
+
+    async def upsert_agent_run(
+        self,
+        run: AgentRun,
+    ) -> None:
+        """Cria ou atualiza uma execução do agente no PostgreSQL com redação de segredos."""
+        await self.setup()
         async with self._pool.acquire() as conn:
-            await conn.execute(
-                "INSERT INTO vectora_native_agent_runs ("
-                "run_id, thread_id, turn_id, user_id, workspace_id, model, provider, "
-                "status, plan_step, tools_available_json, tools_used_json, approvals_json, "
-                "files_touched_json, commands_run_json, tests_run_json, artifacts_json, "
-                "metrics_json, evidence_json, detail, error_code, started_at, updated_at, terminal_at) "
-                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) "
-                "ON CONFLICT(run_id) DO UPDATE SET "
-                "status = EXCLUDED.status, "
-                "plan_step = COALESCE(EXCLUDED.plan_step, vectora_native_agent_runs.plan_step), "
-                "tools_available_json = EXCLUDED.tools_available_json, "
-                "tools_used_json = EXCLUDED.tools_used_json, "
-                "approvals_json = EXCLUDED.approvals_json, "
-                "files_touched_json = EXCLUDED.files_touched_json, "
-                "commands_run_json = EXCLUDED.commands_run_json, "
-                "tests_run_json = EXCLUDED.tests_run_json, "
-                "artifacts_json = EXCLUDED.artifacts_json, "
-                "metrics_json = EXCLUDED.metrics_json, "
-                "evidence_json = EXCLUDED.evidence_json, "
-                "detail = COALESCE(EXCLUDED.detail, vectora_native_agent_runs.detail), "
-                "error_code = COALESCE(EXCLUDED.error_code, vectora_native_agent_runs.error_code), "
-                "updated_at = EXCLUDED.updated_at, "
-                "terminal_at = COALESCE(EXCLUDED.terminal_at, vectora_native_agent_runs.terminal_at)",
-                run.run_id,
-                run.thread_id,
-                run.turn_id,
-                run.user_id,
-                run.workspace_id,
-                run.model,
-                run.provider,
-                run.status,
-                redacted_plan_step,
-                tools_available,
-                tools_used,
-                approvals,
-                files_touched,
-                commands_run,
-                tests_run,
-                artifacts,
-                metrics,
-                evidence,
-                redacted_detail,
-                redacted_error_code,
-                run.started_at,
-                now,
-                terminal_at,
-            )
+            await self._upsert_agent_run_on_conn(conn, run)
 
     async def update_agent_run_status(
         self,
@@ -1437,6 +1441,13 @@ class PostgresSessionStore:
         )
 
         async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT status FROM vectora_native_agent_runs WHERE run_id = $1",
+                run_id,
+            )
+            if row is not None and row["status"] in TERMINAL_AGENT_RUN_STATUSES:
+                return
+
             await conn.execute(
                 "UPDATE vectora_native_agent_runs SET "
                 "status = $1, "
@@ -1445,7 +1456,7 @@ class PostgresSessionStore:
                 "error_code = COALESCE($4, error_code), "
                 "metrics_json = COALESCE($5, metrics_json), "
                 "updated_at = $6, "
-                "terminal_at = COALESCE($7, terminal_at) "
+                "terminal_at = COALESCE(terminal_at, $7) "
                 "WHERE run_id = $8",
                 status,
                 redacted_plan_step,
@@ -1456,6 +1467,49 @@ class PostgresSessionStore:
                 terminal_at,
                 run_id,
             )
+
+    async def _get_agent_run_on_conn(
+        self, conn: Any, run_id: str, *, for_update: bool = False
+    ) -> AgentRun | None:
+        """Carrega e desserializa um AgentRun na conexão fornecida."""
+        query = (
+            "SELECT run_id, thread_id, turn_id, user_id, workspace_id, "
+            "model, provider, status, plan_step, tools_available_json, "
+            "tools_used_json, approvals_json, files_touched_json, commands_run_json, "
+            "tests_run_json, artifacts_json, metrics_json, evidence_json, "
+            "detail, error_code, started_at, updated_at, terminal_at "
+            "FROM vectora_native_agent_runs WHERE run_id = $1"
+        )
+        if for_update:
+            query += " FOR UPDATE"
+        row = await conn.fetchrow(query, run_id)
+        if row is None:
+            return None
+        return AgentRun(
+            run_id=str(row["run_id"]),
+            thread_id=str(row["thread_id"]),
+            turn_id=str(row["turn_id"]) if row["turn_id"] else None,
+            user_id=str(row["user_id"] or ""),
+            workspace_id=str(row["workspace_id"]) if row["workspace_id"] else None,
+            model=str(row["model"] or ""),
+            provider=str(row["provider"] or ""),
+            status=cast("AgentRunStatus", row["status"]),
+            plan_step=str(row["plan_step"]) if row["plan_step"] else None,
+            tools_available=json.loads(row["tools_available_json"] or "[]"),
+            tools_used=json.loads(row["tools_used_json"] or "[]"),
+            approvals=json.loads(row["approvals_json"] or "[]"),
+            files_touched=json.loads(row["files_touched_json"] or "[]"),
+            commands_run=json.loads(row["commands_run_json"] or "[]"),
+            tests_run=json.loads(row["tests_run_json"] or "[]"),
+            artifacts=json.loads(row["artifacts_json"] or "[]"),
+            metrics=AgentRunMetrics(**json.loads(row["metrics_json"] or "{}")),
+            evidence=json.loads(row["evidence_json"] or "[]"),
+            detail=str(row["detail"]) if row["detail"] else None,
+            error_code=str(row["error_code"]) if row["error_code"] else None,
+            started_at=str(row["started_at"]),
+            updated_at=str(row["updated_at"]),
+            terminal_at=str(row["terminal_at"]) if row["terminal_at"] else None,
+        )
 
     async def record_run_evidence(
         self,
@@ -1469,67 +1523,34 @@ class PostgresSessionStore:
         approval: dict[str, Any] | None = None,
         file_touched: dict[str, Any] | None = None,
     ) -> None:
-        """Registra evidências incrementais no AgentRun."""
+        """Registra evidências incrementais no AgentRun de forma atômica."""
         await self.setup()
-        run = await self.get_agent_run(run_id)
-        if run is None:
-            return
-        if evidence:
-            run.evidence.append(redact_sensitive_data(evidence))
-        if artifact:
-            run.artifacts.append(redact_sensitive_data(artifact))
-        if command:
-            run.commands_run.append(redact_sensitive_data(command))
-        if test_result:
-            run.tests_run.append(redact_sensitive_data(test_result))
-        if tool_used and tool_used not in run.tools_used:
-            run.tools_used.append(tool_used)
-        if approval:
-            run.approvals.append(redact_sensitive_data(approval))
-        if file_touched:
-            run.files_touched.append(redact_sensitive_data(file_touched))
-        await self.upsert_agent_run(run)
+        async with self._pool.acquire() as conn:
+            async with conn.transaction():
+                run = await self._get_agent_run_on_conn(conn, run_id, for_update=True)
+                if run is None:
+                    return
+                if evidence:
+                    run.evidence.append(redact_sensitive_data(evidence))
+                if artifact:
+                    run.artifacts.append(redact_sensitive_data(artifact))
+                if command:
+                    run.commands_run.append(redact_sensitive_data(command))
+                if test_result:
+                    run.tests_run.append(redact_sensitive_data(test_result))
+                if tool_used and tool_used not in run.tools_used:
+                    run.tools_used.append(tool_used)
+                if approval:
+                    run.approvals.append(redact_sensitive_data(approval))
+                if file_touched:
+                    run.files_touched.append(redact_sensitive_data(file_touched))
+                await self._upsert_agent_run_on_conn(conn, run)
 
     async def get_agent_run(self, run_id: str) -> AgentRun | None:
         """Obtém uma execução persistida por run_id."""
         await self.setup()
         async with self._pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT run_id, thread_id, turn_id, user_id, workspace_id, "
-                "model, provider, status, plan_step, tools_available_json, "
-                "tools_used_json, approvals_json, files_touched_json, commands_run_json, "
-                "tests_run_json, artifacts_json, metrics_json, evidence_json, "
-                "detail, error_code, started_at, updated_at, terminal_at "
-                "FROM vectora_native_agent_runs WHERE run_id = $1",
-                run_id,
-            )
-            if row is None:
-                return None
-            return AgentRun(
-                run_id=str(row["run_id"]),
-                thread_id=str(row["thread_id"]),
-                turn_id=str(row["turn_id"]) if row["turn_id"] else None,
-                user_id=str(row["user_id"] or ""),
-                workspace_id=str(row["workspace_id"]) if row["workspace_id"] else None,
-                model=str(row["model"] or ""),
-                provider=str(row["provider"] or ""),
-                status=cast("AgentRunStatus", row["status"]),
-                plan_step=str(row["plan_step"]) if row["plan_step"] else None,
-                tools_available=json.loads(row["tools_available_json"] or "[]"),
-                tools_used=json.loads(row["tools_used_json"] or "[]"),
-                approvals=json.loads(row["approvals_json"] or "[]"),
-                files_touched=json.loads(row["files_touched_json"] or "[]"),
-                commands_run=json.loads(row["commands_run_json"] or "[]"),
-                tests_run=json.loads(row["tests_run_json"] or "[]"),
-                artifacts=json.loads(row["artifacts_json"] or "[]"),
-                metrics=AgentRunMetrics(**json.loads(row["metrics_json"] or "{}")),
-                evidence=json.loads(row["evidence_json"] or "[]"),
-                detail=str(row["detail"]) if row["detail"] else None,
-                error_code=str(row["error_code"]) if row["error_code"] else None,
-                started_at=str(row["started_at"]),
-                updated_at=str(row["updated_at"]),
-                terminal_at=str(row["terminal_at"]) if row["terminal_at"] else None,
-            )
+            return await self._get_agent_run_on_conn(conn, run_id)
 
     async def list_agent_runs(
         self, thread_id: str, *, limit: int = 50

@@ -10,6 +10,7 @@ Cobre:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import cast
@@ -163,6 +164,20 @@ class TestAgentRunLifecycle:
         assert r4 is not None and r4.status == terminal_status
         assert r4.terminal_at is not None
 
+        # Idempotência terminal: nova chamada terminal é no-op, preservando status, terminal_at e updated_at
+        orig_terminal_at = r4.terminal_at
+        orig_updated_at = r4.updated_at
+        await store.update_agent_run_status(
+            run_id,
+            status="failed",
+            detail="Tentativa de sobrescrever estado terminal",
+        )
+        r5 = await store.get_agent_run(run_id)
+        assert r5 is not None
+        assert r5.status == terminal_status
+        assert r5.terminal_at == orig_terminal_at
+        assert r5.updated_at == orig_updated_at
+
         # Confirma que session_runs reflete o status legado mapeado e respeita o CHECK
         async with store._pool.acquire() as conn:
             cur = await conn.execute(
@@ -215,6 +230,29 @@ class TestAgentRunLifecycle:
         assert loaded.artifacts[0].get("api_key") == "[REDACTED]"
         assert len(loaded.files_touched) == 1
         assert loaded.files_touched[0].get("path") == "src/main.py"
+
+    async def test_record_run_evidence_atomic(self, store: SessionStore) -> None:
+        await store.create_session("thread-atomic", user_id="user-123")
+        run = AgentRun(
+            run_id="run-atomic-1",
+            thread_id="thread-atomic",
+            status="running",
+        )
+        await store.upsert_agent_run(run)
+
+        async def _record(idx: int) -> None:
+            await store.record_run_evidence(
+                "run-atomic-1",
+                tool_used=f"tool_{idx}",
+                evidence={"step": idx},
+            )
+
+        await asyncio.gather(*[_record(i) for i in range(5)])
+
+        loaded = await store.get_agent_run("run-atomic-1")
+        assert loaded is not None
+        assert len(loaded.tools_used) == 5
+        assert len(loaded.evidence) == 5
 
     async def test_rehydrate_after_restart(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "restart_test.db")
