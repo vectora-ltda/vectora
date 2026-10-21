@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
@@ -102,6 +102,7 @@ async def _run_one(
     turn_budget: TurnBudget | None,
     on_event: EventSink | None,
     policy_snapshot: PolicySnapshot | None = None,
+    on_tool_started: Callable[[ToolCall], Awaitable[None]] | None = None,
 ) -> VMessage:
     """Executa uma chamada do lote com contexto correlacionado à própria tool."""
     allowed, deny_reason = _apply_pre_execute(tool_call, ctx, policy_snapshot)
@@ -139,6 +140,9 @@ async def _run_one(
                 name=tool_call.name,
                 is_error=True,
             )
+
+    if on_tool_started is not None:
+        await on_tool_started(tool_call)
 
     if spec is None:
         texto = f"Error: tool '{tool_call.name}' não encontrada no registry"
@@ -183,6 +187,7 @@ async def execute_tool_batch(
     turn_budget: TurnBudget | None = None,
     on_event: EventSink | None = None,
     policy_snapshot: PolicySnapshot | None = None,
+    on_tool_started: Callable[[ToolCall], Awaitable[None]] | None = None,
 ) -> list[VMessage]:
     """Executa todas as `tool_calls` do turno, na ordem em que aparecem no
     resultado — paralelo se nenhuma é destrutiva, sequencial (mas ainda
@@ -212,6 +217,7 @@ async def execute_tool_batch(
                 turn_budget=turn_budget,
                 on_event=on_event,
                 policy_snapshot=policy_snapshot,
+                on_tool_started=on_tool_started,
             )
             for tc in tool_calls
         ]
@@ -226,6 +232,7 @@ async def execute_tool_batch(
                     turn_budget=turn_budget,
                     on_event=on_event,
                     policy_snapshot=policy_snapshot,
+                    on_tool_started=on_tool_started,
                 )
                 for tc in tool_calls
             )

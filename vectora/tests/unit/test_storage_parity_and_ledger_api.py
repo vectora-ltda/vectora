@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+from typing import Any
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -147,12 +148,31 @@ async def test_thread_events_sse_stream_and_read(monkeypatch: pytest.MonkeyPatch
             req_stream,
             from_seq=0,
         )
-        chunks: list[str] = []
-        async for chunk in stream_resp.body_iterator:
-            text = chunk if isinstance(chunk, str) else bytes(chunk).decode("utf-8")
-            chunks.append(text)
-            if len(chunks) >= 2:
-                break
+
+        async def _read_frames(resp: Any, n: int) -> list[str]:
+            buf = ""
+            frames: list[str] = []
+            it = resp.body_iterator
+            try:
+                async for chunk in it:
+                    buf += (
+                        chunk
+                        if isinstance(chunk, str)
+                        else bytes(chunk).decode("utf-8")
+                    )
+                    while "\n\n" in buf:
+                        frame, buf = buf.split("\n\n", 1)
+                        clean = frame.strip()
+                        if clean and not clean.startswith(":"):
+                            frames.append(clean)
+                    if len(frames) >= n:
+                        return frames[:n]
+            finally:
+                if hasattr(it, "aclose"):
+                    await it.aclose()
+            return frames
+
+        chunks = await _read_frames(stream_resp, 2)
 
         def _parse_chunk(chunk: str) -> dict[str, str]:
             parsed: dict[str, str] = {}
@@ -180,13 +200,8 @@ async def test_thread_events_sse_stream_and_read(monkeypatch: pytest.MonkeyPatch
             req_stream,
             last_event_id=str(ev1.seq),
         )
-        chunk_last_text = ""
-        async for chunk in resp_last.body_iterator:
-            chunk_last_text = (
-                chunk if isinstance(chunk, str) else bytes(chunk).decode("utf-8")
-            )
-            break
-        p_last = _parse_chunk(chunk_last_text)
+        chunks_last = await _read_frames(resp_last, 1)
+        p_last = _parse_chunk(chunks_last[0])
         assert p_last["id"] == str(ev2.seq)
         assert p_last["event"] == "run_completed"
 
