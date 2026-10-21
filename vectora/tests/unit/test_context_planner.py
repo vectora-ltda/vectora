@@ -23,7 +23,7 @@ def _msg(role: MessageRole, text: str) -> VMessage:
     return VMessage(role=role, content=[ContentBlock(kind="text", text=text)])
 
 
-def test_transcript_hash_consistency():
+def test_transcript_hash_consistency() -> None:
     msgs1 = [_msg(MessageRole.USER, "hello"), _msg(MessageRole.ASSISTANT, "world")]
     msgs2 = [_msg(MessageRole.USER, "hello"), _msg(MessageRole.ASSISTANT, "world")]
     msgs3 = [_msg(MessageRole.USER, "hello"), _msg(MessageRole.ASSISTANT, "different")]
@@ -37,7 +37,7 @@ def test_transcript_hash_consistency():
     assert len(h1) == 64
 
 
-def test_context_projection_validity():
+def test_context_projection_validity() -> None:
     proj = ContextProjection(
         start_seq=0,
         end_seq=5,
@@ -54,7 +54,7 @@ def test_context_projection_validity():
     assert evidence["source_transcript_hash"] == "hash123"
 
 
-def test_memory_store_domains_and_retrieval():
+def test_memory_store_domains_and_retrieval() -> None:
     store = MemoryStore()
 
     store.store(
@@ -83,7 +83,7 @@ def test_memory_store_domains_and_retrieval():
     assert res_sess.records[0].id == "mem-2"
 
 
-def test_context_planner_injects_project_memory_and_manifest():
+def test_context_planner_injects_project_memory_and_manifest() -> None:
     mem_store = MemoryStore()
     mem_store.store(
         "rule-1",
@@ -113,7 +113,7 @@ def test_context_planner_injects_project_memory_and_manifest():
     assert any(b.domain == "project" for b in planned.manifest.blocks)
 
 
-def test_context_planner_compacts_and_creates_projection():
+def test_context_planner_compacts_and_creates_projection() -> None:
     planner = ContextPlanner(memory_store=MemoryStore())
     messages = [_msg(MessageRole.SYSTEM, "Instruções do sistema")]
 
@@ -133,3 +133,58 @@ def test_context_planner_compacts_and_creates_projection():
     assert planned.projection.tokens_before > planned.projection.tokens_after
     assert planned.projection.excluded_items_count > 0
     assert any(m.role == MessageRole.SYSTEM for m in planned.messages)
+
+
+def test_context_planner_preserves_latest_user_message_when_over_budget() -> None:
+    planner = ContextPlanner(memory_store=MemoryStore())
+    messages = [
+        _msg(MessageRole.SYSTEM, "Instruções do sistema"),
+        _msg(MessageRole.USER, "Mensagem antiga 1"),
+        _msg(MessageRole.ASSISTANT, "Resposta antiga 1"),
+        _msg(MessageRole.USER, "Mensagem do usuário muito grande " * 50),
+    ]
+
+    # Orçamento apertado que não comporta a mensagem grande
+    planned = planner.plan_context(
+        messages,
+        max_tokens=50,
+        enabled=True,
+    )
+
+    # A mensagem mais recente do usuário deve obrigatoriamente estar presente
+    assert any("Mensagem do usuário muito grande" in m.text() for m in planned.messages)
+    assert planned.messages[-1].text().startswith("Mensagem do usuário muito grande")
+
+
+def test_context_planner_preserves_latest_tool_result() -> None:
+    from backend.vtypes.message import ToolCall
+
+    planner = ContextPlanner(memory_store=MemoryStore())
+    assistant_call = VMessage(
+        role=MessageRole.ASSISTANT,
+        content=[ContentBlock(kind="text", text="executando")],
+        tool_calls=[ToolCall(id="call_1", name="read_data", args={})],
+    )
+    tool_msg = VMessage(
+        role=MessageRole.TOOL,
+        content=[ContentBlock(kind="text", text="resultado da ferramenta " * 2000)],
+        tool_call_id="call_1",
+    )
+    messages = [
+        _msg(MessageRole.SYSTEM, "Instruções"),
+        _msg(MessageRole.USER, "Primeira mensagem"),
+        assistant_call,
+        tool_msg,
+    ]
+
+    planned = planner.plan_context(
+        messages,
+        max_tokens=100,
+        preserve_latest_tool_result=True,
+    )
+
+    # Verifica que o tool_result não foi truncado por _bound_tool_results e está presente
+    assert any(m.role == MessageRole.TOOL for m in planned.messages)
+    tool_in_planned = next(m for m in planned.messages if m.role == MessageRole.TOOL)
+    assert "resultado da ferramenta" in tool_in_planned.text()
+    assert "[resultado de ferramenta truncado" not in tool_in_planned.text()
