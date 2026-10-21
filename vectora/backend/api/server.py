@@ -833,15 +833,16 @@ def create_app(serve_static: bool = True) -> FastAPI:
         """Readiness probe: verifica se os serviços de persistência e dependências vitais estão prontos."""
         import asyncio
 
-        from backend.storage.factory import get_store
+        from backend.services import agent_factory
         from backend.storage.lancedb.connection import get_lancedb
 
         async def _check_dependencies() -> tuple[bool, bool]:
             s_ok = False
             l_ok = False
             try:
-                st = await get_store()
-                s_ok = st is not None
+                ss = await agent_factory.get_session_store()
+                st = await agent_factory.get_store()
+                s_ok = bool(ss is not None and st is not None)
             except Exception:
                 s_ok = False
 
