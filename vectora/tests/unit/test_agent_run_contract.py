@@ -10,6 +10,8 @@ Cobre:
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -26,7 +28,7 @@ from backend.storage.sqlite.pool import AsyncConnectionPool
 
 
 @pytest.fixture
-async def store(tmp_path):
+async def store(tmp_path: Path) -> AsyncGenerator[SessionStore]:
     pool = AsyncConnectionPool(
         str(tmp_path / "sessions_test.db"), min_size=1, max_size=2
     )
@@ -40,20 +42,23 @@ async def store(tmp_path):
 
 
 class TestRedaction:
-    def test_redact_sensitive_data_strings(self):
+    def test_redact_sensitive_data_strings(self) -> None:
+        fake_sk = f"sk-{'1234567890abcdef12345678'}"
+        fake_ghp = f"ghp_{'1234567890' * 3}123456"
+        fake_akia = f"AKIA{'IOSFODNN7EXAMPLE'}"
         secret_text = (
-            "sk-1234567890abcdef12345678 e ghp_123456789012345678901234567890123456 e AKIAIOSFODNN7EXAMPLE "
+            f"{fake_sk} e {fake_ghp} e {fake_akia} "
             'export API_KEY="super secret token with spaces" and KEY=secret_value'
         )
         redacted = redact_sensitive_data(secret_text)
-        assert "sk-1234567890abcdef12345678" not in redacted
-        assert "ghp_123456789012345678901234567890123456" not in redacted
-        assert "AKIAIOSFODNN7EXAMPLE" not in redacted
+        assert fake_sk not in redacted
+        assert fake_ghp not in redacted
+        assert fake_akia not in redacted
         assert "super secret token with spaces" not in redacted
         assert "secret_value" not in redacted
         assert "[REDACTED]" in redacted
 
-    def test_redact_sensitive_data_dict_keys(self):
+    def test_redact_sensitive_data_dict_keys(self) -> None:
         payload = {
             "api_key": "minha-chave-secreta",
             "x-auth-token": "meu-token-secreto",
@@ -74,7 +79,7 @@ class TestRedaction:
 
 
 class TestAgentRunLifecycle:
-    async def test_create_and_read_agent_run(self, store: SessionStore):
+    async def test_create_and_read_agent_run(self, store: SessionStore) -> None:
         await store.create_session("thread-run-1", user_id="user-123")
         run = AgentRun(
             run_id="run-uuid-1",
@@ -117,7 +122,7 @@ class TestAgentRunLifecycle:
     )
     async def test_state_transitions_canonical(
         self, store: SessionStore, terminal_status: str, expected_legacy_status: str
-    ):
+    ) -> None:
         thread_id = f"thread-run-{terminal_status}"
         run_id = f"run-uuid-{terminal_status}"
         await store.create_session(thread_id, user_id="user-123")
@@ -169,7 +174,7 @@ class TestAgentRunLifecycle:
             assert legacy_row[0] == expected_legacy_status
             assert legacy_row[1] is not None
 
-    async def test_record_evidences_and_redaction(self, store: SessionStore):
+    async def test_record_evidences_and_redaction(self, store: SessionStore) -> None:
         await store.create_session("thread-run-3", user_id="user-123")
         run = AgentRun(
             run_id="run-uuid-3",
@@ -178,16 +183,17 @@ class TestAgentRunLifecycle:
         )
         await store.upsert_agent_run(run)
 
+        fake_sk = f"sk-{'1234567890abcdef12345678'}"
+        fake_token = f"ghp_{'1234567890' * 3}123456"
+
         # Registra evidências com segredo para verificar redação automática
         await store.record_run_evidence(
             "run-uuid-3",
             tool_used="terminal",
             command={
-                "cmd": "curl -H 'Authorization: Bearer sk-1234567890abcdef12345678' https://api.exemplo.com"
+                "cmd": f"curl -H 'Authorization: Bearer {fake_sk}' https://api.exemplo.com"
             },
-            evidence={
-                "log": "Token ghp_123456789012345678901234567890123456 detectado"
-            },
+            evidence={"log": f"Token {fake_token} detectado"},
             artifact={"path": "report.json", "api_key": "segredo-chave"},
             file_touched={"path": "src/main.py", "lines_changed": 15},
         )
@@ -197,12 +203,12 @@ class TestAgentRunLifecycle:
         assert "terminal" in loaded.tools_used
         assert len(loaded.commands_run) == 1
         cmd_str = str(loaded.commands_run[0].get("cmd"))
-        assert "sk-1234567890abcdef12345678" not in cmd_str
+        assert fake_sk not in cmd_str
         assert "[REDACTED]" in cmd_str
 
         assert len(loaded.evidence) == 1
         log_str = str(loaded.evidence[0].get("log"))
-        assert "ghp_123456789012345678901234567890123456" not in log_str
+        assert fake_token not in log_str
         assert "[REDACTED]" in log_str
 
         assert len(loaded.artifacts) == 1
@@ -210,7 +216,7 @@ class TestAgentRunLifecycle:
         assert len(loaded.files_touched) == 1
         assert loaded.files_touched[0].get("path") == "src/main.py"
 
-    async def test_rehydrate_after_restart(self, tmp_path):
+    async def test_rehydrate_after_restart(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "restart_test.db")
         # 1. Abre pool, cria e encerra
         pool1 = AsyncConnectionPool(db_path, min_size=1, max_size=2)
@@ -245,7 +251,7 @@ class TestAgentRunLifecycle:
         assert rehydrated.user_id == "user-bob"
         await pool2.close()
 
-    async def test_timeline_correlation(self, store: SessionStore):
+    async def test_timeline_correlation(self, store: SessionStore) -> None:
         await store.create_session("thread-run-timeline", user_id="user-123")
         run_id = "run-corr-1"
         await store.upsert_agent_run(

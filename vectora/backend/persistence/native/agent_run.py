@@ -118,15 +118,19 @@ def redact_sensitive_data(value: str) -> str: ...
 
 
 @overload
-def redact_sensitive_data(value: dict[str, Any]) -> dict[str, Any]: ...
+def redact_sensitive_data(value: dict[str, JsonValue]) -> dict[str, JsonValue]: ...
 
 
 @overload
-def redact_sensitive_data(value: list[Any]) -> list[Any]: ...
+def redact_sensitive_data(value: list[JsonValue]) -> list[JsonValue]: ...
 
 
 @overload
-def redact_sensitive_data(value: tuple[Any, ...]) -> tuple[Any, ...]: ...
+def redact_sensitive_data(value: tuple[JsonValue, ...]) -> tuple[JsonValue, ...]: ...
+
+
+@overload
+def redact_sensitive_data(value: JsonValue) -> JsonValue: ...
 
 
 @overload
@@ -134,7 +138,11 @@ def redact_sensitive_data(value: Any) -> Any: ...
 
 
 def redact_sensitive_data(value: Any) -> Any:
-    """Aplica redação recursiva a segredos, tokens e chaves conhecidas."""
+    """Aplica redação recursiva a segredos, tokens e chaves conhecidas.
+
+    Usa `Any` justificadamente na implementação interna para acomodar estruturas
+    heterogêneas, árvores arbitrárias de evidências e payloads de logs.
+    """
     if isinstance(value, str):
         redacted = value
         for pattern in _SECRET_PATTERNS:
