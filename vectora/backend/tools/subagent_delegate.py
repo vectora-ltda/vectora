@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from backend.engine.subagents import LivenessConfig
     from backend.llm.base import ChatClient
     from backend.persistence.native.session_store import SessionStore
+    from backend.services.policy_compiler import PolicySnapshot
     from backend.vtypes.message import VMessage
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,7 @@ class SubagentDeps:
         "config",
         "liveness",
         "on_event",
+        "policy_snapshot",
         "session_store",
         "should_require_approval",
         "turn_budget",
@@ -67,6 +69,7 @@ class SubagentDeps:
         | None,
         turn_budget: TurnBudget | None = None,
         liveness: LivenessConfig | None = None,
+        policy_snapshot: PolicySnapshot | None = None,
     ) -> None:
         self.catalog = catalog
         self.session_store = session_store
@@ -76,6 +79,7 @@ class SubagentDeps:
         self.should_require_approval = should_require_approval
         self.turn_budget = turn_budget
         self.liveness = liveness
+        self.policy_snapshot = policy_snapshot
 
 
 @vtool(
@@ -135,6 +139,7 @@ async def delegate_to_subagent(
             should_require_approval=deps.should_require_approval,
             turn_budget=deps.turn_budget,
             liveness=deps.liveness,
+            policy_snapshot=deps.policy_snapshot,
         )
     except Exception as exc:
         logger.exception(
