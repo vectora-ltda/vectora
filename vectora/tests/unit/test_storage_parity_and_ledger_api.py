@@ -77,6 +77,7 @@ async def test_lancedb_health():
     with tempfile.TemporaryDirectory() as td:
         backend = LanceDBBackend(td)
         h = await backend.health()
+        assert h.ok is True
         assert h["ok"] is True
         assert "tables" in h
 

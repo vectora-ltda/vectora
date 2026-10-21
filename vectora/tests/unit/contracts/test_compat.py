@@ -64,6 +64,30 @@ def test_schema_compat_required_fields_by_direction() -> None:
     assert any("novos campos obrigatórios" in nb for nb in resp_report.non_breaking)
 
 
+def test_schema_compat_removed_required_fields_by_direction() -> None:
+    old = {
+        "type": "object",
+        "properties": {"a": {"type": "string"}},
+        "required": ["a"],
+    }
+    new = {
+        "type": "object",
+        "properties": {"a": {"type": "string"}},
+        "required": [],
+    }
+    # Em request: campo deixar de ser obrigatório é não-quebrante
+    req_report = check_schema_compatibility(old, new, direction="request")
+    assert req_report.is_compatible
+    assert any("campos não mais obrigatórios" in nb for nb in req_report.non_breaking)
+
+    # Em response: campo deixar de ser obrigatório é quebrante para clientes estritos
+    resp_report = check_schema_compatibility(old, new, direction="response")
+    assert not resp_report.is_compatible
+    assert any(
+        "campos não mais obrigatórios em response" in b for b in resp_report.breaking
+    )
+
+
 def test_schema_compat_nested_schemas_and_refs() -> None:
     old = {
         "type": "object",
