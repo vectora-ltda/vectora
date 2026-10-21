@@ -51,6 +51,7 @@ from backend.engine.tool_batch import _is_tool_error, execute_tool_batch
 from backend.persistence.native.agent_run import AgentRunMetrics
 from backend.persistence.native.ledger import (
     ThreadLedgerEvent,
+    make_agent_turn_started_key,
     make_run_completed_key,
     make_run_failed_key,
     make_tool_finished_key,
@@ -253,6 +254,34 @@ async def run_conversation(
     emit = on_event or _noop_event
     tools = tool_registry.all()
     parent_id = await session_store.get_branch_head_id(thread_id)
+
+    if config.run_id:
+        try:
+            if hasattr(session_store, "append_ledger_event"):
+                await session_store.append_ledger_event(
+                    thread_id,
+                    event_key=make_agent_turn_started_key(config.run_id),
+                    event_type="agent_turn_started",
+                    run_id=config.run_id,
+                    payload={"iteration": 1},
+                )
+            elif hasattr(session_store, "append_event"):
+                await session_store.append_event(
+                    thread_id,
+                    ThreadLedgerEvent(
+                        thread_id=thread_id,
+                        event_key=make_agent_turn_started_key(config.run_id),
+                        type="agent_turn_started",
+                        run_id=config.run_id,
+                        payload={"iteration": 1},
+                    ),
+                )
+        except Exception:
+            logger.exception(
+                "conversation_loop: falha ao registrar agent_turn_started no ledger para thread %s",
+                thread_id,
+            )
+
     assinaturas_anteriores: tuple[tuple[str, str], ...] | None = None
     repeticoes_seguidas = 0
     turn_budget = TurnBudget(config=config.loop_caps)

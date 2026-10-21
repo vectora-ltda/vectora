@@ -18776,11 +18776,9 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
-              }
+              "text/event-stream": {}
             },
-            "description": "Successful Response"
+            "description": "Stream SSE de eventos do ledger da thread"
           },
           "422": {
             "content": {

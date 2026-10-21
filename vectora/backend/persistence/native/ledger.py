@@ -7,6 +7,7 @@ Também define os modelos de resumo da thread e do rascunho de execução.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
@@ -297,15 +298,18 @@ async def backfill_thread_ledger(
             await conn.commit()
             return migrated_count, current_seq
         except Exception as exc:
-            await conn.rollback()
-            async with pool.acquire() as conn_err:
-                await conn_err.execute(
+            with contextlib.suppress(Exception):
+                await conn.rollback()
+            try:
+                await conn.execute(
                     "INSERT INTO ledger_backfill (thread_id, status, error, started_at, completed_at) "
                     "VALUES (?, 'failed', ?, ?, ?) "
                     "ON CONFLICT(thread_id) DO UPDATE SET status='failed', error=excluded.error, completed_at=excluded.completed_at",
                     (thread_id, str(exc), now, _now()),
                 )
-                await conn_err.commit()
+                await conn.commit()
+            except Exception:
+                pass
             raise
 
 
